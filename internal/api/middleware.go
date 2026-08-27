@@ -158,8 +158,8 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 				return
 			}
 			setCORSHeaders(w, origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -175,7 +175,7 @@ func setCORSHeaders(w http.ResponseWriter, origin string) {
 
 func allowedCORSMethod(method string) bool {
 	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete:
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		return true
 	default:
 		return false
@@ -188,7 +188,7 @@ func allowedCORSHeaders(raw string) bool {
 	}
 	for _, header := range strings.Split(raw, ",") {
 		switch strings.ToLower(strings.TrimSpace(header)) {
-		case "content-type", "authorization", "x-csrf-token":
+		case "content-type", "authorization", "x-csrf-token", "x-pgbase-csrf":
 		default:
 			return false
 		}

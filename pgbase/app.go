@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
@@ -22,10 +23,14 @@ type App struct {
 	handler    http.Handler
 	httpServer *http.Server
 	readiness  *readinessState
+	cleaner    *adminauth.Cleaner
 	closeOnce  sync.Once
 
-	closeMu  sync.Mutex
-	closeErr error
+	closeMu          sync.Mutex
+	closeErr         error
+	backgroundCancel context.CancelFunc
+	backgroundDone   chan struct{}
+	backgroundErr    error
 }
 
 type readinessState struct {
@@ -114,16 +119,29 @@ func New(ctx context.Context, options Options) (*App, error) {
 			return nil
 		})},
 	}}
+	authService := adminauth.NewService(
+		pool,
+		adminauth.NewArgon2idPasswords(),
+		normalized.TokenSecret,
+		normalized.SetupToken,
+		normalized.AdminSessionTTL,
+		nil,
+	)
 	handler := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
+		AdminAuth:          authService,
+		PublicURL:          normalized.PublicURL,
+		TrustedProxies:     normalized.TrustedProxies,
+		TokenSecret:        normalized.TokenSecret,
 	})
 	app := &App{
 		options:   normalized,
 		pool:      pool,
 		handler:   handler,
 		readiness: readiness,
+		cleaner:   adminauth.NewCleaner(pool, nil),
 	}
 	app.httpServer = &http.Server{
 		Addr:              normalized.HTTPAddress,
@@ -156,6 +174,7 @@ func (a *App) Run(ctx context.Context) error {
 	go func() {
 		serverDone <- a.httpServer.Serve(listener)
 	}()
+	backgroundDone := a.startBackground(ctx)
 	a.readiness.accepting.Store(true)
 
 	select {
@@ -168,6 +187,19 @@ func (a *App) Run(ctx context.Context) error {
 		closeErr := a.Close(closeCtx)
 		cancel()
 		return errors.Join(serverErr, closeErr)
+	case <-backgroundDone:
+		a.readiness.accepting.Store(false)
+		a.closeMu.Lock()
+		backgroundErr := a.backgroundErr
+		a.closeMu.Unlock()
+		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
+		closeErr := a.Close(closeCtx)
+		cancel()
+		serverErr := <-serverDone
+		if errors.Is(serverErr, http.ErrServerClosed) {
+			serverErr = nil
+		}
+		return errors.Join(backgroundErr, closeErr, serverErr)
 	case <-ctx.Done():
 		a.readiness.accepting.Store(false)
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
@@ -179,6 +211,26 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return errors.Join(closeErr, serverErr)
 	}
+}
+
+func (a *App) startBackground(ctx context.Context) <-chan struct{} {
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	a.closeMu.Lock()
+	a.backgroundCancel = cancel
+	a.backgroundDone = done
+	a.closeMu.Unlock()
+	go func() {
+		err := a.cleaner.Run(runCtx)
+		if runCtx.Err() != nil && errors.Is(err, runCtx.Err()) {
+			err = nil
+		}
+		a.closeMu.Lock()
+		a.backgroundErr = err
+		close(done)
+		a.closeMu.Unlock()
+	}()
+	return done
 }
 
 // Close stops accepting HTTP requests, drains active requests, and closes the
@@ -195,17 +247,27 @@ func (a *App) Close(ctx context.Context) error {
 			a.readiness.accepting.Store(false)
 		}
 		var shutdownErr error
+		a.closeMu.Lock()
+		backgroundCancel := a.backgroundCancel
+		backgroundDone := a.backgroundDone
+		a.closeMu.Unlock()
+		if backgroundCancel != nil {
+			backgroundCancel()
+		}
 		if a.httpServer != nil {
 			shutdownErr = a.httpServer.Shutdown(ctx)
 			if errors.Is(shutdownErr, http.ErrServerClosed) {
 				shutdownErr = nil
 			}
 		}
+		if backgroundDone != nil {
+			<-backgroundDone
+		}
 		if a.pool != nil {
 			a.pool.Close()
 		}
 		a.closeMu.Lock()
-		a.closeErr = shutdownErr
+		a.closeErr = errors.Join(shutdownErr, a.backgroundErr)
 		a.closeMu.Unlock()
 	})
 	a.closeMu.Lock()
