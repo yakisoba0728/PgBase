@@ -39,11 +39,23 @@ type InvalidCursorError struct{}
 
 func (e *InvalidCursorError) Error() string { return "invalid cursor" }
 
+// RecordScanError identifies a database row scan failure without exposing the
+// driver or server error through its text or the public error chain.
+type RecordScanError struct {
+	cause error
+}
+
+func (e *RecordScanError) Error() string { return "record scan failed" }
+
+func (e *RecordScanError) diagnosticCause() error { return e.cause }
+
 func validation(field, code string) error {
 	return &ValidationError{Details: []ValidationDetail{{Field: field, Code: code}}}
 }
 
 func invalidCursor() error { return &InvalidCursorError{} }
+
+func recordScanError(cause error) error { return &RecordScanError{cause: cause} }
 
 func IsInvalidCursor(err error) bool {
 	var target *InvalidCursorError

@@ -130,7 +130,7 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 		destinations = append(destinations, destination)
 	}
 	if err := row.Scan(destinations...); err != nil {
-		return nil, fmt.Errorf("scan record: %w", err)
+		return nil, recordScanError(err)
 	}
 
 	record := make(map[string]any, len(fields)+3)

@@ -11,6 +11,11 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
+const (
+	defaultPageLimit = 50
+	maximumPageLimit = 200
+)
+
 func CompileInsert(collection schema.Collection, input map[string]json.RawMessage, id uuid.UUID, now time.Time) (Statement, error) {
 	decoded, err := decodeInput(collection, input)
 	if err != nil {
@@ -91,13 +96,23 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 func CompileList(collection schema.Collection, after *PageCursor, limit int) Statement {
 	prefix := "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection)
 	order := " ORDER BY " + quoted("created_at") + " ASC, " + quoted("id") + " ASC"
+	fetchLimit := normalizedFetchLimit(limit)
 	if after == nil {
-		return Statement{SQL: prefix + order + " LIMIT $1", Args: []any{limit + 1}}
+		return Statement{SQL: prefix + order + " LIMIT $1", Args: []any{fetchLimit}}
 	}
 	return Statement{
 		SQL:  prefix + " WHERE (" + quoted("created_at") + ", " + quoted("id") + ") > ($1, $2)" + order + " LIMIT $3",
-		Args: []any{after.CreatedAt, after.ID, limit + 1},
+		Args: []any{after.CreatedAt, after.ID, fetchLimit},
 	}
+}
+
+func normalizedFetchLimit(limit int) int {
+	if limit <= 0 {
+		limit = defaultPageLimit
+	} else if limit > maximumPageLimit {
+		limit = maximumPageLimit
+	}
+	return limit + 1
 }
 
 func selectedColumns(collection schema.Collection) string {

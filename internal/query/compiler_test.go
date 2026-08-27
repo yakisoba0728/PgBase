@@ -3,6 +3,7 @@ package query
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -186,6 +187,37 @@ func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) 
 	}
 	if !reflect.DeepEqual(next, wantNext) {
 		t.Fatalf("CompileList(next) = %#v, want %#v", next, wantNext)
+	}
+}
+
+func TestCompileListNormalizesPageLimitBeforeAddingLookahead(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{name: "zero uses default", limit: 0, want: 51},
+		{name: "negative uses default", limit: -1, want: 51},
+		{name: "above maximum is capped", limit: 201, want: 201},
+		{name: "maximum integer cannot overflow", limit: math.MaxInt, want: 201},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			first := CompileList(compilerCollection(), nil, test.limit)
+			if len(first.Args) != 1 || first.Args[0] != test.want {
+				t.Fatalf("CompileList(nil, %d) args = %#v, want [%d]", test.limit, first.Args, test.want)
+			}
+
+			after := &PageCursor{Version: 1, CreatedAt: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC), ID: uuid.New()}
+			next := CompileList(compilerCollection(), after, test.limit)
+			if len(next.Args) != 3 || next.Args[2] != test.want {
+				t.Fatalf("CompileList(after, %d) args = %#v, want third arg %d", test.limit, next.Args, test.want)
+			}
+		})
 	}
 }
 

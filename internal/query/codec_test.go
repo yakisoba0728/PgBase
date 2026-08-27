@@ -201,13 +201,26 @@ func TestEncodeRecordRejectsInvalidDatabaseValues(t *testing.T) {
 	}
 }
 
-func TestEncodeRecordPropagatesScanFailure(t *testing.T) {
+func TestEncodeRecordReturnsOpaqueCategorizedScanFailure(t *testing.T) {
 	t.Parallel()
 
-	wantErr := errors.New("scan failed")
-	_, err := EncodeRecord(schema.Collection{}, &fixtureRow{err: wantErr})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("EncodeRecord() error = %v, want wrapped %v", err, wantErr)
+	hostile := errors.New(`ERROR: duplicate key violates constraint (SQLSTATE 23505); INSERT INTO "app"."records" VALUES ('secret')`)
+	_, err := EncodeRecord(schema.Collection{}, &fixtureRow{err: hostile})
+	if err == nil {
+		t.Fatal("EncodeRecord() error = nil, want scan error")
+	}
+	if err.Error() != "record scan failed" {
+		t.Fatalf("EncodeRecord() error text = %q, want opaque constant", err.Error())
+	}
+	var scanErr *RecordScanError
+	if !errors.As(err, &scanErr) {
+		t.Fatalf("EncodeRecord() error type = %T, want stable *RecordScanError category", err)
+	}
+	if errors.Unwrap(err) != nil || errors.Is(err, hostile) {
+		t.Fatalf("EncodeRecord() publicly exposes scan cause: %#v", err)
+	}
+	if !errors.Is(scanErr.diagnosticCause(), hostile) {
+		t.Fatalf("internal diagnostic cause = %#v, want hostile scanner cause", scanErr.diagnosticCause())
 	}
 }
 
