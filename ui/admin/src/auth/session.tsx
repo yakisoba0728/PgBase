@@ -1,9 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { APIClient, APIClientError } from "../api/client";
+import { CollectionsAPI } from "../api/collections";
+import { RecordsAPI } from "../api/records";
 import type { LoginInput, SessionResponse, SessionState, SetupInput } from "../api/types";
 
 interface SessionContextValue {
   client: APIClient;
+  collections: CollectionsAPI;
+  records: RecordsAPI;
   state: SessionState;
   sessionError: string | null;
   setup(input: SetupInput): Promise<void>;
@@ -23,7 +27,8 @@ function authenticatedState(session: SessionResponse): SessionState {
 
 function updatePath(state: SessionState): void {
   const path = state.kind === "setup-required" ? "/admin/setup" :
-    state.kind === "anonymous" ? "/admin/login" : "/admin/";
+    state.kind === "anonymous" ? "/admin/login" :
+      window.location.pathname.startsWith("/admin/") && !["/admin/login", "/admin/setup"].includes(window.location.pathname) ? window.location.pathname : "/admin/collections";
   if (window.location.pathname !== path) window.history.replaceState(null, "", path);
 }
 
@@ -76,7 +81,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     updatePath(next);
   }, [client, state]);
 
-  return <SessionContext.Provider value={{ client, state, sessionError, setup, login, logout }}>{children}</SessionContext.Provider>;
+  const csrfToken = state.kind === "authenticated" ? state.csrfToken : "";
+  const collections = useMemo(() => new CollectionsAPI(client, csrfToken), [client, csrfToken]);
+  const records = useMemo(() => new RecordsAPI(client, csrfToken), [client, csrfToken]);
+
+  return <SessionContext.Provider value={{ client, collections, records, state, sessionError, setup, login, logout }}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionContextValue {

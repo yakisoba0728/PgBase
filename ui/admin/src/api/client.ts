@@ -50,11 +50,11 @@ export class APIClient {
   async logout(csrfToken: string): Promise<void> {
     await this.request<void>("/api/admin/session", {
       method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken },
+      headers: { "X-CSRF-Token": csrfToken, "X-PgBase-CSRF": csrfToken },
     });
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");

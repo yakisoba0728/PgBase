@@ -21,6 +21,7 @@ type Dependencies struct {
 	TrustedProxies     []netip.Prefix
 	TokenSecret        []byte
 	System             SystemStatusProvider
+	AdminUI            http.Handler
 }
 
 // NewRouter constructs the pgBase HTTP handler without starting a listener.
@@ -43,6 +44,10 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	mux.Handle("POST /api/admin/collections/apply", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.applyCreate)))
 	mux.Handle("GET /api/admin/collections", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.catalog)))
 	mux.Handle("GET /api/admin/system", authenticateAdminMiddleware(admin.auth, systemStatus(dependencies.System)))
+	if dependencies.AdminUI != nil {
+		mux.Handle("/admin", dependencies.AdminUI)
+		mux.Handle("/admin/", dependencies.AdminUI)
+	}
 	mux.Handle("GET /api/v1/collections/{collection}/records", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(records.list)))
 	mux.Handle("POST /api/v1/collections/{collection}/records", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(records.create)))
 	mux.Handle("GET /api/v1/collections/{collection}/records/{id}", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(records.get)))

@@ -16,6 +16,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 )
 
 // App owns the pgBase HTTP server and its required process resources.
@@ -187,6 +188,10 @@ func New(ctx context.Context, options Options) (*App, error) {
 		nil,
 	)
 	recordService := query.NewService(pool, schemaService, normalized.TokenSecret)
+	adminHandler, err := adminui.Handler()
+	if err != nil {
+		return nil, fmt.Errorf("initialize administrator UI: %w", err)
+	}
 	handler := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
@@ -198,6 +203,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		TrustedProxies:     normalized.TrustedProxies,
 		TokenSecret:        normalized.TokenSecret,
 		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
+		AdminUI:            adminHandler,
 	})
 	app := &App{
 		options:          normalized,

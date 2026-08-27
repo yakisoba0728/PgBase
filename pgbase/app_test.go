@@ -7,12 +7,33 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
+
+func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
+	app, err := New(context.Background(), Options{
+		DatabaseURL: testutil.NewDatabase(t),
+		TokenSecret: make([]byte, 32),
+		AutoMigrate: true,
+		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close(context.Background()) })
+
+	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/admin/" {
+		t.Fatalf("status=%d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+}
 
 func TestRunCancellationClosesListenerAndPool(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
