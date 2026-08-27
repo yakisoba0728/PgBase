@@ -3,8 +3,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/webisnoteasy/PgBase/internal/config"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
 )
 
 // Command is a pgbase CLI command handler.
@@ -22,7 +27,7 @@ type CommandSet struct {
 // DefaultCommands returns the command handlers wired into the production binary.
 // Commands are added by their owning packages in later implementation tasks.
 func DefaultCommands() CommandSet {
-	return CommandSet{}
+	return CommandSet{Migrate: runMigrate}
 }
 
 // Run dispatches a command and returns its process exit code.
@@ -57,9 +62,53 @@ func Run(ctx context.Context, args []string, lookup func(string) (string, bool),
 	}
 	if err := command(ctx, args[1:], lookup, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "pgbase: %v\n", err)
+		var configErr configurationError
+		if errors.As(err, &configErr) {
+			return 2
+		}
 		return 1
 	}
 	return 0
+}
+
+type configurationError struct {
+	err error
+}
+
+func (e configurationError) Error() string { return e.err.Error() }
+
+func (e configurationError) Unwrap() error { return e.err }
+
+func runMigrate(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, _ io.Writer) error {
+	if len(args) != 1 || (args[0] != "status" && args[0] != "up") {
+		return configurationError{err: fmt.Errorf("usage: pgbase migrate <status|up>")}
+	}
+
+	options, err := config.LoadEnv(lookup)
+	if err != nil {
+		return configurationError{err: err}
+	}
+	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL pool: %w", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping PostgreSQL pool: %w", err)
+	}
+
+	runner := migrate.New(pool, options.Logger)
+	if args[0] == "up" {
+		if err := runner.Up(ctx); err != nil {
+			return err
+		}
+	}
+	status, err := runner.Status(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "system migrations: current=%d latest=%d dirty=%t\n", status.Current, status.Latest, status.Dirty)
+	return err
 }
 
 func printUsage(stderr io.Writer) {
