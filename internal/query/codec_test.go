@@ -60,6 +60,67 @@ func TestDecodeInputPreservesEveryValidJSONBShape(t *testing.T) {
 	}
 }
 
+func TestDecodeInputAcceptsNullForOptionalNonJSONBFields(t *testing.T) {
+	t.Parallel()
+
+	input := make(map[string]json.RawMessage)
+	for _, field := range allTypesCollection().Fields {
+		if field.Type != schema.TypeJSONB {
+			input[field.Name] = json.RawMessage(`null`)
+		}
+	}
+
+	got, err := decodeInput(allTypesCollection(), input)
+	if err != nil {
+		t.Fatalf("decodeInput() error = %v", err)
+	}
+	for name := range input {
+		if got[name] != nil {
+			t.Errorf("decoded %s = %#v, want nil", name, got[name])
+		}
+	}
+}
+
+func TestDecodeInputRejectsNullForRequiredNonJSONBFields(t *testing.T) {
+	t.Parallel()
+
+	for _, fieldType := range []schema.FieldType{
+		schema.TypeBoolean,
+		schema.TypeInteger,
+		schema.TypeBigInt,
+		schema.TypeNumeric,
+		schema.TypeText,
+		schema.TypeTimestampTZ,
+		schema.TypeUUID,
+	} {
+		fieldType := fieldType
+		t.Run(string(fieldType), func(t *testing.T) {
+			t.Parallel()
+			collection := schema.Collection{Fields: []schema.Field{{Name: "required_value", Type: fieldType, Required: true}}}
+			_, err := decodeInput(collection, map[string]json.RawMessage{"required_value": json.RawMessage(`null`)})
+			var validationErr *ValidationError
+			if !errors.As(err, &validationErr) {
+				t.Fatalf("decodeInput() error = %v, want *ValidationError", err)
+			}
+			want := []ValidationDetail{{Field: "required_value", Code: "required"}}
+			if !reflect.DeepEqual(validationErr.Details, want) {
+				t.Fatalf("validation details = %#v, want %#v", validationErr.Details, want)
+			}
+		})
+	}
+}
+
+func TestDecodeInputAcceptsJSONNullForRequiredJSONBField(t *testing.T) {
+	t.Parallel()
+
+	collection := schema.Collection{Fields: []schema.Field{{Name: "metadata", Type: schema.TypeJSONB, Required: true}}}
+	got, err := decodeInput(collection, map[string]json.RawMessage{"metadata": json.RawMessage(`null`)})
+	if err != nil {
+		t.Fatalf("decodeInput() error = %v", err)
+	}
+	assertJSONEqual(t, got["metadata"], `null`)
+}
+
 func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 	t.Parallel()
 
@@ -84,7 +145,6 @@ func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 		{name: "invalid timestamp", field: "published_at", raw: `"tomorrow"`},
 		{name: "invalid uuid", field: "external_id", raw: `"not-a-uuid"`},
 		{name: "trailing json", field: "metadata", raw: `{}[]`},
-		{name: "null non-jsonb", field: "title", raw: `null`},
 	}
 
 	for _, test := range tests {

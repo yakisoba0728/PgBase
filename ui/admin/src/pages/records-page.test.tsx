@@ -124,7 +124,7 @@ describe("record administration", () => {
 
   it("distinguishes a nullable boolean from a concrete false boolean", async () => {
     const { fetchMock, user } = await openSettingsCreate();
-    await user.selectOptions(screen.getByLabelText("nullable_flag state"), "null");
+    await user.selectOptions(await screen.findByLabelText("nullable_flag state"), "null");
     await user.selectOptions(screen.getByLabelText("false_flag state"), "value");
     await user.click(screen.getByRole("button", { name: "Create record" }));
 

@@ -47,6 +47,16 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 
 func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 	invalid := func() (any, error) { return nil, validation(field.Name, "type_mismatch") }
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		switch field.Type {
+		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric,
+			schema.TypeText, schema.TypeTimestampTZ, schema.TypeUUID:
+			if field.Required {
+				return nil, validation(field.Name, "required")
+			}
+			return nil, nil
+		}
+	}
 	switch field.Type {
 	case schema.TypeBoolean:
 		if !bytes.Equal(raw, []byte("true")) && !bytes.Equal(raw, []byte("false")) {

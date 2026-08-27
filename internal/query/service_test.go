@@ -116,6 +116,89 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	}
 }
 
+func TestRecordServicePersistsExplicitNullByCatalogNullability(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "nullable_records", Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Required: true},
+		{Name: "active", Type: schema.TypeBoolean},
+		{Name: "count", Type: schema.TypeInteger},
+		{Name: "large_count", Type: schema.TypeBigInt},
+		{Name: "amount", Type: schema.TypeNumeric},
+		{Name: "note", Type: schema.TypeText},
+		{Name: "published_at", Type: schema.TypeTimestampTZ},
+		{Name: "external_id", Type: schema.TypeUUID},
+		{Name: "metadata", Type: schema.TypeJSONB, Required: true},
+	}})
+
+	input := map[string]json.RawMessage{
+		"title":        json.RawMessage(`"kept"`),
+		"active":       json.RawMessage(`null`),
+		"count":        json.RawMessage(`null`),
+		"large_count":  json.RawMessage(`null`),
+		"amount":       json.RawMessage(`null`),
+		"note":         json.RawMessage(`null`),
+		"published_at": json.RawMessage(`null`),
+		"external_id":  json.RawMessage(`null`),
+		"metadata":     json.RawMessage(`null`),
+	}
+	created, err := records.Create(ctx, "nullable_records", input)
+	if err != nil {
+		t.Fatalf("Create(nullable values): %v", err)
+	}
+	for _, name := range []string{"active", "count", "large_count", "amount", "note", "published_at", "external_id"} {
+		if created[name] != nil {
+			t.Errorf("created %s = %#v, want nil", name, created[name])
+		}
+	}
+	assertRecordJSON(t, created["metadata"], `null`)
+
+	id := uuid.MustParse(created["id"].(string))
+	var activeNull, countNull, largeCountNull, amountNull, noteNull, publishedAtNull, externalIDNull bool
+	var metadataSQLNull, metadataJSONNull bool
+	err = pool.QueryRow(ctx, `select
+		active is null, count is null, large_count is null, amount is null, note is null,
+		published_at is null, external_id is null, metadata is null, metadata = 'null'::jsonb
+		from app.nullable_records where id = $1`, id).Scan(
+		&activeNull, &countNull, &largeCountNull, &amountNull, &noteNull,
+		&publishedAtNull, &externalIDNull, &metadataSQLNull, &metadataJSONNull,
+	)
+	if err != nil {
+		t.Fatalf("inspect persisted nullable values: %v", err)
+	}
+	if !activeNull || !countNull || !largeCountNull || !amountNull || !noteNull || !publishedAtNull || !externalIDNull {
+		t.Fatalf("non-JSONB SQL nulls = %v %v %v %v %v %v %v, want all true",
+			activeNull, countNull, largeCountNull, amountNull, noteNull, publishedAtNull, externalIDNull)
+	}
+	if metadataSQLNull || !metadataJSONNull {
+		t.Fatalf("metadata SQL null = %v, JSON null = %v, want false/true", metadataSQLNull, metadataJSONNull)
+	}
+	updated, err := records.Update(ctx, "nullable_records", id, map[string]json.RawMessage{
+		"active": json.RawMessage(`false`),
+		"note":   json.RawMessage(`""`),
+	})
+	if err != nil || updated["active"] != false || updated["note"] != "" || updated["title"] != "kept" {
+		t.Fatalf("Update(false and empty text) = %#v, %v", updated, err)
+	}
+	nulled, err := records.Update(ctx, "nullable_records", id, map[string]json.RawMessage{
+		"active": json.RawMessage(`null`),
+		"note":   json.RawMessage(`null`),
+	})
+	if err != nil || nulled["active"] != nil || nulled["note"] != nil || nulled["title"] != "kept" {
+		t.Fatalf("Update(nullable values) = %#v, %v", nulled, err)
+	}
+
+	_, err = records.Update(ctx, "nullable_records", id, map[string]json.RawMessage{"title": json.RawMessage(`null`)})
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Update(required null) error = %v, want *ValidationError", err)
+	}
+	want := []ValidationDetail{{Field: "title", Code: "required"}}
+	if len(validationErr.Details) != 1 || validationErr.Details[0] != want[0] {
+		t.Fatalf("Update(required null) details = %#v, want %#v", validationErr.Details, want)
+	}
+}
+
 func TestRecordServiceRefreshesStaleCatalogBeforeCompiling(t *testing.T) {
 	pool, writer, _ := newRecordServiceTest(t)
 	staleSchemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
