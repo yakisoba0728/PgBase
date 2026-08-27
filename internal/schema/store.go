@@ -24,16 +24,6 @@ func (s *Store) SchemaVersion(ctx context.Context) (int64, error) {
 	return version, nil
 }
 
-func (s *Store) CollectionExists(ctx context.Context, name, tableName string) (bool, error) {
-	var exists bool
-	if err := s.db.QueryRow(ctx, `select exists (
-		select 1 from pgbase_meta.collections where name = $1 or table_name = $2
-	)`, name, tableName).Scan(&exists); err != nil {
-		return false, fmt.Errorf("check collection existence: %w", err)
-	}
-	return exists, nil
-}
-
 func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error) {
 	rows, err := s.db.Query(ctx, `select id, name, table_name, created_at
 		from pgbase_meta.collections order by name`)

@@ -197,6 +197,77 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 }
 
+func TestApplyCreateValidatesCompleteCatalogCommittedBeforeLockedSnapshot(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	plan, err := service.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+
+	lockingConnection, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire locking connection: %v", err)
+	}
+	defer lockingConnection.Release()
+	lockingTx, err := lockingConnection.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin locking transaction: %v", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = lockingTx.Rollback(context.Background())
+		}
+	}()
+	if _, err := lockingTx.Exec(context.Background(), "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
+		t.Fatalf("acquire schema advisory lock: %v", err)
+	}
+	if _, err := lockingTx.Exec(context.Background(), `insert into pgbase_meta.collections
+		(id, name, table_name, status, created_at, updated_at)
+		values ($1, 'drifted', 'drifted', 'active', current_timestamp, current_timestamp)`,
+		uuid.MustParse("019551d0-e9c0-7000-8000-000000000099")); err != nil {
+		t.Fatalf("insert drifted catalog metadata: %v", err)
+	}
+	if _, err := lockingTx.Exec(context.Background(), `insert into pgbase_meta.fields
+		(id, collection_id, name, column_name, field_type, required, is_unique, is_indexed,
+		 has_default, default_json, ordinal, created_at)
+		values ($1, $2, 'title', 'different_column', 'text', false, false, false,
+		 false, null, 0, current_timestamp)`,
+		uuid.MustParse("019551d0-e9c0-7000-8000-000000000098"),
+		uuid.MustParse("019551d0-e9c0-7000-8000-000000000099")); err != nil {
+		t.Fatalf("insert drifted field metadata: %v", err)
+	}
+
+	applyResult := make(chan error, 1)
+	go func() {
+		_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+		applyResult <- applyErr
+	}()
+	waitForAdvisoryLockWaiter(t, pool)
+	select {
+	case result := <-applyResult:
+		t.Fatalf("apply returned before the catalog-locking transaction completed: %v", result)
+	default:
+	}
+	if err := lockingTx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit drifted catalog metadata: %v", err)
+	}
+	committed = true
+
+	if err := <-applyResult; !errors.Is(err, ErrConflict) {
+		t.Fatalf("apply error = %v, want ErrConflict for complete-catalog drift", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{collections: 1, fields: 1})
+	var physicalTable string
+	if err := pool.QueryRow(context.Background(), `select coalesce(to_regclass('app.posts')::text, '')`).Scan(&physicalTable); err != nil {
+		t.Fatalf("read physical table: %v", err)
+	}
+	if physicalTable != "" {
+		t.Fatalf("apply executed DDL despite catalog drift: %q", physicalTable)
+	}
+}
+
 func TestCatalogSnapshotsCannotMutatePublishedCache(t *testing.T) {
 	cache := &Cache{}
 	cache.Replace(Catalog{Version: 4, Collections: map[string]Collection{
@@ -292,4 +363,21 @@ func assertSchemaCounts(t *testing.T, pool *database.Pool, want schemaCounts) {
 	if got != want {
 		t.Fatalf("schema counts = %+v, want %+v", got, want)
 	}
+}
+
+func waitForAdvisoryLockWaiter(t *testing.T, pool *database.Pool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiters int
+		if err := pool.QueryRow(context.Background(), `select count(*) from pg_stat_activity
+			where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory'`).Scan(&waiters); err != nil {
+			t.Fatalf("read advisory lock waiters: %v", err)
+		}
+		if waiters > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("apply did not wait for the schema advisory lock")
 }

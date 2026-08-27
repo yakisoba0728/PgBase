@@ -60,18 +60,18 @@ func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, 
 		if err != nil {
 			return err
 		}
-		plan, err := s.planner.PlanCreate(version, input)
+		catalog, err := store.ReadCatalog(ctx, version)
 		if err != nil {
+			return err
+		}
+		plan, err := s.planner.PlanCreate(catalog.Version, input)
+		if err != nil {
+			return err
+		}
+		if err := validateCreateAgainstCatalog(catalog, plan.Definition); err != nil {
 			return err
 		}
 		if plan.Checksum != checksum {
-			return ErrConflict
-		}
-		exists, err := store.CollectionExists(ctx, plan.Definition.Name, plan.Definition.TableName)
-		if err != nil {
-			return err
-		}
-		if exists {
 			return ErrConflict
 		}
 
@@ -126,6 +126,34 @@ func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, 
 		return Collection{}, fmt.Errorf("reload catalog after schema application: %w", err)
 	}
 	return created, nil
+}
+
+func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection) error {
+	for key, collection := range catalog.Collections {
+		if key != collection.Name || collection.Name != collection.TableName {
+			return ErrConflict
+		}
+		if err := validateName("", collection.Name); err != nil {
+			return ErrConflict
+		}
+		if collection.Name == definition.Name || collection.TableName == definition.TableName {
+			return ErrConflict
+		}
+		for ordinal, field := range collection.Fields {
+			if field.Ordinal != ordinal || field.Name != field.ColumnName || !isSupportedType(field.Type) {
+				return ErrConflict
+			}
+			if err := validateName("", field.Name); err != nil {
+				return ErrConflict
+			}
+			if len(field.Default) != 0 {
+				if _, _, err := normalizeDefault(field.Type, field.Default); err != nil {
+					return ErrConflict
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog, error) {
