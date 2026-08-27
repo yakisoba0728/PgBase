@@ -119,6 +119,17 @@ func TestMigrateRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 	}
 }
 
+func TestServeRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"serve"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	if code != 2 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if stderr.String() != "pgbase: invalid configuration\n" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *testing.T) {
 	const databaseURL = "postgres://admin:super-secret@localhost/pgbase?pool_max_conns=not-a-number"
 	var stderr bytes.Buffer

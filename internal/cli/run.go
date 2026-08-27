@@ -12,6 +12,8 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/config"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
 // Command is a pgbase CLI command handler.
@@ -29,7 +31,7 @@ type CommandSet struct {
 // DefaultCommands returns the command handlers wired into the production binary.
 // Commands are added by their owning packages in later implementation tasks.
 func DefaultCommands() CommandSet {
-	return CommandSet{Migrate: runMigrate}
+	return CommandSet{Serve: runServe, Migrate: runMigrate}
 }
 
 // Run dispatches a command and returns its process exit code.
@@ -86,6 +88,27 @@ type configurationError struct {
 func (e configurationError) Error() string { return e.err.Error() }
 
 func (e configurationError) Unwrap() error { return e.err }
+
+func runServe(ctx context.Context, args []string, lookup func(string) (string, bool), _ io.Writer, stderr io.Writer) error {
+	if len(args) != 0 {
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve"}
+	}
+	options, err := config.LoadEnv(lookup)
+	if err != nil {
+		return configurationError{err: err}
+	}
+	options.Logger = observability.NewJSONLogger(stderr)
+	app, err := pgbase.New(ctx, options)
+	if err != nil {
+		options.Logger.Error("construct pgbase application", "error", err)
+		return fmt.Errorf("construct pgbase application: %w", err)
+	}
+	if err := app.Run(ctx); err != nil {
+		options.Logger.Error("run pgbase application", "error", err)
+		return fmt.Errorf("run pgbase application: %w", err)
+	}
+	return nil
+}
 
 func runMigrate(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, _ io.Writer) error {
 	if len(args) != 1 || (args[0] != "status" && args[0] != "up") {
