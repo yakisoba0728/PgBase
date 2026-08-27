@@ -3,6 +3,7 @@ package adminauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,20 @@ import (
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
+}
+
+type countingPasswords struct {
+	delegate     Passwords
+	verifyHashes []string
+}
+
+func (p *countingPasswords) Hash(password string) (string, error) {
+	return p.delegate.Hash(password)
+}
+
+func (p *countingPasswords) Verify(encodedHash, password string) error {
+	p.verifyHashes = append(p.verifyHashes, encodedHash)
+	return p.delegate.Verify(encodedHash, password)
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -146,6 +161,45 @@ func TestServiceLoginRateLimitIsSharedAndClearsOnSuccess(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("rate-limit row count after success = %d, want 0", count)
+	}
+}
+
+func TestServiceLoginAlwaysPerformsExactlyOnePasswordVerification(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	realPasswords := NewArgon2idPasswords()
+	setupService := NewService(pool, realPasswords, secret, setupToken, time.Hour, clock)
+	if _, err := setupService.Setup(context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "setup-client"); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name      string
+		email     string
+		password  string
+		wantError error
+	}{
+		{name: "valid account", email: "ADMIN@example.com", password: "correct horse battery staple"},
+		{name: "unknown account", email: "unknown@example.com", password: "pgbase dummy credential 2026", wantError: ErrInvalidCredentials},
+		{name: "malformed email", email: "not-an-email", password: "pgbase dummy credential 2026", wantError: ErrInvalidCredentials},
+	}
+	for index, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			passwords := &countingPasswords{delegate: realPasswords}
+			service := NewService(pool, passwords, secret, setupToken, time.Hour, clock)
+			_, err := service.Login(context.Background(), tc.email, tc.password, fmt.Sprintf("192.0.2.%d", index+1))
+			if !errors.Is(err, tc.wantError) {
+				t.Fatalf("Login error = %v, want %v", err, tc.wantError)
+			}
+			if len(passwords.verifyHashes) != 1 {
+				t.Fatalf("password verification count = %d, want exactly 1", len(passwords.verifyHashes))
+			}
+			if _, _, ok := parsePasswordHash(passwords.verifyHashes[0]); !ok {
+				t.Fatalf("verification hash is not a valid approved Argon2id PHC string: %q", passwords.verifyHashes[0])
+			}
+		})
 	}
 }
 

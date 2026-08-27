@@ -15,6 +15,8 @@ import (
 
 const setupAdvisoryLockKey int64 = 0x7067626173650003
 
+const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ$AnRqzUvZayQh6Siwo8bh8R9TAt8al8dpPzH25DzI5Tk"
+
 // Setup creates the only first administrator and its initial session.
 func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, password, subject string) (Session, error) {
 	if err := s.ready(); err != nil {
@@ -124,14 +126,15 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 			return nil
 		}
 		administrator, passwordHash, lookupErr := store.AdministratorByEmail(ctx, normalizedEmail)
-		credentialsValid := normalizationErr == nil && lookupErr == nil
-		if credentialsValid {
-			credentialsValid = s.passwords.Verify(passwordHash, password) == nil
+		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
+			return lookupErr
 		}
+		if normalizationErr != nil || lookupErr != nil {
+			passwordHash = dummyPasswordHash
+		}
+		verificationErr := s.passwords.Verify(passwordHash, password)
+		credentialsValid := normalizationErr == nil && lookupErr == nil && verificationErr == nil
 		if !credentialsValid {
-			if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
-				return lookupErr
-			}
 			if _, err := store.RecordRateLimitFailure(ctx, subjectHash, now); err != nil {
 				return err
 			}
