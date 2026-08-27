@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 const setupAdvisoryLockKey int64 = 0x7067626173650003
@@ -97,6 +98,33 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 		return Session{}, operationErr
 	}
 	return issued, nil
+}
+
+// CreateAdministrator creates an active administrator without issuing a session.
+// It is intended for local administrator recovery through the CLI.
+func (s *Service) CreateAdministrator(ctx context.Context, email, password string) (Administrator, error) {
+	if err := s.ready(); err != nil {
+		return Administrator{}, err
+	}
+	normalizedEmail, err := NormalizeEmail(email)
+	if err != nil {
+		return Administrator{}, err
+	}
+	passwordHash, err := s.passwords.Hash(password)
+	if err != nil {
+		return Administrator{}, err
+	}
+	now := s.clock.Now().UTC()
+	administrator, err := NewStore(s.pool).CreateAdministrator(ctx, Administrator{
+		ID: uuid.New(), Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
+	}, passwordHash)
+	if database.Classify(err) == database.KindConflict {
+		return Administrator{}, ErrConflict
+	}
+	if err != nil {
+		return Administrator{}, err
+	}
+	return administrator, nil
 }
 
 // Login verifies an administrator password and issues a new session.

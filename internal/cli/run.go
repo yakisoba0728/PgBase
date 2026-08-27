@@ -3,14 +3,18 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/config"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/doctor"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/pgbase"
@@ -31,7 +35,92 @@ type CommandSet struct {
 // DefaultCommands returns the command handlers wired into the production binary.
 // Commands are added by their owning packages in later implementation tasks.
 func DefaultCommands() CommandSet {
-	return CommandSet{Serve: runServe, Migrate: runMigrate}
+	return CommandSet{Serve: runServe, Migrate: runMigrate, Admin: runAdmin, Doctor: runDoctor}
+}
+
+func runAdmin(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
+	if len(args) == 0 || args[0] != "create" {
+		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin create --email EMAIL [--password-stdin]"}
+	}
+	flags := flag.NewFlagSet("admin create", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	email := flags.String("email", "", "")
+	passwordFromStdin := flags.Bool("password-stdin", false, "")
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *email == "" {
+		return configurationError{err: errors.New("invalid admin create usage"), message: "usage: pgbase admin create --email EMAIL [--password-stdin]"}
+	}
+	if _, err := adminauth.NormalizeEmail(*email); err != nil {
+		return configurationError{err: err, message: "invalid administrator email"}
+	}
+	password, err := readAdministratorPassword(commandStdin, stderr, *passwordFromStdin)
+	if err != nil {
+		return err
+	}
+	options, err := config.LoadEnv(lookup)
+	if err != nil {
+		return configurationError{err: err}
+	}
+	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
+		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+	}
+	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
+	if err != nil {
+		return migrationOperationError(options.Logger, "open PostgreSQL pool", err)
+	}
+	defer pool.Close()
+	service := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), options.TokenSecret, options.SetupToken, options.AdminSessionTTL, nil)
+	administrator, err := service.CreateAdministrator(ctx, *email, password)
+	if errors.Is(err, adminauth.ErrValidation) {
+		return configurationError{err: err, message: "invalid administrator credentials"}
+	}
+	if errors.Is(err, adminauth.ErrConflict) {
+		return configurationError{err: err, message: "administrator already exists"}
+	}
+	if err != nil {
+		return migrationOperationError(options.Logger, "create administrator", err)
+	}
+	_, err = fmt.Fprintf(stdout, "administrator created: %s\n", administrator.Email)
+	return err
+}
+
+func runDoctor(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, _ io.Writer) error {
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	jsonOutput := flags.Bool("json", false, "")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return configurationError{err: errors.New("invalid doctor usage"), message: "usage: pgbase doctor [--json]"}
+	}
+	options, err := config.LoadEnv(lookup)
+	if err != nil {
+		return configurationError{err: err}
+	}
+	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
+		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+	}
+	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
+	if err != nil {
+		return migrationOperationError(options.Logger, "open PostgreSQL pool", err)
+	}
+	defer pool.Close()
+	report, err := doctor.Run(ctx, pool, migrate.New(pool, options.Logger))
+	if *jsonOutput {
+		if encodeErr := json.NewEncoder(stdout).Encode(report); encodeErr != nil {
+			return encodeErr
+		}
+	} else {
+		for _, finding := range report.Findings {
+			if _, writeErr := fmt.Fprintf(stdout, "%s %s: %s\n", finding.Severity, finding.Code, finding.Message); writeErr != nil {
+				return writeErr
+			}
+		}
+	}
+	if err != nil {
+		return migrationOperationError(options.Logger, "run diagnostics", err)
+	}
+	if !report.OK {
+		return errors.New("diagnostic findings")
+	}
+	return nil
 }
 
 // Run dispatches a command and returns its process exit code.

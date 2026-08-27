@@ -17,6 +17,7 @@ const (
 	ErrorKindInvalidCredentials
 	ErrorKindSetupUnavailable
 	ErrorKindRateLimited
+	ErrorKindConflict
 )
 
 // Error is an authentication error safe for callers to classify.
@@ -34,6 +35,8 @@ func (e *Error) Error() string {
 		return "administrator setup is unavailable"
 	case ErrorKindRateLimited:
 		return "administrator authentication rate limit exceeded"
+	case ErrorKindConflict:
+		return "administrator already exists"
 	default:
 		return "administrator authentication failed"
 	}
@@ -50,6 +53,7 @@ var (
 	ErrInvalidCredentials = &Error{Kind: ErrorKindInvalidCredentials}
 	ErrSetupUnavailable   = &Error{Kind: ErrorKindSetupUnavailable}
 	ErrRateLimited        = &Error{Kind: ErrorKindRateLimited}
+	ErrConflict           = &Error{Kind: ErrorKindConflict}
 )
 
 // Administrator is an administrator account safe to expose to authenticated callers.

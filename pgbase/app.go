@@ -66,6 +66,33 @@ type readinessState struct {
 	dependencies []api.Readiness
 }
 
+type systemStatusState struct {
+	pool     *database.Pool
+	runner   *migrate.Runner
+	cache    *schema.Cache
+	listener api.Readiness
+}
+
+func (s systemStatusState) Status(ctx context.Context) api.SystemStatus {
+	status := api.SystemStatus{Version: Version}
+	if s.pool != nil && s.pool.Ping(ctx) == nil {
+		status.DatabaseReachable = true
+	}
+	if s.runner != nil {
+		if migrationStatus, err := s.runner.Status(ctx); err == nil {
+			status.MigrationCurrent = migrationStatus.Current
+			status.MigrationLatest = migrationStatus.Latest
+		}
+	}
+	if s.cache != nil {
+		status.CatalogVersion = s.cache.Load().Version
+	}
+	if s.listener != nil && s.listener.Ready(ctx) == nil {
+		status.ListenerReady = true
+	}
+	return status
+}
+
 func (s *readinessState) Ready(ctx context.Context) error {
 	if !s.accepting.Load() {
 		return readinessFailure{components: []string{"http"}}
@@ -170,6 +197,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
 		TokenSecret:        normalized.TokenSecret,
+		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
 	})
 	app := &App{
 		options:          normalized,
