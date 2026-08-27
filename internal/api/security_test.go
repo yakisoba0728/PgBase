@@ -193,6 +193,71 @@ func TestSecurityAdminSessionOriginAndCSRFBypassesAreRejected(t *testing.T) {
 	}
 }
 
+func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		remoteAddress string
+		forwardedFor  string
+		wantSubject   string
+		sensitive     []string
+	}{
+		{
+			name:          "untrusted peer cannot spoof its address",
+			remoteAddress: "198.51.100.8:4000",
+			forwardedFor:  "203.0.113.99",
+			wantSubject:   "198.51.100.8",
+			sensitive:     []string{"203.0.113.99"},
+		},
+		{
+			name:          "trusted proxy chain selects the first untrusted address",
+			remoteAddress: "10.0.0.9:4000",
+			forwardedFor:  "203.0.113.50, 10.0.0.5",
+			wantSubject:   "203.0.113.50",
+			sensitive:     []string{"203.0.113.50", "10.0.0.5"},
+		},
+		{
+			name:          "malformed trusted proxy chain falls back to the peer",
+			remoteAddress: "10.0.0.9:4000",
+			forwardedFor:  "203.0.113.50, security-malformed-forwarded-7f31",
+			wantSubject:   "10.0.0.9",
+			sensitive:     []string{"203.0.113.50", "security-malformed-forwarded-7f31"},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			auth := &fakeAdminAuth{loginErr: adminauth.ErrInvalidCredentials}
+			var logs bytes.Buffer
+			handler := NewRouter(Dependencies{
+				Logger:         observability.NewJSONLogger(&logs),
+				AdminAuth:      auth,
+				PublicURL:      mustURL("http://pgbase.test"),
+				TokenSecret:    testTokenSecret,
+				TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+			})
+			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/login", `{"email":"admin@example.test","password":"correct horse battery staple"}`)
+			request.Header.Set("Origin", "http://pgbase.test")
+			request.Header.Set("X-Forwarded-For", test.forwardedFor)
+			request.RemoteAddr = test.remoteAddress
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			sensitive := append([]string{"security-", test.forwardedFor}, test.sensitive...)
+			assertSecurityError(t, response, http.StatusUnauthorized, "invalid_credentials", sensitive...)
+			assertSecuritySecretsAbsent(t, logs.String(), sensitive...)
+			if auth.loginCalls != 1 {
+				t.Fatalf("Login() calls = %d, want 1", auth.loginCalls)
+			}
+			if auth.loginSubject != test.wantSubject {
+				t.Fatalf("Login() subject = %q, want %q", auth.loginSubject, test.wantSubject)
+			}
+		})
+	}
+}
+
 func TestSecuritySetupCannotBeReused(t *testing.T) {
 	pool := newSecurityDatabase(t)
 	const setupToken = "security-setup-token-7f31-0123456789abcdef"

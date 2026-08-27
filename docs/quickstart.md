@@ -10,18 +10,27 @@ POSIX shell with OpenSSL:
 
 ```sh
 umask 077
-cp deployments/.env.example deployments/.env
-POSTGRES_PASSWORD="$(openssl rand -hex 32)"
-SETUP_TOKEN="$(openssl rand -hex 32)"
-TOKEN_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
-sed -i.bak \
-  -e "s|^PGBASE_POSTGRES_PASSWORD=.*|PGBASE_POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" \
-  -e "s|^PGBASE_SETUP_TOKEN=.*|PGBASE_SETUP_TOKEN=$SETUP_TOKEN|" \
-  -e "s|^PGBASE_TOKEN_SECRET=.*|PGBASE_TOKEN_SECRET=$TOKEN_SECRET|" \
-  deployments/.env
-rm deployments/.env.bak
-unset POSTGRES_PASSWORD SETUP_TOKEN TOKEN_SECRET
+: > deployments/.env
+chmod 600 deployments/.env
+pgbase_postgres_password="$(openssl rand -hex 32)"
+pgbase_setup_token="$(openssl rand -hex 32)"
+pgbase_token_secret="$(openssl rand -base64 32 | tr -d '\n')"
+{
+  printf 'PGBASE_POSTGRES_PASSWORD=%s\n' "$pgbase_postgres_password"
+  printf 'PGBASE_SETUP_TOKEN=%s\n' "$pgbase_setup_token"
+  printf 'PGBASE_TOKEN_SECRET=%s\n' "$pgbase_token_secret"
+  printf '%s\n' \
+    'PGBASE_HTTP_PORT=8090' \
+    'PGBASE_POSTGRES_PORT=5432' \
+    'PGBASE_PUBLIC_URL=http://127.0.0.1:8090' \
+    'PGBASE_VERSION=dev' \
+    'PGBASE_IMAGE=pgbase:dev' \
+    'PGBASE_SHUTDOWN_TIMEOUT=15s'
+} > deployments/.env
+unset pgbase_postgres_password pgbase_setup_token pgbase_token_secret
 ```
+
+The POSIX example uses the shell's built-in `printf`, so generated values are written directly to the mode-`600` environment file rather than passed to an external process. Restrict `deployments/.env` to your account with the equivalent filesystem ACL when using PowerShell.
 
 PowerShell:
 
@@ -89,31 +98,61 @@ Names use lowercase letters, digits, and underscores, begin with a lowercase let
 
 ## 5. Make the first REST call
 
-The current record API is protected by the administrator session; this is not public user authentication. Log in with curl, capture the cookie, and copy the `csrfToken` value from the JSON response:
+The current record API is protected by the administrator session; this is not public user authentication. The following POSIX example requires `curl`, `jq`, and an editor. It keeps the password, session cookie, login response, CSRF header, and request bodies in a private temporary directory instead of placing secret values in process arguments or shell history.
+
+Create the protected files and open the login body in your editor:
+
+```sh
+umask 077
+pgbase_request_dir="$(mktemp -d)"
+chmod 700 "$pgbase_request_dir"
+${EDITOR:-vi} "$pgbase_request_dir/login.json"
+```
+
+Enter this JSON object in the editor, substituting the administrator created in the browser, then save and close it:
+
+```json
+{"email":"admin@example.com","password":"replace-with-your-password"}
+```
+
+Log in and have `jq` write the CSRF value directly to curl's protected header file:
 
 ```sh
 curl --fail-with-body \
-  --cookie-jar pgbase.cookies \
+  --cookie-jar "$pgbase_request_dir/cookies" \
   --header 'Content-Type: application/json' \
   --header 'Origin: http://127.0.0.1:8090' \
-  --data '{"email":"admin@example.com","password":"replace-with-your-password"}' \
+  --data-binary "@$pgbase_request_dir/login.json" \
+  --output "$pgbase_request_dir/session.json" \
   http://127.0.0.1:8090/api/admin/login
 
-CSRF_TOKEN='paste-the-csrfToken-response-value-here'
+jq --exit-status --raw-output \
+  '["Content-Type: application/json", "Origin: http://127.0.0.1:8090", "X-PgBase-CSRF: " + .csrfToken][]' \
+  "$pgbase_request_dir/session.json" > "$pgbase_request_dir/request.headers"
+printf '%s\n' '{"title":"hello from pgBase"}' > "$pgbase_request_dir/record.json"
 
 curl --fail-with-body \
-  --cookie pgbase.cookies \
-  --header 'Content-Type: application/json' \
-  --header 'Origin: http://127.0.0.1:8090' \
-  --header "X-PgBase-CSRF: $CSRF_TOKEN" \
-  --data '{"title":"hello from pgBase"}' \
+  --cookie "$pgbase_request_dir/cookies" \
+  --header "@$pgbase_request_dir/request.headers" \
+  --data-binary "@$pgbase_request_dir/record.json" \
   http://127.0.0.1:8090/api/v1/collections/notes/records
 
 curl --fail-with-body \
-  --cookie pgbase.cookies \
+  --cookie "$pgbase_request_dir/cookies" \
   http://127.0.0.1:8090/api/v1/collections/notes/records
 ```
 
-Replace the email and password with the administrator created in the browser. Delete `pgbase.cookies` when finished; it contains an active administrator session.
+Delete every protected request file when finished, then remove the empty temporary directory:
+
+```sh
+rm -f \
+  "$pgbase_request_dir/login.json" \
+  "$pgbase_request_dir/session.json" \
+  "$pgbase_request_dir/request.headers" \
+  "$pgbase_request_dir/record.json" \
+  "$pgbase_request_dir/cookies"
+rmdir "$pgbase_request_dir"
+unset pgbase_request_dir
+```
 
 To stop containers without deleting data, run `docker compose --env-file deployments/.env -f deployments/docker-compose.yml down`. Adding `--volumes` permanently deletes this local PostgreSQL data.
