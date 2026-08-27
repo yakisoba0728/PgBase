@@ -73,7 +73,7 @@ func checkCollections(ctx context.Context, pool *database.Pool, report *Report) 
 		return fmt.Errorf("read schema catalog: %w", err)
 	}
 	defer rows.Close()
-	seenTables := make(map[string]bool)
+	tablePresent := make(map[string]bool)
 	for rows.Next() {
 		var collection, table string
 		var column, fieldType *string
@@ -81,12 +81,13 @@ func checkCollections(ctx context.Context, pool *database.Pool, report *Report) 
 		if err := rows.Scan(&collection, &table, &column, &fieldType, &required, &unique, &indexed); err != nil {
 			return fmt.Errorf("scan schema catalog: %w", err)
 		}
-		if !seenTables[table] {
-			seenTables[table] = true
-			present, err := tableExists(ctx, pool, table)
+		present, checked := tablePresent[table]
+		if !checked {
+			present, err = tableExists(ctx, pool, table)
 			if err != nil {
 				return err
 			}
+			tablePresent[table] = present
 			if !present {
 				report.Findings = append(report.Findings, finding("collection_table_missing", "A catalog collection table is missing"))
 				continue
@@ -95,7 +96,7 @@ func checkCollections(ctx context.Context, pool *database.Pool, report *Report) 
 				return err
 			}
 		}
-		if column == nil || fieldType == nil || !seenTables[table] {
+		if !present || column == nil || fieldType == nil {
 			continue
 		}
 		if err := checkField(ctx, pool, table, *column, *fieldType, *required, *unique, *indexed, report); err != nil {
@@ -159,9 +160,16 @@ func checkField(ctx context.Context, pool *database.Pool, table, column, fieldTy
 	if unique || indexed {
 		var exists bool
 		err := pool.QueryRow(ctx, `select exists(
-			select 1 from pg_indexes
-			where schemaname = 'app' and tablename = $1 and indexdef like '%' || quote_ident($2) || '%'
-			and ($3 = false or indexdef like 'CREATE UNIQUE INDEX%'))`, table, column, unique).Scan(&exists)
+			select 1
+			from pg_index as indexes
+			join pg_class as tables on tables.oid = indexes.indrelid
+			join pg_namespace as schemas on schemas.oid = tables.relnamespace
+			join pg_attribute as columns on columns.attrelid = tables.oid and columns.attname = $2
+			where schemas.nspname = 'app' and tables.relname = $1
+				and indexes.indisvalid and indexes.indisready and indexes.indislive
+				and indexes.indpred is null and indexes.indexprs is null
+				and indexes.indnkeyatts = 1 and indexes.indkey[0] = columns.attnum
+				and indexes.indisunique = $3)`, table, column, unique).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("check collection index: %w", err)
 		}

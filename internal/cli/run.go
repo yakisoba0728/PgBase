@@ -39,15 +39,20 @@ func DefaultCommands() CommandSet {
 }
 
 func runAdmin(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] != "create" {
-		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin create --email EMAIL [--password-stdin]"}
+	if len(args) == 0 {
+		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin <create|reset-password> --email EMAIL [--password-stdin]"}
 	}
-	flags := flag.NewFlagSet("admin create", flag.ContinueOnError)
+	operation := args[0]
+	if operation != "create" && operation != "reset-password" {
+		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin <create|reset-password> --email EMAIL [--password-stdin]"}
+	}
+	usage := "usage: pgbase admin " + operation + " --email EMAIL [--password-stdin]"
+	flags := flag.NewFlagSet("admin "+operation, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	email := flags.String("email", "", "")
 	passwordFromStdin := flags.Bool("password-stdin", false, "")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *email == "" {
-		return configurationError{err: errors.New("invalid admin create usage"), message: "usage: pgbase admin create --email EMAIL [--password-stdin]"}
+		return configurationError{err: errors.New("invalid admin usage"), message: usage}
 	}
 	if _, err := adminauth.NormalizeEmail(*email); err != nil {
 		return configurationError{err: err, message: "invalid administrator email"}
@@ -69,7 +74,12 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	}
 	defer pool.Close()
 	service := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), options.TokenSecret, options.SetupToken, options.AdminSessionTTL, nil)
-	administrator, err := service.CreateAdministrator(ctx, *email, password)
+	var administrator adminauth.Administrator
+	if operation == "create" {
+		administrator, err = service.CreateAdministrator(ctx, *email, password)
+	} else {
+		administrator, err = service.ResetAdministratorPassword(ctx, *email, password)
+	}
 	if errors.Is(err, adminauth.ErrValidation) {
 		return configurationError{err: err, message: "invalid administrator credentials"}
 	}
@@ -79,7 +89,11 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	if err != nil {
 		return migrationOperationError(options.Logger, "create administrator", err)
 	}
-	_, err = fmt.Fprintf(stdout, "administrator created: %s\n", administrator.Email)
+	message := "administrator created"
+	if operation == "reset-password" {
+		message = "administrator password reset"
+	}
+	_, err = fmt.Fprintf(stdout, "%s: %s\n", message, administrator.Email)
 	return err
 }
 

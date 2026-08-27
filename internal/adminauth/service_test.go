@@ -224,3 +224,55 @@ func TestServiceRejectsInvalidSetupTokenWithoutPersistingIt(t *testing.T) {
 		t.Fatal("presented setup token was persisted")
 	}
 }
+
+func TestServiceResetAdministratorPasswordRevokesAllExistingSessions(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	service := NewService(pool, NewArgon2idPasswords(), secret, "01234567890123456789012345678901", time.Hour, clock)
+	issued, err := service.Setup(context.Background(), "01234567890123456789012345678901", "admin@example.com", "correct horse battery staple", "setup-client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.ResetAdministratorPassword(context.Background(), " ADMIN@example.com ", "new correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Email != "admin@example.com" || !updated.Active {
+		t.Fatalf("updated administrator = %#v", updated)
+	}
+	if _, err := service.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("old session authentication error = %v, want invalid credentials", err)
+	}
+	var sessions int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_sessions").Scan(&sessions); err != nil || sessions != 0 {
+		t.Fatalf("sessions after reset = %d, err=%v; want 0", sessions, err)
+	}
+	if _, err := service.Login(context.Background(), "admin@example.com", "new correct horse battery staple", "reset-client"); err != nil {
+		t.Fatalf("login with reset password: %v", err)
+	}
+}
+
+func TestServiceResetAdministratorPasswordRollsBackWhenSessionRevocationFails(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	service := NewService(pool, NewArgon2idPasswords(), secret, "01234567890123456789012345678901", time.Hour, clock)
+	issued, err := service.Setup(context.Background(), "01234567890123456789012345678901", "admin@example.com", "correct horse battery staple", "setup-client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `create function app.fail_admin_session_delete() returns trigger language plpgsql as $$ begin raise exception 'forced session deletion failure'; end; $$;
+		create trigger fail_admin_session_delete before delete on pgbase_meta.admin_sessions for each row execute function app.fail_admin_session_delete()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ResetAdministratorPassword(context.Background(), "admin@example.com", "new correct horse battery staple"); err == nil {
+		t.Fatal("reset succeeded despite forced session-deletion failure")
+	}
+	if _, err := service.Authenticate(context.Background(), issued.RawToken); err != nil {
+		t.Fatalf("old session was not preserved after rollback: %v", err)
+	}
+	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", "rollback-client"); err != nil {
+		t.Fatalf("old password did not survive rollback: %v", err)
+	}
+}

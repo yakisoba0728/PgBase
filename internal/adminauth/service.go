@@ -127,6 +127,33 @@ func (s *Service) CreateAdministrator(ctx context.Context, email, password strin
 	return administrator, nil
 }
 
+// ResetAdministratorPassword replaces an active administrator password and
+// revokes all of that administrator's sessions without issuing a replacement.
+func (s *Service) ResetAdministratorPassword(ctx context.Context, email, password string) (Administrator, error) {
+	if err := s.ready(); err != nil {
+		return Administrator{}, err
+	}
+	normalizedEmail, err := NormalizeEmail(email)
+	if err != nil {
+		return Administrator{}, err
+	}
+	passwordHash, err := s.passwords.Hash(password)
+	if err != nil {
+		return Administrator{}, err
+	}
+	now := s.clock.Now().UTC()
+	var administrator Administrator
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var resetErr error
+		administrator, resetErr = NewStore(tx).ResetAdministratorPassword(ctx, normalizedEmail, passwordHash, now)
+		return resetErr
+	})
+	if err != nil {
+		return Administrator{}, err
+	}
+	return administrator, nil
+}
+
 // Login verifies an administrator password and issues a new session.
 func (s *Service) Login(ctx context.Context, email, password, subject string) (Session, error) {
 	if err := s.ready(); err != nil {

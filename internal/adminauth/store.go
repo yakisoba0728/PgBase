@@ -49,6 +49,35 @@ func (s *Store) CreateAdministrator(ctx context.Context, administrator Administr
 	return administratorUTC(created), nil
 }
 
+// ResetAdministratorPassword replaces an active administrator password and
+// deletes every existing session in the caller's transaction.
+func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordHash string, now time.Time) (Administrator, error) {
+	normalizedEmail, err := NormalizeEmail(email)
+	if err != nil {
+		return Administrator{}, err
+	}
+	var administrator Administrator
+	err = s.db.QueryRow(ctx, `
+		with updated as (
+			update pgbase_meta.admins
+			set password_hash = $2, updated_at = $3
+			where email = $1 and active
+			returning id, email, active, created_at, updated_at
+		), revoked as (
+			delete from pgbase_meta.admin_sessions
+			where admin_id in (select id from updated)
+		)
+		select id, email, active, created_at, updated_at from updated`, normalizedEmail, passwordHash, now).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("reset administrator password: %w", err)
+	}
+	return administratorUTC(administrator), nil
+}
+
 // AdministratorByEmail reads an active administrator and its encoded password hash.
 func (s *Store) AdministratorByEmail(ctx context.Context, email string) (Administrator, string, error) {
 	var administrator Administrator

@@ -36,6 +36,20 @@ func TestRunReportsMissingPhysicalCollectionTable(t *testing.T) {
 	assertFindingCode(t, runDoctor(t, pool), "collection_table_missing")
 }
 
+func TestRunSkipsEveryFieldOfMissingTableAndContinuesToLaterCollection(t *testing.T) {
+	pool := newDoctorPool(t)
+	missingID := insertCollection(t, pool, "missing", "missing")
+	insertField(t, pool, missingID, "first", "text", false, false, false, 0)
+	insertField(t, pool, missingID, "second", "text", false, false, false, 1)
+	insertCollectionMetadata(t, pool, "later", "title", "text")
+	if _, err := pool.Exec(context.Background(), `create table app.later (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null, title integer)`); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctor(t, pool)
+	assertFindingCode(t, report, "collection_table_missing")
+	assertFindingCode(t, report, "collection_column_type_mismatch")
+}
+
 func TestRunReportsUnexpectedPhysicalColumnType(t *testing.T) {
 	pool := newDoctorPool(t)
 	insertCollectionMetadata(t, pool, "posts", "title", "text")
@@ -51,6 +65,49 @@ func TestRunReportsStaleSchemaState(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFindingCode(t, runDoctor(t, pool), "schema_state_stale")
+}
+
+func TestRunRejectsMisleadingAndMalformedIndexes(t *testing.T) {
+	cases := []struct {
+		name   string
+		index  string
+		unique bool
+	}{
+		{name: "substring column", index: `create index misleading_username on app.posts (username)`},
+		{name: "composite index", index: `create index misleading_composite on app.posts (name, username)`},
+		{name: "wrong column order", index: `create index misleading_order on app.posts (username, name)`},
+		{name: "expression index", index: `create index misleading_expression on app.posts (lower(name))`},
+		{name: "partial index", index: `create index misleading_partial on app.posts (name) where name is not null`},
+		{name: "nonunique for unique metadata", index: `create index misleading_nonunique on app.posts (name)`, unique: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := newDoctorPool(t)
+			collectionID := insertCollection(t, pool, "posts", "posts")
+			insertField(t, pool, collectionID, "name", "text", false, tc.unique, !tc.unique, 0)
+			if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null, name text, username text)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(context.Background(), tc.index); err != nil {
+				t.Fatal(err)
+			}
+			assertFindingCode(t, runDoctor(t, pool), "collection_index_missing")
+		})
+	}
+}
+
+func TestRunAcceptsExactSingleColumnUniqueIndex(t *testing.T) {
+	pool := newDoctorPool(t)
+	collectionID := insertCollection(t, pool, "posts", "posts")
+	insertField(t, pool, collectionID, "name", "text", false, true, false, 0)
+	if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null, name text);
+		create unique index posts_name_unique on app.posts (name)`); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctor(t, pool)
+	if !report.OK {
+		t.Fatalf("report = %#v, want exact index to be healthy", report)
+	}
 }
 
 func TestRunReportsUnreachableDatabase(t *testing.T) {
@@ -98,14 +155,25 @@ func assertFindingCode(t *testing.T, report Report, want string) {
 
 func insertCollectionMetadata(t *testing.T, pool *database.Pool, collection, field, fieldType string) {
 	t.Helper()
+	collectionID := insertCollection(t, pool, collection, collection)
+	insertField(t, pool, collectionID, field, fieldType, false, false, false, 0)
+}
+
+func insertCollection(t *testing.T, pool *database.Pool, collection, table string) uuid.UUID {
+	t.Helper()
 	collectionID := uuid.New()
-	fieldID := uuid.New()
 	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.collections (id, name, table_name, status, created_at, updated_at)
-		values ($1, $2, $2, 'active', current_timestamp, current_timestamp)`, collectionID, collection); err != nil {
+		values ($1, $2, $3, 'active', current_timestamp, current_timestamp)`, collectionID, collection, table); err != nil {
 		t.Fatal(err)
 	}
+	return collectionID
+}
+
+func insertField(t *testing.T, pool *database.Pool, collectionID uuid.UUID, field, fieldType string, required, unique, indexed bool, ordinal int) {
+	t.Helper()
+	fieldID := uuid.New()
 	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.fields (id, collection_id, name, column_name, field_type, required, is_unique, is_indexed, has_default, ordinal, created_at)
-		values ($1, $2, $3, $3, $4, false, false, false, false, 0, current_timestamp)`, fieldID, collectionID, field, fieldType); err != nil {
+		values ($1, $2, $3, $3, $4, $5, $6, $7, false, $8, current_timestamp)`, fieldID, collectionID, field, fieldType, required, unique, indexed, ordinal); err != nil {
 		t.Fatal(err)
 	}
 }
