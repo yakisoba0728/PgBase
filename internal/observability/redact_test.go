@@ -2,6 +2,7 @@ package observability
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -42,5 +43,46 @@ func TestJSONLoggerRedactsTypedSecretAttributes(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "[REDACTED]") {
 		t.Fatalf("log = %q", output.String())
+	}
+}
+
+func TestJSONLoggerRedactsCredentialsInErrorAttributes(t *testing.T) {
+	tests := []struct {
+		name   string
+		error  error
+		secret string
+		keep   string
+	}{
+		{
+			name:   "PostgreSQL URL query password",
+			error:  errors.New("connect postgres://db.example/app?password=query-secret&sslmode=disable failed"),
+			secret: "query-secret",
+			keep:   "sslmode=disable",
+		},
+		{
+			name:   "keyword DSN password",
+			error:  errors.New("connect host=db.example user=pgbase password=keyword-secret sslmode=disable failed"),
+			secret: "keyword-secret",
+			keep:   "user=pgbase",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			NewJSONLogger(&output).Error("connect failed", "error", tt.error, "component", "database")
+			got := output.String()
+			if strings.Contains(got, tt.secret) {
+				t.Fatalf("log leaked %q: %q", tt.secret, got)
+			}
+			if !strings.Contains(got, "[REDACTED]") {
+				t.Fatalf("log = %q", got)
+			}
+			if !strings.Contains(got, `"component":"database"`) {
+				t.Fatalf("log corrupted unrelated attribute: %q", got)
+			}
+			if !strings.Contains(got, tt.keep) {
+				t.Fatalf("log corrupted unrelated error field %q: %q", tt.keep, got)
+			}
+		})
 	}
 }
