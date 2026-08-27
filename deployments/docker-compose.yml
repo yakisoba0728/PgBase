@@ -1,0 +1,59 @@
+name: pgbase
+
+services:
+  postgres:
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_DB: pgbase
+      POSTGRES_USER: pgbase
+      POSTGRES_PASSWORD: ${PGBASE_POSTGRES_PASSWORD:?copy deployments/.env.example to deployments/.env and generate a password}
+    ports:
+      - "127.0.0.1:${PGBASE_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgbase-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  pgbase:
+    image: ${PGBASE_IMAGE:-pgbase:dev}
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        VERSION: ${PGBASE_VERSION:-dev}
+    command: ["serve"]
+    environment:
+      PGBASE_DATABASE_URL: postgres://pgbase:${PGBASE_POSTGRES_PASSWORD}@postgres:5432/pgbase?sslmode=disable
+      PGBASE_HTTP_ADDRESS: :8090
+      PGBASE_PUBLIC_URL: ${PGBASE_PUBLIC_URL:-http://127.0.0.1:8090}
+      PGBASE_SETUP_TOKEN: ${PGBASE_SETUP_TOKEN:?copy deployments/.env.example to deployments/.env and generate a setup token}
+      PGBASE_TOKEN_SECRET: ${PGBASE_TOKEN_SECRET:?copy deployments/.env.example to deployments/.env and generate a token secret}
+      PGBASE_AUTO_MIGRATE: "true"
+      PGBASE_SHUTDOWN_TIMEOUT: ${PGBASE_SHUTDOWN_TIMEOUT:-15s}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PGBASE_HTTP_PORT:-8090}:8090"
+    healthcheck:
+      test: ["CMD", "/pgbase", "healthcheck", "--url", "http://127.0.0.1:8090/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  pgbase-postgres:

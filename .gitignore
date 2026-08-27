@@ -1,6 +1,7 @@
 .worktrees/
 .env
 .env.local
+deployments/.env
 coverage/
 *.test
 ui/admin/node_modules/

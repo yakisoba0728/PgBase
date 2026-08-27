@@ -6,8 +6,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -105,6 +108,106 @@ func TestRunDispatchesHiddenHealthcheck(t *testing.T) {
 	})
 	if code != 0 || !called {
 		t.Fatalf("code=%d called=%t", code, called)
+	}
+}
+
+func TestHealthcheckAcceptsOnlyHTTP200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestHealthcheckRejectsNon200AndRedirectWithoutFollowingIt(t *testing.T) {
+	redirectTargetCalls := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectTargetCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	tests := []struct {
+		name    string
+		handler http.Handler
+	}{
+		{name: "non-200", handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})},
+		{name: "redirect", handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+		})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+			var stderr bytes.Buffer
+			code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+			if code != 1 || stderr.String() != "pgbase: command failed\n" {
+				t.Fatalf("code=%d stderr=%q", code, stderr.String())
+			}
+		})
+	}
+	if redirectTargetCalls != 0 {
+		t.Fatalf("redirect target calls = %d", redirectTargetCalls)
+	}
+}
+
+func TestHealthcheckTimesOut(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	started := time.Now()
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL, "--timeout", "25ms"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	if code != 1 || stderr.String() != "pgbase: command failed\n" {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("healthcheck elapsed = %s", elapsed)
+	}
+}
+
+func TestHealthcheckUsesTwoSecondDefaultTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	started := time.Now()
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	elapsed := time.Since(started)
+	if code != 1 || stderr.String() != "pgbase: command failed\n" {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if elapsed < 1500*time.Millisecond || elapsed > 3500*time.Millisecond {
+		t.Fatalf("default healthcheck timeout elapsed = %s", elapsed)
+	}
+}
+
+func TestHealthcheckRejectsInvalidURLWithExitCodeTwo(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"healthcheck", "--url", "://not-a-url"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	if code != 2 || stderr.String() != "pgbase: invalid healthcheck URL\n" {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestHealthcheckIsExcludedFromOrdinaryHelp(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run(context.Background(), nil, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	if code != 2 || strings.Contains(stderr.String(), "healthcheck") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 

@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
@@ -35,7 +38,43 @@ type CommandSet struct {
 // DefaultCommands returns the command handlers wired into the production binary.
 // Commands are added by their owning packages in later implementation tasks.
 func DefaultCommands() CommandSet {
-	return CommandSet{Serve: runServe, Migrate: runMigrate, Admin: runAdmin, Doctor: runDoctor}
+	return CommandSet{Serve: runServe, Migrate: runMigrate, Admin: runAdmin, Doctor: runDoctor, Healthcheck: runHealthcheck}
+}
+
+func runHealthcheck(ctx context.Context, args []string, _ func(string) (string, bool), _, _ io.Writer) error {
+	flags := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	endpoint := flags.String("url", "", "")
+	timeout := flags.Duration("timeout", 2*time.Second, "")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *endpoint == "" {
+		return configurationError{err: errors.New("invalid healthcheck usage"), message: "usage: pgbase healthcheck --url URL [--timeout DURATION]"}
+	}
+	parsed, err := url.Parse(*endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Opaque != "" || parsed.Fragment != "" {
+		return configurationError{err: errors.New("invalid healthcheck URL"), message: "invalid healthcheck URL"}
+	}
+	if *timeout <= 0 {
+		return configurationError{err: errors.New("invalid healthcheck timeout"), message: "invalid healthcheck timeout"}
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return configurationError{err: errors.New("invalid healthcheck URL"), message: "invalid healthcheck URL"}
+	}
+	client := &http.Client{
+		Timeout: *timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("healthcheck request failed: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func runAdmin(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
