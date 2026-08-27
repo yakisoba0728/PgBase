@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Options configures a pgBase application.
@@ -56,7 +57,7 @@ func validateOptions(o Options) error {
 	if len(o.TokenSecret) < 32 {
 		return fmt.Errorf("TokenSecret: must contain at least 32 bytes")
 	}
-	if o.SetupToken != "" && len(o.SetupToken) < 32 {
+	if o.SetupToken != "" && utf8.RuneCountInString(o.SetupToken) < 32 {
 		return fmt.Errorf("SetupToken: must contain at least 32 characters")
 	}
 	if o.PublicURL != nil {

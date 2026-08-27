@@ -107,3 +107,14 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestOptionsRejectsSetupTokenWithFewerThan32UnicodeCharacters(t *testing.T) {
+	_, err := (Options{
+		DatabaseURL: "postgres://postgres:postgres@localhost/pgbase",
+		TokenSecret: make([]byte, 32),
+		SetupToken:  strings.Repeat("😀", 8),
+	}).Normalized()
+	if err == nil || !strings.Contains(err.Error(), "SetupToken") {
+		t.Fatalf("expected setup-token validation error, got %v", err)
+	}
+}
