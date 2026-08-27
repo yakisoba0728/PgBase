@@ -156,7 +156,7 @@ func bootstrapCRUDAndRestart(t *testing.T) {
 			{"name": "published", "type": "boolean", "required": false, "unique": false, "indexed": false},
 		},
 	}
-	applyCollection(t, ctx, client, definition)
+	applyCollectionWithAuthChecks(t, ctx, client, definition)
 
 	first := createRecord(t, ctx, client, "posts", map[string]any{"title": "first", "published": false})
 	second := createRecord(t, ctx, client, "posts", map[string]any{"title": "second", "published": true})
@@ -185,8 +185,11 @@ func bootstrapCRUDAndRestart(t *testing.T) {
 	if err := client.request(ctx, http.MethodGet, "/api/v1/collections/posts/records/"+deletedID, nil, http.StatusNotFound, nil); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("all physical types", func(t *testing.T) {
+		testAllPhysicalTypes(t, ctx, client)
+	})
 
-	ids := pageRecordIDs(t, ctx, client, "posts", 1)
+	ids := twoPageRecordIDs(t, ctx, client, "posts")
 	if len(ids) != 2 || !contains(ids, firstID) || !contains(ids, secondID) {
 		t.Fatalf("paged record ids = %v", ids)
 	}
@@ -200,7 +203,7 @@ func bootstrapCRUDAndRestart(t *testing.T) {
 	if err := restarted.login(ctx, suite.administrator, suite.password); err != nil {
 		t.Fatal(err)
 	}
-	ids = pageRecordIDs(t, ctx, restarted, "posts", 1)
+	ids = twoPageRecordIDs(t, ctx, restarted, "posts")
 	if len(ids) != 2 || !contains(ids, firstID) || !contains(ids, secondID) {
 		t.Fatalf("persisted record ids after restart = %v", ids)
 	}
@@ -361,6 +364,14 @@ func waitReady(t *testing.T, ctx context.Context, baseURL string) {
 
 func applyCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) {
 	t.Helper()
+	apply := planCollection(t, ctx, client, definition)
+	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", apply, http.StatusCreated, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func planCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) map[string]any {
+	t.Helper()
 	var plan struct {
 		BaseVersion int64  `json:"baseVersion"`
 		Checksum    string `json:"checksum"`
@@ -374,6 +385,63 @@ func applyCollection(t *testing.T, ctx context.Context, client *apiClient, defin
 	}
 	apply["baseVersion"] = plan.BaseVersion
 	apply["checksum"] = plan.Checksum
+	return apply
+}
+
+func applyCollectionWithAuthChecks(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) {
+	t.Helper()
+	apply := planCollection(t, ctx, client, definition)
+	collectionName, ok := definition["name"].(string)
+	if !ok || collectionName == "" {
+		t.Fatalf("collection name = %#v", definition["name"])
+	}
+	var before struct {
+		Version     int64                      `json:"version"`
+		Collections map[string]json.RawMessage `json:"collections"`
+	}
+	if err := client.request(ctx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &before); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		requester  *apiClient
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "no session", requester: newAPIClient(client.baseURL), wantStatus: http.StatusUnauthorized, wantCode: "authentication_required"},
+		{name: "missing CSRF", requester: &apiClient{baseURL: client.baseURL, http: client.http}, wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
+		{name: "invalid CSRF", requester: &apiClient{baseURL: client.baseURL, http: client.http, csrf: "invalid-csrf-token"}, wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var failure struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := test.requester.request(ctx, http.MethodPost, "/api/admin/collections/apply", apply, test.wantStatus, &failure); err != nil {
+				t.Fatal(err)
+			}
+			if failure.Error.Code != test.wantCode {
+				t.Fatalf("error code = %q, want %q", failure.Error.Code, test.wantCode)
+			}
+		})
+	}
+
+	var after struct {
+		Version     int64                      `json:"version"`
+		Collections map[string]json.RawMessage `json:"collections"`
+	}
+	if err := client.request(ctx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != before.Version {
+		t.Fatalf("catalog version changed after rejected mutations: before=%d after=%d", before.Version, after.Version)
+	}
+	if _, exists := after.Collections[collectionName]; exists {
+		t.Fatalf("collection %q exists after rejected mutations", collectionName)
+	}
 	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", apply, http.StatusCreated, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -405,35 +473,189 @@ func createRecord(t *testing.T, ctx context.Context, client *apiClient, collecti
 	return record
 }
 
-func pageRecordIDs(t *testing.T, ctx context.Context, client *apiClient, collection string, limit int) []string {
+func testAllPhysicalTypes(t *testing.T, ctx context.Context, client *apiClient) {
+	t.Helper()
+	definition := map[string]any{
+		"name": "all_types",
+		"fields": []map[string]any{
+			{"name": "bool_value", "type": "boolean", "required": false, "unique": false, "indexed": false, "default": false},
+			{"name": "integer_value", "type": "integer", "required": false, "unique": false, "indexed": false, "default": "-7"},
+			{"name": "bigint_value", "type": "bigint", "required": false, "unique": false, "indexed": false, "default": "9007199254740993"},
+			{"name": "numeric_value", "type": "numeric", "required": false, "unique": false, "indexed": false, "default": "9007199254740993.00000000000000000001"},
+			{"name": "text_value", "type": "text", "required": false, "unique": false, "indexed": false, "default": "default text"},
+			{"name": "timestamp_value", "type": "timestamptz", "required": false, "unique": false, "indexed": false, "default": "2026-08-28T12:34:56Z"},
+			{"name": "uuid_value", "type": "uuid", "required": false, "unique": false, "indexed": false, "default": "12345678-1234-4567-8901-123456789ABC"},
+			{"name": "jsonb_value", "type": "jsonb", "required": false, "unique": false, "indexed": false, "default": []any{1, map[string]any{"default": true}}},
+		},
+	}
+	applyCollection(t, ctx, client, definition)
+
+	createdWant := map[string]string{
+		"bool_value":      "true",
+		"integer_value":   "-2147483648",
+		"bigint_value":    `"9223372036854775807"`,
+		"numeric_value":   `"12345678901234567890.12345678901234567890"`,
+		"text_value":      `"created"`,
+		"timestamp_value": `"2026-08-28T12:34:56.123456Z"`,
+		"uuid_value":      `"12345678-1234-4567-8901-123456789abc"`,
+		"jsonb_value":     `["created",1,true]`,
+	}
+	createdInput := map[string]any{
+		"bool_value":      true,
+		"integer_value":   -2147483648,
+		"bigint_value":    "9223372036854775807",
+		"numeric_value":   "12345678901234567890.12345678901234567890",
+		"text_value":      "created",
+		"timestamp_value": "2026-08-28T21:34:56.123456+09:00",
+		"uuid_value":      "12345678-1234-4567-8901-123456789ABC",
+		"jsonb_value":     []any{"created", 1, true},
+	}
+	created := createRawRecord(t, ctx, client, "all_types", createdInput)
+	assertRawFields(t, "create", created, createdWant)
+	createdID := rawStringValue(t, created, "id")
+
+	var fetched map[string]json.RawMessage
+	if err := client.request(ctx, http.MethodGet, "/api/v1/collections/all_types/records/"+createdID, nil, http.StatusOK, &fetched); err != nil {
+		t.Fatal(err)
+	}
+	assertRawFields(t, "get", fetched, createdWant)
+
+	page := fetchRecordPage(t, ctx, client, "all_types", 50, "")
+	if len(page.Items) != 1 || page.NextCursor != "" {
+		t.Fatalf("all-types list page: items=%d cursor=%q", len(page.Items), page.NextCursor)
+	}
+	if rawStringValue(t, page.Items[0], "id") != createdID {
+		t.Fatalf("all-types list id = %s, want %s", page.Items[0]["id"], createdID)
+	}
+	assertRawFields(t, "list", page.Items[0], createdWant)
+
+	updatedWant := map[string]string{
+		"bool_value":      "false",
+		"integer_value":   "2147483647",
+		"bigint_value":    `"-9223372036854775808"`,
+		"numeric_value":   `"-99999999999999999999.00000000000000000001"`,
+		"text_value":      `"updated"`,
+		"timestamp_value": `"2026-08-28T00:00:00.000001Z"`,
+		"uuid_value":      `"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`,
+		"jsonb_value":     `[3,{"updated":true}]`,
+	}
+	updatedInput := map[string]any{
+		"bool_value":      false,
+		"integer_value":   2147483647,
+		"bigint_value":    "-9223372036854775808",
+		"numeric_value":   "-99999999999999999999.00000000000000000001",
+		"text_value":      "updated",
+		"timestamp_value": "2026-08-28T00:00:00.000001Z",
+		"uuid_value":      "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+		"jsonb_value":     []any{3, map[string]any{"updated": true}},
+	}
+	var updated map[string]json.RawMessage
+	if err := client.request(ctx, http.MethodPatch, "/api/v1/collections/all_types/records/"+createdID, updatedInput, http.StatusOK, &updated); err != nil {
+		t.Fatal(err)
+	}
+	assertRawFields(t, "patch", updated, updatedWant)
+
+	nullInput := make(map[string]any, len(updatedWant))
+	nullWant := make(map[string]string, len(updatedWant))
+	for field := range updatedWant {
+		nullInput[field] = nil
+		nullWant[field] = "null"
+	}
+	var nulled map[string]json.RawMessage
+	if err := client.request(ctx, http.MethodPatch, "/api/v1/collections/all_types/records/"+createdID, nullInput, http.StatusOK, &nulled); err != nil {
+		t.Fatal(err)
+	}
+	assertRawFields(t, "null patch", nulled, nullWant)
+
+	defaultsWant := map[string]string{
+		"bool_value":      "false",
+		"integer_value":   "-7",
+		"bigint_value":    `"9007199254740993"`,
+		"numeric_value":   `"9007199254740993.00000000000000000001"`,
+		"text_value":      `"default text"`,
+		"timestamp_value": `"2026-08-28T12:34:56Z"`,
+		"uuid_value":      `"12345678-1234-4567-8901-123456789abc"`,
+		"jsonb_value":     `[1,{"default":true}]`,
+	}
+	defaulted := createRawRecord(t, ctx, client, "all_types", map[string]any{})
+	assertRawFields(t, "defaults", defaulted, defaultsWant)
+}
+
+func createRawRecord(t *testing.T, ctx context.Context, client *apiClient, collection string, input map[string]any) map[string]json.RawMessage {
+	t.Helper()
+	var record map[string]json.RawMessage
+	path := "/api/v1/collections/" + url.PathEscape(collection) + "/records"
+	if err := client.request(ctx, http.MethodPost, path, input, http.StatusCreated, &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func assertRawFields(t *testing.T, operation string, record map[string]json.RawMessage, want map[string]string) {
+	t.Helper()
+	for field, expected := range want {
+		if actual := string(record[field]); actual != expected {
+			t.Fatalf("%s %s = %s, want %s", operation, field, actual, expected)
+		}
+	}
+}
+
+func rawStringValue(t *testing.T, values map[string]json.RawMessage, key string) string {
+	t.Helper()
+	var value string
+	if err := json.Unmarshal(values[key], &value); err != nil || value == "" {
+		t.Fatalf("decode %s: value=%s error=%v", key, values[key], err)
+	}
+	return value
+}
+
+type recordPage struct {
+	Items      []map[string]json.RawMessage `json:"items"`
+	NextCursor string                       `json:"nextCursor"`
+}
+
+func fetchRecordPage(t *testing.T, ctx context.Context, client *apiClient, collection string, limit int, cursor string) recordPage {
 	t.Helper()
 	path := "/api/v1/collections/" + url.PathEscape(collection) + "/records"
-	var ids []string
-	cursor := ""
-	for {
-		values := url.Values{"limit": []string{strconv.Itoa(limit)}}
-		if cursor != "" {
-			values.Set("cursor", cursor)
-		}
-		var page struct {
-			Items      []map[string]json.RawMessage `json:"items"`
-			NextCursor string                       `json:"nextCursor"`
-		}
-		if err := client.request(ctx, http.MethodGet, queryPath(path, values), nil, http.StatusOK, &page); err != nil {
-			t.Fatal(err)
-		}
-		for _, record := range page.Items {
-			var id string
-			if err := json.Unmarshal(record["id"], &id); err != nil {
-				t.Fatalf("decode record id: %v", err)
-			}
-			ids = append(ids, id)
-		}
-		if page.NextCursor == "" {
-			return ids
-		}
-		cursor = page.NextCursor
+	values := url.Values{"limit": []string{strconv.Itoa(limit)}}
+	if cursor != "" {
+		values.Set("cursor", cursor)
 	}
+	var page recordPage
+	if err := client.request(ctx, http.MethodGet, queryPath(path, values), nil, http.StatusOK, &page); err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
+func twoPageRecordIDs(t *testing.T, ctx context.Context, client *apiClient, collection string) []string {
+	t.Helper()
+	first := fetchRecordPage(t, ctx, client, collection, 1, "")
+	if len(first.Items) != 1 {
+		t.Fatalf("first page item count = %d, want 1", len(first.Items))
+	}
+	if first.NextCursor == "" {
+		t.Fatal("first page cursor is empty")
+	}
+	second := fetchRecordPage(t, ctx, client, collection, 1, first.NextCursor)
+	if len(second.Items) != 1 {
+		t.Fatalf("second page item count = %d, want 1", len(second.Items))
+	}
+	if second.NextCursor != "" {
+		t.Fatalf("second page cursor = %q, want termination", second.NextCursor)
+	}
+	ids := make([]string, 0, 2)
+	for pageNumber, item := range []map[string]json.RawMessage{first.Items[0], second.Items[0]} {
+		var id string
+		if err := json.Unmarshal(item["id"], &id); err != nil || id == "" {
+			t.Fatalf("decode page %d record id: value=%s error=%v", pageNumber+1, item["id"], err)
+		}
+		ids = append(ids, id)
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("page record ids are not distinct: %v", ids)
+	}
+	return ids
 }
 
 func stringValue(t *testing.T, values map[string]any, key string) string {

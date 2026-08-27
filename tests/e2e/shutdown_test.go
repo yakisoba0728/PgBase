@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,15 +28,11 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	applyCollection(t, ctx, client, definition)
 	createRecord(t, ctx, client, "shutdown_items", map[string]any{"value": "drain me"})
 
-	if output, err := suite.compose(ctx, "pause", "postgres"); err != nil {
-		t.Fatalf("pause PostgreSQL: %v\n%s", err, output)
-	}
-	postgresPaused := true
+	lockerName, lockerPID := suite.holdShutdownTableLock(t, ctx)
+	lockHeld := true
 	t.Cleanup(func() {
-		if postgresPaused {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cleanupCancel()
-			_, _ = suite.compose(cleanupCtx, "unpause", "postgres")
+		if lockHeld {
+			suite.releaseShutdownTableLock(t, context.Background(), lockerName, lockerPID)
 		}
 	})
 
@@ -48,6 +45,18 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	case err := <-inflightDone:
 		t.Fatalf("deliberately delayed request completed before SIGTERM: %v", err)
 	case <-time.After(300 * time.Millisecond):
+	}
+	suite.waitForShutdownQueryLock(t, ctx)
+	readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Second)
+	readyErr := newAPIClient(baseURL).ready(readyCtx)
+	readyCancel()
+	if readyErr != nil {
+		t.Fatalf("readiness before SIGTERM with table lock held: %v", readyErr)
+	}
+	select {
+	case err := <-inflightDone:
+		t.Fatalf("in-flight request stopped blocking before SIGTERM: %v", err)
+	default:
 	}
 
 	signalTime := time.Now()
@@ -80,10 +89,8 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 		t.Fatal("new request was accepted after SIGTERM")
 	}
 
-	if output, err := suite.compose(ctx, "unpause", "postgres"); err != nil {
-		t.Fatalf("unpause PostgreSQL: %v\n%s", err, output)
-	}
-	postgresPaused = false
+	suite.releaseShutdownTableLock(t, ctx, lockerName, lockerPID)
+	lockHeld = false
 	select {
 	case err := <-inflightDone:
 		if err != nil {
@@ -105,4 +112,70 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	if elapsed := time.Since(signalTime); elapsed > 8*time.Second {
 		t.Fatalf("graceful shutdown elapsed = %s", elapsed)
 	}
+}
+
+func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context) (string, int) {
+	t.Helper()
+	name := s.project + "-shutdown-lock"
+	command := "BEGIN; LOCK TABLE app.shutdown_items IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(300);"
+	arguments := []string{
+		"run", "--detach", "--name", name,
+		"--network", s.project + "_default",
+		"--env", "PGPASSWORD=" + s.databasePass,
+		"--entrypoint", "psql",
+		"postgres:16.13-bookworm",
+		"--host", "postgres", "--username", "pgbase", "--dbname", "pgbase",
+		"--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--command", command,
+	}
+	if output, err := s.docker(ctx, arguments...); err != nil {
+		t.Fatalf("start shutdown table lock: %v\n%s", err, output)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	query := `select l.pid from pg_locks l
+		join pg_class c on c.oid = l.relation
+		join pg_namespace n on n.oid = c.relnamespace
+		where n.nspname = 'app' and c.relname = 'shutdown_items'
+		and l.mode = 'AccessExclusiveLock' and l.granted`
+	for time.Now().Before(deadline) {
+		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(output))
+		if err == nil && parseErr == nil && pid > 0 {
+			return name, pid
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	logs, _ := s.docker(ctx, "logs", name)
+	s.removeContainer(name)
+	t.Fatalf("shutdown table lock was not acquired; locker logs:\n%s", logs)
+	return "", 0
+}
+
+func (s e2eSuite) releaseShutdownTableLock(t *testing.T, ctx context.Context, container string, backendPID int) {
+	t.Helper()
+	releaseCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	query := "select pg_terminate_backend(" + strconv.Itoa(backendPID) + ")"
+	output, err := s.compose(releaseCtx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
+	if err != nil || strings.TrimSpace(output) != "t" {
+		t.Fatalf("terminate shutdown lock backend %d: error=%v output=%q", backendPID, err, output)
+	}
+	s.removeContainer(container)
+}
+
+func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context) {
+	t.Helper()
+	deadline := time.Now().Add(4 * time.Second)
+	query := `select count(*) from pg_locks l
+		join pg_class c on c.oid = l.relation
+		join pg_namespace n on n.oid = c.relnamespace
+		where n.nspname = 'app' and c.relname = 'shutdown_items'
+		and l.mode = 'AccessShareLock' and not l.granted`
+	for time.Now().Before(deadline) {
+		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
+		if err == nil && strings.TrimSpace(output) == "1" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("record request did not block on app.shutdown_items")
 }
