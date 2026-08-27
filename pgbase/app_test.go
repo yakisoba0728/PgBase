@@ -63,11 +63,13 @@ func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
 	releaseListen := make(chan struct{})
 	listener := &barrierListener{accepted: make(chan struct{}), closed: make(chan struct{})}
 	cleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	schemaListener := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	app := &App{
 		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: time.Second},
 		httpServer:       &http.Server{},
 		readiness:        &readinessState{},
 		cleaner:          cleaner,
+		schemaListener:   schemaListener,
 		lifecycleClosing: make(chan struct{}),
 		listen: func(_, _ string) (net.Listener, error) {
 			close(listenEntered)
@@ -100,6 +102,11 @@ func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
 	select {
 	case <-cleaner.started:
 		t.Fatal("cleaner started after Close began")
+	default:
+	}
+	select {
+	case <-schemaListener.started:
+		t.Fatal("schema listener started after Close began")
 	default:
 	}
 	if err := app.Run(context.Background()); !errors.Is(err, errAppClosed) {

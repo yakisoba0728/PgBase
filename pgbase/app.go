@@ -14,18 +14,20 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 // App owns the pgBase HTTP server and its required process resources.
 type App struct {
-	options    Options
-	pool       *database.Pool
-	handler    http.Handler
-	httpServer *http.Server
-	readiness  *readinessState
-	cleaner    backgroundRunner
-	listen     func(string, string) (net.Listener, error)
-	closeOnce  sync.Once
+	options        Options
+	pool           *database.Pool
+	handler        http.Handler
+	httpServer     *http.Server
+	readiness      *readinessState
+	cleaner        backgroundRunner
+	schemaListener backgroundRunner
+	listen         func(string, string) (net.Listener, error)
+	closeOnce      sync.Once
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -144,6 +146,10 @@ func New(ctx context.Context, options Options) (*App, error) {
 			return nil
 		})},
 	}}
+	schemaCache := &schema.Cache{}
+	schemaService := schema.NewService(pool, schemaCache, schema.Planner{})
+	schemaListener := schema.NewListener(pool, schemaCache)
+	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	authService := adminauth.NewService(
 		pool,
 		adminauth.NewArgon2idPasswords(),
@@ -157,6 +163,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
 		AdminAuth:          authService,
+		Schema:             schemaService,
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
 		TokenSecret:        normalized.TokenSecret,
@@ -167,6 +174,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		handler:          handler,
 		readiness:        readiness,
 		cleaner:          adminauth.NewCleaner(pool, nil),
+		schemaListener:   schemaListener,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -306,15 +314,30 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		var err error
+		runners := make([]backgroundRunner, 0, 2)
 		if a.cleaner != nil {
-			err = a.cleaner.Run(runCtx)
+			runners = append(runners, a.cleaner)
 		}
-		if runCtx.Err() != nil && errors.Is(err, runCtx.Err()) {
-			err = nil
+		if a.schemaListener != nil {
+			runners = append(runners, a.schemaListener)
+		}
+		results := make(chan error, len(runners))
+		for _, runner := range runners {
+			go func(runner backgroundRunner) { results <- runner.Run(runCtx) }(runner)
+		}
+		var backgroundErr error
+		for index := range runners {
+			err := <-results
+			cancellationErr := runCtx.Err()
+			if err != nil && !(cancellationErr != nil && errors.Is(err, cancellationErr)) {
+				backgroundErr = errors.Join(backgroundErr, err)
+			}
+			if index == 0 {
+				cancel()
+			}
 		}
 		a.closeMu.Lock()
-		a.backgroundErr = err
+		a.backgroundErr = backgroundErr
 		close(done)
 		a.closeMu.Unlock()
 	}()

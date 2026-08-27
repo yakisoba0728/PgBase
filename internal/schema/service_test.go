@@ -1,0 +1,295 @@
+package schema
+
+import (
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
+)
+
+func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	input := CreateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			{Name: "title", Type: TypeText, Required: true, Indexed: true},
+			{Name: "views", Type: TypeBigInt, Default: json.RawMessage(`"0"`)},
+		},
+	}
+
+	plan, err := service.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+	if err != nil {
+		t.Fatalf("apply create: %v", err)
+	}
+	if collection.ID.Version() != 7 {
+		t.Fatalf("collection ID version = %d, want 7", collection.ID.Version())
+	}
+	if len(collection.Fields) != 2 || collection.Fields[0].ID.Version() != 7 || collection.Fields[1].ID.Version() != 7 {
+		t.Fatalf("field IDs are not UUIDv7: %+v", collection.Fields)
+	}
+
+	catalog, err := service.Catalog(context.Background())
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if catalog.Version != 1 {
+		t.Fatalf("catalog version = %d, want 1", catalog.Version)
+	}
+	persisted, ok := catalog.Collections["posts"]
+	if !ok || persisted.TableName != "posts" || len(persisted.Fields) != 2 {
+		t.Fatalf("persisted collection = %+v, present=%t", persisted, ok)
+	}
+	if got := string(persisted.Fields[1].Default); got != `"0"` {
+		t.Fatalf("persisted default = %s, want %s", got, `"0"`)
+	}
+
+	var physicalTable string
+	if err := pool.QueryRow(context.Background(), `select coalesce(to_regclass('app.posts')::text, '')`).Scan(&physicalTable); err != nil {
+		t.Fatalf("read physical table: %v", err)
+	}
+	if physicalTable != "app.posts" {
+		t.Fatalf("physical table = %q, want app.posts", physicalTable)
+	}
+
+	var version, migrations, indexes int64
+	var checksum []byte
+	if err := pool.QueryRow(context.Background(), `select version from pgbase_meta.schema_state where singleton`).Scan(&version); err != nil {
+		t.Fatalf("read version: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(), `select count(*) from pgbase_meta.schema_migrations`).Scan(&migrations); err != nil {
+		t.Fatalf("read migration audit: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(), `select checksum from pgbase_meta.schema_migrations where version = 1`).Scan(&checksum); err != nil {
+		t.Fatalf("read migration checksum: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(), `select count(*) from pgbase_meta.collection_indexes`).Scan(&indexes); err != nil {
+		t.Fatalf("read indexes: %v", err)
+	}
+	wantChecksum, err := hex.DecodeString(plan.Checksum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 || migrations != 1 || indexes != 1 || !bytes.Equal(checksum, wantChecksum) {
+		t.Fatalf("version=%d migrations=%d indexes=%d checksum=%x, want 1/1/1/%x", version, migrations, indexes, checksum, wantChecksum)
+	}
+}
+
+func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	applyFreshPlan(t, service, input, administratorID)
+
+	second, err := service.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ApplyCreate(context.Background(), input, second.Checksum, administratorID)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate apply error = %v, want ErrConflict", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+}
+
+func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
+	t.Run("stale base version", func(t *testing.T) {
+		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		staleInput := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+		stalePlan, err := service.PlanCreate(context.Background(), staleInput)
+		if err != nil {
+			t.Fatal(err)
+		}
+		applyFreshPlan(t, service, CreateCollectionInput{Name: "pages"}, administratorID)
+
+		_, err = service.ApplyCreate(context.Background(), staleInput, stalePlan.Checksum, administratorID)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("stale apply error = %v, want ErrConflict", err)
+		}
+		assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 0, migrations: 1})
+	})
+
+	t.Run("wrong checksum", func(t *testing.T) {
+		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "posts"}, "wrong-checksum", administratorID)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
+		}
+		assertSchemaCounts(t, pool, schemaCounts{})
+	})
+}
+
+func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *testing.T) {
+	plan := Plan{
+		Operation:   createCollectionOperation,
+		BaseVersion: 0,
+		Checksum:    "invalid-ddl-checksum",
+		Definition:  PlannedCollection{Name: "broken", TableName: "broken"},
+		Statements: []string{
+			`CREATE TABLE "app"."broken" ("id" uuid primary key)`,
+			`CREATE TABLE "app"."will_not_parse" (`,
+		},
+	}
+	pool, service, administratorID := newSchemaServiceTest(t, fixedPlanBuilder{plan: plan})
+	_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "broken"}, plan.Checksum, administratorID)
+	if err == nil {
+		t.Fatal("invalid DDL apply succeeded")
+	}
+	assertSchemaCounts(t, pool, schemaCounts{})
+	var physicalTable string
+	if queryErr := pool.QueryRow(context.Background(), `select coalesce(to_regclass('app.broken')::text, '')`).Scan(&physicalTable); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if physicalTable != "" {
+		t.Fatalf("rolled-back physical table still exists: %q", physicalTable)
+	}
+}
+
+func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	plan, err := service.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var workers sync.WaitGroup
+	for range 2 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+			results <- applyErr
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+
+	var successes, conflicts int
+	for result := range results {
+		switch {
+		case result == nil:
+			successes++
+		case errors.Is(result, ErrConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected concurrent apply error: %v", result)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d, want 1/1", successes, conflicts)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+}
+
+func TestCatalogSnapshotsCannotMutatePublishedCache(t *testing.T) {
+	cache := &Cache{}
+	cache.Replace(Catalog{Version: 4, Collections: map[string]Collection{
+		"posts": {Name: "posts", Fields: []Field{{Name: "title", Default: json.RawMessage(`"safe"`)}}},
+	}})
+
+	first := cache.Load()
+	first.Collections["pages"] = Collection{Name: "pages"}
+	posts := first.Collections["posts"]
+	posts.Fields[0].Name = "changed"
+	posts.Fields[0].Default[1] = 'X'
+	first.Collections["posts"] = posts
+
+	second := cache.Load()
+	if len(second.Collections) != 1 || second.Collections["posts"].Fields[0].Name != "title" || string(second.Collections["posts"].Fields[0].Default) != `"safe"` {
+		t.Fatalf("published cache was mutated through Load: %+v", second)
+	}
+}
+
+func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
+	cache := &Cache{}
+	cache.Replace(Catalog{Version: 2, Collections: map[string]Collection{"pages": {Name: "pages"}}})
+	cache.Replace(Catalog{Version: 1, Collections: map[string]Collection{"posts": {Name: "posts"}}})
+
+	current := cache.Load()
+	if current.Version != 2 {
+		t.Fatalf("cache version = %d, want 2", current.Version)
+	}
+	if _, ok := current.Collections["pages"]; !ok {
+		t.Fatalf("newer catalog was replaced by older snapshot: %+v", current)
+	}
+}
+
+type fixedPlanBuilder struct{ plan Plan }
+
+func (f fixedPlanBuilder) PlanCreate(int64, CreateCollectionInput) (Plan, error) { return f.plan, nil }
+
+type schemaCounts struct {
+	version     int64
+	collections int64
+	fields      int64
+	migrations  int64
+}
+
+func newSchemaServiceTest(t *testing.T, planner PlanBuilder) (*database.Pool, *Service, uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	administratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admins (id, email, password_hash, active, created_at, updated_at)
+		values ($1, 'schema-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
+		t.Fatalf("insert administrator: %v", err)
+	}
+	return pool, NewService(pool, &Cache{}, planner), administratorID
+}
+
+func applyFreshPlan(t *testing.T, service *Service, input CreateCollectionInput, administratorID uuid.UUID) Collection {
+	t.Helper()
+	plan, err := service.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+	if err != nil {
+		t.Fatalf("apply create: %v", err)
+	}
+	return collection
+}
+
+func assertSchemaCounts(t *testing.T, pool *database.Pool, want schemaCounts) {
+	t.Helper()
+	var got schemaCounts
+	ctx := context.Background()
+	if err := pool.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&got.version); err != nil {
+		t.Fatal(err)
+	}
+	for query, destination := range map[string]*int64{
+		`select count(*) from pgbase_meta.collections`:       &got.collections,
+		`select count(*) from pgbase_meta.fields`:            &got.fields,
+		`select count(*) from pgbase_meta.schema_migrations`: &got.migrations,
+	} {
+		if err := pool.QueryRow(ctx, query).Scan(destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got != want {
+		t.Fatalf("schema counts = %+v, want %+v", got, want)
+	}
+}

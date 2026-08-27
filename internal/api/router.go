@@ -15,6 +15,7 @@ type Dependencies struct {
 	Logger             *slog.Logger
 	CORSAllowedOrigins []string
 	AdminAuth          AdminAuth
+	Schema             SchemaService
 	PublicURL          *url.URL
 	TrustedProxies     []netip.Prefix
 	TokenSecret        []byte
@@ -28,12 +29,16 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	}
 	mux := http.NewServeMux()
 	admin := newAdminEndpoints(dependencies)
+	schemas := schemaEndpoints{service: dependencies.Schema}
 	mux.HandleFunc("GET /health/live", live)
 	mux.Handle("GET /health/ready", ready(dependencies.Readiness))
 	mux.Handle("POST /api/admin/setup", sameOriginMiddleware(admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.setup)))
 	mux.Handle("POST /api/admin/login", sameOriginMiddleware(admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.login)))
 	mux.Handle("GET /api/admin/session", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.currentSession)))
 	mux.Handle("DELETE /api/admin/session", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.logout)))
+	mux.Handle("POST /api/admin/collections/plan", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.planCreate)))
+	mux.Handle("POST /api/admin/collections/apply", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.applyCreate)))
+	mux.Handle("GET /api/admin/collections", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.catalog)))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"})
 	})

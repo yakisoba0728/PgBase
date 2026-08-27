@@ -1,0 +1,204 @@
+package schema
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/internal/database"
+)
+
+const schemaAdvisoryLockKey int64 = 0x7067626173650002
+
+var ErrConflict = errors.New("schema plan conflicts with current state")
+
+type Service struct {
+	pool    *database.Pool
+	cache   *Cache
+	planner PlanBuilder
+}
+
+func NewService(pool *database.Pool, cache *Cache, planner PlanBuilder) *Service {
+	if cache == nil {
+		cache = &Cache{}
+	}
+	if planner == nil {
+		planner = Planner{}
+	}
+	return &Service{pool: pool, cache: cache, planner: planner}
+}
+
+func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (Plan, error) {
+	catalog, err := s.Catalog(ctx)
+	if err != nil {
+		return Plan{}, err
+	}
+	return s.planner.PlanCreate(catalog.Version, input)
+}
+
+func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, checksum string, administratorID uuid.UUID) (Collection, error) {
+	if err := s.ready(); err != nil {
+		return Collection{}, err
+	}
+	var created Collection
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
+			return fmt.Errorf("set schema lock timeout: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
+			return fmt.Errorf("acquire schema advisory lock: %w", err)
+		}
+
+		store := NewStore(tx)
+		version, err := store.SchemaVersion(ctx)
+		if err != nil {
+			return err
+		}
+		plan, err := s.planner.PlanCreate(version, input)
+		if err != nil {
+			return err
+		}
+		if plan.Checksum != checksum {
+			return ErrConflict
+		}
+		exists, err := store.CollectionExists(ctx, plan.Definition.Name, plan.Definition.TableName)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return ErrConflict
+		}
+
+		created, err = newCollectionMetadata(plan.Definition)
+		if err != nil {
+			return err
+		}
+		var createdAt time.Time
+		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&createdAt); err != nil {
+			return fmt.Errorf("read schema application timestamp: %w", err)
+		}
+		createdAt = createdAt.UTC()
+		created.CreatedAt = createdAt
+		started := time.Now()
+		for _, statement := range plan.Statements {
+			if _, err := tx.Exec(ctx, statement); err != nil {
+				return classifyApplyError(fmt.Errorf("execute collection DDL: %w", err))
+			}
+		}
+		if err := store.InsertCollection(ctx, created, plan.Definition, createdAt); err != nil {
+			return classifyApplyError(err)
+		}
+		checksumBytes, err := hex.DecodeString(checksum)
+		if err != nil || len(checksumBytes) != 32 {
+			return ErrConflict
+		}
+		operationID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generate schema operation ID: %w", err)
+		}
+		newVersion := version + 1
+		executionMS := time.Since(started).Milliseconds()
+		if err := store.InsertMigration(ctx, newVersion, operationID, plan, checksumBytes, administratorID, createdAt, executionMS); err != nil {
+			return classifyApplyError(err)
+		}
+		persistedVersion, err := store.IncrementVersion(ctx)
+		if err != nil {
+			return err
+		}
+		if persistedVersion != newVersion {
+			return fmt.Errorf("schema version increment mismatch")
+		}
+		if _, err := tx.Exec(ctx, "select pg_notify('pgbase_schema_changed', $1)", strconv.FormatInt(newVersion, 10)); err != nil {
+			return fmt.Errorf("notify schema change: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return Collection{}, err
+	}
+	if _, err := s.Catalog(ctx); err != nil {
+		return Collection{}, fmt.Errorf("reload catalog after schema application: %w", err)
+	}
+	return created, nil
+}
+
+func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog, error) {
+	if s == nil || s.cache == nil || tx == nil {
+		return Catalog{}, fmt.Errorf("schema catalog is unavailable")
+	}
+	store := NewStore(tx)
+	version, err := store.SchemaVersion(ctx)
+	if err != nil {
+		return Catalog{}, err
+	}
+	current := s.cache.Load()
+	if current.Version == version {
+		return current, nil
+	}
+	catalog, err := store.ReadCatalog(ctx, version)
+	if err != nil {
+		return Catalog{}, err
+	}
+	s.cache.Replace(catalog)
+	return s.cache.Load(), nil
+}
+
+func (s *Service) Catalog(ctx context.Context) (Catalog, error) {
+	if err := s.ready(); err != nil {
+		return Catalog{}, err
+	}
+	var catalog Catalog
+	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		var err error
+		catalog, err = s.EnsureCurrent(ctx, tx)
+		return err
+	})
+	return catalog, err
+}
+
+func (s *Service) ready() error {
+	if s == nil || s.pool == nil || s.cache == nil || s.planner == nil {
+		return fmt.Errorf("schema service is unavailable")
+	}
+	return nil
+}
+
+func newCollectionMetadata(definition PlannedCollection) (Collection, error) {
+	collectionID, err := uuid.NewV7()
+	if err != nil {
+		return Collection{}, fmt.Errorf("generate collection ID: %w", err)
+	}
+	collection := Collection{
+		ID: collectionID, Name: definition.Name, TableName: definition.TableName,
+		Fields: make([]Field, 0, len(definition.Fields)),
+	}
+	for _, planned := range definition.Fields {
+		fieldID, err := uuid.NewV7()
+		if err != nil {
+			return Collection{}, fmt.Errorf("generate field ID: %w", err)
+		}
+		collection.Fields = append(collection.Fields, Field{
+			ID: fieldID, Name: planned.Name, ColumnName: planned.Name, Type: planned.Type,
+			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
+			Default: append([]byte(nil), planned.Default...), Ordinal: planned.Ordinal,
+		})
+	}
+	return collection, nil
+}
+
+func classifyApplyError(err error) error {
+	if database.Classify(err) == database.KindConflict {
+		return ErrConflict
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && (postgresError.Code == "42P07" || postgresError.Code == "42710") {
+		return ErrConflict
+	}
+	return err
+}
