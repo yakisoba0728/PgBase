@@ -49,11 +49,15 @@ func TestMain(m *testing.M) {
 	suite = configured
 	if output, err := suite.compose(context.Background(), "up", "-d", "--build"); err != nil {
 		fmt.Fprintf(os.Stderr, "start e2e compose project: %v\n%s\n", err, output)
+		suite.writeFailureLogs()
 		suite.cleanup()
 		os.Exit(1)
 	}
 	code := 1
 	defer func() {
+		if code != 0 {
+			suite.writeFailureLogs()
+		}
 		suite.cleanup()
 		os.Exit(code)
 	}()
@@ -292,6 +296,17 @@ func (s e2eSuite) cleanup() {
 	if output, err := s.docker(ctx, "image", "rm", s.image); err != nil && !strings.Contains(output, "No such image") {
 		fmt.Fprintf(os.Stderr, "remove e2e image: %v\n%s\n", err, output)
 	}
+}
+
+func (s e2eSuite) writeFailureLogs() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	output, err := s.compose(ctx, "logs", "--no-color", "pgbase", "postgres")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "capture e2e service logs: %v\n%s\n", err, output)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "e2e service logs:\n%s\n", output)
 }
 
 func (s e2eSuite) startInstance(t *testing.T, ctx context.Context, suffix string, shutdownTimeout time.Duration) (string, string) {

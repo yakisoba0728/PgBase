@@ -1,0 +1,87 @@
+name: Backend
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go / PostgreSQL ${{ matrix.postgres.version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres:
+          - version: "16.13"
+            image: postgres:16.13-bookworm
+          - version: "17"
+            image: postgres:17.9-bookworm
+          - version: "18"
+            image: postgres:18.3-bookworm
+    services:
+      postgres:
+        image: ${{ matrix.postgres.image }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify formatting
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -race ./... 2>&1 | tee go-test.log
+
+      - name: Record benchmark baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/query -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
+
+      - name: Upload benchmark baseline
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-postgresql-${{ matrix.postgres.version }}
+          path: benchmark.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload failed backend logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-failure-postgresql-${{ matrix.postgres.version }}
+          path: go-test.log
+          if-no-files-found: warn
+          retention-days: 14

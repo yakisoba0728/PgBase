@@ -1,0 +1,77 @@
+name: End to end
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Generate isolated Compose configuration
+        shell: bash
+        run: |
+          echo "COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "PGBASE_IMAGE=pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "PGBASE_HTTP_PORT=18090" >> "$GITHUB_ENV"
+          echo "PGBASE_POSTGRES_PORT=15432" >> "$GITHUB_ENV"
+          echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090" >> "$GITHUB_ENV"
+          echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+
+      - name: Build image
+        run: docker compose -f deployments/docker-compose.yml build
+
+      - name: Start isolated PostgreSQL 16.13 project
+        run: docker compose -f deployments/docker-compose.yml up -d --wait
+
+      - name: Verify hardened runtime
+        shell: bash
+        run: |
+          container_id="$(docker compose -f deployments/docker-compose.yml ps -q pgbase)"
+          test -n "$container_id"
+          test "$(docker inspect --format '{{.Config.User}}' "$container_id")" = "nonroot:nonroot"
+          if docker run --rm --entrypoint /bin/sh "$PGBASE_IMAGE" -c true; then
+            echo "image unexpectedly contains a shell" >&2
+            exit 1
+          fi
+
+      - name: Run black-box tests
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -tags=e2e ./tests/e2e -v 2>&1 | tee e2e.log
+
+      - name: Capture service logs
+        if: failure()
+        run: docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+
+      - name: Upload failed E2E logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-failure-logs
+          path: |
+            e2e.log
+            compose.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove isolated Compose resources
+        if: always()
+        run: docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local

@@ -11,6 +11,7 @@ var (
 	urlQuerySecret   = regexp.MustCompile(`(?i)([?&](?:password|pass|token|access_token|setup_token|session_token)=)[^&#\s]*`)
 	keywordDSNSecret = regexp.MustCompile(`(?i)(\b(?:password|pass|token|access_token|setup_token|session_token)\s*=\s*)(?:'[^']*'|"[^"]*"|[^\s&]+)`)
 	headerSecret     = regexp.MustCompile(`(?i)((?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+`)
+	bearerSecret     = regexp.MustCompile(`(?i)(\bbearer\s+)[^\s,;]+`)
 	tokenSecret      = regexp.MustCompile(`(?i)((?:setup|session)[ _-]?token\s*[:=]\s*)[^\s,;]+`)
 )
 
@@ -20,6 +21,7 @@ func Redact(value string) string {
 	value = urlQuerySecret.ReplaceAllString(value, `${1}[REDACTED]`)
 	value = keywordDSNSecret.ReplaceAllString(value, `${1}[REDACTED]`)
 	value = headerSecret.ReplaceAllString(value, `${1}[REDACTED]`)
+	value = bearerSecret.ReplaceAllString(value, `${1}[REDACTED]`)
 	return tokenSecret.ReplaceAllString(value, `${1}[REDACTED]`)
 }
 
