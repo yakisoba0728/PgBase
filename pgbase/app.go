@@ -14,6 +14,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -158,12 +159,14 @@ func New(ctx context.Context, options Options) (*App, error) {
 		normalized.AdminSessionTTL,
 		nil,
 	)
+	recordService := query.NewService(pool, schemaService, normalized.TokenSecret)
 	handler := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
 		AdminAuth:          authService,
 		Schema:             schemaService,
+		Records:            recordService,
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
 		TokenSecret:        normalized.TokenSecret,
