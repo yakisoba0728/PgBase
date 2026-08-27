@@ -57,7 +57,7 @@ func TestRunKnownCommandFailuresReturnExitCodeOne(t *testing.T) {
 		{name: "nil handler", command: "serve", commands: CommandSet{}, want: "unavailable"},
 		{name: "handler error", command: "doctor", commands: CommandSet{Doctor: func(context.Context, []string, func(string) (string, bool), io.Writer, io.Writer) error {
 			return errors.New("database unavailable")
-		}}, want: "database unavailable"},
+		}}, want: "command failed"},
 	}
 
 	for _, tt := range tests {
@@ -68,6 +68,30 @@ func TestRunKnownCommandFailuresReturnExitCodeOne(t *testing.T) {
 				t.Fatalf("code=%d stderr=%q", code, stderr.String())
 			}
 		})
+	}
+}
+
+func TestRunSanitizesOperationalErrors(t *testing.T) {
+	const dsn = "postgres://admin:super-secret@db.example/pgbase"
+	const sqlState = "SQLSTATE 42P01"
+	const sql = "select secret_column from pgbase_meta.admins"
+
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"migrate"}, emptyEnv, io.Discard, &stderr, CommandSet{
+		Migrate: func(context.Context, []string, func(string) (string, bool), io.Writer, io.Writer) error {
+			return errors.New(dsn + ": " + sqlState + ": " + sql)
+		},
+	})
+	if code != 1 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if got, want := stderr.String(), "pgbase: command failed\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	for _, sensitive := range []string{dsn, "super-secret", sqlState, sql} {
+		if strings.Contains(stderr.String(), sensitive) {
+			t.Fatalf("stderr leaked %q: %q", sensitive, stderr.String())
+		}
 	}
 }
 
@@ -90,8 +114,25 @@ func TestMigrateRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "PGBASE_DATABASE_URL") {
+	if stderr.String() != "pgbase: invalid configuration\n" {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *testing.T) {
+	const databaseURL = "postgres://admin:super-secret@localhost/pgbase?pool_max_conns=not-a-number"
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), io.Discard, &stderr, DefaultCommands())
+	if code != 2 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if got, want := stderr.String(), "pgbase: invalid configuration\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	for _, sensitive := range []string{databaseURL, "super-secret", "not-a-number"} {
+		if strings.Contains(stderr.String(), sensitive) {
+			t.Fatalf("stderr leaked %q: %q", sensitive, stderr.String())
+		}
 	}
 }
 
