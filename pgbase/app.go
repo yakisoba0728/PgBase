@@ -23,8 +23,14 @@ type App struct {
 	handler    http.Handler
 	httpServer *http.Server
 	readiness  *readinessState
-	cleaner    *adminauth.Cleaner
+	cleaner    backgroundRunner
+	listen     func(string, string) (net.Listener, error)
 	closeOnce  sync.Once
+
+	lifecycleMu      sync.Mutex
+	lifecycleState   appLifecycleState
+	lifecycleClosing chan struct{}
+	startupDone      chan struct{}
 
 	closeMu          sync.Mutex
 	closeErr         error
@@ -32,6 +38,25 @@ type App struct {
 	backgroundDone   chan struct{}
 	backgroundErr    error
 }
+
+type backgroundRunner interface {
+	Run(context.Context) error
+}
+
+type appLifecycleState uint8
+
+const (
+	appLifecycleInactive appLifecycleState = iota
+	appLifecycleStarting
+	appLifecycleRunning
+	appLifecycleClosing
+	appLifecycleClosed
+)
+
+var (
+	errAppAlreadyStarted = errors.New("pgbase app has already been started")
+	errAppClosed         = errors.New("pgbase app is closing or closed")
+)
 
 type readinessState struct {
 	accepting    atomic.Bool
@@ -137,11 +162,13 @@ func New(ctx context.Context, options Options) (*App, error) {
 		TokenSecret:        normalized.TokenSecret,
 	})
 	app := &App{
-		options:   normalized,
-		pool:      pool,
-		handler:   handler,
-		readiness: readiness,
-		cleaner:   adminauth.NewCleaner(pool, nil),
+		options:          normalized,
+		pool:             pool,
+		handler:          handler,
+		readiness:        readiness,
+		cleaner:          adminauth.NewCleaner(pool, nil),
+		listen:           net.Listen,
+		lifecycleClosing: make(chan struct{}),
 	}
 	app.httpServer = &http.Server{
 		Addr:              normalized.HTTPAddress,
@@ -164,18 +191,26 @@ func (a *App) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	listener, err := net.Listen("tcp", a.options.HTTPAddress)
+	startupDone, err := a.beginStartup()
 	if err != nil {
+		return err
+	}
+	listen := a.listen
+	if listen == nil {
+		listen = net.Listen
+	}
+	listener, err := listen("tcp", a.options.HTTPAddress)
+	if err != nil {
+		a.finishStartup()
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		defer cancel()
 		return errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
 	}
 	serverDone := make(chan error, 1)
-	go func() {
-		serverDone <- a.httpServer.Serve(listener)
-	}()
-	backgroundDone := a.startBackground(ctx)
-	a.readiness.accepting.Store(true)
+	backgroundDone, activated := a.activateStartup(ctx, listener, serverDone, startupDone)
+	if !activated {
+		return errAppClosed
+	}
 
 	select {
 	case serverErr := <-serverDone:
@@ -213,6 +248,56 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
+func (a *App) beginStartup() (chan struct{}, error) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.lifecycleClosing == nil {
+		a.lifecycleClosing = make(chan struct{})
+	}
+	switch a.lifecycleState {
+	case appLifecycleInactive:
+		a.lifecycleState = appLifecycleStarting
+		a.startupDone = make(chan struct{})
+		return a.startupDone, nil
+	case appLifecycleStarting, appLifecycleRunning:
+		return nil, errAppAlreadyStarted
+	default:
+		return nil, errAppClosed
+	}
+}
+
+func (a *App) activateStartup(ctx context.Context, listener net.Listener, serverDone chan<- error, startupDone chan struct{}) (<-chan struct{}, bool) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
+		_ = listener.Close()
+		a.completeStartupLocked(startupDone)
+		return nil, false
+	}
+	backgroundDone := a.startBackground(ctx)
+	go func() {
+		serverDone <- a.httpServer.Serve(listener)
+	}()
+	a.readiness.accepting.Store(true)
+	a.lifecycleState = appLifecycleRunning
+	a.completeStartupLocked(startupDone)
+	return backgroundDone, true
+}
+
+func (a *App) finishStartup() {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	a.completeStartupLocked(a.startupDone)
+}
+
+func (a *App) completeStartupLocked(startupDone chan struct{}) {
+	if startupDone == nil || a.startupDone != startupDone {
+		return
+	}
+	close(startupDone)
+	a.startupDone = nil
+}
+
 func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -221,7 +306,10 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		err := a.cleaner.Run(runCtx)
+		var err error
+		if a.cleaner != nil {
+			err = a.cleaner.Run(runCtx)
+		}
 		if runCtx.Err() != nil && errors.Is(err, runCtx.Err()) {
 			err = nil
 		}
@@ -243,6 +331,10 @@ func (a *App) Close(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	a.closeOnce.Do(func() {
+		startupDone := a.beginClose()
+		if startupDone != nil {
+			<-startupDone
+		}
 		if a.readiness != nil {
 			a.readiness.accepting.Store(false)
 		}
@@ -269,8 +361,24 @@ func (a *App) Close(ctx context.Context) error {
 		a.closeMu.Lock()
 		a.closeErr = errors.Join(shutdownErr, a.backgroundErr)
 		a.closeMu.Unlock()
+		a.lifecycleMu.Lock()
+		a.lifecycleState = appLifecycleClosed
+		a.lifecycleMu.Unlock()
 	})
 	a.closeMu.Lock()
 	defer a.closeMu.Unlock()
 	return a.closeErr
+}
+
+func (a *App) beginClose() <-chan struct{} {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.lifecycleClosing == nil {
+		a.lifecycleClosing = make(chan struct{})
+	}
+	if a.lifecycleState < appLifecycleClosing {
+		a.lifecycleState = appLifecycleClosing
+		close(a.lifecycleClosing)
+	}
+	return a.startupDone
 }
