@@ -1,0 +1,151 @@
+// Package config loads pgBase settings from environment variables.
+package config
+
+import (
+	"encoding/base64"
+	"fmt"
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/webisnoteasy/PgBase/pgbase"
+)
+
+// LoadEnv reads pgBase configuration from lookup and validates it.
+func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
+	databaseURL, ok := value(lookup, "PGBASE_DATABASE_URL")
+	if !ok || databaseURL == "" {
+		return pgbase.Options{}, fmt.Errorf("PGBASE_DATABASE_URL: is required")
+	}
+
+	encodedSecret, ok := value(lookup, "PGBASE_TOKEN_SECRET")
+	if !ok || encodedSecret == "" {
+		return pgbase.Options{}, fmt.Errorf("PGBASE_TOKEN_SECRET: is required")
+	}
+	tokenSecret, err := base64.StdEncoding.DecodeString(encodedSecret)
+	if err != nil {
+		return pgbase.Options{}, fmt.Errorf("PGBASE_TOKEN_SECRET: decode base64: %w", err)
+	}
+	if len(tokenSecret) < 32 {
+		return pgbase.Options{}, fmt.Errorf("PGBASE_TOKEN_SECRET: must decode to at least 32 bytes")
+	}
+
+	opts := pgbase.Options{DatabaseURL: databaseURL, TokenSecret: tokenSecret}
+	if raw, ok := value(lookup, "PGBASE_HTTP_ADDRESS"); ok {
+		opts.HTTPAddress = raw
+	}
+	if raw, ok := value(lookup, "PGBASE_SETUP_TOKEN"); ok {
+		opts.SetupToken = raw
+	}
+	if raw, ok := value(lookup, "PGBASE_PUBLIC_URL"); ok && raw != "" {
+		origin, err := parseOrigin(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_PUBLIC_URL: %w", err)
+		}
+		opts.PublicURL = origin
+	}
+	if raw, ok := value(lookup, "PGBASE_AUTO_MIGRATE"); ok && raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_AUTO_MIGRATE: %w", err)
+		}
+		opts.AutoMigrate = parsed
+	}
+	if raw, ok := value(lookup, "PGBASE_TRUSTED_PROXIES"); ok && raw != "" {
+		prefixes, err := parsePrefixes(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_TRUSTED_PROXIES: %w", err)
+		}
+		opts.TrustedProxies = prefixes
+	}
+	if raw, ok := value(lookup, "PGBASE_CORS_ALLOWED_ORIGINS"); ok && raw != "" {
+		origins, err := parseOrigins(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_CORS_ALLOWED_ORIGINS: %w", err)
+		}
+		opts.CORSAllowedOrigins = origins
+	}
+	if err := parseDuration(lookup, "PGBASE_ADMIN_SESSION_TTL", &opts.AdminSessionTTL); err != nil {
+		return pgbase.Options{}, err
+	}
+	if err := parseDuration(lookup, "PGBASE_STATEMENT_TIMEOUT", &opts.StatementTimeout); err != nil {
+		return pgbase.Options{}, err
+	}
+	if err := parseDuration(lookup, "PGBASE_SHUTDOWN_TIMEOUT", &opts.ShutdownTimeout); err != nil {
+		return pgbase.Options{}, err
+	}
+
+	normalized, err := opts.Normalized()
+	if err != nil {
+		return pgbase.Options{}, fmt.Errorf("invalid pgBase configuration: %w", err)
+	}
+	return normalized, nil
+}
+
+func value(lookup func(string) (string, bool), key string) (string, bool) {
+	if lookup == nil {
+		return "", false
+	}
+	return lookup(key)
+}
+
+func parseDuration(lookup func(string) (string, bool), key string, target *time.Duration) error {
+	raw, ok := value(lookup, key)
+	if !ok || raw == "" {
+		return nil
+	}
+	duration, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*target = duration
+	return nil
+}
+
+func parsePrefixes(raw string) ([]netip.Prefix, error) {
+	parts := strings.Split(raw, ",")
+	prefixes := make([]netip.Prefix, 0, len(parts))
+	for _, part := range parts {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(part))
+		if err != nil || prefix != prefix.Masked() {
+			return nil, fmt.Errorf("invalid CIDR prefix %q", part)
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
+}
+
+func parseOrigins(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin, err := parseOrigin(strings.TrimSpace(part))
+		if err != nil {
+			return nil, err
+		}
+		origins = append(origins, origin.String())
+	}
+	return origins, nil
+}
+
+func parseOrigin(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("must use http or https")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.Opaque != "" {
+		return nil, fmt.Errorf("must be an origin")
+	}
+	if parsed.Path != "" || parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("must not include a path, query, or fragment")
+	}
+	if strings.Contains(parsed.Host, "*") {
+		return nil, fmt.Errorf("must not contain a wildcard")
+	}
+	return parsed, nil
+}
