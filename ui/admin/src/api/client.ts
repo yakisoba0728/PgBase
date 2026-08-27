@@ -62,7 +62,7 @@ export class APIClient {
     const response = await fetch(path, {
       ...init,
       headers,
-      credentials: "same-origin",
+      credentials: "include",
     });
     if (response.ok) {
       if (response.status === 204) return undefined as T;

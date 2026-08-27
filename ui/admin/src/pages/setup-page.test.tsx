@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe("APIClient", () => {
-  it("sends same-origin JSON requests and decodes field errors without retrying a POST", async () => {
+  it("sends credential-included JSON requests and decodes field errors without retrying a POST", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(400, {
       error: {
         code: "validation_failed",
@@ -54,7 +54,7 @@ describe("APIClient", () => {
     const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/api/admin/setup");
     expect(options.method).toBe("POST");
-    expect(options.credentials).toBe("same-origin");
+    expect(options.credentials).toBe("include");
     expect(new Headers(options.headers).get("Content-Type")).toBe("application/json");
   });
 
@@ -70,7 +70,7 @@ describe("APIClient", () => {
     const [logoutPath, logoutOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(logoutPath).toBe("/api/admin/session");
     expect(logoutOptions.method).toBe("DELETE");
-    expect(logoutOptions.credentials).toBe("same-origin");
+    expect(logoutOptions.credentials).toBe("include");
     expect(new Headers(logoutOptions.headers).get("X-CSRF-Token")).toBe("csrf-token");
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/session", expect.objectContaining({ signal }));
   });
@@ -89,17 +89,25 @@ describe("administrator setup", () => {
     expect(await screen.findByText("Setup token is required.")).toBeVisible();
     expect(screen.getByText("Email is required.")).toBeVisible();
     expect(screen.getByText("Password is required.")).toBeVisible();
+    expect(screen.getByLabelText("Setup token")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Setup token")).toHaveAttribute("aria-describedby", "setup-token-error");
+    expect(screen.getByLabelText("Setup token")).toHaveFocus();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    await user.type(screen.getByLabelText("Setup token"), "first-run-token");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.type(screen.getByLabelText("Confirm password"), "different password");
     await user.click(screen.getByRole("button", { name: "Create administrator" }));
 
     expect(await screen.findByText("Passwords do not match.")).toBeVisible();
+    expect(screen.getByLabelText("Confirm password")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Confirm password")).toHaveAttribute("aria-describedby", "confirmation-error");
+    expect(screen.getByLabelText("Confirm password")).toHaveFocus();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("shows server field errors, clears password fields, and disables submit while pending", async () => {
+  it("allowlists server field errors, clears password fields, and focuses the first invalid field", async () => {
     let resolveSetup: ((value: Response) => void) | undefined;
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(setupRequired())
@@ -117,10 +125,20 @@ describe("administrator setup", () => {
 
     expect(screen.getByRole("button", { name: "Creating administrator…" })).toBeDisabled();
     resolveSetup?.(response(400, {
-      error: { code: "validation_failed", message: "Authentication input is invalid", details: { email: ["invalid"] } },
+      error: {
+        code: "validation_failed",
+        message: "unsafe internal detail",
+        details: { setupToken: ["invalid"], email: ["invalid"], password: ["too_short"], unknown: ["raw detail"] },
+      },
     }));
 
+    expect(await screen.findByText("Setup token is invalid.")).toBeVisible();
     expect(await screen.findByText("Enter a valid email address.")).toBeVisible();
+    expect(screen.getByText("Password does not meet requirements.")).toBeVisible();
+    expect(screen.queryByText("unsafe internal detail")).not.toBeInTheDocument();
+    expect(screen.queryByText("raw detail")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Setup token")).toHaveAttribute("aria-describedby", "setup-token-error");
+    expect(screen.getByLabelText("Setup token")).toHaveFocus();
     expect(screen.getByLabelText("Password")).toHaveValue("");
     expect(screen.getByLabelText("Confirm password")).toHaveValue("");
   });

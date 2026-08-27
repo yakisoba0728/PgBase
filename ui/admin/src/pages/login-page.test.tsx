@@ -36,6 +36,9 @@ describe("administrator login", () => {
 
     expect(await screen.findByText("Email is required.")).toBeVisible();
     expect(screen.getByText("Password is required.")).toBeVisible();
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-describedby", "email-error");
+    expect(screen.getByLabelText("Email")).toHaveFocus();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -63,6 +66,7 @@ describe("administrator login", () => {
     expect(await screen.findByText("Email or password is incorrect.")).toBeVisible();
     expect(screen.queryByText("unsafe internal detail")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByRole("alert")).toHaveFocus();
   });
 
   it("moves to the authenticated shell after a successful login", async () => {

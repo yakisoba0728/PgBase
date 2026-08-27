@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APIClientError } from "../api/client";
 import type { LoginInput } from "../api/types";
 
@@ -12,6 +12,15 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const formErrorRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (errors.email) emailRef.current?.focus();
+    else if (errors.password) passwordRef.current?.focus();
+    else if (errors.form) formErrorRef.current?.focus();
+  }, [errors]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,13 +53,13 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
       <h1 id="login-title">Sign in to pgBase</h1>
       <form noValidate onSubmit={submit}>
         {sessionError && <p className="form-error" role="alert">{sessionError}</p>}
-        {errors.form && <p className="form-error" role="alert">{errors.form}</p>}
+        {errors.form && <p className="form-error" id="login-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{errors.form}</p>}
         <label htmlFor="email">Email</label>
-        <input id="email" type="email" autoComplete="email" disabled={pending} onChange={(event) => setEmail(event.target.value)} value={email} />
-        {errors.email && <p className="field-error">{errors.email}</p>}
+        <input aria-describedby={errors.email ? "email-error" : undefined} aria-invalid={errors.email ? true : undefined} id="email" type="email" autoComplete="email" disabled={pending} onChange={(event) => setEmail(event.target.value)} ref={emailRef} value={email} />
+        {errors.email && <p className="field-error" id="email-error">{errors.email}</p>}
         <label htmlFor="password">Password</label>
-        <input id="password" type="password" autoComplete="current-password" disabled={pending} onChange={(event) => setPassword(event.target.value)} value={password} />
-        {errors.password && <p className="field-error">{errors.password}</p>}
+        <input aria-describedby={errors.password ? "password-error" : undefined} aria-invalid={errors.password ? true : undefined} id="password" type="password" autoComplete="current-password" disabled={pending} onChange={(event) => setPassword(event.target.value)} ref={passwordRef} value={password} />
+        {errors.password && <p className="field-error" id="password-error">{errors.password}</p>}
         <button disabled={pending} type="submit">{pending ? "Signing in…" : "Sign in"}</button>
       </form>
     </section>
