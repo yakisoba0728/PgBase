@@ -62,7 +62,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setPending(true);
     setError(null);
     try {
-      await collections.apply(plannedInput, plan.checksum);
+      await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
       navigate("/admin/collections");
     } catch (caught: unknown) {
       if (caught instanceof APIClientError && caught.status === 409) {

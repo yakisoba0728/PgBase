@@ -64,7 +64,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
 	}}
 	handler := NewRouter(schemaTestDependencies(auth, schemas))
-	body := `{"name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum"}`
+	body := `{"name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
 
 	missingCSRF := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(body))
 	missingCSRF.Host = "admin.example.com"
@@ -78,6 +78,19 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	}
 	assertErrorCode(t, missingResponse.Body.Bytes(), "csrf_rejected")
 
+	missingBaseVersion := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"name":"posts","fields":[],"checksum":"fixed-checksum"}`))
+	missingBaseVersion.Host = "admin.example.com"
+	missingBaseVersion.Header.Set("Content-Type", "application/json")
+	missingBaseVersion.Header.Set("Origin", "https://admin.example.com")
+	missingBaseVersion.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
+	missingBaseVersion.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	missingBaseResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingBaseResponse, missingBaseVersion)
+	if missingBaseResponse.Code != http.StatusBadRequest || schemas.applyCalls != 0 {
+		t.Fatalf("missing baseVersion status=%d apply calls=%d body=%s", missingBaseResponse.Code, schemas.applyCalls, missingBaseResponse.Body.String())
+	}
+	assertErrorCode(t, missingBaseResponse.Body.Bytes(), "invalid_request")
+
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(body))
 	request.Host = "admin.example.com"
 	request.Header.Set("Content-Type", "application/json")
@@ -90,8 +103,8 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
 	}
-	if schemas.applyCalls != 1 || schemas.applyInput.Name != "posts" || schemas.applyChecksum != "fixed-checksum" || schemas.applyAdministratorID != administrator.ID {
-		t.Fatalf("apply call input=%+v checksum=%q administrator=%s", schemas.applyInput, schemas.applyChecksum, schemas.applyAdministratorID)
+	if schemas.applyCalls != 1 || schemas.applyInput.Name != "posts" || schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 7 || schemas.applyAdministratorID != administrator.ID {
+		t.Fatalf("apply call input=%+v checksum=%q baseVersion=%d administrator=%s", schemas.applyInput, schemas.applyChecksum, schemas.applyBaseVersion, schemas.applyAdministratorID)
 	}
 	var responseBody struct {
 		ID   uuid.UUID `json:"id"`
@@ -176,7 +189,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrConflict}
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"name":"posts","checksum":"x"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"name":"posts","checksum":"x","baseVersion":0}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://admin.example.com")
@@ -204,6 +217,7 @@ type fakeSchemaService struct {
 	planInput            schema.CreateCollectionInput
 	applyInput           schema.CreateCollectionInput
 	applyChecksum        string
+	applyBaseVersion     int64
 	applyAdministratorID uuid.UUID
 }
 
@@ -213,10 +227,11 @@ func (f *fakeSchemaService) PlanCreate(_ context.Context, input schema.CreateCol
 	return f.plan, f.planErr
 }
 
-func (f *fakeSchemaService) ApplyCreate(_ context.Context, input schema.CreateCollectionInput, checksum string, administratorID uuid.UUID) (schema.Collection, error) {
+func (f *fakeSchemaService) ApplyCreate(_ context.Context, input schema.CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
 	f.applyCalls++
 	f.applyInput = input
 	f.applyChecksum = checksum
+	f.applyBaseVersion = baseVersion
 	f.applyAdministratorID = administratorID
 	return f.applied, f.applyErr
 }

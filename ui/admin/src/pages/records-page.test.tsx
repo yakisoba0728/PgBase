@@ -23,6 +23,29 @@ function response(status: number, body?: unknown): Response {
 
 function session(): Response { return response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }); }
 
+const settingsCatalog = { version: 5, collections: { settings: { id: "settings", name: "settings", tableName: "settings", fields: [
+  { name: "defaulted", type: "bigint", required: false, unique: false, indexed: false, default: "7", ordinal: 0 },
+  { name: "nullable_flag", type: "boolean", required: false, unique: false, indexed: false, ordinal: 1 },
+  { name: "false_flag", type: "boolean", required: false, unique: false, indexed: false, ordinal: 2 },
+  { name: "empty_text", type: "text", required: false, unique: false, indexed: false, ordinal: 3 },
+  { name: "required_empty_text", type: "text", required: true, unique: false, indexed: false, ordinal: 4 },
+] } } };
+
+async function openSettingsCreate() {
+  window.history.replaceState(null, "", "/admin/collections/settings/records/new");
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(session())
+    .mockResolvedValueOnce(response(200, settingsCatalog))
+    .mockResolvedValueOnce(response(201, { id: recordID }))
+    .mockResolvedValueOnce(response(200, settingsCatalog))
+    .mockResolvedValueOnce(response(200, { items: [] }));
+  vi.stubGlobal("fetch", fetchMock);
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByRole("heading", { name: "Create settings record" });
+  return { fetchMock, user };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -62,13 +85,14 @@ describe("record administration", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Create posts record" });
+    for (const field of fields) await user.selectOptions(await screen.findByLabelText(`${field.name} state`), "value");
     await user.click(await screen.findByLabelText("enabled"));
     await user.type(screen.getByLabelText("count"), "42");
     await user.type(screen.getByLabelText("views"), "9223372036854775807");
     await user.type(screen.getByLabelText("amount"), "12345678901234567890.12345678901234567890");
     await user.type(screen.getByLabelText("title"), "hello");
     await user.type(screen.getByLabelText("published_at"), "2026-08-28T12:34:56Z");
-    await user.type(screen.getByLabelText("external_id"), "12345678-1234-4567-8901-123456789ABC");
+    await user.type(screen.getByLabelText("external_id"), "ABCDEFAB-CDEF-0ABC-0DEF-ABCDEFABCDEF");
     fireEvent.change(screen.getByLabelText("metadata"), { target: { value: "{\"tags\":[\"safe\"],\"rank\":2}" } });
     await user.click(screen.getByRole("button", { name: "Create record" }));
 
@@ -82,10 +106,72 @@ describe("record administration", () => {
       amount: "12345678901234567890.12345678901234567890",
       title: "hello",
       published_at: "2026-08-28T12:34:56.000Z",
-      external_id: "12345678-1234-4567-8901-123456789abc",
+      external_id: "abcdefab-cdef-0abc-0def-abcdefabcdef",
       metadata: { tags: ["safe"], rank: 2 },
     });
     expect(new Headers(options.headers).get("X-PgBase-CSRF")).toBe("csrf-token");
+  });
+
+  it("omits untouched fields so database defaults can apply", async () => {
+    const { fetchMock, user } = await openSettingsCreate();
+    expect(await screen.findByLabelText("defaulted state")).toHaveValue("unset");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({});
+  });
+
+  it("distinguishes a nullable boolean from a concrete false boolean", async () => {
+    const { fetchMock, user } = await openSettingsCreate();
+    await user.selectOptions(screen.getByLabelText("nullable_flag state"), "null");
+    await user.selectOptions(screen.getByLabelText("false_flag state"), "value");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({ nullable_flag: null, false_flag: false });
+  });
+
+  it("submits optional and required empty text as concrete strings instead of null", async () => {
+    const { fetchMock, user } = await openSettingsCreate();
+    await user.selectOptions(screen.getByLabelText("empty_text state"), "value");
+    await user.selectOptions(screen.getByLabelText("required_empty_text state"), "value");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({ empty_text: "", required_empty_text: "" });
+  });
+
+  it("accepts nil and mixed-case canonical UUID values and normalizes case", async () => {
+    window.history.replaceState(null, "", "/admin/collections/ids/records/new");
+    const idsCatalog = { version: 6, collections: { ids: { id: "ids", name: "ids", tableName: "ids", fields: [
+      { name: "nil_id", type: "uuid", required: true, unique: false, indexed: false, ordinal: 0 },
+      { name: "mixed_id", type: "uuid", required: true, unique: false, indexed: false, ordinal: 1 },
+    ] } } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, idsCatalog))
+      .mockResolvedValueOnce(response(201, { id: recordID }))
+      .mockResolvedValueOnce(response(200, idsCatalog))
+      .mockResolvedValueOnce(response(200, { items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.selectOptions(await screen.findByLabelText("nil_id state"), "value");
+    await user.selectOptions(screen.getByLabelText("mixed_id state"), "value");
+    await user.type(screen.getByLabelText("nil_id"), "00000000-0000-0000-0000-000000000000");
+    await user.type(screen.getByLabelText("mixed_id"), "ABCDEFAB-CDEF-0ABC-0DEF-ABCDEFABCDEF");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({
+      nil_id: "00000000-0000-0000-0000-000000000000",
+      mixed_id: "abcdefab-cdef-0abc-0def-abcdefabcdef",
+    });
   });
 
   it("validates JSONB locally, sends partial updates, and shows safe 422 field errors", async () => {
@@ -105,7 +191,7 @@ describe("record administration", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Edit posts record" });
-    expect(screen.getByLabelText("views")).toHaveValue("9223372036854775807");
+    expect(await screen.findByLabelText("views")).toHaveValue("9223372036854775807");
     expect(screen.getByLabelText("amount")).toHaveValue("1.2300");
     await user.clear(screen.getByLabelText("metadata"));
     await user.type(screen.getByLabelText("metadata"), "not json");

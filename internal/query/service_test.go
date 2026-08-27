@@ -180,7 +180,7 @@ func applyRecordCollection(t *testing.T, schemas *schema.Service, input schema.C
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
+	if _, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -54,11 +54,11 @@ export class CollectionsAPI {
     });
   }
 
-  apply(input: CreateCollectionInput, checksum: string): Promise<CollectionDefinition> {
+  apply(input: CreateCollectionInput, checksum: string, baseVersion: number): Promise<CollectionDefinition> {
     return this.client.request<CollectionDefinition>("/api/admin/collections/apply", {
       method: "POST",
       headers: { "X-PgBase-CSRF": this.csrfToken },
-      body: JSON.stringify({ ...input, checksum }),
+      body: JSON.stringify({ ...input, checksum, baseVersion }),
     });
   }
 }

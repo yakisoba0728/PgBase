@@ -77,6 +77,7 @@ describe("collection creation", () => {
     expect(applyPath).toBe("/api/admin/collections/apply");
     expect(JSON.parse(applyOptions.body as string)).toEqual({
       ...(plannedInput as object),
+      baseVersion: 7,
       checksum: "server-checksum",
     });
     expect(new Headers(applyOptions.headers).get("X-PgBase-CSRF")).toBe("csrf-token");
@@ -117,5 +118,7 @@ describe("collection creation", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("The catalog changed. Preview the collection again before applying.");
     expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Apply collection" })).not.toBeInTheDocument();
+    const [, conflictOptions] = fetchMock.mock.calls[3] as [string, RequestInit];
+    expect(JSON.parse(conflictOptions.body as string)).toMatchObject({ checksum: "checksum-one", baseVersion: 3 });
   });
 });

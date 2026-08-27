@@ -42,7 +42,7 @@ func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (
 	return s.planner.PlanCreate(catalog.Version, input)
 }
 
-func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, checksum string, administratorID uuid.UUID) (Collection, error) {
+func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (Collection, error) {
 	if err := s.ready(); err != nil {
 		return Collection{}, err
 	}
@@ -59,6 +59,9 @@ func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, 
 		version, err := store.SchemaVersion(ctx)
 		if err != nil {
 			return err
+		}
+		if version != baseVersion {
+			return ErrConflict
 		}
 		catalog, err := store.ReadCatalog(ctx, version)
 		if err != nil {

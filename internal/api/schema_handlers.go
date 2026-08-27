@@ -14,7 +14,7 @@ import (
 
 type SchemaService interface {
 	PlanCreate(context.Context, schema.CreateCollectionInput) (schema.Plan, error)
-	ApplyCreate(context.Context, schema.CreateCollectionInput, string, uuid.UUID) (schema.Collection, error)
+	ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error)
 	Catalog(context.Context) (schema.Catalog, error)
 }
 
@@ -91,11 +91,12 @@ func (e schemaEndpoints) planCreate(w http.ResponseWriter, r *http.Request) {
 
 func (e schemaEndpoints) applyCreate(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Name     string              `json:"name"`
-		Fields   []schema.FieldInput `json:"fields"`
-		Checksum string              `json:"checksum"`
+		Name        string              `json:"name"`
+		Fields      []schema.FieldInput `json:"fields"`
+		Checksum    string              `json:"checksum"`
+		BaseVersion *int64              `json:"baseVersion"`
 	}
-	if err := decodeStrictJSON(r, &request); err != nil {
+	if err := decodeStrictJSON(r, &request); err != nil || request.BaseVersion == nil {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
@@ -108,7 +109,7 @@ func (e schemaEndpoints) applyCreate(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
-	collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.Fields}, request.Checksum, principal.Administrator.ID)
+	collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.Fields}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return

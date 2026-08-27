@@ -30,7 +30,7 @@ func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
-	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
 	if err != nil {
 		t.Fatalf("apply create: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyCreate(context.Background(), input, second.Checksum, administratorID)
+	_, err = service.ApplyCreate(context.Background(), input, second.Checksum, second.BaseVersion, administratorID)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate apply error = %v, want ErrConflict", err)
 	}
@@ -104,6 +104,20 @@ func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T)
 }
 
 func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
+	t.Run("explicit base version mismatch", func(t *testing.T) {
+		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+		plan, err := service.PlanCreate(context.Background(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion+1, administratorID)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("base-version mismatch error = %v, want ErrConflict", err)
+		}
+		assertSchemaCounts(t, pool, schemaCounts{})
+	})
+
 	t.Run("stale base version", func(t *testing.T) {
 		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
 		staleInput := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
@@ -113,7 +127,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 		}
 		applyFreshPlan(t, service, CreateCollectionInput{Name: "pages"}, administratorID)
 
-		_, err = service.ApplyCreate(context.Background(), staleInput, stalePlan.Checksum, administratorID)
+		_, err = service.ApplyCreate(context.Background(), staleInput, stalePlan.Checksum, stalePlan.BaseVersion, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("stale apply error = %v, want ErrConflict", err)
 		}
@@ -122,7 +136,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 
 	t.Run("wrong checksum", func(t *testing.T) {
 		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
-		_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "posts"}, "wrong-checksum", administratorID)
+		_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "posts"}, "wrong-checksum", 0, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
 		}
@@ -142,7 +156,7 @@ func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 		},
 	}
 	pool, service, administratorID := newSchemaServiceTest(t, fixedPlanBuilder{plan: plan})
-	_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "broken"}, plan.Checksum, administratorID)
+	_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "broken"}, plan.Checksum, plan.BaseVersion, administratorID)
 	if err == nil {
 		t.Fatal("invalid DDL apply succeeded")
 	}
@@ -172,7 +186,7 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			<-start
-			_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+			_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
 			results <- applyErr
 		}()
 	}
@@ -241,7 +255,7 @@ func TestApplyCreateValidatesCompleteCatalogCommittedBeforeLockedSnapshot(t *tes
 
 	applyResult := make(chan error, 1)
 	go func() {
-		_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+		_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
 		applyResult <- applyErr
 	}()
 	waitForAdvisoryLockWaiter(t, pool)
@@ -337,7 +351,7 @@ func applyFreshPlan(t *testing.T, service *Service, input CreateCollectionInput,
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
-	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, administratorID)
+	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
 	if err != nil {
 		t.Fatalf("apply create: %v", err)
 	}

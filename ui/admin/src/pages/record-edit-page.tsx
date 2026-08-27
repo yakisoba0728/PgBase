@@ -4,12 +4,26 @@ import type { CollectionDefinition, FieldDefinition } from "../api/collections";
 import type { RecordData, RecordValue } from "../api/records";
 import { useSession } from "../auth/session";
 
-type Draft = Record<string, string | boolean>;
+type FieldState =
+  | { kind: "unset" }
+  | { kind: "null" }
+  | { kind: "value"; value: string | boolean };
+type Draft = Record<string, FieldState>;
 
 function draftValue(field: FieldDefinition, value: RecordValue | undefined): string | boolean {
   if (field.type === "boolean") return value === true;
   if (field.type === "jsonb") return value === undefined || value === null ? "" : JSON.stringify(value, null, 2);
   return value === undefined || value === null ? "" : String(value);
+}
+
+function initialState(field: FieldDefinition, value: RecordValue | undefined, isCreate: boolean): FieldState {
+  if (isCreate) return { kind: "unset" };
+  if (value === null || value === undefined) return { kind: "null" };
+  return { kind: "value", value: draftValue(field, value) };
+}
+
+function sameState(left: FieldState | undefined, right: FieldState | undefined): boolean {
+  return left?.kind === right?.kind && (left?.kind !== "value" || right?.kind !== "value" || left.value === right.value);
 }
 
 function encodeValue(field: FieldDefinition, value: string | boolean): RecordValue {
@@ -26,7 +40,7 @@ function encodeValue(field: FieldDefinition, value: string | boolean): RecordVal
     return parsed.toISOString();
   }
   if (field.type === "uuid") {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) throw new Error("type");
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(text)) throw new Error("type");
     return text.toLowerCase();
   }
   return JSON.parse(text) as RecordValue;
@@ -57,7 +71,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       let record: RecordData = {};
       if (id) record = await records.get(collectionName, id, controller.signal);
       const values: Draft = {};
-      for (const field of definition.fields) values[field.name] = draftValue(field, record[field.name]);
+      for (const field of definition.fields) values[field.name] = initialState(field, record[field.name], isCreate);
       setDraft(values);
       setInitial(values);
     }).catch((caught: unknown) => {
@@ -66,9 +80,9 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       else setMessage("Unable to load the record editor.");
     });
     return () => controller.abort();
-  }, [collectionName, collections, id, records]);
+  }, [collectionName, collections, id, isCreate, records]);
 
-  const dirty = useMemo(() => new Set(Object.keys(draft).filter((name) => draft[name] !== initial[name])), [draft, initial]);
+  const dirty = useMemo(() => new Set(Object.keys(draft).filter((name) => !sameState(draft[name], initial[name]))), [draft, initial]);
 
   async function save() {
     if (!collection) return;
@@ -76,10 +90,10 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
     const input: RecordData = {};
     for (const field of collection.fields) {
       if (!isCreate && !dirty.has(field.name)) continue;
-      const value = draft[field.name];
-      if (value === "" && field.required) { nextErrors[field.name] = "This field is required."; continue; }
-      if (value === "" && field.type !== "boolean") { input[field.name] = null; continue; }
-      try { input[field.name] = encodeValue(field, value); }
+      const state = draft[field.name] ?? { kind: "unset" };
+      if (state.kind === "unset") continue;
+      if (state.kind === "null") { input[field.name] = null; continue; }
+      try { input[field.name] = encodeValue(field, state.value); }
       catch { nextErrors[field.name] = field.type === "jsonb" ? "Enter valid JSON." : "Value does not match the field type."; }
     }
     setErrors(nextErrors);
@@ -114,13 +128,28 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
     {message && <p role="alert">{message}</p>}
     {!collection && !message && <p aria-live="polite">Loading record…</p>}
     {collection && <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      {collection.fields.slice().sort((a, b) => a.ordinal - b.ordinal).map((field) => <div className="record-field" key={field.name}>
+      {collection.fields.slice().sort((a, b) => a.ordinal - b.ordinal).map((field) => {
+        const state = draft[field.name] ?? { kind: "unset" };
+        return <div className="record-field" key={field.name}>
+        <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
+        <select aria-describedby={errors[field.name] ? `record-${field.name}-error` : undefined} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}-state`} onChange={(event) => {
+          const kind = event.target.value as FieldState["kind"];
+          const next: FieldState = kind === "unset" ? { kind } : kind === "null" ? { kind } : { kind, value: field.type === "boolean" ? false : "" };
+          setDraft((current) => ({ ...current, [field.name]: next }));
+          setErrors((current) => { const updated = { ...current }; delete updated[field.name]; return updated; });
+        }} value={state.kind}>
+          {isCreate && <option value="unset">Use default / omit</option>}
+          <option value="null">NULL</option>
+          <option value="value">Value</option>
+        </select>
+        {state.kind === "value" && <>
         <label htmlFor={`record-${field.name}`}>{field.name}</label>
-        {field.type === "boolean" ? <input checked={draft[field.name] === true} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: event.target.checked }))} type="checkbox" /> :
-          field.type === "jsonb" ? <textarea aria-describedby={errors[field.name] ? `record-${field.name}-error` : undefined} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: event.target.value }))} rows={5} value={String(draft[field.name] ?? "")} /> :
-            <input aria-describedby={errors[field.name] ? `record-${field.name}-error` : undefined} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: event.target.value }))} value={String(draft[field.name] ?? "")} />}
+        {field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.checked } }))} type="checkbox" /> :
+          field.type === "jsonb" ? <textarea aria-describedby={errors[field.name] ? `record-${field.name}-error` : undefined} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.value } }))} rows={5} value={String(state.value)} /> :
+            <input aria-describedby={errors[field.name] ? `record-${field.name}-error` : undefined} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.value } }))} value={String(state.value)} />}
+        </>}
         {errors[field.name] && <p className="field-error" id={`record-${field.name}-error`}>{errors[field.name]}</p>}
-      </div>)}
+      </div>;})}
       <button disabled={pending} type="submit">{pending ? "Saving…" : isCreate ? "Create record" : "Save changes"}</button>
       {!isCreate && <button className="danger" disabled={pending} onClick={() => void remove()} type="button">Delete record</button>}
     </form>}
