@@ -1,0 +1,146 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { App } from "../app";
+import { APIClient, APIClientError } from "../api/client";
+
+const administrator = {
+  id: "9a2e0000-0000-4000-8000-000000000001",
+  email: "admin@example.com",
+  createdAt: "2026-08-28T00:00:00Z",
+};
+
+function response(status: number, body?: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
+}
+
+function setupRequired(): Response {
+  return response(404, {
+    error: { code: "setup_required", message: "Administrator setup is required", details: {} },
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("APIClient", () => {
+  it("sends same-origin JSON requests and decodes field errors without retrying a POST", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(400, {
+      error: {
+        code: "validation_failed",
+        message: "Authentication input is invalid",
+        details: { email: ["invalid"] },
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new APIClient().setup({
+      setupToken: "first-run-token",
+      email: "admin@example.com",
+      password: "a secure password",
+    })).rejects.toMatchObject({
+      status: 400,
+      code: "validation_failed",
+      details: { email: ["invalid"] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/admin/setup");
+    expect(options.method).toBe("POST");
+    expect(options.credentials).toBe("same-origin");
+    expect(new Headers(options.headers).get("Content-Type")).toBe("application/json");
+  });
+
+  it("adds the CSRF header on logout and passes abort signals to session fetches", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(204));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+    const client = new APIClient();
+
+    await client.logout("csrf-token");
+    await client.getSession(signal);
+
+    const [logoutPath, logoutOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(logoutPath).toBe("/api/admin/session");
+    expect(logoutOptions.method).toBe("DELETE");
+    expect(logoutOptions.credentials).toBe("same-origin");
+    expect(new Headers(logoutOptions.headers).get("X-CSRF-Token")).toBe("csrf-token");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/session", expect.objectContaining({ signal }));
+  });
+});
+
+describe("administrator setup", () => {
+  it("validates required values and matching passwords before calling the server", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(setupRequired());
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up pgBase" });
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(await screen.findByText("Setup token is required.")).toBeVisible();
+    expect(screen.getByText("Email is required.")).toBeVisible();
+    expect(screen.getByText("Password is required.")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.type(screen.getByLabelText("Confirm password"), "different password");
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(await screen.findByText("Passwords do not match.")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows server field errors, clears password fields, and disables submit while pending", async () => {
+    let resolveSetup: ((value: Response) => void) | undefined;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(setupRequired())
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSetup = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up pgBase" });
+    await user.type(screen.getByLabelText("Setup token"), "first-run-token");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.type(screen.getByLabelText("Confirm password"), "correct horse battery staple");
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(screen.getByRole("button", { name: "Creating administrator…" })).toBeDisabled();
+    resolveSetup?.(response(400, {
+      error: { code: "validation_failed", message: "Authentication input is invalid", details: { email: ["invalid"] } },
+    }));
+
+    expect(await screen.findByText("Enter a valid email address.")).toBeVisible();
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("Confirm password")).toHaveValue("");
+  });
+
+  it("moves to the authenticated shell after a successful setup", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(setupRequired())
+      .mockResolvedValueOnce(response(201, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up pgBase" });
+    await user.type(screen.getByLabelText("Setup token"), "first-run-token");
+    await user.type(screen.getByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.type(screen.getByLabelText("Confirm password"), "correct horse battery staple");
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
+    expect(screen.getByText(administrator.email)).toBeVisible();
+  });
+});

@@ -1,0 +1,17 @@
+:root { color: #172033; background: #f5f7fb; font-family: Inter, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+.auth-page { display: grid; min-height: 100vh; place-items: center; padding: 1.5rem; }
+.auth-card, .shell { width: min(100%, 32rem); background: #fff; border: 1px solid #d9e0ed; border-radius: .75rem; box-shadow: 0 10px 30px #17203312; padding: 2rem; }
+.auth-card h1, .shell h1 { margin-top: 0; }
+form { display: grid; gap: .55rem; margin-top: 1.5rem; }
+label { font-weight: 600; margin-top: .5rem; }
+input { border: 1px solid #abb7ca; border-radius: .35rem; padding: .65rem; }
+button { background: #1d4ed8; border: 0; border-radius: .35rem; color: #fff; margin-top: 1rem; padding: .7rem 1rem; }
+.field-error, .form-error { color: #b42318; margin: 0; }
+.shell { margin: 3rem auto; width: min(100% - 3rem, 60rem); }
+.shell header { align-items: center; display: flex; justify-content: space-between; }
+.shell header p { margin-bottom: 0; }
