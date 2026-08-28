@@ -93,6 +93,18 @@ func TestPlanCreateRejectsDefinitionsBeyondPostgreSQLLimits(t *testing.T) {
 	}
 }
 
+func TestPlanCreateRejectsTimestampYearZeroAtTheDefaultField(t *testing.T) {
+	_, err := (Planner{}).PlanCreate(0, CreateCollectionInput{
+		Name:   "events",
+		Fields: []FieldInput{{Name: "starts_at", Type: TypeTimestampTZ, Default: json.RawMessage(`"0000-01-01T00:00:00Z"`)}},
+	})
+	var validation *ValidationError
+	want := []ValidationDetail{{Field: "fields.0.default", Code: "invalid_default"}}
+	if !errors.As(err, &validation) || !reflect.DeepEqual(validation.Details, want) {
+		t.Fatalf("timestamp year-zero error = %#v, want %#v", err, want)
+	}
+}
+
 func TestPlanCreateRejectsInjectionShapedMetadata(t *testing.T) {
 	planner := Planner{}
 	_, err := planner.PlanCreate(0, CreateCollectionInput{

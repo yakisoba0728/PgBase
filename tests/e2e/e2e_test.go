@@ -37,6 +37,7 @@ type e2eSuite struct {
 	databasePass  string
 	administrator string
 	password      string
+	version       string
 	environment   []string
 }
 
@@ -71,6 +72,22 @@ func TestMain(m *testing.M) {
 		code = 1
 	}
 	os.Exit(code)
+}
+
+func TestBuiltImageReportsInjectedVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	waitReady(t, ctx, suite.baseURL)
+	client := authenticatedClient(t, ctx, suite.baseURL)
+	var status struct {
+		Version string `json:"version"`
+	}
+	if err := client.request(ctx, http.MethodGet, "/api/admin/system", nil, http.StatusOK, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Version != suite.version {
+		t.Fatalf("system version = %q, want injected build version %q", status.Version, suite.version)
+	}
 }
 
 func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
@@ -267,6 +284,7 @@ func configureSuite() (e2eSuite, error) {
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	image := project + ":test"
+	version := "e2e-test"
 	environment := append(os.Environ(),
 		"PGBASE_HTTP_PORT="+strconv.Itoa(httpPort),
 		"PGBASE_POSTGRES_PORT="+strconv.Itoa(postgresPort),
@@ -275,12 +293,13 @@ func configureSuite() (e2eSuite, error) {
 		"PGBASE_TOKEN_SECRET="+base64.StdEncoding.EncodeToString(rawSecret),
 		"PGBASE_PUBLIC_URL="+baseURL,
 		"PGBASE_IMAGE="+image,
+		"PGBASE_VERSION="+version,
 	)
 	return e2eSuite{
 		repoRoot: repoRoot, composeFile: filepath.Join(repoRoot, "deployments", "docker-compose.yml"),
 		project: project, image: image, baseURL: baseURL, httpPort: httpPort, postgresPort: postgresPort,
 		setupToken: setupToken, tokenSecret: base64.StdEncoding.EncodeToString(rawSecret), databasePass: databasePass,
-		administrator: "admin@example.test", password: "correct horse battery staple 2026!", environment: environment,
+		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, environment: environment,
 	}, nil
 }
 

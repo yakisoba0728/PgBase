@@ -77,6 +77,48 @@ func TestJSONLoggerRedactsCredentialsInErrorAttributes(t *testing.T) {
 			secret: "tls keyword secret",
 			keep:   "host=db.example",
 		},
+		{
+			name:   "percent-encoded PostgreSQL URL sslpassword",
+			error:  errors.New("cannot parse postgres://db.example/app?sslpass%77ord=encoded-query-secret&sslmode=invalid"),
+			secret: "encoded-query-secret",
+			keep:   "sslmode=invalid",
+		},
+		{
+			name:   "mixed-case encoded PostgreSQL URL sslpassword",
+			error:  errors.New("cannot parse postgres://db.example/app?sslpass%57ord=mixed-query-secret&sslmode=invalid"),
+			secret: "mixed-query-secret",
+			keep:   "sslmode=invalid",
+		},
+		{
+			name:   "double-encoded PostgreSQL URL sslpassword",
+			error:  errors.New("cannot parse postgres://db.example/app?sslpass%2577ord=double-query-secret&sslmode=invalid"),
+			secret: "double-query-secret",
+			keep:   "sslmode=invalid",
+		},
+		{
+			name:   "raw space in PostgreSQL URL sslpassword",
+			error:  errors.New("cannot parse postgres://db.example/app?sslpassword=prefix raw-space-secret-suffix&pool_max_conns=invalid"),
+			secret: "raw-space-secret-suffix",
+			keep:   "pool_max_conns=invalid",
+		},
+		{
+			name:   "percent-encoded keyword DSN sslpassword",
+			error:  errors.New("cannot parse host=db.example sslpass%77ord='encoded keyword secret' sslmode=invalid"),
+			secret: "encoded keyword secret",
+			keep:   "host=db.example",
+		},
+		{
+			name:   "escaped quote in keyword DSN password",
+			error:  errors.New(`cannot parse host=db.example password='prefix\'escaped-secret-suffix' sslmode=invalid`),
+			secret: "escaped-secret-suffix",
+			keep:   "host=db.example",
+		},
+		{
+			name:   "escaped space in unquoted keyword DSN password",
+			error:  errors.New(`cannot parse host=db.example password=prefix\ escaped-space-secret sslmode=invalid`),
+			secret: "escaped-space-secret",
+			keep:   "host=db.example",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -96,5 +138,12 @@ func TestJSONLoggerRedactsCredentialsInErrorAttributes(t *testing.T) {
 				t.Fatalf("log corrupted unrelated error field %q: %q", tt.keep, got)
 			}
 		})
+	}
+}
+
+func TestRedactPreservesNonSecretParameters(t *testing.T) {
+	const input = "connect postgres://db.example/app?sslmode=verify-full&application_name=pgbase failed"
+	if got := Redact(input); got != input {
+		t.Fatalf("Redact() = %q, want unchanged %q", got, input)
 	}
 }

@@ -1,12 +1,12 @@
 # PgBase 전체 코드베이스 감사 보고서
 
 - 감사일: 2026-08-28
-- 구현 대상: `codex/production-kernel` (`5fea270fa2e2cf241b88a862f60b71e17a445ee1`)
+- 구현 대상: `codex/production-kernel` (전달 기준은 이 보고서를 포함한 원격 브랜치 HEAD)
 - 공식 Codex Security 대상: 루트 `main` (`52599346b94c9a609b6a784cdfc780efbdd649d8`)
-- 방식: 14개 병렬 조사 트랙, 공식 단일 패스 Codex Security 스캔, 수동 데이터 흐름 검토, 빌드·테스트·정적 분석·의존성 검사, 선택적 런타임 재현
+- 방식: 14개 병렬 최초 조사 트랙, 공식 단일 패스 Codex Security 스캔, 4개 병렬 후속 재감사 트랙, 수동 데이터 흐름 검토, 빌드·테스트·정적 분석·의존성 검사, 런타임 재현
 - 최초 감사 시점의 코드 변경: 없음. 아래 12절은 같은 브랜치에서 수행한 후속 수정과 재검증 결과다.
 
-> **종결 상태 (2026-08-28):** 확정 발견 사항 28건은 모두 수정·회귀 검증했다. 원래의 1~11절은 수정 전 증거와 판단을 보존하며, 현재 구현 상태는 12절을 기준으로 한다.
+> **종결 상태 (2026-08-28):** 최초 확정 발견 사항 28건과 후속 재감사에서 새로 확인한 제품 정확성 1건을 모두 수정·회귀 검증했다. 원래의 1~11절은 수정 전 증거와 판단을 보존하며, 현재 구현 상태는 12절을 기준으로 한다.
 
 ## 1. 결론
 
@@ -220,7 +220,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 
 | 결과 | 수량 | 의미 |
 |---|---:|---|
-| Fixed | 28 | 원래 재현 경로를 차단했고 관련 회귀 테스트를 추가했다. |
+| Fixed | 29 | 최초 finding 28건과 후속 제품 정확성 finding 1건의 재현 경로를 차단하고 회귀 테스트를 추가했다. |
 | No change | 0 | 발견 사항을 오탐 또는 허용 동작으로 기각하지 않았다. |
 | Blocked | 0 | 코드 수정이 막힌 발견 사항은 없다. |
 
@@ -235,7 +235,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | AUD-H03 | Fixed | 인증 없는 `GET /api/admin/status` 계약을 추가하고 UI가 세션 401 이후 최초 설치 상태를 조회하게 했다. 실제 빈 DB에서 설정 화면, 관리자 생성, 새로고침 후 세션 보존까지 Playwright E2E로 검증한다 (`internal/api/router.go`, `admin_handlers.go`, `ui/admin/src/auth/session.tsx`, `ui/admin/e2e/onboarding.spec.ts`). |
 | AUD-H04 | Fixed | `pg_restore`에 서비스 DSN과 `--single-transaction`을 명시했다. 빈 DB로 custom-format dump를 복원하고 migration/admin 행 수를 확인하는 정기 restore drill을 추가했다 (`docs/backup-restore.md`, `.github/workflows/backup-restore.yml`). |
 | AUD-M01 | Fixed | HTTP 서버에 header 5초, body read 15초, write 30초, idle 60초 제한을 설정했다 (`pgbase/app.go`, `pgbase/app_test.go`). |
-| AUD-M02 | Fixed | 이름이 `password`로 끝나는 DSN/필드를 대소문자와 무관하게 마스킹해 `sslpassword`도 로그에 남지 않는다. sentinel 회귀 테스트가 원문 비밀 미노출을 확인한다 (`internal/observability/redact.go`, `redact_test.go`). |
+| AUD-M02 | Fixed | 이름이 `password`로 끝나는 DSN/필드를 대소문자와 무관하게 마스킹한다. 후속 재감사에서 확인한 `sslpass%77ord`, 이중 인코딩 키, 공백·escape 포함 값도 구조적으로 분류해 값 전체를 제거한다. 단위 테스트와 실제 `serve` 시작 오류 재현에서 sentinel 미노출과 비민감 진단 보존을 확인했다 (`internal/observability/redact.go`, `redact_test.go`, `internal/cli/run_test.go`). |
 | AUD-M03 | Fixed | 풀 최소 크기를 2로 강제하고 Doctor가 catalog rows를 먼저 materialize·close한 뒤 중첩 조회한다. 최대 2개 풀에서 1개 연결을 점유한 상태의 완료 테스트를 추가했다 (`internal/database/pool.go`, `internal/doctor/checks.go`, `checks_test.go`). |
 | AUD-M04 | Fixed | cleaner가 세션과 rate-limit 행을 batch 삭제하며 일시 오류에 100ms~1분 지수 백오프로 재시도한다. 취소, 재시도, 복구 테스트를 추가했다 (`internal/adminauth/cleaner.go`, `cleaner_test.go`). |
 | AUD-M05 | Fixed | UI 기본값 입력을 백엔드 문법과 일치시켰다. 기본값 사용 여부를 별도 제어하고 boolean, 정수 문자열, timestamp `now`, 빈 문자열, JSONB를 타입별로 보존하는 계약 테스트를 추가했다 (`ui/admin/src/pages/collection-create-page.tsx`, `collection-defaults.test.ts`). |
@@ -245,7 +245,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | AUD-M09 | Fixed | SQLSTATE `40001`, `40P01`, 연결 class 08, shutdown 계열과 네트워크/EOF 오류를 retryable로 분류하고 API가 503과 `Retry-After`를 반환한다 (`internal/database/errors.go`, API record/schema/admin handlers 및 테스트). |
 | AUD-M10 | Fixed | caller-owned transport용 `App.Start(ctx)`를 추가해 readiness, schema sync/listener, cleaner lifecycle을 명시적으로 시작한다. `Handler()`만으로는 lifecycle이 시작되지 않으며 `Start` 후 `Run` 이중 시작은 거부한다 (`pgbase/app.go`, `app_test.go`, handoff 문서). |
 | AUD-M11 | Fixed | `doctor --json`은 설정 파싱, DB open, 검사 실패를 모두 하나의 유효한 JSON report로 stdout에 기록한다. 닫힌 실제 풀과 도달 불가 DSN도 `database_unreachable`로 확인했다 (`internal/cli/run.go`, `doctor_test.go`, `internal/doctor/checks_test.go`). |
-| AUD-M12 | Fixed | 사용자 필드를 1,597개로 제한하고 PostgreSQL numeric/JSON 숫자의 정수부·소수부 한계를 plan 단계에서 검사한다 (`internal/schema/planner.go`, `internal/jsonvalue/json.go`, planner/jsonvalue 테스트). |
+| AUD-M12 | Fixed | 사용자 필드를 1,597개로 제한하고 PostgreSQL numeric/JSON 숫자의 정수부·소수부 한계를 plan 단계에서 검사한다. 후속 재감사에서 확인한 RFC3339 연도 `0000`도 textual `timestamptz` cast 전에 `invalid_default`로 거부하며 `0001`과 `9999`는 허용한다 (`internal/schema/planner.go`, `internal/schema/defaults.go`, `internal/jsonvalue/json.go`와 관련 테스트). |
 | AUD-M13 | Fixed | JSON decode 전 UTF-8, NUL, 단독 surrogate를 엄격히 거부하고 text/JSONB/default/query 경로가 같은 validator를 사용한다. 단위·fuzz corpus가 치환 또는 DB 500 대신 400 계약을 검증한다 (`internal/jsonvalue`, `internal/api/middleware.go`, `internal/query/codec.go`). |
 | AUD-L01 | Fixed | 관리자 세션 TTL을 양수이면서 최대 12시간으로 제한했다 (`pgbase/options.go`, `options_test.go`). |
 | AUD-L02 | Fixed | cursor v2 MAC payload에 collection ID와 15분 만료시각을 포함해 교차 컬렉션 재사용과 영구 재사용을 거부한다 (`internal/query/cursor.go`, cursor 단위/fuzz 테스트). |
@@ -255,7 +255,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | AUD-L06 | Fixed | UI가 `expiresAt`을 보존해 만료 타이머로 상태를 제거하고 모든 API 401을 전역 logout으로 연결한다 (`ui/admin/src/auth/session.tsx`, `src/api/client.ts`, 관련 테스트). |
 | AUD-L07 | Fixed | `.git`, worktree, env, node_modules, dist, coverage, Playwright 산출물과 dump/log를 build context에서 제외하는 루트 `.dockerignore`를 추가했다. |
 | AUD-L08 | Fixed | npm lockfile을 재생성했다. 비-link 패키지 163개 모두 `resolved`와 `integrity`를 가지며 `npm ci --ignore-scripts`가 성공한다 (`ui/admin/package-lock.json`). |
-| AUD-L09 | Fixed | Go/Node/distroless/PostgreSQL 이미지를 digest로 고정하고 Dependabot이 Docker·Actions·Go·npm 갱신을 제안하게 했다 (`deployments/*`, backend/compose workflow, `.github/dependabot.yml`). |
+| AUD-L09 | Fixed | Go/Node/distroless/PostgreSQL 이미지와 release BuildKit builder를 digest로 고정하고 Dependabot이 Docker·Actions·Go·npm 갱신을 제안하게 했다. 고정 BuildKit digest를 실제 `docker-container` builder로 bootstrap했고 workflow 정책 테스트를 추가했다 (`deployments/*`, `.github/workflows/release-image.yml`, `.github/dependabot.yml`, `internal/repositorypolicy/release_workflow_test.go`). |
 | AUD-L10 | Fixed | 정기 `govulncheck`, `npm audit`, 이미지 build/Trivy, SPDX SBOM을 추가하고 tag release에 BuildKit provenance·SBOM과 GitHub provenance/SBOM attestations를 발행한다 (`.github/workflows/security.yml`, `release-image.yml`). |
 | AUD-L11 | Fixed | `pgbase.New`가 pgxpool 내부 goroutine을 시작한다는 실제 lifecycle 계약으로 API·handoff·계획 문서를 바로잡았다 (`pgbase/app.go`, `docs/production-kernel-handoff.md`, production-kernel 계획). |
 
@@ -297,3 +297,18 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 ### 12.5 9절 설계 위험의 처리 경계
 
 9절의 idempotency key, ETag/optimistic concurrency, SQL `NULL`과 JSON `null` 정책, 향후 관리자 삭제 시 setup marker, production preset은 이번 감사에서 결함으로 확정한 28건이 아니라 공개 제품 계약이 먼저 필요한 별도 기능이다. 현재 불변식은 관리자 삭제 API 없음, setup은 관리자 존재 시 비활성, 동시 수정은 last-write-wins, JSON 필드의 API `null`은 JSON null로 취급하는 것이다. 이 계약을 바꾸는 작업은 호환성 있는 별도 spec과 migration으로 진행하며, 본 수정에서 암묵적으로 API 의미를 변경하지 않았다.
+
+### 12.6 후속 독립 재감사와 최종 전달 검증
+
+전체 수정 후 preflight, 인증/API, 데이터/운영, 아키텍처의 4개 독립 영역으로 다시 감사했다. 세 finding의 불완전한 변형 차단과 새 제품 정확성 finding 하나를 확인해 다음과 같이 종결했다.
+
+| ID | 결과 | 최종 조치와 보존한 동작 |
+| --- | --- | --- |
+| AUD-M02 | Fixed | percent-encoded 키뿐 아니라 raw space 뒤의 비밀 suffix가 남는 변형까지 값 전체를 마스킹한다. `[REDACTED]`, 비밀 미노출, `pool_max_conns=not-a-number` 진단 보존을 실제 시작 경로에서 동시에 확인했다. |
+| AUD-M12 | Fixed | 연도 0000 기본값은 정확한 `fields.0.default / invalid_default`로 거부한다. 레코드 codec의 기존 pgx binary timestamp 동작은 별도 계약이므로 변경하지 않았고 서기 1~9999 경계는 보존했다. |
+| AUD-L09 | Fixed | release builder를 `moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`로 고정했다. manifest와 실제 builder가 BuildKit v0.32.2로 기동함을 확인했다. |
+| REL-L01 | Fixed | tag workflow가 `VERSION`을 넘기지 않아 이미지가 `dev`로 보고하던 문제를 수정했다. tag 원문을 build arg로 전달하며 Docker E2E가 `/api/admin/system`의 주입 버전을 확인한다. |
+
+최종 전달 직전 `go test ./... -count=1`, `go vet ./...`, `git diff --check`를 통과했다. Docker black-box E2E는 `-count=2 -shuffle=on`으로 두 번 실행해 bootstrap/CRUD/restart, DB outage/recovery, 두 인스턴스 schema sync, graceful shutdown, 주입 버전 보고를 모두 통과했고 종료 후 잔여 E2E 컨테이너가 없음을 확인했다. 프론트엔드는 변경 전후 같은 소스에서 `npm ci --ignore-scripts`, typecheck, 8개 파일 31개 테스트와 production build를 통과했다.
+
+실제 tag push, GHCR publish와 attestation 발행은 외부 registry를 변경하므로 이 로컬 재검증에서 수행하지 않았다. 해당 경로의 불변식은 workflow 정책 테스트, 정확한 digest builder bootstrap과 로컬 Docker E2E로 검증했다. 결정의 비용과 재검토 조건은 [Production Kernel 트레이드오프 기준](production-kernel-tradeoffs.md)에 기록했다.

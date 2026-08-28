@@ -27,9 +27,14 @@ jobs:
           image="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           tag="${GITHUB_REF_NAME}"
           echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker buildx create --use --name pgbase-release
+          docker buildx create \
+            --use \
+            --name pgbase-release \
+            --driver docker-container \
+            --driver-opt "image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
           docker buildx build \
             --file deployments/Dockerfile \
+            --build-arg "VERSION=$tag" \
             --tag "$image:$tag" \
             --tag "$image:latest" \
             --provenance=mode=max \

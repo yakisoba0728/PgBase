@@ -233,6 +233,35 @@ func TestServeRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 	}
 }
 
+func TestServeRedactsPercentEncodedDSNSecretsInStartupErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		secret      string
+		databaseURL string
+	}{
+		{name: "encoded key", secret: "encoded-startup-secret-94c1", databaseURL: "postgres://127.0.0.1/pgbase?sslpass%77ord=encoded-startup-secret-94c1&pool_max_conns=not-a-number"},
+		{name: "raw space in value", secret: "raw-space-secret-suffix-73c9", databaseURL: "postgres://127.0.0.1/pgbase?sslpassword=prefix raw-space-secret-suffix-73c9&pool_max_conns=not-a-number"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			code := Run(context.Background(), []string{"serve"}, migrationEnv(test.databaseURL), io.Discard, &stderr, DefaultCommands())
+			if code != 1 {
+				t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+			}
+			got := stderr.String()
+			if strings.Contains(got, test.secret) || strings.Contains(got, test.databaseURL) {
+				t.Fatalf("startup log leaked database secret: %q", got)
+			}
+			for _, diagnostic := range []string{"[REDACTED]", "pool_max_conns", "not-a-number"} {
+				if !strings.Contains(got, diagnostic) {
+					t.Fatalf("startup log lost diagnostic %q: %q", diagnostic, got)
+				}
+			}
+		})
+	}
+}
+
 func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *testing.T) {
 	const databaseURL = "postgres://admin:super-secret@localhost/pgbase?pool_max_conns=not-a-number"
 	var stderr bytes.Buffer

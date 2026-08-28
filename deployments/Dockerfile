@@ -17,6 +17,8 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 COPY pgbase ./pgbase
+COPY .github/workflows/release-image.yml ./.github/workflows/release-image.yml
+COPY deployments/Dockerfile ./deployments/Dockerfile
 COPY ui/admin/embed.go ui/admin/handler.go ui/admin/handler_test.go ./ui/admin/
 COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
 RUN go test ./...

@@ -1,15 +1,15 @@
 # pgBase Production Kernel 최종 핸드오프
 
-이 문서는 `codex/production-kernel` 브랜치에 구현된 Production Kernel의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 구현 기준점은 `fdc602a` (`fix: resolve deferred production kernel findings`)이며, 이 문서를 포함하는 후속 커밋은 문서화와 핸드오프만 추가한다.
+이 문서는 `codex/production-kernel` 브랜치에 구현된 Production Kernel의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 전달 기준은 이 문서를 포함한 `origin/codex/production-kernel`의 최신 커밋이며, 특정 로컬 worktree나 과거 중간 커밋은 기준이 아니다.
 
 ## 1. 현재 상태
 
 | 항목 | 상태 |
 | --- | --- |
 | 원격 브랜치 | `origin/codex/production-kernel` |
-| 구현 기준점 | `fdc602a` |
+| 구현 기준점 | 이 문서를 포함한 원격 브랜치 HEAD |
 | 구현 계획 | 15개 작업 완료 |
-| 코드 리뷰 | 전체 브랜치 리뷰와 최종 수정 완료 |
+| 코드 리뷰 | 전체 감사 28건과 후속 독립 재감사에서 확인한 제품 정확성 1건까지 수정·재검증 완료 |
 | 알려진 미해결 구현 finding | 없음 |
 | 릴리스 상태 | pre-v0.1 개발 프리뷰 |
 | PR / 병합 | 아직 만들거나 병합하지 않음. 이후 저장소 소유자가 원격 브랜치로 PR 처리 |
@@ -168,7 +168,7 @@ PostgreSQL pool and transactions
 - forwarded scheme/client IP는 `PGBASE_TRUSTED_PROXIES`에 포함된 실제 peer에서만 신뢰한다.
 - CORS는 정확한 origin allowlist만 허용하고 wildcard를 거부한다.
 - JSON body 크기와 unknown/trailing JSON을 제한하며, panic recovery와 안전한 오류 변환을 적용한다.
-- 로그는 request ID와 구조화 필드를 제공하고 알려진 자격정보를 제거한다. 비밀을 로그에 넣지 않는 운영 원칙은 별도로 유지해야 한다.
+- 로그는 request ID와 구조화 필드를 제공하고 알려진 자격정보를 제거한다. DSN query/keyword 키는 인코딩을 해제해 분류하며 공백·escape를 포함한 값 전체를 제거한다. 비밀을 로그에 넣지 않는 운영 원칙은 별도로 유지해야 한다.
 - token secret 교체는 관리자 세션, CSRF, signed cursor와 rate-limit hash namespace를 무효화한다.
 - 관리자 암호 재설정은 해당 관리자의 기존 세션을 모두 폐기한다.
 
@@ -209,10 +209,11 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 - 컨테이너는 Go 1.26.7로 정적 빌드하며 distroless `nonroot` 런타임을 사용한다. shell을 포함하지 않는다.
 - 개발 Compose는 PostgreSQL 16.13을 사용하고 loopback port, read-only pgBase filesystem, 제한된 tmpfs, all-capability drop과 no-new-privileges를 적용한다.
 - 개발 Compose만 `PGBASE_AUTO_MIGRATE=true`다. 운영에서는 false 또는 unset 상태에서 별도 migration job을 사용한다.
+- tag release는 digest로 고정한 BuildKit `docker-container` builder를 사용하고 tag 원문을 binary `VERSION`에 주입한다. `/api/admin/system`에서 실행 중인 이미지 버전을 확인할 수 있다.
 
 ## 10. 검증 증거
 
-구현 기준점 `fdc602a`에서 다음 검증을 통과했다.
+전체 수정과 후속 재감사를 반영한 전달 브랜치에서 다음 검증을 통과했다.
 
 | 영역 | 검증 |
 | --- | --- |
@@ -221,11 +222,11 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 | 동시성 | Linux / Go 1.26.7에서 `go test -race ./... -count=1` |
 | Frontend | integrity-bound `npm ci`, typecheck, unit/contract test, production build |
 | Embedded UI | 재빌드한 `ui/admin/dist`와 커밋 결과가 동일 |
-| Black-box E2E | digest-pinned PostgreSQL 16.13 Compose에서 반복·shuffle 실행 |
-| E2E 범위 | 실제 Chromium 온보딩, bootstrap/CRUD/restart, DB outage/recovery, two-instance schema sync, graceful drain |
+| Black-box E2E | digest-pinned PostgreSQL 16.13 Compose에서 `-count=2 -shuffle=on` 실행 |
+| E2E 범위 | 실제 Chromium 온보딩, bootstrap/CRUD/restart, DB outage/recovery, two-instance schema sync, graceful drain, 이미지 버전 주입 |
 | CI PostgreSQL matrix | 16.13, 17.9, 18.3 |
-| Container | nonroot, shell 없음, hardened Compose runtime 검사 |
-| Review | Production Kernel 전체 branch review와 후속 finding 수정 완료 |
+| Container | nonroot, shell 없음, hardened Compose runtime 검사, digest-pinned BuildKit bootstrap |
+| Review | 4개 병렬 영역 재감사, 교차 검증과 잔여 finding 수정 완료 |
 
 GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 typecheck/test/build/dist 재현성, Docker black-box E2E를 각각 gate한다. 이 검증은 구현 정확성의 근거지만 실제 트래픽의 용량·지연·장시간 안정성 증거를 대신하지 않는다.
 
@@ -254,7 +255,7 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 2. 요청률/지연/error, DB pool, migration/listener/readiness, 세션/rate-limit 지표와 경보/대시보드를 추가한다.
 3. 목표 트래픽 모델로 load, soak, spike, DB 장애와 network partition 테스트를 실행하고 용량/SLO를 기록한다.
 4. 운영 방식의 backup/PITR와 별도 환경 restore drill을 실행하고 RPO/RTO를 확정한다.
-5. 버전 태그, immutable image, registry, SBOM/서명, release note와 migration 호환성 절차를 만든다.
+5. 실제 registry tag release, 서명 검증 정책, release note와 migration 호환성 승인을 운영 절차로 확정한다. 이미지·builder digest, provenance와 SBOM 생성 경로는 구현되어 있다.
 6. 외부 또는 독립 보안 리뷰, 의존성/이미지 scan과 incident runbook을 완료한다.
 
 ### P1: PocketBase형 공개 애플리케이션 백엔드
@@ -290,7 +291,21 @@ git switch codex/production-kernel
 git pull --ff-only
 ```
 
-개발 검증에 PostgreSQL 관리자 URL을 제공한 뒤 Go/프론트엔드 테스트를 실행하고, Docker가 있는 환경에서 E2E를 실행한다. 구체적인 로컬 시작 절차는 [10-minute quickstart](quickstart.md)를 사용한다.
+새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx를 준비한다. clone 직후 다음 순서로 전달 상태를 확인한다.
+
+```console
+go test ./... -count=1
+go vet ./...
+cd ui/admin
+npm ci --ignore-scripts
+npm run typecheck
+npm test -- --run
+npm run build
+cd ../..
+go test -tags=e2e ./tests/e2e -v -count=2 -shuffle=on
+```
+
+E2E는 임시 Compose 프로젝트, 포트와 비밀을 자체 생성하고 종료 시 제거한다. 로컬 서비스 시작은 [10-minute quickstart](quickstart.md), 운영 배포는 [Deployment](deployment.md)를 따른다.
 
 향후 PR 전에는 target branch를 fetch한 다음 전체 branch diff와 CI를 다시 검토한다. 이 handoff에서는 PR 생성, target branch로의 로컬 merge, worktree 삭제를 하지 않는다.
 
@@ -299,6 +314,8 @@ git pull --ff-only
 | 문서/경로 | 역할 |
 | --- | --- |
 | [README](../README.md) | 프로젝트 진입점과 현재 범위 |
+| [Tradeoffs](production-kernel-tradeoffs.md) | 확정된 결정의 이점·비용·재검토 조건과 의도적으로 남긴 위험 |
+| [Codebase audit](codebase-audit-2026-08-28.md) | 최초 finding, 수정 증거와 후속 재감사 결과 |
 | [10-minute quickstart](quickstart.md) | 로컬 첫 실행과 첫 CRUD |
 | [Deployment and configuration](deployment.md) | 운영 topology, 설정, TLS/proxy, rollout, secret rotation |
 | [Backup and restore](backup-restore.md) | 두 schema의 일관된 backup/restore와 drill |

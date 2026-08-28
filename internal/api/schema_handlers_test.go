@@ -173,7 +173,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 
 	t.Run("validation details are safe", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
-		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.type", Code: "unsupported_type"}}}}
+		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.default", Code: "invalid_default"}}}}
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
@@ -183,7 +183,20 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
-		assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+		var body struct {
+			Error struct {
+				Code    string              `json:"code"`
+				Message string              `json:"message"`
+				Details map[string][]string `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Error.Code != "validation_failed" || body.Error.Message != "Schema input is invalid" ||
+			len(body.Error.Details) != 1 || len(body.Error.Details["fields.0.default"]) != 1 || body.Error.Details["fields.0.default"][0] != "invalid_default" {
+			t.Fatalf("validation response = %#v", body.Error)
+		}
 	})
 
 	t.Run("conflicts are stable", func(t *testing.T) {

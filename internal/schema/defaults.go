@@ -153,7 +153,7 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 		return nil, "", validation("", "invalid_default")
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
+	if err != nil || parsed.Year() < 1 {
 		return nil, "", validation("", "invalid_default")
 	}
 	_, offset := parsed.Zone()
