@@ -376,12 +376,23 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 		t.Fatalf("seed administrator: %v", err)
 	}
 	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	input := schema.CreateCollectionInput{Name: "records"}
+	plan, err := schemas.PlanCreate(context.Background(), input)
+	if err != nil {
+		t.Fatalf("plan records collection: %v", err)
+	}
+	collection, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, session.Administrator.ID)
+	if err != nil {
+		t.Fatalf("create records collection: %v", err)
+	}
 	records := query.NewService(pool, schemas, testTokenSecret)
 	codec := query.NewCursorCodec(testTokenSecret)
 	valid, err := codec.Encode(query.PageCursor{
-		Version:   1,
-		CreatedAt: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-		ID:        uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"),
+		Version:      2,
+		CollectionID: collection.ID,
+		CreatedAt:    time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+		ID:           uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"),
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)

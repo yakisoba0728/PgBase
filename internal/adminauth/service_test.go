@@ -249,8 +249,43 @@ func TestServiceLoginRateLimitIsSharedAndClearsOnSuccess(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_rate_limits").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("rate-limit row count after success = %d, want 2 network/global rows", count)
+	if count != 0 {
+		t.Fatalf("rate-limit row count after expired window success = %d, want 0", count)
+	}
+}
+
+func TestServiceLoginSuccessPreservesOtherAccountsSharedFailures(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	service := NewService(pool, NewArgon2idPasswords(), secret, setupToken, time.Hour, clock)
+	if _, err := service.Setup(context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "setup-client"); err != nil {
+		t.Fatal(err)
+	}
+	const network = "192.0.2.51"
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := service.Login(context.Background(), fmt.Sprintf("other-%d@example.com", attempt), "incorrect horse battery staple", network); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("other account attempt %d error = %v", attempt+1, err)
+		}
+	}
+	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", network); err != nil {
+		t.Fatal(err)
+	}
+	for _, bucket := range []struct {
+		axis, subject string
+	}{
+		{axis: "network", subject: network},
+		{axis: "global", subject: "v1"},
+	} {
+		var failures int
+		hash := rateLimitSubjectHash(secret, "login", bucket.axis, bucket.subject)
+		if err := pool.QueryRow(context.Background(), "select failures from pgbase_meta.admin_rate_limits where subject_hash = $1", hash).Scan(&failures); err != nil {
+			t.Fatal(err)
+		}
+		if failures != 2 {
+			t.Fatalf("%s shared failures after another account succeeds = %d, want 2", bucket.axis, failures)
+		}
 	}
 }
 

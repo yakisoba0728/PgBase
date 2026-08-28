@@ -56,24 +56,34 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	if err != nil {
 		return Administrator{}, err
 	}
+	var administratorID uuid.UUID
+	err = s.db.QueryRow(ctx, `
+		select id
+		from pgbase_meta.admins
+		where email = $1 and active
+		for update`, normalizedEmail).Scan(&administratorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("lock administrator for password reset: %w", err)
+	}
+
 	var administrator Administrator
 	err = s.db.QueryRow(ctx, `
-		with updated as (
-			update pgbase_meta.admins
-			set password_hash = $2, updated_at = $3
-			where email = $1 and active
-			returning id, email, active, created_at, updated_at
-		), revoked as (
-			delete from pgbase_meta.admin_sessions
-			where admin_id in (select id from updated)
-		)
-		select id, email, active, created_at, updated_at from updated`, normalizedEmail, passwordHash, now).Scan(
+		update pgbase_meta.admins
+		set password_hash = $2, updated_at = $3
+		where id = $1 and active
+		returning id, email, active, created_at, updated_at`, administratorID, passwordHash, now).Scan(
 		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Administrator{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return Administrator{}, fmt.Errorf("reset administrator password: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_sessions where admin_id = $1", administratorID); err != nil {
+		return Administrator{}, fmt.Errorf("revoke administrator sessions after password reset: %w", err)
 	}
 	return administratorUTC(administrator), nil
 }

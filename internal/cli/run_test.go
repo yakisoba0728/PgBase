@@ -258,7 +258,7 @@ func TestMigrateUpAndStatus(t *testing.T) {
 	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, &upOutput, io.Discard, DefaultCommands()); code != 0 {
 		t.Fatalf("migrate up exit code = %d, stdout = %q", code, upOutput.String())
 	}
-	if !strings.Contains(upOutput.String(), "current=1") || !strings.Contains(upOutput.String(), "latest=1") {
+	if !strings.Contains(upOutput.String(), "current=2") || !strings.Contains(upOutput.String(), "latest=2") {
 		t.Fatalf("migrate up stdout = %q", upOutput.String())
 	}
 
@@ -266,7 +266,7 @@ func TestMigrateUpAndStatus(t *testing.T) {
 	if code := Run(context.Background(), []string{"migrate", "status"}, lookup, &statusOutput, io.Discard, DefaultCommands()); code != 0 {
 		t.Fatalf("migrate status exit code = %d, stdout = %q", code, statusOutput.String())
 	}
-	if !strings.Contains(statusOutput.String(), "current=1") || !strings.Contains(statusOutput.String(), "dirty=false") {
+	if !strings.Contains(statusOutput.String(), "current=2") || !strings.Contains(statusOutput.String(), "dirty=false") {
 		t.Fatalf("migrate status stdout = %q", statusOutput.String())
 	}
 }

@@ -135,8 +135,8 @@ describe("record administration", () => {
 
   it("submits optional and required empty text as concrete strings instead of null", async () => {
     const { fetchMock, user } = await openSettingsCreate();
-    await user.selectOptions(screen.getByLabelText("empty_text state"), "value");
-    await user.selectOptions(screen.getByLabelText("required_empty_text state"), "value");
+    await user.selectOptions(await screen.findByLabelText("empty_text state"), "value");
+    await user.selectOptions(await screen.findByLabelText("required_empty_text state"), "value");
     await user.click(screen.getByRole("button", { name: "Create record" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));

@@ -231,7 +231,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | ID | 결과 | 수정 및 검증 |
 |---|---|---|
 | AUD-H01 | Fixed | 계정·네트워크·전역 버킷을 분리하고 Argon2id 동시 실행을 2개로 제한했다. 성공 요청은 공유 버킷에서 자기 예약만 원자적으로 반환하며, 실패·이메일 회전·동시 KDF 상한 테스트를 추가했다 (`internal/adminauth/service.go`, `store.go`, `types.go`, `service_test.go`). |
-| AUD-H02 | Fixed | 로그인 트랜잭션이 관리자 행을 `FOR UPDATE`로 잠근 상태에서 비밀번호 확인과 세션 생성을 수행한다. 재설정과 이전 비밀번호 로그인의 순서를 강제한 경쟁 테스트로 재설정 이후 구 세션이 생기지 않음을 검증했다 (`internal/adminauth/store.go`, `service.go`, `service_test.go`). |
+| AUD-H02 | Fixed | 로그인 트랜잭션이 관리자 행을 `FOR UPDATE`로 잠근 상태에서 비밀번호 확인과 세션 생성을 수행한다. 재설정도 먼저 행 잠금을 얻은 뒤 UPDATE와 세션 DELETE를 별도 statement로 실행해, 잠금 대기 중 커밋된 세션이 새 statement snapshot에 반드시 보이게 했다. Linux race detector가 이 순서를 검증한다 (`internal/adminauth/store.go`, `service.go`, `service_test.go`). |
 | AUD-H03 | Fixed | 인증 없는 `GET /api/admin/status` 계약을 추가하고 UI가 세션 401 이후 최초 설치 상태를 조회하게 했다. 실제 빈 DB에서 설정 화면, 관리자 생성, 새로고침 후 세션 보존까지 Playwright E2E로 검증한다 (`internal/api/router.go`, `admin_handlers.go`, `ui/admin/src/auth/session.tsx`, `ui/admin/e2e/onboarding.spec.ts`). |
 | AUD-H04 | Fixed | `pg_restore`에 서비스 DSN과 `--single-transaction`을 명시했다. 빈 DB로 custom-format dump를 복원하고 migration/admin 행 수를 확인하는 정기 restore drill을 추가했다 (`docs/backup-restore.md`, `.github/workflows/backup-restore.yml`). |
 | AUD-M01 | Fixed | HTTP 서버에 header 5초, body read 15초, write 30초, idle 60초 제한을 설정했다 (`pgbase/app.go`, `pgbase/app_test.go`). |
@@ -277,7 +277,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | `go test ./... -count=1` | 통과, 모든 Go·UI embed 패키지 |
 | `go test -tags=e2e ./tests/e2e -v -count=2 -shuffle=on` | 통과, 4개 black-box 시나리오를 셔플 순서로 2회 실행 |
 | `go vet ./...` | 통과 |
-| `go test -race ./... -count=1` | 로컬 Windows에서 CGO 비활성화로 실행 불가; PostgreSQL 16/17/18 CI가 동일 검사를 필수 실행 |
+| `go test -race ./... -count=1` | pinned Linux Go 컨테이너와 실제 PostgreSQL 16에서 통과; CI는 PostgreSQL 16/17/18 전부 실행 |
 | `npm ci --ignore-scripts` | 통과 |
 | `npm run typecheck` | 통과 |
 | `npm test -- --run` | 통과, 8개 파일·31개 테스트 |
@@ -292,7 +292,7 @@ AUD-M01, M03, M04, M05, M06, M07, M08, M09를 해결하고 PostgreSQL·브라우
 | Playwright Chromium onboarding | 통과, 빈 DB 설정·관리자 생성·새로고침 후 세션 보존 1건 |
 | PostgreSQL 16 restore drill | 통과, `system_migrations=2`, `admins=1` 복원 확인 |
 
-로컬 실행과 별도로 image build·browser onboarding·black-box 반복 E2E·restore drill·Trivy/SBOM은 저장소 CI에서도 독립적으로 실패를 차단한다. Windows 로컬의 유일한 실행 제한은 CGO 비활성화로 인한 race detector이며, Linux CI의 PostgreSQL 16/17/18 매트릭스가 이를 수행한다.
+로컬 실행과 별도로 race detector·image build·browser onboarding·black-box 반복 E2E·restore drill·Trivy/SBOM은 저장소 CI에서도 독립적으로 실패를 차단한다.
 
 ### 12.5 9절 설계 위험의 처리 경계
 
