@@ -57,6 +57,24 @@ func TestAdminCreateReadsOneNewlineTerminatedPasswordFromStandardInput(t *testin
 	}
 }
 
+func TestAdminCreateDuplicateReturnsOperationalExitCode(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	prepareAdminDatabase(t, databaseURL)
+	originalStdin := commandStdin
+	t.Cleanup(func() { commandStdin = originalStdin })
+
+	commandStdin = strings.NewReader("correct horse battery staple\n")
+	if code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), io.Discard, io.Discard, DefaultCommands()); code != 0 {
+		t.Fatalf("first create exit=%d", code)
+	}
+	commandStdin = strings.NewReader("correct horse battery staple\n")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	if code != 1 || stdout.Len() != 0 || stderr.String() != "pgbase: command failed\n" {
+		t.Fatalf("duplicate create exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestAdminCreateRejectsMismatchedTerminalPasswords(t *testing.T) {
 	originalTerminal, originalReader, originalStdin := terminalInput, passwordInput, commandStdin
 	t.Cleanup(func() { terminalInput, passwordInput, commandStdin = originalTerminal, originalReader, originalStdin })

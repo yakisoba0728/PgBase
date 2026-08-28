@@ -77,6 +77,19 @@ describe("APIClient", () => {
 });
 
 describe("administrator setup", () => {
+	it("conceals the setup token unless the administrator explicitly reveals it", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(setupRequired()));
+		const user = userEvent.setup();
+		render(<App />);
+
+		const token = await screen.findByLabelText("Setup token");
+		expect(token).toHaveAttribute("type", "password");
+		await user.click(screen.getByRole("button", { name: "Show setup token" }));
+		expect(token).toHaveAttribute("type", "text");
+		await user.click(screen.getByRole("button", { name: "Hide setup token" }));
+		expect(token).toHaveAttribute("type", "password");
+	});
+
   it("validates required values and matching passwords before calling the server", async () => {
     const fetchMock = vi.fn().mockResolvedValue(setupRequired());
     vi.stubGlobal("fetch", fetchMock);
@@ -143,7 +156,7 @@ describe("administrator setup", () => {
     expect(screen.getByLabelText("Confirm password")).toHaveValue("");
   });
 
-  it("moves to the authenticated shell after a successful setup", async () => {
+	it("moves to the authenticated shell after a successful setup", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(setupRequired())
       .mockResolvedValueOnce(response(201, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }));
@@ -160,5 +173,29 @@ describe("administrator setup", () => {
 
     expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
     expect(screen.getByText(administrator.email)).toBeVisible();
-  });
+	});
+
+	it("disables repeated logout and shows a safe failure without dropping the session", async () => {
+		let resolveLogout: ((value: Response) => void) | undefined;
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }))
+			.mockResolvedValueOnce(response(200, { version: 0, collections: {} }))
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveLogout = resolve; }));
+		vi.stubGlobal("fetch", fetchMock);
+		const user = userEvent.setup();
+		render(<App />);
+
+		await screen.findByRole("heading", { name: "pgBase administration" });
+		await user.click(screen.getByRole("button", { name: "Sign out" }));
+		const pendingButton = screen.getByRole("button", { name: "Signing out…" });
+		expect(pendingButton).toBeDisabled();
+		await user.click(pendingButton);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		resolveLogout?.(response(500, { error: { code: "internal_error", message: "unsafe detail", details: {} } }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out. Try again.");
+		expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+		expect(screen.getByRole("heading", { name: "pgBase administration" })).toBeVisible();
+	});
 });

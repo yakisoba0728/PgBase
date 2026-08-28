@@ -75,6 +75,8 @@ func TestLoadEnvReportsInvalidParsingWithEnvironmentVariable(t *testing.T) {
 		{name: "duration", key: "PGBASE_ADMIN_SESSION_TTL", value: "later"},
 		{name: "trusted proxy", key: "PGBASE_TRUSTED_PROXIES", value: "not-a-prefix"},
 		{name: "CORS origin", key: "PGBASE_CORS_ALLOWED_ORIGINS", value: "https://example.com/path"},
+		{name: "public origin empty fragment", key: "PGBASE_PUBLIC_URL", value: "https://example.com#"},
+		{name: "CORS origin empty fragment", key: "PGBASE_CORS_ALLOWED_ORIGINS", value: "https://example.com#"},
 	}
 
 	for _, tt := range tests {

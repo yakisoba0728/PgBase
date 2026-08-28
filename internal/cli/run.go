@@ -123,7 +123,7 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 		return configurationError{err: err, message: "invalid administrator credentials"}
 	}
 	if errors.Is(err, adminauth.ErrConflict) {
-		return configurationError{err: err, message: "administrator already exists"}
+		return migrationOperationError(options.Logger, "create administrator", err)
 	}
 	if err != nil {
 		return migrationOperationError(options.Logger, "create administrator", err)

@@ -176,25 +176,56 @@ func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 
 func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
-	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	plan, err := service.PlanCreate(context.Background(), input)
+	inputs := []CreateCollectionInput{
+		{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}},
+		{Name: "pages", Fields: []FieldInput{{Name: "body", Type: TypeText}}},
+	}
+	plans := make([]Plan, len(inputs))
+	for index, input := range inputs {
+		plan, err := service.PlanCreate(context.Background(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plans[index] = plan
+	}
+
+	lockingConnection, err := pool.Acquire(context.Background())
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockingConnection.Release()
+	lockingTx, err := lockingConnection.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = lockingTx.Rollback(context.Background())
+		}
+	}()
+	if _, err := lockingTx.Exec(context.Background(), "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
 		t.Fatal(err)
 	}
 
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var workers sync.WaitGroup
-	for range 2 {
+	for index := range inputs {
 		workers.Add(1)
-		go func() {
+		go func(input CreateCollectionInput, plan Plan) {
 			defer workers.Done()
 			<-start
 			_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
 			results <- applyErr
-		}()
+		}(inputs[index], plans[index])
 	}
 	close(start)
+	waitForAdvisoryLockWaiters(t, pool, 2)
+	if err := lockingTx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	locked = false
 	workers.Wait()
 	close(results)
 
@@ -546,6 +577,10 @@ func assertSchemaCounts(t *testing.T, pool *database.Pool, want schemaCounts) {
 }
 
 func waitForAdvisoryLockWaiter(t *testing.T, pool *database.Pool) {
+	waitForAdvisoryLockWaiters(t, pool, 1)
+}
+
+func waitForAdvisoryLockWaiters(t *testing.T, pool *database.Pool, wanted int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -554,10 +589,10 @@ func waitForAdvisoryLockWaiter(t *testing.T, pool *database.Pool) {
 			where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory'`).Scan(&waiters); err != nil {
 			t.Fatalf("read advisory lock waiters: %v", err)
 		}
-		if waiters > 0 {
+		if waiters >= wanted {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("apply did not wait for the schema advisory lock")
+	t.Fatalf("advisory lock waiters did not reach %d", wanted)
 }

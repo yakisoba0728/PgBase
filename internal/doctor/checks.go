@@ -2,8 +2,10 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 )
@@ -124,7 +126,7 @@ func checkBaseColumns(ctx context.Context, pool *database.Pool, table string, re
 		{column: "updated_at", typeName: "timestamp with time zone"},
 	} {
 		column, typeName := expected.column, expected.typeName
-		if err := checkColumnType(ctx, pool, table, column, typeName, report); err != nil {
+		if _, err := checkColumnType(ctx, pool, table, column, typeName, report); err != nil {
 			return err
 		}
 	}
@@ -146,11 +148,15 @@ func checkBaseColumns(ctx context.Context, pool *database.Pool, table string, re
 }
 
 func checkField(ctx context.Context, pool *database.Pool, table, column, fieldType string, required, unique, indexed bool, report *Report) error {
-	if err := checkColumnType(ctx, pool, table, column, expectedDataType(fieldType), report); err != nil {
+	present, err := checkColumnType(ctx, pool, table, column, expectedDataType(fieldType), report)
+	if err != nil {
 		return err
 	}
+	if !present {
+		return nil
+	}
 	var nullable string
-	err := pool.QueryRow(ctx, `select is_nullable from information_schema.columns where table_schema = 'app' and table_name = $1 and column_name = $2`, table, column).Scan(&nullable)
+	err = pool.QueryRow(ctx, `select is_nullable from information_schema.columns where table_schema = 'app' and table_name = $1 and column_name = $2`, table, column).Scan(&nullable)
 	if err != nil {
 		return fmt.Errorf("read collection column nullability: %w", err)
 	}
@@ -180,17 +186,20 @@ func checkField(ctx context.Context, pool *database.Pool, table, column, fieldTy
 	return nil
 }
 
-func checkColumnType(ctx context.Context, pool *database.Pool, table, column, want string, report *Report) error {
+func checkColumnType(ctx context.Context, pool *database.Pool, table, column, want string, report *Report) (bool, error) {
 	var got string
 	err := pool.QueryRow(ctx, `select data_type from information_schema.columns where table_schema = 'app' and table_name = $1 and column_name = $2`, table, column).Scan(&got)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		report.Findings = append(report.Findings, finding("collection_column_missing", "A catalog collection column is missing"))
-		return nil
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read collection column type: %w", err)
 	}
 	if got != want {
 		report.Findings = append(report.Findings, finding("collection_column_type_mismatch", "A catalog collection column has an unexpected type"))
 	}
-	return nil
+	return true, nil
 }
 
 func expectedDataType(fieldType string) string {

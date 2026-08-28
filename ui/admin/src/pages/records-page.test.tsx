@@ -144,7 +144,7 @@ describe("record administration", () => {
     expect(JSON.parse(options.body as string)).toEqual({ empty_text: "", required_empty_text: "" });
   });
 
-  it("accepts nil and mixed-case canonical UUID values and normalizes case", async () => {
+	it("accepts nil and mixed-case canonical UUID values and normalizes case", async () => {
     window.history.replaceState(null, "", "/admin/collections/ids/records/new");
     const idsCatalog = { version: 6, collections: { ids: { id: "ids", name: "ids", tableName: "ids", fields: [
       { name: "nil_id", type: "uuid", required: true, unique: false, indexed: false, ordinal: 0 },
@@ -171,8 +171,30 @@ describe("record administration", () => {
     expect(JSON.parse(options.body as string)).toEqual({
       nil_id: "00000000-0000-0000-0000-000000000000",
       mixed_id: "abcdefab-cdef-0abc-0def-abcdefabcdef",
-    });
-  });
+	});
+	});
+
+	it("rejects integers outside the PostgreSQL integer range before sending them", async () => {
+		window.history.replaceState(null, "", "/admin/collections/posts/records/new");
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(session())
+			.mockResolvedValueOnce(response(200, catalog));
+		vi.stubGlobal("fetch", fetchMock);
+		const user = userEvent.setup();
+		render(<App />);
+
+		await user.selectOptions(await screen.findByLabelText("count state"), "value");
+		const input = screen.getByLabelText("count");
+		await user.type(input, "2147483648");
+		await user.click(screen.getByRole("button", { name: "Create record" }));
+		expect(await screen.findByText("Value does not match the field type.")).toBeVisible();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+
+		await user.clear(input);
+		await user.type(input, "-2147483649");
+		await user.click(screen.getByRole("button", { name: "Create record" }));
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
 
   it("validates JSONB locally, sends partial updates, and shows safe 422 field errors", async () => {
     window.history.replaceState(null, "", `/admin/collections/posts/records/${recordID}`);

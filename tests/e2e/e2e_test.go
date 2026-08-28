@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -50,18 +51,20 @@ func TestMain(m *testing.M) {
 	if output, err := suite.compose(context.Background(), "up", "-d", "--build"); err != nil {
 		fmt.Fprintf(os.Stderr, "start e2e compose project: %v\n%s\n", err, output)
 		suite.writeFailureLogs()
-		suite.cleanup()
+		if cleanupErr := suite.cleanup(); cleanupErr != nil {
+			fmt.Fprintln(os.Stderr, "clean failed e2e startup:", cleanupErr)
+		}
 		os.Exit(1)
 	}
-	code := 1
-	defer func() {
-		if code != 0 {
-			suite.writeFailureLogs()
-		}
-		suite.cleanup()
-		os.Exit(code)
-	}()
-	code = m.Run()
+	code := m.Run()
+	if code != 0 {
+		suite.writeFailureLogs()
+	}
+	if cleanupErr := suite.cleanup(); cleanupErr != nil {
+		fmt.Fprintln(os.Stderr, "clean e2e resources:", cleanupErr)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
@@ -71,10 +74,16 @@ func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
 	if output, err := suite.compose(ctx, "pause", "postgres"); err != nil {
 		t.Fatalf("pause PostgreSQL: %v\n%s", err, output)
 	}
+	paused := true
 	t.Cleanup(func() {
+		if !paused {
+			return
+		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
-		_, _ = suite.compose(cleanupCtx, "unpause", "postgres")
+		if output, err := suite.compose(cleanupCtx, "unpause", "postgres"); err != nil {
+			t.Errorf("unpause PostgreSQL during cleanup: %v\n%s", err, output)
+		}
 	})
 
 	client := newAPIClient(suite.baseURL)
@@ -95,6 +104,7 @@ func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
 	if output, err := suite.compose(ctx, "unpause", "postgres"); err != nil {
 		t.Fatalf("unpause PostgreSQL: %v\n%s", err, output)
 	}
+	paused = false
 	waitReady(t, ctx, suite.baseURL)
 }
 
@@ -105,7 +115,7 @@ func TestTwoInstancesSynchronizeSchema(t *testing.T) {
 	instanceA := authenticatedClient(t, ctx, suite.baseURL)
 
 	instanceBURL, instanceBName := suite.startInstance(t, ctx, "schema-b", 12*time.Second)
-	t.Cleanup(func() { suite.removeContainer(instanceBName) })
+	t.Cleanup(func() { suite.removeContainer(t, instanceBName) })
 	waitReady(t, ctx, instanceBURL)
 	instanceB := authenticatedClient(t, ctx, instanceBURL)
 
@@ -287,15 +297,21 @@ func (s e2eSuite) docker(ctx context.Context, arguments ...string) (string, erro
 	return string(output), err
 }
 
-func (s e2eSuite) cleanup() {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	if output, err := s.compose(ctx, "down", "--volumes", "--remove-orphans"); err != nil {
-		fmt.Fprintf(os.Stderr, "clean e2e compose project: %v\n%s\n", err, output)
+func (s e2eSuite) cleanup() error {
+	var cleanupErrors []error
+	composeCtx, composeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	output, err := s.compose(composeCtx, "down", "--volumes", "--remove-orphans")
+	composeCancel()
+	if err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("clean compose project: %w (output: %s)", err, strings.TrimSpace(output)))
 	}
-	if output, err := s.docker(ctx, "image", "rm", s.image); err != nil && !strings.Contains(output, "No such image") {
-		fmt.Fprintf(os.Stderr, "remove e2e image: %v\n%s\n", err, output)
+	imageCtx, imageCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	output, err = s.docker(imageCtx, "image", "rm", s.image)
+	imageCancel()
+	if err != nil && !strings.Contains(output, "No such image") {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove image: %w (output: %s)", err, strings.TrimSpace(output)))
 	}
+	return errors.Join(cleanupErrors...)
 }
 
 func (s e2eSuite) writeFailureLogs() {
@@ -337,10 +353,14 @@ func (s e2eSuite) startInstance(t *testing.T, ctx context.Context, suffix string
 	return baseURL, name
 }
 
-func (s e2eSuite) removeContainer(name string) {
+func (s e2eSuite) removeContainer(t *testing.T, name string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_, _ = s.docker(ctx, "rm", "--force", name)
+	output, err := s.docker(ctx, "rm", "--force", name)
+	if err != nil && !strings.Contains(output, "No such container") {
+		t.Errorf("remove container %s: %v\n%s", name, err, output)
+	}
 }
 
 func freePort() (int, error) {

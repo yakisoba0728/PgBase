@@ -23,6 +23,8 @@ type Listener struct {
 	pid      atomic.Uint32
 	retryMin time.Duration
 	retryMax time.Duration
+
+	afterInitialReload func(Catalog)
 }
 
 func NewListener(pool *database.Pool, cache *Cache) *Listener {
@@ -108,8 +110,12 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
-	if err := l.reload(ctx, connection.Conn()); err != nil {
+	catalog, err := l.reload(ctx, connection.Conn())
+	if err != nil {
 		return false, err
+	}
+	if l.afterInitialReload != nil {
+		l.afterInitialReload(catalog)
 	}
 	l.ready.Store(true)
 	becameReady := true
@@ -118,16 +124,16 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 		if _, err := connection.Conn().WaitForNotification(ctx); err != nil {
 			return becameReady, fmt.Errorf("wait for schema change notification: %w", err)
 		}
-		if err := l.reload(ctx, connection.Conn()); err != nil {
+		if _, err := l.reload(ctx, connection.Conn()); err != nil {
 			return becameReady, err
 		}
 	}
 }
 
-func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) error {
+func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (Catalog, error) {
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		return fmt.Errorf("begin schema catalog reload: %w", err)
+		return Catalog{}, fmt.Errorf("begin schema catalog reload: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -140,18 +146,18 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) error {
 	store := NewStore(tx)
 	version, err := store.SchemaVersion(ctx)
 	if err != nil {
-		return err
+		return Catalog{}, err
 	}
 	catalog, err := store.ReadCatalog(ctx, version)
 	if err != nil {
-		return err
+		return Catalog{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit schema catalog reload: %w", err)
+		return Catalog{}, fmt.Errorf("commit schema catalog reload: %w", err)
 	}
 	committed = true
 	l.cache.Replace(catalog)
-	return nil
+	return catalog, nil
 }
 
 func (l *Listener) backoffBounds() (time.Duration, time.Duration) {

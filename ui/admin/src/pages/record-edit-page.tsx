@@ -31,7 +31,9 @@ function encodeValue(field: FieldDefinition, value: string | boolean): RecordVal
   const text = String(value);
   if (field.type === "integer") {
     if (!/^-?\d+$/.test(text)) throw new Error("type");
-    return Number(text);
+    const integer = BigInt(text);
+    if (integer < -2147483648n || integer > 2147483647n) throw new Error("type");
+    return Number(integer);
   }
   if (field.type === "bigint" || field.type === "numeric" || field.type === "text") return text;
   if (field.type === "timestamptz") {

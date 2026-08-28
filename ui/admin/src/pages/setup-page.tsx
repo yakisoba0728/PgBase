@@ -35,6 +35,7 @@ export function SetupPage({ onSetup }: SetupPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [showSetupToken, setShowSetupToken] = useState(false);
   const [errors, setErrors] = useState<SetupErrors>({});
   const [pending, setPending] = useState(false);
   const setupTokenRef = useRef<HTMLInputElement>(null);
@@ -88,7 +89,8 @@ export function SetupPage({ onSetup }: SetupPageProps) {
       <form noValidate onSubmit={submit}>
         {errors.form && <p className="form-error" id="setup-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{errors.form}</p>}
         <label htmlFor="setup-token">Setup token</label>
-        <input aria-describedby={errors.setupToken ? "setup-token-error" : undefined} aria-invalid={errors.setupToken ? true : undefined} id="setup-token" autoComplete="off" disabled={pending} onChange={(event) => setSetupToken(event.target.value)} ref={setupTokenRef} value={setupToken} />
+        <input aria-describedby={errors.setupToken ? "setup-token-error" : undefined} aria-invalid={errors.setupToken ? true : undefined} id="setup-token" type={showSetupToken ? "text" : "password"} autoComplete="off" disabled={pending} onChange={(event) => setSetupToken(event.target.value)} ref={setupTokenRef} value={setupToken} />
+        <button aria-pressed={showSetupToken} disabled={pending} onClick={() => setShowSetupToken((visible) => !visible)} type="button">{showSetupToken ? "Hide setup token" : "Show setup token"}</button>
         {errors.setupToken && <p className="field-error" id="setup-token-error">{errors.setupToken}</p>}
         <label htmlFor="email">Email</label>
         <input aria-describedby={errors.email ? "email-error" : undefined} aria-invalid={errors.email ? true : undefined} id="email" type="email" autoComplete="email" disabled={pending} onChange={(event) => setEmail(event.target.value)} ref={emailRef} value={email} />

@@ -16,6 +16,8 @@ function decodePathSegment(value: string | undefined): string | null {
 function AuthenticatedShell() {
   const { logout, state } = useSession();
   const [path, setPath] = useState(window.location.pathname);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   useEffect(() => {
     const update = () => setPath(window.location.pathname);
     window.addEventListener("popstate", update);
@@ -25,6 +27,17 @@ function AuthenticatedShell() {
   function navigate(next: string) {
     window.history.pushState(null, "", next);
     setPath(next);
+  }
+  async function signOut() {
+    if (logoutPending) return;
+    setLogoutPending(true);
+    setLogoutError(null);
+    try {
+      await logout();
+    } catch {
+      setLogoutError("Unable to sign out. Try again.");
+      setLogoutPending(false);
+    }
   }
   let page = <CollectionsPage navigate={navigate} />;
   if (path === "/admin/collections/new") page = <CollectionCreatePage navigate={navigate} />;
@@ -44,8 +57,9 @@ function AuthenticatedShell() {
         <h1>pgBase administration</h1>
         <p>{state.administrator.email}</p>
       </div>
-      <button onClick={() => void logout()} type="button">Sign out</button>
+      <button disabled={logoutPending} onClick={() => void signOut()} type="button">{logoutPending ? "Signing out…" : "Sign out"}</button>
     </header>
+    {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
     <nav aria-label="Administration"><button className="text-button" onClick={() => navigate("/admin/collections")} type="button">Collections</button><button className="text-button" onClick={() => navigate("/admin/system")} type="button">System</button></nav>
     {page}
   </main>;

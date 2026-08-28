@@ -16,7 +16,7 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	baseURL, containerName := suite.startInstance(t, ctx, "shutdown", 8*time.Second)
-	t.Cleanup(func() { suite.removeContainer(containerName) })
+	t.Cleanup(func() { suite.removeContainer(t, containerName) })
 	waitReady(t, ctx, baseURL)
 	client := authenticatedClient(t, ctx, baseURL)
 	definition := map[string]any{
@@ -145,7 +145,7 @@ func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context) (stri
 		time.Sleep(100 * time.Millisecond)
 	}
 	logs, _ := s.docker(ctx, "logs", name)
-	s.removeContainer(name)
+	s.removeContainer(t, name)
 	t.Fatalf("shutdown table lock was not acquired; locker logs:\n%s", logs)
 	return "", 0
 }
@@ -159,7 +159,7 @@ func (s e2eSuite) releaseShutdownTableLock(t *testing.T, ctx context.Context, co
 	if err != nil || strings.TrimSpace(output) != "t" {
 		t.Fatalf("terminate shutdown lock backend %d: error=%v output=%q", backendPID, err, output)
 	}
-	s.removeContainer(container)
+	s.removeContainer(t, container)
 }
 
 func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context) {

@@ -33,6 +33,22 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 	secondListener := NewListener(secondPool, secondCache)
 	secondListener.retryMin = 750 * time.Millisecond
 	secondListener.retryMax = 750 * time.Millisecond
+	reloadedBeforeReady := make(chan struct{})
+	allowReady := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-allowReady:
+		default:
+			close(allowReady)
+		}
+	})
+	secondListener.afterInitialReload = func(catalog Catalog) {
+		if catalog.Version != 2 {
+			return
+		}
+		close(reloadedBeforeReady)
+		<-allowReady
+	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	results := make(chan error, 2)
@@ -70,11 +86,19 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 		t.Fatalf("disconnected cache version = %d, want unchanged version 1", got)
 	}
 
-	waitForListenerReady(t, secondListener)
-	waitForCatalogVersion(t, secondCache, 2)
-	if _, ok := secondCache.Load().Collections["pages"]; !ok {
-		t.Fatal("reconnected listener reported ready without reloading the missed collection")
+	select {
+	case <-reloadedBeforeReady:
+	case <-time.After(10 * time.Second):
+		t.Fatal("listener did not reload the missed catalog")
 	}
+	if err := secondListener.Ready(context.Background()); err == nil {
+		t.Fatal("listener became ready before the missed catalog reload completed")
+	}
+	if _, ok := secondCache.Load().Collections["pages"]; !ok {
+		t.Fatal("missed collection was not published before readiness")
+	}
+	close(allowReady)
+	waitForListenerReady(t, secondListener)
 }
 
 func TestListenerReadyFailsUntilInitialCatalogSynchronization(t *testing.T) {

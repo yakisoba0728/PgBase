@@ -59,6 +59,22 @@ func TestRunReportsUnexpectedPhysicalColumnType(t *testing.T) {
 	assertFindingCode(t, runDoctor(t, pool), "collection_column_type_mismatch")
 }
 
+func TestRunReportsMissingCustomColumnAndContinuesToLaterCollection(t *testing.T) {
+	pool := newDoctorPool(t)
+	insertCollectionMetadata(t, pool, "posts", "title", "text")
+	if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null)`); err != nil {
+		t.Fatal(err)
+	}
+	insertCollectionMetadata(t, pool, "later", "body", "text")
+	if _, err := pool.Exec(context.Background(), `create table app.later (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null, body integer)`); err != nil {
+		t.Fatal(err)
+	}
+
+	report := runDoctor(t, pool)
+	assertFindingCode(t, report, "collection_column_missing")
+	assertFindingCode(t, report, "collection_column_type_mismatch")
+}
+
 func TestRunReportsStaleSchemaState(t *testing.T) {
 	pool := newDoctorPool(t)
 	if _, err := pool.Exec(context.Background(), "update pgbase_meta.schema_state set version = 1 where singleton"); err != nil {

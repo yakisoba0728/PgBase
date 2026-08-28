@@ -131,6 +131,9 @@ func parseOrigins(raw string) ([]string, error) {
 }
 
 func parseOrigin(raw string) (*url.URL, error) {
+	if strings.Contains(raw, "#") {
+		return nil, fmt.Errorf("must not include a path, query, or fragment")
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
