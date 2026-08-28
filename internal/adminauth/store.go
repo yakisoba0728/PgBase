@@ -78,14 +78,17 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	return administratorUTC(administrator), nil
 }
 
-// AdministratorByEmail reads an active administrator and its encoded password hash.
-func (s *Store) AdministratorByEmail(ctx context.Context, email string) (Administrator, string, error) {
+// AdministratorByEmailForUpdate locks and reads an active administrator and
+// its encoded password hash. The lock serializes password changes with session
+// issuance until the caller's transaction finishes.
+func (s *Store) AdministratorByEmailForUpdate(ctx context.Context, email string) (Administrator, string, error) {
 	var administrator Administrator
 	var passwordHash string
 	err := s.db.QueryRow(ctx, `
 		select id, email, active, created_at, updated_at, password_hash
 		from pgbase_meta.admins
-		where email = $1 and active`, email).Scan(
+		where email = $1 and active
+		for update`, email).Scan(
 		&administrator.ID, &administrator.Email, &administrator.Active,
 		&administrator.CreatedAt, &administrator.UpdatedAt, &passwordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -148,10 +151,14 @@ func (s *Store) RevokeSession(ctx context.Context, tokenHash []byte, now time.Ti
 	return nil
 }
 
-// LockRateLimit serializes decisions for one rate-limit subject within a transaction.
-func (s *Store) LockRateLimit(ctx context.Context, key int64) error {
-	if _, err := s.db.Exec(ctx, "select pg_advisory_xact_lock($1)", key); err != nil {
-		return fmt.Errorf("lock administrator rate limit: %w", err)
+// LockRateLimits serializes decisions for multiple rate-limit subjects in a
+// stable order so concurrent requests cannot deadlock while taking the same
+// set of account, network, and global locks.
+func (s *Store) LockRateLimits(ctx context.Context, keys []int64) error {
+	for _, key := range keys {
+		if _, err := s.db.Exec(ctx, "select pg_advisory_xact_lock($1)", key); err != nil {
+			return fmt.Errorf("lock administrator rate limit: %w", err)
+		}
 	}
 	return nil
 }
@@ -172,8 +179,12 @@ func (s *Store) RateLimitBlocked(ctx context.Context, subjectHash []byte, now ti
 	return blocked, nil
 }
 
-// RecordRateLimitFailure atomically adds a failure and starts a block on the fifth failure.
-func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, now time.Time) (bool, error) {
+// RecordRateLimitFailure atomically adds a failure and starts a block when the
+// caller-supplied threshold is reached.
+func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, now time.Time, limit int) (bool, error) {
+	if limit <= 0 {
+		return false, fmt.Errorf("record administrator rate-limit failure: invalid limit")
+	}
 	var blocked bool
 	err := s.db.QueryRow(ctx, `
 		insert into pgbase_meta.admin_rate_limits as limits
@@ -189,12 +200,12 @@ func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, 
 				else limits.failures + 1
 			end,
 			blocked_until = case
-				when (case when limits.window_started_at <= $2 - interval '15 minutes' then 1 else limits.failures + 1 end) >= 5
+				when (case when limits.window_started_at <= $2 - interval '15 minutes' then 1 else limits.failures + 1 end) >= $3
 				then greatest(coalesce(limits.blocked_until, '-infinity'::timestamptz), $2 + interval '15 minutes')
 				else null
 			end,
 			updated_at = $2
-		returning failures >= 5`, subjectHash, now).Scan(&blocked)
+		returning failures >= $3`, subjectHash, now, limit).Scan(&blocked)
 	if err != nil {
 		return false, fmt.Errorf("record administrator rate-limit failure: %w", err)
 	}
@@ -205,6 +216,23 @@ func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, 
 func (s *Store) ClearRateLimit(ctx context.Context, subjectHash []byte) error {
 	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_rate_limits where subject_hash = $1", subjectHash); err != nil {
 		return fmt.Errorf("clear administrator rate limit: %w", err)
+	}
+	return nil
+}
+
+// ReleaseRateLimitAttempt removes only the current successful reservation from
+// a shared network or global bucket without erasing other clients' failures.
+func (s *Store) ReleaseRateLimitAttempt(ctx context.Context, subjectHash []byte) error {
+	if _, err := s.db.Exec(ctx, `
+		with deleted as (
+			delete from pgbase_meta.admin_rate_limits
+			where subject_hash = $1 and failures <= 1
+			returning subject_hash
+		)
+		update pgbase_meta.admin_rate_limits
+		set failures = failures - 1, blocked_until = null
+		where subject_hash = $1 and failures > 1`, subjectHash); err != nil {
+		return fmt.Errorf("release administrator rate limit attempt: %w", err)
 	}
 	return nil
 }

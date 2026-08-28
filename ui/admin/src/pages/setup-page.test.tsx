@@ -77,6 +77,21 @@ describe("APIClient", () => {
 });
 
 describe("administrator setup", () => {
+	it("reaches first-run setup through the unauthenticated backend status contract", async () => {
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(response(401, {
+				error: { code: "authentication_required", message: "Administrator authentication is required", details: {} },
+			}))
+			.mockResolvedValueOnce(response(200, { setupRequired: true }));
+		vi.stubGlobal("fetch", fetchMock);
+		render(<App />);
+
+		expect(await screen.findByRole("heading", { name: "Set up pgBase" })).toBeVisible();
+		expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/admin/session", expect.anything());
+		expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/status", expect.anything());
+		expect(window.location.pathname).toBe("/admin/setup");
+	});
+
 	it("conceals the setup token unless the administrator explicitly reveals it", async () => {
 		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(setupRequired()));
 		const user = userEvent.setup();

@@ -8,8 +8,8 @@ import (
 
 var (
 	urlPassword      = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^:\s/@]+:)[^@\s/]+@`)
-	urlQuerySecret   = regexp.MustCompile(`(?i)([?&](?:password|pass|token|access_token|setup_token|session_token)=)[^&#\s]*`)
-	keywordDSNSecret = regexp.MustCompile(`(?i)(\b(?:password|pass|token|access_token|setup_token|session_token)\s*=\s*)(?:'[^']*'|"[^"]*"|[^\s&]+)`)
+	urlQuerySecret   = regexp.MustCompile(`(?i)([?&](?:[a-z0-9_]*password|pass|token|access_token|setup_token|session_token)=)[^&#\s]*`)
+	keywordDSNSecret = regexp.MustCompile(`(?i)(\b(?:[a-z0-9_]*password|pass|token|access_token|setup_token|session_token)\s*=\s*)(?:'[^']*'|"[^"]*"|[^\s&]+)`)
 	headerSecret     = regexp.MustCompile(`(?i)((?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+`)
 	bearerSecret     = regexp.MustCompile(`(?i)(\bbearer\s+)[^\s,;]+`)
 	tokenSecret      = regexp.MustCompile(`(?i)((?:setup|session)[ _-]?token\s*[:=]\s*)[^\s,;]+`)

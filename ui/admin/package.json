@@ -10,13 +10,16 @@
     "dev": "vite",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "build": "tsc -b && vite build"
   },
   "dependencies": {
+    "lossless-json": "4.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.6",

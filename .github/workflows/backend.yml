@@ -17,11 +17,11 @@ jobs:
       matrix:
         postgres:
           - version: "16.13"
-            image: postgres:16.13-bookworm
+            image: postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60
           - version: "17"
-            image: postgres:17.9-bookworm
+            image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
           - version: "18"
-            image: postgres:18.3-bookworm
+            image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
     services:
       postgres:
         image: ${{ matrix.postgres.image }}

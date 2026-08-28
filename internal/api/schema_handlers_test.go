@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -201,6 +202,20 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 		assertErrorCode(t, response.Body.Bytes(), "schema_conflict")
+	})
+
+	t.Run("retryable database errors are service unavailable", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{catalogErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
+			t.Fatalf("status=%d retry-after=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "schema_unavailable")
 	})
 }
 

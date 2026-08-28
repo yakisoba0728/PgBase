@@ -65,6 +65,18 @@ func TestJSONLoggerRedactsCredentialsInErrorAttributes(t *testing.T) {
 			secret: "keyword-secret",
 			keep:   "user=pgbase",
 		},
+		{
+			name:   "PostgreSQL URL sslpassword",
+			error:  errors.New("connect postgres://db.example/app?sslpassword=tls-query-secret&sslmode=verify-full failed"),
+			secret: "tls-query-secret",
+			keep:   "sslmode=verify-full",
+		},
+		{
+			name:   "keyword DSN sslpassword",
+			error:  errors.New("connect host=db.example sslpassword='tls keyword secret' sslmode=verify-full failed"),
+			secret: "tls keyword secret",
+			keep:   "host=db.example",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

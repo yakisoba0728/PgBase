@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +24,11 @@ func TestClassifyPostgreSQLErrors(t *testing.T) {
 		{name: "lock unavailable is unavailable", err: &pgconn.PgError{Code: "55P03"}, want: KindUnavailable},
 		{name: "query cancellation is unavailable", err: &pgconn.PgError{Code: "57014"}, want: KindUnavailable},
 		{name: "administrator shutdown is unavailable", err: &pgconn.PgError{Code: "57P01"}, want: KindUnavailable},
+		{name: "serialization failure is retryable", err: &pgconn.PgError{Code: "40001"}, want: KindUnavailable},
+		{name: "deadlock is retryable", err: &pgconn.PgError{Code: "40P01"}, want: KindUnavailable},
+		{name: "connection SQLSTATE is unavailable", err: &pgconn.PgError{Code: "08006"}, want: KindUnavailable},
+		{name: "unexpected EOF is unavailable", err: io.ErrUnexpectedEOF, want: KindUnavailable},
+		{name: "network error is unavailable", err: &net.OpError{Op: "read", Net: "tcp", Err: io.EOF}, want: KindUnavailable},
 		{name: "wrapped context cancellation is canceled", err: fmtWrap(context.Canceled), want: KindCanceled},
 		{name: "unknown error stays unknown", err: errors.New("unknown"), want: KindUnknown},
 	}

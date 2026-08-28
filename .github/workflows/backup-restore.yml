@@ -1,0 +1,78 @@
+name: Backup restore drill
+
+on:
+  push:
+    paths:
+      - "migrations/**"
+      - "internal/migrate/**"
+      - "docs/backup-restore.md"
+      - ".github/workflows/backup-restore.yml"
+  pull_request:
+    paths:
+      - "migrations/**"
+      - "internal/migrate/**"
+      - "docs/backup-restore.md"
+      - ".github/workflows/backup-restore.yml"
+  schedule:
+    - cron: "41 4 * * 3"
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60
+        env:
+          POSTGRES_USER: pgbase
+          POSTGRES_PASSWORD: restore-test-password
+          POSTGRES_DB: pgbase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pgbase -d pgbase"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      PGBASE_DATABASE_URL: postgres://pgbase:restore-test-password@127.0.0.1:5432/pgbase?sslmode=disable
+      PGBASE_TOKEN_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+
+      - name: Migrate and seed the source database
+        run: |
+          go run ./cmd/pgbase migrate up
+          container="${{ job.services.postgres.id }}"
+          test -n "$container"
+          docker exec "$container" psql --username pgbase --dbname pgbase --set ON_ERROR_STOP=1 --command \
+            "insert into pgbase_meta.admins (id,email,password_hash,active,created_at,updated_at) values ('019551d0-e9c0-7000-8000-000000000001','restore@example.test','test-hash',true,now(),now())"
+
+      - name: Dump and restore into an empty database
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="${{ job.services.postgres.id }}"
+          docker exec "$container" pg_dump --username pgbase --dbname pgbase --format=custom --no-owner --no-privileges > pgbase.dump
+          docker exec "$container" createdb --username pgbase pgbase_restore
+          docker cp pgbase.dump "$container:/tmp/pgbase.dump"
+          docker exec "$container" pg_restore \
+            --username=pgbase --exit-on-error --clean --if-exists --no-owner --no-privileges \
+            --single-transaction --dbname=pgbase_restore /tmp/pgbase.dump
+
+      - name: Verify restored schema and rows
+        shell: bash
+        run: |
+          container="${{ job.services.postgres.id }}"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.system_migrations')" = "2"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.admins')" = "1"

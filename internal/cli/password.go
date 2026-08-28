@@ -17,13 +17,18 @@ var (
 	passwordInput           = term.ReadPassword
 )
 
+const maximumAdministratorPasswordBytes = 1024
+
 type fileDescriptor interface{ Fd() uintptr }
 
 func readAdministratorPassword(stdin io.Reader, stderr io.Writer, passwordFromStdin bool) (string, error) {
 	if passwordFromStdin {
-		reader := bufio.NewReader(stdin)
+		reader := bufio.NewReader(io.LimitReader(stdin, maximumAdministratorPasswordBytes+3))
 		password, err := reader.ReadString('\n')
 		if err != nil {
+			if len(password) > maximumAdministratorPasswordBytes+2 {
+				return "", configurationError{err: errors.New("administrator password is too long"), message: "password must not exceed 1024 bytes"}
+			}
 			return "", configurationError{err: err, message: "password input must end with a newline"}
 		}
 		if strings.Contains(password[:len(password)-1], "\r") {
@@ -31,6 +36,9 @@ func readAdministratorPassword(stdin io.Reader, stderr io.Writer, passwordFromSt
 			password = strings.TrimSuffix(password, "\r")
 		} else {
 			password = strings.TrimSuffix(password, "\n")
+		}
+		if len(password) > maximumAdministratorPasswordBytes {
+			return "", configurationError{err: errors.New("administrator password is too long"), message: "password must not exceed 1024 bytes"}
 		}
 		if password == "" {
 			return "", configurationError{err: errors.New("empty administrator password"), message: "password must not be empty"}
@@ -60,6 +68,9 @@ func readAdministratorPassword(stdin io.Reader, stderr io.Writer, passwordFromSt
 	}
 	if len(first) == 0 {
 		return "", configurationError{err: errors.New("empty administrator password"), message: "password must not be empty"}
+	}
+	if len(first) > maximumAdministratorPasswordBytes {
+		return "", configurationError{err: errors.New("administrator password is too long"), message: "password must not exceed 1024 bytes"}
 	}
 	if string(first) != string(second) {
 		return "", configurationError{err: errors.New("administrator password confirmation does not match"), message: "password confirmation does not match"}

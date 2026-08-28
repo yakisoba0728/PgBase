@@ -10,6 +10,8 @@ export interface SessionResponse {
   expiresAt: string;
 }
 
+export interface AdminStatusResponse { setupRequired: boolean }
+
 export interface SetupInput {
   setupToken: string;
   email: string;
@@ -25,7 +27,7 @@ export type SessionState =
   | { kind: "loading" }
   | { kind: "setup-required" }
   | { kind: "anonymous" }
-  | { kind: "authenticated"; administrator: Administrator; csrfToken: string };
+  | { kind: "authenticated"; administrator: Administrator; csrfToken: string; expiresAt: string };
 
 export interface ErrorEnvelope {
   error: {

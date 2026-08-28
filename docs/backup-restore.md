@@ -78,6 +78,8 @@ Restore into a new, empty database first. Do not restore over a running project.
    export PGSERVICEFILE="${XDG_CONFIG_HOME:-$HOME/.config}/pgbase/pg_service.conf"
    export PGPASSFILE="${XDG_CONFIG_HOME:-$HOME/.config}/pgbase/pgpass"
    PGSERVICE=pgbase-restore pg_restore \
+     --dbname='service=pgbase-restore' \
+     --single-transaction \
      --no-owner \
      --no-acl \
      --exit-on-error \

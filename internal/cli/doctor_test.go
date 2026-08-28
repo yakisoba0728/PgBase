@@ -5,12 +5,53 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
+
+func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
+	const databaseURL = "postgres://pgbase:must-not-leak@127.0.0.1:1/pgbase?connect_timeout=1"
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	if code != 1 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report struct {
+		OK       bool `json:"ok"`
+		Findings []struct {
+			Code string `json:"code"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not one JSON report: %q: %v", stdout.String(), err)
+	}
+	if report.OK || len(report.Findings) != 1 || report.Findings[0].Code != "database_unreachable" {
+		t.Fatalf("report=%+v", report)
+	}
+	if strings.Contains(stdout.String(), "must-not-leak") || strings.Contains(stderr.String(), "must-not-leak") {
+		t.Fatalf("doctor output leaked database credentials: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run(context.Background(), []string{"doctor", "--json"}, emptyEnv, &stdout, io.Discard, DefaultCommands())
+	if code != 2 {
+		t.Fatalf("exit=%d stdout=%q", code, stdout.String())
+	}
+	var report struct {
+		Findings []struct {
+			Code string `json:"code"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil || len(report.Findings) != 1 || report.Findings[0].Code != "configuration_invalid" {
+		t.Fatalf("report=%q err=%v", stdout.String(), err)
+	}
+}
 
 func TestDoctorJSONReportsHealthyMigratedDatabase(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)

@@ -19,18 +19,17 @@ func TestCompileInsertUsesCatalogOrdinalAndParametersForEveryValue(t *testing.T)
 
 	collection := compilerCollection()
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	now := time.Date(2026, 8, 28, 12, 34, 56, 0, time.FixedZone("KST", 9*60*60))
 	input := map[string]json.RawMessage{
 		"metadata":    json.RawMessage(`{"attempt":"'); DROP TABLE app.records; --"}`),
 		"title":       json.RawMessage(`"'); DROP TABLE app.records; --"`),
 		"large_count": json.RawMessage(`"9223372036854775807"`),
 	}
 
-	got, err := CompileInsert(collection, input, id, now)
+	got, err := CompileInsert(collection, input, id)
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
-	wantSQL := `INSERT INTO "app"."physical_records" ("id", "created_at", "updated_at", "title", "large_count", "metadata") VALUES ($1, $2, $3, $4, $5, $6) RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
+	wantSQL := `INSERT INTO "app"."physical_records" ("id", "created_at", "updated_at", "title", "large_count", "metadata") VALUES ($1, statement_timestamp(), statement_timestamp(), $2, $3, $4) RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
 	if got.SQL != wantSQL {
 		t.Fatalf("SQL = %q, want %q", got.SQL, wantSQL)
 	}
@@ -39,8 +38,6 @@ func TestCompileInsertUsesCatalogOrdinalAndParametersForEveryValue(t *testing.T)
 	}
 	wantArgs := []any{
 		id,
-		time.Date(2026, 8, 28, 3, 34, 56, 0, time.UTC),
-		time.Date(2026, 8, 28, 3, 34, 56, 0, time.UTC),
 		"'); DROP TABLE app.records; --",
 		int64(9223372036854775807),
 		json.RawMessage(`{"attempt":"'); DROP TABLE app.records; --"}`),
@@ -55,25 +52,23 @@ func TestCompileInsertOmissionRulesAndJSONBNull(t *testing.T) {
 
 	collection := compilerCollection()
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-
 	statement, err := CompileInsert(collection, map[string]json.RawMessage{
 		"title":    json.RawMessage(`"required"`),
 		"metadata": json.RawMessage(`null`),
-	}, id, now)
+	}, id)
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
-	wantSQL := `INSERT INTO "app"."physical_records" ("id", "created_at", "updated_at", "title", "metadata") VALUES ($1, $2, $3, $4, $5) RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
+	wantSQL := `INSERT INTO "app"."physical_records" ("id", "created_at", "updated_at", "title", "metadata") VALUES ($1, statement_timestamp(), statement_timestamp(), $2, $3) RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
 	if statement.SQL != wantSQL {
 		t.Fatalf("SQL = %q, want %q", statement.SQL, wantSQL)
 	}
-	if len(statement.Args) != 5 {
-		t.Fatalf("Args length = %d, want 5", len(statement.Args))
+	if len(statement.Args) != 3 {
+		t.Fatalf("Args length = %d, want 3", len(statement.Args))
 	}
-	assertJSONEqual(t, statement.Args[4], `null`)
+	assertJSONEqual(t, statement.Args[2], `null`)
 
-	_, err = CompileInsert(collection, map[string]json.RawMessage{}, id, now)
+	_, err = CompileInsert(collection, map[string]json.RawMessage{}, id)
 	assertValidationDetail(t, err, "title", "required")
 }
 
@@ -81,12 +76,11 @@ func TestCompileInsertProducesDefaultValuesStatementWhenCollectionHasNoFields(t 
 	t.Parallel()
 
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	statement, err := CompileInsert(schema.Collection{TableName: "empty"}, nil, id, now)
+	statement, err := CompileInsert(schema.Collection{TableName: "empty"}, nil, id)
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
-	wantSQL := `INSERT INTO "app"."empty" ("id", "created_at", "updated_at") VALUES ($1, $2, $3) RETURNING "id", "created_at", "updated_at"`
+	wantSQL := `INSERT INTO "app"."empty" ("id", "created_at", "updated_at") VALUES ($1, statement_timestamp(), statement_timestamp()) RETURNING "id", "created_at", "updated_at"`
 	if statement.SQL != wantSQL {
 		t.Fatalf("SQL = %q, want %q", statement.SQL, wantSQL)
 	}
@@ -111,20 +105,19 @@ func TestCompileUpdateUsesOrdinalAssignmentsAndReturnsRecord(t *testing.T) {
 
 	collection := compilerCollection()
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	now := time.Date(2026, 8, 28, 21, 34, 56, 0, time.FixedZone("KST", 9*60*60))
 	got, err := CompileUpdate(collection, id, map[string]json.RawMessage{
 		"metadata":    json.RawMessage(`["safe",1]`),
 		"large_count": json.RawMessage(`"-42"`),
 		"title":       json.RawMessage(`"updated"`),
-	}, now)
+	})
 	if err != nil {
 		t.Fatalf("CompileUpdate() error = %v", err)
 	}
-	wantSQL := `UPDATE "app"."physical_records" SET "title" = $1, "large_count" = $2, "metadata" = $3, "updated_at" = $4 WHERE "id" = $5 RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
+	wantSQL := `UPDATE "app"."physical_records" SET "title" = $1, "large_count" = $2, "metadata" = $3, "updated_at" = statement_timestamp() WHERE "id" = $4 RETURNING "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note"`
 	if got.SQL != wantSQL {
 		t.Fatalf("SQL = %q, want %q", got.SQL, wantSQL)
 	}
-	wantArgs := []any{"updated", int64(-42), json.RawMessage(`["safe",1]`), time.Date(2026, 8, 28, 12, 34, 56, 0, time.UTC), id}
+	wantArgs := []any{"updated", int64(-42), json.RawMessage(`["safe",1]`), id}
 	if !reflect.DeepEqual(got.Args, wantArgs) {
 		t.Fatalf("Args = %#v, want %#v", got.Args, wantArgs)
 	}
@@ -135,16 +128,14 @@ func TestCompileUpdateRejectsEmptyAndUnknownFieldsBeforeConstructingSQL(t *testi
 
 	collection := compilerCollection()
 	id := uuid.New()
-	now := time.Now().UTC()
-
-	statement, err := CompileUpdate(collection, id, map[string]json.RawMessage{}, now)
+	statement, err := CompileUpdate(collection, id, map[string]json.RawMessage{})
 	if statement.SQL != "" || statement.Args != nil {
 		t.Fatalf("empty patch statement = %#v, want zero statement", statement)
 	}
 	assertValidationDetail(t, err, "", "empty_patch")
 
 	malicious := `title" = $1; DROP TABLE app.physical_records; --`
-	statement, err = CompileUpdate(collection, id, map[string]json.RawMessage{malicious: json.RawMessage(`"x"`)}, now)
+	statement, err = CompileUpdate(collection, id, map[string]json.RawMessage{malicious: json.RawMessage(`"x"`)})
 	if statement.SQL != "" || statement.Args != nil {
 		t.Fatalf("unknown field statement = %#v, want zero statement", statement)
 	}
@@ -234,7 +225,7 @@ func TestCompilerQuotesCatalogDerivedPhysicalIdentifiers(t *testing.T) {
 			Required:   true,
 		}},
 	}
-	statement, err := CompileInsert(collection, map[string]json.RawMessage{"safe_api_name": json.RawMessage(`"value"`)}, uuid.New(), time.Now().UTC())
+	statement, err := CompileInsert(collection, map[string]json.RawMessage{"safe_api_name": json.RawMessage(`"value"`)}, uuid.New())
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
@@ -251,7 +242,7 @@ func TestCompileInsertRejectsUnsupportedCatalogFieldType(t *testing.T) {
 	t.Parallel()
 
 	collection := schema.Collection{TableName: "records", Fields: []schema.Field{{Name: "cost", ColumnName: "cost", Type: schema.FieldType("money")}}}
-	_, err := CompileInsert(collection, map[string]json.RawMessage{"cost": json.RawMessage(`"1.00"`)}, uuid.New(), time.Now().UTC())
+	_, err := CompileInsert(collection, map[string]json.RawMessage{"cost": json.RawMessage(`"1.00"`)}, uuid.New())
 	assertValidationDetail(t, err, "cost", "unsupported_type")
 }
 
@@ -259,13 +250,13 @@ func TestCompileInsertKeepsNumericArgumentAsExactPgtypeNumeric(t *testing.T) {
 	t.Parallel()
 
 	collection := schema.Collection{TableName: "records", Fields: []schema.Field{{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric, Required: true}}}
-	statement, err := CompileInsert(collection, map[string]json.RawMessage{"amount": json.RawMessage(`"12345678901234567890.12345678901234567890"`)}, uuid.New(), time.Now().UTC())
+	statement, err := CompileInsert(collection, map[string]json.RawMessage{"amount": json.RawMessage(`"12345678901234567890.12345678901234567890"`)}, uuid.New())
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
-	numeric, ok := statement.Args[3].(pgtype.Numeric)
+	numeric, ok := statement.Args[1].(pgtype.Numeric)
 	if !ok {
-		t.Fatalf("numeric arg type = %T, want pgtype.Numeric", statement.Args[3])
+		t.Fatalf("numeric arg type = %T, want pgtype.Numeric", statement.Args[1])
 	}
 	value, err := numeric.Value()
 	if err != nil {

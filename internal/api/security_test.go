@@ -61,7 +61,7 @@ func TestSecuritySQLValuesRemainParametersAndErrorsStaySecretFree(t *testing.T) 
 	if strings.Contains(records.statement.SQL, attack) || strings.Contains(records.statement.SQL, "DROP TABLE") {
 		t.Fatalf("compiled SQL contains request value: %q", records.statement.SQL)
 	}
-	if len(records.statement.Args) != 5 || records.statement.Args[3] != attack {
+	if len(records.statement.Args) != 3 || records.statement.Args[1] != attack {
 		t.Fatalf("compiled arguments = %#v, want hostile value only as argument", records.statement.Args)
 	}
 	assertSecuritySecretsAbsent(t, logs.String(), attack, "DROP TABLE")
@@ -118,6 +118,33 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 
 			assertSecurityError(t, response, http.StatusBadRequest, "invalid_request", "security-", "7f31")
 			assertSecuritySecretsAbsent(t, logs.String(), "security-", "7f31")
+			if auth.loginCalls != 0 {
+				t.Fatalf("Login() calls = %d, want 0", auth.loginCalls)
+			}
+		})
+	}
+}
+
+func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{name: "invalid UTF-8", body: append([]byte(`{"email":"admin@example.test","password":"`), 0xff, '"', '}')},
+		{name: "NUL escape", body: []byte(`{"email":"admin@example.test","password":"before\u0000after"}`)},
+		{name: "unpaired high surrogate", body: []byte(`{"email":"admin@example.test","password":"\ud800"}`)},
+		{name: "unpaired low surrogate", body: []byte(`{"email":"admin@example.test","password":"\udc00"}`)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := &fakeAdminAuth{loginSession: validSession()}
+			handler := NewRouter(Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			request := httptest.NewRequest(http.MethodPost, "http://pgbase.test/api/admin/auth/login", bytes.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://pgbase.test")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			assertSecurityError(t, response, http.StatusBadRequest, "invalid_request")
 			if auth.loginCalls != 0 {
 				t.Fatalf("Login() calls = %d, want 0", auth.loginCalls)
 			}
@@ -422,7 +449,7 @@ func (*securityCompilerRecords) Get(context.Context, string, uuid.UUID) (map[str
 }
 
 func (r *securityCompilerRecords) Create(_ context.Context, _ string, input map[string]json.RawMessage) (map[string]any, error) {
-	statement, err := query.CompileInsert(r.collection, input, uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"), time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC))
+	statement, err := query.CompileInsert(r.collection, input, uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"))
 	if err != nil {
 		return nil, err
 	}

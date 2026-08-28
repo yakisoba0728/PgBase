@@ -249,8 +249,115 @@ func TestServiceLoginRateLimitIsSharedAndClearsOnSuccess(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_rate_limits").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("rate-limit row count after success = %d, want 0", count)
+	if count != 2 {
+		t.Fatalf("rate-limit row count after success = %d, want 2 network/global rows", count)
+	}
+}
+
+type immediateInvalidPasswords struct {
+	verifyCount int
+}
+
+func (*immediateInvalidPasswords) Hash(string) (string, error) {
+	return "", errors.New("unexpected hash")
+}
+func (p *immediateInvalidPasswords) Verify(string, string) error {
+	p.verifyCount++
+	return ErrInvalidCredentials
+}
+
+func TestServiceLoginEmailRotationIsStoppedByNetworkRateLimit(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	if _, err := NewService(pool, NewArgon2idPasswords(), secret, setupToken, time.Hour, clock).Setup(
+		context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "setup-client"); err != nil {
+		t.Fatal(err)
+	}
+	passwords := &immediateInvalidPasswords{}
+	service := NewService(pool, passwords, secret, setupToken, time.Hour, clock)
+	for attempt := 0; attempt < networkFailureLimit; attempt++ {
+		email := fmt.Sprintf("rotated-%d@example.com", attempt)
+		if _, err := service.Login(context.Background(), email, "incorrect horse battery staple", "192.0.2.44"); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("attempt %d error = %v, want invalid credentials", attempt+1, err)
+		}
+	}
+	if _, err := service.Login(context.Background(), "next@example.com", "incorrect horse battery staple", "192.0.2.44"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("rotated email after network limit error = %v, want rate limited", err)
+	}
+	if passwords.verifyCount != networkFailureLimit {
+		t.Fatalf("password verifications = %d, want %d; blocked request must not run KDF", passwords.verifyCount, networkFailureLimit)
+	}
+	var rows int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_rate_limits").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows > networkFailureLimit+2 {
+		t.Fatalf("rate-limit rows = %d, want at most %d", rows, networkFailureLimit+2)
+	}
+}
+
+type concurrencyPasswords struct {
+	delegate Passwords
+	started  chan struct{}
+	release  chan struct{}
+	mu       sync.Mutex
+	active   int
+	maximum  int
+}
+
+func (p *concurrencyPasswords) Hash(password string) (string, error) {
+	return p.delegate.Hash(password)
+}
+func (p *concurrencyPasswords) Verify(encodedHash, password string) error {
+	p.mu.Lock()
+	p.active++
+	if p.active > p.maximum {
+		p.maximum = p.active
+	}
+	p.mu.Unlock()
+	p.started <- struct{}{}
+	<-p.release
+	p.mu.Lock()
+	p.active--
+	p.mu.Unlock()
+	return p.delegate.Verify(encodedHash, password)
+}
+
+func TestServiceBoundsConcurrentPasswordVerification(t *testing.T) {
+	passwords := &concurrencyPasswords{
+		delegate: NewArgon2idPasswords(),
+		started:  make(chan struct{}, 3),
+		release:  make(chan struct{}),
+	}
+	service := NewService(nil, passwords, []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, nil)
+	done := make(chan error, 3)
+	for range 3 {
+		go func() {
+			done <- service.verifyPassword(context.Background(), dummyPasswordHash, "pgbase dummy credential 2026")
+		}()
+	}
+	for range passwordVerificationConcurrency {
+		select {
+		case <-passwords.started:
+		case <-time.After(time.Second):
+			t.Fatal("password verification did not start")
+		}
+	}
+	select {
+	case <-passwords.started:
+		t.Fatal("third password verification bypassed the concurrency bound")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(passwords.release)
+	for range 3 {
+		if err := <-done; err != nil && !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatal(err)
+		}
+	}
+	if passwords.maximum != passwordVerificationConcurrency {
+		t.Fatalf("maximum concurrent verifications = %d, want %d", passwords.maximum, passwordVerificationConcurrency)
 	}
 }
 
@@ -340,6 +447,81 @@ func TestServiceResetAdministratorPasswordRevokesAllExistingSessions(t *testing.
 	}
 	if _, err := service.Login(context.Background(), "admin@example.com", "new correct horse battery staple", "reset-client"); err != nil {
 		t.Fatalf("login with reset password: %v", err)
+	}
+}
+
+type fixedHashPasswords struct {
+	hash     string
+	delegate Passwords
+}
+
+func (p *fixedHashPasswords) Hash(string) (string, error) { return p.hash, nil }
+func (p *fixedHashPasswords) Verify(encodedHash, password string) error {
+	return p.delegate.Verify(encodedHash, password)
+}
+
+func TestServicePasswordResetSerializesWithConcurrentLogin(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	realPasswords := NewArgon2idPasswords()
+	baseService := NewService(pool, realPasswords, secret, setupToken, time.Hour, clock)
+	if _, err := baseService.Setup(context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "setup-client"); err != nil {
+		t.Fatal(err)
+	}
+
+	blocking := &concurrencyPasswords{
+		delegate: realPasswords,
+		started:  make(chan struct{}, 1),
+		release:  make(chan struct{}),
+	}
+	loginService := NewService(pool, blocking, secret, setupToken, time.Hour, clock)
+	loginResult := make(chan Session, 1)
+	loginErr := make(chan error, 1)
+	go func() {
+		session, err := loginService.Login(context.Background(), "admin@example.com", "correct horse battery staple", "login-client")
+		loginResult <- session
+		loginErr <- err
+	}()
+	select {
+	case <-blocking.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("login did not reach password verification")
+	}
+
+	newHash, err := realPasswords.Hash("new correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetService := NewService(pool, &fixedHashPasswords{hash: newHash, delegate: realPasswords}, secret, setupToken, time.Hour, clock)
+	resetDone := make(chan error, 1)
+	go func() {
+		_, err := resetService.ResetAdministratorPassword(context.Background(), "admin@example.com", "unused valid password")
+		resetDone <- err
+	}()
+	select {
+	case err := <-resetDone:
+		t.Fatalf("password reset bypassed the login row lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(blocking.release)
+	if err := <-loginErr; err != nil {
+		t.Fatalf("concurrent login: %v", err)
+	}
+	issued := <-loginResult
+	if err := <-resetDone; err != nil {
+		t.Fatalf("password reset: %v", err)
+	}
+	if _, _, err := baseService.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("session issued by old password survived reset: %v", err)
+	}
+	if _, err := baseService.Login(context.Background(), "admin@example.com", "correct horse battery staple", "old-password-client"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("old password after reset error = %v, want invalid credentials", err)
+	}
+	if _, err := baseService.Login(context.Background(), "admin@example.com", "new correct horse battery staple", "new-password-client"); err != nil {
+		t.Fatalf("new password after reset: %v", err)
 	}
 }
 

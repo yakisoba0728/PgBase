@@ -15,12 +15,16 @@ const (
 	createCollectionOperation = "collection_create"
 	postgresIdentifierLimit   = 63
 	indexHashLength           = 16
+	maximumCollectionFields   = 1597
 )
 
 // PlanCreate validates a collection definition and produces its deterministic DDL plan.
 func (Planner) PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error) {
 	if err := validateName("name", input.Name); err != nil {
 		return Plan{}, err
+	}
+	if len(input.Fields) > maximumCollectionFields {
+		return Plan{}, validation("fields", "too_many_fields")
 	}
 
 	fields := make([]PlannedField, 0, len(input.Fields))
@@ -103,7 +107,11 @@ func makeCreateStatements(definition PlannedCollection) []string {
 		columns = append(columns, column)
 	}
 
-	statements := []string{"CREATE TABLE " + table + " (" + strings.Join(columns, ", ") + ")"}
+	statements := []string{
+		"CREATE TABLE " + table + " (" + strings.Join(columns, ", ") + ")",
+		"CREATE INDEX " + pgx.Identifier{indexName(definition.Name, "created_at:id")}.Sanitize() +
+			" ON " + table + " (\"created_at\", \"id\")",
+	}
 	for _, field := range definition.Fields {
 		if !field.Unique && !field.Indexed {
 			continue

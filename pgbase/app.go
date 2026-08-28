@@ -129,8 +129,9 @@ func (e readinessFailure) Error() string        { return "required component is 
 func (e readinessFailure) Components() []string { return append([]string(nil), e.components...) }
 
 // New validates options, establishes PostgreSQL connectivity, verifies the
-// system schema, and builds an inactive HTTP application. It starts no
-// goroutines; callers must invoke Run.
+// system schema, and builds an inactive HTTP application. It does not start
+// pgBase background workers or an HTTP listener; the PostgreSQL pool may run
+// its own internal maintenance goroutines. Callers must invoke Start or Run.
 func New(ctx context.Context, options Options) (*App, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -221,13 +222,43 @@ func New(ctx context.Context, options Options) (*App, error) {
 		Addr:              normalized.HTTPAddress,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	keepPool = true
 	return app, nil
 }
 
 // Handler returns the application's HTTP handler without starting a listener.
+// Call Start before serving it through a caller-owned HTTP server. Run starts
+// the same background lifecycle and uses pgBase's built-in server instead.
 func (a *App) Handler() http.Handler { return a.handler }
+
+// Start starts pgBase background components for a caller-owned HTTP server.
+// A started application cannot subsequently be passed to Run; call Close when
+// the caller-owned server has stopped.
+func (a *App) Start(ctx context.Context) error {
+	if a == nil || a.httpServer == nil {
+		return errors.New("pgbase app is not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	startupDone, err := a.beginStartup()
+	if err != nil {
+		return err
+	}
+	backgroundDone, activated := a.activateBackground(ctx, startupDone)
+	if !activated {
+		return errAppClosed
+	}
+	go func() {
+		<-backgroundDone
+		a.readiness.accepting.Store(false)
+	}()
+	return nil
+}
 
 // Run serves HTTP until the context is cancelled, the server is closed, or it
 // encounters an operational error.
@@ -325,6 +356,20 @@ func (a *App) activateStartup(ctx context.Context, listener net.Listener, server
 	go func() {
 		serverDone <- a.httpServer.Serve(listener)
 	}()
+	a.readiness.accepting.Store(true)
+	a.lifecycleState = appLifecycleRunning
+	a.completeStartupLocked(startupDone)
+	return backgroundDone, true
+}
+
+func (a *App) activateBackground(ctx context.Context, startupDone chan struct{}) (<-chan struct{}, bool) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
+		a.completeStartupLocked(startupDone)
+		return nil, false
+	}
+	backgroundDone := a.startBackground(ctx)
 	a.readiness.accepting.Store(true)
 	a.lifecycleState = appLifecycleRunning
 	a.completeStartupLocked(startupDone)

@@ -3,6 +3,9 @@ package database
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -29,7 +32,14 @@ func Classify(err error) Kind {
 
 	var postgresError *pgconn.PgError
 	if !errors.As(err, &postgresError) {
+		var networkError net.Error
+		if errors.As(err, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || pgconn.SafeToRetry(err) {
+			return KindUnavailable
+		}
 		return KindUnknown
+	}
+	if strings.HasPrefix(postgresError.Code, "08") {
+		return KindUnavailable
 	}
 
 	switch postgresError.Code {
@@ -37,7 +47,7 @@ func Classify(err error) Kind {
 		return KindConflict
 	case "23502", "23514", "22P02":
 		return KindValidation
-	case "55P03", "57014", "57P01":
+	case "40001", "40P01", "55P03", "57014", "57P01", "57P02", "57P03":
 		return KindUnavailable
 	default:
 		return KindUnknown

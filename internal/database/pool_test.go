@@ -3,11 +3,27 @@ package database
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
+
+func TestOpenRejectsPoolTooSmallForListenerAndRequests(t *testing.T) {
+	parsed, err := url.Parse(testutil.NewDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("pool_max_conns", "1")
+	parsed.RawQuery = query.Encode()
+	_, err = Open(context.Background(), parsed.String(), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "at least 2") {
+		t.Fatalf("Open error = %v, want minimum pool size rejection", err)
+	}
+}
 
 func TestOpenAppliesPgBaseSessionSettings(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,16 +14,35 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 )
 
 const adminCookieName = "pgbase_admin"
 
 // AdminAuth supplies all administrator security state transitions used by HTTP.
 type AdminAuth interface {
+	SetupRequired(context.Context) (bool, error)
 	Setup(context.Context, string, string, string, string) (adminauth.Session, error)
 	Login(context.Context, string, string, string) (adminauth.Session, error)
 	Authenticate(context.Context, string) (adminauth.Administrator, time.Time, error)
 	Logout(context.Context, string) error
+}
+
+func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
+	if e.auth == nil {
+		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
+		return
+	}
+	setupRequired, err := e.auth.SetupRequired(r.Context())
+	if err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, struct {
+		SetupRequired bool `json:"setupRequired"`
+	}{SetupRequired: setupRequired})
 }
 
 type adminEndpoints struct {
@@ -165,7 +185,14 @@ func decodeStrictJSON(r *http.Request, destination any) error {
 	if err != nil || mediaType != "application/json" {
 		return errors.New("request content type is not application/json")
 	}
-	decoder := json.NewDecoder(r.Body)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	if err := jsonvalue.ValidateUnicode(raw); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return err
@@ -191,6 +218,9 @@ func writeAdminAuthError(w http.ResponseWriter, r *http.Request, err error) {
 		apiError = APIError{Status: http.StatusConflict, Code: "setup_unavailable", Message: "Administrator setup is unavailable"}
 	case errors.Is(err, adminauth.ErrRateLimited):
 		apiError = APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Too many authentication attempts"}
+	case database.Classify(err) == database.KindUnavailable:
+		w.Header().Set("Retry-After", "1")
+		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Administrator authentication is unavailable"}
 	}
 	writeAPIError(w, r, apiError)
 }

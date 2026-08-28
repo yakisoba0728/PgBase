@@ -46,7 +46,13 @@ func (r *Runner) Up(ctx context.Context) error {
 		return fmt.Errorf("migration pool is nil")
 	}
 
-	return r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	type appliedMigration struct {
+		version     int64
+		name        string
+		executionMS int64
+	}
+	appliedMigrations := make([]appliedMigration, 0)
+	err := r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
 			return fmt.Errorf("set migration lock timeout: %w", err)
 		}
@@ -79,10 +85,17 @@ func (r *Runner) Up(ctx context.Context) error {
 				values ($1, $2, $3, $4)`, migration.Version, migration.Name, migration.SHA256[:], executionMS); err != nil {
 				return fmt.Errorf("record system migration %d (%s): %w", migration.Version, migration.Name, err)
 			}
-			r.logger.Info("applied system migration", "version", migration.Version, "name", migration.Name, "execution_ms", executionMS)
+			appliedMigrations = append(appliedMigrations, appliedMigration{version: migration.Version, name: migration.Name, executionMS: executionMS})
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, migration := range appliedMigrations {
+		r.logger.Info("applied system migration", "version", migration.version, "name", migration.name, "execution_ms", migration.executionMS)
+	}
+	return nil
 }
 
 func readApplied(ctx context.Context, db database.DBTX) (map[int64][]byte, error) {

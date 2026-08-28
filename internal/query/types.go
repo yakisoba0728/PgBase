@@ -15,9 +15,11 @@ type Statement struct {
 }
 
 type PageCursor struct {
-	Version   int
-	CreatedAt time.Time
-	ID        uuid.UUID
+	Version      int
+	CollectionID uuid.UUID
+	CreatedAt    time.Time
+	ID           uuid.UUID
+	ExpiresAt    time.Time
 }
 
 type RowScanner interface {

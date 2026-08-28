@@ -1,4 +1,5 @@
-import type { ErrorEnvelope, LoginInput, SessionResponse, SetupInput } from "./types";
+import type { AdminStatusResponse, ErrorEnvelope, LoginInput, SessionResponse, SetupInput } from "./types";
+import { parseJSON, stringifyJSON } from "./json";
 
 export class APIClientError extends Error {
   constructor(
@@ -22,13 +23,21 @@ function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
 
 async function responseBody(response: Response): Promise<unknown> {
   try {
-    return await response.json();
+    if (typeof response.text !== "function") return await response.json();
+    const text = await response.text();
+    return text.trim() === "" ? undefined : parseJSON(text);
   } catch {
     return undefined;
   }
 }
 
 export class APIClient {
+  constructor(private readonly onUnauthorized?: () => void) {}
+
+  async getAdminStatus(signal?: AbortSignal): Promise<AdminStatusResponse> {
+    return this.request<AdminStatusResponse>("/api/admin/status", { signal });
+  }
+
   async getSession(signal?: AbortSignal): Promise<SessionResponse> {
     return this.request<SessionResponse>("/api/admin/session", { signal });
   }
@@ -36,14 +45,14 @@ export class APIClient {
   async setup(input: SetupInput): Promise<SessionResponse> {
     return this.request<SessionResponse>("/api/admin/setup", {
       method: "POST",
-      body: JSON.stringify(input),
+      body: stringifyJSON(input),
     });
   }
 
   async login(input: LoginInput): Promise<SessionResponse> {
     return this.request<SessionResponse>("/api/admin/auth/login", {
       method: "POST",
-      body: JSON.stringify(input),
+      body: stringifyJSON(input),
     });
   }
 
@@ -66,10 +75,11 @@ export class APIClient {
     });
     if (response.ok) {
       if (response.status === 204) return undefined as T;
-      return await response.json() as T;
+      return await responseBody(response) as T;
     }
 
     const body = await responseBody(response);
+    if (response.status === 401) this.onUnauthorized?.();
     if (isErrorEnvelope(body)) {
       throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message);
     }

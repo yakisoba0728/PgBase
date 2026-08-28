@@ -1,11 +1,32 @@
 package api
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestRecoveryDiscardsPartialResponseBeforeWriting500(t *testing.T) {
+	handler := recoveryMiddleware(slog.New(slog.NewJSONHandler(io.Discard, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Partial", "must-not-leak")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("partial secret"))
+		panic("boom")
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/panic", nil))
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+	if strings.Contains(response.Body.String(), "partial secret") || response.Header().Get("X-Partial") != "" {
+		t.Fatalf("partial response leaked: headers=%v body=%q", response.Header(), response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "internal_error")
+}
 
 func TestCORSRejectsWildcardConfiguration(t *testing.T) {
 	handler := NewRouter(Dependencies{CORSAllowedOrigins: []string{"*"}})

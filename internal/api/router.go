@@ -36,6 +36,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	records := recordEndpoints{service: dependencies.Records}
 	mux.HandleFunc("GET /health/live", live)
 	mux.Handle("GET /health/ready", ready(dependencies.Readiness))
+	mux.HandleFunc("GET /api/admin/status", admin.status)
 	mux.Handle("POST /api/admin/setup", sameOriginMiddleware(admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.setup)))
 	login := sameOriginMiddleware(admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.login))
 	mux.Handle("POST /api/admin/auth/login", login)

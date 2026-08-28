@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import type { CollectionDefinition } from "../api/collections";
 import type { RecordData, RecordPage } from "../api/records";
+import { stringifyJSON } from "../api/json";
 import { useSession } from "../auth/session";
 
 function display(value: RecordData[string]): string {
   if (value === null) return "null";
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") return stringifyJSON(value);
   return String(value);
 }
 

@@ -35,6 +35,60 @@ func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
 	}
 }
 
+func TestStartEnablesHandlerForCallerOwnedHTTPServer(t *testing.T) {
+	app, err := New(context.Background(), Options{
+		DatabaseURL: testutil.NewDatabase(t),
+		TokenSecret: make([]byte, 32),
+		AutoMigrate: true,
+		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := app.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
+		defer closeCancel()
+		_ = app.Close(closeCtx)
+	})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		response := httptest.NewRecorder()
+		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+		if response.Code == http.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("caller-owned handler never became ready: status=%d body=%s", response.Code, response.Body.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := app.Run(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
+		t.Fatalf("Run after Start error = %v, want already started", err)
+	}
+}
+
+func TestNewConfiguresBoundedHTTPReadWriteAndIdleTimeouts(t *testing.T) {
+	app, err := New(context.Background(), Options{
+		DatabaseURL: testutil.NewDatabase(t),
+		TokenSecret: make([]byte, 32),
+		AutoMigrate: true,
+		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.Close(context.Background()) })
+	if app.httpServer.ReadHeaderTimeout <= 0 || app.httpServer.ReadTimeout <= 0 || app.httpServer.WriteTimeout <= 0 || app.httpServer.IdleTimeout <= 0 {
+		t.Fatalf("HTTP timeouts are not fully bounded: %+v", app.httpServer)
+	}
+}
+
 func TestRunCancellationClosesListenerAndPool(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	address := unusedAddress(t)

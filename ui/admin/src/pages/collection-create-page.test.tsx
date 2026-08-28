@@ -60,6 +60,7 @@ describe("collection creation", () => {
     await user.click(screen.getByRole("button", { name: "Add field" }));
     await user.type(screen.getByLabelText("Field 2 name"), "views");
     await user.selectOptions(screen.getByLabelText("Field 2 type"), "bigint");
+    await user.click(screen.getByLabelText("Field 2 has default"));
     await user.type(screen.getByLabelText("Field 2 default"), "0");
     await user.click(screen.getByRole("button", { name: "Preview collection" }));
 

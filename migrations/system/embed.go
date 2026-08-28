@@ -17,12 +17,21 @@ type Migration struct {
 //go:embed 000001_initial.sql
 var initialSQL string
 
+//go:embed 000002_record_page_indexes.sql
+var recordPageIndexesSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
 		Name:    "initial",
 		SQL:     initialSQL,
 		SHA256:  sha256.Sum256([]byte(initialSQL)),
+	},
+	{
+		Version: 2,
+		Name:    "record_page_indexes",
+		SQL:     recordPageIndexesSQL,
+		SHA256:  sha256.Sum256([]byte(recordPageIndexesSQL)),
 	},
 }
 

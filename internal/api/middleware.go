@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -55,23 +56,64 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 
 func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buffered := &bufferedResponseWriter{header: make(http.Header)}
 		defer func() {
 			if recover() != nil {
-				id := w.Header().Get("X-Request-ID")
+				id := buffered.Header().Get("X-Request-ID")
 				if id == "" {
 					id = r.Header.Get("X-Request-ID")
 					if !validRequestID(id) {
 						id = newRequestID()
 					}
-					w.Header().Set("X-Request-ID", id)
 				}
+				w.Header().Set("X-Request-ID", id)
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+				w.Header().Set("Content-Security-Policy", "default-src 'none'")
 				r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
 				logger.Error("http handler panicked", "request_id", id)
 				writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
+				return
 			}
+			buffered.commit(w)
 		}()
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(buffered, r)
 	})
+}
+
+type bufferedResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (w *bufferedResponseWriter) Header() http.Header { return w.header }
+
+func (w *bufferedResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *bufferedResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(body)
+}
+
+func (w *bufferedResponseWriter) commit(destination http.ResponseWriter) {
+	for name, values := range w.header {
+		for _, value := range values {
+			destination.Header().Add(name, value)
+		}
+	}
+	status := w.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	destination.WriteHeader(status)
+	_, _ = destination.Write(w.body.Bytes())
 }
 
 type statusWriter struct {

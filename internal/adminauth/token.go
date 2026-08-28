@@ -29,8 +29,8 @@ func DeriveCSRFToken(secret []byte, rawToken string) string {
 	return base64.RawURLEncoding.EncodeToString(tokenHMAC(secret, "csrf\x00", rawToken))
 }
 
-func rateLimitSubjectHash(secret []byte, normalizedEmail, subject string) []byte {
-	return tokenHMAC(secret, "rate-limit\x00", normalizedEmail+"\x00"+subject)
+func rateLimitSubjectHash(secret []byte, operation, axis, subject string) []byte {
+	return tokenHMAC(secret, "rate-limit\x00"+operation+"\x00"+axis+"\x00", subject)
 }
 
 func tokenHMAC(secret []byte, domain, value string) []byte {

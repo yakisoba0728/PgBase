@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 )
 
@@ -19,9 +20,10 @@ func TestSetupRouteRejectsMalformedJSON(t *testing.T) {
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code == http.StatusNotFound {
-		t.Fatalf("administrator setup route is not registered: body=%s", response.Body.String())
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 }
 
 func TestLoginRouteRejectsMalformedJSON(t *testing.T) {
@@ -31,9 +33,10 @@ func TestLoginRouteRejectsMalformedJSON(t *testing.T) {
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code == http.StatusNotFound {
-		t.Fatalf("administrator login route is not registered: body=%s", response.Body.String())
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 }
 
 func TestSessionRouteRequiresAuthentication(t *testing.T) {
@@ -41,8 +44,29 @@ func TestSessionRouteRequiresAuthentication(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code == http.StatusNotFound {
-		t.Fatalf("administrator session route is not registered: body=%s", response.Body.String())
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "authentication_required")
+}
+
+func TestAdminStatusReportsFirstRunWithoutAuthentication(t *testing.T) {
+	auth := &fakeAdminAuth{setupRequired: true}
+	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/status", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		SetupRequired bool `json:"setupRequired"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.SetupRequired || auth.setupRequiredCalls != 1 {
+		t.Fatalf("body=%+v calls=%d", body, auth.setupRequiredCalls)
 	}
 }
 
@@ -52,9 +76,10 @@ func TestLogoutRouteRequiresAuthentication(t *testing.T) {
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code == http.StatusNotFound {
-		t.Fatalf("administrator logout route is not registered: body=%s", response.Body.String())
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	assertErrorCode(t, response.Body.Bytes(), "authentication_required")
 }
 
 func TestSetupSetsSecureAdminCookie(t *testing.T) {
@@ -183,11 +208,13 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 		err        error
 		wantStatus int
 		wantCode   string
+		retryAfter string
 	}{
 		{name: "validation", err: adminauth.ErrValidation, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
 		{name: "credentials", err: adminauth.ErrInvalidCredentials, wantStatus: http.StatusUnauthorized, wantCode: "invalid_credentials"},
 		{name: "setup unavailable", err: adminauth.ErrSetupUnavailable, wantStatus: http.StatusConflict, wantCode: "setup_unavailable"},
 		{name: "rate limited", err: adminauth.ErrRateLimited, wantStatus: http.StatusTooManyRequests, wantCode: "rate_limited"},
+		{name: "retryable database", err: &pgconn.PgError{Code: "40001", Message: "serialization failure"}, wantStatus: http.StatusServiceUnavailable, wantCode: "authentication_unavailable", retryAfter: "1"},
 		{name: "internal", err: errors.New("SQLSTATE 23505 postgres://secret"), wantStatus: http.StatusInternalServerError, wantCode: "internal_error"},
 	}
 	for _, tt := range tests {
@@ -203,6 +230,9 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 			assertErrorCode(t, response.Body.Bytes(), tt.wantCode)
+			if got := response.Header().Get("Retry-After"); got != tt.retryAfter {
+				t.Fatalf("Retry-After=%q, want %q", got, tt.retryAfter)
+			}
 			if strings.Contains(response.Body.String(), "SQLSTATE") || strings.Contains(response.Body.String(), "postgres://") || strings.Contains(response.Body.String(), "secret-password") {
 				t.Fatalf("response leaked sensitive input: %s", response.Body.String())
 			}

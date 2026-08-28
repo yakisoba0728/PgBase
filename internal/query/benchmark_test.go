@@ -28,13 +28,12 @@ func TestBenchmarkCollectionAndInput(t *testing.T) {
 		collection,
 		input,
 		uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"),
-		time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
 		t.Fatalf("CompileInsert() error = %v", err)
 	}
-	if len(statement.Args) != 23 {
-		t.Fatalf("compiled argument count = %d, want 23", len(statement.Args))
+	if len(statement.Args) != 21 {
+		t.Fatalf("compiled argument count = %d, want 21", len(statement.Args))
 	}
 	if !strings.HasPrefix(statement.SQL, `INSERT INTO "app"."benchmark_records"`) {
 		t.Fatalf("compiled SQL uses unexpected path: %q", statement.SQL)
@@ -44,10 +43,9 @@ func TestBenchmarkCollectionAndInput(t *testing.T) {
 func BenchmarkCompileInsert20Fields(b *testing.B) {
 	collection, input := benchmarkCollectionAndInput(20)
 	id := uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21")
-	now := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
 	b.ReportAllocs()
 	for range b.N {
-		if _, err := CompileInsert(collection, input, id, now); err != nil {
+		if _, err := CompileInsert(collection, input, id); err != nil {
 			b.Fatal(err)
 		}
 	}

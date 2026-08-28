@@ -3,13 +3,13 @@ package schema
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 )
 
 var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
@@ -100,7 +100,7 @@ func parseInteger(raw json.RawMessage, bits int) (string, bool) {
 
 func parseNumeric(raw json.RawMessage) (string, bool) {
 	value, ok := parseJSONString(raw)
-	if !ok || !decimalLiteral.MatchString(value) {
+	if !ok || !decimalLiteral.MatchString(value) || !jsonvalue.ValidPostgresNumber(value) {
 		return "", false
 	}
 	negative := strings.HasPrefix(value, "-")
@@ -125,11 +125,8 @@ func parseNumeric(raw json.RawMessage) (string, bool) {
 }
 
 func parseJSONString(raw json.RawMessage) (string, bool) {
-	if len(raw) < 2 || raw[0] != '"' {
-		return "", false
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
+	value, err := jsonvalue.String(raw)
+	if err != nil {
 		return "", false
 	}
 	return value, true
@@ -169,17 +166,7 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 }
 
 func canonicalJSON(raw json.RawMessage) (json.RawMessage, bool) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, false
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, false
-	}
-	canonical, err := json.Marshal(value)
+	canonical, err := jsonvalue.Canonical(raw)
 	if err != nil {
 		return nil, false
 	}

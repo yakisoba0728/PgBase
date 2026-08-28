@@ -66,6 +66,11 @@ func checkSchemaState(ctx context.Context, pool *database.Pool, report *Report) 
 }
 
 func checkCollections(ctx context.Context, pool *database.Pool, report *Report) error {
+	type catalogRow struct {
+		collection, table         string
+		column, fieldType         *string
+		required, unique, indexed *bool
+	}
 	rows, err := pool.Query(ctx, `select collections.name, collections.table_name, fields.column_name, fields.field_type,
 		fields.required, fields.is_unique, fields.is_indexed
 		from pgbase_meta.collections as collections
@@ -74,39 +79,44 @@ func checkCollections(ctx context.Context, pool *database.Pool, report *Report) 
 	if err != nil {
 		return fmt.Errorf("read schema catalog: %w", err)
 	}
-	defer rows.Close()
-	tablePresent := make(map[string]bool)
+	catalog := make([]catalogRow, 0)
 	for rows.Next() {
-		var collection, table string
-		var column, fieldType *string
-		var required, unique, indexed *bool
-		if err := rows.Scan(&collection, &table, &column, &fieldType, &required, &unique, &indexed); err != nil {
+		var row catalogRow
+		if err := rows.Scan(&row.collection, &row.table, &row.column, &row.fieldType, &row.required, &row.unique, &row.indexed); err != nil {
+			rows.Close()
 			return fmt.Errorf("scan schema catalog: %w", err)
 		}
-		present, checked := tablePresent[table]
+		catalog = append(catalog, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate schema catalog: %w", err)
+	}
+	rows.Close()
+
+	tablePresent := make(map[string]bool)
+	for _, row := range catalog {
+		present, checked := tablePresent[row.table]
 		if !checked {
-			present, err = tableExists(ctx, pool, table)
+			present, err = tableExists(ctx, pool, row.table)
 			if err != nil {
 				return err
 			}
-			tablePresent[table] = present
+			tablePresent[row.table] = present
 			if !present {
 				report.Findings = append(report.Findings, finding("collection_table_missing", "A catalog collection table is missing"))
 				continue
 			}
-			if err := checkBaseColumns(ctx, pool, table, report); err != nil {
+			if err := checkBaseColumns(ctx, pool, row.table, report); err != nil {
 				return err
 			}
 		}
-		if !present || column == nil || fieldType == nil {
+		if !present || row.column == nil || row.fieldType == nil {
 			continue
 		}
-		if err := checkField(ctx, pool, table, *column, *fieldType, *required, *unique, *indexed, report); err != nil {
+		if err := checkField(ctx, pool, row.table, *row.column, *row.fieldType, *row.required, *row.unique, *row.indexed, report); err != nil {
 			return err
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate schema catalog: %w", err)
 	}
 	return nil
 }

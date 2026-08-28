@@ -188,7 +188,7 @@ PostgreSQL pool and transactions
 
 핵심 환경 변수는 `PGBASE_DATABASE_URL`, `PGBASE_TOKEN_SECRET`, `PGBASE_SETUP_TOKEN`, `PGBASE_HTTP_ADDRESS`, `PGBASE_PUBLIC_URL`, `PGBASE_AUTO_MIGRATE`, `PGBASE_TRUSTED_PROXIES`, `PGBASE_CORS_ALLOWED_ORIGINS`, `PGBASE_ADMIN_SESSION_TTL`, `PGBASE_STATEMENT_TIMEOUT`, `PGBASE_SHUTDOWN_TIMEOUT`다. 정확한 요구사항과 기본값은 [Deployment and configuration](deployment.md#configuration)을 기준으로 한다.
 
-Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options)`를 호출하고, 반환된 `App`의 `Run`, `Close`, `Handler`를 사용한다. `New`는 연결과 migration 상태를 확인하지만 goroutine이나 HTTP listener를 시작하지 않는다.
+Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options)`를 호출한다. 내장 HTTP 서버는 `Run`을 사용하고, 호출자가 서버를 소유할 때는 반드시 `Start`를 성공시킨 뒤 `Handler`를 제공하고 마지막에 `Close`한다. `Start`된 앱을 다시 `Run`할 수는 없다. `New`는 pgBase worker나 HTTP listener를 시작하지 않지만, 이 단계에서 생성하는 `pgxpool`은 내부 연결 유지 goroutine을 실행할 수 있다.
 
 ## 8. 관리자 UI
 
@@ -219,10 +219,10 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 | Go | live PostgreSQL을 사용한 `go test ./... -count=1` |
 | 정적 검사 | `go vet ./...` |
 | 동시성 | Linux / Go 1.26.7에서 `go test -race ./... -count=1` |
-| Frontend | `npm ci`, typecheck, 24개 test, production build |
+| Frontend | integrity-bound `npm ci`, typecheck, unit/contract test, production build |
 | Embedded UI | 재빌드한 `ui/admin/dist`와 커밋 결과가 동일 |
-| Black-box E2E | PostgreSQL 16.13 Compose에서 4개 시나리오 통과 |
-| E2E 범위 | bootstrap/CRUD/restart, DB outage/recovery, two-instance schema sync, graceful drain |
+| Black-box E2E | digest-pinned PostgreSQL 16.13 Compose에서 반복·shuffle 실행 |
+| E2E 범위 | 실제 Chromium 온보딩, bootstrap/CRUD/restart, DB outage/recovery, two-instance schema sync, graceful drain |
 | CI PostgreSQL matrix | 16.13, 17.9, 18.3 |
 | Container | nonroot, shell 없음, hardened Compose runtime 검사 |
 | Review | Production Kernel 전체 branch review와 후속 finding 수정 완료 |

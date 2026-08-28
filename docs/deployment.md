@@ -45,7 +45,7 @@ The production binary reads configuration from environment variables:
 | `PGBASE_AUTO_MIGRATE` | Boolean; default `false`. Use `true` only for the bundled development Compose path. |
 | `PGBASE_TRUSTED_PROXIES` | Comma-separated, masked CIDR prefixes for proxies allowed to supply forwarded scheme/address data. Empty by default. |
 | `PGBASE_CORS_ALLOWED_ORIGINS` | Comma-separated exact `http`/`https` origins. Wildcards are rejected. Leave empty for same-origin administration. |
-| `PGBASE_ADMIN_SESSION_TTL` | Go duration; default `12h`. |
+| `PGBASE_ADMIN_SESSION_TTL` | Go duration; positive and no greater than `12h`; default `12h`. |
 | `PGBASE_STATEMENT_TIMEOUT` | Go duration; default `5s`. |
 | `PGBASE_SHUTDOWN_TIMEOUT` | Go duration; default `15s`. |
 

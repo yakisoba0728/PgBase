@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,11 +141,15 @@ func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 		{name: "numeric number", field: "amount", raw: `1.2`},
 		{name: "numeric nan", field: "amount", raw: `"NaN"`},
 		{name: "numeric infinity", field: "amount", raw: `"Infinity"`},
+		{name: "numeric precision beyond PostgreSQL", field: "amount", raw: `"` + strings.Repeat("9", 131073) + `"`},
 		{name: "text object", field: "title", raw: `{}`},
 		{name: "timestamp without offset", field: "published_at", raw: `"2026-08-28T12:34:56"`},
 		{name: "invalid timestamp", field: "published_at", raw: `"tomorrow"`},
 		{name: "invalid uuid", field: "external_id", raw: `"not-a-uuid"`},
 		{name: "trailing json", field: "metadata", raw: `{}[]`},
+		{name: "jsonb exponent beyond PostgreSQL", field: "metadata", raw: `{"value":1e131072}`},
+		{name: "jsonb NUL", field: "metadata", raw: `{"value":"\u0000"}`},
+		{name: "jsonb unpaired surrogate", field: "metadata", raw: `{"value":"\ud800"}`},
 	}
 
 	for _, test := range tests {

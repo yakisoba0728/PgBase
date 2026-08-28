@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	cursorVersion        = 1
+	cursorVersion        = 2
 	maxDecodedCursorSize = 512
 	cursorDomain         = "cursor\x00"
 )
@@ -23,9 +23,11 @@ type CursorCodec struct {
 }
 
 type cursorPayload struct {
-	Version   int    `json:"v"`
-	CreatedAt string `json:"createdAt"`
-	ID        string `json:"id"`
+	Version      int    `json:"v"`
+	CollectionID string `json:"collectionId"`
+	CreatedAt    string `json:"createdAt"`
+	ID           string `json:"id"`
+	ExpiresAt    string `json:"expiresAt"`
 }
 
 func NewCursorCodec(secret []byte) *CursorCodec {
@@ -33,17 +35,20 @@ func NewCursorCodec(secret []byte) *CursorCodec {
 }
 
 func (c *CursorCodec) Encode(cursor PageCursor) (string, error) {
-	if cursor.Version != cursorVersion || cursor.CreatedAt.IsZero() || cursor.ID == uuid.Nil {
+	if cursor.Version != cursorVersion || cursor.CollectionID == uuid.Nil || cursor.CreatedAt.IsZero() || cursor.ID == uuid.Nil || cursor.ExpiresAt.IsZero() {
 		return "", invalidCursor()
 	}
-	_, offset := cursor.CreatedAt.Zone()
-	if offset != 0 {
+	_, createdOffset := cursor.CreatedAt.Zone()
+	_, expiryOffset := cursor.ExpiresAt.Zone()
+	if createdOffset != 0 || expiryOffset != 0 {
 		return "", invalidCursor()
 	}
 	payload, err := json.Marshal(cursorPayload{
-		Version:   cursor.Version,
-		CreatedAt: cursor.CreatedAt.UTC().Format(time.RFC3339Nano),
-		ID:        cursor.ID.String(),
+		Version:      cursor.Version,
+		CollectionID: cursor.CollectionID.String(),
+		CreatedAt:    cursor.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ID:           cursor.ID.String(),
+		ExpiresAt:    cursor.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
 		return "", invalidCursor()
@@ -58,7 +63,7 @@ func (c *CursorCodec) Encode(cursor PageCursor) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func (c *CursorCodec) Decode(token string) (PageCursor, error) {
+func (c *CursorCodec) Decode(token string, collectionID uuid.UUID, now time.Time) (PageCursor, error) {
 	if token == "" || len(token) > base64.RawURLEncoding.EncodedLen(maxDecodedCursorSize) {
 		return PageCursor{}, invalidCursor()
 	}
@@ -98,7 +103,22 @@ func (c *CursorCodec) Decode(token string) (PageCursor, error) {
 	if err != nil || id == uuid.Nil || id.String() != payload.ID {
 		return PageCursor{}, invalidCursor()
 	}
-	return PageCursor{Version: payload.Version, CreatedAt: createdAt.UTC(), ID: id}, nil
+	payloadCollectionID, err := uuid.Parse(payload.CollectionID)
+	if err != nil || payloadCollectionID == uuid.Nil || payloadCollectionID.String() != payload.CollectionID || payloadCollectionID != collectionID {
+		return PageCursor{}, invalidCursor()
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, payload.ExpiresAt)
+	if err != nil || payload.ExpiresAt != expiresAt.UTC().Format(time.RFC3339Nano) || !expiresAt.After(now.UTC()) {
+		return PageCursor{}, invalidCursor()
+	}
+	_, expiryOffset := expiresAt.Zone()
+	if expiryOffset != 0 {
+		return PageCursor{}, invalidCursor()
+	}
+	return PageCursor{
+		Version: cursorVersion, CollectionID: payloadCollectionID,
+		CreatedAt: createdAt.UTC(), ID: id, ExpiresAt: expiresAt.UTC(),
+	}, nil
 }
 
 func (c *CursorCodec) sign(payload []byte) []byte {

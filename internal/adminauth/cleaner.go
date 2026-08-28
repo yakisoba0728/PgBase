@@ -14,43 +14,80 @@ const (
 	cleanerBatchSize             = int64(1000)
 	cleanerRetention             = 24 * time.Hour
 	cleanerInterval              = time.Hour
+	cleanerRetryMin              = 100 * time.Millisecond
+	cleanerRetryMax              = time.Minute
 )
 
 // Cleaner periodically removes stale administrator rate-limit rows.
 type Cleaner struct {
-	pool  *database.Pool
-	clock Clock
+	pool     *database.Pool
+	clock    Clock
+	cleanFn  func(context.Context) error
+	retryMin time.Duration
+	retryMax time.Duration
+	interval time.Duration
 }
 
 // NewCleaner constructs an administrator authentication state cleaner.
 func NewCleaner(pool *database.Pool, clock Clock) *Cleaner {
-	return &Cleaner{pool: pool, clock: normalizedClock(clock)}
+	return &Cleaner{
+		pool: pool, clock: normalizedClock(clock),
+		retryMin: cleanerRetryMin, retryMax: cleanerRetryMax, interval: cleanerInterval,
+	}
 }
 
 // Run cleans immediately, then repeats hourly until the context is canceled.
 func (c *Cleaner) Run(ctx context.Context) error {
-	if c == nil || c.pool == nil {
+	if c == nil || (c.pool == nil && c.cleanFn == nil) {
 		return fmt.Errorf("administrator authentication cleaner pool is nil")
 	}
-	if err := c.clean(ctx); err != nil {
-		return err
-	}
-	ticker := time.NewTicker(cleanerInterval)
-	defer ticker.Stop()
+	retryMin, retryMax, interval := c.timings()
+	delay := time.Duration(0)
+	retry := retryMin
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if err := c.clean(ctx); err != nil {
-				return err
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return ctx.Err()
+			case <-timer.C:
 			}
 		}
+		if err := c.cleanOnce(ctx); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			delay = retry
+			retry *= 2
+			if retry > retryMax {
+				retry = retryMax
+			}
+			continue
+		}
+		delay = interval
+		retry = retryMin
 	}
 }
 
-func (c *Cleaner) clean(ctx context.Context) error {
+func (c *Cleaner) cleanOnce(ctx context.Context) error {
+	if c.cleanFn != nil {
+		return c.cleanFn(ctx)
+	}
+	return c.cleanDatabase(ctx)
+}
+
+func (c *Cleaner) cleanDatabase(ctx context.Context) error {
 	cutoff := c.clock.Now().Add(-cleanerRetention)
+	if err := c.deleteRateLimits(ctx, cutoff); err != nil {
+		return err
+	}
+	return c.deleteSessions(ctx, cutoff)
+}
+
+func (c *Cleaner) deleteRateLimits(ctx context.Context, cutoff time.Time) error {
 	for {
 		var deleted int64
 		err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -82,4 +119,52 @@ func (c *Cleaner) clean(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+func (c *Cleaner) deleteSessions(ctx context.Context, cutoff time.Time) error {
+	for {
+		var deleted int64
+		err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", cleanerAdvisoryLockKey); err != nil {
+				return fmt.Errorf("lock administrator authentication cleaner: %w", err)
+			}
+			tag, err := tx.Exec(ctx, `
+				with stale as (
+					select ctid
+					from pgbase_meta.admin_sessions
+					where expires_at < $1 or (revoked_at is not null and revoked_at < $1)
+					order by expires_at, ctid
+					limit 1000
+					for update skip locked
+				)
+				delete from pgbase_meta.admin_sessions as sessions
+				using stale
+				where sessions.ctid = stale.ctid`, cutoff)
+			if err != nil {
+				return fmt.Errorf("delete stale administrator sessions: %w", err)
+			}
+			deleted = tag.RowsAffected()
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if deleted < cleanerBatchSize {
+			return nil
+		}
+	}
+}
+
+func (c *Cleaner) timings() (time.Duration, time.Duration, time.Duration) {
+	retryMin, retryMax, interval := c.retryMin, c.retryMax, c.interval
+	if retryMin <= 0 {
+		retryMin = cleanerRetryMin
+	}
+	if retryMax < retryMin {
+		retryMax = retryMin
+	}
+	if interval <= 0 {
+		interval = cleanerInterval
+	}
+	return retryMin, retryMax, interval
 }

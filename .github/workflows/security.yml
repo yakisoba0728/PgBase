@@ -1,0 +1,62 @@
+name: Security and supply chain
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+
+      - name: Scan reachable Go vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: ui/admin/package-lock.json
+
+      - name: Audit pinned frontend dependencies
+        working-directory: ui/admin
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+
+      - name: Build the production image
+        run: docker build --file deployments/Dockerfile --tag pgbase:audit .
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
+        with:
+          image: pgbase:audit
+          format: spdx-json
+          output-file: pgbase.spdx.json
+          artifact-name: pgbase-sbom
+
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: pgbase:audit
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

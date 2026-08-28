@@ -603,6 +603,7 @@ type readinessState struct {
 }
 
 func New(ctx context.Context, options Options) (*App, error)
+func (a *App) Start(ctx context.Context) error
 func (a *App) Handler() http.Handler
 func (a *App) Run(ctx context.Context) error
 func (a *App) Close(ctx context.Context) error
@@ -683,7 +684,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Implement `App` lifecycle**
 
-`New` calls `Options.Normalized`, opens and pings the pool, checks or applies migrations according to `AutoMigrate`, builds the router, and starts no goroutines. An unreachable database or a behind/incompatible system schema fails construction when auto-migrate is false; the deployment therefore cannot become ready. `Run` starts HTTP and background components, marks readiness true only after all start, handles context cancellation, stops accepting requests, drains with `ShutdownTimeout`, and joins component errors. `Close` is idempotent. The CLI passes a JSON logger writing to stderr; library callers that omit `Logger` receive the discard default and no global logger is mutated.
+`New` calls `Options.Normalized`, opens and pings the pool, checks or applies migrations according to `AutoMigrate`, and builds the router. It starts no pgBase worker or HTTP listener, although the constructed `pgxpool` can run its own maintenance goroutines. An unreachable database or a behind/incompatible system schema fails construction when auto-migrate is false. `Start` activates schema/listener/cleaner lifecycle for a caller-owned server before `Handler` is served. `Run` activates the same components and owns the built-in HTTP server; an app cannot use both paths. Both mark readiness true only after startup. `Close` lowers readiness, drains, and is idempotent. The CLI passes a JSON logger writing to stderr; library callers that omit `Logger` receive the discard default and no global logger is mutated.
 
 - [ ] **Step 6: Wire `pgbase serve` and verify lifecycle tests**
 

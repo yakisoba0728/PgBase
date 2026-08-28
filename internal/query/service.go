@@ -18,6 +18,11 @@ var (
 	ErrRecordNotFound     = errors.New("record not found")
 )
 
+const (
+	cursorTTL              = 15 * time.Minute
+	maximumRecordPageBytes = 4 << 20
+)
+
 type CatalogEnsurer interface {
 	EnsureCurrent(context.Context, database.DBTX) (schema.Catalog, error)
 }
@@ -42,40 +47,59 @@ func (s *Service) List(ctx context.Context, collectionName, cursor string, limit
 	if err := s.ready(); err != nil {
 		return RecordPage{}, err
 	}
-	var after *PageCursor
-	if cursor != "" {
-		decoded, err := s.cursors.Decode(cursor)
-		if err != nil {
-			return RecordPage{}, err
-		}
-		after = &decoded
-	}
 	page := RecordPage{Items: []map[string]any{}}
 	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+		operationTime := s.now().UTC()
+		var after *PageCursor
+		if cursor != "" {
+			decoded, err := s.cursors.Decode(cursor, collection.ID, operationTime)
+			if err != nil {
+				return err
+			}
+			after = &decoded
+		}
 		statement := CompileList(collection, after, limit)
 		rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
+		pageLimit := normalizedFetchLimit(limit) - 1
+		responseBytes := 0
+		hasMore := false
 		for rows.Next() {
 			record, err := EncodeRecord(collection, rows)
 			if err != nil {
 				return err
 			}
+			encoded, err := json.Marshal(record)
+			if err != nil {
+				return fmt.Errorf("measure record page item: %w", err)
+			}
+			if len(page.Items) > 0 && responseBytes+len(encoded) > maximumRecordPageBytes {
+				hasMore = true
+				break
+			}
 			page.Items = append(page.Items, record)
+			responseBytes += len(encoded)
+			if len(page.Items) > pageLimit {
+				page.Items = page.Items[:pageLimit]
+				hasMore = true
+				break
+			}
 		}
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		pageLimit := normalizedFetchLimit(limit) - 1
-		if len(page.Items) > pageLimit {
-			page.Items = page.Items[:pageLimit]
+		if hasMore && len(page.Items) > 0 {
 			createdAt, id, err := recordPagePosition(page.Items[len(page.Items)-1])
 			if err != nil {
 				return err
 			}
-			page.NextCursor, err = s.cursors.Encode(PageCursor{Version: cursorVersion, CreatedAt: createdAt, ID: id})
+			page.NextCursor, err = s.cursors.Encode(PageCursor{
+				Version: cursorVersion, CollectionID: collection.ID,
+				CreatedAt: createdAt, ID: id, ExpiresAt: operationTime.Add(cursorTTL),
+			})
 			if err != nil {
 				return err
 			}
@@ -103,7 +127,7 @@ func (s *Service) Create(ctx context.Context, collectionName string, input map[s
 		if err != nil {
 			return fmt.Errorf("generate record id: %w", err)
 		}
-		statement, err := CompileInsert(collection, input, id, s.now().UTC())
+		statement, err := CompileInsert(collection, input, id)
 		if err != nil {
 			return err
 		}
@@ -116,7 +140,7 @@ func (s *Service) Create(ctx context.Context, collectionName string, input map[s
 func (s *Service) Update(ctx context.Context, collectionName string, id uuid.UUID, input map[string]json.RawMessage) (map[string]any, error) {
 	var record map[string]any
 	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
-		statement, err := CompileUpdate(collection, id, input, s.now().UTC())
+		statement, err := CompileUpdate(collection, id, input)
 		if err != nil {
 			return err
 		}

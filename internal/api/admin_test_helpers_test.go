@@ -12,6 +12,9 @@ import (
 var testTokenSecret = []byte("0123456789abcdef0123456789abcdef")
 
 type fakeAdminAuth struct {
+	setupRequired      bool
+	setupRequiredErr   error
+	setupRequiredCalls int
 	setupSession       adminauth.Session
 	setupErr           error
 	loginSession       adminauth.Session
@@ -33,6 +36,11 @@ type fakeAdminAuth struct {
 	loginSubject       string
 	authenticateToken  string
 	logoutToken        string
+}
+
+func (f *fakeAdminAuth) SetupRequired(context.Context) (bool, error) {
+	f.setupRequiredCalls++
+	return f.setupRequired, f.setupRequiredErr
 }
 
 func (f *fakeAdminAuth) Setup(_ context.Context, setupToken, email, password, subject string) (adminauth.Session, error) {

@@ -95,7 +95,7 @@ func TestStoreSharesRateLimitsAcrossInstances(t *testing.T) {
 	now := time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)
 	subjectHash := HashSessionToken([]byte("0123456789abcdef0123456789abcdef"), "rate-subject")
 	for attempt := 1; attempt <= 5; attempt++ {
-		blocked, err := stores[attempt%2].RecordRateLimitFailure(ctx, subjectHash, now)
+		blocked, err := stores[attempt%2].RecordRateLimitFailure(ctx, subjectHash, now, 5)
 		if err != nil {
 			t.Fatal(err)
 		}

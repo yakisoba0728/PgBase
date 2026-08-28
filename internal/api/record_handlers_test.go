@@ -152,6 +152,18 @@ func TestRecordRoutesMapSafeProductErrors(t *testing.T) {
 	}
 }
 
+func TestRecordRoutesExposeRetryPolicyForTransientDatabaseFailure(t *testing.T) {
+	records := &fakeRecordService{getErr: &pgconn.PgError{Code: "40001", Message: "serialization failure"}}
+	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "", true)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
+		t.Fatalf("status=%d retry-after=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "record_unavailable")
+}
+
 type fakeRecordService struct {
 	page                                             query.RecordPage
 	record                                           map[string]any

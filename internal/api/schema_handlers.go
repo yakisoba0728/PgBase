@@ -178,6 +178,7 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, schema.ErrConflict):
 		apiError = APIError{Status: http.StatusConflict, Code: "schema_conflict", Message: "Schema plan conflicts with current state"}
 	case errors.Is(err, schema.ErrSynchronizationUnavailable), database.Classify(err) == database.KindUnavailable:
+		w.Header().Set("Retry-After", "1")
 		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "schema_unavailable", Message: "Schema service is unavailable"}
 	}
 	writeAPIError(w, r, apiError)

@@ -427,16 +427,21 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 		t.Fatalf("parse database URL: %v", err)
 	}
 	query := parsedURL.Query()
-	query.Set("pool_max_conns", "1")
+	query.Set("pool_max_conns", "2")
 	parsedURL.RawQuery = query.Encode()
 	pool, err := database.Open(ctx, parsedURL.String(), 5*time.Second)
 	if err != nil {
-		t.Fatalf("open single-connection pool: %v", err)
+		t.Fatalf("open constrained pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	heldConnection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("reserve pool connection: %v", err)
+	}
+	t.Cleanup(heldConnection.Release)
 	administratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000004")
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admins (id, email, password_hash, active, created_at, updated_at)
 		values ($1, 'post-commit-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {

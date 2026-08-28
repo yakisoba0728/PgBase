@@ -145,33 +145,52 @@ func runDoctor(ctx context.Context, args []string, lookup func(string) (string, 
 	}
 	options, err := config.LoadEnv(lookup)
 	if err != nil {
-		return configurationError{err: err}
+		configErr := configurationError{err: err}
+		return emitDoctorFailure(stdout, *jsonOutput, "configuration_invalid", "pgBase configuration is invalid", configErr)
 	}
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+		configErr := configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+		return emitDoctorFailure(stdout, *jsonOutput, "configuration_invalid", "pgBase configuration is invalid", configErr)
 	}
 	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
 	if err != nil {
-		return migrationOperationError(options.Logger, "open PostgreSQL pool", err)
+		operationErr := migrationOperationError(options.Logger, "open PostgreSQL pool", err)
+		return emitDoctorFailure(stdout, *jsonOutput, "database_unreachable", "PostgreSQL is unreachable", operationErr)
 	}
 	defer pool.Close()
 	report, err := doctor.Run(ctx, pool, migrate.New(pool, options.Logger))
-	if *jsonOutput {
-		if encodeErr := json.NewEncoder(stdout).Encode(report); encodeErr != nil {
-			return encodeErr
-		}
-	} else {
-		for _, finding := range report.Findings {
-			if _, writeErr := fmt.Fprintf(stdout, "%s %s: %s\n", finding.Severity, finding.Code, finding.Message); writeErr != nil {
-				return writeErr
-			}
-		}
+	if err != nil && len(report.Findings) == 0 {
+		report.Findings = append(report.Findings, doctor.Finding{Severity: "error", Code: "diagnostic_failed", Message: "Database diagnostics could not be completed"})
+		report.OK = false
+	}
+	if writeErr := writeDoctorReport(stdout, *jsonOutput, report); writeErr != nil {
+		return writeErr
 	}
 	if err != nil {
 		return migrationOperationError(options.Logger, "run diagnostics", err)
 	}
 	if !report.OK {
 		return errors.New("diagnostic findings")
+	}
+	return nil
+}
+
+func emitDoctorFailure(stdout io.Writer, jsonOutput bool, code, message string, operationErr error) error {
+	report := doctor.Report{OK: false, Findings: []doctor.Finding{{Severity: "error", Code: code, Message: message}}}
+	if err := writeDoctorReport(stdout, jsonOutput, report); err != nil {
+		return err
+	}
+	return operationErr
+}
+
+func writeDoctorReport(stdout io.Writer, jsonOutput bool, report doctor.Report) error {
+	if jsonOutput {
+		return json.NewEncoder(stdout).Encode(report)
+	}
+	for _, finding := range report.Findings {
+		if _, err := fmt.Fprintf(stdout, "%s %s: %s\n", finding.Severity, finding.Code, finding.Message); err != nil {
+			return err
+		}
 	}
 	return nil
 }

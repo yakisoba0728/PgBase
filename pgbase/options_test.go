@@ -87,6 +87,11 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			want: "TrustedProxies",
 		},
 		{
+			name: "administrator session TTL cannot exceed twelve hours",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, AdminSessionTTL: 12*time.Hour + time.Nanosecond},
+			want: "AdminSessionTTL",
+		},
+		{
 			name: "valid public URL is accepted",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, PublicURL: publicURL, CORSAllowedOrigins: []string{"https://admin.example:8443"}, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}},
 		},

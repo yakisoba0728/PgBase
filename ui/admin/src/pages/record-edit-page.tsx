@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { APIClientError } from "../api/client";
+import { parseJSON, stringifyJSON } from "../api/json";
 import type { CollectionDefinition, FieldDefinition } from "../api/collections";
 import type { RecordData, RecordValue } from "../api/records";
 import { useSession } from "../auth/session";
@@ -12,7 +13,7 @@ type Draft = Record<string, FieldState>;
 
 function draftValue(field: FieldDefinition, value: RecordValue | undefined): string | boolean {
   if (field.type === "boolean") return value === true;
-  if (field.type === "jsonb") return value === undefined || value === null ? "" : JSON.stringify(value, null, 2);
+  if (field.type === "jsonb") return value === undefined || value === null ? "" : stringifyJSON(value, 2);
   return value === undefined || value === null ? "" : String(value);
 }
 
@@ -45,7 +46,7 @@ function encodeValue(field: FieldDefinition, value: string | boolean): RecordVal
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(text)) throw new Error("type");
     return text.toLowerCase();
   }
-  return JSON.parse(text) as RecordValue;
+  return parseJSON(text) as RecordValue;
 }
 
 const fieldErrorText: Record<string, string> = {

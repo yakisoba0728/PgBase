@@ -24,9 +24,11 @@ afterEach(() => {
 
 describe("administrator login", () => {
   it("shows validation errors and does not submit incomplete credentials", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(401, {
-      error: { code: "authentication_required", message: "Administrator authentication is required", details: {} },
-    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(401, {
+        error: { code: "authentication_required", message: "Administrator authentication is required", details: {} },
+      }))
+      .mockResolvedValueOnce(response(200, { setupRequired: false }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -39,7 +41,7 @@ describe("administrator login", () => {
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-describedby", "email-error");
     expect(screen.getByLabelText("Email")).toHaveFocus();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("shows safe credential errors, clears the password, and disables the pending form", async () => {
@@ -48,6 +50,7 @@ describe("administrator login", () => {
       .mockResolvedValueOnce(response(401, {
         error: { code: "authentication_required", message: "Administrator authentication is required", details: {} },
       }))
+      .mockResolvedValueOnce(response(200, { setupRequired: false }))
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveLogin = resolve; }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -74,6 +77,7 @@ describe("administrator login", () => {
       .mockResolvedValueOnce(response(401, {
         error: { code: "authentication_required", message: "Administrator authentication is required", details: {} },
       }))
+      .mockResolvedValueOnce(response(200, { setupRequired: false }))
       .mockResolvedValueOnce(response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -86,6 +90,6 @@ describe("administrator login", () => {
 
     expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
     expect(screen.getByText(administrator.email)).toBeVisible();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/auth/login", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/admin/auth/login", expect.objectContaining({ method: "POST" }));
   });
 });

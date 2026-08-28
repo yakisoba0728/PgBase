@@ -3,6 +3,7 @@ package schema
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -30,6 +31,7 @@ func TestPlanCreateIsDeterministic(t *testing.T) {
 	}
 	if got, want := first.Statements, []string{
 		`CREATE TABLE "app"."posts" ("id" uuid primary key, "created_at" timestamptz not null, "updated_at" timestamptz not null, "title" text not null, "views" bigint default 0)`,
+		`CREATE INDEX "idx_d072ae317b2f5e0e" ON "app"."posts" ("created_at", "id")`,
 		`CREATE INDEX "idx_34beac8152cca6ed" ON "app"."posts" ("title")`,
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("statements = %#v, want %#v", got, want)
@@ -57,8 +59,37 @@ func TestPlanCreateValidatesFieldsAndAvoidsRedundantIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Statements) != 2 || !strings.HasPrefix(plan.Statements[1], `CREATE UNIQUE INDEX `) {
+	if len(plan.Statements) != 3 || !strings.HasPrefix(plan.Statements[2], `CREATE UNIQUE INDEX `) {
 		t.Fatalf("unique indexed field statements = %#v, want one unique index", plan.Statements)
+	}
+}
+
+func TestPlanCreateRejectsDefinitionsBeyondPostgreSQLLimits(t *testing.T) {
+	planner := Planner{}
+	fields := make([]FieldInput, maximumCollectionFields+1)
+	for index := range fields {
+		fields[index] = FieldInput{Name: fmt.Sprintf("field_%d", index), Type: TypeText}
+	}
+	_, err := planner.PlanCreate(0, CreateCollectionInput{Name: "too_wide", Fields: fields})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !reflect.DeepEqual(validation.Details, []ValidationDetail{{Field: "fields", Code: "too_many_fields"}}) {
+		t.Fatalf("wide collection error = %#v", err)
+	}
+
+	for _, test := range []struct {
+		name string
+		typ  FieldType
+		raw  json.RawMessage
+	}{
+		{name: "numeric precision", typ: TypeNumeric, raw: json.RawMessage(`"` + strings.Repeat("9", 131073) + `"`)},
+		{name: "jsonb exponent", typ: TypeJSONB, raw: json.RawMessage(`{"value":1e131072}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := planner.PlanCreate(0, CreateCollectionInput{Name: "limits", Fields: []FieldInput{{Name: "value", Type: test.typ, Default: test.raw}}})
+			if !errors.As(err, &validation) || validation.Details[0].Code != "invalid_default" {
+				t.Fatalf("limit error = %#v", err)
+			}
+		})
 	}
 }
 
@@ -106,15 +137,15 @@ func TestPlanCreateCanonicalizesJSONDefaultsAndSupportsEveryFieldType(t *testing
 	if got, want := string(plan.Definition.Fields[7].Default), `{"a":2,"z":1}`; got != want {
 		t.Errorf("canonical JSONB default = %s, want %s", got, want)
 	}
-	if len(plan.Statements) != 2 || !strings.Contains(plan.Statements[0], `"metadata" jsonb default E'{"a":2,"z":1}'::jsonb`) {
+	if len(plan.Statements) != 3 || !strings.Contains(plan.Statements[0], `"metadata" jsonb default E'{"a":2,"z":1}'::jsonb`) {
 		t.Fatalf("statements = %#v, want typed DDL and one unique index", plan.Statements)
 	}
-	if !strings.HasPrefix(plan.Statements[1], "CREATE UNIQUE INDEX ") {
-		t.Errorf("index statement = %q, want a unique index", plan.Statements[1])
+	if !strings.HasPrefix(plan.Statements[2], "CREATE UNIQUE INDEX ") {
+		t.Errorf("index statement = %q, want a unique index", plan.Statements[2])
 	}
-	indexTokens := strings.Fields(plan.Statements[1])
+	indexTokens := strings.Fields(plan.Statements[2])
 	if len(indexTokens) < 4 || len(strings.Trim(indexTokens[3], `"`)) > 63 {
-		t.Errorf("index name is not a PostgreSQL-safe length: %q", plan.Statements[1])
+		t.Errorf("index name is not a PostgreSQL-safe length: %q", plan.Statements[2])
 	}
 
 	changedVersion, err := planner.PlanCreate(4, CreateCollectionInput{Name: "all_types", Fields: planInputFields(plan)})

@@ -1,4 +1,4 @@
-FROM node:24.18.0-bookworm-slim AS admin-ui
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS admin-ui
 
 WORKDIR /src/ui/admin
 COPY ui/admin/package.json ui/admin/package-lock.json ./
@@ -7,7 +7,7 @@ COPY ui/admin/index.html ui/admin/tsconfig.json ui/admin/tsconfig.app.json ui/ad
 COPY ui/admin/src ./src
 RUN npm run build
 
-FROM golang:1.26.7-bookworm AS build
+FROM golang:1.26.7-bookworm@sha256:e8c859f5632dcfde7b32d2012b4351728f6437930887c2f6a91ea242459e5514 AS build
 
 ARG VERSION=dev
 WORKDIR /src
@@ -22,7 +22,7 @@ COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
 RUN go test ./...
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}" -o /out/pgbase ./cmd/pgbase
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 LABEL org.opencontainers.image.source="https://github.com/webisnoteasy/PgBase"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

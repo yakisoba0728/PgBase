@@ -24,6 +24,9 @@ func Open(ctx context.Context, databaseURL string, statementTimeout time.Duratio
 	if err != nil {
 		return nil, fmt.Errorf("parse PostgreSQL pool configuration: %w", err)
 	}
+	if config.MaxConns < 2 {
+		return nil, fmt.Errorf("parse PostgreSQL pool configuration: pool_max_conns must be at least 2")
+	}
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		if _, err := conn.Exec(ctx, "select set_config('statement_timeout', $1, false)", statementTimeout.String()); err != nil {
 			return fmt.Errorf("set statement timeout: %w", err)

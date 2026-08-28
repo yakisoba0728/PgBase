@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
@@ -19,6 +20,41 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 	}
 	if !report.OK || len(report.Findings) != 0 {
 		t.Fatalf("report = %#v, want healthy report", report)
+	}
+}
+
+func TestRunCompletesWithOneConnectionAvailableFromMinimumPool(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("pool_max_conns", "2")
+	parsed.RawQuery = query.Encode()
+
+	pool, err := database.Open(context.Background(), parsed.String(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	held, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	report, err := Run(ctx, pool, migrate.New(pool, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK {
+		t.Fatalf("report = %#v, want healthy report with one connection available", report)
 	}
 }
 
@@ -130,6 +166,16 @@ func TestRunReportsUnreachableDatabase(t *testing.T) {
 	report, err := Run(context.Background(), nil, nil)
 	if err == nil {
 		t.Fatal("unreachable database did not return an error")
+	}
+	assertFindingCode(t, report, "database_unreachable")
+}
+
+func TestRunReportsClosedDatabasePoolAsUnreachable(t *testing.T) {
+	pool := newDoctorPool(t)
+	pool.Close()
+	report, err := Run(context.Background(), pool, migrate.New(pool, nil))
+	if err == nil {
+		t.Fatal("closed database pool did not return an error")
 	}
 	assertFindingCode(t, report, "database_unreachable")
 }

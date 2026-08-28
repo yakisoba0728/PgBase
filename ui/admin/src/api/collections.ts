@@ -1,4 +1,5 @@
 import type { APIClient } from "./client";
+import { stringifyJSON } from "./json";
 
 export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "timestamptz", "uuid", "jsonb"] as const;
 export type FieldType = typeof fieldTypes[number];
@@ -50,7 +51,7 @@ export class CollectionsAPI {
   plan(input: CreateCollectionInput): Promise<CollectionPlan> {
     return this.client.request<CollectionPlan>("/api/admin/collections/plan", {
       method: "POST",
-      body: JSON.stringify(input),
+      body: stringifyJSON(input),
     });
   }
 
@@ -58,7 +59,7 @@ export class CollectionsAPI {
     return this.client.request<CollectionDefinition>("/api/admin/collections/apply", {
       method: "POST",
       headers: { "X-PgBase-CSRF": this.csrfToken },
-      body: JSON.stringify({ ...input, checksum, baseVersion }),
+      body: stringifyJSON({ ...input, checksum, baseVersion }),
     });
   }
 }

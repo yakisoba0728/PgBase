@@ -102,7 +102,10 @@ type Service struct {
 	setupToken  string
 	sessionTTL  time.Duration
 	clock       Clock
+	verifySlots chan struct{}
 }
+
+const passwordVerificationConcurrency = 2
 
 // NewService constructs an administrator authentication service.
 func NewService(pool *database.Pool, passwords Passwords, tokenSecret []byte, setupToken string, sessionTTL time.Duration, clock Clock) *Service {
@@ -113,5 +116,6 @@ func NewService(pool *database.Pool, passwords Passwords, tokenSecret []byte, se
 		setupToken:  setupToken,
 		sessionTTL:  sessionTTL,
 		clock:       normalizedClock(clock),
+		verifySlots: make(chan struct{}, passwordVerificationConcurrency),
 	}
 }

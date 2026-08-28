@@ -1,6 +1,8 @@
 import type { APIClient } from "./client";
+import type { LosslessNumber } from "lossless-json";
+import { stringifyJSON } from "./json";
 
-export type RecordValue = boolean | number | string | null | Record<string, unknown> | unknown[];
+export type RecordValue = boolean | number | string | null | LosslessNumber | Record<string, unknown> | unknown[];
 export type RecordData = Record<string, RecordValue>;
 export interface RecordPage { items: RecordData[]; nextCursor?: string }
 
@@ -40,7 +42,7 @@ export class RecordsAPI {
     return this.client.request<RecordData>(path, {
       method,
       headers: { "X-PgBase-CSRF": this.csrfToken },
-      body: JSON.stringify(input),
+      body: stringifyJSON(input),
     });
   }
 }

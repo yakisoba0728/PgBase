@@ -1,0 +1,63 @@
+name: Release signed image
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Build and push immutable image
+        id: image
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          tag="${GITHUB_REF_NAME}"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx create --use --name pgbase-release
+          docker buildx build \
+            --file deployments/Dockerfile \
+            --tag "$image:$tag" \
+            --tag "$image:latest" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push .
+          digest="$(docker buildx imagetools inspect "$image:$tag" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release SBOM
+        uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
+        with:
+          image: ${{ steps.image.outputs.name }}@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          output-file: pgbase-release.spdx.json
+          artifact-name: pgbase-release-sbom
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest release SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: pgbase-release.spdx.json
+          push-to-registry: true

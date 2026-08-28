@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"regexp"
 	"sort"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -81,7 +81,7 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		return parsed, nil
 	case schema.TypeNumeric:
 		value, ok := jsonString(raw)
-		if !ok || !decimalInput.MatchString(value) {
+		if !ok || !decimalInput.MatchString(value) || !jsonvalue.ValidPostgresNumber(value) {
 			return invalid()
 		}
 		var numeric pgtype.Numeric
@@ -261,11 +261,8 @@ func fieldsByOrdinal(collection schema.Collection) []schema.Field {
 }
 
 func jsonString(raw json.RawMessage) (string, bool) {
-	if len(raw) < 2 || raw[0] != '"' {
-		return "", false
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
+	value, err := jsonvalue.String(raw)
+	if err != nil {
 		return "", false
 	}
 	return value, true
@@ -282,12 +279,5 @@ func hasRFC3339Offset(value string) bool {
 }
 
 func validJSON(raw []byte) bool {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return false
-	}
-	var extra any
-	return decoder.Decode(&extra) == io.EOF
+	return jsonvalue.Valid(raw)
 }

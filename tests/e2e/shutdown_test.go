@@ -19,16 +19,17 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	t.Cleanup(func() { suite.removeContainer(t, containerName) })
 	waitReady(t, ctx, baseURL)
 	client := authenticatedClient(t, ctx, baseURL)
+	collectionName := uniqueCollection("shutdown_items")
 	definition := map[string]any{
-		"name": "shutdown_items",
+		"name": collectionName,
 		"fields": []map[string]any{
 			{"name": "value", "type": "text", "required": true, "unique": false, "indexed": false},
 		},
 	}
 	applyCollection(t, ctx, client, definition)
-	createRecord(t, ctx, client, "shutdown_items", map[string]any{"value": "drain me"})
+	createRecord(t, ctx, client, collectionName, map[string]any{"value": "drain me"})
 
-	lockerName, lockerPID := suite.holdShutdownTableLock(t, ctx)
+	lockerName, lockerPID := suite.holdShutdownTableLock(t, ctx, collectionName)
 	lockHeld := true
 	t.Cleanup(func() {
 		if lockHeld {
@@ -39,14 +40,14 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	inflightDone := make(chan error, 1)
 	go func() {
 		values := url.Values{"limit": []string{"1"}}
-		inflightDone <- client.request(ctx, http.MethodGet, queryPath("/api/v1/collections/shutdown_items/records", values), nil, http.StatusOK, nil)
+		inflightDone <- client.request(ctx, http.MethodGet, queryPath("/api/v1/collections/"+collectionName+"/records", values), nil, http.StatusOK, nil)
 	}()
 	select {
 	case err := <-inflightDone:
 		t.Fatalf("deliberately delayed request completed before SIGTERM: %v", err)
 	case <-time.After(300 * time.Millisecond):
 	}
-	suite.waitForShutdownQueryLock(t, ctx)
+	suite.waitForShutdownQueryLock(t, ctx, collectionName)
 	readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Second)
 	readyErr := newAPIClient(baseURL).ready(readyCtx)
 	readyCancel()
@@ -114,16 +115,16 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 	}
 }
 
-func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context) (string, int) {
+func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context, collectionName string) (string, int) {
 	t.Helper()
 	name := s.project + "-shutdown-lock"
-	command := "BEGIN; LOCK TABLE app.shutdown_items IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(300);"
+	command := "BEGIN; LOCK TABLE app." + collectionName + " IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(300);"
 	arguments := []string{
 		"run", "--detach", "--name", name,
 		"--network", s.project + "_default",
 		"--env", "PGPASSWORD=" + s.databasePass,
 		"--entrypoint", "psql",
-		"postgres:16.13-bookworm",
+		"postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60",
 		"--host", "postgres", "--username", "pgbase", "--dbname", "pgbase",
 		"--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--command", command,
 	}
@@ -134,7 +135,7 @@ func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context) (stri
 	query := `select l.pid from pg_locks l
 		join pg_class c on c.oid = l.relation
 		join pg_namespace n on n.oid = c.relnamespace
-		where n.nspname = 'app' and c.relname = 'shutdown_items'
+		where n.nspname = 'app' and c.relname = '` + collectionName + `'
 		and l.mode = 'AccessExclusiveLock' and l.granted`
 	for time.Now().Before(deadline) {
 		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
@@ -162,13 +163,13 @@ func (s e2eSuite) releaseShutdownTableLock(t *testing.T, ctx context.Context, co
 	s.removeContainer(t, container)
 }
 
-func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context) {
+func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context, collectionName string) {
 	t.Helper()
 	deadline := time.Now().Add(4 * time.Second)
 	query := `select count(*) from pg_locks l
 		join pg_class c on c.oid = l.relation
 		join pg_namespace n on n.oid = c.relnamespace
-		where n.nspname = 'app' and c.relname = 'shutdown_items'
+		where n.nspname = 'app' and c.relname = '` + collectionName + `'
 		and l.mode = 'AccessShareLock' and not l.granted`
 	for time.Now().Before(deadline) {
 		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
@@ -177,5 +178,5 @@ func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("record request did not block on app.shutdown_items")
+	t.Fatalf("record request did not block on app.%s", collectionName)
 }

@@ -22,6 +22,7 @@ function authenticatedState(session: SessionResponse): SessionState {
     kind: "authenticated",
     administrator: session.administrator,
     csrfToken: session.csrfToken,
+    expiresAt: session.expiresAt,
   };
 }
 
@@ -33,9 +34,13 @@ function updatePath(state: SessionState): void {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const client = useMemo(() => new APIClient(), []);
   const [state, setState] = useState<SessionState>({ kind: "loading" });
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const client = useMemo(() => new APIClient(() => {
+    const next: SessionState = { kind: "anonymous" };
+    setState(next);
+    updatePath(next);
+  }), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -43,12 +48,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = authenticatedState(session);
       setState(next);
       updatePath(next);
-    }).catch((error: unknown) => {
+    }).catch(async (error: unknown) => {
       if (controller.signal.aborted) return;
       if (error instanceof APIClientError && error.status === 404 && error.code === "setup_required") {
         setState({ kind: "setup-required" });
         updatePath({ kind: "setup-required" });
         return;
+      }
+      if (error instanceof APIClientError && error.status === 401) {
+        try {
+          const status = await client.getAdminStatus(controller.signal);
+          const next: SessionState = status.setupRequired ? { kind: "setup-required" } : { kind: "anonymous" };
+          setState(next);
+          updatePath(next);
+          return;
+        } catch {
+          if (controller.signal.aborted) return;
+          setSessionError("Unable to check administrator setup status. Please retry.");
+        }
       }
       setState({ kind: "anonymous" });
       updatePath({ kind: "anonymous" });
@@ -56,6 +73,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
     return () => controller.abort();
   }, [client]);
+
+  useEffect(() => {
+    if (state.kind !== "authenticated") return;
+    const delay = Date.parse(state.expiresAt) - Date.now();
+    const expire = () => {
+      const next: SessionState = { kind: "anonymous" };
+      setState(next);
+      updatePath(next);
+    };
+    if (!Number.isFinite(delay) || delay <= 0) { expire(); return; }
+    const timer = window.setTimeout(expire, delay);
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   const setup = useCallback(async (input: SetupInput) => {
     const session = await client.setup(input);

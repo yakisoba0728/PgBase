@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,7 +15,7 @@ const (
 	maximumPageLimit = 200
 )
 
-func CompileInsert(collection schema.Collection, input map[string]json.RawMessage, id uuid.UUID, now time.Time) (Statement, error) {
+func CompileInsert(collection schema.Collection, input map[string]json.RawMessage, id uuid.UUID) (Statement, error) {
 	decoded, err := decodeInput(collection, input)
 	if err != nil {
 		return Statement{}, err
@@ -31,7 +30,8 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 	}
 
 	columns := []string{quoted("id"), quoted("created_at"), quoted("updated_at")}
-	args := []any{id, now.UTC(), now.UTC()}
+	args := []any{id}
+	values := []string{"$1", "statement_timestamp()", "statement_timestamp()"}
 	for _, field := range fields {
 		value, present := decoded[field.Name]
 		if !present {
@@ -39,14 +39,11 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 		}
 		columns = append(columns, quoted(field.ColumnName))
 		args = append(args, value)
-	}
-	placeholders := make([]string, len(args))
-	for index := range args {
-		placeholders[index] = fmt.Sprintf("$%d", index+1)
+		values = append(values, fmt.Sprintf("$%d", len(args)))
 	}
 	return Statement{
 		SQL: "INSERT INTO " + quotedTable(collection) + " (" + strings.Join(columns, ", ") + ") VALUES (" +
-			strings.Join(placeholders, ", ") + ") RETURNING " + selectedColumns(collection),
+			strings.Join(values, ", ") + ") RETURNING " + selectedColumns(collection),
 		Args: args,
 	}, nil
 }
@@ -58,7 +55,7 @@ func CompileSelectByID(collection schema.Collection, id uuid.UUID) Statement {
 	}
 }
 
-func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage, now time.Time) (Statement, error) {
+func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
 	if len(input) == 0 {
 		return Statement{}, validation("", "empty_patch")
 	}
@@ -76,8 +73,7 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 		args = append(args, value)
 		assignments = append(assignments, fmt.Sprintf("%s = $%d", quoted(field.ColumnName), len(args)))
 	}
-	args = append(args, now.UTC())
-	assignments = append(assignments, fmt.Sprintf("%s = $%d", quoted("updated_at"), len(args)))
+	assignments = append(assignments, quoted("updated_at")+" = statement_timestamp()")
 	args = append(args, id)
 	return Statement{
 		SQL: "UPDATE " + quotedTable(collection) + " SET " + strings.Join(assignments, ", ") +

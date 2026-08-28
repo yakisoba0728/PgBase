@@ -151,6 +151,7 @@ func writeInvalidRecordRequest(w http.ResponseWriter, r *http.Request) {
 func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
 	apiError := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
 	var validation *query.ValidationError
+	databaseKind := database.Classify(err)
 	switch {
 	case query.IsInvalidCursor(err):
 		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_cursor", Message: "Cursor is invalid"}
@@ -158,7 +159,7 @@ func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
 		apiError = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Record or collection not found"}
 	case errors.Is(err, schema.ErrConflict):
 		apiError = APIError{Status: http.StatusConflict, Code: "schema_conflict", Message: "Schema changed during the request"}
-	case database.Classify(err) == database.KindConflict:
+	case databaseKind == database.KindConflict:
 		apiError = APIError{Status: http.StatusConflict, Code: "record_conflict", Message: "Record conflicts with existing data"}
 	case errors.As(err, &validation):
 		details := make(map[string][]string, len(validation.Details))
@@ -166,10 +167,13 @@ func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
 			details[detail.Field] = append(details[detail.Field], detail.Code)
 		}
 		apiError = APIError{Status: http.StatusUnprocessableEntity, Code: "validation_failed", Message: "Record input is invalid", Details: details}
-	case database.Classify(err) == database.KindValidation:
+	case databaseKind == database.KindValidation:
 		apiError = APIError{Status: http.StatusUnprocessableEntity, Code: "validation_failed", Message: "Record input is invalid"}
-	case database.Classify(err) == database.KindUnavailable, database.Classify(err) == database.KindCanceled:
+	case databaseKind == database.KindUnavailable, databaseKind == database.KindCanceled:
 		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "record_unavailable", Message: "Record service is unavailable"}
+	}
+	if databaseKind == database.KindUnavailable {
+		w.Header().Set("Retry-After", "1")
 	}
 	writeAPIError(w, r, apiError)
 }

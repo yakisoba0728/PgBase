@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 )
 
+const maximumAdminSessionTTL = 12 * time.Hour
+
 // Options configures a pgBase application.
 type Options struct {
 	DatabaseURL        string
@@ -79,8 +81,8 @@ func validateOptions(o Options) error {
 			return fmt.Errorf("TrustedProxies: must contain valid CIDR prefixes")
 		}
 	}
-	if o.AdminSessionTTL <= 0 {
-		return fmt.Errorf("AdminSessionTTL: must be positive")
+	if o.AdminSessionTTL <= 0 || o.AdminSessionTTL > maximumAdminSessionTTL {
+		return fmt.Errorf("AdminSessionTTL: must be positive and no greater than 12h")
 	}
 	if o.StatementTimeout <= 0 {
 		return fmt.Errorf("StatementTimeout: must be positive")

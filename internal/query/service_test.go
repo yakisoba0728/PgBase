@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +89,10 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 			t.Fatalf("Create(%s): %v", title, err)
 		}
 	}
+	identicalCreatedAt := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `update app.records set created_at = $1`, identicalCreatedAt); err != nil {
+		t.Fatal(err)
+	}
 	page1, err := records.List(ctx, "records", "", 2)
 	if err != nil || len(page1.Items) != 2 || page1.NextCursor == "" {
 		t.Fatalf("List(page1) = %#v, %v", page1, err)
@@ -92,6 +100,26 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	page2, err := records.List(ctx, "records", page1.NextCursor, 2)
 	if err != nil || len(page2.Items) != 2 || page2.NextCursor != "" || page1.Items[1]["id"] == page2.Items[0]["id"] {
 		t.Fatalf("List(page2) = %#v, %v", page2, err)
+	}
+	gotIDs := []string{page1.Items[0]["id"].(string), page1.Items[1]["id"].(string), page2.Items[0]["id"].(string), page2.Items[1]["id"].(string)}
+	wantIDs := make([]string, 0, 4)
+	all, err := pool.Query(ctx, `select id::text from app.records order by created_at, id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer all.Close()
+	for all.Next() {
+		var value string
+		if err := all.Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		wantIDs = append(wantIDs, value)
+	}
+	if err := all.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("same-timestamp cursor page order/union = %v, want live (created_at,id) order %v", gotIDs, wantIDs)
 	}
 	if _, err := records.List(ctx, "records", "not-a-signed-cursor", 2); !IsInvalidCursor(err) {
 		t.Fatalf("List(invalid cursor) error=%v", err)
@@ -113,6 +141,68 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	cancel()
 	if _, err := records.Get(canceled, "records", uuid.New()); database.Classify(err) != database.KindCanceled {
 		t.Fatalf("Get(canceled) error=%v", err)
+	}
+}
+
+func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "clock_records", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}}})
+	var before, after time.Time
+	if err := pool.QueryRow(ctx, `select clock_timestamp()`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	records.now = func() time.Time { return time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC) }
+	created, err := records.Create(ctx, "clock_records", map[string]json.RawMessage{"title": json.RawMessage(`"database time"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `select clock_timestamp()`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, created["created_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdAt.Before(before) || createdAt.After(after) || createdAt.Year() == 2099 {
+		t.Fatalf("created_at = %s, want database clock between %s and %s", createdAt, before, after)
+	}
+}
+
+func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeText, Required: true}}})
+	large := strings.Repeat("x", 900_000)
+	wantIDs := make([]string, 0, 6)
+	for index := 0; index < 6; index++ {
+		created, err := records.Create(ctx, "large_records", map[string]json.RawMessage{"payload": json.RawMessage(fmt.Sprintf("%q", large))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantIDs = append(wantIDs, created["id"].(string))
+	}
+	first, err := records.List(ctx, "large_records", "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) >= len(wantIDs) || first.NextCursor == "" {
+		t.Fatalf("first byte-limited page = %d items cursor=%q", len(first.Items), first.NextCursor)
+	}
+	second, err := records.List(ctx, "large_records", first.NextCursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotIDs := make([]string, 0, len(first.Items)+len(second.Items))
+	for _, page := range [][]map[string]any{first.Items, second.Items} {
+		for _, item := range page {
+			gotIDs = append(gotIDs, item["id"].(string))
+		}
+	}
+	sort.Strings(gotIDs)
+	sort.Strings(wantIDs)
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("byte-limited cursor pages IDs differ: got=%v want=%v", gotIDs, wantIDs)
 	}
 }
 
