@@ -41,15 +41,15 @@ export class APIClient {
   }
 
   async login(input: LoginInput): Promise<SessionResponse> {
-    return this.request<SessionResponse>("/api/admin/login", {
+    return this.request<SessionResponse>("/api/admin/auth/login", {
       method: "POST",
       body: JSON.stringify(input),
     });
   }
 
   async logout(csrfToken: string): Promise<void> {
-    await this.request<void>("/api/admin/session", {
-      method: "DELETE",
+    await this.request<void>("/api/admin/auth/logout", {
+      method: "POST",
       headers: { "X-CSRF-Token": csrfToken, "X-PgBase-CSRF": csrfToken },
     });
   }

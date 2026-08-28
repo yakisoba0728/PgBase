@@ -44,7 +44,7 @@ func TestAuthenticatedMutationRejectsMissingCSRF(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
 	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
-	request := httptest.NewRequest(http.MethodDelete, "/api/admin/session", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "https://pgbase.example")
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
 	response := httptest.NewRecorder()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -98,20 +99,20 @@ func TestServiceSetupLoginAuthenticateExpireAndLogout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if setup.Administrator.Email != "admin@example.com" || setup.Administrator.ID.Version() != uuid.Version(4) {
+	if setup.Administrator.Email != "admin@example.com" || setup.Administrator.ID.Version() != uuid.Version(7) {
 		t.Fatalf("setup administrator = %#v", setup.Administrator)
 	}
 	if setup.RawToken == "" || !setup.ExpiresAt.Equal(clock.Now().Add(12*time.Hour)) {
 		t.Fatalf("setup session = %#v", setup)
 	}
-	if got, err := service.Authenticate(context.Background(), setup.RawToken); err != nil || got != setup.Administrator {
-		t.Fatalf("Authenticate setup token = %#v, %v", got, err)
+	if got, expiresAt, err := service.Authenticate(context.Background(), setup.RawToken); err != nil || got != setup.Administrator || !expiresAt.Equal(setup.ExpiresAt) {
+		t.Fatalf("Authenticate setup token = %#v, %s, %v", got, expiresAt, err)
 	}
 
 	if err := service.Logout(context.Background(), setup.RawToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Authenticate(context.Background(), setup.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := service.Authenticate(context.Background(), setup.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate logged-out token error = %v", err)
 	}
 
@@ -123,14 +124,103 @@ func TestServiceSetupLoginAuthenticateExpireAndLogout(t *testing.T) {
 		t.Fatal("login reused the setup session token")
 	}
 	rotated := NewService(pool, NewArgon2idPasswords(), []byte("abcdef0123456789abcdef0123456789"), "", 12*time.Hour, clock)
-	if _, err := rotated.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := rotated.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate after token-secret rotation error = %v", err)
 	}
 	clock.Add(12 * time.Hour)
-	if _, err := service.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := service.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate expired token error = %v", err)
 	}
 }
+
+func TestServiceSetupIsDisabledWithoutConfiguredToken(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	service := NewService(
+		pool,
+		NewArgon2idPasswords(),
+		[]byte("0123456789abcdef0123456789abcdef"),
+		"",
+		time.Hour,
+		clock,
+	)
+
+	for _, presented := range []string{"", "attacker-supplied-token"} {
+		if _, err := service.Setup(context.Background(), presented, "admin@example.com", "correct horse battery staple", "192.0.2.1"); !errors.Is(err, ErrSetupUnavailable) {
+			t.Fatalf("Setup without configured token using %q error = %v, want ErrSetupUnavailable", presented, err)
+		}
+	}
+
+	var administrators, sessions int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admins").Scan(&administrators); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_sessions").Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if administrators != 0 || sessions != 0 {
+		t.Fatalf("disabled setup persisted administrators=%d sessions=%d, want 0/0", administrators, sessions)
+	}
+}
+
+func TestServicePropagatesAdministratorUUIDv7GenerationFailure(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	service := NewService(
+		pool,
+		NewArgon2idPasswords(),
+		[]byte("0123456789abcdef0123456789abcdef"),
+		"01234567890123456789012345678901",
+		time.Hour,
+		clock,
+	)
+
+	uuid.SetRand(failingUUIDReader{})
+	t.Cleanup(func() { uuid.SetRand(nil) })
+	if _, err := service.Setup(context.Background(), "01234567890123456789012345678901", "admin@example.com", "correct horse battery staple", "192.0.2.1"); err == nil {
+		t.Fatal("Setup succeeded when UUIDv7 generation failed")
+	}
+
+	var administrators, sessions int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admins").Scan(&administrators); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_sessions").Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if administrators != 0 || sessions != 0 {
+		t.Fatalf("UUID generation failure persisted administrators=%d sessions=%d, want 0/0", administrators, sessions)
+	}
+}
+
+func TestServiceCreateAdministratorPropagatesUUIDv7GenerationFailure(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	service := NewService(
+		pool,
+		NewArgon2idPasswords(),
+		[]byte("0123456789abcdef0123456789abcdef"),
+		"",
+		time.Hour,
+		&fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)},
+	)
+
+	uuid.SetRand(failingUUIDReader{})
+	t.Cleanup(func() { uuid.SetRand(nil) })
+	if _, err := service.CreateAdministrator(context.Background(), "admin@example.com", "correct horse battery staple"); err == nil {
+		t.Fatal("CreateAdministrator succeeded when UUIDv7 generation failed")
+	}
+	var administrators int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admins").Scan(&administrators); err != nil {
+		t.Fatal(err)
+	}
+	if administrators != 0 {
+		t.Fatalf("UUID generation failure persisted administrators=%d, want 0", administrators)
+	}
+}
+
+type failingUUIDReader struct{}
+
+func (failingUUIDReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
 func TestServiceLoginRateLimitIsSharedAndClearsOnSuccess(t *testing.T) {
 	pool := newAdminAuthPool(t)
@@ -241,7 +331,7 @@ func TestServiceResetAdministratorPasswordRevokesAllExistingSessions(t *testing.
 	if updated.Email != "admin@example.com" || !updated.Active {
 		t.Fatalf("updated administrator = %#v", updated)
 	}
-	if _, err := service.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := service.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("old session authentication error = %v, want invalid credentials", err)
 	}
 	var sessions int
@@ -269,7 +359,7 @@ func TestServiceResetAdministratorPasswordRollsBackWhenSessionRevocationFails(t 
 	if _, err := service.ResetAdministratorPassword(context.Background(), "admin@example.com", "new correct horse battery staple"); err == nil {
 		t.Fatal("reset succeeded despite forced session-deletion failure")
 	}
-	if _, err := service.Authenticate(context.Background(), issued.RawToken); err != nil {
+	if _, _, err := service.Authenticate(context.Background(), issued.RawToken); err != nil {
 		t.Fatalf("old session was not preserved after rollback: %v", err)
 	}
 	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", "rollback-client"); err != nil {

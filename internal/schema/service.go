@@ -47,6 +47,7 @@ func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, 
 		return Collection{}, err
 	}
 	var created Collection
+	var nextCatalog Catalog
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
 			return fmt.Errorf("set schema lock timeout: %w", err)
@@ -120,14 +121,16 @@ func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, 
 		if _, err := tx.Exec(ctx, "select pg_notify('pgbase_schema_changed', $1)", strconv.FormatInt(newVersion, 10)); err != nil {
 			return fmt.Errorf("notify schema change: %w", err)
 		}
+		nextCatalog, err = store.ReadCatalog(ctx, newVersion)
+		if err != nil {
+			return fmt.Errorf("build committed schema catalog: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
 		return Collection{}, err
 	}
-	if _, err := s.Catalog(ctx); err != nil {
-		return Collection{}, fmt.Errorf("reload catalog after schema application: %w", err)
-	}
+	s.cache.Replace(nextCatalog)
 	return created, nil
 }
 
@@ -177,7 +180,7 @@ func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog,
 		return Catalog{}, err
 	}
 	s.cache.Replace(catalog)
-	return s.cache.Load(), nil
+	return catalog, nil
 }
 
 func (s *Service) Catalog(ctx context.Context) (Catalog, error) {

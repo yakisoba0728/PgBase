@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,7 +13,9 @@ import (
 
 // Pool is the reusable PostgreSQL connection pool for a pgBase project.
 type Pool struct {
-	inner *pgxpool.Pool
+	inner     *pgxpool.Pool
+	closeOnce sync.Once
+	closeDone chan struct{}
 }
 
 // Open creates a PostgreSQL pool whose connections use pgBase session settings.
@@ -38,7 +41,7 @@ func Open(ctx context.Context, databaseURL string, statementTimeout time.Duratio
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
-	pool := &Pool{inner: inner}
+	pool := &Pool{inner: inner, closeDone: make(chan struct{})}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping PostgreSQL pool: %w", err)
@@ -51,9 +54,41 @@ func (p *Pool) Ping(ctx context.Context) error {
 	return p.inner.Ping(ctx)
 }
 
-// Close closes all idle connections and prevents new acquisitions.
+// Close closes the pool and waits for borrowed connections to be returned.
 func (p *Pool) Close() {
-	p.inner.Close()
+	if p == nil {
+		return
+	}
+	p.startClose()
+	<-p.closeDone
+}
+
+// CloseContext starts closing the pool and waits only until ctx expires.
+// Borrowed connections are marked for destruction when they are returned.
+func (p *Pool) CloseContext(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	p.startClose()
+	select {
+	case <-p.closeDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *Pool) startClose() {
+	p.closeOnce.Do(func() {
+		p.inner.Reset()
+		go func() {
+			p.inner.Close()
+			close(p.closeDone)
+		}()
+	})
 }
 
 // Acquire reserves a connection from the pool until the caller releases it.

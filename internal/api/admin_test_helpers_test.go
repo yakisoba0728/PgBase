@@ -12,26 +12,27 @@ import (
 var testTokenSecret = []byte("0123456789abcdef0123456789abcdef")
 
 type fakeAdminAuth struct {
-	setupSession      adminauth.Session
-	setupErr          error
-	loginSession      adminauth.Session
-	loginErr          error
-	authenticateAdmin adminauth.Administrator
-	authenticateErr   error
-	logoutErr         error
-	setupCalls        int
-	loginCalls        int
-	authenticateCalls int
-	logoutCalls       int
-	setupToken        string
-	setupEmail        string
-	setupPassword     string
-	setupSubject      string
-	loginEmail        string
-	loginPassword     string
-	loginSubject      string
-	authenticateToken string
-	logoutToken       string
+	setupSession       adminauth.Session
+	setupErr           error
+	loginSession       adminauth.Session
+	loginErr           error
+	authenticateAdmin  adminauth.Administrator
+	authenticateExpiry time.Time
+	authenticateErr    error
+	logoutErr          error
+	setupCalls         int
+	loginCalls         int
+	authenticateCalls  int
+	logoutCalls        int
+	setupToken         string
+	setupEmail         string
+	setupPassword      string
+	setupSubject       string
+	loginEmail         string
+	loginPassword      string
+	loginSubject       string
+	authenticateToken  string
+	logoutToken        string
 }
 
 func (f *fakeAdminAuth) Setup(_ context.Context, setupToken, email, password, subject string) (adminauth.Session, error) {
@@ -51,10 +52,10 @@ func (f *fakeAdminAuth) Login(_ context.Context, email, password, subject string
 	return f.loginSession, f.loginErr
 }
 
-func (f *fakeAdminAuth) Authenticate(_ context.Context, rawToken string) (adminauth.Administrator, error) {
+func (f *fakeAdminAuth) Authenticate(_ context.Context, rawToken string) (adminauth.Administrator, time.Time, error) {
 	f.authenticateCalls++
 	f.authenticateToken = rawToken
-	return f.authenticateAdmin, f.authenticateErr
+	return f.authenticateAdmin, f.authenticateExpiry, f.authenticateErr
 }
 
 func (f *fakeAdminAuth) Logout(_ context.Context, rawToken string) error {

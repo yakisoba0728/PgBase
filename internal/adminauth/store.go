@@ -110,8 +110,9 @@ func (s *Store) CreateSession(ctx context.Context, id, administratorID uuid.UUID
 }
 
 // AuthenticateSession resolves an active, unexpired, unrevoked session and updates last-seen time.
-func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now time.Time) (Administrator, error) {
+func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now time.Time) (Administrator, time.Time, error) {
 	var administrator Administrator
+	var expiresAt time.Time
 	err := s.db.QueryRow(ctx, `
 		with matched as (
 			update pgbase_meta.admin_sessions as sessions
@@ -122,18 +123,18 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now t
 			  and sessions.revoked_at is null
 			  and sessions.expires_at > $2
 			  and admins.active
-			returning admins.id, admins.email, admins.active, admins.created_at, admins.updated_at
+			returning admins.id, admins.email, admins.active, admins.created_at, admins.updated_at, sessions.expires_at
 		)
-		select id, email, active, created_at, updated_at from matched`, tokenHash, now).Scan(
+		select id, email, active, created_at, updated_at, expires_at from matched`, tokenHash, now).Scan(
 		&administrator.ID, &administrator.Email, &administrator.Active,
-		&administrator.CreatedAt, &administrator.UpdatedAt)
+		&administrator.CreatedAt, &administrator.UpdatedAt, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Administrator{}, ErrInvalidCredentials
+		return Administrator{}, time.Time{}, ErrInvalidCredentials
 	}
 	if err != nil {
-		return Administrator{}, fmt.Errorf("authenticate administrator session: %w", err)
+		return Administrator{}, time.Time{}, fmt.Errorf("authenticate administrator session: %w", err)
 	}
-	return administratorUTC(administrator), nil
+	return administratorUTC(administrator), expiresAt.UTC(), nil
 }
 
 // RevokeSession revokes a session if it exists; repeated logout is harmless.

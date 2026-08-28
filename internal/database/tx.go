@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -16,7 +17,9 @@ func (p *Pool) InTx(ctx context.Context, options pgx.TxOptions, fn func(pgx.Tx) 
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback(context.Background())
+			cleanupCtx, cancel := BoundedCleanupContext(ctx)
+			defer cancel()
+			_ = tx.Rollback(cleanupCtx)
 		}
 	}()
 
@@ -28,4 +31,19 @@ func (p *Pool) InTx(ctx context.Context, options pgx.TxOptions, fn func(pgx.Tx) 
 	}
 	committed = true
 	return nil
+}
+
+const cleanupTimeout = time.Second
+
+// BoundedCleanupContext permits cleanup after cancellation without allowing a
+// rollback or connection close to outlive the caller's earlier deadline.
+func BoundedCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	deadline := time.Now().Add(cleanupTimeout)
+	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	return context.WithDeadline(context.WithoutCancel(parent), deadline)
 }

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 )
@@ -19,6 +20,7 @@ type adminPrincipalKey struct{}
 type AdminPrincipal struct {
 	Administrator adminauth.Administrator
 	RawSession    string
+	ExpiresAt     time.Time
 }
 
 // AdminPrincipalFromContext returns the authenticated principal installed by
@@ -61,7 +63,7 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 			writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 			return
 		}
-		administrator, err := auth.Authenticate(r.Context(), cookie.Value)
+		administrator, expiresAt, err := auth.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
 			if errors.Is(err, adminauth.ErrInvalidCredentials) {
 				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
@@ -70,7 +72,7 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
 			return
 		}
-		principal := AdminPrincipal{Administrator: administrator, RawSession: cookie.Value}
+		principal := AdminPrincipal{Administrator: administrator, RawSession: cookie.Value, ExpiresAt: expiresAt}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), adminPrincipalKey{}, principal)))
 	})
 }

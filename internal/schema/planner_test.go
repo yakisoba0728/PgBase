@@ -106,7 +106,7 @@ func TestPlanCreateCanonicalizesJSONDefaultsAndSupportsEveryFieldType(t *testing
 	if got, want := string(plan.Definition.Fields[7].Default), `{"a":2,"z":1}`; got != want {
 		t.Errorf("canonical JSONB default = %s, want %s", got, want)
 	}
-	if len(plan.Statements) != 2 || !strings.Contains(plan.Statements[0], `"metadata" jsonb default '{"a":2,"z":1}'::jsonb`) {
+	if len(plan.Statements) != 2 || !strings.Contains(plan.Statements[0], `"metadata" jsonb default E'{"a":2,"z":1}'::jsonb`) {
 		t.Fatalf("statements = %#v, want typed DDL and one unique index", plan.Statements)
 	}
 	if !strings.HasPrefix(plan.Statements[1], "CREATE UNIQUE INDEX ") {

@@ -68,8 +68,8 @@ describe("APIClient", () => {
     await client.getSession(signal);
 
     const [logoutPath, logoutOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(logoutPath).toBe("/api/admin/session");
-    expect(logoutOptions.method).toBe("DELETE");
+    expect(logoutPath).toBe("/api/admin/auth/logout");
+    expect(logoutOptions.method).toBe("POST");
     expect(logoutOptions.credentials).toBe("include");
     expect(new Headers(logoutOptions.headers).get("X-CSRF-Token")).toBe("csrf-token");
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/session", expect.objectContaining({ signal }));

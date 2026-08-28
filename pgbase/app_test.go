@@ -138,6 +138,119 @@ func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
 	}
 }
 
+func TestCloseHonorsDeadlineWhileBackgroundRunnerIsStalled(t *testing.T) {
+	backgroundDone := make(chan struct{})
+	defer close(backgroundDone)
+	app := &App{
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		lifecycleState:   appLifecycleRunning,
+		lifecycleClosing: make(chan struct{}),
+		backgroundCancel: func() {},
+		backgroundDone:   backgroundDone,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	result := make(chan error, 1)
+	go func() { result <- app.Close(ctx) }()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Close error = %v, want context deadline exceeded", err)
+		}
+		if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+			t.Fatalf("Close exceeded bounded shutdown window: %s", elapsed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close waited indefinitely for a stalled background runner")
+	}
+}
+
+func TestConcurrentCloseCallerHonorsItsOwnDeadline(t *testing.T) {
+	backgroundDone := make(chan struct{})
+	app := &App{
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		lifecycleState:   appLifecycleRunning,
+		lifecycleClosing: make(chan struct{}),
+		backgroundCancel: func() {},
+		backgroundDone:   backgroundDone,
+	}
+	firstResult := make(chan error, 1)
+	go func() { firstResult <- app.Close(context.Background()) }()
+	waitForSignal(t, app.lifecycleClosing, "first Close did not begin shutdown")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := app.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("concurrent Close error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("concurrent Close ignored its own deadline: %s", elapsed)
+	}
+
+	close(backgroundDone)
+	if err := waitForResult(t, firstResult, "first Close did not finish after background release"); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+}
+
+func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
+	requestStarted := make(chan struct{})
+	requestCanceled := make(chan struct{})
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(requestStarted)
+		<-request.Context().Done()
+		close(requestCanceled)
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.Serve(listener) }()
+	defer func() {
+		_ = server.Close()
+		<-serverDone
+	}()
+
+	requestDone := make(chan error, 1)
+	go func() {
+		response, requestErr := http.Get("http://" + listener.Addr().String()) // #nosec G107 -- test-local listener.
+		if response != nil {
+			response.Body.Close()
+		}
+		requestDone <- requestErr
+	}()
+	waitForSignal(t, requestStarted, "request did not reach blocking handler")
+
+	app := &App{
+		httpServer:       server,
+		readiness:        &readinessState{},
+		lifecycleState:   appLifecycleRunning,
+		lifecycleClosing: make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := app.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close error = %v, want context deadline exceeded", err)
+	}
+	select {
+	case <-requestCanceled:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("active request context remained open after graceful shutdown expired")
+	}
+	select {
+	case <-requestDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HTTP client connection remained open after forced shutdown")
+	}
+}
+
 type barrierCleaner struct {
 	started chan struct{}
 	stopped chan struct{}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,9 @@ const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ
 func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, password, subject string) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
+	}
+	if s.setupToken == "" {
+		return Session{}, ErrSetupUnavailable
 	}
 	normalizedEmail, err := NormalizeEmail(email)
 	if err != nil {
@@ -70,8 +74,12 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 			}
 			return fmt.Errorf("hash administrator password: %w", err)
 		}
+		administratorID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generate administrator ID: %w", err)
+		}
 		administrator := Administrator{
-			ID: uuid.New(), Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
+			ID: administratorID, Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
 		}
 		administrator, err = store.CreateAdministrator(ctx, administrator, passwordHash)
 		if err != nil {
@@ -115,8 +123,12 @@ func (s *Service) CreateAdministrator(ctx context.Context, email, password strin
 		return Administrator{}, err
 	}
 	now := s.clock.Now().UTC()
+	administratorID, err := uuid.NewV7()
+	if err != nil {
+		return Administrator{}, fmt.Errorf("generate administrator ID: %w", err)
+	}
 	administrator, err := NewStore(s.pool).CreateAdministrator(ctx, Administrator{
-		ID: uuid.New(), Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
+		ID: administratorID, Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
 	}, passwordHash)
 	if database.Classify(err) == database.KindConflict {
 		return Administrator{}, ErrConflict
@@ -220,9 +232,9 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 }
 
 // Authenticate resolves a raw session token without persisting the raw material.
-func (s *Service) Authenticate(ctx context.Context, rawToken string) (Administrator, error) {
+func (s *Service) Authenticate(ctx context.Context, rawToken string) (Administrator, time.Time, error) {
 	if err := s.ready(); err != nil {
-		return Administrator{}, err
+		return Administrator{}, time.Time{}, err
 	}
 	return NewStore(s.pool).AuthenticateSession(ctx, HashSessionToken(s.tokenSecret, rawToken), s.clock.Now())
 }

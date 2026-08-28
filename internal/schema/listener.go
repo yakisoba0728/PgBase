@@ -98,7 +98,9 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	defer func() {
 		l.ready.Store(false)
 		l.pid.Store(0)
-		_ = connection.Conn().Close(context.Background())
+		cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
+		defer cancel()
+		_ = connection.Conn().Close(cleanupCtx)
 		connection.Release()
 	}()
 
@@ -130,7 +132,9 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) error {
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback(context.Background())
+			cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
+			defer cancel()
+			_ = tx.Rollback(cleanupCtx)
 		}
 	}()
 	store := NewStore(tx)

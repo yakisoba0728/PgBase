@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -32,4 +33,30 @@ func TestOpenAppliesPgBaseSessionSettings(t *testing.T) {
 	if timezone != "UTC" {
 		t.Fatalf("timezone = %q, want %q", timezone, "UTC")
 	}
+}
+
+func TestCloseContextHonorsDeadlineWithBorrowedConnection(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	pool, err := Open(context.Background(), databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = pool.CloseContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseContext error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("CloseContext waited too long for borrowed connection: %s", elapsed)
+	}
+
+	connection.Release()
+	pool.Close()
 }

@@ -150,7 +150,7 @@ func TestCreateAdministratorCreatesNoSessionAndRejectsDuplicates(t *testing.T) {
 	pool := newAdminCreatePool(t)
 	service := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, nil)
 	created, err := service.CreateAdministrator(context.Background(), " ADMIN@Example.COM ", "correct horse battery staple")
-	if err != nil || created.Email != "admin@example.com" || !created.Active {
+	if err != nil || created.Email != "admin@example.com" || !created.Active || created.ID.Version() != 7 {
 		t.Fatalf("created=%#v err=%v", created, err)
 	}
 	var sessions int

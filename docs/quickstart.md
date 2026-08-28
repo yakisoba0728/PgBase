@@ -124,7 +124,7 @@ curl --fail-with-body \
   --header 'Origin: http://127.0.0.1:8090' \
   --data-binary "@$pgbase_request_dir/login.json" \
   --output "$pgbase_request_dir/session.json" \
-  http://127.0.0.1:8090/api/admin/login
+  http://127.0.0.1:8090/api/admin/auth/login
 
 jq --exit-status --raw-output \
   '["Content-Type: application/json", "Origin: http://127.0.0.1:8090", "X-PgBase-CSRF: " + .csrfToken][]' \

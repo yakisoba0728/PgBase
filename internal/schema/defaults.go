@@ -195,5 +195,7 @@ func sqlLiteral(value string) (string, bool) {
 	if strings.IndexByte(value, 0) >= 0 {
 		return "", false
 	}
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, "'", "''")
+	return "E'" + escaped + "'", true
 }

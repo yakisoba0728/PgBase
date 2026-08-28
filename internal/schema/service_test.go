@@ -6,11 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
@@ -313,6 +317,168 @@ func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
 	if _, ok := current.Collections["pages"]; !ok {
 		t.Fatalf("newer catalog was replaced by older snapshot: %+v", current)
 	}
+}
+
+func TestEnsureCurrentReturnsCatalogPinnedToCallerTransactionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	firstPool, err := database.Open(ctx, databaseURL, 5*time.Second)
+	if err != nil {
+		t.Fatalf("open first pool: %v", err)
+	}
+	t.Cleanup(firstPool.Close)
+	secondPool, err := database.Open(ctx, databaseURL, 5*time.Second)
+	if err != nil {
+		t.Fatalf("open second pool: %v", err)
+	}
+	t.Cleanup(secondPool.Close)
+	if err := migrate.New(firstPool, nil).Up(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	administratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000003")
+	if _, err := firstPool.Exec(ctx, `insert into pgbase_meta.admins (id, email, password_hash, active, created_at, updated_at)
+		values ($1, 'snapshot-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
+		t.Fatalf("insert administrator: %v", err)
+	}
+
+	firstCache := &Cache{}
+	secondCache := &Cache{}
+	firstService := NewService(firstPool, firstCache, Planner{})
+	secondService := NewService(secondPool, secondCache, Planner{})
+	snapshotPinned := make(chan struct{})
+	newerPublished := make(chan struct{})
+	type ensureResult struct {
+		catalog Catalog
+		err     error
+	}
+	result := make(chan ensureResult, 1)
+	go func() {
+		var catalog Catalog
+		err := firstPool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var pinnedVersion int64
+			if err := tx.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&pinnedVersion); err != nil {
+				return err
+			}
+			if pinnedVersion != 0 {
+				return fmt.Errorf("pinned version = %d, want 0", pinnedVersion)
+			}
+			close(snapshotPinned)
+			<-newerPublished
+			var err error
+			catalog, err = firstService.EnsureCurrent(ctx, tx)
+			return err
+		})
+		result <- ensureResult{catalog: catalog, err: err}
+	}()
+	<-snapshotPinned
+
+	applyFreshPlan(t, secondService, CreateCollectionInput{Name: "posts"}, administratorID)
+	firstCache.Replace(secondCache.Load())
+	close(newerPublished)
+
+	ensured := <-result
+	if ensured.err != nil {
+		t.Fatalf("EnsureCurrent: %v", ensured.err)
+	}
+	if ensured.catalog.Version != 0 || len(ensured.catalog.Collections) != 0 {
+		t.Fatalf("transaction-local catalog = %+v, want empty version 0 snapshot", ensured.catalog)
+	}
+	if current := firstCache.Load(); current.Version != 1 {
+		t.Fatalf("opportunistic publication regressed cache to version %d, want 1", current.Version)
+	}
+}
+
+func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	query := parsedURL.Query()
+	query.Set("pool_max_conns", "1")
+	parsedURL.RawQuery = query.Encode()
+	pool, err := database.Open(ctx, parsedURL.String(), 5*time.Second)
+	if err != nil {
+		t.Fatalf("open single-connection pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	administratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000004")
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admins (id, email, password_hash, active, created_at, updated_at)
+		values ($1, 'post-commit-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
+		t.Fatalf("insert administrator: %v", err)
+	}
+
+	cache := &Cache{}
+	service := NewService(pool, cache, Planner{})
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+	plannerEntered := make(chan struct{})
+	plannerRelease := make(chan struct{})
+	service.planner = &barrierPlanBuilder{delegate: Planner{}, entered: plannerEntered, release: plannerRelease}
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	defer cancelRequest()
+	applyResult := make(chan error, 1)
+	go func() {
+		_, applyErr := service.ApplyCreate(requestCtx, input, plan.Checksum, plan.BaseVersion, administratorID)
+		applyResult <- applyErr
+	}()
+	<-plannerEntered
+
+	waiterStarted := make(chan struct{})
+	waiterAcquired := make(chan *pgxpool.Conn, 1)
+	waiterError := make(chan error, 1)
+	go func() {
+		close(waiterStarted)
+		connection, acquireErr := pool.Acquire(context.Background())
+		if acquireErr != nil {
+			waiterError <- acquireErr
+			return
+		}
+		waiterAcquired <- connection
+	}()
+	<-waiterStarted
+	time.Sleep(25 * time.Millisecond)
+	close(plannerRelease)
+
+	var waiter *pgxpool.Conn
+	select {
+	case waiter = <-waiterAcquired:
+	case err := <-waiterError:
+		t.Fatalf("acquire post-commit barrier connection: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("post-commit barrier did not acquire the released transaction connection")
+	}
+	cancelRequest()
+	waiter.Release()
+	if err := <-applyResult; err != nil {
+		t.Fatalf("ApplyCreate reported failure after committing schema state: %v", err)
+	}
+
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+	published := cache.Load()
+	if published.Version != 1 || published.Collections["posts"].Name != "posts" {
+		t.Fatalf("published catalog after commit = %+v", published)
+	}
+}
+
+type barrierPlanBuilder struct {
+	delegate PlanBuilder
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+}
+
+func (b *barrierPlanBuilder) PlanCreate(version int64, input CreateCollectionInput) (Plan, error) {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+	return b.delegate.PlanCreate(version, input)
 }
 
 type fixedPlanBuilder struct{ plan Plan }

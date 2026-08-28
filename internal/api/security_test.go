@@ -111,7 +111,7 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
 			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
-			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/login", test.body)
+			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", test.body)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
@@ -144,12 +144,12 @@ func TestSecurityAdminSessionOriginAndCSRFBypassesAreRejected(t *testing.T) {
 	}{
 		{name: "missing session", method: http.MethodGet, path: "/api/admin/session", wantStatus: http.StatusUnauthorized, wantCode: "authentication_required"},
 		{name: "forged session", method: http.MethodGet, path: "/api/admin/session", cookie: "security-forged-session-7f31", authError: adminauth.ErrInvalidCredentials, wantStatus: http.StatusUnauthorized, wantCode: "authentication_required"},
-		{name: "missing origin", method: http.MethodDelete, path: "/api/admin/session", cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
-		{name: "cross origin", method: http.MethodDelete, path: "/api/admin/session", origin: []string{"https://evil.example"}, cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
-		{name: "duplicate origin", method: http.MethodDelete, path: "/api/admin/session", origin: []string{"http://pgbase.test", "http://pgbase.test"}, cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
-		{name: "untrusted forwarded proto", method: http.MethodDelete, path: "/api/admin/session", origin: []string{"https://pgbase.test"}, cookie: validSession().RawToken, csrf: validCSRF(), remoteAddress: "198.51.100.8:4000", forwardedProto: "https", trustedProxy: true, wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
-		{name: "missing csrf", method: http.MethodDelete, path: "/api/admin/session", origin: []string{"http://pgbase.test"}, cookie: validSession().RawToken, wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
-		{name: "wrong csrf", method: http.MethodDelete, path: "/api/admin/session", origin: []string{"http://pgbase.test"}, cookie: validSession().RawToken, csrf: "security-wrong-csrf-7f31", wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
+		{name: "missing origin", method: http.MethodPost, path: "/api/admin/auth/logout", cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
+		{name: "cross origin", method: http.MethodPost, path: "/api/admin/auth/logout", origin: []string{"https://evil.example"}, cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
+		{name: "duplicate origin", method: http.MethodPost, path: "/api/admin/auth/logout", origin: []string{"http://pgbase.test", "http://pgbase.test"}, cookie: validSession().RawToken, csrf: validCSRF(), wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
+		{name: "untrusted forwarded proto", method: http.MethodPost, path: "/api/admin/auth/logout", origin: []string{"https://pgbase.test"}, cookie: validSession().RawToken, csrf: validCSRF(), remoteAddress: "198.51.100.8:4000", forwardedProto: "https", trustedProxy: true, wantStatus: http.StatusForbidden, wantCode: "origin_rejected"},
+		{name: "missing csrf", method: http.MethodPost, path: "/api/admin/auth/logout", origin: []string{"http://pgbase.test"}, cookie: validSession().RawToken, wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
+		{name: "wrong csrf", method: http.MethodPost, path: "/api/admin/auth/logout", origin: []string{"http://pgbase.test"}, cookie: validSession().RawToken, csrf: "security-wrong-csrf-7f31", wantStatus: http.StatusForbidden, wantCode: "csrf_rejected"},
 	}
 	for _, test := range tests {
 		test := test
@@ -238,7 +238,7 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 				TokenSecret:    testTokenSecret,
 				TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			})
-			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/login", `{"email":"admin@example.test","password":"correct horse battery staple"}`)
+			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"correct horse battery staple"}`)
 			request.Header.Set("Origin", "http://pgbase.test")
 			request.Header.Set("X-Forwarded-For", test.forwardedFor)
 			request.RemoteAddr = test.remoteAddress
@@ -287,6 +287,32 @@ func TestSecuritySetupCannotBeReused(t *testing.T) {
 	assertSecuritySecretsAbsent(t, logs.String(), setupToken, secondPassword)
 }
 
+func TestSecuritySetupIsUnavailableWithoutConfiguredTokenAndCreatesNoState(t *testing.T) {
+	pool := newSecurityDatabase(t)
+	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "", time.Hour, nil)
+	handler := NewRouter(Dependencies{
+		AdminAuth:   auth,
+		PublicURL:   mustURL("http://pgbase.test"),
+		TokenSecret: testTokenSecret,
+	})
+	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"","email":"admin@example.test","password":"`+securityPassword+`"}`)
+	request.Header.Set("Origin", "http://pgbase.test")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertSecurityError(t, response, http.StatusConflict, "setup_unavailable", securityPassword)
+
+	var administrators, sessions int
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admins").Scan(&administrators); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_sessions").Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if administrators != 0 || sessions != 0 {
+		t.Fatalf("disabled setup persisted administrators=%d sessions=%d, want 0/0", administrators, sessions)
+	}
+}
+
 func TestSecurityMalformedPasswordHashReturnsGenericCredentialsError(t *testing.T) {
 	pool := newSecurityDatabase(t)
 	const setupToken = "security-setup-token-7f31-0123456789abcdef"
@@ -305,7 +331,7 @@ func TestSecurityMalformedPasswordHashReturnsGenericCredentialsError(t *testing.
 		PublicURL:   mustURL("http://pgbase.test"),
 		TokenSecret: testTokenSecret,
 	})
-	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/login", `{"email":"admin@example.test","password":"`+securityPassword+`"}`)
+	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"`+securityPassword+`"}`)
 	request.Header.Set("Origin", "http://pgbase.test")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

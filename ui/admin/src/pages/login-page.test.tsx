@@ -86,5 +86,6 @@ describe("administrator login", () => {
 
     expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
     expect(screen.getByText(administrator.email)).toBeVisible();
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/auth/login", expect.objectContaining({ method: "POST" }));
   });
 });

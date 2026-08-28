@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 )
@@ -25,7 +26,7 @@ func TestSetupRouteRejectsMalformedJSON(t *testing.T) {
 
 func TestLoginRouteRejectsMalformedJSON(t *testing.T) {
 	handler := NewRouter(Dependencies{})
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader("{"))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login", strings.NewReader("{"))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
@@ -47,7 +48,7 @@ func TestSessionRouteRequiresAuthentication(t *testing.T) {
 
 func TestLogoutRouteRequiresAuthentication(t *testing.T) {
 	handler := NewRouter(Dependencies{})
-	request := httptest.NewRequest(http.MethodDelete, "/api/admin/session", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -81,13 +82,13 @@ func TestSetupSetsSecureAdminCookie(t *testing.T) {
 		auth.setupPassword != "correct horse battery staple" || auth.setupSubject != "192.0.2.1" {
 		t.Fatalf("setup call=%+v", auth)
 	}
-	assertAdminSessionResponse(t, response.Body.Bytes(), validSession().Administrator)
+	assertAdminSessionResponse(t, response.Body.Bytes(), validSession())
 }
 
 func TestLoginReturnsAdministratorSession(t *testing.T) {
 	auth := &fakeAdminAuth{loginSession: validSession()}
 	handler := NewRouter(testDependencies(auth, mustURL("http://pgbase.example")))
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/login",
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login",
 		strings.NewReader("{\"email\":\"admin@example.com\",\"password\":\"correct horse battery staple\"}"))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://pgbase.example")
@@ -103,12 +104,12 @@ func TestLoginReturnsAdministratorSession(t *testing.T) {
 	if auth.loginCalls != 1 || auth.loginSubject != "192.0.2.1" {
 		t.Fatalf("login call=%+v", auth)
 	}
-	assertAdminSessionResponse(t, response.Body.Bytes(), validSession().Administrator)
+	assertAdminSessionResponse(t, response.Body.Bytes(), validSession())
 }
 
 func TestSessionAuthenticatesCookieAndReturnsCSRFToken(t *testing.T) {
 	session := validSession()
-	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt}
 	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
 	request.AddCookie(&http.Cookie{Name: "pgbase_admin", Value: session.RawToken})
@@ -120,14 +121,14 @@ func TestSessionAuthenticatesCookieAndReturnsCSRFToken(t *testing.T) {
 	if auth.authenticateCalls != 1 || auth.authenticateToken != session.RawToken {
 		t.Fatalf("authenticate call=%+v", auth)
 	}
-	assertAdminSessionResponse(t, response.Body.Bytes(), session.Administrator)
+	assertAdminSessionResponse(t, response.Body.Bytes(), session)
 }
 
 func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	session := validSession()
-	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt}
 	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
-	request := httptest.NewRequest(http.MethodDelete, "/api/admin/session", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "https://pgbase.example")
 	request.Header.Set("X-PgBase-CSRF", "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo")
 	request.AddCookie(&http.Cookie{Name: "pgbase_admin", Value: session.RawToken})
@@ -153,8 +154,8 @@ func TestSetupAndLoginRejectUnknownAndTrailingJSON(t *testing.T) {
 	}{
 		{name: "setup unknown", path: "/api/admin/setup", body: `{"setupToken":"secret","email":"admin@example.com","password":"valid password","role":"owner"}`},
 		{name: "setup trailing", path: "/api/admin/setup", body: `{"setupToken":"secret","email":"admin@example.com","password":"valid password"} {}`},
-		{name: "login unknown", path: "/api/admin/login", body: `{"email":"admin@example.com","password":"valid password","role":"owner"}`},
-		{name: "login trailing", path: "/api/admin/login", body: `{"email":"admin@example.com","password":"valid password"} []`},
+		{name: "login unknown", path: "/api/admin/auth/login", body: `{"email":"admin@example.com","password":"valid password","role":"owner"}`},
+		{name: "login trailing", path: "/api/admin/auth/login", body: `{"email":"admin@example.com","password":"valid password"} []`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,7 +194,7 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{loginErr: tt.err}
 			handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
-			request := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"email":"admin@example.com","password":"secret-password"}`))
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login", strings.NewReader(`{"email":"admin@example.com","password":"secret-password"}`))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "https://pgbase.example")
 			response := httptest.NewRecorder()
@@ -209,7 +210,7 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 	}
 }
 
-func assertAdminSessionResponse(t *testing.T, body []byte, want adminauth.Administrator) {
+func assertAdminSessionResponse(t *testing.T, body []byte, want adminauth.Session) {
 	t.Helper()
 	var response struct {
 		Administrator struct {
@@ -217,14 +218,18 @@ func assertAdminSessionResponse(t *testing.T, body []byte, want adminauth.Admini
 			Email string `json:"email"`
 		} `json:"administrator"`
 		CSRFToken string `json:"csrfToken"`
+		ExpiresAt string `json:"expiresAt"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatalf("decode session response: %v", err)
 	}
-	if response.Administrator.ID != want.ID.String() || response.Administrator.Email != want.Email {
+	if response.Administrator.ID != want.Administrator.ID.String() || response.Administrator.Email != want.Administrator.Email {
 		t.Fatalf("administrator=%+v", response.Administrator)
 	}
 	if response.CSRFToken != "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo" {
 		t.Fatalf("csrfToken=%q", response.CSRFToken)
+	}
+	if response.ExpiresAt != want.ExpiresAt.UTC().Format(time.RFC3339) {
+		t.Fatalf("expiresAt=%q, want %q", response.ExpiresAt, want.ExpiresAt.UTC().Format(time.RFC3339))
 	}
 }

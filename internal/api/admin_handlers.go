@@ -21,7 +21,7 @@ const adminCookieName = "pgbase_admin"
 type AdminAuth interface {
 	Setup(context.Context, string, string, string, string) (adminauth.Session, error)
 	Login(context.Context, string, string, string) (adminauth.Session, error)
-	Authenticate(context.Context, string) (adminauth.Administrator, error)
+	Authenticate(context.Context, string) (adminauth.Administrator, time.Time, error)
 	Logout(context.Context, string) error
 }
 
@@ -43,6 +43,7 @@ type administratorResponse struct {
 type adminSessionResponse struct {
 	Administrator administratorResponse `json:"administrator"`
 	CSRFToken     string                `json:"csrfToken"`
+	ExpiresAt     time.Time             `json:"expiresAt"`
 }
 
 func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
@@ -104,7 +105,7 @@ func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, e.tokenSecret, principal.RawSession))
+	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, e.tokenSecret, principal.RawSession))
 }
 
 func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
@@ -142,10 +143,10 @@ func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Reques
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, status, sessionResponse(session.Administrator, e.tokenSecret, session.RawToken))
+	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, e.tokenSecret, session.RawToken))
 }
 
-func sessionResponse(administrator adminauth.Administrator, tokenSecret []byte, rawSession string) adminSessionResponse {
+func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, tokenSecret []byte, rawSession string) adminSessionResponse {
 	return adminSessionResponse{
 		Administrator: administratorResponse{
 			ID:        administrator.ID,
@@ -155,6 +156,7 @@ func sessionResponse(administrator adminauth.Administrator, tokenSecret []byte, 
 			UpdatedAt: administrator.UpdatedAt.UTC(),
 		},
 		CSRFToken: adminauth.DeriveCSRFToken(tokenSecret, rawSession),
+		ExpiresAt: expiresAt.UTC(),
 	}
 }
 

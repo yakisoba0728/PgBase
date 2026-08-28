@@ -104,7 +104,7 @@ func (c *apiClient) login(ctx context.Context, email, password string) error {
 	var session struct {
 		CSRFToken string `json:"csrfToken"`
 	}
-	if err := c.request(ctx, http.MethodPost, "/api/admin/login", map[string]any{
+	if err := c.request(ctx, http.MethodPost, "/api/admin/auth/login", map[string]any{
 		"email": email, "password": password,
 	}, http.StatusOK, &session); err != nil {
 		return err

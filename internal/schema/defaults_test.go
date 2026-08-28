@@ -1,8 +1,13 @@
 package schema
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestDefaultRendersTypedLiterals(t *testing.T) {
@@ -16,10 +21,10 @@ func TestDefaultRendersTypedLiterals(t *testing.T) {
 		{name: "integer", typ: TypeInteger, raw: `"-42"`, want: "-42"},
 		{name: "bigint", typ: TypeBigInt, raw: `"9223372036854775807"`, want: "9223372036854775807"},
 		{name: "numeric", typ: TypeNumeric, raw: `"001.2300"`, want: "1.23::numeric"},
-		{name: "text quote", typ: TypeText, raw: `"O'Brien"`, want: "'O''Brien'::text"},
-		{name: "timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+00:00"`, want: "'2026-08-28T12:34:56Z'::timestamptz"},
-		{name: "uuid", typ: TypeUUID, raw: `"12345678-1234-4567-8901-123456789ABC"`, want: "'12345678-1234-4567-8901-123456789abc'::uuid"},
-		{name: "jsonb", typ: TypeJSONB, raw: `{"quote":"O'Brien","items":[2,1]}`, want: "'{\"items\":[2,1],\"quote\":\"O''Brien\"}'::jsonb"},
+		{name: "text quote", typ: TypeText, raw: `"O'Brien"`, want: "E'O''Brien'::text"},
+		{name: "timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+00:00"`, want: "E'2026-08-28T12:34:56Z'::timestamptz"},
+		{name: "uuid", typ: TypeUUID, raw: `"12345678-1234-4567-8901-123456789ABC"`, want: "E'12345678-1234-4567-8901-123456789abc'::uuid"},
+		{name: "jsonb", typ: TypeJSONB, raw: `{"quote":"O'Brien","items":[2,1]}`, want: "E'{\"items\":[2,1],\"quote\":\"O''Brien\"}'::jsonb"},
 		{name: "now", typ: TypeTimestampTZ, raw: `{"kind":"now"}`, want: "CURRENT_TIMESTAMP"},
 		{name: "whitespace-normalized now", typ: TypeTimestampTZ, raw: "{ \n \t\"kind\" : \"now\" }", want: "CURRENT_TIMESTAMP"},
 	}
@@ -53,5 +58,39 @@ func TestDefaultRejectsUntypedAndSQLInputs(t *testing.T) {
 		if _, err := renderDefault(tc.typ, json.RawMessage(tc.raw)); err == nil {
 			t.Errorf("renderDefault(%s, %s) succeeded, want validation error", tc.typ, tc.raw)
 		}
+	}
+}
+
+func TestTextDefaultLiteralRoundTripsWithStandardConformingStringsDisabled(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire connection: %v", err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(ctx, "set standard_conforming_strings = off"); err != nil {
+		t.Fatalf("disable standard_conforming_strings: %v", err)
+	}
+
+	want := `C:\temp\O'Brien`
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := renderDefault(TypeText, raw)
+	if err != nil {
+		t.Fatalf("render text default: %v", err)
+	}
+	var got string
+	if err := connection.QueryRow(ctx, "select "+rendered).Scan(&got); err != nil {
+		t.Fatalf("evaluate rendered default %q: %v", rendered, err)
+	}
+	if got != want {
+		t.Fatalf("rendered default round trip = %q, want %q (SQL %q)", got, want, rendered)
 	}
 }

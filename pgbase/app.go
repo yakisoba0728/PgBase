@@ -21,15 +21,17 @@ import (
 
 // App owns the pgBase HTTP server and its required process resources.
 type App struct {
-	options        Options
-	pool           *database.Pool
-	handler        http.Handler
-	httpServer     *http.Server
-	readiness      *readinessState
-	cleaner        backgroundRunner
-	schemaListener backgroundRunner
-	listen         func(string, string) (net.Listener, error)
-	closeOnce      sync.Once
+	options         Options
+	pool            *database.Pool
+	handler         http.Handler
+	httpServer      *http.Server
+	readiness       *readinessState
+	cleaner         backgroundRunner
+	schemaListener  backgroundRunner
+	listen          func(string, string) (net.Listener, error)
+	shutdownMu      sync.Mutex
+	shutdownStarted bool
+	shutdownDone    chan struct{}
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -260,12 +262,12 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case serverErr := <-serverDone:
 		a.readiness.accepting.Store(false)
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			return a.Close(context.Background())
-		}
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		closeErr := a.Close(closeCtx)
 		cancel()
+		if errors.Is(serverErr, http.ErrServerClosed) {
+			serverErr = nil
+		}
 		return errors.Join(serverErr, closeErr)
 	case <-backgroundDone:
 		a.readiness.accepting.Store(false)
@@ -274,8 +276,8 @@ func (a *App) Run(ctx context.Context) error {
 		a.closeMu.Unlock()
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		closeErr := a.Close(closeCtx)
+		serverErr := waitForServer(closeCtx, serverDone)
 		cancel()
-		serverErr := <-serverDone
 		if errors.Is(serverErr, http.ErrServerClosed) {
 			serverErr = nil
 		}
@@ -284,8 +286,8 @@ func (a *App) Run(ctx context.Context) error {
 		a.readiness.accepting.Store(false)
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		closeErr := a.Close(closeCtx)
+		serverErr := waitForServer(closeCtx, serverDone)
 		cancel()
-		serverErr := <-serverDone
 		if errors.Is(serverErr, http.ErrServerClosed) {
 			serverErr = nil
 		}
@@ -390,44 +392,130 @@ func (a *App) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	a.closeOnce.Do(func() {
+	a.shutdownMu.Lock()
+	if !a.shutdownStarted {
+		a.shutdownStarted = true
+		a.shutdownDone = make(chan struct{})
 		startupDone := a.beginClose()
-		if startupDone != nil {
-			<-startupDone
-		}
 		if a.readiness != nil {
 			a.readiness.accepting.Store(false)
 		}
-		var shutdownErr error
+		go a.closeResources(ctx, startupDone, a.shutdownDone)
+	}
+	done := a.shutdownDone
+	a.shutdownMu.Unlock()
+
+	select {
+	case <-done:
 		a.closeMu.Lock()
-		backgroundCancel := a.backgroundCancel
-		backgroundDone := a.backgroundDone
-		a.closeMu.Unlock()
-		if backgroundCancel != nil {
-			backgroundCancel()
+		defer a.closeMu.Unlock()
+		return a.closeErr
+	case <-ctx.Done():
+		select {
+		case <-done:
+			a.closeMu.Lock()
+			defer a.closeMu.Unlock()
+			return a.closeErr
+		default:
+			return ctx.Err()
 		}
-		if a.httpServer != nil {
-			shutdownErr = a.httpServer.Shutdown(ctx)
-			if errors.Is(shutdownErr, http.ErrServerClosed) {
-				shutdownErr = nil
+	}
+}
+
+func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, done chan struct{}) {
+	var closeErr error
+	if err := waitForDone(ctx, startupDone, "application startup"); err != nil {
+		closeErr = errors.Join(closeErr, err)
+	}
+
+	a.closeMu.Lock()
+	backgroundCancel := a.backgroundCancel
+	backgroundDone := a.backgroundDone
+	a.closeMu.Unlock()
+	if backgroundCancel != nil {
+		backgroundCancel()
+	}
+	if a.httpServer != nil {
+		shutdownErr := a.httpServer.Shutdown(ctx)
+		if errors.Is(shutdownErr, http.ErrServerClosed) {
+			shutdownErr = nil
+		}
+		if shutdownErr != nil {
+			closeErr = errors.Join(closeErr, shutdownErr)
+			if forceErr := forceCloseHTTP(ctx, a.httpServer); forceErr != nil && !errors.Is(forceErr, http.ErrServerClosed) {
+				closeErr = errors.Join(closeErr, forceErr)
 			}
 		}
-		if backgroundDone != nil {
-			<-backgroundDone
+	}
+	if err := waitForDone(ctx, backgroundDone, "background components"); err != nil {
+		closeErr = errors.Join(closeErr, err)
+	}
+	if a.pool != nil {
+		if err := a.pool.CloseContext(ctx); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close PostgreSQL pool: %w", err))
 		}
-		if a.pool != nil {
-			a.pool.Close()
-		}
-		a.closeMu.Lock()
-		a.closeErr = errors.Join(shutdownErr, a.backgroundErr)
-		a.closeMu.Unlock()
-		a.lifecycleMu.Lock()
-		a.lifecycleState = appLifecycleClosed
-		a.lifecycleMu.Unlock()
-	})
+	}
+
 	a.closeMu.Lock()
-	defer a.closeMu.Unlock()
-	return a.closeErr
+	a.closeErr = errors.Join(closeErr, a.backgroundErr)
+	a.closeMu.Unlock()
+	a.lifecycleMu.Lock()
+	a.lifecycleState = appLifecycleClosed
+	a.lifecycleMu.Unlock()
+	close(done)
+}
+
+func forceCloseHTTP(ctx context.Context, server *http.Server) error {
+	result := make(chan error, 1)
+	go func() { result <- server.Close() }()
+	select {
+	case err := <-result:
+		if err == nil {
+			return nil
+		}
+		return fmt.Errorf("force close HTTP server: %w", err)
+	default:
+	}
+	select {
+	case err := <-result:
+		if err == nil {
+			return nil
+		}
+		return fmt.Errorf("force close HTTP server: %w", err)
+	case <-ctx.Done():
+		return fmt.Errorf("force close HTTP server: %w", ctx.Err())
+	}
+}
+
+func waitForDone(ctx context.Context, done <-chan struct{}, component string) error {
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for %s: %w", component, ctx.Err())
+	}
+}
+
+func waitForServer(ctx context.Context, serverDone <-chan error) error {
+	select {
+	case err := <-serverDone:
+		return err
+	default:
+	}
+	select {
+	case err := <-serverDone:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("wait for HTTP server: %w", ctx.Err())
+	}
 }
 
 func (a *App) beginClose() <-chan struct{} {

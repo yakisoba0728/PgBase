@@ -47,20 +47,23 @@ func TestStoreCreatesAdministratorAndPersistsSessionLifecycle(t *testing.T) {
 	if err := store.CreateSession(ctx, uuid.New(), admin.ID, tokenHash, expires, now); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.AuthenticateSession(ctx, tokenHash, now.Add(time.Minute))
+	got, gotExpires, err := store.AuthenticateSession(ctx, tokenHash, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != admin {
 		t.Fatalf("authenticated administrator = %#v, want %#v", got, admin)
 	}
-	if _, err := store.AuthenticateSession(ctx, tokenHash, expires); !errors.Is(err, ErrInvalidCredentials) {
+	if !gotExpires.Equal(expires) {
+		t.Fatalf("authenticated session expiration = %s, want %s", gotExpires, expires)
+	}
+	if _, _, err := store.AuthenticateSession(ctx, tokenHash, expires); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("authenticate at expiration error = %v, want ErrInvalidCredentials", err)
 	}
 	if err := store.RevokeSession(ctx, tokenHash, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AuthenticateSession(ctx, tokenHash, now.Add(3*time.Minute)); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := store.AuthenticateSession(ctx, tokenHash, now.Add(3*time.Minute)); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("authenticate revoked session error = %v, want ErrInvalidCredentials", err)
 	}
 }
