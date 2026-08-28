@@ -17,6 +17,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [Production Kernel final handoff and current status](docs/production-kernel-handoff.md)
 - [10-minute quickstart](docs/quickstart.md)
 - [Deployment and configuration](docs/deployment.md)
 - [Backup and restore](docs/backup-restore.md)
