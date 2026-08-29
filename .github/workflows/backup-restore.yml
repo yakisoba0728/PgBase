@@ -73,6 +73,9 @@ jobs:
       - name: Verify restored schema and rows
         shell: bash
         run: |
+          set -euo pipefail
           container="${{ job.services.postgres.id }}"
-          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.system_migrations')" = "2"
+          # Every embedded system migration must exist in the restored history.
+          expected="$(ls -1 migrations/system/*.sql | wc -l | tr -d ' ')"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.system_migrations')" = "$expected"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.admins')" = "1"
