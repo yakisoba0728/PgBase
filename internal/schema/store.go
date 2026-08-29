@@ -126,7 +126,7 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 			 has_default, default_json, ordinal, created_at)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)`,
 			field.ID, collection.ID, field.Name, field.ColumnName, field.Type,
-			field.Required, field.Unique, field.Indexed, len(field.Default) != 0,
+			field.Required, field.Unique, field.Indexed, len(plannedField.Default) != 0,
 			defaultJSON, field.Ordinal, createdAt); err != nil {
 			return fmt.Errorf("insert field metadata: %w", err)
 		}

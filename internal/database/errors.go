@@ -45,7 +45,7 @@ func Classify(err error) Kind {
 	switch postgresError.Code {
 	case "23505":
 		return KindConflict
-	case "23502", "23514", "22P02":
+	case "23502", "23514", "22P02", "22021":
 		return KindValidation
 	case "40001", "40P01", "55P03", "57014", "57P01", "57P02", "57P03":
 		return KindUnavailable

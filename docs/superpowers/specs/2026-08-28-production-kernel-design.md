@@ -49,7 +49,7 @@ Production Kernel은 pgBase의 전체 기능을 한 번에 구현하지 않고, 
 - 일반 사용자용 인증 컬렉션과 접근 규칙 언어
 - 공개 또는 익명 레코드 API
 - 관계 필드, enum, 파일 필드와 고급 필터 표현식
-- 기존 컬렉션의 필드 삭제·이름 변경·타입 변경
+- 기존 컬렉션의 이름 변경 (2026-08-29 데이터 커널 확장으로 필드 삭제·화이트리스트 확대 타입 변경·플래그 변경은 지원, 아래 §11 참조)
 - 대형 테이블을 위한 비트랜잭션 온라인 DDL
 - 실시간 구독, transactional outbox와 WebSocket
 - 로컬 및 S3 호환 파일 저장
@@ -241,6 +241,8 @@ UUIDv7은 PostgreSQL 버전의 내장 함수에 의존하지 않고 애플리케
 10. 로컬 catalog를 다시 읽고 응답한다. 다른 인스턴스는 알림을 받고 catalog를 교체한다.
 
 Production Kernel은 트랜잭션 안에서 안전하게 끝나는 컬렉션 생성만 적용한다. 기존 열의 삭제·이름 변경·타입 변경과 `CREATE INDEX CONCURRENTLY`가 필요한 작업은 `unsupported_schema_change`로 거부한다.
+
+> 2026-08-29 데이터 커널 확장: 위 문장은 1차 전달 기준이다. 컬렉션 update는 같은 advisory lock·재계획·checksum 원자 적용 규약을 그대로 유지한 채 기존 열의 삭제, required/default/unique/indexed 플래그 변경, 화이트리스트된 확대 타입 변경(integer→bigint, integer→numeric, bigint→numeric)까지 지원하도록 확장됐다. 이름 변경, 복합 인덱스, 화이트리스트 밖 타입 변경, `CREATE INDEX CONCURRENTLY`가 필요한 작업은 여전히 거부된다.
 
 각 데이터 요청은 catalog 버전을 고정한 뒤 SQL을 컴파일한다. 데이터베이스 트랜잭션 시작 시 `schema_state`를 확인하고 버전이 다르면 catalog를 갱신한 후 한 번만 다시 컴파일한다. LISTEN 연결이 끊긴 인스턴스는 재연결 시 버전을 다시 읽으며, 동기화가 불가능하면 readiness를 실패시켜 오래된 catalog로 계속 요청을 처리하지 않는다.
 

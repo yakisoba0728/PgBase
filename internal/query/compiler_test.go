@@ -333,6 +333,20 @@ func TestCompileListFlipsReversedLiteralComparisons(t *testing.T) {
 	}
 }
 
+func TestParseSortRejectsOverflowAndDuplicates(t *testing.T) {
+	t.Parallel()
+
+	tooMany := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	_, err := parseSort(strings.Join(tooMany, ","))
+	assertValidationDetail(t, err, "sort", "invalid_sort")
+
+	_, err = parseSort("title,-title")
+	assertValidationDetail(t, err, "sort", "invalid_sort")
+
+	_, err = parseFilter(`title = '` + strings.Repeat("x", 5000) + `'`)
+	assertValidationDetail(t, err, "filter", "filter_too_complex")
+}
+
 func mustParseFilter(t *testing.T, expression string) filterNode {
 	t.Helper()
 	node, err := parseFilter(expression)

@@ -226,9 +226,8 @@ func alterColumnStatements(table string, ordinal int, previous, field PlannedFie
 		}
 		column := pgx.Identifier{field.Name}.Sanitize()
 		changes = append(changes, "TYPE "+string(field.Type)+" USING "+column+"::"+string(field.Type))
-		if len(field.Default) != 0 {
-			changes = append(changes, "SET DEFAULT "+renderValidatedDefault(field))
-		}
+		// Default changes are handled by the shared comparison below so a type
+		// change plus default change emits exactly one SET DEFAULT.
 	}
 	if previous.Required != field.Required {
 		if field.Required {

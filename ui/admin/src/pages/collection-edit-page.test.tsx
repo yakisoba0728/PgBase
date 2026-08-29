@@ -79,6 +79,44 @@ describe("collection editing", () => {
     expect(window.location.pathname).toBe("/admin/collections/posts/records");
   });
 
+  it("round-trips now timestamp defaults without treating them as strings", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/edit");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 7,
+        collections: {
+          posts: {
+            id: "collection-id", name: "posts", tableName: "posts",
+            fields: [{ id: "field-id", name: "published_at", columnName: "published_at", type: "timestamptz", required: false, unique: false, indexed: false, default: { kind: "now" }, ordinal: 0 }],
+          },
+        },
+      }))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 7,
+        checksum: "now-checksum",
+        definition: { name: "posts", tableName: "posts", fields: [
+          { name: "published_at", type: "timestamptz", required: false, unique: false, indexed: false, default: { kind: "now" }, ordinal: 0 },
+        ] },
+        sql: ["ALTER TABLE app.posts ALTER COLUMN published_at SET DEFAULT CURRENT_TIMESTAMP"],
+      }))
+      .mockResolvedValueOnce(response(200, { id: "collection-id", name: "posts", fields: [] }))
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, { items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit collection" });
+    expect(await screen.findByLabelText("Field 1 default")).toHaveValue("now");
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+    expect(await screen.findByText(/ALTER TABLE app\.posts/)).toBeVisible();
+
+    const [, planOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const planBody = JSON.parse(planOptions.body as string) as { fields: Array<{ default: unknown }> };
+    expect(planBody.fields[0].default).toEqual({ kind: "now" });
+  });
+
   it("requires confirming the deletion plan before dropping the collection", async () => {
     window.history.replaceState(null, "", "/admin/collections/posts/edit");
     const fetchMock = vi.fn()

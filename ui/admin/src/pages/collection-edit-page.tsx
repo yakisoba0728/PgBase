@@ -5,6 +5,16 @@ import { fieldTypes, type CollectionChangeInput, type CollectionDefinition, type
 import { useSession } from "../auth/session";
 import { buildInput, type DraftField } from "./collection-create-page";
 
+function defaultTextFor(type: string, value: unknown): string {
+  if (value === undefined) return "";
+  if (type === "timestamptz" && value !== null && typeof value === "object" && (value as { kind?: string }).kind === "now") {
+    // The catalog stores the canonical {"kind":"now"} object; the form edits
+    // the shorthand text that parseDefault accepts.
+    return "now";
+  }
+  return typeof value === "string" ? value : stringifyJSON(value);
+}
+
 function draftFromDefinition(definition: CollectionDefinition): DraftField[] {
   return definition.fields
     .slice()
@@ -16,7 +26,7 @@ function draftFromDefinition(definition: CollectionDefinition): DraftField[] {
       unique: field.unique,
       indexed: field.indexed,
       hasDefault: field.default !== undefined,
-      defaultText: field.default === undefined ? "" : typeof field.default === "string" ? field.default : stringifyJSON(field.default),
+      defaultText: defaultTextFor(field.type, field.default),
     }));
 }
 

@@ -333,6 +333,24 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		assertErrorCode(t, response.Body.Bytes(), "validation_failed")
 	})
 
+	t.Run("data constraints are unprocessable", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{applyErr: schema.ErrDataConstraint}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"update","name":"posts","fields":[],"checksum":"x","baseVersion":3}`))
+		request.Host = "admin.example.com"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://admin.example.com")
+		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+	})
+
 	t.Run("unknown collections are not found", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: schema.ErrCollectionNotFound}

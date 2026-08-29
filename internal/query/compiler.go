@@ -96,7 +96,7 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
 	sortKeys := effectiveSortKeys(query.Sort)
-	columns, err := resolveSortColumns(collection, sortKeys, false)
+	columns, err := resolveSortColumns(collection, sortKeys)
 	if err != nil {
 		return Statement{}, err
 	}
@@ -152,14 +152,11 @@ type sortColumn struct {
 
 // resolveSortColumns maps logical sort keys to physical columns. Cursor-driven
 // resolution reports failures as invalid cursors instead of input validation.
-func resolveSortColumns(collection schema.Collection, keys []SortKey, forCursor bool) ([]sortColumn, error) {
+func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortColumn, error) {
 	columns := make([]sortColumn, 0, len(keys))
 	for _, key := range keys {
 		field, ok := filterField(collection, key.Field)
 		if !ok || field.Type == schema.TypeJSONB {
-			if forCursor {
-				return nil, invalidCursor()
-			}
 			if !ok {
 				return nil, validation("sort", "unknown_field")
 			}

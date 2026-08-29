@@ -298,7 +298,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 			{"name": "stage", "type": "text", "required": false, "unique": false, "indexed": false, "default": "draft"},
 		},
 	}
-	updatePlan := planUpdateCollection(t, ctx, client, updatedDefinition, "update")
+	updatePlan := planCollectionOperation(t, ctx, client, updatedDefinition, "update")
 	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", updatePlan, http.StatusOK, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 	}
 
 	// Delete: two-phase delete drops the table and the catalog entry.
-	deletePlan := planUpdateCollection(t, ctx, client, map[string]any{"name": collectionName}, "delete")
+	deletePlan := planCollectionOperation(t, ctx, client, map[string]any{"name": collectionName}, "delete")
 	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", deletePlan, http.StatusOK, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 	}
 }
 
-func planUpdateCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any, operation string) map[string]any {
+func planCollectionOperation(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any, operation string) map[string]any {
 	t.Helper()
 	planBody := make(map[string]any, len(definition)+1)
 	for key, value := range definition {

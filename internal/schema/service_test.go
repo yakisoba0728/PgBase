@@ -556,10 +556,10 @@ func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 		t.Fatalf("persisted extra default = %s, want %s", got, `"1"`)
 	}
 
-	var dataColumnType, extraDefault string
+	var dataColumnType string
 	var extraValue int64
-	if err := pool.QueryRow(ctx, `select data_type, coalesce(column_default, '') from information_schema.columns
-		where table_schema = 'app' and table_name = 'posts' and column_name = 'views'`).Scan(&dataColumnType, &extraDefault); err != nil {
+	if err := pool.QueryRow(ctx, `select data_type from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'views'`).Scan(&dataColumnType); err != nil {
 		t.Fatalf("read views column: %v", err)
 	}
 	if dataColumnType != "numeric" {
@@ -571,7 +571,6 @@ func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 	if extraValue != 1 {
 		t.Fatalf("existing rows did not receive the new default: %d", extraValue)
 	}
-	_ = extraDefault
 
 	var migrations int64
 	var operation string

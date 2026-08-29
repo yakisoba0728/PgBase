@@ -368,6 +368,39 @@ func TestPlanUpdateRejectsNameAndStateMismatches(t *testing.T) {
 	}
 }
 
+func TestPlanUpdateEmitsSingleDefaultChangeWithTypeChange(t *testing.T) {
+	planner := Planner{}
+	base := Collection{
+		Name: "measurements", TableName: "measurements",
+		Fields: []Field{{Name: "amount", ColumnName: "amount", Type: TypeInteger, Default: json.RawMessage(`"5"`), Ordinal: 0}},
+	}
+	plan, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+		Name:   "measurements",
+		Fields: []FieldInput{{Name: "amount", Type: TypeBigInt, Default: json.RawMessage(`"7"`)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{
+		`ALTER TABLE "app"."measurements" ALTER COLUMN "amount" TYPE bigint USING "amount"::bigint, ALTER COLUMN "amount" SET DEFAULT 7`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("statements = %#v, want %#v", got, want)
+	}
+
+	kept, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+		Name:   "measurements",
+		Fields: []FieldInput{{Name: "amount", Type: TypeBigInt, Default: json.RawMessage(`"5"`)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := kept.Statements, []string{
+		`ALTER TABLE "app"."measurements" ALTER COLUMN "amount" TYPE bigint USING "amount"::bigint`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("kept-default statements = %#v, want %#v", got, want)
+	}
+}
+
 func TestPlanDeleteProducesSingleDropStatement(t *testing.T) {
 	planner := Planner{}
 	first, err := planner.PlanDelete(9, updateTestCollection())

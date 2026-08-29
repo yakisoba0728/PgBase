@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { APIClientError } from "../api/client";
 import type { CollectionDefinition } from "../api/collections";
 import type { RecordData, RecordPage } from "../api/records";
@@ -33,11 +33,15 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     return () => controller.abort();
   }, [collectionName, collections]);
 
+  const listAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
+    listAbortRef.current?.abort();
     const controller = new AbortController();
+    listAbortRef.current = controller;
     setPage(null);
     void records.list(collectionName, { filter: appliedFilter, sort: sortText }, controller.signal)
       .then((result) => {
+        if (controller.signal.aborted) return;
         setPage(result);
         setFilterError(false);
         setError(false);
@@ -52,7 +56,19 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
 
   async function next() {
     if (!page?.nextCursor) return;
-    try { setPage(await records.list(collectionName, { cursor: page.nextCursor, filter: appliedFilter, sort: sortText })); } catch { setError(true); }
+    // Guard against a stale continuation response overwriting a page fetched
+    // with newer filter or sort values.
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    try {
+      const result = await records.list(collectionName, { cursor: page.nextCursor, filter: appliedFilter, sort: sortText }, controller.signal);
+      if (!controller.signal.aborted) setPage(result);
+    } catch (caught: unknown) {
+      if (controller.signal.aborted) return;
+      if (caught instanceof APIClientError && caught.code === "validation_failed") setFilterError(true);
+      else setError(true);
+    }
   }
 
   function applyFilter(event: React.FormEvent<HTMLFormElement>) {
