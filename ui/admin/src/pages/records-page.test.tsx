@@ -54,23 +54,64 @@ afterEach(() => {
 });
 
 describe("record administration", () => {
-  it("lists first and next cursor pages without arbitrary filters", async () => {
+  it("lists first and next cursor pages and forwards applied filters and sort", async () => {
     window.history.replaceState(null, "", "/admin/collections/posts/records");
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(session())
       .mockResolvedValueOnce(response(200, catalog))
       .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }], nextCursor: "signed cursor" }))
-      .mockResolvedValueOnce(response(200, { items: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "second", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" }] }));
+      .mockResolvedValueOnce(response(200, { items: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "second", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" }] }))
+      .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }))
+      .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }))
+      .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "posts records" })).toBeVisible();
     expect(await screen.findByText("first")).toBeVisible();
-    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByText("second")).toBeVisible();
     expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/collections/posts/records?limit=50&cursor=signed+cursor", expect.objectContaining({ credentials: "include" }));
+
+    await user.type(screen.getByLabelText("Filter"), "title = 'first'");
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
+    expect(await screen.findByText("first")).toBeVisible();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/v1/collections/posts/records?limit=50&filter=title+%3D+%27first%27`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /^title( ↑)?$/ }));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/v1/collections/posts/records?limit=50&filter=title+%3D+%27first%27&sort=title`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(screen.getByRole("columnheader", { name: "title ↑" })).toHaveAttribute("aria-sort", "ascending");
+    await user.click(screen.getByRole("button", { name: "title ↑" }));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/v1/collections/posts/records?limit=50&filter=title+%3D+%27first%27&sort=-title`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(screen.getByRole("columnheader", { name: "title ↓" })).toHaveAttribute("aria-sort", "descending");
+  });
+
+  it("shows a safe alert when the server rejects the filter expression", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/records");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }))
+      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe detail", details: { filter: ["unknown_field"] } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText("first")).toBeVisible();
+    await user.type(screen.getByLabelText("Filter"), "ghost = 1");
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
+    expect(await screen.findByText("The filter or sort expression is invalid.")).toBeVisible();
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
   });
 
   it("creates all eight JSON representations without rounding decimal strings", async () => {

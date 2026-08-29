@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { APIClientError } from "../api/client";
 import { parseJSON, stringifyJSON } from "../api/json";
-import { fieldTypes, type CreateCollectionInput, type FieldInput, type FieldType, type CollectionPlan } from "../api/collections";
+import { fieldTypes, type CollectionChangeInput, type FieldInput, type FieldType, type CollectionPlan } from "../api/collections";
 import { useSession } from "../auth/session";
 
 export interface DraftField extends Omit<FieldInput, "default"> { hasDefault: boolean; defaultText: string }
@@ -25,8 +25,12 @@ export function parseDefault(type: FieldType, value: string): unknown {
   return value;
 }
 
-export function buildInput(name: string, fields: DraftField[]): CreateCollectionInput {
-  return { name, fields: fields.map(({ defaultText, hasDefault, ...field }) => hasDefault ? { ...field, default: parseDefault(field.type, defaultText) } : field) };
+export function buildInput(operation: "create" | "update", name: string, fields: DraftField[]): CollectionChangeInput {
+  return {
+    operation,
+    name,
+    fields: fields.map(({ defaultText, hasDefault, ...field }) => hasDefault ? { ...field, default: parseDefault(field.type, defaultText) } : field),
+  };
 }
 
 function previewField(field: CollectionPlan["definition"]["fields"][number]): string {
@@ -39,11 +43,11 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
   const [name, setName] = useState("");
   const [fields, setFields] = useState<DraftField[]>([newField()]);
   const [plan, setPlan] = useState<CollectionPlan | null>(null);
-  const [plannedInput, setPlannedInput] = useState<CreateCollectionInput | null>(null);
+  const [plannedInput, setPlannedInput] = useState<CollectionChangeInput | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputSignature = useMemo(() => {
-    try { return stringifyJSON(buildInput(name, fields)); } catch { return "invalid"; }
+    try { return stringifyJSON(buildInput("create", name, fields)); } catch { return "invalid"; }
   }, [fields, name]);
   const previewCurrent = plan !== null && plannedInput !== null && stringifyJSON(plannedInput) === inputSignature;
 
@@ -53,10 +57,16 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setFields((current) => current.map((field, position) => position === index ? { ...field, ...patch } : field));
   }
 
+  function removeField(index: number) {
+    setPlan(null);
+    setPlannedInput(null);
+    setFields((current) => current.filter((_, position) => position !== index));
+  }
+
   async function preview() {
     setError(null);
-    let input: CreateCollectionInput;
-    try { input = buildInput(name, fields); } catch { setError("Enter a valid default for the selected field type."); return; }
+    let input: CollectionChangeInput;
+    try { input = buildInput("create", name, fields); } catch { setError("Enter a valid default for the selected field type."); return; }
     setPending(true);
     try {
       const result = await collections.plan(input);
@@ -106,6 +116,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
           <div className="checks">
             {(["required", "unique", "indexed"] as const).map((flag) => <label key={flag}><input aria-label={`Field ${index + 1} ${flag}`} checked={field[flag]} onChange={(event) => changeField(index, { [flag]: event.target.checked })} type="checkbox" /> {flag}</label>)}
           </div>
+          {fields.length > 1 && <button className="secondary" onClick={() => removeField(index)} type="button">Remove field</button>}
         </div>)}
         <button className="secondary" onClick={() => { setPlan(null); setPlannedInput(null); setFields((current) => [...current, newField()]); }} type="button">Add field</button>
       </fieldset>

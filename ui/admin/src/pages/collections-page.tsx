@@ -30,6 +30,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
       {Object.values(catalog.collections).sort((a, b) => a.name.localeCompare(b.name)).map((collection) => <li key={collection.name}>
         <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/records`)} type="button">{collection.name}</button>
         <span>{collection.fields.length} fields</span>
+        <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/edit`)} type="button">Edit</button>
       </li>)}
     </ul>}
   </section>;

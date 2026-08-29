@@ -75,8 +75,9 @@ describe("collection creation", () => {
 
     const [, planOptions] = fetchMock.mock.calls[1] as [string, RequestInit];
     const [applyPath, applyOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
-    const plannedInput = JSON.parse(planOptions.body as string) as unknown;
     expect(applyPath).toBe("/api/admin/collections/apply");
+    expect(JSON.parse(planOptions.body as string)).toMatchObject({ operation: "create", name: "posts" });
+    const plannedInput = JSON.parse(planOptions.body as string) as unknown;
     expect(JSON.parse(applyOptions.body as string)).toEqual({
       ...(plannedInput as object),
       baseVersion: 7,
