@@ -504,6 +504,260 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	}
 }
 
+func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	created := applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			{Name: "title", Type: TypeText, Required: true, Indexed: true},
+			{Name: "views", Type: TypeBigInt, Default: json.RawMessage(`"0"`)},
+		},
+	}, administratorID)
+	ctx := context.Background()
+	for _, title := range []string{"first", "second"} {
+		if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, title, views)
+			values (gen_random_uuid(), statement_timestamp(), statement_timestamp(), $1, 3)`, title); err != nil {
+			t.Fatalf("seed record: %v", err)
+		}
+	}
+
+	input := UpdateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			{Name: "title", Type: TypeText, Required: true, Indexed: true},
+			{Name: "views", Type: TypeNumeric},
+			{Name: "extra", Type: TypeInteger, Default: json.RawMessage(`"1"`)},
+		},
+	}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan update: %v", err)
+	}
+	updated, err := service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("apply update: %v", err)
+	}
+	if updated.ID != created.ID || updated.CreatedAt.IsZero() {
+		t.Fatalf("updated collection identity = %+v, want preserved ID and created_at", updated)
+	}
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if catalog.Version != 2 {
+		t.Fatalf("catalog version = %d, want 2", catalog.Version)
+	}
+	persisted := catalog.Collections["posts"]
+	if len(persisted.Fields) != 3 || persisted.Fields[1].Type != TypeNumeric || persisted.Fields[2].Name != "extra" {
+		t.Fatalf("persisted fields = %+v", persisted.Fields)
+	}
+	if got := string(persisted.Fields[2].Default); got != `"1"` {
+		t.Fatalf("persisted extra default = %s, want %s", got, `"1"`)
+	}
+
+	var dataColumnType, extraDefault string
+	var extraValue int64
+	if err := pool.QueryRow(ctx, `select data_type, coalesce(column_default, '') from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'views'`).Scan(&dataColumnType, &extraDefault); err != nil {
+		t.Fatalf("read views column: %v", err)
+	}
+	if dataColumnType != "numeric" {
+		t.Fatalf("views column type = %s, want numeric", dataColumnType)
+	}
+	if err := pool.QueryRow(ctx, `select min(extra) from app.posts`).Scan(&extraValue); err != nil {
+		t.Fatalf("read extra column: %v", err)
+	}
+	if extraValue != 1 {
+		t.Fatalf("existing rows did not receive the new default: %d", extraValue)
+	}
+	_ = extraDefault
+
+	var migrations int64
+	var operation string
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.schema_migrations`).Scan(&migrations); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `select operation from pgbase_meta.schema_migrations where version = 2`).Scan(&operation); err != nil {
+		t.Fatal(err)
+	}
+	var indexes int64
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.collection_indexes`).Scan(&indexes); err != nil {
+		t.Fatal(err)
+	}
+	if migrations != 2 || operation != updateCollectionOperation || indexes != 1 {
+		t.Fatalf("migrations=%d operation=%q indexes=%d, want 2/%q/1", migrations, operation, indexes, updateCollectionOperation)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 1, fields: 3, migrations: 2})
+}
+
+func TestApplyUpdateRejectsUnknownCollectionStaleVersionAndChecksum(t *testing.T) {
+	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+	input := UpdateCollectionInput{Name: "ghosts", Fields: nil}
+	if _, err := service.PlanUpdate(ctx, input); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("plan unknown collection error = %v, want ErrCollectionNotFound", err)
+	}
+	if _, err := service.ApplyUpdate(ctx, input, "", 1, administratorID); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("apply unknown collection error = %v, want ErrCollectionNotFound", err)
+	}
+
+	valid := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
+	plan, err := service.PlanUpdate(ctx, valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyUpdate(ctx, valid, plan.Checksum, plan.BaseVersion+5, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale base version error = %v, want ErrConflict", err)
+	}
+	if _, err := service.ApplyUpdate(ctx, valid, "wrong-checksum", plan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
+	}
+}
+
+func TestApplyUpdateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	broken := Plan{
+		Operation:   updateCollectionOperation,
+		BaseVersion: 1,
+		Checksum:    "invalid-update-checksum",
+		Definition:  PlannedCollection{Name: "posts", TableName: "posts"},
+		Statements: []string{
+			`ALTER TABLE "app"."posts" DROP COLUMN "title"`,
+			`ALTER TABLE "app"."posts" WILL_NOT_PARSE`,
+		},
+	}
+	service.planner = fixedPlanBuilder{plan: broken}
+
+	_, err := service.ApplyUpdate(context.Background(), UpdateCollectionInput{Name: "posts"}, broken.Checksum, 1, administratorID)
+	if err == nil {
+		t.Fatal("invalid DDL update succeeded")
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+	var columns int64
+	if err := pool.QueryRow(context.Background(), `select count(*) from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'title'`).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+	if columns != 1 {
+		t.Fatalf("rolled-back column drop persisted: %d", columns)
+	}
+}
+
+func TestApplyUpdateSerializesUnderAdvisoryLock(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
+	plan, err := service.PlanUpdate(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockingConnection, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockingConnection.Release()
+	lockingTx, err := lockingConnection.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = lockingTx.Rollback(context.Background())
+		}
+	}()
+	if _, err := lockingTx.Exec(context.Background(), "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
+		t.Fatal(err)
+	}
+
+	applied := make(chan error, 1)
+	go func() {
+		_, applyErr := service.ApplyUpdate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+		applied <- applyErr
+	}()
+	waitForAdvisoryLockWaiter(t, pool)
+	if err := lockingTx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	locked = false
+	if err := <-applied; err != nil {
+		t.Fatalf("apply update after lock release: %v", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 1, fields: 1, migrations: 2})
+}
+
+func TestApplyDeleteRemovesCatalogTableAndAudit(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{
+		Name:   "posts",
+		Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}},
+	}, administratorID)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "pages", Fields: []FieldInput{{Name: "body", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+
+	plan, err := service.PlanDelete(ctx, "posts")
+	if err != nil {
+		t.Fatalf("plan delete: %v", err)
+	}
+	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("apply delete: %v", err)
+	}
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if catalog.Version != 3 {
+		t.Fatalf("catalog version = %d, want 3", catalog.Version)
+	}
+	if _, exists := catalog.Collections["posts"]; exists {
+		t.Fatal("deleted collection remains in catalog")
+	}
+	var physicalTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass('app.posts')::text, '')`).Scan(&physicalTable); err != nil {
+		t.Fatal(err)
+	}
+	if physicalTable != "" {
+		t.Fatalf("physical table survived delete: %q", physicalTable)
+	}
+	var operation string
+	if err := pool.QueryRow(ctx, `select operation from pgbase_meta.schema_migrations where version = 3`).Scan(&operation); err != nil {
+		t.Fatal(err)
+	}
+	if operation != deleteCollectionOperation {
+		t.Fatalf("audit operation = %q, want %q", operation, deleteCollectionOperation)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 3, collections: 1, fields: 1, migrations: 3})
+
+	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, 3, administratorID); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("second delete error = %v, want ErrCollectionNotFound", err)
+	}
+	if _, err := service.PlanDelete(ctx, "ghosts"); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("plan unknown delete error = %v, want ErrCollectionNotFound", err)
+	}
+}
+
+func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+	plan, err := service.PlanDelete(ctx, "posts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, plan.BaseVersion+1, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale base version error = %v, want ErrConflict", err)
+	}
+	if err := service.ApplyDelete(ctx, "posts", "wrong-checksum", plan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+}
+
 type barrierPlanBuilder struct {
 	delegate PlanBuilder
 	entered  chan struct{}
@@ -517,9 +771,23 @@ func (b *barrierPlanBuilder) PlanCreate(version int64, input CreateCollectionInp
 	return b.delegate.PlanCreate(version, input)
 }
 
+func (b *barrierPlanBuilder) PlanUpdate(version int64, current Collection, input UpdateCollectionInput) (Plan, error) {
+	return b.delegate.PlanUpdate(version, current, input)
+}
+
+func (b *barrierPlanBuilder) PlanDelete(version int64, current Collection) (Plan, error) {
+	return b.delegate.PlanDelete(version, current)
+}
+
 type fixedPlanBuilder struct{ plan Plan }
 
 func (f fixedPlanBuilder) PlanCreate(int64, CreateCollectionInput) (Plan, error) { return f.plan, nil }
+
+func (f fixedPlanBuilder) PlanUpdate(int64, Collection, UpdateCollectionInput) (Plan, error) {
+	return f.plan, nil
+}
+
+func (f fixedPlanBuilder) PlanDelete(int64, Collection) (Plan, error) { return f.plan, nil }
 
 type schemaCounts struct {
 	version     int64

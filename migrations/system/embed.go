@@ -20,6 +20,9 @@ var initialSQL string
 //go:embed 000002_record_page_indexes.sql
 var recordPageIndexesSQL string
 
+//go:embed 000003_collection_update_delete.sql
+var collectionUpdateDeleteSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -32,6 +35,12 @@ var migrations = []Migration{
 		Name:    "record_page_indexes",
 		SQL:     recordPageIndexesSQL,
 		SHA256:  sha256.Sum256([]byte(recordPageIndexesSQL)),
+	},
+	{
+		Version: 3,
+		Name:    "collection_update_delete",
+		SQL:     collectionUpdateDeleteSQL,
+		SHA256:  sha256.Sum256([]byte(collectionUpdateDeleteSQL)),
 	},
 }
 

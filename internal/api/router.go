@@ -45,8 +45,8 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	logout := adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.logout))
 	mux.Handle("POST /api/admin/auth/logout", logout)
 	mux.Handle("DELETE /api/admin/session", logout)
-	mux.Handle("POST /api/admin/collections/plan", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.planCreate)))
-	mux.Handle("POST /api/admin/collections/apply", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.applyCreate)))
+	mux.Handle("POST /api/admin/collections/plan", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.plan)))
+	mux.Handle("POST /api/admin/collections/apply", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.apply)))
 	mux.Handle("GET /api/admin/collections", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.catalog)))
 	mux.Handle("GET /api/admin/system", authenticateAdminMiddleware(admin.auth, systemStatus(dependencies.System)))
 	if dependencies.AdminUI != nil {

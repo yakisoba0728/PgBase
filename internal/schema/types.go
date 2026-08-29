@@ -35,6 +35,11 @@ type CreateCollectionInput struct {
 	Fields []FieldInput `json:"fields"`
 }
 
+type UpdateCollectionInput struct {
+	Name   string       `json:"name"`
+	Fields []FieldInput `json:"fields"`
+}
+
 type Field struct {
 	ID         uuid.UUID
 	Name       string
@@ -83,6 +88,8 @@ type Planner struct{}
 
 type PlanBuilder interface {
 	PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error)
+	PlanUpdate(baseVersion int64, current Collection, input UpdateCollectionInput) (Plan, error)
+	PlanDelete(baseVersion int64, current Collection) (Plan, error)
 }
 
 // ValidationDetail identifies a rejected input member without exposing it in an error string.

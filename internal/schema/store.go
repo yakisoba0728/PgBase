@@ -91,6 +91,30 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 		collection.ID, collection.Name, collection.TableName, createdAt); err != nil {
 		return fmt.Errorf("insert collection metadata: %w", err)
 	}
+	return s.insertFieldMetadata(ctx, collection, definition, createdAt)
+}
+
+func (s *Store) UpdateCollection(ctx context.Context, collection Collection, definition PlannedCollection, updatedAt time.Time) error {
+	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
+		set updated_at = $2
+		where id = $1`,
+		collection.ID, updatedAt); err != nil {
+		return fmt.Errorf("update collection metadata: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.fields where collection_id = $1`, collection.ID); err != nil {
+		return fmt.Errorf("clear field metadata: %w", err)
+	}
+	return s.insertFieldMetadata(ctx, collection, definition, updatedAt)
+}
+
+func (s *Store) DeleteCollection(ctx context.Context, collectionID uuid.UUID) error {
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.collections where id = $1`, collectionID); err != nil {
+		return fmt.Errorf("delete collection metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {
 	for index, plannedField := range definition.Fields {
 		field := collection.Fields[index]
 		var defaultJSON any

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestPlanCreateIsDeterministic(t *testing.T) {
@@ -177,4 +179,215 @@ func planInputFields(plan Plan) []FieldInput {
 		})
 	}
 	return fields
+}
+
+func updateTestCollection() Collection {
+	return Collection{
+		ID:        uuid.MustParse("019551d0-e9c0-7000-8000-0000000000aa"),
+		Name:      "posts",
+		TableName: "posts",
+		Fields: []Field{
+			{ID: uuid.MustParse("019551d0-e9c0-7000-8000-0000000000ab"), Name: "title", ColumnName: "title", Type: TypeText, Required: true, Indexed: true, Ordinal: 0},
+			{ID: uuid.MustParse("019551d0-e9c0-7000-8000-0000000000ac"), Name: "views", ColumnName: "views", Type: TypeBigInt, Ordinal: 1},
+		},
+	}
+}
+
+func TestPlanUpdateIsDeterministicWithGoldenStatements(t *testing.T) {
+	planner := Planner{}
+	input := UpdateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			{Name: "title", Type: TypeText, Required: true, Indexed: true},
+			{Name: "views", Type: TypeNumeric},
+			{Name: "extra", Type: TypeBoolean, Default: json.RawMessage("false")},
+		},
+	}
+	first, err := planner.PlanUpdate(7, updateTestCollection(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planner.PlanUpdate(7, updateTestCollection(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Checksum != second.Checksum || !reflect.DeepEqual(first.Statements, second.Statements) {
+		t.Fatalf("plans differ: %#v %#v", first, second)
+	}
+	if got, want := first.Statements, []string{
+		`ALTER TABLE "app"."posts" ALTER COLUMN "views" TYPE numeric USING "views"::numeric`,
+		`ALTER TABLE "app"."posts" ADD COLUMN "extra" boolean default FALSE`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("statements = %#v, want %#v", got, want)
+	}
+	if first.Operation != updateCollectionOperation {
+		t.Errorf("operation = %q, want %q", first.Operation, updateCollectionOperation)
+	}
+	if got, want := len(first.Definition.Fields), 3; got != want {
+		t.Errorf("definition field count = %d, want %d", got, want)
+	}
+}
+
+func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing.T) {
+	planner := Planner{}
+	drop := UpdateCollectionInput{
+		Name:   "posts",
+		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}},
+	}
+	plan, err := planner.PlanUpdate(7, updateTestCollection(), drop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{`ALTER TABLE "app"."posts" DROP COLUMN "views"`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("drop statements = %#v, want %#v", got, want)
+	}
+	if got, want := len(plan.Definition.Fields), 1; got != want {
+		t.Fatalf("definition field count = %d, want %d", got, want)
+	}
+
+	reorder := UpdateCollectionInput{
+		Name:   "posts",
+		Fields: []FieldInput{{Name: "views", Type: TypeBigInt}, {Name: "title", Type: TypeText, Required: true, Indexed: true}},
+	}
+	plan, err = planner.PlanUpdate(7, updateTestCollection(), reorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Statements) != 0 {
+		t.Fatalf("reorder statements = %#v, want metadata-only change", plan.Statements)
+	}
+	if plan.Definition.Fields[0].Name != "views" || plan.Definition.Fields[0].Ordinal != 0 {
+		t.Errorf("reordered definition = %#v, want views first", plan.Definition.Fields)
+	}
+}
+
+func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
+	planner := Planner{}
+	promote := UpdateCollectionInput{
+		Name:   "posts",
+		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Unique: true}, {Name: "views", Type: TypeBigInt, Indexed: true}},
+	}
+	plan, err := planner.PlanUpdate(7, updateTestCollection(), promote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{
+		`DROP INDEX "idx_34beac8152cca6ed"`,
+		`CREATE UNIQUE INDEX "idx_34beac8152cca6ed" ON "app"."posts" ("title")`,
+		`CREATE INDEX "idx_a1bd4f3cf569ea82" ON "app"."posts" ("views")`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("index promotion statements = %#v, want %#v", got, want)
+	}
+
+	demote := UpdateCollectionInput{
+		Name:   "posts",
+		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true}, {Name: "views", Type: TypeBigInt}},
+	}
+	plan, err = planner.PlanUpdate(7, updateTestCollection(), demote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{`DROP INDEX "idx_34beac8152cca6ed"`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("index demote statements = %#v, want %#v", got, want)
+	}
+}
+
+func TestPlanUpdateRejectsUnsupportedTypeChangesAndUnsafeAdds(t *testing.T) {
+	planner := Planner{}
+	cases := []struct {
+		name  string
+		input UpdateCollectionInput
+		want  ValidationDetail
+	}{
+		{
+			name: "text to integer",
+			input: UpdateCollectionInput{
+				Name:   "posts",
+				Fields: []FieldInput{{Name: "title", Type: TypeInteger}},
+			},
+			want: ValidationDetail{Field: "fields.0.type", Code: "unsupported_schema_change"},
+		},
+		{
+			name: "bigint to text",
+			input: UpdateCollectionInput{
+				Name:   "posts",
+				Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}, {Name: "views", Type: TypeText}},
+			},
+			want: ValidationDetail{Field: "fields.1.type", Code: "unsupported_schema_change"},
+		},
+		{
+			name: "required without default",
+			input: UpdateCollectionInput{
+				Name:   "posts",
+				Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}, {Name: "views", Type: TypeBigInt}, {Name: "slug", Type: TypeText, Required: true}},
+			},
+			want: ValidationDetail{Field: "fields.2.required", Code: "missing_default"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := planner.PlanUpdate(7, updateTestCollection(), test.input)
+			var validation *ValidationError
+			if !errors.As(err, &validation) || !reflect.DeepEqual(validation.Details, []ValidationDetail{test.want}) {
+				t.Fatalf("error = %#v, want %#v", err, test.want)
+			}
+			if strings.Contains(err.Error(), "ALTER TABLE") || strings.Contains(err.Error(), "DROP TABLE") {
+				t.Fatalf("validation error leaked untrusted SQL: %v", err)
+			}
+		})
+	}
+}
+
+func TestPlanUpdateAllowsWhitelistedWideningChanges(t *testing.T) {
+	planner := Planner{}
+	base := Collection{
+		Name: "measurements", TableName: "measurements",
+		Fields: []Field{{Name: "amount", ColumnName: "amount", Type: TypeInteger, Ordinal: 0}},
+	}
+	plan, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+		Name:   "measurements",
+		Fields: []FieldInput{{Name: "amount", Type: TypeNumeric}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{
+		`ALTER TABLE "app"."measurements" ALTER COLUMN "amount" TYPE numeric USING "amount"::numeric`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("statements = %#v, want %#v", got, want)
+	}
+}
+
+func TestPlanUpdateRejectsNameAndStateMismatches(t *testing.T) {
+	planner := Planner{}
+	if _, err := planner.PlanUpdate(7, updateTestCollection(), UpdateCollectionInput{Name: "others", Fields: nil}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mismatched name error = %v, want ErrConflict", err)
+	}
+	if _, err := planner.PlanUpdate(7, updateTestCollection(), UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}, {Name: "views", Type: TypeBigInt}, {Name: "extra", Type: TypeBoolean}}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanDeleteProducesSingleDropStatement(t *testing.T) {
+	planner := Planner{}
+	first, err := planner.PlanDelete(9, updateTestCollection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planner.PlanDelete(9, updateTestCollection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Checksum != second.Checksum {
+		t.Fatal("delete plans are not deterministic")
+	}
+	if got, want := first.Statements, []string{`DROP TABLE "app"."posts"`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("statements = %#v, want %#v", got, want)
+	}
+	if first.Operation != deleteCollectionOperation {
+		t.Errorf("operation = %q, want %q", first.Operation, deleteCollectionOperation)
+	}
+	if first.BaseVersion != 9 {
+		t.Errorf("base version = %d, want 9", first.BaseVersion)
+	}
 }

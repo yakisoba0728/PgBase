@@ -78,7 +78,7 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 		AdminAuth: auth,
 		Schema:    securityPlannerService{},
 	})
-	body := `{"name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
+	body := `{"operation":"create","name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/collections/plan", body)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
 	response := httptest.NewRecorder()
@@ -484,6 +484,23 @@ func (securityPlannerService) PlanCreate(_ context.Context, input schema.CreateC
 
 func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
 	panic("unexpected ApplyCreate call")
+}
+
+func (securityPlannerService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
+	current := schema.Collection{Name: input.Name, TableName: input.Name}
+	return (schema.Planner{}).PlanUpdate(0, current, input)
+}
+
+func (securityPlannerService) ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
+	panic("unexpected ApplyUpdate call")
+}
+
+func (securityPlannerService) PlanDelete(context.Context, string) (schema.Plan, error) {
+	panic("unexpected PlanDelete call")
+}
+
+func (securityPlannerService) ApplyDelete(context.Context, string, string, int64, uuid.UUID) error {
+	panic("unexpected ApplyDelete call")
 }
 
 func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
