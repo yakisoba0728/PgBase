@@ -278,7 +278,11 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 	for _, entry := range seed {
 		record := map[string]any{"title": entry.title}
 		if entry.rank != "" {
-			record["rank"] = entry.rank
+			rank, parseErr := strconv.Atoi(entry.rank)
+			if parseErr != nil {
+				t.Fatalf("seed rank %q: %v", entry.rank, parseErr)
+			}
+			record["rank"] = rank
 		}
 		created := createRecord(t, ctx, client, collectionName, record)
 		recordIDs = append(recordIDs, stringValue(t, created, "id"))
