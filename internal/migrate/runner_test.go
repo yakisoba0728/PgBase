@@ -132,8 +132,8 @@ func TestUpSerializesConcurrentRunners(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.system_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("history row count = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("history row count = %d, want 3", count)
 	}
 }
 
@@ -225,7 +225,7 @@ func TestStatusReportsAppliedAndLatestVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Current != 0 || before.Latest != 2 || before.Dirty {
+	if before.Current != 0 || before.Latest != 3 || before.Dirty {
 		t.Fatalf("status before Up = %#v", before)
 	}
 	if err := runner.Up(context.Background()); err != nil {
@@ -235,7 +235,7 @@ func TestStatusReportsAppliedAndLatestVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Current != 2 || after.Latest != 2 || after.Dirty {
+	if after.Current != 3 || after.Latest != 3 || after.Dirty {
 		t.Fatalf("status after Up = %#v", after)
 	}
 }

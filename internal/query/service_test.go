@@ -93,11 +93,11 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if _, err := pool.Exec(ctx, `update app.records set created_at = $1`, identicalCreatedAt); err != nil {
 		t.Fatal(err)
 	}
-	page1, err := records.List(ctx, "records", "", 2)
+	page1, err := records.List(ctx, "records", "", 2, "", "")
 	if err != nil || len(page1.Items) != 2 || page1.NextCursor == "" {
 		t.Fatalf("List(page1) = %#v, %v", page1, err)
 	}
-	page2, err := records.List(ctx, "records", page1.NextCursor, 2)
+	page2, err := records.List(ctx, "records", page1.NextCursor, 2, "", "")
 	if err != nil || len(page2.Items) != 2 || page2.NextCursor != "" || page1.Items[1]["id"] == page2.Items[0]["id"] {
 		t.Fatalf("List(page2) = %#v, %v", page2, err)
 	}
@@ -121,7 +121,7 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("same-timestamp cursor page order/union = %v, want live (created_at,id) order %v", gotIDs, wantIDs)
 	}
-	if _, err := records.List(ctx, "records", "not-a-signed-cursor", 2); !IsInvalidCursor(err) {
+	if _, err := records.List(ctx, "records", "not-a-signed-cursor", 2, "", ""); !IsInvalidCursor(err) {
 		t.Fatalf("List(invalid cursor) error=%v", err)
 	}
 
@@ -182,14 +182,14 @@ func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) 
 		}
 		wantIDs = append(wantIDs, created["id"].(string))
 	}
-	first, err := records.List(ctx, "large_records", "", 100)
+	first, err := records.List(ctx, "large_records", "", 100, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Items) >= len(wantIDs) || first.NextCursor == "" {
 		t.Fatalf("first byte-limited page = %d items cursor=%q", len(first.Items), first.NextCursor)
 	}
-	second, err := records.List(ctx, "large_records", first.NextCursor, 100)
+	second, err := records.List(ctx, "large_records", first.NextCursor, 100, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,6 +324,101 @@ func TestRecordServiceHonorsExecutionCancellation(t *testing.T) {
 	_, err = records.Create(ctx, "blocked", map[string]json.RawMessage{"title": json.RawMessage(`"wait"`)})
 	if database.Classify(err) != database.KindCanceled {
 		t.Fatalf("Create(timeout) error=%v", err)
+	}
+}
+
+func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "items",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true},
+			{Name: "rank", Type: schema.TypeInteger},
+		},
+	})
+	ctx := context.Background()
+	create := func(title string, rank string) {
+		input := map[string]json.RawMessage{"title": json.RawMessage(`"` + title + `"`)}
+		if rank != "" {
+			input["rank"] = json.RawMessage(rank)
+		}
+		if _, err := records.Create(ctx, "items", input); err != nil {
+			t.Fatalf("create %s: %v", title, err)
+		}
+	}
+	// Creation order a..f; rank NULL for a and d. UUIDv7 IDs preserve creation
+	// order, so ties on rank resolve deterministically toward earlier records.
+	create("a", "")
+	create("b", "1")
+	create("c", "2")
+	create("d", "")
+	create("e", "3")
+	create("f", "1")
+
+	titles := func(page RecordPage) []string {
+		result := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			result = append(result, item["title"].(string))
+		}
+		return result
+	}
+
+	filtered, err := records.List(ctx, "items", "", 50, "rank >= 2", "")
+	if err != nil {
+		t.Fatalf("filter list: %v", err)
+	}
+	if got, want := titles(filtered), []string{"c", "e"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filter result = %v, want %v", got, want)
+	}
+
+	nulls, err := records.List(ctx, "items", "", 50, "rank = null", "")
+	if err != nil {
+		t.Fatalf("null filter list: %v", err)
+	}
+	if got, want := titles(nulls), []string{"a", "d"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("null filter result = %v, want %v", got, want)
+	}
+
+	descending, err := records.List(ctx, "items", "", 50, "", "-rank")
+	if err != nil {
+		t.Fatalf("sort list: %v", err)
+	}
+	if got, want := titles(descending), []string{"e", "c", "b", "f", "a", "d"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("sort result = %v, want %v", got, want)
+	}
+
+	first, err := records.List(ctx, "items", "", 2, "", "-rank")
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("first page = %v, cursor %q, err %v", titles(first), first.NextCursor, err)
+	}
+	second, err := records.List(ctx, "items", first.NextCursor, 2, "", "-rank")
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	third, err := records.List(ctx, "items", second.NextCursor, 2, "", "-rank")
+	if err != nil {
+		t.Fatalf("third page: %v", err)
+	}
+	if got, want := titles(first), []string{"e", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("first page = %v, want %v", got, want)
+	}
+	if got, want := titles(second), []string{"b", "f"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("second page = %v, want %v", got, want)
+	}
+	if got, want := titles(third), []string{"a", "d"}; !reflect.DeepEqual(got, want) || third.NextCursor != "" {
+		t.Fatalf("third page = %v cursor %q, want %v without cursor", got, third.NextCursor, want)
+	}
+
+	if _, err := records.List(ctx, "items", first.NextCursor, 2, "", ""); !IsInvalidCursor(err) {
+		t.Fatalf("cursor sort mismatch error = %v, want invalid cursor", err)
+	}
+	if _, err := records.List(ctx, "items", "", 50, "ghost = 1", ""); err == nil {
+		t.Fatal("unknown filter field succeeded")
+	} else {
+		var validationErr *ValidationError
+		if !errors.As(err, &validationErr) || validationErr.Details[0] != (ValidationDetail{Field: "filter", Code: "unknown_field"}) {
+			t.Fatalf("unknown filter field error = %v", err)
+		}
 	}
 }
 

@@ -43,22 +43,37 @@ func NewService(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte
 	return &Service{pool: pool, schemas: schemas, cursors: NewCursorCodec(cursorSecret), now: time.Now}
 }
 
-func (s *Service) List(ctx context.Context, collectionName, cursor string, limit int) (RecordPage, error) {
+func (s *Service) List(ctx context.Context, collectionName, cursorToken string, limit int, filterText, sortText string) (RecordPage, error) {
 	if err := s.ready(); err != nil {
 		return RecordPage{}, err
 	}
+	filterNode, err := parseFilterRequest(filterText)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	requestedSort, err := parseSort(sortText)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	sortKeys := effectiveSortKeys(requestedSort)
 	page := RecordPage{Items: []map[string]any{}}
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+	err = s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
 		operationTime := s.now().UTC()
 		var after *PageCursor
-		if cursor != "" {
-			decoded, err := s.cursors.Decode(cursor, collection.ID, operationTime)
+		if cursorToken != "" {
+			decoded, err := s.cursors.Decode(cursorToken, collection.ID, operationTime)
 			if err != nil {
 				return err
 			}
+			if !sameSortKeys(decoded.Sort, sortKeys) {
+				return invalidCursor()
+			}
 			after = &decoded
 		}
-		statement := CompileList(collection, after, limit)
+		statement, err := CompileList(collection, ListQuery{Filter: filterNode, Sort: requestedSort, After: after, Limit: limit})
+		if err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 		if err != nil {
 			return err
@@ -92,13 +107,13 @@ func (s *Service) List(ctx context.Context, collectionName, cursor string, limit
 			return err
 		}
 		if hasMore && len(page.Items) > 0 {
-			createdAt, id, err := recordPagePosition(page.Items[len(page.Items)-1])
+			values, err := recordSortValues(sortKeys, page.Items[len(page.Items)-1])
 			if err != nil {
 				return err
 			}
 			page.NextCursor, err = s.cursors.Encode(PageCursor{
 				Version: cursorVersion, CollectionID: collection.ID,
-				CreatedAt: createdAt, ID: id, ExpiresAt: operationTime.Add(cursorTTL),
+				Sort: sortKeys, Values: values, ExpiresAt: operationTime.Add(cursorTTL),
 			})
 			if err != nil {
 				return err
@@ -188,21 +203,41 @@ func (s *Service) ready() error {
 	return nil
 }
 
-func recordPagePosition(record map[string]any) (time.Time, uuid.UUID, error) {
-	createdAtValue, createdAtOK := record["created_at"].(string)
-	idValue, idOK := record["id"].(string)
-	if !createdAtOK || !idOK {
-		return time.Time{}, uuid.Nil, errors.New("encode page cursor: invalid record position")
+func recordSortValues(keys []SortKey, record map[string]any) ([]json.RawMessage, error) {
+	values := make([]json.RawMessage, 0, len(keys))
+	for _, key := range keys {
+		value, present := record[key.Field]
+		if !present {
+			return nil, errors.New("encode page cursor: missing sort value")
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("encode page cursor: %w", err)
+		}
+		values = append(values, raw)
 	}
-	createdAt, err := time.Parse(time.RFC3339Nano, createdAtValue)
-	if err != nil {
-		return time.Time{}, uuid.Nil, errors.New("encode page cursor: invalid record timestamp")
+	return values, nil
+}
+
+func sameSortKeys(left, right []SortKey) bool {
+	if len(left) != len(right) {
+		return false
 	}
-	id, err := uuid.Parse(idValue)
-	if err != nil {
-		return time.Time{}, uuid.Nil, errors.New("encode page cursor: invalid record id")
+	for index, key := range left {
+		if key.Field != right[index].Field || key.Desc != right[index].Desc {
+			return false
+		}
 	}
-	return createdAt, id, nil
+	return true
+}
+
+// parseFilterRequest turns an empty parameter into no filter and otherwise
+// parses the expression into a validation-checked node.
+func parseFilterRequest(filterText string) (filterNode, error) {
+	if filterText == "" {
+		return nil, nil
+	}
+	return parseFilter(filterText)
 }
 
 func recordQueryError(err error) error {

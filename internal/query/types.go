@@ -3,6 +3,7 @@
 package query
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -17,8 +18,8 @@ type Statement struct {
 type PageCursor struct {
 	Version      int
 	CollectionID uuid.UUID
-	CreatedAt    time.Time
-	ID           uuid.UUID
+	Sort         []SortKey
+	Values       []json.RawMessage
 	ExpiresAt    time.Time
 }
 

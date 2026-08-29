@@ -388,11 +388,14 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	records := query.NewService(pool, schemas, testTokenSecret)
 	codec := query.NewCursorCodec(testTokenSecret)
 	valid, err := codec.Encode(query.PageCursor{
-		Version:      2,
+		Version:      3,
 		CollectionID: collection.ID,
-		CreatedAt:    time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-		ID:           uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"),
-		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		Sort:         []query.SortKey{{Field: "created_at"}, {Field: "id"}},
+		Values: []json.RawMessage{
+			json.RawMessage(`"2026-08-28T00:00:00Z"`),
+			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),
+		},
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
@@ -451,7 +454,7 @@ type securityCompilerRecords struct {
 	createErr  error
 }
 
-func (*securityCompilerRecords) List(context.Context, string, string, int) (query.RecordPage, error) {
+func (*securityCompilerRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
 	panic("unexpected List call")
 }
 
@@ -509,7 +512,7 @@ func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
 
 type securityErrorRecords struct{ err error }
 
-func (r securityErrorRecords) List(context.Context, string, string, int) (query.RecordPage, error) {
+func (r securityErrorRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
 	return query.RecordPage{}, r.err
 }
 

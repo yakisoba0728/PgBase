@@ -157,9 +157,12 @@ func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) 
 	t.Parallel()
 
 	collection := compilerCollection()
-	first := CompileList(collection, nil, 50)
+	first, err := CompileList(collection, ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
 	wantFirst := Statement{
-		SQL:  `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ORDER BY "created_at" ASC, "id" ASC LIMIT $1`,
+		SQL:  `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $1`,
 		Args: []any{51},
 	}
 	if !reflect.DeepEqual(first, wantFirst) {
@@ -167,17 +170,28 @@ func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) 
 	}
 
 	after := &PageCursor{
-		Version:   1,
-		CreatedAt: time.Date(2026, 8, 28, 12, 34, 56, 123456789, time.UTC),
-		ID:        uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+		Version:   cursorVersion,
+		Sort:      []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
+		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
 	}
-	next := CompileList(collection, after, 200)
+	next, err := CompileList(collection, ListQuery{After: after, Limit: 200})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
 	wantNext := Statement{
-		SQL:  `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" WHERE ("created_at", "id") > ($1, $2) ORDER BY "created_at" ASC, "id" ASC LIMIT $3`,
-		Args: []any{after.CreatedAt, after.ID, 201},
+		SQL: `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
+			`WHERE (("created_at" > $1 OR ($1 IS NOT NULL AND "created_at" IS NULL)) ` +
+			`OR (("created_at" IS NOT DISTINCT FROM $1) AND ("id" > $2 OR ($2 IS NOT NULL AND "id" IS NULL)))) ` +
+			`ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $3`,
+		Args: []any{
+			time.Date(2026, 8, 28, 12, 34, 56, 123456789, time.UTC),
+			uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+			201,
+		},
 	}
 	if !reflect.DeepEqual(next, wantNext) {
-		t.Fatalf("CompileList(next) = %#v, want %#v", next, wantNext)
+		t.Fatalf("CompileList(next) =\n%#v\nwant\n%#v", next, wantNext)
 	}
 }
 
@@ -198,18 +212,116 @@ func TestCompileListNormalizesPageLimitBeforeAddingLookahead(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			first := CompileList(compilerCollection(), nil, test.limit)
+			first, err := CompileList(compilerCollection(), ListQuery{Limit: test.limit})
+			if err != nil {
+				t.Fatalf("CompileList() error = %v", err)
+			}
 			if len(first.Args) != 1 || first.Args[0] != test.want {
 				t.Fatalf("CompileList(nil, %d) args = %#v, want [%d]", test.limit, first.Args, test.want)
 			}
 
-			after := &PageCursor{Version: 1, CreatedAt: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC), ID: uuid.New()}
-			next := CompileList(compilerCollection(), after, test.limit)
+			after := &PageCursor{
+				Version: cursorVersion,
+				Sort:    []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
+				Values:  []json.RawMessage{json.RawMessage(`"2026-08-28T12:00:00Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+			}
+			next, err := CompileList(compilerCollection(), ListQuery{After: after, Limit: test.limit})
+			if err != nil {
+				t.Fatalf("CompileList() error = %v", err)
+			}
 			if len(next.Args) != 3 || next.Args[2] != test.want {
 				t.Fatalf("CompileList(after, %d) args = %#v, want third arg %d", test.limit, next.Args, test.want)
 			}
 		})
 	}
+}
+
+func TestCompileListCompilesFilterAndSortAgainstCatalog(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	statement, err := CompileList(collection, ListQuery{
+		Filter: mustParseFilter(t, `(title = 'wanted' && large_count >= 10) || optional_note = null`),
+		Sort:   []SortKey{{Field: "title", Desc: true}},
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
+	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
+		`WHERE ((("title" = $1) AND ("large_count" >= $2)) OR ("optional_note" IS NULL)) ` +
+		`ORDER BY "title" DESC NULLS LAST, "id" ASC NULLS LAST LIMIT $3`
+	if statement.SQL != wantSQL {
+		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	if !reflect.DeepEqual(statement.Args, []any{"wanted", int64(10), 11}) {
+		t.Fatalf("Args = %#v", statement.Args)
+	}
+}
+
+func TestCompileListRejectsFilterSortAndCatalogMismatches(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	tests := []struct {
+		name  string
+		query ListQuery
+		field string
+		code  string
+	}{
+		{
+			name:  "unknown filter field",
+			query: ListQuery{Filter: mustParseFilter(t, `ghost = 'x'`)},
+			field: "filter", code: "unknown_field",
+		},
+		{
+			name:  "jsonb filter",
+			query: ListQuery{Filter: mustParseFilter(t, `metadata = '{}'`)},
+			field: "filter", code: "unsupported_type",
+		},
+		{
+			name:  "type mismatch filter",
+			query: ListQuery{Filter: mustParseFilter(t, `large_count = 'x'`)},
+			field: "filter", code: "type_mismatch",
+		},
+		{
+			name:  "number literal on text",
+			query: ListQuery{Filter: mustParseFilter(t, `title > 5`)},
+			field: "filter", code: "type_mismatch",
+		},
+		{
+			name:  "number literal on timestamptz",
+			query: ListQuery{Filter: mustParseFilter(t, `created_at > 5`)},
+			field: "filter", code: "type_mismatch",
+		},
+		{
+			name:  "unknown sort field",
+			query: ListQuery{Sort: []SortKey{{Field: "ghost"}}},
+			field: "sort", code: "unknown_field",
+		},
+		{
+			name:  "jsonb sort",
+			query: ListQuery{Sort: []SortKey{{Field: "metadata"}}},
+			field: "sort", code: "unsupported_type",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := CompileList(collection, test.query)
+			assertValidationDetail(t, err, test.field, test.code)
+		})
+	}
+}
+
+func mustParseFilter(t *testing.T, expression string) filterNode {
+	t.Helper()
+	node, err := parseFilter(expression)
+	if err != nil {
+		t.Fatalf("parseFilter(%q) error = %v", expression, err)
+	}
+	return node
 }
 
 func TestCompilerQuotesCatalogDerivedPhysicalIdentifiers(t *testing.T) {
