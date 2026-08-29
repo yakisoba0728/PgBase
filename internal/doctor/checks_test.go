@@ -119,6 +119,62 @@ func TestRunReportsStaleSchemaState(t *testing.T) {
 	assertFindingCode(t, runDoctor(t, pool), "schema_state_stale")
 }
 
+func TestRunAcceptsExactSingleIDPrimaryKey(t *testing.T) {
+	pool := newDoctorPool(t)
+	insertCollection(t, pool, "posts", "posts")
+	if _, err := pool.Exec(context.Background(), `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null
+	)`); err != nil {
+		t.Fatal(err)
+	}
+
+	report := runDoctor(t, pool)
+	if !report.OK {
+		t.Fatalf("report = %#v, want exact single-column id primary key to be healthy", report)
+	}
+}
+
+func TestRunRejectsPrimaryKeyOtherThanExactSingleIDColumn(t *testing.T) {
+	tests := []struct {
+		name       string
+		definition string
+	}{
+		{
+			name: "different column",
+			definition: `create table app.posts (
+				id uuid not null,
+				discriminator text primary key,
+				created_at timestamptz not null,
+				updated_at timestamptz not null
+			)`,
+		},
+		{
+			name: "composite including id",
+			definition: `create table app.posts (
+				id uuid not null,
+				discriminator text not null,
+				created_at timestamptz not null,
+				updated_at timestamptz not null,
+				primary key (id, discriminator)
+			)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := newDoctorPool(t)
+			insertCollection(t, pool, "posts", "posts")
+			if _, err := pool.Exec(context.Background(), tt.definition); err != nil {
+				t.Fatal(err)
+			}
+
+			assertFindingCode(t, runDoctor(t, pool), "collection_primary_key_missing")
+		})
+	}
+}
+
 func TestRunRejectsMisleadingAndMalformedIndexes(t *testing.T) {
 	cases := []struct {
 		name   string

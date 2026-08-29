@@ -143,12 +143,16 @@ func checkBaseColumns(ctx context.Context, pool *database.Pool, table string, re
 	var hasPrimaryKey bool
 	if err := pool.QueryRow(ctx, `select exists(
 		select 1
-		from information_schema.table_constraints as constraints
-		join information_schema.key_column_usage as columns
-			on columns.constraint_name = constraints.constraint_name
-			and columns.constraint_schema = constraints.constraint_schema
-		where constraints.table_schema = 'app' and constraints.table_name = $1
-			and constraints.constraint_type = 'PRIMARY KEY' and columns.column_name = 'id')`, table).Scan(&hasPrimaryKey); err != nil {
+		from pg_constraint as constraints
+		join pg_class as tables on tables.oid = constraints.conrelid
+		join pg_namespace as schemas on schemas.oid = tables.relnamespace
+		join pg_attribute as columns
+			on columns.attrelid = tables.oid
+			and columns.attname = 'id'
+			and not columns.attisdropped
+		where schemas.nspname = 'app' and tables.relname = $1
+			and constraints.contype = 'p'
+			and constraints.conkey = array[columns.attnum]::smallint[])`, table).Scan(&hasPrimaryKey); err != nil {
 		return fmt.Errorf("check collection primary key: %w", err)
 	}
 	if !hasPrimaryKey {

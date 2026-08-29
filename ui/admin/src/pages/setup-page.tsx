@@ -22,6 +22,7 @@ const serverMessages: Record<Exclude<SetupField, "confirmation">, Record<string,
 
 function safeServerErrors(error: unknown): SetupErrors {
   if (!(error instanceof APIClientError)) return {};
+  if (error.code === "invalid_credentials") return { setupToken: "Setup token is invalid." };
   return Object.fromEntries(
     (Object.keys(serverMessages) as Array<Exclude<SetupField, "confirmation">>).flatMap((field) => {
       const message = serverMessages[field][error.details[field]?.[0] ?? ""];
@@ -71,8 +72,8 @@ export function SetupPage({ onSetup }: SetupPageProps) {
     } catch (error) {
       setPassword("");
       setConfirmation("");
-      setErrors({
-        ...safeServerErrors(error),
+      const serverErrors = safeServerErrors(error);
+      setErrors(Object.keys(serverErrors).length > 0 ? serverErrors : {
         form: error instanceof APIClientError && error.code === "setup_unavailable"
           ? "Administrator setup is no longer available."
           : "Unable to create the administrator. Try again.",

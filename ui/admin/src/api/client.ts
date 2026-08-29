@@ -13,6 +13,10 @@ export class APIClientError extends Error {
   }
 }
 
+interface RequestBehavior {
+  notifyUnauthorized?: boolean;
+}
+
 function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
   if (typeof value !== "object" || value === null || !("error" in value)) return false;
   const error = value.error;
@@ -35,25 +39,25 @@ export class APIClient {
   constructor(private readonly onUnauthorized?: () => void) {}
 
   async getAdminStatus(signal?: AbortSignal): Promise<AdminStatusResponse> {
-    return this.request<AdminStatusResponse>("/api/admin/status", { signal });
+    return this.request<AdminStatusResponse>("/api/admin/status", { signal }, { notifyUnauthorized: false });
   }
 
   async getSession(signal?: AbortSignal): Promise<SessionResponse> {
-    return this.request<SessionResponse>("/api/admin/session", { signal });
+    return this.request<SessionResponse>("/api/admin/session", { signal }, { notifyUnauthorized: false });
   }
 
   async setup(input: SetupInput): Promise<SessionResponse> {
     return this.request<SessionResponse>("/api/admin/setup", {
       method: "POST",
       body: stringifyJSON(input),
-    });
+    }, { notifyUnauthorized: false });
   }
 
   async login(input: LoginInput): Promise<SessionResponse> {
     return this.request<SessionResponse>("/api/admin/auth/login", {
       method: "POST",
       body: stringifyJSON(input),
-    });
+    }, { notifyUnauthorized: false });
   }
 
   async logout(csrfToken: string): Promise<void> {
@@ -63,7 +67,7 @@ export class APIClient {
     });
   }
 
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async request<T>(path: string, init: RequestInit = {}, behavior: RequestBehavior = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
@@ -79,7 +83,7 @@ export class APIClient {
     }
 
     const body = await responseBody(response);
-    if (response.status === 401) this.onUnauthorized?.();
+    if (response.status === 401 && behavior.notifyUnauthorized !== false) this.onUnauthorized?.();
     if (isErrorEnvelope(body)) {
       throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message);
     }

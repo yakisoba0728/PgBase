@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
 import { APIClient, APIClientError } from "../api/client";
+import { activeSessionExpiresAt } from "../test/fixtures";
 
 const administrator = {
   id: "9a2e0000-0000-4000-8000-000000000001",
@@ -171,10 +172,37 @@ describe("administrator setup", () => {
     expect(screen.getByLabelText("Confirm password")).toHaveValue("");
   });
 
+  it("stays on setup and shows a safe field error when the setup token is rejected", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(setupRequired())
+      .mockResolvedValueOnce(response(401, {
+        error: { code: "invalid_credentials", message: "unsafe internal detail", details: {} },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up pgBase" });
+    await user.type(screen.getByLabelText("Setup token"), "wrong-token");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.type(screen.getByLabelText("Confirm password"), "correct horse battery staple");
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(await screen.findByText("Setup token is invalid.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Set up pgBase" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Sign in to pgBase" })).not.toBeInTheDocument();
+    expect(screen.queryByText("unsafe internal detail")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Setup token")).toHaveFocus();
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("Confirm password")).toHaveValue("");
+    expect(window.location.pathname).toBe("/admin/setup");
+  });
+
 	it("moves to the authenticated shell after a successful setup", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(setupRequired())
-      .mockResolvedValueOnce(response(201, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }));
+      .mockResolvedValueOnce(response(201, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -193,7 +221,7 @@ describe("administrator setup", () => {
 	it("disables repeated logout and shows a safe failure without dropping the session", async () => {
 		let resolveLogout: ((value: Response) => void) | undefined;
 		const fetchMock = vi.fn()
-			.mockResolvedValueOnce(response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }))
+			.mockResolvedValueOnce(response(200, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() }))
 			.mockResolvedValueOnce(response(200, { version: 0, collections: {} }))
 			.mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveLogout = resolve; }));
 		vi.stubGlobal("fetch", fetchMock);

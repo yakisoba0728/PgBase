@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
+import { activeSessionExpiresAt } from "../test/fixtures";
 
 const administrator = {
   id: "9a2e0000-0000-4000-8000-000000000001",
@@ -19,7 +20,7 @@ function response(status: number, body?: unknown): Response {
 }
 
 function session(): Response {
-  return response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" });
+  return response(200, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() });
 }
 
 afterEach(() => {

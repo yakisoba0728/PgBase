@@ -26,4 +26,18 @@ describe("APIClient JSON and session boundaries", () => {
     expect(unauthorized).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });
+
+  it("does not notify the session owner for public authentication-flow 401 responses", async () => {
+    const unauthorized = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(401, `{"error":{"code":"invalid_credentials","message":"Invalid credentials","details":{}}}`)));
+    const client = new APIClient(unauthorized);
+
+    await expect(client.getAdminStatus()).rejects.toEqual(expect.objectContaining<Partial<APIClientError>>({ status: 401 }));
+    await expect(client.getSession()).rejects.toEqual(expect.objectContaining<Partial<APIClientError>>({ status: 401 }));
+    await expect(client.setup({ setupToken: "bad-token", email: "admin@example.com", password: "password" })).rejects.toEqual(expect.objectContaining<Partial<APIClientError>>({ status: 401 }));
+    await expect(client.login({ email: "admin@example.com", password: "password" })).rejects.toEqual(expect.objectContaining<Partial<APIClientError>>({ status: 401 }));
+
+    expect(unauthorized).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
 });

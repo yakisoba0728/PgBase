@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
+import { activeSessionExpiresAt } from "../test/fixtures";
 
 const administrator = { id: "9a2e0000-0000-4000-8000-000000000001", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" };
 const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -21,7 +22,7 @@ function response(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), json: vi.fn().mockResolvedValue(body) } as unknown as Response;
 }
 
-function session(): Response { return response(200, { administrator, csrfToken: "csrf-token", expiresAt: "2026-08-29T00:00:00Z" }); }
+function session(): Response { return response(200, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() }); }
 
 const settingsCatalog = { version: 5, collections: { settings: { id: "settings", name: "settings", tableName: "settings", fields: [
   { name: "defaulted", type: "bigint", required: false, unique: false, indexed: false, default: "7", ordinal: 0 },

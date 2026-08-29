@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { App } from "../app";
+import { activeSessionExpiresAt } from "../test/fixtures";
 
 function response(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), json: vi.fn().mockResolvedValue(body) } as unknown as Response;
@@ -18,7 +19,7 @@ it("navigates to the read-only redacted system status", async () => {
     .mockResolvedValueOnce(response(200, {
       administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
       csrfToken: "csrf-token",
-      expiresAt: "2026-08-29T00:00:00Z",
+      expiresAt: activeSessionExpiresAt(),
     }))
     .mockResolvedValueOnce(response(200, { version: 9, collections: {} }))
     .mockResolvedValueOnce(response(200, {
@@ -53,7 +54,7 @@ it("falls back safely for malformed encoded administrator paths", async () => {
     .mockResolvedValueOnce(response(200, {
       administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
       csrfToken: "csrf-token",
-      expiresAt: "2026-08-29T00:00:00Z",
+      expiresAt: activeSessionExpiresAt(),
     }))
     .mockResolvedValueOnce(response(200, { version: 9, collections: {} })));
 
