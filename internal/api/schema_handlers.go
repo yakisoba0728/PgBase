@@ -75,11 +75,11 @@ type collectionDeleteResponse struct {
 }
 
 type collectionChangeRequest struct {
-	Operation string              `json:"operation"`
-	Name      string              `json:"name"`
-	Fields    []schema.FieldInput `json:"fields"`
-	Checksum    string            `json:"checksum"`
-	BaseVersion *int64           `json:"baseVersion"`
+	Operation   string              `json:"operation"`
+	Name        string              `json:"name"`
+	Fields      []schema.FieldInput `json:"fields"`
+	Checksum    string              `json:"checksum"`
+	BaseVersion *int64              `json:"baseVersion"`
 }
 
 func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
