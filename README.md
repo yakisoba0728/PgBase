@@ -1,6 +1,6 @@
 # pgBase
 
-pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. This repository is a pre-v0.1 development preview, not a stable release. It currently provides administrator bootstrap and sessions, collection planning/application, typed CRUD records, health/readiness, explicit system migrations, diagnostics, and a container image.
+pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. This repository is a pre-v0.1 development preview, not a stable release. It currently provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records with a filter expression and sort language plus signed cursor pagination, health/readiness, explicit system migrations, diagnostics, and a container image.
 
 ## Quick start
 
@@ -34,4 +34,4 @@ One pgBase project owns one PostgreSQL database. Multiple pgBase instances for t
 
 The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability while the project is pre-v0.1.
 
-This kernel does not provide public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. It makes no throughput or zero-downtime upgrade guarantee.
+This kernel does not provide public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); renames and composite indexes are not supported. It makes no throughput or zero-downtime upgrade guarantee.

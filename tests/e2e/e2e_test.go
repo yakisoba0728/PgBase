@@ -254,6 +254,121 @@ func bootstrapCRUDAndRestart(t *testing.T) {
 	}
 }
 
+func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	waitReady(t, ctx, suite.baseURL)
+	client := authenticatedClient(t, ctx, suite.baseURL)
+
+	collectionName := uniqueCollection("lifecycle")
+	definition := map[string]any{
+		"name": collectionName,
+		"fields": []map[string]any{
+			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
+			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": false},
+		},
+	}
+	applyCollection(t, ctx, client, definition)
+
+	seed := []struct {
+		title string
+		rank  string
+	}{{"alpha", ""}, {"bravo", "2"}, {"charlie", "1"}}
+	recordIDs := make([]string, 0, len(seed))
+	for _, entry := range seed {
+		record := map[string]any{"title": entry.title}
+		if entry.rank != "" {
+			record["rank"] = entry.rank
+		}
+		created := createRecord(t, ctx, client, collectionName, record)
+		recordIDs = append(recordIDs, stringValue(t, created, "id"))
+	}
+
+	// Update: add a required-with-default field and widen nothing. The change
+	// must be visible to new list queries without a process restart.
+	updatedDefinition := map[string]any{
+		"name": collectionName,
+		"fields": []map[string]any{
+			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
+			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": false},
+			{"name": "stage", "type": "text", "required": false, "unique": false, "indexed": false, "default": "draft"},
+		},
+	}
+	updatePlan := planUpdateCollection(t, ctx, client, updatedDefinition, "update")
+	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", updatePlan, http.StatusOK, nil); err != nil {
+		t.Fatal(err)
+	}
+	var refreshed map[string]any
+	if err := client.request(ctx, http.MethodGet, "/api/v1/collections/"+collectionName+"/records/"+recordIDs[0], nil, http.StatusOK, &refreshed); err != nil {
+		t.Fatal(err)
+	}
+	if refreshed["stage"] != "draft" {
+		t.Fatalf("refreshed record stage = %#v, want default %q", refreshed["stage"], "draft")
+	}
+
+	// Filter and sort: filter plus descending sort must compose with cursors.
+	path := "/api/v1/collections/" + url.PathEscape(collectionName) + "/records"
+	values := url.Values{"limit": []string{"50"}, "filter": []string{"rank >= 1"}, "sort": []string{"-rank"}}
+	var filtered recordPage
+	if err := client.request(ctx, http.MethodGet, queryPath(path, values), nil, http.StatusOK, &filtered); err != nil {
+		t.Fatal(err)
+	}
+	filteredTitles := recordFieldValues(t, filtered, "title")
+	if len(filteredTitles) != 2 || filteredTitles[0] != "bravo" || filteredTitles[1] != "charlie" {
+		t.Fatalf("filtered titles = %#v, want [bravo charlie]", filteredTitles)
+	}
+
+	invalid := url.Values{"limit": []string{"50"}, "filter": []string{"ghost = 1"}}
+	if err := client.request(ctx, http.MethodGet, queryPath(path, invalid), nil, http.StatusUnprocessableEntity, nil); err != nil {
+		t.Fatalf("unknown filter field must be rejected: %v", err)
+	}
+
+	// Delete: two-phase delete drops the table and the catalog entry.
+	deletePlan := planUpdateCollection(t, ctx, client, map[string]any{"name": collectionName}, "delete")
+	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/apply", deletePlan, http.StatusOK, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.request(ctx, http.MethodGet, path, nil, http.StatusNotFound, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func planUpdateCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any, operation string) map[string]any {
+	t.Helper()
+	planBody := make(map[string]any, len(definition)+1)
+	for key, value := range definition {
+		planBody[key] = value
+	}
+	planBody["operation"] = operation
+	var plan struct {
+		BaseVersion int64  `json:"baseVersion"`
+		Checksum    string `json:"checksum"`
+	}
+	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/plan", planBody, http.StatusOK, &plan); err != nil {
+		t.Fatal(err)
+	}
+	apply := make(map[string]any, len(planBody)+2)
+	for key, value := range planBody {
+		apply[key] = value
+	}
+	apply["baseVersion"] = plan.BaseVersion
+	apply["checksum"] = plan.Checksum
+	return apply
+}
+
+func recordFieldValues(t *testing.T, page recordPage, key string) []string {
+	t.Helper()
+	values := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		var value string
+		if err := json.Unmarshal(item[key], &value); err != nil {
+			t.Fatalf("decode %s: %v", key, err)
+		}
+		values = append(values, value)
+	}
+	return values
+}
+
 func configureSuite() (e2eSuite, error) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -431,17 +546,23 @@ func applyCollection(t *testing.T, ctx context.Context, client *apiClient, defin
 
 func planCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) map[string]any {
 	t.Helper()
+	planBody := make(map[string]any, len(definition)+1)
+	for key, value := range definition {
+		planBody[key] = value
+	}
+	planBody["operation"] = "create"
 	var plan struct {
 		BaseVersion int64  `json:"baseVersion"`
 		Checksum    string `json:"checksum"`
 	}
-	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/plan", definition, http.StatusOK, &plan); err != nil {
+	if err := client.request(ctx, http.MethodPost, "/api/admin/collections/plan", planBody, http.StatusOK, &plan); err != nil {
 		t.Fatal(err)
 	}
-	apply := make(map[string]any, len(definition)+2)
+	apply := make(map[string]any, len(definition)+3)
 	for key, value := range definition {
 		apply[key] = value
 	}
+	apply["operation"] = "create"
 	apply["baseVersion"] = plan.BaseVersion
 	apply["checksum"] = plan.Checksum
 	return apply

@@ -56,7 +56,7 @@
 
 - 공개 사용자 인증, RBAC 또는 레코드 접근 규칙
 - 관계 필드, 파일 저장소, realtime 구독
-- 범용 filter/sort/query 언어
+- 관계 조인/expand, jsonb 내부 필터링을 포함한 범용 query 언어 (레코드 목록에는 제한적 `filter`/`sort` 표현식이 제공됨)
 - 공식 SDK와 생성된 OpenAPI
 - online DDL, down migration, read replica routing, sharding
 - 임의의 v0.x 버전 사이 무중단 호환성 보장
@@ -117,8 +117,10 @@ PostgreSQL pool and transactions
 
 컬렉션 변경은 두 단계다.
 
-1. `plan`이 정규화된 정의, 기준 카탈로그 버전, checksum과 검토 가능한 SQL을 만든다.
+1. `plan`이 정규화된 정의, 기준 카탈로그 버전, checksum과 검토 가능한 SQL을 만든다. 본문의 `operation`은 `collection_create`, `collection_update`, `collection_delete` 중 하나를 선택한다.
 2. `apply`가 기준 버전과 checksum을 다시 검증한 뒤 PostgreSQL advisory lock 아래 하나의 트랜잭션으로 DDL, 메타데이터, 감사 기록과 버전 증가를 반영한다.
+
+update는 이름 기준 필드 diff로 추가(`ADD COLUMN`), 삭제(`DROP COLUMN`), required/default/unique/indexed 플래그 변경과 화이트리스트된 확대 타입 변경(integer→bigint, integer→numeric, bigint→numeric)만 허용하고 나머지 타입 변경은 `unsupported_schema_change`로 거부한다. delete는 `DROP TABLE` 하나로 물리 테이블과 의존 인덱스를 제거한다.
 
 식별자는 검증된 카탈로그 매핑에서만 생성하고 값은 parameter binding한다. 다른 인스턴스는 PostgreSQL `LISTEN/NOTIFY`를 invalidation 힌트로 사용하며, 알림 유실을 가정해 영속 카탈로그 버전을 다시 읽는다. listener가 동기화되지 않으면 readiness가 실패한다.
 
@@ -137,10 +139,10 @@ PostgreSQL pool and transactions
 | `POST /api/admin/auth/logout` | 현재 세션 폐기 | 관리자 세션 + mutation 보호 |
 | `DELETE /api/admin/session` | 로그아웃 호환 alias | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/collections` | 현재 카탈로그 조회 | 관리자 인증 |
-| `POST /api/admin/collections/plan` | 컬렉션 생성 계획 | 관리자 인증 |
-| `POST /api/admin/collections/apply` | 검토한 계획 적용 | 관리자 세션 + mutation 보호 |
+| `POST /api/admin/collections/plan` | 컬렉션 create/update/delete 계획 (`operation` 필수) | 관리자 인증 |
+| `POST /api/admin/collections/apply` | 검토한 계획 적용 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/system` | 버전, DB, migration, catalog/listener 상태 | 관리자 인증 |
-| `GET /api/v1/collections/{collection}/records` | 레코드 목록과 cursor 페이지네이션 | 관리자 세션 |
+| `GET /api/v1/collections/{collection}/records` | 레코드 목록, `filter`/`sort` 표현식과 cursor 페이지네이션 | 관리자 세션 |
 | `POST /api/v1/collections/{collection}/records` | typed 레코드 생성 | 관리자 세션 + mutation 보호 |
 | `GET /api/v1/collections/{collection}/records/{id}` | 단일 레코드 조회 | 관리자 세션 |
 | `PATCH /api/v1/collections/{collection}/records/{id}` | 부분 갱신 | 관리자 세션 + mutation 보호 |
