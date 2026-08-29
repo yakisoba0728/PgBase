@@ -17,8 +17,8 @@
 | 스키마 변경을 `plan`과 `apply`로 분리 | SQL과 checksum을 검토하고 stale plan을 거부 | 단순 CRUD형 도구보다 한 단계 더 필요 | 자동 migration UX를 추가하더라도 checksum·기준 버전 불변식은 유지 |
 | advisory lock과 단일 트랜잭션으로 DDL 적용 | 중복 적용과 부분 적용 방지 | DDL lock 대기와 maintenance window 가능 | online DDL을 별도 실행 모델로 설계할 때 |
 | 카탈로그 버전을 영속 기준으로, `LISTEN/NOTIFY`를 힌트로 사용 | 알림 유실 후에도 재동기화 가능 | listener 장애 시 readiness를 내려 가용성보다 일관성을 선택 | eventual consistency를 명시적으로 허용할 API가 생길 때 |
-| 식별자는 카탈로그에서 생성하고 값은 parameter binding | SQL 주입면 축소 | 임의 SQL·자유로운 filter 언어를 제공하지 못함 | 제한된 AST와 비용 예산을 가진 query language를 설계할 때 |
-| `(created_at,id)` cursor와 15분 만료·컬렉션 바인딩 | 안정적 순서, bounded token 재사용 | 임의 정렬·장기 bookmark 미지원 | filter/sort 계약과 해당 인덱스 전략을 함께 설계할 때 |
+| 식별자는 카탈로그에서 생성하고 값은 parameter binding | SQL 주입면 축소 | 임의 SQL은 제공하지 않음. filter 언어는 2026-08-29부터 제한 문법만 지원 | 표현식 비용 예산과 인덱스 전략을 확장할 때 |
+| 정렬 키 기반 cursor와 15분 만료·컬렉션 바인딩 | 안정적 순서, bounded token 재사용 | 장기 bookmark 미지원. 임의 정렬은 2026-08-29부터 최대 8키·NULLS LAST로 제한 지원 | 장기 bookmark 요구나 정렬 계약에 맞춘 인덱스 전략이 필요할 때 |
 | timestamp 기본값은 RFC3339의 서기 1년 이상만 허용 | PostgreSQL textual `timestamptz` 적용 실패를 plan 단계의 400으로 전환 | BC 기본값 미지원 | BC timestamp 제품 요구가 생기면 별도 문법과 round-trip 테스트 필요 |
 | 생성·수정 시각은 PostgreSQL `statement_timestamp()` 사용 | 인스턴스 시계 차이로 인한 순서 역행 방지 | 애플리케이션에서 시간을 주입하는 테스트/기능이 제한 | 사용자 지정 event time은 system audit time과 별도 필드로 추가 |
 | JSON과 numeric을 lossless하게 처리하고 UTF-8을 엄격 검증 | 큰 정수·극단 지수·Unicode의 조용한 손상 방지 | 일반 JSON decoder보다 구현과 UI 의존성이 복잡 | 공개 SDK도 동일한 정밀도 계약을 구현할 때 |
@@ -72,7 +72,7 @@
 - 레코드 생성 idempotency key가 없어 응답 유실 후 수동 재시도에서 중복 생성될 수 있다.
 - 수정·삭제에 ETag 또는 optimistic concurrency가 없어 동시 관리 작업은 last-write-wins다.
 - 공개 사용자 인증, RBAC/record rule, API token/service account가 없다.
-- relationship, file, realtime, 범용 filter/sort가 없다.
+- relationship, file, realtime가 없다. filter/sort는 2026-08-29부터 제한 표현식으로 제공되며 범용 query 언어는 여전히 없다.
 - online DDL, zero-downtime upgrade, read replica, sharding 보장이 없다.
 - 실제 트래픽의 load/soak/partition 시험과 SLO, 운영 restore drill의 RPO/RTO 확정이 남아 있다.
 - 실제 tag release와 GHCR publish/attestation은 로컬 검증 범위 밖이다.

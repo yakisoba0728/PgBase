@@ -1,18 +1,17 @@
 # pgBase Production Kernel 최종 핸드오프
 
-이 문서는 `codex/production-kernel` 브랜치에 구현된 Production Kernel의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 전달 기준은 이 문서를 포함한 `origin/codex/production-kernel`의 최신 커밋이며, 특정 로컬 worktree나 과거 중간 커밋은 기준이 아니다.
+이 문서는 `codex/data-kernel` 브랜치에 구현된 Production Kernel과 데이터 커널 확장의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 전달 기준은 이 문서를 포함한 `origin/codex/data-kernel`의 최신 커밋이며, 특정 로컬 worktree나 과거 중간 커밋은 기준이 아니다.
 
 ## 1. 현재 상태
 
 | 항목 | 상태 |
 | --- | --- |
-| 원격 브랜치 | `origin/codex/production-kernel` |
+| 원격 브랜치 | `origin/codex/data-kernel` (PR #8이 `main` 대상으로 열려 있음; 병합은 저장소 소유자가 처리) |
 | 구현 기준점 | 이 문서를 포함한 원격 브랜치 HEAD |
-| 구현 계획 | 15개 작업 완료 |
-| 코드 리뷰 | 전체 감사 28건과 후속 독립 재감사에서 확인한 제품 정확성 1건까지 수정·재검증 완료 |
+| 구현 계획 | Production Kernel 15개 작업 + 데이터 커널 확장 완료 |
+| 코드 리뷰 | 전체 감사 28건, 데이터 커널 감사 3회와 각 후속 독립 재검증에서 확인한 발견까지 수정·재검증 완료 |
 | 알려진 미해결 구현 finding | 없음 |
 | 릴리스 상태 | pre-v0.1 개발 프리뷰 |
-| PR / 병합 | 아직 만들거나 병합하지 않음. 이후 저장소 소유자가 원격 브랜치로 PR 처리 |
 
 현재 결과물은 PostgreSQL 기반 관리형 백엔드의 운영 가능한 핵심이다. 관리자용 컬렉션/레코드 백엔드로는 배포 후보지만, 공개 사용자 인증·접근 규칙·관계·파일·realtime까지 제공하는 PocketBase 기능 대체 완성본은 아니다.
 
@@ -274,7 +273,7 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 1. relationship와 안전한 join/populate 모델
 2. object storage 기반 file field와 upload/download authorization
 3. PostgreSQL 기반 realtime change delivery와 재연결/유실 계약
-4. 제한적 filter/sort/index 모델
+4. 복합 인덱스 등 인덱스 모델 확장과 고급 filter/sort 표현식 (제한적 filter/sort는 2026-08-29 데이터 커널 확장으로 제공됨)
 5. online schema change 전략, read replica, tenant/project control plane 검토
 
 ## 13. 브랜치 인수인계와 재개 방법
@@ -285,13 +284,13 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 
 ```console
 git fetch origin
-git switch --track origin/codex/production-kernel
+git switch --track origin/codex/data-kernel
 ```
 
 이미 로컬 브랜치가 있을 때:
 
 ```console
-git switch codex/production-kernel
+git switch codex/data-kernel
 git pull --ff-only
 ```
 

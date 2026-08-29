@@ -117,6 +117,93 @@ describe("collection editing", () => {
     expect(planBody.fields[0].default).toEqual({ kind: "now" });
   });
 
+  it("round-trips jsonb defaults, including string scalars, without changing their type", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/edit");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 7,
+        collections: {
+          posts: {
+            id: "collection-id", name: "posts", tableName: "posts",
+            fields: [
+              { id: "f1", name: "payload", columnName: "payload", type: "jsonb", required: false, unique: false, indexed: false, default: { tags: ["safe"] }, ordinal: 0 },
+              { id: "f2", name: "label", columnName: "label", type: "jsonb", required: false, unique: false, indexed: false, default: "[1,2]", ordinal: 1 },
+            ],
+          },
+        },
+      }))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 7,
+        checksum: "jsonb-checksum",
+        definition: { name: "posts", tableName: "posts", fields: [
+          { name: "payload", type: "jsonb", required: false, unique: false, indexed: false, default: { tags: ["safe"] }, ordinal: 0 },
+          { name: "label", type: "jsonb", required: false, unique: false, indexed: false, default: "[1,2]", ordinal: 1 },
+        ] },
+        sql: [],
+      }))
+      .mockResolvedValueOnce(response(200, { id: "collection-id", name: "posts", fields: [] }))
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, { items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit collection" });
+    expect(await screen.findByLabelText("Field 2 default")).toHaveValue('"[1,2]"');
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+    expect(await screen.findByRole("button", { name: "Apply change" })).toBeEnabled();
+
+    const [, planOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const planBody = JSON.parse(planOptions.body as string) as { fields: Array<{ default: unknown }> };
+    expect(planBody.fields[0].default).toEqual({ tags: ["safe"] });
+    expect(planBody.fields[1].default).toBe("[1,2]");
+  });
+
+  it("distinguishes a data-conflict 409 from a catalog-change 409 when applying", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/edit");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 7, checksum: "conflict-checksum",
+        definition: { name: "posts", tableName: "posts", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true, ordinal: 0 }] },
+        sql: ["CREATE UNIQUE INDEX ..."],
+      }))
+      .mockResolvedValueOnce(response(409, { error: { code: "schema_conflict", message: "unsafe detail", details: {} } }))
+      .mockResolvedValueOnce(response(200, { version: 7, collections: catalog.collections }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit collection" });
+    await user.click(await screen.findByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+    expect(await screen.findByText("Existing data blocks this change (for example duplicate or missing values).")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    // A stale plan (catalog actually moved) keeps the re-preview guidance.
+    window.history.replaceState(null, "", "/admin/collections/posts/edit");
+    const staleMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 7, checksum: "stale-checksum",
+        definition: { name: "posts", tableName: "posts", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true, ordinal: 0 }] },
+        sql: ["CREATE INDEX ..."],
+      }))
+      .mockResolvedValueOnce(response(409, { error: { code: "schema_conflict", message: "unsafe detail", details: {} } }))
+      .mockResolvedValueOnce(response(200, { version: 9, collections: catalog.collections }));
+    vi.stubGlobal("fetch", staleMock);
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit collection" });
+    await user.click(await screen.findByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+    expect(await screen.findByText("The catalog changed. Preview the collection again before applying.")).toBeVisible();
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+  });
+
   it("requires confirming the deletion plan before dropping the collection", async () => {
     window.history.replaceState(null, "", "/admin/collections/posts/edit");
     const fetchMock = vi.fn()

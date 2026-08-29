@@ -12,6 +12,11 @@ function defaultTextFor(type: string, value: unknown): string {
     // the shorthand text that parseDefault accepts.
     return "now";
   }
+  if (type === "jsonb") {
+    // jsonb defaults may be scalars (a string "now", a string "[1,2]"); keep
+    // the JSON representation so parseDefault re-parses the same value.
+    return stringifyJSON(value);
+  }
   return typeof value === "string" ? value : stringifyJSON(value);
 }
 
@@ -109,6 +114,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
 
   async function apply() {
     if (!previewCurrent || plan === null || plannedInput === null || pending) return;
+    const appliedBaseVersion = plan.baseVersion;
     setPending(true);
     setError(null);
     try {
@@ -117,7 +123,19 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     } catch (caught: unknown) {
       if (caught instanceof APIClientError && caught.status === 409) {
         resetPlan();
-        setError("The catalog changed. Preview the collection again before applying.");
+        // A 409 covers both a stale plan and a change that existing data
+        // rejects (for example a unique index over duplicate values). Tell
+        // them apart by whether the catalog actually moved.
+        try {
+          const catalog = await collections.catalog();
+          if (catalog.version === appliedBaseVersion) {
+            setError("Existing data blocks this change (for example duplicate or missing values).");
+          } else {
+            setError("The catalog changed. Preview the collection again before applying.");
+          }
+        } catch {
+          setError("The catalog changed. Preview the collection again before applying.");
+        }
       } else setError("Unable to apply the collection change.");
     } finally { setPending(false); }
   }

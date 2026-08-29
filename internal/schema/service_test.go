@@ -757,6 +757,33 @@ func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 }
 
+func TestPlanUpdateOmitsSetDefaultForUnchangedObjectDefaults(t *testing.T) {
+	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	created := applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "events",
+		Fields: []FieldInput{
+			{Name: "starts_at", Type: TypeTimestampTZ, Default: json.RawMessage(`{"kind":"now"}`)},
+			{Name: "payload", Type: TypeJSONB, Default: json.RawMessage(`{"z":1,"a":[1,2,3]}`)},
+		},
+	}, administratorID)
+	ctx := context.Background()
+
+	input := UpdateCollectionInput{Name: "events", Fields: []FieldInput{
+		{Name: "starts_at", Type: TypeTimestampTZ, Default: json.RawMessage(`{"kind":"now"}`)},
+		{Name: "payload", Type: TypeJSONB, Default: json.RawMessage(`{"a":[1,2,3],"z":1}`)},
+	}}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan update: %v", err)
+	}
+	if len(plan.Statements) != 0 {
+		t.Fatalf("unchanged object defaults emitted DDL: %#v", plan.Statements)
+	}
+	if len(created.Fields) != 2 {
+		t.Fatalf("fixture fields = %d", len(created.Fields))
+	}
+}
+
 func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText}}}, administratorID)

@@ -128,7 +128,16 @@ func (Planner) PlanUpdate(baseVersion int64, current Collection, input UpdateCol
 
 	currentFields := make(map[string]PlannedField, len(current.Fields))
 	for _, field := range current.Fields {
-		currentFields[field.Name] = plannedFieldFrom(field)
+		planned := plannedFieldFrom(field)
+		// Defaults are stored in a jsonb column whose text rendering differs
+		// from the Go-canonical form; re-normalize so an unchanged object or
+		// "now" default does not re-emit SET DEFAULT on every update.
+		if len(planned.Default) != 0 {
+			if canonical, _, err := normalizeDefault(planned.Type, planned.Default); err == nil {
+				planned.Default = canonical
+			}
+		}
+		currentFields[planned.Name] = planned
 	}
 
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
