@@ -20,6 +20,10 @@ var ErrConflict = errors.New("schema plan conflicts with current state")
 
 var ErrCollectionNotFound = errors.New("collection does not exist")
 
+// ErrDataConstraint reports an apply whose DDL failed because committed rows
+// violate the requested change (for example SET NOT NULL over NULL values).
+var ErrDataConstraint = errors.New("existing data violates the schema change")
+
 type Service struct {
 	pool    *database.Pool
 	cache   *Cache
@@ -411,8 +415,13 @@ func classifyApplyError(err error) error {
 		return ErrConflict
 	}
 	var postgresError *pgconn.PgError
-	if errors.As(err, &postgresError) && (postgresError.Code == "42P07" || postgresError.Code == "42710") {
-		return ErrConflict
+	if errors.As(err, &postgresError) {
+		switch postgresError.Code {
+		case "42P07", "42710":
+			return ErrConflict
+		case "23502", "23514":
+			return ErrDataConstraint
+		}
 	}
 	return err
 }

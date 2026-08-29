@@ -298,6 +298,23 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 		t.Fatalf("missing operation status=%d body=%s", response.Code, response.Body.String())
 	}
 	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts"}`)
+	if response.Code != http.StatusBadRequest || schemas.planCalls != 2 {
+		t.Fatalf("update without fields status=%d plan calls=%d body=%s", response.Code, schemas.planCalls, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"update","name":"posts","checksum":"fixed-checksum","baseVersion":3}`)
+	if response.Code != http.StatusBadRequest || schemas.applyCalls != 2 {
+		t.Fatalf("update apply without fields status=%d apply calls=%d body=%s", response.Code, schemas.applyCalls, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[]}`)
+	if response.Code != http.StatusOK || schemas.planCalls != 3 || len(schemas.planUpdateInput.Fields) != 0 {
+		t.Fatalf("explicit empty fields status=%d plan calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	}
 }
 
 func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
@@ -305,7 +322,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.type", Code: "unsupported_schema_change"}}}}
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()

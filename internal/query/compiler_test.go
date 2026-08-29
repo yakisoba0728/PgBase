@@ -315,6 +315,24 @@ func TestCompileListRejectsFilterSortAndCatalogMismatches(t *testing.T) {
 	}
 }
 
+func TestCompileListFlipsReversedLiteralComparisons(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	statement, err := CompileList(collection, ListQuery{Filter: mustParseFilter(t, `10 > large_count || 'wanted' = title`)})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
+	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
+		`WHERE (("large_count" < $1) OR ("title" = $2)) ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $3`
+	if statement.SQL != wantSQL {
+		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	if !reflect.DeepEqual(statement.Args, []any{int64(10), "wanted", 51}) {
+		t.Fatalf("Args = %#v", statement.Args)
+	}
+}
+
 func mustParseFilter(t *testing.T, expression string) filterNode {
 	t.Helper()
 	node, err := parseFilter(expression)

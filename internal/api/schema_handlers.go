@@ -75,11 +75,13 @@ type collectionDeleteResponse struct {
 }
 
 type collectionChangeRequest struct {
-	Operation   string              `json:"operation"`
-	Name        string              `json:"name"`
-	Fields      []schema.FieldInput `json:"fields"`
-	Checksum    string              `json:"checksum"`
-	BaseVersion *int64              `json:"baseVersion"`
+	Operation string `json:"operation"`
+	Name      string `json:"name"`
+	// Fields is a pointer so an update can distinguish an omitted key (which
+	// would otherwise silently drop every column) from an explicit empty list.
+	Fields      *[]schema.FieldInput `json:"fields"`
+	Checksum    string               `json:"checksum"`
+	BaseVersion *int64               `json:"baseVersion"`
 }
 
 func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
@@ -96,9 +98,13 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch request.Operation {
 	case "create":
-		plan, err = e.service.PlanCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.Fields})
+		plan, err = e.service.PlanCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()})
 	case "update":
-		plan, err = e.service.PlanUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.Fields})
+		if request.Fields == nil {
+			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+			return
+		}
+		plan, err = e.service.PlanUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.fieldInputs()})
 	case "delete":
 		plan, err = e.service.PlanDelete(r.Context(), request.Name)
 	default:
@@ -116,6 +122,13 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 		Definition:  plannedCollectionDTO(plan.Definition),
 		SQL:         append([]string(nil), plan.Statements...),
 	})
+}
+
+func (r collectionChangeRequest) fieldInputs() []schema.FieldInput {
+	if r.Fields == nil {
+		return nil
+	}
+	return *r.Fields
 }
 
 func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
@@ -136,14 +149,18 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch request.Operation {
 	case "create":
-		collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.Fields}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
+		collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
 		if err != nil {
 			writeSchemaError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, collectionDTO(collection))
 	case "update":
-		collection, err := e.service.ApplyUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.Fields}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
+		if request.Fields == nil {
+			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+			return
+		}
+		collection, err := e.service.ApplyUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
 		if err != nil {
 			writeSchemaError(w, r, err)
 			return
@@ -226,6 +243,8 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 		apiError = APIError{Status: status, Code: "validation_failed", Message: "Schema input is invalid", Details: details}
 	case errors.Is(err, schema.ErrCollectionNotFound):
 		apiError = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"}
+	case errors.Is(err, schema.ErrDataConstraint):
+		apiError = APIError{Status: http.StatusUnprocessableEntity, Code: "validation_failed", Message: "Existing data violates the schema change"}
 	case errors.Is(err, schema.ErrConflict):
 		apiError = APIError{Status: http.StatusConflict, Code: "schema_conflict", Message: "Schema plan conflicts with current state"}
 	case errors.Is(err, schema.ErrSynchronizationUnavailable), database.Classify(err) == database.KindUnavailable:

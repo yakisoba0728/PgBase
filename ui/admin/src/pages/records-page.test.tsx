@@ -96,13 +96,14 @@ describe("record administration", () => {
     expect(screen.getByRole("columnheader", { name: "title ↓" })).toHaveAttribute("aria-sort", "descending");
   });
 
-  it("shows a safe alert when the server rejects the filter expression", async () => {
+  it("shows a safe alert when the server rejects the filter expression and clears it after success", async () => {
     window.history.replaceState(null, "", "/admin/collections/posts/records");
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(session())
       .mockResolvedValueOnce(response(200, catalog))
       .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }))
-      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe detail", details: { filter: ["unknown_field"] } } }));
+      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe detail", details: { filter: ["unknown_field"] } } }))
+      .mockResolvedValueOnce(response(200, { items: [{ id: recordID, title: "first", created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z" }] }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -112,6 +113,10 @@ describe("record administration", () => {
     await user.click(screen.getByRole("button", { name: "Apply filter" }));
     expect(await screen.findByText("The filter or sort expression is invalid.")).toBeVisible();
     expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("first")).toBeVisible();
+    expect(screen.queryByText("The filter or sort expression is invalid.")).not.toBeInTheDocument();
   });
 
   it("creates all eight JSON representations without rounding decimal strings", async () => {

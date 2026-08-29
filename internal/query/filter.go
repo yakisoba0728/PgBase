@@ -155,13 +155,30 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
 	// Comparisons pair exactly one field operand with one literal operand.
+	// A literal on the left ("5 < count") flips the ordering operator so the
+	// compiled SQL keeps the caller's direction.
 	switch {
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, operator: operator, value: right.literal}, nil
 	case left.field == "" && right.field != "":
-		return filterComparison{field: right.field, operator: operator, value: left.literal}, nil
+		return filterComparison{field: right.field, operator: flipComparisonOperator(operator), value: left.literal}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
+	}
+}
+
+func flipComparisonOperator(operator string) string {
+	switch operator {
+	case ">":
+		return "<"
+	case ">=":
+		return "<="
+	case "<":
+		return ">"
+	case "<=":
+		return ">="
+	default:
+		return operator
 	}
 }
 

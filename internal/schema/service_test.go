@@ -758,6 +758,35 @@ func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 }
 
+func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, note)
+		values (gen_random_uuid(), statement_timestamp(), statement_timestamp(), null)`); err != nil {
+		t.Fatalf("seed null row: %v", err)
+	}
+
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText, Required: true}}}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan update: %v", err)
+	}
+	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("apply error = %v, want ErrDataConstraint", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+	var nullable string
+	if err := pool.QueryRow(ctx, `select is_nullable from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'note'`).Scan(&nullable); err != nil {
+		t.Fatal(err)
+	}
+	if nullable != "YES" {
+		t.Fatalf("column nullability after rollback = %q, want YES", nullable)
+	}
+}
+
 type barrierPlanBuilder struct {
 	delegate PlanBuilder
 	entered  chan struct{}

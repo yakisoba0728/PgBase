@@ -40,6 +40,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
       .then((result) => {
         setPage(result);
         setFilterError(false);
+        setError(false);
       }).catch((caught: unknown) => {
         if (controller.signal.aborted) return;
         if (caught instanceof APIClientError && caught.code === "validation_failed") {

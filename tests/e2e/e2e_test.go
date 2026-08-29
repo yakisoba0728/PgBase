@@ -322,6 +322,29 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 		t.Fatalf("filtered titles = %#v, want [bravo charlie]", filteredTitles)
 	}
 
+	// Cursor continuation must preserve the filter and sort and terminate.
+	// rank >= 1 matches exactly two rows (bravo, charlie), so the second
+	// single-row page must end the cursor chain.
+	paged := url.Values{"limit": []string{"1"}, "filter": []string{"rank >= 1"}, "sort": []string{"-rank"}}
+	var first, second recordPage
+	if err := client.request(ctx, http.MethodGet, queryPath(path, paged), nil, http.StatusOK, &first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 1 || first.NextCursor == "" {
+		t.Fatalf("first filtered page = %v cursor %q", recordFieldValues(t, first, "title"), first.NextCursor)
+	}
+	if got := recordFieldValues(t, first, "title"); got[0] != "bravo" {
+		t.Fatalf("first filtered page title = %#v, want [bravo]", got)
+	}
+	paged.Set("cursor", first.NextCursor)
+	if err := client.request(ctx, http.MethodGet, queryPath(path, paged), nil, http.StatusOK, &second); err != nil {
+		t.Fatal(err)
+	}
+	secondTitles := recordFieldValues(t, second, "title")
+	if len(secondTitles) != 1 || secondTitles[0] != "charlie" || second.NextCursor != "" {
+		t.Fatalf("second filtered page = %v cursor %q, want [charlie] with termination", secondTitles, second.NextCursor)
+	}
+
 	invalid := url.Values{"limit": []string{"50"}, "filter": []string{"ghost = 1"}}
 	if err := client.request(ctx, http.MethodGet, queryPath(path, invalid), nil, http.StatusUnprocessableEntity, nil); err != nil {
 		t.Fatalf("unknown filter field must be rejected: %v", err)

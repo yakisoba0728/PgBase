@@ -82,7 +82,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   }
 
   async function preview() {
-    if (definition === null) return;
+    if (definition === null || pending) return;
     setError(null);
     let input: CollectionChangeInput;
     try { input = toInput(definition, fields); } catch { setError("Enter a valid default for the selected field type."); return; }
@@ -98,7 +98,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   }
 
   async function apply() {
-    if (!previewCurrent || plan === null || plannedInput === null) return;
+    if (!previewCurrent || plan === null || plannedInput === null || pending) return;
     setPending(true);
     setError(null);
     try {
@@ -113,7 +113,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   }
 
   async function previewDelete() {
-    if (definition === null) return;
+    if (definition === null || deletePending) return;
     setDeleteError(null);
     setDeletePending(true);
     try {
@@ -124,7 +124,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   }
 
   async function applyDelete() {
-    if (definition === null || deletePlan === null) return;
+    if (definition === null || deletePlan === null || deletePending) return;
     setDeletePending(true);
     setDeleteError(null);
     try {
@@ -160,7 +160,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
           <div className="checks">
             {(["required", "unique", "indexed"] as const).map((flag) => <label key={flag}><input aria-label={`Field ${index + 1} ${flag}`} checked={field[flag]} onChange={(event) => changeField(index, { [flag]: event.target.checked })} type="checkbox" /> {flag}</label>)}
           </div>
-          <button className="secondary" onClick={() => removeField(index)} type="button">Remove field</button>
+          {fields.length > 1 && <button className="secondary" disabled={pending} onClick={() => removeField(index)} type="button">Remove field</button>}
         </div>)}
         <button className="secondary" onClick={addField} type="button">Add field</button>
       </fieldset>

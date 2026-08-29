@@ -14,11 +14,6 @@ import (
 
 var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 
-func renderDefault(typ FieldType, raw json.RawMessage) (string, error) {
-	_, rendered, err := normalizeDefault(typ, raw)
-	return rendered, err
-}
-
 func normalizeDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, string, error) {
 	switch typ {
 	case TypeBoolean:
