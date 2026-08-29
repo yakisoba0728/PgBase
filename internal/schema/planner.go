@@ -155,6 +155,9 @@ func (Planner) PlanUpdate(baseVersion int64, current Collection, input UpdateCol
 				return Plan{}, validation(fmt.Sprintf("fields.%d.required", ordinal), "missing_default")
 			}
 			statements = append(statements, addColumnStatement(table, field))
+			// A brand-new field has no prior index state, so its flags must
+			// produce the same CREATE (UNIQUE) INDEX that PlanCreate emits.
+			statements = append(statements, indexChangeStatements(current.Name, table, PlannedField{}, field)...)
 			continue
 		}
 		alter, err := alterColumnStatements(table, ordinal, previous, field)
@@ -269,7 +272,10 @@ func indexChangeStatements(collection, table string, previous, field PlannedFiel
 	uniquenessChanged := previous.Unique != field.Unique
 	statements := make([]string, 0, 2)
 	if currentHasIndex && (!desiredHasIndex || uniquenessChanged) {
-		statements = append(statements, "DROP INDEX "+pgx.Identifier{indexName(collection, previous.Name)}.Sanitize())
+		// The connection search_path does not include "app", so the drop is
+		// schema-qualified; IF EXISTS tolerates metadata that drifted ahead
+		// of the physical index.
+		statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", indexName(collection, previous.Name)}.Sanitize())
 	}
 	if desiredHasIndex && (!currentHasIndex || uniquenessChanged) {
 		prefix := "CREATE INDEX "

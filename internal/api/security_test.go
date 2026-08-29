@@ -103,6 +103,14 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 			name: "oversized body",
 			body: `{"email":"admin@example.test","password":"security-oversized-body-7f31` + strings.Repeat("x", maxJSONBodyBytes) + `"}`,
 		},
+		{
+			name: "duplicate key",
+			body: `{"email":"admin@example.test","email":"admin2@example.test","password":"correct horse battery staple"}`,
+		},
+		{
+			name: "duplicate nested key",
+			body: `{"email":"admin@example.test","password":"correct horse battery staple","extra":{"role":"safe","role":"security-dup-7f31"}}`,
+		},
 	}
 	for _, test := range tests {
 		test := test

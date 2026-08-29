@@ -123,19 +123,21 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     } catch (caught: unknown) {
       if (caught instanceof APIClientError && caught.status === 409) {
         resetPlan();
-        // A 409 covers both a stale plan and a change that existing data
-        // rejects (for example a unique index over duplicate values). Tell
-        // them apart by whether the catalog actually moved.
+        // A 409 covers a stale plan, a plan that conflicts with existing data
+        // (for example a unique index over duplicate values), and object-name
+        // collisions. Tell a moved catalog apart from a same-version conflict.
         try {
           const catalog = await collections.catalog();
           if (catalog.version === appliedBaseVersion) {
-            setError("Existing data blocks this change (for example duplicate or missing values).");
+            setError("The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.");
           } else {
             setError("The catalog changed. Preview the collection again before applying.");
           }
         } catch {
           setError("The catalog changed. Preview the collection again before applying.");
         }
+      } else if (caught instanceof APIClientError && caught.status === 422) {
+        setError("Existing data blocks this change (for example missing or duplicate values).");
       } else setError("Unable to apply the collection change.");
     } finally { setPending(false); }
   }

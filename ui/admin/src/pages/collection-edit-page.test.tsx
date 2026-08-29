@@ -179,7 +179,7 @@ describe("collection editing", () => {
     await screen.findByRole("heading", { name: "Edit collection" });
     await user.click(await screen.findByRole("button", { name: "Preview change" }));
     await user.click(await screen.findByRole("button", { name: "Apply change" }));
-    expect(await screen.findByText("Existing data blocks this change (for example duplicate or missing values).")).toBeVisible();
+    expect(await screen.findByText("The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(5);
 
     // A stale plan (catalog actually moved) keeps the re-preview guidance.
@@ -201,6 +201,28 @@ describe("collection editing", () => {
     await user.click(await screen.findByRole("button", { name: "Preview change" }));
     await user.click(await screen.findByRole("button", { name: "Apply change" }));
     expect(await screen.findByText("The catalog changed. Preview the collection again before applying.")).toBeVisible();
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+  });
+
+  it("explains a 422 data-constraint rejection with the existing-data message", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/edit");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 7, checksum: "data-checksum",
+        definition: { name: "posts", tableName: "posts", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true, ordinal: 0 }] },
+        sql: ["ALTER TABLE app.posts ALTER COLUMN title SET NOT NULL"],
+      }))
+      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe detail", details: {} } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit collection" });
+    await user.click(await screen.findByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+    expect(await screen.findByText("Existing data blocks this change (for example missing or duplicate values).")).toBeVisible();
     expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
   });
 

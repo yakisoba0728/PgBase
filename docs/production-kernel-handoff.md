@@ -9,7 +9,7 @@
 | 원격 브랜치 | `origin/codex/data-kernel` (PR #8이 `main` 대상으로 열려 있음; 병합은 저장소 소유자가 처리) |
 | 구현 기준점 | 이 문서를 포함한 원격 브랜치 HEAD |
 | 구현 계획 | Production Kernel 15개 작업 + 데이터 커널 확장 완료 |
-| 코드 리뷰 | 전체 감사 28건, 데이터 커널 감사 3회와 각 후속 독립 재검증에서 확인한 발견까지 수정·재검증 완료 |
+| 코드 리뷰 | 전체 감사 28건과 이후 여러 차례의 독립 감사·재검증에서 확인한 발견까지 수정·재검증 완료 |
 | 알려진 미해결 구현 finding | 없음 |
 | 릴리스 상태 | pre-v0.1 개발 프리뷰 |
 
@@ -310,7 +310,7 @@ go test -tags=e2e ./tests/e2e -v -count=2 -shuffle=on
 
 E2E는 임시 Compose 프로젝트, 포트와 비밀을 자체 생성하고 종료 시 제거한다. 로컬 서비스 시작은 [10-minute quickstart](quickstart.md), 운영 배포는 [Deployment](deployment.md)를 따른다.
 
-향후 PR 전에는 target branch를 fetch한 다음 전체 branch diff와 CI를 다시 검토한다. 이 handoff에서는 PR 생성, target branch로의 로컬 merge, worktree 삭제를 하지 않는다.
+향후 PR 전에는 target branch를 fetch한 다음 전체 branch diff와 CI를 다시 검토한다. 이 handoff 절차의 작업 범위에는 target branch로의 로컬 merge와 worktree 삭제가 포함되지 않는다.
 
 ## 14. 문서와 소스 지도
 

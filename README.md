@@ -34,4 +34,4 @@ One pgBase project owns one PostgreSQL database. Multiple pgBase instances for t
 
 The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability while the project is pre-v0.1.
 
-This kernel does not provide public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); renames and composite indexes are not supported. It makes no throughput or zero-downtime upgrade guarantee.
+This kernel does not provide public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview) and composite indexes are not supported. It makes no throughput or zero-downtime upgrade guarantee.

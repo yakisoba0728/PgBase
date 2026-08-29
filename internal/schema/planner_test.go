@@ -261,6 +261,30 @@ func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing
 	}
 }
 
+func TestPlanUpdateCreatesIndexesForAddedFields(t *testing.T) {
+	planner := Planner{}
+	base := Collection{Name: "pages", TableName: "pages", Fields: []Field{{Name: "body", ColumnName: "body", Type: TypeText, Ordinal: 0}}}
+	plan, err := planner.PlanUpdate(4, base, UpdateCollectionInput{
+		Name: "pages",
+		Fields: []FieldInput{
+			{Name: "body", Type: TypeText},
+			{Name: "slug", Type: TypeText, Required: true, Unique: true, Indexed: true, Default: json.RawMessage(`""`)},
+			{Name: "views", Type: TypeInteger, Indexed: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{
+		`ALTER TABLE "app"."pages" ADD COLUMN "slug" text not null default E''::text`,
+		`CREATE UNIQUE INDEX "idx_282a0bddc05f55f9" ON "app"."pages" ("slug")`,
+		`ALTER TABLE "app"."pages" ADD COLUMN "views" integer`,
+		`CREATE INDEX "idx_1580b5fe6b8166d2" ON "app"."pages" ("views")`,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("statements = %#v, want %#v", got, want)
+	}
+}
+
 func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
 	planner := Planner{}
 	promote := UpdateCollectionInput{
@@ -272,7 +296,7 @@ func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := plan.Statements, []string{
-		`DROP INDEX "idx_34beac8152cca6ed"`,
+		`DROP INDEX IF EXISTS "app"."idx_34beac8152cca6ed"`,
 		`CREATE UNIQUE INDEX "idx_34beac8152cca6ed" ON "app"."posts" ("title")`,
 		`CREATE INDEX "idx_a1bd4f3cf569ea82" ON "app"."posts" ("views")`,
 	}; !reflect.DeepEqual(got, want) {
@@ -287,7 +311,7 @@ func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := plan.Statements, []string{`DROP INDEX "idx_34beac8152cca6ed"`}; !reflect.DeepEqual(got, want) {
+	if got, want := plan.Statements, []string{`DROP INDEX IF EXISTS "app"."idx_34beac8152cca6ed"`}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("index demote statements = %#v, want %#v", got, want)
 	}
 }

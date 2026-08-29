@@ -81,6 +81,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
 
   async function apply() {
     if (!previewCurrent || plan === null || plannedInput === null) return;
+    const appliedBaseVersion = plan.baseVersion;
     setPending(true);
     setError(null);
     try {
@@ -90,7 +91,18 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
       if (caught instanceof APIClientError && caught.status === 409) {
         setPlan(null);
         setPlannedInput(null);
-        setError("The catalog changed. Preview the collection again before applying.");
+        // A same-version 409 usually means the name is already taken; a moved
+        // catalog means the preview was stale.
+        try {
+          const catalog = await collections.catalog();
+          if (catalog.version === appliedBaseVersion) {
+            setError("A collection with this name likely already exists.");
+          } else {
+            setError("The catalog changed. Preview the collection again before applying.");
+          }
+        } catch {
+          setError("The catalog changed. Preview the collection again before applying.");
+        }
       } else setError("Unable to create the collection.");
     } finally { setPending(false); }
   }

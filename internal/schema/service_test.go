@@ -784,6 +784,59 @@ func TestPlanUpdateOmitsSetDefaultForUnchangedObjectDefaults(t *testing.T) {
 	}
 }
 
+func TestApplyUpdateCreatesEnforcesAndDropsIndexesForFieldFlags(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "slug", Type: TypeText, Unique: true, Indexed: true},
+	}}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan update: %v", err)
+	}
+	if _, err := service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("apply update: %v", err)
+	}
+
+	var indexes int
+	if err := pool.QueryRow(ctx, `select count(*) from pg_indexes
+		where schemaname = 'app' and tablename = 'posts' and indexname = $1`,
+		indexName("posts", "slug")).Scan(&indexes); err != nil {
+		t.Fatal(err)
+	}
+	if indexes != 1 {
+		t.Fatalf("added unique field produced %d indexes, want 1", indexes)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, title, slug)
+		values (gen_random_uuid(), statement_timestamp(), statement_timestamp(), 't', 'same')`); err != nil {
+		t.Fatalf("first slug insert: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, title, slug)
+		values (gen_random_uuid(), statement_timestamp(), statement_timestamp(), 't', 'same')`); err == nil {
+		t.Fatal("duplicate slug insert succeeded without a unique index")
+	}
+
+	demoted := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}, {Name: "slug", Type: TypeText}}}
+	plan, err = service.PlanUpdate(ctx, demoted)
+	if err != nil {
+		t.Fatalf("plan demote: %v", err)
+	}
+	if _, err := service.ApplyUpdate(ctx, demoted, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("apply demote: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from pg_indexes
+		where schemaname = 'app' and tablename = 'posts' and indexname = $1`,
+		indexName("posts", "slug")).Scan(&indexes); err != nil {
+		t.Fatal(err)
+	}
+	if indexes != 0 {
+		t.Fatalf("demoted field kept %d indexes, want 0", indexes)
+	}
+}
+
 func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText}}}, administratorID)

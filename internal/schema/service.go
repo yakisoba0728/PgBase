@@ -417,7 +417,7 @@ func classifyApplyError(err error) error {
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {
 		switch postgresError.Code {
-		case "42P07", "42710":
+		case "42P07", "42710", "42704":
 			return ErrConflict
 		case "23502", "23514":
 			return ErrDataConstraint

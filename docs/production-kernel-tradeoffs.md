@@ -1,6 +1,6 @@
 # pgBase Production Kernel 트레이드오프 기준
 
-이 문서는 `codex/production-kernel`의 구현 결정을 바꿀 때 확인해야 하는 이유, 비용, 재검토 조건을 기록한다. 현재 동작과 인수인계는 [최종 핸드오프](production-kernel-handoff.md), 발견 사항과 수정 증거는 [코드베이스 감사 보고서](codebase-audit-2026-08-28.md)를 기준으로 한다.
+이 문서는 `codex/data-kernel`의 구현 결정을 바꿀 때 확인해야 하는 이유, 비용, 재검토 조건을 기록한다. 현재 동작과 인수인계는 [최종 핸드오프](production-kernel-handoff.md), 발견 사항과 수정 증거는 [코드베이스 감사 보고서](codebase-audit-2026-08-28.md)를 기준으로 한다.
 
 ## 1. 제품과 데이터 경계
 

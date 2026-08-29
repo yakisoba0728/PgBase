@@ -88,7 +88,7 @@ Production Kernel은 pgBase의 전체 기능을 한 번에 구현하지 않고, 
 - `GET /api/admin/session`: 현재 관리자와 세션 상태
 - `GET /api/admin/collections`: catalog 조회
 - `POST /api/admin/collections/plan`: 컬렉션 create/update/delete 계획과 SQL 미리보기
-- `POST /api/admin/collections/apply`: 승인한 계획 checksum으로 컬렉션 생성
+- `POST /api/admin/collections/apply`: 승인한 계획 checksum으로 컬렉션 create/update/delete 적용
 - `GET /api/admin/system`: 마이그레이션, catalog version과 readiness 세부 상태
 
 관리자 API는 버전 호환 대상인 데이터 API와 분리한다. v0.x 동안 관리자 UI와 서버를 같은 릴리스로 배포하고 관리자 API의 외부 호환성을 약속하지 않는다.
@@ -256,7 +256,7 @@ Production Kernel은 트랜잭션 안에서 안전하게 끝나는 컬렉션 생
 - `PATCH /api/v1/collections/{collection}/records/{id}`
 - `DELETE /api/v1/collections/{collection}/records/{id}`
 
-Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 2026-08-29 확장으로 제한적 filter/sort 표현식(최대 8키, jsonb 제외, 비용 예산 내)을 제공하며, 범용 필터 언어는 여전히 제공하지 않는다.
+Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 2026-08-29 확장으로 제한적 filter/sort 표현식을 제공한다(정렬 최대 8키, 필터는 바이트·노드 예산, jsonb 제외). 범용 필터 언어는 여전히 제공하지 않는다.
 
 쓰기 흐름은 다음과 같다.
 
