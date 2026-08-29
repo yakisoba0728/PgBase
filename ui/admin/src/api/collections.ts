@@ -13,7 +13,13 @@ export interface FieldInput {
   default?: unknown;
 }
 
-export interface CreateCollectionInput { name: string; fields: FieldInput[] }
+export type CollectionOperation = "create" | "update" | "delete";
+
+export interface CollectionChangeInput {
+  operation: CollectionOperation;
+  name: string;
+  fields?: FieldInput[];
+}
 
 export interface FieldDefinition extends FieldInput {
   id?: string;
@@ -41,6 +47,8 @@ export interface CollectionCatalog {
   collections: Record<string, CollectionDefinition>;
 }
 
+export interface CollectionDeleteResult { name: string; deleted: boolean }
+
 export class CollectionsAPI {
   constructor(private readonly client: APIClient, private readonly csrfToken: string) {}
 
@@ -48,15 +56,15 @@ export class CollectionsAPI {
     return this.client.request<CollectionCatalog>("/api/admin/collections", { signal });
   }
 
-  plan(input: CreateCollectionInput): Promise<CollectionPlan> {
+  plan(input: CollectionChangeInput): Promise<CollectionPlan> {
     return this.client.request<CollectionPlan>("/api/admin/collections/plan", {
       method: "POST",
       body: stringifyJSON(input),
     });
   }
 
-  apply(input: CreateCollectionInput, checksum: string, baseVersion: number): Promise<CollectionDefinition> {
-    return this.client.request<CollectionDefinition>("/api/admin/collections/apply", {
+  apply(input: CollectionChangeInput, checksum: string, baseVersion: number): Promise<CollectionDefinition | CollectionDeleteResult> {
+    return this.client.request<CollectionDefinition | CollectionDeleteResult>("/api/admin/collections/apply", {
       method: "POST",
       headers: { "X-PgBase-CSRF": this.csrfToken },
       body: stringifyJSON({ ...input, checksum, baseVersion }),

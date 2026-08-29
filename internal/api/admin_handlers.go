@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -192,6 +193,9 @@ func decodeStrictJSON(r *http.Request, destination any) error {
 	if err := jsonvalue.ValidateUnicode(raw); err != nil {
 		return err
 	}
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
@@ -205,6 +209,68 @@ func decodeStrictJSON(r *http.Request, destination any) error {
 		return err
 	}
 	return nil
+}
+
+// rejectDuplicateJSONKeys walks the token stream and rejects an object that
+// declares the same key twice, so a request cannot rely on last-key-wins
+// parsing to smuggle contradictory values.
+func rejectDuplicateJSONKeys(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	type frame struct {
+		object    bool
+		keys      map[string]struct{}
+		expectKey bool
+	}
+	var stack []*frame
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			// Malformed JSON is reported by the strict decode itself.
+			return nil
+		}
+		switch token := token.(type) {
+		case json.Delim:
+			switch token {
+			case '{':
+				stack = append(stack, &frame{object: true, keys: map[string]struct{}{}, expectKey: true})
+			case '[':
+				stack = append(stack, &frame{})
+			default:
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				// A closed composite was a value in the parent object, so the
+				// parent expects its next key again.
+				if len(stack) > 0 && stack[len(stack)-1].object && !stack[len(stack)-1].expectKey {
+					stack[len(stack)-1].expectKey = true
+				}
+			}
+		case string:
+			if len(stack) == 0 {
+				continue
+			}
+			top := stack[len(stack)-1]
+			if !top.object {
+				continue
+			}
+			if top.expectKey {
+				if _, duplicate := top.keys[token]; duplicate {
+					return fmt.Errorf("request body contains duplicate JSON key %q", token)
+				}
+				top.keys[token] = struct{}{}
+				top.expectKey = false
+			} else {
+				top.expectKey = true
+			}
+		default:
+			if len(stack) > 0 && stack[len(stack)-1].object && !stack[len(stack)-1].expectKey {
+				stack[len(stack)-1].expectKey = true
+			}
+		}
+	}
 }
 
 func writeAdminAuthError(w http.ResponseWriter, r *http.Request, err error) {

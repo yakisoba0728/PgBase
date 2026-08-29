@@ -32,7 +32,7 @@ func TestDefaultRendersTypedLiterals(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got, err := renderDefault(tc.typ, json.RawMessage(tc.raw))
+		_, got, err := normalizeDefault(tc.typ, json.RawMessage(tc.raw))
 		if err != nil || got != tc.want {
 			t.Errorf("renderDefault(%s, %s) = %q, %v; want %q, nil", tc.typ, tc.raw, got, err, tc.want)
 		}
@@ -58,7 +58,7 @@ func TestDefaultRejectsUntypedAndSQLInputs(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		if _, err := renderDefault(tc.typ, json.RawMessage(tc.raw)); err == nil {
+		if _, _, err := normalizeDefault(tc.typ, json.RawMessage(tc.raw)); err == nil {
 			t.Errorf("renderDefault(%s, %s) succeeded, want validation error", tc.typ, tc.raw)
 		}
 	}
@@ -85,7 +85,7 @@ func TestTextDefaultLiteralRoundTripsWithStandardConformingStringsDisabled(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := renderDefault(TypeText, raw)
+	_, rendered, err := normalizeDefault(TypeText, raw)
 	if err != nil {
 		t.Fatalf("render text default: %v", err)
 	}

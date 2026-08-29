@@ -36,7 +36,7 @@ Production Kernel은 pgBase의 전체 기능을 한 번에 구현하지 않고, 
 - 생성 시 필수값, 기본값, unique 및 일반 인덱스 지정
 - 스키마 변경 계획과 실행 SQL 미리보기
 - 관리자 전용 레코드 목록·조회·생성·수정·삭제
-- `(created_at, id)` 기반 불투명 커서 페이지네이션
+- 정렬 키 기반 불투명 커서 페이지네이션 (기본 순서는 `(created_at, id)`; 2026-08-29 확장으로 임의 정렬 지원)
 - 스키마 버전 관리와 다중 인스턴스 캐시 동기화
 - 공통 JSON 오류 응답과 요청 ID
 - 구조화 로그, `/health/live`, `/health/ready`
@@ -49,7 +49,7 @@ Production Kernel은 pgBase의 전체 기능을 한 번에 구현하지 않고, 
 - 일반 사용자용 인증 컬렉션과 접근 규칙 언어
 - 공개 또는 익명 레코드 API
 - 관계 필드, enum, 파일 필드와 고급 필터 표현식
-- 기존 컬렉션의 필드 삭제·이름 변경·타입 변경
+- 기존 컬렉션의 이름 변경 (2026-08-29 데이터 커널 확장으로 필드 삭제·화이트리스트 확대 타입 변경·플래그 변경은 지원, 아래 §8 참조)
 - 대형 테이블을 위한 비트랜잭션 온라인 DDL
 - 실시간 구독, transactional outbox와 WebSocket
 - 로컬 및 S3 호환 파일 저장
@@ -80,15 +80,15 @@ Production Kernel은 pgBase의 전체 기능을 한 번에 구현하지 않고, 
 
 ### 4.3 최소 관리자 화면과 API
 
-관리자 UI는 설정, 로그인, 컬렉션 목록·생성, 레코드 목록·편집과 시스템 상태 화면만 제공한다. UI 전용 서버 로직을 만들지 않고 다음 관리자 API를 동일하게 사용한다.
+관리자 UI는 설정, 로그인, 컬렉션 목록·생성·편집·삭제, 레코드 목록(제한적 filter/sort 포함)·편집과 시스템 상태 화면만 제공한다. UI 전용 서버 로직을 만들지 않고 다음 관리자 API를 동일하게 사용한다.
 
 - `POST /api/admin/setup`: 첫 관리자 생성
 - `POST /api/admin/auth/login`: 관리자 세션 생성
 - `POST /api/admin/auth/logout`: 현재 세션 폐기
 - `GET /api/admin/session`: 현재 관리자와 세션 상태
 - `GET /api/admin/collections`: catalog 조회
-- `POST /api/admin/collections/plan`: 컬렉션 생성 계획과 SQL 미리보기
-- `POST /api/admin/collections/apply`: 승인한 계획 checksum으로 컬렉션 생성
+- `POST /api/admin/collections/plan`: 컬렉션 create/update/delete 계획과 SQL 미리보기
+- `POST /api/admin/collections/apply`: 승인한 계획 checksum으로 컬렉션 create/update/delete 적용
 - `GET /api/admin/system`: 마이그레이션, catalog version과 readiness 세부 상태
 
 관리자 API는 버전 호환 대상인 데이터 API와 분리한다. v0.x 동안 관리자 UI와 서버를 같은 릴리스로 배포하고 관리자 API의 외부 호환성을 약속하지 않는다.
@@ -195,7 +195,7 @@ pgbase/
 - `admin_rate_limits`: HMAC 처리한 로그인 주체, 실패 횟수, 관찰 구간과 차단 만료 시각
 - `collections`: UUIDv7 ID, 논리 이름, 실제 테이블 이름, 상태와 생성 시각
 - `fields`: 컬렉션 ID, 논리·실제 열 이름, 타입, 필수값, 기본값과 순서
-- `collection_indexes`: 컬렉션 ID, 인덱스 이름, 필드 목록, unique 여부
+- `collection_indexes`: 컬렉션 ID, 인덱스 이름, 단일 필드 참조, unique 여부
 - `schema_migrations`: 사용자 스키마 변경 번호, checksum, 변경 계획, 실행 SQL, 적용 관리자와 적용 시각
 
 UUIDv7은 PostgreSQL 버전의 내장 함수에 의존하지 않고 애플리케이션에서 생성한다. 이메일은 Unicode 공백 제거와 소문자 변환 후 `text` unique 인덱스로 관리하며, 데이터베이스 확장 설치를 필수로 요구하지 않는다.
@@ -242,6 +242,8 @@ UUIDv7은 PostgreSQL 버전의 내장 함수에 의존하지 않고 애플리케
 
 Production Kernel은 트랜잭션 안에서 안전하게 끝나는 컬렉션 생성만 적용한다. 기존 열의 삭제·이름 변경·타입 변경과 `CREATE INDEX CONCURRENTLY`가 필요한 작업은 `unsupported_schema_change`로 거부한다.
 
+> 2026-08-29 데이터 커널 확장: 위 문장은 1차 전달 기준이다. 컬렉션 update는 같은 advisory lock·재계획·checksum 원자 적용 규약을 그대로 유지한 채 기존 열의 삭제, required/default/unique/indexed 플래그 변경, 화이트리스트된 확대 타입 변경(integer→bigint, integer→numeric, bigint→numeric)까지 지원하도록 확장됐다. 화이트리스트 밖 타입 변경은 `unsupported_schema_change`로 거부된다. 이름 변경은 오류로 거부되지 않고 이름 기준 diff에서 제거·추가로 분해되어 `DROP COLUMN` + `ADD COLUMN`이 되며 SQL 프리뷰에 그대로 표시된다. 복합 인덱스와 `CREATE INDEX CONCURRENTLY`가 필요한 작업은 지원하지 않는다.
+
 각 데이터 요청은 catalog 버전을 고정한 뒤 SQL을 컴파일한다. 데이터베이스 트랜잭션 시작 시 `schema_state`를 확인하고 버전이 다르면 catalog를 갱신한 후 한 번만 다시 컴파일한다. LISTEN 연결이 끊긴 인스턴스는 재연결 시 버전을 다시 읽으며, 동기화가 불가능하면 readiness를 실패시켜 오래된 catalog로 계속 요청을 처리하지 않는다.
 
 ## 9. 레코드 API와 데이터 흐름
@@ -254,7 +256,7 @@ Production Kernel은 트랜잭션 안에서 안전하게 끝나는 컬렉션 생
 - `PATCH /api/v1/collections/{collection}/records/{id}`
 - `DELETE /api/v1/collections/{collection}/records/{id}`
 
-Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 임의 필터와 정렬은 제공하지 않는다.
+Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 2026-08-29 확장으로 제한적 filter/sort 표현식을 제공한다(정렬 최대 8키, 필터는 바이트·노드 예산, jsonb 제외). 범용 필터 언어는 여전히 제공하지 않는다.
 
 쓰기 흐름은 다음과 같다.
 
@@ -300,12 +302,12 @@ PATCH는 전달된 필드만 변경하고 `updated_at`을 갱신한다. DELETE�
 }
 ```
 
-- `400`: 잘못된 JSON, 경로·쿼리 문법 또는 해석할 수 없는 커서
+- `400`: 잘못된 JSON, 경로 파라미터 또는 해석할 수 없는 커서 (filter/sort 표현식 위반은 `422`)
 - `401`: 관리자 인증 없음, 만료 또는 잘못된 세션
 - `403`: 인증된 관리자의 origin·CSRF 검증 실패 또는 권한 거부
 - `404`: 컬렉션 또는 레코드 없음
 - `409`: schema version, unique 제약 또는 동시 변경 충돌
-- `422`: 필드 타입, 필수값 또는 컬렉션 스키마 제약 위반
+- `422`: 필드 타입, 필수값, filter/sort 표현식 위반 또는 컬렉션 스키마 제약 위반
 - `503`: PostgreSQL 연결, lock timeout 또는 일시적 의존성 실패
 - `500`: 분류하지 못한 내부 오류
 
@@ -373,6 +375,6 @@ Production Kernel은 다음 조건을 모두 만족해야 완료로 본다.
 
 ## 15. 후속 단계와의 연결
 
-다음 데이터 코어 단계는 Production Kernel의 catalog와 query compiler 위에 관계 필드, 필터 AST, 정렬과 관계 확장을 추가한다. 이후 인증·규칙 단계는 관리자 전용 레코드 API에 사용자 주체와 규칙 조건을 결합한다. 실시간 단계는 동일한 쓰기 트랜잭션 경계에 outbox를 추가하며, 파일 단계는 커밋 후 보상 작업 경계를 사용한다.
+다음 데이터 코어 단계는 Production Kernel의 catalog와 query compiler 위에 관계 필드와 관계 확장을 추가한다 (제한적 filter/sort는 2026-08-29 확장으로 제공됨; 고급 표현식·관계 필터는 잔여 작업). 이후 인증·규칙 단계는 관리자 전용 레코드 API에 사용자 주체와 규칙 조건을 결합한다. 실시간 단계는 동일한 쓰기 트랜잭션 경계에 outbox를 추가하며, 파일 단계는 커밋 후 보상 작업 경계를 사용한다.
 
 이 순서를 유지하면 각 단계가 실행 가능한 수직 기능을 제공하고, 후속 기능이 Production Kernel의 보안 및 트랜잭션 불변식을 우회하지 않는다.

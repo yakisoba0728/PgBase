@@ -75,8 +75,9 @@ describe("collection creation", () => {
 
     const [, planOptions] = fetchMock.mock.calls[1] as [string, RequestInit];
     const [applyPath, applyOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
-    const plannedInput = JSON.parse(planOptions.body as string) as unknown;
     expect(applyPath).toBe("/api/admin/collections/apply");
+    expect(JSON.parse(planOptions.body as string)).toMatchObject({ operation: "create", name: "posts" });
+    const plannedInput = JSON.parse(planOptions.body as string) as unknown;
     expect(JSON.parse(applyOptions.body as string)).toEqual({
       ...(plannedInput as object),
       baseVersion: 7,
@@ -98,7 +99,8 @@ describe("collection creation", () => {
       .mockResolvedValueOnce(session())
       .mockResolvedValueOnce(response(200, planBody))
       .mockResolvedValueOnce(response(200, planBody))
-      .mockResolvedValueOnce(response(409, { error: { code: "schema_conflict", message: "unsafe detail", details: {} } }));
+      .mockResolvedValueOnce(response(409, { error: { code: "schema_conflict", message: "unsafe detail", details: {} } }))
+      .mockResolvedValueOnce(response(200, { version: 3, collections: {} }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -117,7 +119,7 @@ describe("collection creation", () => {
     await screen.findByRole("button", { name: "Apply collection" });
     await user.click(screen.getByRole("button", { name: "Apply collection" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The catalog changed. Preview the collection again before applying.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("A collection with this name likely already exists.");
     expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Apply collection" })).not.toBeInTheDocument();
     const [, conflictOptions] = fetchMock.mock.calls[3] as [string, RequestInit];

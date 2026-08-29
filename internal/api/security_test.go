@@ -78,7 +78,7 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 		AdminAuth: auth,
 		Schema:    securityPlannerService{},
 	})
-	body := `{"name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
+	body := `{"operation":"create","name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/collections/plan", body)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
 	response := httptest.NewRecorder()
@@ -102,6 +102,14 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 		{
 			name: "oversized body",
 			body: `{"email":"admin@example.test","password":"security-oversized-body-7f31` + strings.Repeat("x", maxJSONBodyBytes) + `"}`,
+		},
+		{
+			name: "duplicate key",
+			body: `{"email":"admin@example.test","email":"admin2@example.test","password":"correct horse battery staple"}`,
+		},
+		{
+			name: "duplicate nested key",
+			body: `{"email":"admin@example.test","password":"correct horse battery staple","extra":{"role":"safe","role":"security-dup-7f31"}}`,
 		},
 	}
 	for _, test := range tests {
@@ -388,11 +396,14 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	records := query.NewService(pool, schemas, testTokenSecret)
 	codec := query.NewCursorCodec(testTokenSecret)
 	valid, err := codec.Encode(query.PageCursor{
-		Version:      2,
+		Version:      3,
 		CollectionID: collection.ID,
-		CreatedAt:    time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-		ID:           uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"),
-		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		Sort:         []query.SortKey{{Field: "created_at"}, {Field: "id"}},
+		Values: []json.RawMessage{
+			json.RawMessage(`"2026-08-28T00:00:00Z"`),
+			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),
+		},
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
@@ -451,7 +462,7 @@ type securityCompilerRecords struct {
 	createErr  error
 }
 
-func (*securityCompilerRecords) List(context.Context, string, string, int) (query.RecordPage, error) {
+func (*securityCompilerRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
 	panic("unexpected List call")
 }
 
@@ -486,13 +497,30 @@ func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollecti
 	panic("unexpected ApplyCreate call")
 }
 
+func (securityPlannerService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
+	current := schema.Collection{Name: input.Name, TableName: input.Name}
+	return (schema.Planner{}).PlanUpdate(0, current, input)
+}
+
+func (securityPlannerService) ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
+	panic("unexpected ApplyUpdate call")
+}
+
+func (securityPlannerService) PlanDelete(context.Context, string) (schema.Plan, error) {
+	panic("unexpected PlanDelete call")
+}
+
+func (securityPlannerService) ApplyDelete(context.Context, string, string, int64, uuid.UUID) error {
+	panic("unexpected ApplyDelete call")
+}
+
 func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
 	panic("unexpected Catalog call")
 }
 
 type securityErrorRecords struct{ err error }
 
-func (r securityErrorRecords) List(context.Context, string, string, int) (query.RecordPage, error) {
+func (r securityErrorRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
 	return query.RecordPage{}, r.err
 }
 

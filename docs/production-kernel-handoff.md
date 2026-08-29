@@ -1,18 +1,17 @@
 # pgBase Production Kernel 최종 핸드오프
 
-이 문서는 `codex/production-kernel` 브랜치에 구현된 Production Kernel의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 전달 기준은 이 문서를 포함한 `origin/codex/production-kernel`의 최신 커밋이며, 특정 로컬 worktree나 과거 중간 커밋은 기준이 아니다.
+이 문서는 `codex/data-kernel` 브랜치에 구현된 Production Kernel과 데이터 커널 확장의 최종 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. 전달 기준은 이 문서를 포함한 `origin/codex/data-kernel`의 최신 커밋이며, 특정 로컬 worktree나 과거 중간 커밋은 기준이 아니다.
 
 ## 1. 현재 상태
 
 | 항목 | 상태 |
 | --- | --- |
-| 원격 브랜치 | `origin/codex/production-kernel` |
+| 원격 브랜치 | `origin/codex/data-kernel` (PR #8이 `main` 대상으로 열려 있음; 병합은 저장소 소유자가 처리) |
 | 구현 기준점 | 이 문서를 포함한 원격 브랜치 HEAD |
-| 구현 계획 | 15개 작업 완료 |
-| 코드 리뷰 | 전체 감사 28건과 후속 독립 재감사에서 확인한 제품 정확성 1건까지 수정·재검증 완료 |
+| 구현 계획 | Production Kernel 15개 작업 + 데이터 커널 확장 완료 |
+| 코드 리뷰 | 전체 감사 28건과 이후 여러 차례의 독립 감사·재검증에서 확인한 발견까지 수정·재검증 완료 |
 | 알려진 미해결 구현 finding | 없음 |
 | 릴리스 상태 | pre-v0.1 개발 프리뷰 |
-| PR / 병합 | 아직 만들거나 병합하지 않음. 이후 저장소 소유자가 원격 브랜치로 PR 처리 |
 
 현재 결과물은 PostgreSQL 기반 관리형 백엔드의 운영 가능한 핵심이다. 관리자용 컬렉션/레코드 백엔드로는 배포 후보지만, 공개 사용자 인증·접근 규칙·관계·파일·realtime까지 제공하는 PocketBase 기능 대체 완성본은 아니다.
 
@@ -56,7 +55,7 @@
 
 - 공개 사용자 인증, RBAC 또는 레코드 접근 규칙
 - 관계 필드, 파일 저장소, realtime 구독
-- 범용 filter/sort/query 언어
+- 관계 조인/expand, jsonb 내부 필터링을 포함한 범용 query 언어 (레코드 목록에는 제한적 `filter`/`sort` 표현식이 제공됨)
 - 공식 SDK와 생성된 OpenAPI
 - online DDL, down migration, read replica routing, sharding
 - 임의의 v0.x 버전 사이 무중단 호환성 보장
@@ -117,8 +116,10 @@ PostgreSQL pool and transactions
 
 컬렉션 변경은 두 단계다.
 
-1. `plan`이 정규화된 정의, 기준 카탈로그 버전, checksum과 검토 가능한 SQL을 만든다.
+1. `plan`이 정규화된 정의, 기준 카탈로그 버전, checksum과 검토 가능한 SQL을 만든다. 본문의 `operation`은 `create`, `update`, `delete` 중 하나여야 한다(감사 레코드에는 내부 라벨 `collection_create`/`collection_update`/`collection_delete`가 기록된다). update는 `fields` 키가 반드시 필요하며 생략하면 요청이 거부된다.
 2. `apply`가 기준 버전과 checksum을 다시 검증한 뒤 PostgreSQL advisory lock 아래 하나의 트랜잭션으로 DDL, 메타데이터, 감사 기록과 버전 증가를 반영한다.
+
+update는 이름 기준 필드 diff로 추가(`ADD COLUMN`), 삭제(`DROP COLUMN`), required/default/unique/indexed 플래그 변경과 화이트리스트된 확대 타입 변경(integer→bigint, integer→numeric, bigint→numeric)만 허용하고 나머지 타입 변경은 `unsupported_schema_change`로 거부한다. 기존 데이터가 변경을 위반하면(예: NULL이 남아 있는 컬럼의 SET NOT NULL) 적용이 422로 롤백된다. delete는 `DROP TABLE` 하나로 물리 테이블과 의존 인덱스를 제거한다.
 
 식별자는 검증된 카탈로그 매핑에서만 생성하고 값은 parameter binding한다. 다른 인스턴스는 PostgreSQL `LISTEN/NOTIFY`를 invalidation 힌트로 사용하며, 알림 유실을 가정해 영속 카탈로그 버전을 다시 읽는다. listener가 동기화되지 않으면 readiness가 실패한다.
 
@@ -130,6 +131,7 @@ PostgreSQL pool and transactions
 | --- | --- | --- |
 | `GET /health/live` | 프로세스 HTTP liveness | 공개 |
 | `GET /health/ready` | HTTP, DB, migration, schema listener readiness | 공개 |
+| `GET /api/admin/status` | setup 필요 여부 확인 | 공개 (setupRequired만 반환) |
 | `POST /api/admin/setup` | 최초 관리자 한 번 생성 | setup token + same-origin |
 | `POST /api/admin/auth/login` | 관리자 로그인 | same-origin + rate limit |
 | `POST /api/admin/login` | 로그인 호환 alias | same-origin + rate limit |
@@ -137,10 +139,10 @@ PostgreSQL pool and transactions
 | `POST /api/admin/auth/logout` | 현재 세션 폐기 | 관리자 세션 + mutation 보호 |
 | `DELETE /api/admin/session` | 로그아웃 호환 alias | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/collections` | 현재 카탈로그 조회 | 관리자 인증 |
-| `POST /api/admin/collections/plan` | 컬렉션 생성 계획 | 관리자 인증 |
-| `POST /api/admin/collections/apply` | 검토한 계획 적용 | 관리자 세션 + mutation 보호 |
+| `POST /api/admin/collections/plan` | 컬렉션 create/update/delete 계획 (`operation` 필수) | 관리자 인증 |
+| `POST /api/admin/collections/apply` | 검토한 계획 적용 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/system` | 버전, DB, migration, catalog/listener 상태 | 관리자 인증 |
-| `GET /api/v1/collections/{collection}/records` | 레코드 목록과 cursor 페이지네이션 | 관리자 세션 |
+| `GET /api/v1/collections/{collection}/records` | 레코드 목록, `filter`/`sort` 표현식과 cursor 페이지네이션 | 관리자 세션 |
 | `POST /api/v1/collections/{collection}/records` | typed 레코드 생성 | 관리자 세션 + mutation 보호 |
 | `GET /api/v1/collections/{collection}/records/{id}` | 단일 레코드 조회 | 관리자 세션 |
 | `PATCH /api/v1/collections/{collection}/records/{id}` | 부분 갱신 | 관리자 세션 + mutation 보호 |
@@ -196,7 +198,8 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 
 - 최초 관리자 setup과 로그인/로그아웃
 - 컬렉션 목록과 컬렉션 생성 plan/apply
-- 레코드 목록, 생성, 수정, 삭제
+- 컬렉션 편집(필드 추가/삭제/플래그 변경 plan/apply)과 2단계 삭제 확인
+- 레코드 목록(filter 표현식, 정렬 가능 컬럼 헤더, cursor 페이지네이션), 생성, 수정, 삭제
 - 애플리케이션/DB/migration/catalog/listener 시스템 상태
 
 프론트엔드 소스와 커밋된 `ui/admin/dist`는 CI에서 재빌드 후 diff가 없어야 한다.
@@ -270,7 +273,7 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 1. relationship와 안전한 join/populate 모델
 2. object storage 기반 file field와 upload/download authorization
 3. PostgreSQL 기반 realtime change delivery와 재연결/유실 계약
-4. 제한적 filter/sort/index 모델
+4. 복합 인덱스 등 인덱스 모델 확장과 고급 filter/sort 표현식 (제한적 filter/sort는 2026-08-29 데이터 커널 확장으로 제공됨)
 5. online schema change 전략, read replica, tenant/project control plane 검토
 
 ## 13. 브랜치 인수인계와 재개 방법
@@ -281,13 +284,13 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 
 ```console
 git fetch origin
-git switch --track origin/codex/production-kernel
+git switch --track origin/codex/data-kernel
 ```
 
 이미 로컬 브랜치가 있을 때:
 
 ```console
-git switch codex/production-kernel
+git switch codex/data-kernel
 git pull --ff-only
 ```
 
@@ -307,7 +310,7 @@ go test -tags=e2e ./tests/e2e -v -count=2 -shuffle=on
 
 E2E는 임시 Compose 프로젝트, 포트와 비밀을 자체 생성하고 종료 시 제거한다. 로컬 서비스 시작은 [10-minute quickstart](quickstart.md), 운영 배포는 [Deployment](deployment.md)를 따른다.
 
-향후 PR 전에는 target branch를 fetch한 다음 전체 branch diff와 CI를 다시 검토한다. 이 handoff에서는 PR 생성, target branch로의 로컬 merge, worktree 삭제를 하지 않는다.
+향후 PR 전에는 target branch를 fetch한 다음 전체 branch diff와 CI를 다시 검토한다. 이 handoff 절차의 작업 범위에는 target branch로의 로컬 merge와 worktree 삭제가 포함되지 않는다.
 
 ## 14. 문서와 소스 지도
 

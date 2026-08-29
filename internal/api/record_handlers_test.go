@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -117,6 +118,30 @@ func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
 	}
 }
 
+func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
+	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
+	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodGet,
+		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+"&sort="+url.QueryEscape("-rank,created_at"), "", true)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if records.listFilter != `(title = 'x' && rank >= 2)` || records.listSort != "-rank,created_at" {
+		t.Fatalf("forwarded params filter=%q sort=%q", records.listFilter, records.listSort)
+	}
+
+	records.listErr = &query.ValidationError{Details: []query.ValidationDetail{{Field: "filter", Code: "unknown_field"}}}
+	request = authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?filter=ghost%20%3D%201", "", true)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("filter validation status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+}
+
 func TestRecordRoutesMapSafeProductErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -168,14 +193,14 @@ type fakeRecordService struct {
 	page                                             query.RecordPage
 	record                                           map[string]any
 	listErr, getErr, createErr, updateErr, deleteErr error
-	listCollection, listCursor                       string
+	listCollection, listCursor, listFilter, listSort string
 	listLimit                                        int
 	getID, updateID, deleteID                        uuid.UUID
 	createCalls                                      int
 }
 
-func (f *fakeRecordService) List(_ context.Context, collection, cursor string, limit int) (query.RecordPage, error) {
-	f.listCollection, f.listCursor, f.listLimit = collection, cursor, limit
+func (f *fakeRecordService) List(_ context.Context, collection, cursor string, limit int, filter, sort string) (query.RecordPage, error) {
+	f.listCollection, f.listCursor, f.listLimit, f.listFilter, f.listSort = collection, cursor, limit, filter, sort
 	return f.page, f.listErr
 }
 func (f *fakeRecordService) Get(_ context.Context, _ string, id uuid.UUID) (map[string]any, error) {

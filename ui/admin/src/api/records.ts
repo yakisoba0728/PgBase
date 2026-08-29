@@ -10,12 +10,20 @@ function recordsPath(collection: string): string {
   return `/api/v1/collections/${encodeURIComponent(collection)}/records`;
 }
 
+export interface ListOptions {
+  cursor?: string;
+  filter?: string;
+  sort?: string;
+}
+
 export class RecordsAPI {
   constructor(private readonly client: APIClient, private readonly csrfToken: string) {}
 
-  list(collection: string, cursor?: string, signal?: AbortSignal): Promise<RecordPage> {
+  list(collection: string, options?: ListOptions, signal?: AbortSignal): Promise<RecordPage> {
     const query = new URLSearchParams({ limit: "50" });
-    if (cursor) query.set("cursor", cursor);
+    if (options?.cursor) query.set("cursor", options.cursor);
+    if (options?.filter) query.set("filter", options.filter);
+    if (options?.sort) query.set("sort", options.sort);
     return this.client.request<RecordPage>(`${recordsPath(collection)}?${query}`, { signal });
   }
 

@@ -66,7 +66,7 @@ func BenchmarkRecordServiceCRUD20Fields10000Rows(b *testing.B) {
 	b.Run("list_50", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
-			if _, err := records.List(ctx, "benchmark_records", "", 50); err != nil {
+			if _, err := records.List(ctx, "benchmark_records", "", 50, "", ""); err != nil {
 				b.Fatal(err)
 			}
 		}

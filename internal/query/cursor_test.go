@@ -4,12 +4,24 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+func testCursorSort() []SortKey {
+	return []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}
+}
+
+func testCursorValues() []json.RawMessage {
+	return []json.RawMessage{
+		json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`),
+		json.RawMessage(`"12345678-1234-4567-8901-123456789abc"`),
+	}
+}
 
 func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	t.Parallel()
@@ -18,8 +30,8 @@ func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	want := PageCursor{
 		Version:      cursorVersion,
 		CollectionID: uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
-		CreatedAt:    time.Date(2026, 8, 28, 12, 34, 56, 123456789, time.UTC),
-		ID:           uuid.MustParse("12345678-1234-4567-8901-123456789abc"),
+		Sort:         testCursorSort(),
+		Values:       testCursorValues(),
 		ExpiresAt:    time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
 	}
 
@@ -41,7 +53,7 @@ func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode token fixture: %v", err)
 	}
-	wantPayload := `{"v":2,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","createdAt":"2026-08-28T12:34:56.123456789Z","id":"12345678-1234-4567-8901-123456789abc","expiresAt":"2026-08-28T12:49:56Z"}`
+	wantPayload := `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56.123456789Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T12:49:56Z"}`
 	if got := string(raw[:len(raw)-sha256.Size]); got != wantPayload {
 		t.Fatalf("payload = %q, want %q", got, wantPayload)
 	}
@@ -50,8 +62,16 @@ func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode() error = %v", err)
 	}
-	if got.Version != want.Version || got.CollectionID != want.CollectionID || !got.CreatedAt.Equal(want.CreatedAt) || got.CreatedAt.Location() != time.UTC || got.ID != want.ID || !got.ExpiresAt.Equal(want.ExpiresAt) {
+	if got.Version != want.Version || got.CollectionID != want.CollectionID || !sameSortKeys(got.Sort, want.Sort) || len(got.Values) != len(want.Values) {
 		t.Fatalf("Decode() = %#v, want %#v in UTC", got, want)
+	}
+	for index := range want.Values {
+		if string(got.Values[index]) != string(want.Values[index]) {
+			t.Fatalf("value %d = %s, want %s", index, got.Values[index], want.Values[index])
+		}
+	}
+	if !got.ExpiresAt.Equal(want.ExpiresAt) || got.ExpiresAt.Location() != time.UTC {
+		t.Fatalf("expiry = %#v, want %#v", got.ExpiresAt, want.ExpiresAt)
 	}
 }
 
@@ -64,8 +84,7 @@ func TestCursorCodecRejectsTamperingMalformedTokensAndSecretRotation(t *testing.
 	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
 	token, err := codec.Encode(PageCursor{
 		Version: cursorVersion, CollectionID: collectionID,
-		CreatedAt: time.Date(2026, 8, 28, 12, 34, 56, 0, time.UTC),
-		ID:        uuid.MustParse("12345678-1234-4567-8901-123456789abc"), ExpiresAt: expiresAt,
+		Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)
@@ -92,7 +111,7 @@ func TestCursorCodecRejectsTamperingMalformedTokensAndSecretRotation(t *testing.
 		{name: "padding rejected", codec: codec, token: token + "="},
 		{name: "empty", codec: codec, token: ""},
 		{name: "secret rotation", codec: NewCursorCodec([]byte("abcdef0123456789abcdef0123456789")), token: token},
-		{name: "oversize", codec: codec, token: base64.RawURLEncoding.EncodeToString(make([]byte, 513))},
+		{name: "oversize", codec: codec, token: base64.RawURLEncoding.EncodeToString(make([]byte, maxDecodedCursorSize+2))},
 	}
 	for _, test := range tests {
 		test := test
@@ -110,7 +129,7 @@ func TestCursorCodecRejectsCrossCollectionReplayAndExpiration(t *testing.T) {
 	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
 	token, err := codec.Encode(PageCursor{
 		Version: cursorVersion, CollectionID: collectionID,
-		CreatedAt: expiresAt.Add(-time.Hour), ID: uuid.New(), ExpiresAt: expiresAt,
+		Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -130,20 +149,23 @@ func TestCursorCodecRejectsAuthenticatedInvalidPayloads(t *testing.T) {
 	codec := NewCursorCodec(secret)
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	now := time.Date(2026, 8, 28, 12, 40, 0, 0, time.UTC)
+	base := `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`
 	tests := []struct {
 		name    string
 		payload string
 	}{
-		{name: "unsupported version", payload: `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc","expiresAt":"2026-08-28T13:00:00Z"}`},
-		{name: "missing version", payload: `{"createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc"}`},
-		{name: "invalid uuid", payload: `{"v":1,"createdAt":"2026-08-28T12:34:56Z","id":"not-a-uuid"}`},
-		{name: "non utc time", payload: `{"v":1,"createdAt":"2026-08-28T21:34:56+09:00","id":"12345678-1234-4567-8901-123456789abc"}`},
-		{name: "timestamp without offset", payload: `{"v":1,"createdAt":"2026-08-28T12:34:56","id":"12345678-1234-4567-8901-123456789abc"}`},
-		{name: "unknown field", payload: `{"v":1,"createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc","role":"admin"}`},
-		{name: "wrong type", payload: `{"v":"1","createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc"}`},
-		{name: "malformed json", payload: `{"v":1`},
-		{name: "trailing json", payload: `{"v":1,"createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc"}{}`},
-		{name: "non canonical json", payload: `{ "v":1,"createdAt":"2026-08-28T12:34:56Z","id":"12345678-1234-4567-8901-123456789abc"}`},
+		{name: "unsupported version", payload: strings.Replace(base, `"v":3`, `"v":2`, 1)},
+		{name: "missing sort", payload: `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","values":["1"],"expiresAt":"2026-08-28T13:00:00Z"}`},
+		{name: "empty sort", payload: `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[],"values":[],"expiresAt":"2026-08-28T13:00:00Z"}`},
+		{name: "value count mismatch", payload: strings.Replace(base, `,"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"]`, `,"values":["2026-08-28T12:34:56Z"]`, 1)},
+		{name: "empty sort field", payload: strings.Replace(base, `"field":"created_at"`, `"field":""`, 1)},
+		{name: "invalid collection", payload: strings.Replace(base, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "not-a-uuid", 1)},
+		{name: "non utc expiry", payload: strings.Replace(base, "2026-08-28T13:00:00Z", "2026-08-28T22:00:00+09:00", 1)},
+		{name: "unknown field", payload: strings.Replace(base, `,"expiresAt":`, `,"role":"admin","expiresAt":`, 1)},
+		{name: "wrong type", payload: strings.Replace(base, `"v":3`, `"v":"3"`, 1)},
+		{name: "malformed json", payload: `{"v":3`},
+		{name: "trailing json", payload: base + `{}`},
+		{name: "non canonical json", payload: `{ "v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`},
 	}
 	for _, test := range tests {
 		test := test
@@ -160,17 +182,18 @@ func TestCursorCodecRejectsInvalidValuesBeforeEncoding(t *testing.T) {
 
 	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
 	collectionID := uuid.New()
-	createdAt := time.Now().UTC()
-	expiresAt := createdAt.Add(time.Minute)
+	expiresAt := time.Now().UTC().Add(time.Minute)
 	tests := []struct {
 		name   string
 		cursor PageCursor
 	}{
-		{name: "unsupported version", cursor: PageCursor{Version: 1, CollectionID: collectionID, CreatedAt: createdAt, ID: uuid.New(), ExpiresAt: expiresAt}},
-		{name: "nil collection", cursor: PageCursor{Version: cursorVersion, CreatedAt: createdAt, ID: uuid.New(), ExpiresAt: expiresAt}},
-		{name: "nil uuid", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, CreatedAt: createdAt, ID: uuid.Nil, ExpiresAt: expiresAt}},
-		{name: "non utc time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, CreatedAt: time.Date(2026, 8, 28, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60)), ID: uuid.New(), ExpiresAt: expiresAt}},
-		{name: "zero time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, ID: uuid.New(), ExpiresAt: expiresAt}},
+		{name: "unsupported version", cursor: PageCursor{Version: 2, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt}},
+		{name: "nil collection", cursor: PageCursor{Version: cursorVersion, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt}},
+		{name: "no sort", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Values: testCursorValues(), ExpiresAt: expiresAt}},
+		{name: "sort without values", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), ExpiresAt: expiresAt}},
+		{name: "empty sort value", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: []json.RawMessage{nil, json.RawMessage(`"x"`)}, ExpiresAt: expiresAt}},
+		{name: "non utc time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: time.Date(2026, 8, 28, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60))}},
+		{name: "zero time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues()}},
 	}
 	for _, test := range tests {
 		test := test
@@ -188,7 +211,11 @@ func TestNewCursorCodecCopiesSecret(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	codec := NewCursorCodec(secret)
 	collectionID := uuid.New()
-	cursor := PageCursor{Version: cursorVersion, CollectionID: collectionID, CreatedAt: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC), ID: uuid.New(), ExpiresAt: time.Date(2026, 8, 28, 12, 15, 0, 0, time.UTC)}
+	cursor := PageCursor{
+		Version: cursorVersion, CollectionID: collectionID,
+		Sort: testCursorSort(), Values: testCursorValues(),
+		ExpiresAt: time.Date(2026, 8, 28, 12, 15, 0, 0, time.UTC),
+	}
 	token, err := codec.Encode(cursor)
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)

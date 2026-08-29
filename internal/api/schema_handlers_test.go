@@ -29,7 +29,7 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewWithAuthenticationOnly(t *testin
 	}}
 	handler := NewRouter(schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
-		"name":"posts","fields":[{"name":"title","type":"text","required":true}]
+		"operation":"create","name":"posts","fields":[{"name":"title","type":"text","required":true}]
 	}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
@@ -65,7 +65,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
 	}}
 	handler := NewRouter(schemaTestDependencies(auth, schemas))
-	body := `{"name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
+	body := `{"operation":"create","name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
 
 	missingCSRF := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(body))
 	missingCSRF.Host = "admin.example.com"
@@ -79,7 +79,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	}
 	assertErrorCode(t, missingResponse.Body.Bytes(), "csrf_rejected")
 
-	missingBaseVersion := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"name":"posts","fields":[],"checksum":"fixed-checksum"}`))
+	missingBaseVersion := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"create","name":"posts","fields":[],"checksum":"fixed-checksum"}`))
 	missingBaseVersion.Host = "admin.example.com"
 	missingBaseVersion.Header.Set("Content-Type", "application/json")
 	missingBaseVersion.Header.Set("Origin", "https://admin.example.com")
@@ -175,7 +175,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.default", Code: "invalid_default"}}}}
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"name":"posts"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
@@ -203,7 +203,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrConflict}
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"name":"posts","checksum":"x","baseVersion":0}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"create","name":"posts","checksum":"x","baseVersion":0}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://admin.example.com")
@@ -232,6 +232,141 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	})
 }
 
+func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
+	administrator := validSession().Administrator
+	auth := &fakeAdminAuth{authenticateAdmin: administrator}
+	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
+	schemas := &fakeSchemaService{applied: schema.Collection{
+		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
+	}}
+	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token")
+	authenticated := func(method, path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		if method != http.MethodGet {
+			request.Host = "admin.example.com"
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "https://admin.example.com")
+			request.Header.Set("X-PgBase-CSRF", csrfToken)
+		}
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	response := authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}]}`)
+	if response.Code != http.StatusOK || schemas.planCalls != 1 || schemas.planUpdateInput.Name != "posts" ||
+		len(schemas.planUpdateInput.Fields) != 1 || schemas.planUpdateInput.Fields[0].Type != schema.TypeNumeric {
+		t.Fatalf("update plan status=%d calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	}
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}],"checksum":"fixed-checksum","baseVersion":3}`)
+	if response.Code != http.StatusOK || schemas.applyCalls != 1 || schemas.applyUpdateInput.Name != "posts" ||
+		schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 3 || schemas.applyAdministratorID != administrator.ID {
+		t.Fatalf("update apply status=%d calls=%d input=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyUpdateInput, response.Body.String())
+	}
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"delete","name":"posts"}`)
+	if response.Code != http.StatusOK || schemas.planCalls != 2 || schemas.planDeleteName != "posts" {
+		t.Fatalf("delete plan status=%d calls=%d name=%q body=%s", response.Code, schemas.planCalls, schemas.planDeleteName, response.Body.String())
+	}
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"delete","name":"posts","checksum":"fixed-checksum","baseVersion":3}`)
+	if response.Code != http.StatusOK || schemas.applyCalls != 2 || schemas.deletedName != "posts" {
+		t.Fatalf("delete apply status=%d calls=%d name=%q body=%s", response.Code, schemas.applyCalls, schemas.deletedName, response.Body.String())
+	}
+	var deleted struct {
+		Name    string `json:"name"`
+		Deleted bool   `json:"deleted"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Name != "posts" || !deleted.Deleted {
+		t.Fatalf("delete response = %+v", deleted)
+	}
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"rename","name":"posts"}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown operation status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"name":"posts"}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("missing operation status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts"}`)
+	if response.Code != http.StatusBadRequest || schemas.planCalls != 2 {
+		t.Fatalf("update without fields status=%d plan calls=%d body=%s", response.Code, schemas.planCalls, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"update","name":"posts","checksum":"fixed-checksum","baseVersion":3}`)
+	if response.Code != http.StatusBadRequest || schemas.applyCalls != 2 {
+		t.Fatalf("update apply without fields status=%d apply calls=%d body=%s", response.Code, schemas.applyCalls, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+
+	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[]}`)
+	if response.Code != http.StatusOK || schemas.planCalls != 3 || len(schemas.planUpdateInput.Fields) != 0 {
+		t.Fatalf("explicit empty fields status=%d plan calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	}
+}
+
+func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
+	t.Run("unsupported schema change is unprocessable", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.type", Code: "unsupported_schema_change"}}}}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+	})
+
+	t.Run("data constraints are unprocessable", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{applyErr: schema.ErrDataConstraint}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"update","name":"posts","fields":[],"checksum":"x","baseVersion":3}`))
+		request.Host = "admin.example.com"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://admin.example.com")
+		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+	})
+
+	t.Run("unknown collections are not found", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{planErr: schema.ErrCollectionNotFound}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"delete","name":"ghosts"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "not_found")
+	})
+}
+
 type fakeSchemaService struct {
 	plan                 schema.Plan
 	planErr              error
@@ -247,6 +382,12 @@ type fakeSchemaService struct {
 	applyChecksum        string
 	applyBaseVersion     int64
 	applyAdministratorID uuid.UUID
+	planUpdateInput      schema.UpdateCollectionInput
+	applyUpdateInput     schema.UpdateCollectionInput
+	planDeleteName       string
+	applyDeleteName      string
+	deletedName          string
+	applyDeleted         bool
 }
 
 func (f *fakeSchemaService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
@@ -262,6 +403,38 @@ func (f *fakeSchemaService) ApplyCreate(_ context.Context, input schema.CreateCo
 	f.applyBaseVersion = baseVersion
 	f.applyAdministratorID = administratorID
 	return f.applied, f.applyErr
+}
+
+func (f *fakeSchemaService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
+	f.planCalls++
+	f.planUpdateInput = input
+	return f.plan, f.planErr
+}
+
+func (f *fakeSchemaService) ApplyUpdate(_ context.Context, input schema.UpdateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
+	f.applyCalls++
+	f.applyUpdateInput = input
+	f.applyChecksum = checksum
+	f.applyBaseVersion = baseVersion
+	f.applyAdministratorID = administratorID
+	return f.applied, f.applyErr
+}
+
+func (f *fakeSchemaService) PlanDelete(_ context.Context, name string) (schema.Plan, error) {
+	f.planCalls++
+	f.planDeleteName = name
+	return f.plan, f.planErr
+}
+
+func (f *fakeSchemaService) ApplyDelete(_ context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) error {
+	f.applyCalls++
+	f.applyDeleteName = name
+	f.applyChecksum = checksum
+	f.applyBaseVersion = baseVersion
+	f.applyAdministratorID = administratorID
+	f.deletedName = name
+	f.applyDeleted = true
+	return f.applyErr
 }
 
 func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {

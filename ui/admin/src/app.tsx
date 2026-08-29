@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { CollectionCreatePage } from "./pages/collection-create-page";
+import { CollectionEditPage } from "./pages/collection-edit-page";
 import { CollectionsPage } from "./pages/collections-page";
 import { RecordEditPage } from "./pages/record-edit-page";
 import { RecordsPage } from "./pages/records-page";
@@ -42,7 +43,11 @@ function AuthenticatedShell() {
   let page = <CollectionsPage navigate={navigate} />;
   if (path === "/admin/collections/new") page = <CollectionCreatePage navigate={navigate} />;
   else if (path === "/admin/system") page = <SystemPage />;
-  else {
+  else if (/^\/admin\/collections\/[^/]+\/edit$/.test(path)) {
+    const match = /^\/admin\/collections\/([^/]+)\/edit$/.exec(path);
+    const collectionName = match ? decodePathSegment(match[1]) : null;
+    if (collectionName !== null) page = <CollectionEditPage collectionName={collectionName} navigate={navigate} />;
+  } else {
     const match = /^\/admin\/collections\/([^/]+)\/records(?:\/([^/]+))?$/.exec(path);
     if (match) {
       const collectionName = decodePathSegment(match[1]);

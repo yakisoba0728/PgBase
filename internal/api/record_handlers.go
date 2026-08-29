@@ -14,7 +14,7 @@ import (
 )
 
 type RecordService interface {
-	List(context.Context, string, string, int) (query.RecordPage, error)
+	List(context.Context, string, string, int, string, string) (query.RecordPage, error)
 	Get(context.Context, string, uuid.UUID) (map[string]any, error)
 	Create(context.Context, string, map[string]json.RawMessage) (map[string]any, error)
 	Update(context.Context, string, uuid.UUID, map[string]json.RawMessage) (map[string]any, error)
@@ -42,7 +42,8 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	page, err := e.service.List(r.Context(), r.PathValue("collection"), r.URL.Query().Get("cursor"), limit)
+	page, err := e.service.List(r.Context(), r.PathValue("collection"), r.URL.Query().Get("cursor"), limit,
+		r.URL.Query().Get("filter"), r.URL.Query().Get("sort"))
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
