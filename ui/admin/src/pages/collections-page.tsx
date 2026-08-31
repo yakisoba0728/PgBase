@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { APIClientError } from "../api/client";
 import type { CollectionCatalog } from "../api/collections";
 import { useSession } from "../auth/session";
 
@@ -12,8 +11,13 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void collections.catalog(controller.signal).then(setCatalog).catch((error: unknown) => {
-      if (!controller.signal.aborted) setFailed(error instanceof APIClientError);
+    setCatalog(null);
+    setFailed(false);
+    void collections.catalog(controller.signal).then((result) => {
+      setCatalog(result);
+      setFailed(false);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
     });
     return () => controller.abort();
   }, [collections]);
@@ -27,11 +31,14 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
     {catalog && Object.values(catalog.collections).length === 0 && <p>No collections yet.</p>}
     {catalog && <ul className="collection-list">
-      {Object.values(catalog.collections).sort((a, b) => a.name.localeCompare(b.name)).map((collection) => <li key={collection.name}>
-        <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/records`)} type="button">{collection.name}</button>
-        <span>{collection.fields.length} fields</span>
-        <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/edit`)} type="button">Edit</button>
-      </li>)}
+      {Object.values(catalog.collections).sort((a, b) => a.name.localeCompare(b.name)).map((collection) => {
+        const relationCount = collection.fields.filter((field) => field.type === "relation").length;
+        return <li key={collection.name}>
+          <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/records`)} type="button">{collection.name}</button>
+          <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
+          <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/edit`)} type="button">Edit</button>
+        </li>;
+      })}
     </ul>}
   </section>;
 }

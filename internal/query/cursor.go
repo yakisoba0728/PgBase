@@ -32,7 +32,9 @@ type cursorPayload struct {
 	Version      int               `json:"v"`
 	CollectionID string            `json:"collectionId"`
 	Sort         []cursorSortEntry `json:"sort"`
-	Values       []json.RawMessage `json:"values"`
+	Values       []json.RawMessage `json:"values,omitempty"`
+	AnchorID     string            `json:"anchorId,omitempty"`
+	AnchorHash   string            `json:"anchorHash,omitempty"`
 	ExpiresAt    string            `json:"expiresAt"`
 }
 
@@ -44,7 +46,11 @@ func (c *CursorCodec) Encode(cursor PageCursor) (string, error) {
 	if cursor.Version != cursorVersion || cursor.CollectionID == uuid.Nil || cursor.ExpiresAt.IsZero() {
 		return "", invalidCursor()
 	}
-	if len(cursor.Sort) == 0 || len(cursor.Sort) > maximumCursorSortLen || len(cursor.Values) != len(cursor.Sort) {
+	if len(cursor.Sort) == 0 || len(cursor.Sort) > maximumCursorSortLen {
+		return "", invalidCursor()
+	}
+	hasValues := len(cursor.Values) == len(cursor.Sort)
+	if !hasValues || len(cursor.AnchorHash) != 0 || (cursor.PrivateValues && cursor.AnchorID == uuid.Nil) {
 		return "", invalidCursor()
 	}
 	_, expiryOffset := cursor.ExpiresAt.Zone()
@@ -65,15 +71,32 @@ func (c *CursorCodec) Encode(cursor PageCursor) (string, error) {
 		}
 		values = append(values, append(json.RawMessage(nil), value...))
 	}
-	payload, err := json.Marshal(cursorPayload{
+	payloadValue := cursorPayload{
 		Version:      cursor.Version,
 		CollectionID: cursor.CollectionID.String(),
 		Sort:         sort,
 		Values:       values,
 		ExpiresAt:    cursor.ExpiresAt.UTC().Format(time.RFC3339Nano),
-	})
+	}
+	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		return "", invalidCursor()
+	}
+	if cursor.PrivateValues || len(payload)+sha256.Size > maxDecodedCursorSize {
+		if cursor.AnchorID == uuid.Nil {
+			return "", invalidCursor()
+		}
+		digest, digestErr := c.privateCursorValuesHash(values)
+		if digestErr != nil {
+			return "", invalidCursor()
+		}
+		payloadValue.Values = nil
+		payloadValue.AnchorID = cursor.AnchorID.String()
+		payloadValue.AnchorHash = base64.RawURLEncoding.EncodeToString(digest)
+		payload, err = json.Marshal(payloadValue)
+		if err != nil {
+			return "", invalidCursor()
+		}
 	}
 	signature := c.sign(payload)
 	if len(payload)+len(signature) > maxDecodedCursorSize {
@@ -113,7 +136,26 @@ func (c *CursorCodec) Decode(token string, collectionID uuid.UUID, now time.Time
 	if err != nil || !bytes.Equal(canonical, payloadBytes) || payload.Version != cursorVersion {
 		return PageCursor{}, invalidCursor()
 	}
-	if len(payload.Sort) == 0 || len(payload.Sort) > maximumCursorSortLen || len(payload.Values) != len(payload.Sort) {
+	if len(payload.Sort) == 0 || len(payload.Sort) > maximumCursorSortLen {
+		return PageCursor{}, invalidCursor()
+	}
+	anchorID := uuid.Nil
+	if payload.AnchorID != "" {
+		anchorID, err = uuid.Parse(payload.AnchorID)
+		if err != nil || anchorID == uuid.Nil || anchorID.String() != payload.AnchorID {
+			return PageCursor{}, invalidCursor()
+		}
+	}
+	var anchorHash []byte
+	if payload.AnchorHash != "" {
+		anchorHash, err = base64.RawURLEncoding.DecodeString(payload.AnchorHash)
+		if err != nil || len(anchorHash) != sha256.Size || base64.RawURLEncoding.EncodeToString(anchorHash) != payload.AnchorHash {
+			return PageCursor{}, invalidCursor()
+		}
+	}
+	hasValues := len(payload.Values) == len(payload.Sort)
+	hasAnchorOnly := len(payload.Values) == 0 && anchorID != uuid.Nil && len(anchorHash) == sha256.Size
+	if (hasValues && (anchorID != uuid.Nil || len(anchorHash) != 0)) || (!hasValues && !hasAnchorOnly) {
 		return PageCursor{}, invalidCursor()
 	}
 	sort := make([]SortKey, 0, len(payload.Sort))
@@ -123,10 +165,12 @@ func (c *CursorCodec) Decode(token string, collectionID uuid.UUID, now time.Time
 			return PageCursor{}, invalidCursor()
 		}
 		sort = append(sort, SortKey{Field: entry.Field, Desc: entry.Desc})
-		if len(payload.Values[index]) == 0 {
-			return PageCursor{}, invalidCursor()
+		if hasValues {
+			if len(payload.Values[index]) == 0 {
+				return PageCursor{}, invalidCursor()
+			}
+			values = append(values, append(json.RawMessage(nil), payload.Values[index]...))
 		}
-		values = append(values, append(json.RawMessage(nil), payload.Values[index]...))
 	}
 	payloadCollectionID, err := uuid.Parse(payload.CollectionID)
 	if err != nil || payloadCollectionID == uuid.Nil || payloadCollectionID.String() != payload.CollectionID || payloadCollectionID != collectionID {
@@ -142,8 +186,20 @@ func (c *CursorCodec) Decode(token string, collectionID uuid.UUID, now time.Time
 	}
 	return PageCursor{
 		Version: cursorVersion, CollectionID: payloadCollectionID,
-		Sort: sort, Values: values, ExpiresAt: expiresAt.UTC(),
+		Sort: sort, Values: values, AnchorID: anchorID, AnchorHash: append([]byte(nil), anchorHash...),
+		PrivateValues: hasAnchorOnly, ExpiresAt: expiresAt.UTC(),
 	}, nil
+}
+
+func (c *CursorCodec) privateCursorValuesHash(values []json.RawMessage) ([]byte, error) {
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, c.secret)
+	_, _ = mac.Write([]byte("cursor-values\x00"))
+	_, _ = mac.Write(encoded)
+	return mac.Sum(nil), nil
 }
 
 func (c *CursorCodec) sign(payload []byte) []byte {

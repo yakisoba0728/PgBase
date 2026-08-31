@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -34,6 +35,7 @@ type e2eSuite struct {
 	postgresPort  int
 	setupToken    string
 	tokenSecret   string
+	metricsToken  string
 	databasePass  string
 	administrator string
 	password      string
@@ -88,6 +90,73 @@ func TestBuiltImageReportsInjectedVersion(t *testing.T) {
 	if status.Version != suite.version {
 		t.Fatalf("system version = %q, want injected build version %q", status.Version, suite.version)
 	}
+}
+
+func TestMetricsEndpointRequiresBearerAndUsesBoundedLabels(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	waitReady(t, ctx, suite.baseURL)
+
+	sentinel := "metrics-secret-record-019551d0-e9c0-7000-8000-000000000999"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, suite.baseURL+"/health/live?probe="+url.QueryEscape(sentinel), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("liveness status = %d", response.StatusCode)
+	}
+
+	for _, token := range []string{"", "wrong-" + suite.metricsToken} {
+		status, _ := scrapeMetrics(t, ctx, token)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("metrics with token %q status = %d, want 401", token, status)
+		}
+	}
+	status, body := scrapeMetrics(t, ctx, suite.metricsToken)
+	if status != http.StatusOK {
+		t.Fatalf("authenticated metrics status = %d body=%s", status, body)
+	}
+	for _, metric := range []string{
+		"pgbase_http_requests_total",
+		"pgbase_database_pool_max_connections",
+		"pgbase_application_readiness",
+	} {
+		if !strings.Contains(body, metric) {
+			t.Fatalf("metrics omitted %q", metric)
+		}
+	}
+	if strings.Contains(body, sentinel) {
+		t.Fatalf("metrics leaked raw path/query sentinel %q", sentinel)
+	}
+	if !strings.Contains(body, `route="/health/live"`) {
+		t.Fatalf("metrics omitted bounded liveness route template")
+	}
+}
+
+func scrapeMetrics(t *testing.T, ctx context.Context, token string) (int, string) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, suite.baseURL+"/metrics", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(body)
 }
 
 func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
@@ -265,7 +334,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 		"name": collectionName,
 		"fields": []map[string]any{
 			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
-			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": false},
+			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": true},
 		},
 	}
 	applyCollection(t, ctx, client, definition)
@@ -294,7 +363,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 		"name": collectionName,
 		"fields": []map[string]any{
 			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
-			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": false},
+			{"name": "rank", "type": "integer", "required": false, "unique": false, "indexed": true},
 			{"name": "stage", "type": "text", "required": false, "unique": false, "indexed": false, "default": "draft"},
 		},
 	}
@@ -310,7 +379,7 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 		t.Fatalf("refreshed record stage = %#v, want default %q", refreshed["stage"], "draft")
 	}
 
-	// Filter and sort: filter plus descending sort must compose with cursors.
+	// Filter and sort: filtering plus an indexed descending sort must compose with cursors.
 	path := "/api/v1/collections/" + url.PathEscape(collectionName) + "/records"
 	values := url.Values{"limit": []string{"50"}, "filter": []string{"rank >= 1"}, "sort": []string{"-rank"}}
 	var filtered recordPage
@@ -357,6 +426,234 @@ func TestCollectionLifecycleAndRecordQueries(t *testing.T) {
 	}
 	if err := client.request(ctx, http.MethodGet, path, nil, http.StatusNotFound, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRecordMutationGuards(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	waitReady(t, ctx, suite.baseURL)
+	client := authenticatedClient(t, ctx, suite.baseURL)
+
+	collectionName := uniqueCollection("mutation_guards")
+	applyCollection(t, ctx, client, map[string]any{
+		"name": collectionName,
+		"fields": []map[string]any{
+			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
+		},
+	})
+
+	path := "/api/v1/collections/" + url.PathEscape(collectionName) + "/records"
+	createHeaders := make(http.Header)
+	createHeaders.Set("Idempotency-Key", "e2e-mutation-create-key-20260831")
+	input := map[string]any{"title": "first"}
+	var created map[string]any
+	firstHeaders, err := client.requestWithHeaders(ctx, http.MethodPost, path, input, createHeaders, http.StatusCreated, &created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdID := stringValue(t, created, "id")
+	createdETag := firstHeaders.Get("ETag")
+	if createdETag == "" || firstHeaders.Get("Idempotency-Replayed") != "false" || firstHeaders.Get("PgBase-Compatibility") != "" {
+		t.Fatalf("initial create headers = %v", firstHeaders)
+	}
+	if want := path + "/" + createdID; firstHeaders.Get("Location") != want {
+		t.Fatalf("initial create Location = %q, want %q", firstHeaders.Get("Location"), want)
+	}
+
+	var replayed map[string]any
+	replayHeaders, err := client.requestWithHeaders(ctx, http.MethodPost, path, input, createHeaders, http.StatusCreated, &replayed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stringValue(t, replayed, "id") != createdID || replayHeaders.Get("Idempotency-Replayed") != "true" ||
+		replayHeaders.Get("ETag") != createdETag || replayHeaders.Get("Location") != firstHeaders.Get("Location") {
+		t.Fatalf("replay record/headers = %#v / %v, want original id/ETag/Location", replayed, replayHeaders)
+	}
+
+	var conflict struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if _, err := client.requestWithHeaders(ctx, http.MethodPost, path, map[string]any{"title": "different"}, createHeaders, http.StatusConflict, &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Error.Code != "idempotency_conflict" {
+		t.Fatalf("idempotency conflict code = %q", conflict.Error.Code)
+	}
+
+	recordPath := path + "/" + createdID
+	var fetched map[string]any
+	getHeaders, err := client.requestWithHeaders(ctx, http.MethodGet, recordPath, nil, nil, http.StatusOK, &fetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if getHeaders.Get("ETag") != createdETag {
+		t.Fatalf("GET ETag = %q, want %q", getHeaders.Get("ETag"), createdETag)
+	}
+
+	currentHeaders := make(http.Header)
+	currentHeaders.Set("If-Match", createdETag)
+	var updated map[string]any
+	updateResponseHeaders, err := client.requestWithHeaders(ctx, http.MethodPatch, recordPath, map[string]any{"title": "updated"}, currentHeaders, http.StatusOK, &updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedETag := updateResponseHeaders.Get("ETag")
+	if updated["title"] != "updated" || updatedETag == "" || updatedETag == createdETag || updateResponseHeaders.Get("PgBase-Compatibility") != "" {
+		t.Fatalf("updated record/headers = %#v / %v", updated, updateResponseHeaders)
+	}
+
+	var stale struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	staleHeaders, err := client.requestWithHeaders(ctx, http.MethodPatch, recordPath, map[string]any{"title": "must-not-win"}, currentHeaders, http.StatusPreconditionFailed, &stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Error.Code != "precondition_failed" || staleHeaders.Get("ETag") != updatedETag {
+		t.Fatalf("stale response = %#v / %v, want current ETag %q", stale, staleHeaders, updatedETag)
+	}
+	var afterStale map[string]any
+	if _, err := client.requestWithHeaders(ctx, http.MethodGet, recordPath, nil, nil, http.StatusOK, &afterStale); err != nil {
+		t.Fatal(err)
+	}
+	if afterStale["title"] != "updated" {
+		t.Fatalf("stale update changed record = %#v", afterStale)
+	}
+}
+
+func TestTwoInstancesConvergeConcurrentSameETagUpdates(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	waitReady(t, ctx, suite.baseURL)
+	instanceA := authenticatedClient(t, ctx, suite.baseURL)
+
+	collectionName := uniqueCollection("concurrent_updates")
+	applyCollection(t, ctx, instanceA, map[string]any{
+		"name": collectionName,
+		"fields": []map[string]any{
+			{"name": "title", "type": "text", "required": true, "unique": false, "indexed": false},
+		},
+	})
+
+	recordsPath := "/api/v1/collections/" + url.PathEscape(collectionName) + "/records"
+	createHeaders := make(http.Header)
+	createHeaders.Set("Idempotency-Key", "e2e-concurrent-update-create-20260831")
+	var created map[string]any
+	createdHeaders, err := instanceA.requestWithHeaders(ctx, http.MethodPost, recordsPath,
+		map[string]any{"title": "initial"}, createHeaders, http.StatusCreated, &created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordPath := recordsPath + "/" + stringValue(t, created, "id")
+	initialETag := createdHeaders.Get("ETag")
+	if initialETag == "" {
+		t.Fatal("created record omitted ETag")
+	}
+
+	instanceBURL, instanceBName := suite.startInstance(t, ctx, "record-mutation-b", 12*time.Second)
+	t.Cleanup(func() { suite.removeContainer(t, instanceBName) })
+	waitReady(t, ctx, instanceBURL)
+	instanceB := authenticatedClient(t, ctx, instanceBURL)
+
+	type mutationOutcome struct {
+		name          string
+		intendedTitle string
+		response      apiHTTPResponse
+		err           error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan mutationOutcome, 2)
+	for _, attempt := range []struct {
+		name   string
+		client *apiClient
+		title  string
+	}{
+		{name: "instance A", client: instanceA, title: "written by A"},
+		{name: "instance B", client: instanceB, title: "written by B"},
+	} {
+		attempt := attempt
+		go func() {
+			<-start
+			headers := make(http.Header)
+			headers.Set("If-Match", initialETag)
+			response, err := attempt.client.exchangeWithHeaders(ctx, http.MethodPatch, recordPath,
+				map[string]any{"title": attempt.title}, headers)
+			outcomes <- mutationOutcome{
+				name: attempt.name, intendedTitle: attempt.title, response: response, err: err,
+			}
+		}()
+	}
+	close(start)
+
+	var winner, loser *mutationOutcome
+	for range 2 {
+		outcome := <-outcomes
+		if outcome.err != nil {
+			t.Fatalf("%s concurrent update: %v", outcome.name, outcome.err)
+		}
+		switch outcome.response.Status {
+		case http.StatusOK:
+			if winner != nil {
+				t.Fatalf("both concurrent updates succeeded: first=%s second=%s", winner.name, outcome.name)
+			}
+			winner = &outcome
+		case http.StatusPreconditionFailed:
+			if loser != nil {
+				t.Fatalf("both concurrent updates failed preconditions: first=%s second=%s", loser.name, outcome.name)
+			}
+			loser = &outcome
+		default:
+			t.Fatalf("%s concurrent update status=%d headers=%v body=%s", outcome.name,
+				outcome.response.Status, outcome.response.Header, outcome.response.Body)
+		}
+	}
+	if winner == nil || loser == nil {
+		t.Fatalf("concurrent update outcomes winner=%v loser=%v", winner, loser)
+	}
+
+	var committed map[string]any
+	if err := json.Unmarshal(winner.response.Body, &committed); err != nil {
+		t.Fatalf("decode winning update: %v (body=%s)", err, winner.response.Body)
+	}
+	committedTitle := stringValue(t, committed, "title")
+	if committedTitle != winner.intendedTitle {
+		t.Fatalf("winning update through %s returned title=%q, want %q", winner.name, committedTitle, winner.intendedTitle)
+	}
+	committedETag := winner.response.Header.Get("ETag")
+	if committedETag == "" || committedETag == initialETag {
+		t.Fatalf("winning update ETag=%q, initial=%q", committedETag, initialETag)
+	}
+	var rejected struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(loser.response.Body, &rejected); err != nil {
+		t.Fatalf("decode losing update: %v (body=%s)", err, loser.response.Body)
+	}
+	if rejected.Error.Code != "precondition_failed" || loser.response.Header.Get("ETag") != committedETag {
+		t.Fatalf("losing update code=%q ETag=%q, want precondition_failed/current %q", rejected.Error.Code,
+			loser.response.Header.Get("ETag"), committedETag)
+	}
+
+	for _, replica := range []struct {
+		name   string
+		client *apiClient
+	}{{name: "instance A", client: instanceA}, {name: "instance B", client: instanceB}} {
+		var fetched map[string]any
+		headers, err := replica.client.requestWithHeaders(ctx, http.MethodGet, recordPath, nil, nil, http.StatusOK, &fetched)
+		if err != nil {
+			t.Fatalf("read committed record through %s: %v", replica.name, err)
+		}
+		if stringValue(t, fetched, "title") != committedTitle || headers.Get("ETag") != committedETag {
+			t.Fatalf("%s observed record=%#v ETag=%q, want title=%q ETag=%q", replica.name, fetched,
+				headers.Get("ETag"), committedTitle, committedETag)
+		}
 	}
 }
 
@@ -416,6 +713,10 @@ func configureSuite() (e2eSuite, error) {
 	if err != nil {
 		return e2eSuite{}, err
 	}
+	metricsToken, err := randomHex(32)
+	if err != nil {
+		return e2eSuite{}, err
+	}
 	rawSecret := make([]byte, 32)
 	if _, err := rand.Read(rawSecret); err != nil {
 		return e2eSuite{}, err
@@ -433,6 +734,7 @@ func configureSuite() (e2eSuite, error) {
 		"PGBASE_POSTGRES_PASSWORD="+databasePass,
 		"PGBASE_SETUP_TOKEN="+setupToken,
 		"PGBASE_TOKEN_SECRET="+base64.StdEncoding.EncodeToString(rawSecret),
+		"PGBASE_METRICS_TOKEN="+metricsToken,
 		"PGBASE_PUBLIC_URL="+baseURL,
 		"PGBASE_IMAGE="+image,
 		"PGBASE_VERSION="+version,
@@ -440,7 +742,7 @@ func configureSuite() (e2eSuite, error) {
 	return e2eSuite{
 		repoRoot: repoRoot, composeFile: filepath.Join(repoRoot, "deployments", "docker-compose.yml"),
 		project: project, image: image, baseURL: baseURL, httpPort: httpPort, postgresPort: postgresPort,
-		setupToken: setupToken, tokenSecret: base64.StdEncoding.EncodeToString(rawSecret), databasePass: databasePass,
+		setupToken: setupToken, tokenSecret: base64.StdEncoding.EncodeToString(rawSecret), metricsToken: metricsToken, databasePass: databasePass,
 		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, environment: environment,
 	}, nil
 }
@@ -510,6 +812,7 @@ func (s e2eSuite) startInstance(t *testing.T, ctx context.Context, suffix string
 		"--env", "PGBASE_PUBLIC_URL=" + baseURL,
 		"--env", "PGBASE_SETUP_TOKEN=" + s.setupToken,
 		"--env", "PGBASE_TOKEN_SECRET=" + s.tokenSecret,
+		"--env", "PGBASE_METRICS_TOKEN=" + s.metricsToken,
 		"--env", "PGBASE_SHUTDOWN_TIMEOUT=" + shutdownTimeout.String(),
 		s.image, "serve",
 	}

@@ -5,27 +5,35 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	neturl "net/url"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 type RecordService interface {
-	List(context.Context, string, string, int, string, string) (query.RecordPage, error)
-	Get(context.Context, string, uuid.UUID) (map[string]any, error)
-	Create(context.Context, string, map[string]json.RawMessage) (map[string]any, error)
-	Update(context.Context, string, uuid.UUID, map[string]json.RawMessage) (map[string]any, error)
-	Delete(context.Context, string, uuid.UUID) error
+	List(context.Context, recordops.ListRequest) (recordops.RecordPage, error)
+	Get(context.Context, recordops.GetRequest) (recordops.Record, error)
+	Create(context.Context, recordops.CreateRequest) (recordops.MutationResult, error)
+	Update(context.Context, recordops.UpdateRequest) (recordops.MutationResult, error)
+	Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error)
 }
 
 type recordEndpoints struct{ service RecordService }
 
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
+	values, err := neturl.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
+	if raw := values.Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
 			writeInvalidRecordRequest(w, r)
@@ -42,8 +50,15 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	page, err := e.service.List(r.Context(), r.PathValue("collection"), r.URL.Query().Get("cursor"), limit,
-		r.URL.Query().Get("filter"), r.URL.Query().Get("sort"))
+	principal, ok := recordPrincipal(w, r)
+	if !ok {
+		return
+	}
+	page, err := e.service.List(r.Context(), recordops.ListRequest{
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+		Cursor: values.Get("cursor"), Limit: limit, Filter: values.Get("filter"), Sort: values.Get("sort"),
+		Expand: values.Get("expand"),
+	})
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
@@ -53,6 +68,11 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
+	values, err := neturl.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	id, ok := recordID(w, r)
 	if !ok {
 		return
@@ -61,16 +81,29 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	record, err := e.service.Get(r.Context(), r.PathValue("collection"), id)
+	principal, ok := recordPrincipal(w, r)
+	if !ok {
+		return
+	}
+	record, err := e.service.Get(r.Context(), recordops.GetRequest{
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
+		Expand: values.Get("expand"),
+	})
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, record)
+	w.Header().Set("ETag", record.ETag)
+	writeJSON(w, http.StatusOK, record.Data)
 }
 
 func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := parseIdempotencyKey(r.Header)
+	if !ok {
+		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidIdempotencyKey})
+		return
+	}
 	input, ok := recordInput(w, r)
 	if !ok {
 		return
@@ -79,13 +112,34 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	record, err := e.service.Create(r.Context(), r.PathValue("collection"), input)
+	principal, ok := recordPrincipal(w, r)
+	if !ok {
+		return
+	}
+	result, err := e.service.Create(r.Context(), recordops.CreateRequest{
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+		Input: input, IdempotencyKey: idempotencyKey,
+	})
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
 	}
+	if result.Record == nil {
+		writeRecordError(w, r, errors.New("record service returned no created record"))
+		return
+	}
+	createdID, ok := result.Record.Data["id"].(string)
+	parsedCreatedID, parseErr := uuid.Parse(createdID)
+	if !ok || parseErr != nil || parsedCreatedID == uuid.Nil {
+		writeRecordError(w, r, errors.New("record service returned an invalid created record id"))
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, record)
+	w.Header().Set("ETag", result.Record.ETag)
+	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
+	w.Header().Set("Location", "/api/v1/collections/"+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
+	writeCompatibilityHeaders(w, result.Compatibility)
+	writeJSON(w, http.StatusCreated, result.Record.Data)
 }
 
 func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +147,11 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ifMatch, ok := parseIfMatch(r.Header)
+	if !ok {
+		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidPrecondition})
+		return
+	}
 	input, ok := recordInput(w, r)
 	if !ok {
 		return
@@ -101,13 +160,26 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	record, err := e.service.Update(r.Context(), r.PathValue("collection"), id, input)
+	principal, ok := recordPrincipal(w, r)
+	if !ok {
+		return
+	}
+	result, err := e.service.Update(r.Context(), recordops.UpdateRequest{
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+		ID: id, Input: input, IfMatch: ifMatch,
+	})
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
 	}
+	if result.Record == nil {
+		writeRecordError(w, r, errors.New("record service returned no updated record"))
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, record)
+	w.Header().Set("ETag", result.Record.ETag)
+	writeCompatibilityHeaders(w, result.Compatibility)
+	writeJSON(w, http.StatusOK, result.Record.Data)
 }
 
 func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
@@ -115,16 +187,131 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ifMatch, ok := parseIfMatch(r.Header)
+	if !ok {
+		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidPrecondition})
+		return
+	}
 	if e.service == nil {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
 		return
 	}
-	if err := e.service.Delete(r.Context(), r.PathValue("collection"), id); err != nil {
+	principal, ok := recordPrincipal(w, r)
+	if !ok {
+		return
+	}
+	result, err := e.service.Delete(r.Context(), recordops.DeleteRequest{
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+	})
+	if err != nil {
 		writeRecordError(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	writeCompatibilityHeaders(w, result.Compatibility)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func recordPrincipal(w http.ResponseWriter, r *http.Request) (recordops.Principal, bool) {
+	principal, ok := AdminPrincipalFromContext(r.Context())
+	if !ok || principal.Administrator.ID == uuid.Nil {
+		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+		return recordops.Principal{}, false
+	}
+	return recordops.Principal{Kind: recordops.PrincipalAdministrator, ID: principal.Administrator.ID}, true
+}
+
+func parseIdempotencyKey(header http.Header) (string, bool) {
+	values := header.Values("Idempotency-Key")
+	if len(values) == 0 {
+		return "", true
+	}
+	if len(values) != 1 || len(values[0]) < 16 || len(values[0]) > 128 {
+		return "", false
+	}
+	for _, character := range []byte(values[0]) {
+		if !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') &&
+			!(character >= '0' && character <= '9') && character != '.' && character != '_' &&
+			character != '~' && character != '-' {
+			return "", false
+		}
+	}
+	return values[0], true
+}
+
+func parseIfMatch(header http.Header) (recordops.EntityTagSet, bool) {
+	values := header.Values("If-Match")
+	if len(values) == 0 {
+		return recordops.EntityTagSet{}, true
+	}
+	if len(values) != 1 || len(values[0]) == 0 || len(values[0]) > 1024 {
+		return recordops.EntityTagSet{}, false
+	}
+	raw := values[0]
+	position := skipOWS(raw, 0)
+	if position < len(raw) && raw[position] == '*' {
+		position = skipOWS(raw, position+1)
+		if position != len(raw) {
+			return recordops.EntityTagSet{}, false
+		}
+		return recordops.EntityTagSet{Present: true, Any: true}, true
+	}
+
+	parsed := recordops.EntityTagSet{Present: true, Values: make([]string, 0, 1)}
+	for {
+		position = skipOWS(raw, position)
+		start := position
+		if strings.HasPrefix(raw[position:], "W/") {
+			position += 2
+		}
+		if position >= len(raw) || raw[position] != '"' {
+			return recordops.EntityTagSet{}, false
+		}
+		position++
+		for position < len(raw) && raw[position] != '"' {
+			if !validETagCharacter(raw[position]) {
+				return recordops.EntityTagSet{}, false
+			}
+			position++
+		}
+		if position >= len(raw) {
+			return recordops.EntityTagSet{}, false
+		}
+		position++
+		parsed.Values = append(parsed.Values, raw[start:position])
+		if len(parsed.Values) > 8 {
+			return recordops.EntityTagSet{}, false
+		}
+		position = skipOWS(raw, position)
+		if position == len(raw) {
+			return parsed, true
+		}
+		if raw[position] != ',' {
+			return recordops.EntityTagSet{}, false
+		}
+		position++
+		if skipOWS(raw, position) == len(raw) {
+			return recordops.EntityTagSet{}, false
+		}
+	}
+}
+
+func skipOWS(value string, position int) int {
+	for position < len(value) && (value[position] == ' ' || value[position] == '\t') {
+		position++
+	}
+	return position
+}
+
+func validETagCharacter(character byte) bool {
+	return character == 0x21 || (character >= 0x23 && character <= 0x7e) || character >= 0x80
+}
+
+func writeCompatibilityHeaders(w http.ResponseWriter, compatibility recordops.Compatibility) {
+	if compatibility == recordops.CompatibilityNone {
+		return
+	}
+	w.Header().Set("PgBase-Compatibility", string(compatibility))
 }
 
 func recordInput(w http.ResponseWriter, r *http.Request) (map[string]json.RawMessage, bool) {
@@ -150,6 +337,9 @@ func writeInvalidRecordRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
+	if writeRecordOperationError(w, r, err) {
+		return
+	}
 	apiError := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
 	var validation *query.ValidationError
 	databaseKind := database.Classify(err)
@@ -177,4 +367,37 @@ func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Retry-After", "1")
 	}
 	writeAPIError(w, r, apiError)
+}
+
+func writeRecordOperationError(w http.ResponseWriter, r *http.Request, err error) bool {
+	var operationError *recordops.Error
+	if !errors.As(err, &operationError) {
+		return false
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	apiError := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
+	switch operationError.Code {
+	case recordops.CodeInvalidPrincipal:
+		apiError = APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"}
+	case recordops.CodeInvalidRequest:
+		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"}
+	case recordops.CodeInvalidIdempotencyKey:
+		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_idempotency_key", Message: "Idempotency-Key is invalid"}
+	case recordops.CodeIdempotencyConflict:
+		apiError = APIError{Status: http.StatusConflict, Code: "idempotency_conflict", Message: "Idempotency-Key was already used for a different request"}
+	case recordops.CodeIdempotencyInProgress:
+		apiError = APIError{Status: http.StatusConflict, Code: "idempotency_in_progress", Message: "A request with this Idempotency-Key is already in progress"}
+	case recordops.CodeInvalidPrecondition:
+		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_precondition", Message: "If-Match is invalid"}
+	case recordops.CodePreconditionFailed:
+		apiError = APIError{Status: http.StatusPreconditionFailed, Code: "precondition_failed", Message: "Record has changed"}
+		if operationError.CurrentETag != "" {
+			w.Header().Set("ETag", operationError.CurrentETag)
+		}
+	default:
+		writeAPIError(w, r, apiError)
+		return true
+	}
+	writeAPIError(w, r, apiError)
+	return true
 }

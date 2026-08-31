@@ -201,7 +201,7 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 			}
 			setCORSHeaders(w, origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -213,6 +213,7 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 func setCORSHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Expose-Headers", "ETag, Location, Idempotency-Replayed, PgBase-Compatibility")
 }
 
 func allowedCORSMethod(method string) bool {
@@ -230,7 +231,7 @@ func allowedCORSHeaders(raw string) bool {
 	}
 	for _, header := range strings.Split(raw, ",") {
 		switch strings.ToLower(strings.TrimSpace(header)) {
-		case "content-type", "authorization", "x-csrf-token", "x-pgbase-csrf":
+		case "content-type", "authorization", "x-csrf-token", "x-pgbase-csrf", "idempotency-key", "if-match":
 		default:
 			return false
 		}

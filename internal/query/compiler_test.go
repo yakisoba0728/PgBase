@@ -304,6 +304,16 @@ func TestCompileListRejectsFilterSortAndCatalogMismatches(t *testing.T) {
 			query: ListQuery{Sort: []SortKey{{Field: "metadata"}}},
 			field: "sort", code: "unsupported_type",
 		},
+		{
+			name:  "unindexed sort",
+			query: ListQuery{Sort: []SortKey{{Field: "optional_note"}}},
+			field: "sort", code: "unindexed_field",
+		},
+		{
+			name:  "unindexed updated timestamp sort",
+			query: ListQuery{Sort: []SortKey{{Field: systemFieldUpdatedAt}}},
+			field: "sort", code: "unindexed_field",
+		},
 	}
 	for _, test := range tests {
 		test := test
@@ -344,6 +354,23 @@ func TestParseSortRejectsOverflowAndDuplicates(t *testing.T) {
 	assertValidationDetail(t, err, "sort", "invalid_sort")
 
 	_, err = parseFilter(`title = '` + strings.Repeat("x", 5000) + `'`)
+	assertValidationDetail(t, err, "filter", "filter_too_complex")
+}
+
+func TestParseFilterEnforcesNodeBudgetBelowByteLimit(t *testing.T) {
+	t.Parallel()
+
+	comparison := `title = 'wanted'`
+	atLimit := strings.Repeat("(", maximumFilterNodes-1) + comparison + strings.Repeat(")", maximumFilterNodes-1)
+	if len(atLimit) >= maximumFilterBytes {
+		t.Fatalf("boundary fixture length = %d, want below %d-byte limit", len(atLimit), maximumFilterBytes)
+	}
+	if _, err := parseFilter(atLimit); err != nil {
+		t.Fatalf("parseFilter() at %d nodes error = %v", maximumFilterNodes, err)
+	}
+
+	overLimit := "(" + atLimit + ")"
+	_, err := parseFilter(overLimit)
 	assertValidationDetail(t, err, "filter", "filter_too_complex")
 }
 
@@ -418,7 +445,7 @@ func compilerCollection() schema.Collection {
 		Fields: []schema.Field{
 			{Name: "metadata", ColumnName: "metadata", Type: schema.TypeJSONB, Ordinal: 2},
 			{Name: "optional_note", ColumnName: "optional_note", Type: schema.TypeText, Ordinal: 3},
-			{Name: "title", ColumnName: "title", Type: schema.TypeText, Required: true, Ordinal: 0},
+			{Name: "title", ColumnName: "title", Type: schema.TypeText, Required: true, Indexed: true, Ordinal: 0},
 			{Name: "large_count", ColumnName: "large_count", Type: schema.TypeBigInt, Required: true, Default: json.RawMessage(`"0"`), Ordinal: 1},
 		},
 	}

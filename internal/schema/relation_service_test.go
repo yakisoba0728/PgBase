@@ -1,0 +1,486 @@
+package schema
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+)
+
+func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	users := applyFreshPlan(t, service, CreateCollectionInput{
+		Name:   "users",
+		Fields: []FieldInput{{Name: "email", Type: TypeText}},
+	}, administratorID)
+
+	input := CreateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			{
+				Name: "owner", Type: TypeRelation,
+				Relation: &RelationInput{TargetCollection: "users"},
+			},
+			{
+				Name: "members", Type: TypeRelation,
+				Relation: &RelationInput{
+					TargetCollection: "users",
+					Cardinality:      RelationMultiple,
+					MaxSelect:        intPointer(20),
+					OnDelete:         RelationCascade,
+				},
+			},
+		},
+	}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatalf("PlanCreate(): %v", err)
+	}
+	if len(plan.Definition.Fields) != 2 || plan.Definition.Fields[0].Relation == nil || plan.Definition.Fields[1].Relation == nil {
+		t.Fatalf("planned relation fields = %#v", plan.Definition.Fields)
+	}
+	if plan.Definition.Fields[0].Relation.TargetCollectionID == nil ||
+		*plan.Definition.Fields[0].Relation.TargetCollectionID != users.ID ||
+		plan.Definition.Fields[1].Relation.TargetCollectionID == nil ||
+		*plan.Definition.Fields[1].Relation.TargetCollectionID != users.ID {
+		t.Fatalf("planned targets do not resolve to users %s: %#v", users.ID, plan.Definition.Fields)
+	}
+
+	created, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyCreate(): %v", err)
+	}
+	if len(created.Fields) != 2 || created.Fields[0].Relation == nil || created.Fields[1].Relation == nil {
+		t.Fatalf("created relation fields = %#v", created.Fields)
+	}
+	if created.Fields[0].Relation.TargetCollectionID != users.ID ||
+		created.Fields[0].Relation.Storage != (RelationStorage{Kind: RelationStorageInlineFKV1, Name: "owner"}) {
+		t.Fatalf("created single relation = %#v", created.Fields[0].Relation)
+	}
+	multiNames := NewRelationPhysicalNames("posts", "members")
+	if created.Fields[1].Relation.TargetCollectionID != users.ID ||
+		created.Fields[1].Relation.Storage != (RelationStorage{Kind: RelationStorageEdgeTableV1, Name: multiNames.MultiTable}) {
+		t.Fatalf("created multiple relation = %#v", created.Fields[1].Relation)
+	}
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("Catalog(): %v", err)
+	}
+	if catalog.Version != 2 || len(catalog.Incoming[users.ID]) != 2 {
+		t.Fatalf("relation catalog version/incoming = %d/%#v", catalog.Version, catalog.Incoming)
+	}
+	if err := validateCatalogIntegrity(catalog); err != nil {
+		t.Fatalf("published catalog integrity: %v", err)
+	}
+
+	var ownerType string
+	if err := pool.QueryRow(ctx, `select data_type from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'owner'`).Scan(&ownerType); err != nil {
+		t.Fatalf("read single relation column: %v", err)
+	}
+	if ownerType != "uuid" {
+		t.Fatalf("single relation column type = %q, want uuid", ownerType)
+	}
+	var multiColumns int
+	if err := pool.QueryRow(ctx, `select count(*) from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'members'`).Scan(&multiColumns); err != nil {
+		t.Fatal(err)
+	}
+	if multiColumns != 0 {
+		t.Fatalf("multiple relation created %d inline columns, want 0", multiColumns)
+	}
+	var edgeTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass($1)::text, '')`, "pgbase_relation."+multiNames.MultiTable).Scan(&edgeTable); err != nil {
+		t.Fatalf("read edge table: %v", err)
+	}
+	if edgeTable == "" {
+		t.Fatal("multiple relation edge table does not exist")
+	}
+	var relationRows int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.field_relations where source_collection_id = $1`, created.ID).Scan(&relationRows); err != nil {
+		t.Fatal(err)
+	}
+	if relationRows != 2 {
+		t.Fatalf("persisted relation metadata rows = %d, want 2", relationRows)
+	}
+}
+
+func TestRelationServiceResolvesSelfRelationAndPublishesListenerCatalog(t *testing.T) {
+	ctx := context.Background()
+	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	listenerCache := &Cache{}
+	listener := NewListener(service.pool, listenerCache)
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- listener.Run(runCtx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("listener Run(): %v", err)
+		}
+	})
+	waitForListenerReady(t, listener)
+
+	input := CreateCollectionInput{
+		Name: "nodes",
+		Fields: []FieldInput{{
+			Name: "parent", Type: TypeRelation,
+			Relation: &RelationInput{TargetCollection: "nodes", OnDelete: RelationSetNull},
+		}},
+	}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatalf("PlanCreate(): %v", err)
+	}
+	if plan.Definition.Fields[0].Relation == nil || plan.Definition.Fields[0].Relation.TargetCollectionID != nil {
+		t.Fatalf("self relation plan must remain symbolic: %#v", plan.Definition.Fields[0].Relation)
+	}
+	created, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyCreate(): %v", err)
+	}
+	if created.Fields[0].Relation == nil || created.Fields[0].Relation.TargetCollectionID != created.ID {
+		t.Fatalf("resolved self relation = %#v, source=%s", created.Fields[0].Relation, created.ID)
+	}
+
+	waitForCatalogVersion(t, listenerCache, 1)
+	listenerCatalog := listenerCache.Load()
+	listenerField := listenerCatalog.Collections["nodes"].Fields[0]
+	if listenerField.Relation == nil || listenerField.Relation.TargetCollectionID != created.ID ||
+		len(listenerCatalog.Incoming[created.ID]) != 1 {
+		t.Fatalf("listener relation catalog = %#v", listenerCatalog)
+	}
+	serviceCatalog := service.cache.Load()
+	if serviceCatalog.Version != 1 || serviceCatalog.Collections["nodes"].Fields[0].Relation.TargetCollectionID != created.ID {
+		t.Fatalf("service cache relation catalog = %#v", serviceCatalog)
+	}
+}
+
+func TestRelationServiceRejectsStalePlanWithoutPartialState(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{
+		Name: "owner", Type: TypeRelation,
+		Relation: &RelationInput{TargetCollection: "users"},
+	}}}
+	stalePlan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "pages"}, administratorID)
+
+	if _, err := service.ApplyCreate(ctx, input, stalePlan.Checksum, stalePlan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ApplyCreate(stale) error = %v, want ErrConflict", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 2, migrations: 2})
+	var physicalTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass('app.posts')::text, '')`).Scan(&physicalTable); err != nil {
+		t.Fatal(err)
+	}
+	if physicalTable != "" {
+		t.Fatalf("stale relation apply created table %q", physicalTable)
+	}
+	var relations int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.field_relations`).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	if relations != 0 {
+		t.Fatalf("stale relation apply persisted %d metadata rows", relations)
+	}
+}
+
+func TestRelationServiceRollsBackDDLAndSchemaCommitWhenRelationMetadataInsertFails(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
+	if _, err := pool.Exec(ctx, `create function pgbase_meta.reject_relation_metadata()
+		returns trigger language plpgsql as $$
+		begin
+			raise exception using errcode = '23514', message = 'injected relation metadata failure';
+		end
+		$$;
+		create trigger reject_relation_metadata
+		before insert on pgbase_meta.field_relations
+		for each row execute function pgbase_meta.reject_relation_metadata()`); err != nil {
+		t.Fatalf("install metadata failure trigger: %v", err)
+	}
+
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{
+		Name: "owner", Type: TypeRelation,
+		Relation: &RelationInput{TargetCollection: "users"},
+	}}}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("ApplyCreate() error = %v, want ErrDataConstraint", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, migrations: 1})
+	var physicalTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass('app.posts')::text, '')`).Scan(&physicalTable); err != nil {
+		t.Fatal(err)
+	}
+	if physicalTable != "" {
+		t.Fatalf("metadata failure left DDL behind: %q", physicalTable)
+	}
+	var relations int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.field_relations`).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	if relations != 0 {
+		t.Fatalf("metadata failure left %d relation rows", relations)
+	}
+	if current := service.cache.Load(); current.Version != 1 || len(current.Collections) != 1 {
+		t.Fatalf("failed transaction changed cache: %#v", current)
+	}
+}
+
+func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
+	posts := applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}},
+	}, administratorID)
+
+	add := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users"}},
+	}}
+	addPlan, err := service.PlanUpdate(ctx, add)
+	if err != nil {
+		t.Fatalf("PlanUpdate(add): %v", err)
+	}
+	added, err := service.ApplyUpdate(ctx, add, addPlan.Checksum, addPlan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyUpdate(add): %v", err)
+	}
+	if added.Fields[0].ID != posts.Fields[0].ID || added.Fields[1].ID == uuid.Nil {
+		t.Fatalf("field IDs after add: before=%#v after=%#v", posts.Fields, added.Fields)
+	}
+	ownerID := added.Fields[1].ID
+
+	change := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "owner", Type: TypeRelation, Unique: true, Relation: &RelationInput{
+			TargetCollection: "users", OnDelete: RelationCascade,
+		}},
+	}}
+	changePlan, err := service.PlanUpdate(ctx, change)
+	if err != nil {
+		t.Fatalf("PlanUpdate(change): %v", err)
+	}
+	changed, err := service.ApplyUpdate(ctx, change, changePlan.Checksum, changePlan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyUpdate(change): %v", err)
+	}
+	if changed.Fields[0].ID != posts.Fields[0].ID || changed.Fields[1].ID != ownerID ||
+		changed.Fields[1].Relation == nil || changed.Fields[1].Relation.OnDelete != RelationCascade || !changed.Fields[1].Unique {
+		t.Fatalf("changed relation did not preserve identity/semantics: %#v", changed.Fields)
+	}
+
+	drop := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	dropPlan, err := service.PlanUpdate(ctx, drop)
+	if err != nil {
+		t.Fatalf("PlanUpdate(drop): %v", err)
+	}
+	dropped, err := service.ApplyUpdate(ctx, drop, dropPlan.Checksum, dropPlan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyUpdate(drop): %v", err)
+	}
+	if len(dropped.Fields) != 1 || dropped.Fields[0].ID != posts.Fields[0].ID {
+		t.Fatalf("fields after relation drop = %#v", dropped.Fields)
+	}
+	var ownerColumns, relationRows int
+	if err := pool.QueryRow(ctx, `select count(*) from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'owner'`).Scan(&ownerColumns); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.field_relations`).Scan(&relationRows); err != nil {
+		t.Fatal(err)
+	}
+	if ownerColumns != 0 || relationRows != 0 {
+		t.Fatalf("drop left owner columns/relation rows = %d/%d", ownerColumns, relationRows)
+	}
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Incoming) != 0 {
+		t.Fatalf("drop left incoming catalog entries: %#v", catalog.Incoming)
+	}
+}
+
+func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{
+		Name: "owner", Type: TypeRelation,
+		Relation: &RelationInput{TargetCollection: "users"},
+	}}}, administratorID)
+
+	assertCollectionReferenced := func(err error) {
+		t.Helper()
+		var validationError *ValidationError
+		if !errors.As(err, &validationError) || len(validationError.Details) != 1 ||
+			validationError.Details[0] != (ValidationDetail{Field: "name", Code: "collection_referenced"}) {
+			t.Fatalf("error = %#v, want collection_referenced", err)
+		}
+	}
+	_, err := service.PlanDelete(ctx, "users")
+	assertCollectionReferenced(err)
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPlan, err := (Planner{}).PlanDelete(catalog.Version, catalog.Collections["users"])
+	if err != nil {
+		t.Fatalf("legacy PlanDelete(): %v", err)
+	}
+	assertCollectionReferenced(service.ApplyDelete(ctx, "users", legacyPlan.Checksum, legacyPlan.BaseVersion, administratorID))
+	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 2, fields: 1, migrations: 2})
+
+	remove := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}}
+	removePlan, err := service.PlanUpdate(ctx, remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyUpdate(ctx, remove, removePlan.Checksum, removePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("remove relation: %v", err)
+	}
+	deletePlan, err := service.PlanDelete(ctx, "users")
+	if err != nil {
+		t.Fatalf("PlanDelete(after remove): %v", err)
+	}
+	if err := service.ApplyDelete(ctx, "users", deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyDelete(after remove): %v", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 4, collections: 1, migrations: 4})
+	remaining, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := remaining.Collections["users"]; exists || len(remaining.Incoming) != 0 {
+		t.Fatalf("catalog after target delete = %#v", remaining)
+	}
+}
+
+func TestValidateCatalogIntegrityChecksRelationIncomingExactlyAndKeepsScalarCompatibility(t *testing.T) {
+	usersID := uuid.MustParse("0199aa16-e3dd-7000-8000-000000000001")
+	postsID := uuid.MustParse("0199aa16-e3dd-7000-8000-000000000002")
+	titleID := uuid.MustParse("0199aa16-e3dd-7000-8000-000000000003")
+	ownerID := uuid.MustParse("0199aa16-e3dd-7000-8000-000000000004")
+	spec := RelationSpec{
+		TargetCollectionID: usersID,
+		Cardinality:        RelationSingle,
+		MinSelect:          0,
+		MaxSelect:          1,
+		OnDelete:           RelationRestrict,
+		ValueCodecVersion:  RelationValueCodecVersion,
+		Storage:            RelationStorage{Kind: RelationStorageInlineFKV1, Name: "owner"},
+	}
+	valid := Catalog{
+		Version: 2,
+		Collections: map[string]Collection{
+			"users": {ID: usersID, Name: "users", TableName: "users"},
+			"posts": {
+				ID: postsID, Name: "posts", TableName: "posts",
+				Fields: []Field{
+					{ID: titleID, Name: "title", ColumnName: "title", Type: TypeText, Ordinal: 0},
+					{ID: ownerID, Name: "owner", ColumnName: "owner", Type: TypeRelation, Indexed: true, Relation: &spec, Ordinal: 1},
+				},
+			},
+		},
+		Incoming: map[uuid.UUID][]RelationRef{
+			usersID: {{SourceCollectionID: postsID, SourceFieldID: ownerID, Spec: spec}},
+		},
+	}
+	if err := validateCatalogIntegrity(valid); err != nil {
+		t.Fatalf("valid relation catalog: %v", err)
+	}
+	scalar := Catalog{Collections: map[string]Collection{
+		"pages": {
+			ID: uuid.MustParse("0199aa16-e3dd-7000-8000-000000000005"), Name: "pages", TableName: "pages",
+			Fields: []Field{{ID: uuid.MustParse("0199aa16-e3dd-7000-8000-000000000006"), Name: "body", ColumnName: "body", Type: TypeText}},
+		},
+	}}
+	if err := validateCatalogIntegrity(scalar); err != nil {
+		t.Fatalf("scalar catalog compatibility: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Catalog)
+	}{
+		{
+			name: "missing incoming",
+			mutate: func(catalog *Catalog) {
+				delete(catalog.Incoming, usersID)
+			},
+		},
+		{
+			name: "unexpected empty incoming",
+			mutate: func(catalog *Catalog) {
+				catalog.Incoming[postsID] = []RelationRef{}
+			},
+		},
+		{
+			name: "wrong incoming spec",
+			mutate: func(catalog *Catalog) {
+				catalog.Incoming[usersID][0].Spec.OnDelete = RelationCascade
+			},
+		},
+		{
+			name: "duplicate incoming",
+			mutate: func(catalog *Catalog) {
+				catalog.Incoming[usersID] = append(catalog.Incoming[usersID], catalog.Incoming[usersID][0])
+			},
+		},
+		{
+			name: "missing target",
+			mutate: func(catalog *Catalog) {
+				delete(catalog.Collections, "users")
+			},
+		},
+		{
+			name: "duplicate collection ID",
+			mutate: func(catalog *Catalog) {
+				posts := catalog.Collections["posts"]
+				posts.ID = usersID
+				catalog.Collections["posts"] = posts
+			},
+		},
+		{
+			name: "duplicate field ID",
+			mutate: func(catalog *Catalog) {
+				posts := catalog.Collections["posts"]
+				posts.Fields[1].ID = titleID
+				catalog.Collections["posts"] = posts
+			},
+		},
+		{
+			name: "scalar carries relation",
+			mutate: func(catalog *Catalog) {
+				posts := catalog.Collections["posts"]
+				posts.Fields[0].Relation = &spec
+				catalog.Collections["posts"] = posts
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := cloneCatalog(valid)
+			test.mutate(&catalog)
+			if err := validateCatalogIntegrity(catalog); !errors.Is(err, ErrConflict) {
+				t.Fatalf("validateCatalogIntegrity() error = %v, want ErrConflict", err)
+			}
+		})
+	}
+}

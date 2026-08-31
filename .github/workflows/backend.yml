@@ -3,11 +3,30 @@ name: Backend
 on:
   push:
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  observability-artifacts:
+    name: Observability artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate Grafana dashboard JSON
+        run: jq empty deployments/observability/grafana-dashboard.json
+
+      - name: Validate Prometheus alert rules
+        run: >-
+          docker run --rm --entrypoint=/bin/promtool
+          -v "$PWD/deployments/observability:/rules:ro"
+          prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+          check rules /rules/prometheus-alerts.yml
+
   test:
     name: Go / PostgreSQL ${{ matrix.postgres.version }}
     runs-on: ubuntu-24.04
@@ -66,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test ./internal/query -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
+          go test ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark baseline
         if: always()

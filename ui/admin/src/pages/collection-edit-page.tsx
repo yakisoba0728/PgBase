@@ -1,51 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { APIClientError } from "../api/client";
 import { stringifyJSON } from "../api/json";
-import { fieldTypes, type CollectionChangeInput, type CollectionDefinition, type CollectionPlan, type FieldType } from "../api/collections";
+import { collectionFromCatalog, fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionDefinition, type CollectionPlan } from "../api/collections";
 import { useSession } from "../auth/session";
-import { buildInput, type DraftField } from "./collection-create-page";
-
-function defaultTextFor(type: string, value: unknown): string {
-  if (value === undefined) return "";
-  if (type === "timestamptz" && value !== null && typeof value === "object" && (value as { kind?: string }).kind === "now") {
-    // The catalog stores the canonical {"kind":"now"} object; the form edits
-    // the shorthand text that parseDefault accepts.
-    return "now";
-  }
-  if (type === "jsonb") {
-    // jsonb defaults may be scalars (a string "now", a string "[1,2]"); keep
-    // the JSON representation so parseDefault re-parses the same value.
-    return stringifyJSON(value);
-  }
-  return typeof value === "string" ? value : stringifyJSON(value);
-}
-
-function draftFromDefinition(definition: CollectionDefinition): DraftField[] {
-  return definition.fields
-    .slice()
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .map((field) => ({
-      name: field.name,
-      type: field.type,
-      required: field.required,
-      unique: field.unique,
-      indexed: field.indexed,
-      hasDefault: field.default !== undefined,
-      defaultText: defaultTextFor(field.type, field.default),
-    }));
-}
+import {
+  buildInput,
+  CollectionFieldEditor,
+  draftErrorMessage,
+  draftFieldsFromDefinition,
+  newDraftField,
+  previewField,
+  relationTargetOptions,
+  schemaErrorMessage,
+  type DraftField,
+} from "./collection-field-editor";
 
 function toInput(definition: CollectionDefinition, fields: DraftField[]): CollectionChangeInput {
   return buildInput("update", definition.name, fields);
 }
 
-function previewField(field: { name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown }): string {
-  const flags = [field.required && "required", field.unique && "unique", field.indexed && "indexed", field.default !== undefined && `default: ${typeof field.default === "string" ? field.default : stringifyJSON(field.default)}`].filter(Boolean);
-  return `${field.name} · ${field.type}${flags.length > 0 ? ` · ${flags.join(" · ")}` : ""}`;
-}
-
 export function CollectionEditPage({ collectionName, navigate }: { collectionName: string; navigate(path: string): void }) {
   const { collections } = useSession();
+  const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [definition, setDefinition] = useState<CollectionDefinition | null>(null);
   const [fields, setFields] = useState<DraftField[]>([]);
   const [plan, setPlan] = useState<CollectionPlan | null>(null);
@@ -53,6 +29,8 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [destructiveConfirmed, setDestructiveConfirmed] = useState(false);
 
   // Delete flow state: null → no delete in progress; otherwise the SQL preview is shown.
   const [deletePlan, setDeletePlan] = useState<CollectionPlan | null>(null);
@@ -61,12 +39,17 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
 
   useEffect(() => {
     const controller = new AbortController();
+    setDefinition(null);
+    setCatalog(null);
+    setNotFound(false);
+    setLoadFailed(false);
     void collections.catalog(controller.signal).then((catalog) => {
-      const existing = catalog.collections[collectionName];
+      const existing = collectionFromCatalog(catalog, collectionName);
       if (!existing) { setNotFound(true); return; }
+      setCatalog(catalog);
       setDefinition(existing);
-      setFields(draftFromDefinition(existing));
-    }).catch(() => { if (!controller.signal.aborted) setNotFound(true); });
+      setFields(draftFieldsFromDefinition(existing, catalog));
+    }).catch(() => { if (!controller.signal.aborted) setLoadFailed(true); });
     return () => controller.abort();
   }, [collectionName, collections]);
 
@@ -75,20 +58,31 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     try { return stringifyJSON(toInput(definition, fields)); } catch { return "invalid"; }
   }, [definition, fields]);
   const previewCurrent = plan !== null && plannedInput !== null && stringifyJSON(plannedInput) === inputSignature;
+  const relationTargets = useMemo(() => relationTargetOptions(catalog, definition?.name ?? collectionName), [catalog, collectionName, definition?.name]);
+  const existingFieldNames = useMemo(() => new Set(definition?.fields.map((field) => field.name) ?? []), [definition]);
+  const removedFields = useMemo(() => {
+    if (!previewCurrent || definition === null || plan === null) return [];
+    const plannedNames = new Set(plan.definition.fields.map((field) => field.name));
+    return definition.fields
+      .filter((field) => !plannedNames.has(field.name))
+      .sort((left, right) => left.ordinal - right.ordinal)
+      .map((field) => field.name);
+  }, [definition, plan, previewCurrent]);
 
   function resetPlan() {
     setPlan(null);
     setPlannedInput(null);
+    setDestructiveConfirmed(false);
   }
 
-  function changeField(index: number, patch: Partial<DraftField>) {
+  function changeField(index: number, field: DraftField) {
     resetPlan();
-    setFields((current) => current.map((field, position) => position === index ? { ...field, ...patch } : field));
+    setFields((current) => current.map((currentField, position) => position === index ? field : currentField));
   }
 
   function addField() {
     resetPlan();
-    setFields((current) => [...current, { name: "", type: "text", required: false, unique: false, indexed: false, hasDefault: false, defaultText: "" }]);
+    setFields((current) => [...current, newDraftField()]);
   }
 
   function removeField(index: number) {
@@ -100,20 +94,21 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     if (definition === null || pending) return;
     setError(null);
     let input: CollectionChangeInput;
-    try { input = toInput(definition, fields); } catch { setError("Enter a valid default for the selected field type."); return; }
+    try { input = toInput(definition, fields); } catch (caught: unknown) { setError(draftErrorMessage(caught, "Collection input is invalid.")); return; }
     setPending(true);
     try {
       const result = await collections.plan(input);
       setPlannedInput(input);
       setPlan(result);
+      setDestructiveConfirmed(false);
     } catch (caught: unknown) {
       resetPlan();
-      setError(caught instanceof APIClientError && caught.code === "validation_failed" ? "Collection input is invalid." : "Unable to preview the collection change.");
+      setError(schemaErrorMessage(caught, "Unable to preview the collection change."));
     } finally { setPending(false); }
   }
 
   async function apply() {
-    if (!previewCurrent || plan === null || plannedInput === null || pending) return;
+    if (!previewCurrent || plan === null || plannedInput === null || pending || (removedFields.length > 0 && !destructiveConfirmed)) return;
     const appliedBaseVersion = plan.baseVersion;
     setPending(true);
     setError(null);
@@ -137,8 +132,8 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
           setError("The catalog changed. Preview the collection again before applying.");
         }
       } else if (caught instanceof APIClientError && caught.status === 422) {
-        setError("Existing data blocks this change (for example missing or duplicate values).");
-      } else setError("Unable to apply the collection change.");
+        setError(schemaErrorMessage(caught, "Existing data blocks this change (for example missing or duplicate values).", "Existing data blocks this change (for example missing or duplicate values)."));
+      } else setError(schemaErrorMessage(caught, "Unable to apply the collection change."));
     } finally { setPending(false); }
   }
 
@@ -148,8 +143,8 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     setDeletePending(true);
     try {
       setDeletePlan(await collections.plan({ operation: "delete", name: definition.name }));
-    } catch {
-      setDeleteError("Unable to preview the collection deletion.");
+    } catch (caught: unknown) {
+      setDeleteError(schemaErrorMessage(caught, "Unable to preview the collection deletion."));
     } finally { setDeletePending(false); }
   }
 
@@ -162,13 +157,16 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
       navigate("/admin/collections");
     } catch (caught: unknown) {
       setDeletePlan(null);
-      if (caught instanceof APIClientError && caught.status === 409) {
+      if (caught instanceof APIClientError && caught.code === "collection_referenced") {
+        setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection.", "Collection is referenced."));
+      } else if (caught instanceof APIClientError && caught.status === 409) {
         setDeleteError("The catalog changed. Preview the deletion again before applying.");
-      } else setDeleteError("Unable to delete the collection.");
+      } else setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection."));
     } finally { setDeletePending(false); }
   }
 
   if (notFound) return <section><h2>Edit collection</h2><p role="alert">Collection not found.</p></section>;
+  if (loadFailed) return <section><h2>Edit collection</h2><p role="alert">Unable to load collection.</p></section>;
   if (definition === null) return <section><h2>Edit collection</h2><p aria-live="polite">Loading collection…</p></section>;
 
   return <section>
@@ -178,20 +176,18 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     <form onSubmit={(event) => { event.preventDefault(); void preview(); }}>
       <fieldset>
         <legend>Fields</legend>
-        {fields.map((field, index) => <div className="field-card" key={index}>
-          <label htmlFor={`field-${index}-name`}>Field {index + 1} name</label>
-          <input id={`field-${index}-name`} onChange={(event) => changeField(index, { name: event.target.value })} required value={field.name} />
-          <label htmlFor={`field-${index}-type`}>Field {index + 1} type</label>
-          <select id={`field-${index}-type`} onChange={(event) => changeField(index, { type: event.target.value as FieldType })} value={field.type}>{fieldTypes.map((type) => <option key={type}>{type}</option>)}</select>
-          <label><input aria-label={`Field ${index + 1} has default`} checked={field.hasDefault} onChange={(event) => changeField(index, { hasDefault: event.target.checked })} type="checkbox" /> Use default</label>
-          <label htmlFor={`field-${index}-default`}>Field {index + 1} default</label>
-          {field.type === "boolean" ? <select disabled={!field.hasDefault} id={`field-${index}-default`} onChange={(event) => changeField(index, { defaultText: event.target.value })} value={field.defaultText}><option value="">Choose…</option><option value="true">true</option><option value="false">false</option></select> :
-            <input disabled={!field.hasDefault} id={`field-${index}-default`} onChange={(event) => changeField(index, { defaultText: event.target.value })} placeholder={field.type === "timestamptz" ? "now or RFC 3339 timestamp" : field.type === "jsonb" ? "Valid JSON" : undefined} value={field.defaultText} />}
-          <div className="checks">
-            {(["required", "unique", "indexed"] as const).map((flag) => <label key={flag}><input aria-label={`Field ${index + 1} ${flag}`} checked={field[flag]} onChange={(event) => changeField(index, { [flag]: event.target.checked })} type="checkbox" /> {flag}</label>)}
-          </div>
-          {fields.length > 1 && <button className="secondary" disabled={pending} onClick={() => removeField(index)} type="button">Remove field</button>}
-        </div>)}
+        {fields.map((field, index) => <CollectionFieldEditor
+          field={field}
+          fieldCount={fields.length}
+          fieldTypes={fieldTypes}
+          index={index}
+          key={index}
+          onChange={(next) => changeField(index, next)}
+          onRemove={() => removeField(index)}
+          pending={pending}
+          relationTargets={relationTargets}
+          showRequiredRelationMigration={!existingFieldNames.has(field.name)}
+        />)}
         <button className="secondary" onClick={addField} type="button">Add field</button>
       </fieldset>
       <button disabled={pending} type="submit">{pending ? "Previewing…" : "Preview change"}</button>
@@ -202,7 +198,12 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
       <ul>{plan.definition.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
       <h4>SQL</h4>
       <pre>{plan.sql.join("\n\n")}</pre>
-      <button disabled={pending} onClick={() => void apply()} type="button">{pending ? "Applying…" : "Apply change"}</button>
+      {removedFields.length > 0 && <div aria-label="Permanent data loss warning" className="danger-zone" role="alert">
+        <p>This change permanently deletes data from these fields:</p>
+        <ul>{removedFields.map((name) => <li key={name}>{name}</li>)}</ul>
+        <label><input checked={destructiveConfirmed} onChange={(event) => setDestructiveConfirmed(event.target.checked)} type="checkbox" /> I understand that these fields and their data will be permanently deleted.</label>
+      </div>}
+      <button disabled={pending || (removedFields.length > 0 && !destructiveConfirmed)} onClick={() => void apply()} type="button">{pending ? "Applying…" : "Apply change"}</button>
     </section>}
     <section className="danger-zone" aria-label="Danger zone">
       <h3>Danger zone</h3>

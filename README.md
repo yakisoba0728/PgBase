@@ -1,6 +1,6 @@
 # pgBase
 
-pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. This repository is a pre-v0.1 development preview, not a stable release. It currently provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records with a filter expression and sort language plus signed cursor pagination, health/readiness, explicit system migrations, diagnostics, and a container image.
+pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. This repository is a pre-v0.1 development preview, not a stable release. It currently provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records including ordered single/multiple relation fields, bounded relation expand/filter/sort, signed cursor pagination, create idempotency, strong ETag concurrency control, committed audit and a transactional outbox writer, health/readiness, protected opt-in Prometheus metrics, explicit system migrations, diagnostics, and a container image.
 
 ## Quick start
 
@@ -27,6 +27,11 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 - [Security policy](SECURITY.md)
 - [Approved Production Kernel design](docs/superpowers/specs/2026-08-28-production-kernel-design.md)
 - [Approved Production Kernel implementation plan](docs/superpowers/plans/2026-08-28-production-kernel.md)
+- [PocketBase reference research and large-scale roadmap](docs/pocketbase-reference-research-2026-08-31.md)
+- [Record Operations atomicity design](docs/superpowers/specs/2026-08-31-record-operations-design.md)
+- [Record Operations implementation plan](docs/superpowers/plans/2026-08-31-record-operations.md)
+- [Relation and schema lifecycle design](docs/superpowers/specs/2026-08-31-relation-schema-lifecycle-design.md)
+- [Relation and schema lifecycle implementation plan](docs/superpowers/plans/2026-08-31-relation-schema-lifecycle.md)
 
 ## Scope and stability
 
@@ -34,4 +39,4 @@ One pgBase project owns one PostgreSQL database. Multiple pgBase instances for t
 
 The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability while the project is pre-v0.1.
 
-This kernel does not provide public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview) and composite indexes are not supported. It makes no throughput or zero-downtime upgrade guarantee.
+This kernel does not provide public user authentication or record rules, cross-project relations, arbitrary SQL joins, relation edge attributes, files, outbox delivery/realtime, an SDK, generated OpenAPI, online DDL, read-replica routing, or sharding. Relation mutations are supported only through the record API/Record Operations kernel; direct writes to pgBase-owned PostgreSQL objects are outside the contract because they bypass ETag/revision, audit, outbox, logical delete actions, and relation locking. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview), automatic single/multiple relation conversion, or composite indexes. It makes no throughput, large-scale-readiness, or zero-downtime upgrade guarantee.

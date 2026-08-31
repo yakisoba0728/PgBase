@@ -27,13 +27,30 @@ type schemaEndpoints struct {
 }
 
 type plannedFieldResponse struct {
-	Name     string           `json:"name"`
-	Type     schema.FieldType `json:"type"`
-	Required bool             `json:"required"`
-	Unique   bool             `json:"unique"`
-	Indexed  bool             `json:"indexed"`
-	Default  json.RawMessage  `json:"default,omitempty"`
-	Ordinal  int              `json:"ordinal"`
+	Name     string                   `json:"name"`
+	Type     schema.FieldType         `json:"type"`
+	Required bool                     `json:"required"`
+	Unique   bool                     `json:"unique"`
+	Indexed  bool                     `json:"indexed"`
+	Default  json.RawMessage          `json:"default,omitempty"`
+	Relation *plannedRelationResponse `json:"relation,omitempty"`
+	Ordinal  int                      `json:"ordinal"`
+}
+
+type relationStorageResponse struct {
+	Kind schema.RelationStorageKind `json:"kind"`
+	Name string                     `json:"name"`
+}
+
+type plannedRelationResponse struct {
+	TargetCollection   string                      `json:"targetCollection"`
+	TargetCollectionID *uuid.UUID                  `json:"targetCollectionId,omitempty"`
+	Cardinality        schema.RelationCardinality  `json:"cardinality"`
+	MinSelect          int                         `json:"minSelect"`
+	MaxSelect          int                         `json:"maxSelect"`
+	OnDelete           schema.RelationDeleteAction `json:"onDelete"`
+	ValueCodecVersion  int                         `json:"valueCodecVersion"`
+	Storage            relationStorageResponse     `json:"storage"`
 }
 
 type plannedCollectionResponse struct {
@@ -50,15 +67,26 @@ type schemaPlanResponse struct {
 }
 
 type fieldResponse struct {
-	ID         uuid.UUID        `json:"id"`
-	Name       string           `json:"name"`
-	ColumnName string           `json:"columnName"`
-	Type       schema.FieldType `json:"type"`
-	Required   bool             `json:"required"`
-	Unique     bool             `json:"unique"`
-	Indexed    bool             `json:"indexed"`
-	Default    json.RawMessage  `json:"default,omitempty"`
-	Ordinal    int              `json:"ordinal"`
+	ID         uuid.UUID         `json:"id"`
+	Name       string            `json:"name"`
+	ColumnName string            `json:"columnName"`
+	Type       schema.FieldType  `json:"type"`
+	Required   bool              `json:"required"`
+	Unique     bool              `json:"unique"`
+	Indexed    bool              `json:"indexed"`
+	Default    json.RawMessage   `json:"default,omitempty"`
+	Relation   *relationResponse `json:"relation,omitempty"`
+	Ordinal    int               `json:"ordinal"`
+}
+
+type relationResponse struct {
+	TargetCollectionID uuid.UUID                   `json:"targetCollectionId"`
+	Cardinality        schema.RelationCardinality  `json:"cardinality"`
+	MinSelect          int                         `json:"minSelect"`
+	MaxSelect          int                         `json:"maxSelect"`
+	OnDelete           schema.RelationDeleteAction `json:"onDelete"`
+	ValueCodecVersion  int                         `json:"valueCodecVersion"`
+	Storage            relationStorageResponse     `json:"storage"`
 }
 
 type collectionResponse struct {
@@ -203,7 +231,8 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 	for _, field := range collection.Fields {
 		fields = append(fields, plannedFieldResponse{
 			Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique,
-			Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...), Ordinal: field.Ordinal,
+			Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...),
+			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal,
 		})
 	}
 	return plannedCollectionResponse{Name: collection.Name, TableName: collection.TableName, Fields: fields}
@@ -215,7 +244,8 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 		fields = append(fields, fieldResponse{
 			ID: field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: field.Type,
 			Required: field.Required, Unique: field.Unique, Indexed: field.Indexed,
-			Default: append(json.RawMessage(nil), field.Default...), Ordinal: field.Ordinal,
+			Default:  append(json.RawMessage(nil), field.Default...),
+			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal,
 		})
 	}
 	return collectionResponse{
@@ -224,23 +254,70 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 	}
 }
 
+func plannedRelationDTO(relation *schema.PlannedRelation) *plannedRelationResponse {
+	if relation == nil {
+		return nil
+	}
+	var targetCollectionID *uuid.UUID
+	if relation.TargetCollectionID != nil {
+		value := *relation.TargetCollectionID
+		targetCollectionID = &value
+	}
+	return &plannedRelationResponse{
+		TargetCollection:   relation.TargetCollection,
+		TargetCollectionID: targetCollectionID,
+		Cardinality:        relation.Cardinality,
+		MinSelect:          relation.MinSelect,
+		MaxSelect:          relation.MaxSelect,
+		OnDelete:           relation.OnDelete,
+		ValueCodecVersion:  relation.ValueCodecVersion,
+		Storage:            relationStorageDTO(relation.Storage),
+	}
+}
+
+func relationDTO(relation *schema.RelationSpec) *relationResponse {
+	if relation == nil {
+		return nil
+	}
+	return &relationResponse{
+		TargetCollectionID: relation.TargetCollectionID,
+		Cardinality:        relation.Cardinality,
+		MinSelect:          relation.MinSelect,
+		MaxSelect:          relation.MaxSelect,
+		OnDelete:           relation.OnDelete,
+		ValueCodecVersion:  relation.ValueCodecVersion,
+		Storage:            relationStorageDTO(relation.Storage),
+	}
+}
+
+func relationStorageDTO(storage schema.RelationStorage) relationStorageResponse {
+	return relationStorageResponse{Kind: storage.Kind, Name: storage.Name}
+}
+
 func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 	apiError := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
 	var validation *schema.ValidationError
 	switch {
 	case errors.As(err, &validation):
 		status := http.StatusBadRequest
+		code := "validation_failed"
+		message := "Schema input is invalid"
 		for _, detail := range validation.Details {
+			if detail.Code == "collection_referenced" {
+				status = http.StatusConflict
+				code = "collection_referenced"
+				message = "Collection is referenced"
+				break
+			}
 			if detail.Code == "unsupported_schema_change" {
 				status = http.StatusUnprocessableEntity
-				break
 			}
 		}
 		details := make(map[string][]string, len(validation.Details))
 		for _, detail := range validation.Details {
 			details[detail.Field] = append(details[detail.Field], detail.Code)
 		}
-		apiError = APIError{Status: status, Code: "validation_failed", Message: "Schema input is invalid", Details: details}
+		apiError = APIError{Status: status, Code: code, Message: message, Details: details}
 	case errors.Is(err, schema.ErrCollectionNotFound):
 		apiError = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"}
 	case errors.Is(err, schema.ErrDataConstraint):

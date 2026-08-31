@@ -2,17 +2,18 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -55,8 +56,11 @@ func TestRecordRoutesRequireAdministratorAndCSRF(t *testing.T) {
 
 func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	record := map[string]any{"id": id.String(), "title": "hello"}
-	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{record}, NextCursor: "next"}, record: record}
+	recordData := map[string]any{"id": id.String(), "title": "hello"}
+	records := &fakeRecordService{
+		page:   query.RecordPage{Items: []map[string]any{recordData}, NextCursor: "next"},
+		record: recordops.Record{Data: recordData, ETag: `"pgb1.current"`, Version: 1},
+	}
 	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 
 	tests := []struct {
@@ -77,20 +81,21 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 			t.Errorf("%s %s status=%d body=%s", test.method, test.path, response.Code, response.Body.String())
 		}
 	}
-	if records.listCollection != "posts" || records.listCursor != "signed" || records.listLimit != 2 || records.getID != id || records.updateID != id || records.deleteID != id {
+	if records.listRequest.Collection != "posts" || records.listRequest.Cursor != "signed" || records.listRequest.Limit != 2 ||
+		records.getRequest.ID != id || records.updateRequest.ID != id || records.deleteRequest.ID != id {
 		t.Fatalf("service calls=%+v", records)
 	}
 	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?limit=999", "", true)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || records.listLimit != 200 {
-		t.Fatalf("capped list status=%d limit=%d", response.Code, records.listLimit)
+	if response.Code != http.StatusOK || records.listRequest.Limit != 200 {
+		t.Fatalf("capped list status=%d limit=%d", response.Code, records.listRequest.Limit)
 	}
 	request = authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records", "", true)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || records.listLimit != 50 {
-		t.Fatalf("default list status=%d limit=%d", response.Code, records.listLimit)
+	if response.Code != http.StatusOK || records.listRequest.Limit != 50 {
+		t.Fatalf("default list status=%d limit=%d", response.Code, records.listRequest.Limit)
 	}
 }
 
@@ -118,18 +123,42 @@ func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
 	}
 }
 
+func TestRecordRoutesRejectDuplicateKeysAfterLargeNumberBeforeServiceCall(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPatch} {
+		records := &fakeRecordService{}
+		handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		path := "/api/v1/collections/posts/records"
+		if method == http.MethodPatch {
+			path += "/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+		}
+		request := authenticatedRecordRequest(method, path, `{"payload":1e400,"title":"safe","title":"last"}`, true)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d body=%s", method, response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+		if records.createCalls != 0 || records.updateCalls != 0 {
+			t.Fatalf("%s service calls create=%d update=%d", method, records.createCalls, records.updateCalls)
+		}
+	}
+}
+
 func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
 	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodGet,
-		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+"&sort="+url.QueryEscape("-rank,created_at"), "", true)
+		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+
+			"&sort="+url.QueryEscape("-rank,created_at")+"&expand="+url.QueryEscape("owner,reviewers"), "", true)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if records.listFilter != `(title = 'x' && rank >= 2)` || records.listSort != "-rank,created_at" {
-		t.Fatalf("forwarded params filter=%q sort=%q", records.listFilter, records.listSort)
+	if records.listRequest.Filter != `(title = 'x' && rank >= 2)` || records.listRequest.Sort != "-rank,created_at" ||
+		records.listRequest.Expand != "owner,reviewers" {
+		t.Fatalf("forwarded params filter=%q sort=%q expand=%q",
+			records.listRequest.Filter, records.listRequest.Sort, records.listRequest.Expand)
 	}
 
 	records.listErr = &query.ValidationError{Details: []query.ValidationDetail{{Field: "filter", Code: "unknown_field"}}}
@@ -140,6 +169,277 @@ func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 		t.Fatalf("filter validation status=%d body=%s", response.Code, response.Body.String())
 	}
 	assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+}
+
+func TestRecordGetForwardsStrictlyParsedExpandParam(t *testing.T) {
+	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	records := &fakeRecordService{record: recordops.Record{
+		Data: map[string]any{"id": id.String()}, ETag: `"pgb1.current"`, Version: 1,
+	}}
+	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+
+	request := authenticatedRecordRequest(http.MethodGet,
+		"/api/v1/collections/posts/records/"+id.String()+"?expand="+url.QueryEscape("owner,reviewers"), "", true)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || records.getRequest.Expand != "owner,reviewers" {
+		t.Fatalf("get expand status=%d request=%+v body=%s", response.Code, records.getRequest, response.Body.String())
+	}
+
+	records.getCalls = 0
+	request = authenticatedRecordRequest(http.MethodGet,
+		"/api/v1/collections/posts/records/"+id.String(), "", true)
+	request.URL.RawQuery = "expand=owner%"
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || records.getCalls != 0 {
+		t.Fatalf("malformed get expand status=%d calls=%d body=%s", response.Code, records.getCalls, response.Body.String())
+	}
+}
+
+func TestRecordListRejectsMalformedQueryEncodingBeforeServiceCall(t *testing.T) {
+	for _, rawQuery := range []string{
+		"filter=n%3D1%",
+		"sort=-rank%zz",
+		"cursor=abc%",
+		"limit=5%",
+		"filter=title%3D1&sort=%",
+		"unknown=%",
+		"filter=title;sort=rank",
+	} {
+		t.Run(rawQuery, func(t *testing.T) {
+			records := &fakeRecordService{}
+			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records", "", true)
+			request.URL.RawQuery = rawQuery
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+			if records.listCalls != 0 {
+				t.Fatalf("List() calls = %d, want 0", records.listCalls)
+			}
+		})
+	}
+}
+
+func TestRecordCreateRejectsMalformedOrDuplicateIdempotencyKeyBeforeServiceCall(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+	}{
+		{name: "too short", values: []string{"short"}},
+		{name: "too long", values: []string{strings.Repeat("a", 129)}},
+		{name: "space", values: []string{"key-with-space- 2026"}},
+		{name: "comma", values: []string{"key-one-12345678,key-two-12345678"}},
+		{name: "non ascii", values: []string{"idempotency-key-안전"}},
+		{name: "duplicate field lines", values: []string{"first-key-123456", "second-key-12345"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			records := &fakeRecordService{}
+			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records", `{}`, true)
+			for _, value := range test.values {
+				request.Header.Add("Idempotency-Key", value)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "invalid_idempotency_key")
+			if records.createCalls != 0 {
+				t.Fatalf("Create() calls = %d, want 0", records.createCalls)
+			}
+		})
+	}
+}
+
+func TestRecordMutationsParseBoundedIfMatch(t *testing.T) {
+	id := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	newRecord := recordops.Record{Data: map[string]any{"id": id}, ETag: `"pgb1.next"`, Version: 2}
+	tests := []struct {
+		name       string
+		header     string
+		wantAny    bool
+		wantValues []string
+	}{
+		{name: "missing"},
+		{name: "wildcard", header: " \t* \t", wantAny: true},
+		{name: "strong and weak tags", header: `"pgb1.current", W/"weak", "another"`, wantValues: []string{`"pgb1.current"`, `W/"weak"`, `"another"`}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			records := &fakeRecordService{record: newRecord}
+			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			request := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/posts/records/"+id, `{"title":"next"}`, true)
+			if test.header != "" {
+				request.Header.Set("If-Match", test.header)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			got := records.updateRequest.IfMatch
+			if got.Present != (test.header != "") || got.Any != test.wantAny || strings.Join(got.Values, "|") != strings.Join(test.wantValues, "|") {
+				t.Fatalf("IfMatch=%+v", got)
+			}
+		})
+	}
+}
+
+func TestRecordMutationsRejectMalformedOrDuplicateIfMatchBeforeServiceCall(t *testing.T) {
+	tags := make([]string, 9)
+	for index := range tags {
+		tags[index] = `"tag-` + strconv.Itoa(index) + `"`
+	}
+	tests := []struct {
+		name   string
+		values []string
+	}{
+		{name: "empty", values: []string{""}},
+		{name: "unclosed", values: []string{`"pgb1.current`}},
+		{name: "lowercase weak prefix", values: []string{`w/"pgb1.current"`}},
+		{name: "wildcard mixed with tag", values: []string{`*, "pgb1.current"`}},
+		{name: "trailing comma", values: []string{`"pgb1.current",`}},
+		{name: "too many tags", values: []string{strings.Join(tags, ",")}},
+		{name: "too many bytes", values: []string{`"` + strings.Repeat("a", 1023) + `"`}},
+		{name: "duplicate field lines", values: []string{`"one"`, `"two"`}},
+	}
+	for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		for _, test := range tests {
+			t.Run(method+"/"+test.name, func(t *testing.T) {
+				records := &fakeRecordService{}
+				handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+				body := ""
+				if method == http.MethodPatch {
+					body = `{}`
+				}
+				request := authenticatedRecordRequest(method, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", body, true)
+				for _, value := range test.values {
+					request.Header.Add("If-Match", value)
+				}
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if response.Code != http.StatusBadRequest {
+					t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+				}
+				assertErrorCode(t, response.Body.Bytes(), "invalid_precondition")
+				if records.updateCalls != 0 || records.deleteCalls != 0 {
+					t.Fatalf("service calls update=%d delete=%d", records.updateCalls, records.deleteCalls)
+				}
+			})
+		}
+	}
+}
+
+func TestRecordResponsesExposeEntityTagReplayLocationAndCompatibility(t *testing.T) {
+	id := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	record := recordops.Record{Data: map[string]any{"id": id, "title": "hello"}, ETag: `"pgb1.response"`, Version: 3}
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+
+	t.Run("get", func(t *testing.T) {
+		response := serveRecordRequest(t, &fakeRecordService{record: record}, auth,
+			authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/"+id, "", true))
+		if response.Code != http.StatusOK || response.Header().Get("ETag") != record.ETag || !strings.Contains(response.Body.String(), `"title":"hello"`) {
+			t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+		}
+	})
+
+	t.Run("replayed create", func(t *testing.T) {
+		records := &fakeRecordService{createResult: recordops.MutationResult{Record: &record, Replayed: true}}
+		request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records", `{"title":"hello"}`, true)
+		request.Header.Set("Idempotency-Key", "create-draft-12345678")
+		response := serveRecordRequest(t, records, auth, request)
+		if response.Code != http.StatusCreated || response.Header().Get("ETag") != record.ETag ||
+			response.Header().Get("Location") != "/api/v1/collections/posts/records/"+id ||
+			response.Header().Get("Idempotency-Replayed") != "true" || response.Header().Get("Deprecation") != "" {
+			t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+		}
+	})
+
+	t.Run("create compatibility", func(t *testing.T) {
+		records := &fakeRecordService{createResult: recordops.MutationResult{Record: &record, Compatibility: recordops.CompatibilityMissingIdempotencyKey}}
+		response := serveRecordRequest(t, records, auth,
+			authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records", `{"title":"hello"}`, true))
+		assertCompatibilityHeaders(t, response, string(recordops.CompatibilityMissingIdempotencyKey))
+		if response.Header().Get("Idempotency-Replayed") != "false" {
+			t.Fatalf("Idempotency-Replayed=%q", response.Header().Get("Idempotency-Replayed"))
+		}
+	})
+
+	t.Run("update compatibility", func(t *testing.T) {
+		records := &fakeRecordService{updateResult: recordops.MutationResult{Record: &record, Compatibility: recordops.CompatibilityLastWriteWins}}
+		response := serveRecordRequest(t, records, auth,
+			authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/posts/records/"+id, `{"title":"hello"}`, true))
+		assertCompatibilityHeaders(t, response, string(recordops.CompatibilityLastWriteWins))
+		if response.Header().Get("ETag") != record.ETag {
+			t.Fatalf("ETag=%q", response.Header().Get("ETag"))
+		}
+	})
+
+	t.Run("delete compatibility", func(t *testing.T) {
+		records := &fakeRecordService{deleteResult: recordops.MutationResult{Compatibility: recordops.CompatibilityLastWriteWins}}
+		response := serveRecordRequest(t, records, auth,
+			authenticatedRecordRequest(http.MethodDelete, "/api/v1/collections/posts/records/"+id, "", true))
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertCompatibilityHeaders(t, response, string(recordops.CompatibilityLastWriteWins))
+	})
+}
+
+func TestRecordRoutesMapStableRecordOperationErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+		wantETag   string
+	}{
+		{name: "invalid key", err: &recordops.Error{Code: recordops.CodeInvalidIdempotencyKey}, wantStatus: 400, wantCode: "invalid_idempotency_key"},
+		{name: "different payload", err: &recordops.Error{Code: recordops.CodeIdempotencyConflict}, wantStatus: 409, wantCode: "idempotency_conflict"},
+		{name: "in progress", err: &recordops.Error{Code: recordops.CodeIdempotencyInProgress}, wantStatus: 409, wantCode: "idempotency_in_progress"},
+		{name: "invalid precondition", err: &recordops.Error{Code: recordops.CodeInvalidPrecondition}, wantStatus: 400, wantCode: "invalid_precondition"},
+		{name: "stale precondition", err: &recordops.Error{Code: recordops.CodePreconditionFailed, CurrentETag: `"pgb1.current"`}, wantStatus: 412, wantCode: "precondition_failed", wantETag: `"pgb1.current"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			records := &fakeRecordService{updateErr: test.err}
+			request := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{}`, true)
+			request.Header.Set("If-Match", `"pgb1.stale"`)
+			response := serveRecordRequest(t, records, &fakeAdminAuth{authenticateAdmin: validSession().Administrator}, request)
+			if response.Code != test.wantStatus || response.Header().Get("ETag") != test.wantETag {
+				t.Fatalf("status=%d ETag=%q body=%s", response.Code, response.Header().Get("ETag"), response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), test.wantCode)
+		})
+	}
+}
+
+func TestRecordPrincipalComesOnlyFromAuthenticatedContext(t *testing.T) {
+	administrator := validSession().Administrator
+	spoofed := uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	record := recordops.Record{Data: map[string]any{"id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}, ETag: `"pgb1.created"`, Version: 1}
+	records := &fakeRecordService{record: record}
+	request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records",
+		`{"actorId":"`+spoofed.String()+`","actorKind":"owner","title":"hello"}`, true)
+	request.Header.Set("Idempotency-Key", "actor-bound-key-12345")
+	request.Header.Set("X-Actor-ID", spoofed.String())
+	request.Header.Set("X-Request-ID", "request_actor_test")
+	response := serveRecordRequest(t, records, &fakeAdminAuth{authenticateAdmin: administrator}, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	got := records.createRequest
+	if got.Principal.Kind != recordops.PrincipalAdministrator || got.Principal.ID != administrator.ID ||
+		got.Principal.ID == spoofed || got.RequestID != "request_actor_test" || got.IdempotencyKey != "actor-bound-key-12345" {
+		t.Fatalf("request metadata=%+v", got)
+	}
 }
 
 func TestRecordRoutesMapSafeProductErrors(t *testing.T) {
@@ -190,38 +490,68 @@ func TestRecordRoutesExposeRetryPolicyForTransientDatabaseFailure(t *testing.T) 
 }
 
 type fakeRecordService struct {
-	page                                             query.RecordPage
-	record                                           map[string]any
-	listErr, getErr, createErr, updateErr, deleteErr error
-	listCollection, listCursor, listFilter, listSort string
-	listLimit                                        int
-	getID, updateID, deleteID                        uuid.UUID
-	createCalls                                      int
+	page                                                       recordops.RecordPage
+	record                                                     recordops.Record
+	createResult, updateResult, deleteResult                   recordops.MutationResult
+	listErr, getErr, createErr, updateErr, deleteErr           error
+	listRequest                                                recordops.ListRequest
+	getRequest                                                 recordops.GetRequest
+	createRequest                                              recordops.CreateRequest
+	updateRequest                                              recordops.UpdateRequest
+	deleteRequest                                              recordops.DeleteRequest
+	listCalls, getCalls, createCalls, updateCalls, deleteCalls int
 }
 
-func (f *fakeRecordService) List(_ context.Context, collection, cursor string, limit int, filter, sort string) (query.RecordPage, error) {
-	f.listCollection, f.listCursor, f.listLimit, f.listFilter, f.listSort = collection, cursor, limit, filter, sort
+func (f *fakeRecordService) List(_ context.Context, request recordops.ListRequest) (recordops.RecordPage, error) {
+	f.listCalls++
+	f.listRequest = request
 	return f.page, f.listErr
 }
-func (f *fakeRecordService) Get(_ context.Context, _ string, id uuid.UUID) (map[string]any, error) {
-	f.getID = id
+func (f *fakeRecordService) Get(_ context.Context, request recordops.GetRequest) (recordops.Record, error) {
+	f.getCalls++
+	f.getRequest = request
 	return f.record, f.getErr
 }
-func (f *fakeRecordService) Create(_ context.Context, _ string, _ map[string]json.RawMessage) (map[string]any, error) {
+func (f *fakeRecordService) Create(_ context.Context, request recordops.CreateRequest) (recordops.MutationResult, error) {
 	f.createCalls++
-	return f.record, f.createErr
+	f.createRequest = request
+	result := f.createResult
+	if result.Record == nil && f.record.Data != nil {
+		result.Record = &f.record
+	}
+	return result, f.createErr
 }
-func (f *fakeRecordService) Update(_ context.Context, _ string, id uuid.UUID, _ map[string]json.RawMessage) (map[string]any, error) {
-	f.updateID = id
-	return f.record, f.updateErr
+func (f *fakeRecordService) Update(_ context.Context, request recordops.UpdateRequest) (recordops.MutationResult, error) {
+	f.updateCalls++
+	f.updateRequest = request
+	result := f.updateResult
+	if result.Record == nil && f.record.Data != nil {
+		result.Record = &f.record
+	}
+	return result, f.updateErr
 }
-func (f *fakeRecordService) Delete(_ context.Context, _ string, id uuid.UUID) error {
-	f.deleteID = id
-	return f.deleteErr
+func (f *fakeRecordService) Delete(_ context.Context, request recordops.DeleteRequest) (recordops.MutationResult, error) {
+	f.deleteCalls++
+	f.deleteRequest = request
+	return f.deleteResult, f.deleteErr
 }
 
 func recordTestDependencies(auth AdminAuth, records RecordService) Dependencies {
 	return Dependencies{AdminAuth: auth, Records: records, PublicURL: mustURL("https://admin.example.com"), TokenSecret: testTokenSecret}
+}
+
+func serveRecordRequest(t *testing.T, records RecordService, auth AdminAuth, request *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	response := httptest.NewRecorder()
+	NewRouter(recordTestDependencies(auth, records)).ServeHTTP(response, request)
+	return response
+}
+
+func assertCompatibilityHeaders(t *testing.T, response *httptest.ResponseRecorder, compatibility string) {
+	t.Helper()
+	if response.Header().Get("PgBase-Compatibility") != compatibility || response.Header().Get("Deprecation") != "" {
+		t.Fatalf("compatibility=%q deprecation=%q", response.Header().Get("PgBase-Compatibility"), response.Header().Get("Deprecation"))
+	}
 }
 
 func authenticatedRecordRequest(method, path, body string, csrf bool) *http.Request {

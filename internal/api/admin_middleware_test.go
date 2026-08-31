@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestAdminMutationsRejectAbsentOrMismatchedOrigin(t *testing.T) {
@@ -89,6 +91,27 @@ func TestAdminSessionMiddlewareAllowsReadWithoutOriginOrCSRF(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAdminSessionMiddlewareMapsDatabaseUnavailable(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateErr: &pgconn.PgError{Code: "53300", Message: "too many connections"}}
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := authenticateAdminMiddleware(auth, next)
+	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/session", nil)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
+		t.Fatalf("status=%d retry-after=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "authentication_unavailable")
+	if nextCalled {
+		t.Fatal("next handler called after authentication database failure")
 	}
 }
 

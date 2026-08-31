@@ -137,19 +137,18 @@ func ValidPostgresNumber(raw string) bool {
 	}
 	digits := whole + fraction
 	first := strings.IndexAny(digits, "123456789")
-	if first < 0 {
-		return true
-	}
-	last := len(digits) - 1
-	for last >= 0 && digits[last] == '0' {
-		last--
-	}
 	decimalPosition := len(whole) + exponent
-	integerDigits := decimalPosition - first
-	if integerDigits < 0 {
-		integerDigits = 0
+	integerDigits := 0
+	if first >= 0 {
+		integerDigits = decimalPosition - first
+		if integerDigits < 0 {
+			integerDigits = 0
+		}
 	}
-	fractionDigits := last - decimalPosition + 1
+	// PostgreSQL preserves the lexical display scale when it parses numeric
+	// input. Trailing zeroes and even an all-zero value therefore still count
+	// toward the 16,383 fractional-digit limit.
+	fractionDigits := len(fraction) - exponent
 	if fractionDigits < 0 {
 		fractionDigits = 0
 	}

@@ -39,6 +39,21 @@ func TestLoginRouteRejectsMalformedJSON(t *testing.T) {
 	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 }
 
+func TestRejectDuplicateJSONKeysDoesNotFailOpenOnLargeNumbers(t *testing.T) {
+	if err := rejectDuplicateJSONKeys([]byte(`{"value":1e400,"label":"safe"}`)); err != nil {
+		t.Fatalf("unique large-number JSON error = %v", err)
+	}
+	for _, raw := range []string{
+		`{"value":1e400,"value":2}`,
+		`{"value":1e400,"nested":{"label":"safe","label":"last"}}`,
+		`{"value":1e400,"l\u0061bel":"safe","label":"last"}`,
+	} {
+		if err := rejectDuplicateJSONKeys([]byte(raw)); err == nil {
+			t.Fatalf("rejectDuplicateJSONKeys(%s) error = nil", raw)
+		}
+	}
+}
+
 func TestSessionRouteRequiresAuthentication(t *testing.T) {
 	handler := NewRouter(Dependencies{})
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)

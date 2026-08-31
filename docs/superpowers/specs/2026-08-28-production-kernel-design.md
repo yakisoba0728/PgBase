@@ -220,7 +220,7 @@ UUIDv7은 PostgreSQL 버전의 내장 함수에 의존하지 않고 애플리케
 | `integer` | `integer` | JSON number |
 | `bigint` | `bigint` | 10진수 JSON string |
 | `numeric` | `numeric` | 정밀도를 보존하는 10진수 JSON string |
-| `text` | `text` | JSON string |
+| `text` | `text` | JSON string (`indexed`/`unique` 값은 UTF-8 2,048바이트 이하) |
 | `timestamptz` | `timestamptz` | UTC RFC 3339 JSON string |
 | `uuid` | `uuid` | 정규화된 UUID JSON string |
 | `jsonb` | `jsonb` | JSON object, array 또는 scalar |
@@ -256,7 +256,7 @@ Production Kernel은 트랜잭션 안에서 안전하게 끝나는 컬렉션 생
 - `PATCH /api/v1/collections/{collection}/records/{id}`
 - `DELETE /api/v1/collections/{collection}/records/{id}`
 
-Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 2026-08-29 확장으로 제한적 filter/sort 표현식을 제공한다(정렬 최대 8키, 필터는 바이트·노드 예산, jsonb 제외). 범용 필터 언어는 여전히 제공하지 않는다.
+Production Kernel에서는 모든 경로가 관리자 인증을 요구한다. 목록은 기본 50개, 최대 200개를 반환하고 `(created_at, id)` 오름차순을 기본 순서로 사용한다. 커서는 버전이 있는 payload와 HMAC을 포함해 변조를 거부한다. 2026-08-29 확장으로 제한적 filter/sort 표현식을 제공한다(정렬 최대 8키이며 시스템 컬럼 중 `id`/`created_at`과 `indexed`/`unique` 필드만 허용, 필터는 바이트·노드 예산, jsonb 제외). 범용 필터 언어는 여전히 제공하지 않는다.
 
 쓰기 흐름은 다음과 같다.
 

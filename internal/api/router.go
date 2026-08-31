@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 // Dependencies supplies components used by API handlers.
@@ -22,10 +24,16 @@ type Dependencies struct {
 	TokenSecret        []byte
 	System             SystemStatusProvider
 	AdminUI            http.Handler
+	Metrics            *observability.Metrics
+	MetricsToken       []byte
 }
 
 // NewRouter constructs the pgBase HTTP handler without starting a listener.
 func NewRouter(dependencies Dependencies) http.Handler {
+	metricsEnabled := dependencies.Metrics != nil && len(dependencies.MetricsToken) > 0
+	if !metricsEnabled {
+		dependencies.Metrics = nil
+	}
 	logger := dependencies.Logger
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -45,10 +53,13 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	logout := adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(admin.logout))
 	mux.Handle("POST /api/admin/auth/logout", logout)
 	mux.Handle("DELETE /api/admin/session", logout)
-	mux.Handle("POST /api/admin/collections/plan", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.plan)))
+	mux.Handle("POST /api/admin/collections/plan", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.plan)))
 	mux.Handle("POST /api/admin/collections/apply", adminSessionMiddleware(admin.auth, admin.tokenSecret, admin.publicURL, admin.trustedProxies, http.HandlerFunc(schemas.apply)))
 	mux.Handle("GET /api/admin/collections", authenticateAdminMiddleware(admin.auth, http.HandlerFunc(schemas.catalog)))
 	mux.Handle("GET /api/admin/system", authenticateAdminMiddleware(admin.auth, systemStatus(dependencies.System)))
+	if metricsEnabled {
+		mux.Handle("GET /metrics", dependencies.Metrics.Handler(dependencies.MetricsToken))
+	}
 	if dependencies.AdminUI != nil {
 		mux.Handle("/admin", dependencies.AdminUI)
 		mux.Handle("/admin/", dependencies.AdminUI)
@@ -68,5 +79,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	handler = bodyLimitMiddleware(handler)
 	handler = accessLogMiddleware(logger, handler)
 	handler = requestIDMiddleware(handler)
-	return recoveryMiddleware(logger, handler)
+	handler = recoveryMiddleware(logger, handler)
+	if metricsEnabled {
+		handler = dependencies.Metrics.WrapHTTP(mux, handler)
+	}
+	return handler
 }

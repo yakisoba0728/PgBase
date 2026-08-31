@@ -29,6 +29,9 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 	for _, field := range fields {
 		if field.Required && len(field.Default) == 0 {
 			if _, present := decoded[field.Name]; !present {
+				if field.Type == schema.TypeRelation {
+					return Statement{}, validation(field.Name, "relation_min_select")
+				}
 				return Statement{}, validation(field.Name, "required")
 			}
 		}
@@ -40,6 +43,9 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 	for _, field := range fields {
 		value, present := decoded[field.Name]
 		if !present {
+			continue
+		}
+		if isMultipleRelation(field) {
 			continue
 		}
 		columns = append(columns, quoted(field.ColumnName))
@@ -73,6 +79,9 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	for _, field := range fieldsByOrdinal(collection) {
 		value, present := decoded[field.Name]
 		if !present {
+			continue
+		}
+		if isMultipleRelation(field) {
 			continue
 		}
 		args = append(args, value)
@@ -162,6 +171,12 @@ func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortCol
 			}
 			return nil, validation("sort", "unsupported_type")
 		}
+		if isMultipleRelation(field) {
+			return nil, validation("sort", "relation_sort_unsupported")
+		}
+		if !field.Indexed && !field.Unique {
+			return nil, validation("sort", "unindexed_field")
+		}
 		columns = append(columns, sortColumn{name: field.ColumnName, desc: key.Desc, field: field})
 	}
 	return columns, nil
@@ -202,6 +217,9 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	}
 	if field.Type == schema.TypeJSONB {
 		return "", validation("filter", "unsupported_type")
+	}
+	if isMultipleRelation(field) {
+		return "", validation("filter", "relation_filter_unsupported")
 	}
 	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
 		return "", validation("filter", "type_mismatch")
@@ -301,6 +319,15 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 			return mismatch()
 		}
 		return parsed, nil
+	case schema.TypeRelation:
+		if field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle || literal.kind != filterLiteralString {
+			return mismatch()
+		}
+		parsed, err := uuid.Parse(text)
+		if err != nil || parsed == uuid.Nil {
+			return mismatch()
+		}
+		return parsed, nil
 	default:
 		return mismatch()
 	}
@@ -381,7 +408,17 @@ func normalizedFetchLimit(limit int) int {
 func selectedColumns(collection schema.Collection) string {
 	columns := []string{quoted("id"), quoted("created_at"), quoted("updated_at")}
 	for _, field := range fieldsByOrdinal(collection) {
-		columns = append(columns, quoted(field.ColumnName))
+		if isMultipleRelation(field) {
+			continue
+		}
+		column := quoted(field.ColumnName)
+		if field.Type == schema.TypeNumeric {
+			// pgx's binary Numeric decoder drops PostgreSQL's display scale for
+			// zero. Text preserves the exact database representation promised by
+			// the API's lossless numeric string contract.
+			column += "::text"
+		}
+		columns = append(columns, column)
 	}
 	return strings.Join(columns, ", ")
 }

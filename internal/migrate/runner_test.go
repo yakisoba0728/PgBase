@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
@@ -29,7 +32,8 @@ func TestUpLogsAppliedMigrationOnlyAfterCommitSucceeds(t *testing.T) {
 		);
 		insert into app.commit_child (parent_id) values (42);`
 	var logs bytes.Buffer
-	runner := New(pool, slog.New(slog.NewTextHandler(&logs, nil)))
+	recorder := &migrationTelemetryRecorder{}
+	runner := NewWithRecorder(pool, slog.New(slog.NewTextHandler(&logs, nil)), recorder)
 	runner.migrations = []system.Migration{{
 		Version: 1,
 		Name:    "deferred_commit_failure",
@@ -41,6 +45,103 @@ func TestUpLogsAppliedMigrationOnlyAfterCommitSucceeds(t *testing.T) {
 	}
 	if logs.Len() != 0 {
 		t.Fatalf("failed commit emitted applied log: %q", logs.String())
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 || events[0].Component() != observability.ComponentMigration || events[0].Operation() != observability.OperationMigrationUp || events[0].Outcome() != observability.OutcomeFailure || events[0].Duration() < 0 {
+		t.Fatalf("failed migration telemetry = %#v", events)
+	}
+}
+
+func TestUpRecordsSuccessAndCancellation(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	recorder := &migrationTelemetryRecorder{}
+	runner := NewWithRecorder(pool, slog.New(slog.NewTextHandler(io.Discard, nil)), recorder)
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runner.Up(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Up(canceled) error = %v", err)
+	}
+	events := recorder.snapshot()
+	if len(events) != 2 || events[0].Outcome() != observability.OutcomeSuccess || events[1].Outcome() != observability.OutcomeCanceled {
+		t.Fatalf("migration telemetry = %#v", events)
+	}
+	for index, event := range events {
+		if event.Kind() != observability.EventKindOperation || event.Component() != observability.ComponentMigration || event.Operation() != observability.OperationMigrationUp || event.Duration() < 0 {
+			t.Fatalf("migration telemetry[%d] = %#v", index, event)
+		}
+	}
+}
+
+func TestStatusRecordsSuccessAndCancellation(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	recorder := &migrationTelemetryRecorder{}
+	runner := NewWithRecorder(pool, slog.New(slog.NewTextHandler(io.Discard, nil)), recorder)
+	if _, err := runner.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := runner.Status(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Status(canceled) error = %v", err)
+	}
+	events := recorder.snapshot()
+	if len(events) != 2 || events[0].Outcome() != observability.OutcomeSuccess || events[1].Outcome() != observability.OutcomeCanceled {
+		t.Fatalf("migration status telemetry = %#v", events)
+	}
+	for index, event := range events {
+		if event.Kind() != observability.EventKindOperation || event.Component() != observability.ComponentMigration || event.Operation() != observability.OperationMigrationStatus || event.Duration() < 0 {
+			t.Fatalf("migration status telemetry[%d] = %#v", index, event)
+		}
+	}
+}
+
+func TestMigrationOperationPanicIsRecordedAsFailureAndRepanics(t *testing.T) {
+	recorder := &migrationTelemetryRecorder{}
+	runner := &Runner{recorder: recorder}
+	panicValue := errors.New("migration panic sentinel")
+	recovered := func() (value any) {
+		defer func() { value = recover() }()
+		var operationErr error
+		defer runner.finishOperation(context.Background(), observability.OperationMigrationUp, time.Now(), &operationErr)
+		panic(panicValue)
+	}()
+	if recovered != panicValue {
+		t.Fatalf("recovered panic = %v, want original panic", recovered)
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 || events[0].Operation() != observability.OperationMigrationUp || events[0].Outcome() != observability.OutcomeFailure {
+		t.Fatalf("panic telemetry = %#v", events)
+	}
+}
+
+func TestUpDoesNotApplyRequestStatementTimeoutToMigrationStatements(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	const migrationSQL = `select pg_sleep(0.25)`
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runner.migrations = []system.Migration{{
+		Version: 1,
+		Name:    "long_running_ddl",
+		SQL:     migrationSQL,
+		SHA256:  sha256.Sum256([]byte(migrationSQL)),
+	}}
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatalf("Up() applied the request statement timeout to a migration: %v", err)
 	}
 }
 
@@ -132,8 +233,9 @@ func TestUpSerializesConcurrentRunners(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.system_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 3 {
-		t.Fatalf("history row count = %d, want 3", count)
+	wantCount := len(system.Migrations())
+	if count != wantCount {
+		t.Fatalf("history row count = %d, want %d", count, wantCount)
 	}
 }
 
@@ -225,7 +327,8 @@ func TestStatusReportsAppliedAndLatestVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Current != 0 || before.Latest != 3 || before.Dirty {
+	latest := latestSystemMigrationVersion(t)
+	if before.Current != 0 || before.Latest != latest || before.Dirty {
 		t.Fatalf("status before Up = %#v", before)
 	}
 	if err := runner.Up(context.Background()); err != nil {
@@ -235,7 +338,88 @@ func TestStatusReportsAppliedAndLatestVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Current != 3 || after.Latest != 3 || after.Dirty {
+	if after.Current != latest || after.Latest != latest || after.Dirty {
 		t.Fatalf("status after Up = %#v", after)
 	}
+}
+
+func TestStatusMarksOutOfOrderMigrationHistoryDirty(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	pool, err := database.Open(context.Background(), databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), "delete from pgbase_meta.system_migrations where version = 2"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := latestSystemMigrationVersion(t)
+	if !status.Dirty || status.Current != latest || status.Latest != latest {
+		t.Fatalf("status with migration gap = %#v, want current=%d latest=%d dirty=true", status, latest, latest)
+	}
+}
+
+func latestSystemMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	migrations := system.Migrations()
+	if len(migrations) == 0 {
+		t.Fatal("embedded system migrations are empty")
+	}
+	return migrations[len(migrations)-1].Version
+}
+
+func TestUpRejectsOutOfOrderMigrationHistoryWithoutFillingGap(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	pool, err := database.Open(context.Background(), databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), "delete from pgbase_meta.system_migrations where version = 2"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = runner.Up(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "out of order") {
+		t.Fatalf("Up error = %v, want out-of-order history rejection", err)
+	}
+	status, statusErr := runner.Status(context.Background())
+	if statusErr != nil {
+		t.Fatal(statusErr)
+	}
+	if !status.Dirty {
+		t.Fatalf("status after rejected Up = %#v, want gap to remain dirty", status)
+	}
+}
+
+type migrationTelemetryRecorder struct {
+	mu     sync.Mutex
+	events []observability.Event
+}
+
+func (r *migrationTelemetryRecorder) Record(_ context.Context, event observability.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *migrationTelemetryRecorder) snapshot() []observability.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]observability.Event(nil), r.events...)
 }

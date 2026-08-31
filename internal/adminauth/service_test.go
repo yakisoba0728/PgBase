@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 type fakeClock struct {
@@ -272,20 +273,51 @@ func TestServiceLoginSuccessPreservesOtherAccountsSharedFailures(t *testing.T) {
 	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", network); err != nil {
 		t.Fatal(err)
 	}
-	for _, bucket := range []struct {
-		axis, subject string
-	}{
-		{axis: "network", subject: network},
-		{axis: "global", subject: "v1"},
-	} {
-		var failures int
-		hash := rateLimitSubjectHash(secret, "login", bucket.axis, bucket.subject)
-		if err := pool.QueryRow(context.Background(), "select failures from pgbase_meta.admin_rate_limits where subject_hash = $1", hash).Scan(&failures); err != nil {
-			t.Fatal(err)
-		}
-		if failures != 2 {
-			t.Fatalf("%s shared failures after another account succeeds = %d, want 2", bucket.axis, failures)
-		}
+	var failures int
+	hash := rateLimitSubjectHash(secret, "login", "network", network)
+	if err := pool.QueryRow(context.Background(), "select failures from pgbase_meta.admin_rate_limits where subject_hash = $1", hash).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 2 {
+		t.Fatalf("network shared failures after another account succeeds = %d, want 2", failures)
+	}
+}
+
+func TestServiceLoginIgnoresLegacyGlobalRateLimit(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	service := NewService(pool, NewArgon2idPasswords(), secret, setupToken, time.Hour, clock)
+	if _, err := service.Setup(context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "setup-client"); err != nil {
+		t.Fatal(err)
+	}
+	seedBlockedRateLimit(t, pool, rateLimitSubjectHash(secret, "login", "global", "v1"), clock.Now())
+
+	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", "192.0.2.90"); err != nil {
+		t.Fatalf("Login() with legacy global row error = %v", err)
+	}
+}
+
+func TestServiceSetupIgnoresLegacyGlobalRateLimit(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	setupToken := "01234567890123456789012345678901"
+	service := NewService(pool, NewArgon2idPasswords(), secret, setupToken, time.Hour, clock)
+	seedBlockedRateLimit(t, pool, rateLimitSubjectHash(secret, "setup", "global", "v1"), clock.Now())
+
+	if _, err := service.Setup(context.Background(), setupToken, "admin@example.com", "correct horse battery staple", "192.0.2.91"); err != nil {
+		t.Fatalf("Setup() with legacy global row error = %v", err)
+	}
+}
+
+func seedBlockedRateLimit(t *testing.T, pool *database.Pool, subjectHash []byte, now time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.admin_rate_limits
+		(subject_hash, window_started_at, failures, blocked_until, updated_at)
+		values ($1, $2::timestamptz, 1000, $2::timestamptz + interval '15 minutes', $2::timestamptz)`, subjectHash, now); err != nil {
+		t.Fatalf("seed legacy global rate limit: %v", err)
 	}
 }
 
@@ -328,8 +360,8 @@ func TestServiceLoginEmailRotationIsStoppedByNetworkRateLimit(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_rate_limits").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if rows > networkFailureLimit+2 {
-		t.Fatalf("rate-limit rows = %d, want at most %d", rows, networkFailureLimit+2)
+	if rows > networkFailureLimit+1 {
+		t.Fatalf("rate-limit rows = %d, want at most %d", rows, networkFailureLimit+1)
 	}
 }
 
@@ -465,6 +497,14 @@ func TestServiceResetAdministratorPasswordRevokesAllExistingSessions(t *testing.
 	issued, err := service.Setup(context.Background(), "01234567890123456789012345678901", "admin@example.com", "correct horse battery staple", "setup-client")
 	if err != nil {
 		t.Fatal(err)
+	}
+	for attempt := 0; attempt < accountFailureLimit; attempt++ {
+		if _, err := service.Login(context.Background(), "admin@example.com", "wrong horse battery staple", fmt.Sprintf("reset-attacker-%d", attempt)); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("lockout attempt %d error = %v", attempt+1, err)
+		}
+	}
+	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", "reset-client"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("pre-reset login error = %v, want rate limited", err)
 	}
 	updated, err := service.ResetAdministratorPassword(context.Background(), " ADMIN@example.com ", "new correct horse battery staple")
 	if err != nil {

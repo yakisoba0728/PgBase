@@ -9,9 +9,10 @@ import (
 )
 
 func TestOptionsDefaults(t *testing.T) {
+	secret := make([]byte, 32)
 	opts, err := (Options{
 		DatabaseURL: "postgres://postgres:postgres@localhost/pgbase",
-		TokenSecret: make([]byte, 32),
+		TokenSecret: secret,
 	}).Normalized()
 	if err != nil {
 		t.Fatal(err)
@@ -30,6 +31,10 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 	if opts.Logger == nil {
 		t.Fatal("Logger is nil")
+	}
+	secret[0] = 1
+	if opts.TokenSecret[0] != 0 {
+		t.Fatal("Normalized retained caller-owned token secret storage")
 	}
 }
 
@@ -65,6 +70,16 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			name: "setup token requires 32 characters",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, SetupToken: strings.Repeat("x", 31)},
 			want: "SetupToken",
+		},
+		{
+			name: "metrics token requires 32 bytes",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, MetricsToken: []byte(strings.Repeat("m", 31))},
+			want: "MetricsToken",
+		},
+		{
+			name: "metrics token rejects header separators",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, MetricsToken: []byte(strings.Repeat("m", 32) + " ")},
+			want: "MetricsToken",
 		},
 		{
 			name: "public URL cannot include a path",
@@ -110,6 +125,22 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 				t.Fatalf("expected %q validation error, got %v", tt.want, err)
 			}
 		})
+	}
+}
+
+func TestOptionsCopiesMetricsToken(t *testing.T) {
+	token := []byte(strings.Repeat("m", 32))
+	opts, err := (Options{
+		DatabaseURL:  "postgres://postgres:postgres@localhost/pgbase",
+		TokenSecret:  make([]byte, 32),
+		MetricsToken: token,
+	}).Normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	token[0] = 'x'
+	if opts.MetricsToken[0] != 'm' {
+		t.Fatal("Normalized retained caller-owned metrics token storage")
 	}
 }
 

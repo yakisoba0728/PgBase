@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
@@ -30,19 +31,27 @@ type Runner struct {
 	pool       *database.Pool
 	logger     *slog.Logger
 	migrations []system.Migration
+	recorder   observability.Recorder
 }
 
 // New creates a system migration runner.
 func New(pool *database.Pool, logger *slog.Logger) *Runner {
+	return NewWithRecorder(pool, logger, nil)
+}
+
+// NewWithRecorder creates a system migration runner with bounded telemetry.
+func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observability.Recorder) *Runner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Runner{pool: pool, logger: logger, migrations: system.Migrations()}
+	return &Runner{pool: pool, logger: logger, migrations: system.Migrations(), recorder: recorder}
 }
 
 // Up applies every pending embedded migration atomically.
-func (r *Runner) Up(ctx context.Context) error {
-	if r.pool == nil {
+func (r *Runner) Up(ctx context.Context) (err error) {
+	started := time.Now()
+	defer r.finishOperation(ctx, observability.OperationMigrationUp, started, &err)
+	if r == nil || r.pool == nil {
 		return fmt.Errorf("migration pool is nil")
 	}
 
@@ -52,9 +61,12 @@ func (r *Runner) Up(ctx context.Context) error {
 		executionMS int64
 	}
 	appliedMigrations := make([]appliedMigration, 0)
-	err := r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err = r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
 			return fmt.Errorf("set migration lock timeout: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
+			return fmt.Errorf("disable request statement timeout for migrations: %w", err)
 		}
 		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", advisoryLockKey); err != nil {
 			return fmt.Errorf("acquire migration advisory lock: %w", err)
@@ -67,11 +79,31 @@ func (r *Runner) Up(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		known := make(map[int64]system.Migration, len(r.migrations))
 		for _, migration := range r.migrations {
-			if checksum, ok := applied[migration.Version]; ok {
-				if !bytes.Equal(checksum, migration.SHA256[:]) {
-					return fmt.Errorf("system migration %d (%s) checksum mismatch", migration.Version, migration.Name)
-				}
+			known[migration.Version] = migration
+		}
+		for version := range applied {
+			if _, ok := known[version]; !ok {
+				return fmt.Errorf("system migration history contains unknown version %d", version)
+			}
+		}
+		missingKnownMigration := false
+		for _, migration := range r.migrations {
+			checksum, ok := applied[migration.Version]
+			if !ok {
+				missingKnownMigration = true
+				continue
+			}
+			if missingKnownMigration {
+				return fmt.Errorf("system migration history is out of order at applied version %d", migration.Version)
+			}
+			if !bytes.Equal(checksum, migration.SHA256[:]) {
+				return fmt.Errorf("system migration %d (%s) checksum mismatch", migration.Version, migration.Name)
+			}
+		}
+		for _, migration := range r.migrations {
+			if _, ok := applied[migration.Version]; ok {
 				continue
 			}
 
@@ -96,6 +128,42 @@ func (r *Runner) Up(ctx context.Context) error {
 		r.logger.Info("applied system migration", "version", migration.version, "name", migration.name, "execution_ms", migration.executionMS)
 	}
 	return nil
+}
+
+func (r *Runner) record(ctx context.Context, event observability.Event) {
+	if r != nil && r.recorder != nil {
+		r.recorder.Record(ctx, event)
+	}
+}
+
+func (r *Runner) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
+	if recovered := recover(); recovered != nil {
+		r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, observability.OutcomeFailure, time.Since(started)))
+		panic(recovered)
+	}
+	var err error
+	if operationErr != nil {
+		err = *operationErr
+	}
+	r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, migrationOperationOutcome(err), time.Since(started)))
+}
+
+func migrationOperationOutcome(err error) observability.Outcome {
+	if err == nil {
+		return observability.OutcomeSuccess
+	}
+	switch database.Classify(err) {
+	case database.KindValidation:
+		return observability.OutcomeValidation
+	case database.KindConflict:
+		return observability.OutcomeConflict
+	case database.KindUnavailable:
+		return observability.OutcomeUnavailable
+	case database.KindCanceled:
+		return observability.OutcomeCanceled
+	default:
+		return observability.OutcomeFailure
+	}
 }
 
 func readApplied(ctx context.Context, db database.DBTX) (map[int64][]byte, error) {

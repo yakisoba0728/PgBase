@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-func TestSchemaPlanRouteReturnsNormalizedPreviewWithAuthenticationOnly(t *testing.T) {
+func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	schemas := &fakeSchemaService{plan: schema.Plan{
 		Operation:   "collection_create",
@@ -32,6 +33,7 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewWithAuthenticationOnly(t *testin
 		"operation":"create","name":"posts","fields":[{"name":"title","type":"text","required":true}]
 	}`))
 	request.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(request)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
 
@@ -54,6 +56,231 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewWithAuthenticationOnly(t *testin
 	}
 	if schemas.planCalls != 1 || schemas.planInput.Name != "posts" || auth.authenticateCalls != 1 {
 		t.Fatalf("plan calls=%d input=%+v auth calls=%d", schemas.planCalls, schemas.planInput, auth.authenticateCalls)
+	}
+}
+
+func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
+	t.Run("complete relation request reaches schema service", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{plan: schema.Plan{Definition: schema.PlannedCollection{Name: "posts", TableName: "posts"}}}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
+			"operation":"create",
+			"name":"posts",
+			"fields":[{
+				"name":"tags",
+				"type":"relation",
+				"required":true,
+				"relation":{
+					"targetCollection":"tags",
+					"cardinality":"multiple",
+					"minSelect":1,
+					"maxSelect":20,
+					"onDelete":"cascade"
+				}
+			}]
+		}`))
+		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		if schemas.planCalls != 1 || len(schemas.planInput.Fields) != 1 {
+			t.Fatalf("plan calls=%d input=%+v", schemas.planCalls, schemas.planInput)
+		}
+		field := schemas.planInput.Fields[0]
+		if field.Type != schema.TypeRelation || !field.Required || field.Relation == nil {
+			t.Fatalf("relation field input=%+v", field)
+		}
+		if field.Relation.TargetCollection != "tags" || field.Relation.Cardinality != schema.RelationMultiple ||
+			field.Relation.MinSelect == nil || *field.Relation.MinSelect != 1 ||
+			field.Relation.MaxSelect == nil || *field.Relation.MaxSelect != 20 ||
+			field.Relation.OnDelete != schema.RelationCascade {
+			t.Fatalf("relation input=%+v", field.Relation)
+		}
+	})
+
+	t.Run("unknown nested member is rejected before schema service", func(t *testing.T) {
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
+			"operation":"create",
+			"name":"posts",
+			"fields":[{"name":"owner","type":"relation","relation":{"targetCollection":"users","unknown":true}}]
+		}`))
+		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+		if schemas.planCalls != 0 {
+			t.Fatalf("Plan() calls=%d, want 0", schemas.planCalls)
+		}
+	})
+}
+
+func TestSchemaPlanRouteReturnsNormalizedRelationDTOs(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	targetID := uuid.MustParse("0199a96e-f212-7000-8000-000000000001")
+	schemas := &fakeSchemaService{plan: schema.Plan{
+		BaseVersion: 9,
+		Checksum:    "relation-checksum",
+		Definition: schema.PlannedCollection{
+			Name: "nodes", TableName: "nodes",
+			Fields: []schema.PlannedField{
+				{Name: "title", Type: schema.TypeText, Ordinal: 0},
+				{
+					Name: "owner", Type: schema.TypeRelation, Indexed: true, Ordinal: 1,
+					Relation: &schema.PlannedRelation{
+						TargetCollection: "users", TargetCollectionID: &targetID,
+						Cardinality: schema.RelationSingle, MinSelect: 0, MaxSelect: 1,
+						OnDelete: schema.RelationRestrict, ValueCodecVersion: schema.RelationValueCodecVersion,
+						Storage: schema.RelationStorage{Kind: schema.RelationStorageInlineFKV1, Name: "owner"},
+					},
+				},
+				{
+					Name: "parent", Type: schema.TypeRelation, Indexed: true, Ordinal: 2,
+					Relation: &schema.PlannedRelation{
+						TargetCollection: "nodes",
+						Cardinality:      schema.RelationSingle, MinSelect: 0, MaxSelect: 1,
+						OnDelete: schema.RelationSetNull, ValueCodecVersion: schema.RelationValueCodecVersion,
+						Storage: schema.RelationStorage{Kind: schema.RelationStorageInlineFKV1, Name: "parent"},
+					},
+				},
+			},
+		},
+	}}
+	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"nodes","fields":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(request)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Definition struct {
+			Fields []map[string]json.RawMessage `json:"fields"`
+		} `json:"definition"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Definition.Fields) != 3 {
+		t.Fatalf("fields=%#v", body.Definition.Fields)
+	}
+	if _, present := body.Definition.Fields[0]["relation"]; present {
+		t.Fatalf("scalar field exposed relation: %s", body.Definition.Fields[0]["relation"])
+	}
+
+	var owner struct {
+		TargetCollection   string                      `json:"targetCollection"`
+		TargetCollectionID *uuid.UUID                  `json:"targetCollectionId"`
+		Cardinality        schema.RelationCardinality  `json:"cardinality"`
+		MinSelect          int                         `json:"minSelect"`
+		MaxSelect          int                         `json:"maxSelect"`
+		OnDelete           schema.RelationDeleteAction `json:"onDelete"`
+		ValueCodecVersion  int                         `json:"valueCodecVersion"`
+		Storage            schema.RelationStorage      `json:"storage"`
+	}
+	if err := json.Unmarshal(body.Definition.Fields[1]["relation"], &owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner.TargetCollection != "users" || owner.TargetCollectionID == nil || *owner.TargetCollectionID != targetID ||
+		owner.Cardinality != schema.RelationSingle || owner.MinSelect != 0 || owner.MaxSelect != 1 ||
+		owner.OnDelete != schema.RelationRestrict || owner.ValueCodecVersion != schema.RelationValueCodecVersion ||
+		owner.Storage != (schema.RelationStorage{Kind: schema.RelationStorageInlineFKV1, Name: "owner"}) {
+		t.Fatalf("owner relation DTO=%+v", owner)
+	}
+
+	var self map[string]json.RawMessage
+	if err := json.Unmarshal(body.Definition.Fields[2]["relation"], &self); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := self["targetCollectionId"]; present {
+		t.Fatalf("symbolic self target ID must be omitted: %s", body.Definition.Fields[2]["relation"])
+	}
+	var targetCollection string
+	if err := json.Unmarshal(self["targetCollection"], &targetCollection); err != nil || targetCollection != "nodes" {
+		t.Fatalf("symbolic self targetCollection=%q err=%v", targetCollection, err)
+	}
+}
+
+func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
+	tests := []struct {
+		name       string
+		origin     string
+		csrf       string
+		wantCode   string
+		wantStatus int
+	}{
+		{name: "missing origin", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
+		{name: "mismatched origin", origin: "https://evil.example.com", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
+		{name: "missing CSRF", origin: "https://admin.example.com", wantCode: "csrf_rejected", wantStatus: http.StatusForbidden},
+		{name: "invalid CSRF", origin: "https://admin.example.com", csrf: "wrong", wantCode: "csrf_rejected", wantStatus: http.StatusForbidden},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+			schemas := &fakeSchemaService{}
+			handler := NewRouter(schemaTestDependencies(auth, schemas))
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts","fields":[]}`))
+			request.Host = "admin.example.com"
+			request.Header.Set("Content-Type", "application/json")
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			if test.csrf != "" {
+				request.Header.Set("X-PgBase-CSRF", test.csrf)
+			}
+			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), test.wantCode)
+			if schemas.planCalls != 0 {
+				t.Fatalf("Plan() calls=%d, want 0", schemas.planCalls)
+			}
+		})
+	}
+}
+
+func TestSchemaPlanRejectsDuplicateDefaultAfterLargeNumberBeforeServiceCall(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	schemas := &fakeSchemaService{}
+	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(
+		`{"operation":"create","name":"posts","fields":[{"name":"metadata","type":"jsonb","default":1e400,"default":"last"}]}`,
+	))
+	request.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(request)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+	if schemas.planCalls != 0 {
+		t.Fatalf("Plan() calls = %d, want 0", schemas.planCalls)
 	}
 }
 
@@ -145,6 +372,144 @@ func TestSchemaCatalogRouteReturnsVersionAndDefinitions(t *testing.T) {
 	}
 }
 
+func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	targetID := uuid.MustParse("0199a976-0418-7000-8000-000000000001")
+	schemas := &fakeSchemaService{catalog: schema.Catalog{Version: 4, Collections: map[string]schema.Collection{
+		"posts": {
+			Name: "posts", TableName: "posts",
+			Fields: []schema.Field{
+				{Name: "title", ColumnName: "title", Type: schema.TypeText, Ordinal: 0},
+				{
+					Name: "tags", ColumnName: "tags", Type: schema.TypeRelation, Indexed: true, Ordinal: 1,
+					Relation: &schema.RelationSpec{
+						TargetCollectionID: targetID,
+						Cardinality:        schema.RelationMultiple,
+						MinSelect:          0,
+						MaxSelect:          50,
+						OnDelete:           schema.RelationCascade,
+						ValueCodecVersion:  schema.RelationValueCodecVersion,
+						Storage:            schema.RelationStorage{Kind: schema.RelationStorageEdgeTableV1, Name: "r_tags"},
+					},
+				},
+			},
+		},
+	}}}
+	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Collections map[string]struct {
+			Fields []map[string]json.RawMessage `json:"fields"`
+		} `json:"collections"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	fields := body.Collections["posts"].Fields
+	if len(fields) != 2 {
+		t.Fatalf("fields=%#v", fields)
+	}
+	if _, present := fields[0]["relation"]; present {
+		t.Fatalf("scalar field exposed relation: %s", fields[0]["relation"])
+	}
+	var relation map[string]json.RawMessage
+	if err := json.Unmarshal(fields[1]["relation"], &relation); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := relation["targetCollection"]; present {
+		t.Fatalf("resolved relation exposed symbolic target name: %s", fields[1]["relation"])
+	}
+	var gotTargetID uuid.UUID
+	if err := json.Unmarshal(relation["targetCollectionId"], &gotTargetID); err != nil {
+		t.Fatal(err)
+	}
+	var storage schema.RelationStorage
+	if err := json.Unmarshal(relation["storage"], &storage); err != nil {
+		t.Fatal(err)
+	}
+	if gotTargetID != targetID || storage != (schema.RelationStorage{Kind: schema.RelationStorageEdgeTableV1, Name: "r_tags"}) {
+		t.Fatalf("resolved relation=%s", fields[1]["relation"])
+	}
+}
+
+func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *testing.T) {
+	requestPlan := func(t *testing.T, planErr error, operation string) *httptest.ResponseRecorder {
+		t.Helper()
+		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+		schemas := &fakeSchemaService{planErr: planErr}
+		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"`+operation+`","name":"posts","fields":[]}`))
+		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	t.Run("relation validation keeps generic detail mapping", func(t *testing.T) {
+		validation := &schema.ValidationError{Details: []schema.ValidationDetail{{
+			Field: "fields.0.relation.maxSelect",
+			Code:  "relation_max_select_invalid",
+		}}}
+		response := requestPlan(t, fmt.Errorf("secret physical relation table r_private: %w", validation), "create")
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var body struct {
+			Error struct {
+				Code    string              `json:"code"`
+				Message string              `json:"message"`
+				Details map[string][]string `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Error.Code != "validation_failed" || body.Error.Message != "Schema input is invalid" ||
+			len(body.Error.Details["fields.0.relation.maxSelect"]) != 1 ||
+			body.Error.Details["fields.0.relation.maxSelect"][0] != "relation_max_select_invalid" {
+			t.Fatalf("relation validation response=%#v", body.Error)
+		}
+		if strings.Contains(response.Body.String(), "r_private") {
+			t.Fatalf("response leaked internal storage name: %s", response.Body.String())
+		}
+	})
+
+	t.Run("referenced collection has its own conflict code", func(t *testing.T) {
+		validation := &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "name", Code: "collection_referenced"}}}
+		response := requestPlan(t, fmt.Errorf("secret source collection: %w", validation), "delete")
+		if response.Code != http.StatusConflict {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var body struct {
+			Error struct {
+				Code    string              `json:"code"`
+				Message string              `json:"message"`
+				Details map[string][]string `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Error.Code != "collection_referenced" || body.Error.Message != "Collection is referenced" ||
+			len(body.Error.Details["name"]) != 1 || body.Error.Details["name"][0] != "collection_referenced" {
+			t.Fatalf("collection referenced response=%#v", body.Error)
+		}
+		if strings.Contains(response.Body.String(), "secret source") {
+			t.Fatalf("response leaked wrapped error: %s", response.Body.String())
+		}
+	})
+}
+
 func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("all routes require authentication", func(t *testing.T) {
 		handler := NewRouter(schemaTestDependencies(&fakeAdminAuth{}, &fakeSchemaService{}))
@@ -159,7 +524,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		} {
 			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
-			if test.method == http.MethodPost && strings.HasSuffix(test.path, "/apply") {
+			if test.method == http.MethodPost {
 				request.Header.Set("Origin", "https://admin.example.com")
 			}
 			response := httptest.NewRecorder()
@@ -177,6 +542,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -324,6 +690,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -357,6 +724,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		handler := NewRouter(schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"delete","name":"ghosts"}`))
 		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -449,4 +817,10 @@ func schemaTestDependencies(auth AdminAuth, schemas SchemaService) Dependencies 
 		PublicURL:   mustURL("https://admin.example.com"),
 		TokenSecret: testTokenSecret,
 	}
+}
+
+func protectSchemaMutationRequest(request *http.Request) {
+	request.Host = "admin.example.com"
+	request.Header.Set("Origin", "https://admin.example.com")
+	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
 }

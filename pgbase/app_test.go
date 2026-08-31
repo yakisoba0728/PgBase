@@ -8,10 +8,15 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
@@ -33,6 +38,101 @@ func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
 	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/admin/" {
 		t.Fatalf("status=%d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
+}
+
+func TestMetricsEndpointIsOptInAndBearerProtected(t *testing.T) {
+	newApp := func(t *testing.T, metricsToken []byte) *App {
+		t.Helper()
+		app, err := New(context.Background(), Options{
+			DatabaseURL:  testutil.NewDatabase(t),
+			TokenSecret:  make([]byte, 32),
+			MetricsToken: metricsToken,
+			AutoMigrate:  true,
+			Logger:       slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = app.Close(context.Background()) })
+		return app
+	}
+
+	disabled := newApp(t, nil)
+	disabledResponse := httptest.NewRecorder()
+	disabled.Handler().ServeHTTP(disabledResponse, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if disabledResponse.Code != http.StatusNotFound {
+		t.Fatalf("disabled metrics status = %d, want 404", disabledResponse.Code)
+	}
+
+	token := strings.Repeat("m", 32)
+	enabled := newApp(t, []byte(token))
+	unauthorized := httptest.NewRecorder()
+	enabled.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized metrics status = %d, want 401", unauthorized.Code)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	authorized := httptest.NewRecorder()
+	enabled.Handler().ServeHTTP(authorized, request)
+	if authorized.Code != http.StatusOK {
+		t.Fatalf("authorized metrics status = %d body=%s", authorized.Code, authorized.Body.String())
+	}
+	if authorized.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("metrics Cache-Control = %q", authorized.Header().Get("Cache-Control"))
+	}
+	if !strings.Contains(authorized.Body.String(), "pgbase_database_pool_max_connections") {
+		t.Fatalf("metrics omitted database pool snapshot: %s", authorized.Body.String())
+	}
+	for _, initialized := range []string{
+		`pgbase_application_readiness{component="database"} 1`,
+		`pgbase_application_readiness{component="migrations"} 1`,
+		`pgbase_application_readiness{component="http"} 0`,
+		`pgbase_application_readiness{component="schema_listener"} 0`,
+	} {
+		if !strings.Contains(authorized.Body.String(), initialized) {
+			t.Fatalf("metrics omitted initialized readiness %q: %s", initialized, authorized.Body.String())
+		}
+	}
+}
+
+func TestReadinessProbeOnlyPublishesProbeOwnedComponents(t *testing.T) {
+	recorder := &readinessTelemetryRecorder{}
+	state := &readinessState{
+		recorder: recorder,
+		dependencies: []api.Readiness{
+			namedReadiness{name: "database", check: readinessFunc(func(context.Context) error { return nil })},
+			namedReadiness{name: "migrations", check: readinessFunc(func(context.Context) error { return nil })},
+			namedReadiness{name: "schema", check: readinessFunc(func(context.Context) error { return nil })},
+		},
+	}
+	state.accepting.Store(true)
+	if err := state.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	events := recorder.snapshot()
+	if len(events) != 2 || events[0].ReadinessComponent() != observability.ReadinessDatabase || events[1].ReadinessComponent() != observability.ReadinessMigrations {
+		t.Fatalf("readiness probe events = %#v, want only database and migrations", events)
+	}
+}
+
+type readinessTelemetryRecorder struct {
+	mu     sync.Mutex
+	events []observability.Event
+}
+
+func (r *readinessTelemetryRecorder) Record(_ context.Context, event observability.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *readinessTelemetryRecorder) snapshot() []observability.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]observability.Event(nil), r.events...)
 }
 
 func TestStartEnablesHandlerForCallerOwnedHTTPServer(t *testing.T) {
@@ -70,6 +170,42 @@ func TestStartEnablesHandlerForCallerOwnedHTTPServer(t *testing.T) {
 	}
 	if err := app.Run(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
 		t.Fatalf("Run after Start error = %v, want already started", err)
+	}
+}
+
+func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
+	adminCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	recordCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	schemaListener := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	app := &App{
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		cleaner:          adminCleaner,
+		recordCleaner:    recordCleaner,
+		schemaListener:   schemaListener,
+		lifecycleClosing: make(chan struct{}),
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for name, runner := range map[string]*barrierCleaner{
+		"administrator cleaner": adminCleaner,
+		"record cleaner":        recordCleaner,
+		"schema listener":       schemaListener,
+	} {
+		waitForSignal(t, runner.started, name+" did not start")
+	}
+	closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := app.Close(closeCtx); err != nil {
+		t.Fatal(err)
+	}
+	for name, runner := range map[string]*barrierCleaner{
+		"administrator cleaner": adminCleaner,
+		"record cleaner":        recordCleaner,
+		"schema listener":       schemaListener,
+	} {
+		waitForSignal(t, runner.stopped, name+" did not stop")
 	}
 }
 
@@ -130,6 +266,27 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	if err == nil {
 		app.Close(context.Background())
 		t.Fatal("New succeeded with pending migrations")
+	}
+}
+
+func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	runner := migrate.New(pool, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	if err := runner.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "update pgbase_meta.system_migrations set checksum = decode(repeat('00', 32), 'hex') where version = 1"); err != nil {
+		t.Fatal(err)
+	}
+
+	status := (systemStatusState{pool: pool, runner: runner}).Status(ctx)
+	if !status.MigrationDirty {
+		t.Fatalf("system status = %#v, want dirty migration history", status)
 	}
 }
 

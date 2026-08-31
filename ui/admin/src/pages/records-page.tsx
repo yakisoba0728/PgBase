@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { APIClientError } from "../api/client";
-import type { CollectionDefinition } from "../api/collections";
+import { collectionFromCatalog, type CollectionDefinition, type FieldDefinition } from "../api/collections";
 import type { RecordData, RecordPage } from "../api/records";
 import { stringifyJSON } from "../api/json";
 import { useSession } from "../auth/session";
@@ -11,7 +11,20 @@ function display(value: RecordData[string]): string {
   return String(value);
 }
 
-const sortableColumns = new Set(["id", "created_at", "updated_at"]);
+function displayCell(value: RecordData[string], field: FieldDefinition | undefined): ReactNode {
+  if (field?.type !== "relation") return display(value);
+  if (value === null) return "null";
+  if (field.relation?.cardinality === "multiple") {
+    if (!Array.isArray(value)) return "Invalid relation value";
+    if (value.length === 0) return "[]";
+    return <ol aria-label={`${field.name} related record IDs`} className="relation-values">
+      {value.map((member, index) => <li key={index}><code>{typeof member === "string" ? member : "Invalid relation value"}</code></li>)}
+    </ol>;
+  }
+  return typeof value === "string" ? <code>{value}</code> : "Invalid relation value";
+}
+
+const sortableColumns = new Set(["id", "created_at"]);
 
 export function RecordsPage({ collectionName, navigate }: { collectionName: string; navigate(path: string): void }) {
   const { collections, records } = useSession();
@@ -26,7 +39,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
   useEffect(() => {
     const controller = new AbortController();
     void collections.catalog(controller.signal).then((catalog) => {
-      const definition = catalog.collections[collectionName];
+      const definition = collectionFromCatalog(catalog, collectionName);
       if (!definition) { setError(true); return; }
       setCollection(definition);
     }).catch(() => { if (!controller.signal.aborted) setError(true); });
@@ -93,7 +106,12 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     if (sortText === `-${column}`) return "descending";
     return undefined;
   };
-  const sortable = (column: string) => sortableColumns.has(column) || (collection?.fields.some((field) => field.name === column && field.type !== "jsonb") ?? false);
+  const sortable = (column: string) => sortableColumns.has(column) || (collection?.fields.some((field) =>
+    field.name === column &&
+    field.type !== "jsonb" &&
+    (field.type !== "relation" || field.relation?.cardinality === "single") &&
+    (field.indexed || field.unique),
+  ) ?? false);
 
   return <section>
     <div className="page-heading"><h2>{collectionName} records</h2><button onClick={() => navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records/new`)} type="button">Create record</button></div>
@@ -108,7 +126,10 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     {!page && !error && !filterError && <p aria-live="polite">Loading records…</p>}
     {page && page.items.length === 0 && <p>No records yet.</p>}
     {page && page.items.length > 0 && <div className="table-scroll"><table><thead><tr>{columns.map((column) => <th aria-sort={sortDirection(column)} key={column}>{sortable(column) ? <button className="text-button" onClick={() => toggleSort(column)} type="button">{column}{sortDirection(column) === "ascending" ? " ↑" : sortDirection(column) === "descending" ? " ↓" : ""}</button> : column}</th>)}</tr></thead><tbody>
-      {page.items.map((record, index) => <tr key={String(record.id ?? index)}>{columns.map((column) => <td key={column}>{column === "id" ? <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records/${encodeURIComponent(String(record.id))}`)} type="button">{display(record[column])}</button> : display(record[column])}</td>)}</tr>)}
+      {page.items.map((record, index) => <tr key={String(record.id ?? index)}>{columns.map((column) => {
+        const field = collection?.fields.find((candidate) => candidate.name === column);
+        return <td key={column}>{column === "id" ? <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records/${encodeURIComponent(String(record.id))}`)} type="button">{display(record[column])}</button> : displayCell(record[column], field)}</td>;
+      })}</tr>)}
     </tbody></table></div>}
     {page?.nextCursor && <button onClick={() => void next()} type="button">Next page</button>}
   </section>;

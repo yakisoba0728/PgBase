@@ -17,11 +17,8 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 COPY pgbase ./pgbase
-COPY .github/workflows/release-image.yml ./.github/workflows/release-image.yml
-COPY deployments/Dockerfile ./deployments/Dockerfile
-COPY ui/admin/embed.go ui/admin/handler.go ui/admin/handler_test.go ./ui/admin/
+COPY ui/admin/embed.go ui/admin/handler.go ./ui/admin/
 COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
-RUN go test ./...
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}" -o /out/pgbase ./cmd/pgbase
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab

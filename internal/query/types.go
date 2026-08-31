@@ -16,11 +16,14 @@ type Statement struct {
 }
 
 type PageCursor struct {
-	Version      int
-	CollectionID uuid.UUID
-	Sort         []SortKey
-	Values       []json.RawMessage
-	ExpiresAt    time.Time
+	Version       int
+	CollectionID  uuid.UUID
+	Sort          []SortKey
+	Values        []json.RawMessage
+	AnchorID      uuid.UUID
+	AnchorHash    []byte
+	PrivateValues bool
+	ExpiresAt     time.Time
 }
 
 type RowScanner interface {

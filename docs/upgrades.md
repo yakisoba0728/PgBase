@@ -5,9 +5,10 @@ pgBase is pre-v0.1. v0.x binaries, HTTP contracts, environment variables, system
 ## Upgrade procedure
 
 1. Confirm the target binary/image digest and the exact configuration changes it requires.
-2. Create and verify a backup of both `pgbase_meta` and `app`; see [Backup and restore](backup-restore.md).
+2. Create and verify one consistent backup of `pgbase_meta`, `app`, and `pgbase_relation`; see [Backup and restore](backup-restore.md).
 3. Restore that backup in staging and run the target release's diagnostics and application checks.
-4. Pause administrator collection/schema changes for the production project.
+4. Pause administrator collection/schema changes and drain every old record writer for the production project.
+   This is mandatory for both the record-operations v4 boundary and the relation-schema v5 boundary. An old binary can mutate `app.*` without the current revision, audit, outbox, relation-storage, lock-order, and logical delete-action invariants. Migration v5 adds relation metadata plus the `pgbase_relation` edge/constraint schema; do not allow an old process to serve against it unless a release-specific compatibility test explicitly permits that combination.
 5. With the currently deployed release, run:
 
    ```console
@@ -26,12 +27,13 @@ pgBase is pre-v0.1. v0.x binaries, HTTP contracts, environment variables, system
 
    Require `current=latest` and `dirty=false`. Run migration as one nominated job even though the database advisory lock serializes concurrent attempts.
 
-7. Roll out `pgbase serve` instances. For each instance, require `GET /health/ready` to return HTTP 200 before admitting traffic. Multi-instance deployments must keep the same token secret and origin/proxy configuration.
-8. Run `pgbase doctor --json` against the upgraded database and require `"ok":true`, then perform representative administrator and record operations.
-9. Resume schema changes only after the rollout is accepted.
+7. Roll out only target-version `pgbase serve` instances. For each instance, require `GET /health/ready` to return HTTP 200 before admitting traffic. Multi-instance deployments must keep the same token secret and origin/proxy configuration.
+8. Run `pgbase doctor --json` against the upgraded database and require `"ok":true`. Doctor verifies relation metadata and the expected single-relation columns/FKs/indexes plus multiple-relation tables, constraints, functions, triggers, and indexes without exposing their physical names in client-facing findings.
+9. Through the administrator-authenticated HTTP record API, perform representative scalar and relation operations: create/read an ordered multiple relation, read an expanded single relation, and execute the configured `restrict`, `cascade`, or `set_null` path applicable to the project. Use `Idempotency-Key` and `If-Match`; do not validate the upgrade by writing pgBase-owned tables directly.
+10. Resume schema changes only after the rollout is accepted.
 
 ## Zero-downtime and rollback limitations
 
 Do not assume a rolling upgrade is zero downtime. pgBase does not provide online DDL, down migrations, arbitrary old/new binary coexistence guarantees, replica routing, or automatic traffic orchestration. Collection DDL can take PostgreSQL locks, and a target system migration may not be compatible with the old binary. Use a stop-migrate-start maintenance window unless release-specific evidence establishes safe coexistence.
 
-There is no `pgbase migrate down`. Do not manually delete migration rows or reverse SQL in production. If an upgrade cannot be rolled forward safely, stop writers and restore the verified pre-upgrade backup/PITR point. Rolling a binary back is safe only when that exact binary has been verified against the already-upgraded schema; v0.x provides no general guarantee.
+There is no `pgbase migrate down`. Do not manually delete migration rows, relation metadata, edge tables, or reverse SQL in production. If an upgrade cannot be rolled forward safely, stop writers and restore the verified pre-upgrade whole-database backup/PITR point so all three schemas return to the same instant. Rolling a binary back is safe only when that exact binary has been verified against the already-upgraded schema; v0.x provides no general guarantee.

@@ -1,0 +1,185 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum without (method, route, status) (rate(pgbase_http_requests_total{job=~\"$job\",instance=~\"$instance\",route!~\"/metrics|/health/.*\"}[5m]))",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "sum without (method, route, status) (rate(pgbase_http_requests_total{job=~\"$job\",instance=~\"$instance\",route!~\"/metrics|/health/.*\",status=\"5xx\"}[5m])) / clamp_min(sum without (method, route, status) (rate(pgbase_http_requests_total{job=~\"$job\",instance=~\"$instance\",route!~\"/metrics|/health/.*\"}[5m])), 0.001)",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP server-error ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum without (method, status) (rate(pgbase_http_request_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",route!~\"/metrics|/health/.*\"}[5m])))",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP p95 latency by route template",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "pgbase_database_pool_acquired_connections{job=~\"$job\",instance=~\"$instance\"} / clamp_min(pgbase_database_pool_max_connections{job=~\"$job\",instance=~\"$instance\"}, 1)",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "PostgreSQL pool saturation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "pgbase_application_readiness{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Readiness components",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "increase(pgbase_database_transaction_retries_total{job=~\"$job\",instance=~\"$instance\"}[5m])",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Record transaction retries (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "increase(pgbase_application_operations_total{job=~\"$job\",instance=~\"$instance\"}[5m])",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Application operation outcomes (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "increase(pgbase_application_readiness_transitions_total{job=~\"$job\",instance=~\"$instance\"}[15m])",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Readiness transitions (15m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "increase(pgbase_observability_dropped_events_total{job=~\"$job\",instance=~\"$instance\"}[5m])",
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ],
+      "title": "Dropped telemetry events (5m)",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["pgbase", "initial-guardrails"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "label": "Prometheus",
+        "name": "DS_PROMETHEUS",
+        "query": "prometheus",
+        "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "definition": "label_values(pgbase_http_requests_total, job)",
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "query": { "query": "label_values(pgbase_http_requests_total, job)", "refId": "StandardVariableQuery" },
+        "refresh": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "definition": "label_values(pgbase_http_requests_total{job=~\"$job\"}, instance)",
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "query": { "query": "label_values(pgbase_http_requests_total{job=~\"$job\"}, instance)", "refId": "StandardVariableQuery" },
+        "refresh": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "pgBase operational telemetry",
+  "uid": "pgbase-operational-telemetry",
+  "version": 1
+}

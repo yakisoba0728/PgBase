@@ -15,11 +15,15 @@ const maximumAdminSessionTTL = 12 * time.Hour
 
 // Options configures a pgBase application.
 type Options struct {
-	DatabaseURL        string
-	HTTPAddress        string
-	PublicURL          *url.URL
-	SetupToken         string
-	TokenSecret        []byte
+	DatabaseURL string
+	HTTPAddress string
+	PublicURL   *url.URL
+	SetupToken  string
+	TokenSecret []byte
+	// MetricsToken enables the protected Prometheus-compatible GET /metrics
+	// endpoint when non-empty. It is copied during normalization so callers
+	// cannot change the live credential after constructing an App.
+	MetricsToken       []byte
 	AutoMigrate        bool
 	TrustedProxies     []netip.Prefix
 	CORSAllowedOrigins []string
@@ -49,6 +53,8 @@ func (o Options) Normalized() (Options, error) {
 	if err := validateOptions(o); err != nil {
 		return Options{}, err
 	}
+	o.TokenSecret = append([]byte(nil), o.TokenSecret...)
+	o.MetricsToken = append([]byte(nil), o.MetricsToken...)
 	return o, nil
 }
 
@@ -58,6 +64,21 @@ func validateOptions(o Options) error {
 	}
 	if len(o.TokenSecret) < 32 {
 		return fmt.Errorf("TokenSecret: must contain at least 32 bytes")
+	}
+	if len(o.MetricsToken) != 0 {
+		if len(o.MetricsToken) < 32 || len(o.MetricsToken) > 256 {
+			return fmt.Errorf("MetricsToken: must contain between 32 and 256 bytes")
+		}
+		for _, character := range o.MetricsToken {
+			switch {
+			case character >= 'a' && character <= 'z':
+			case character >= 'A' && character <= 'Z':
+			case character >= '0' && character <= '9':
+			case character == '-', character == '_', character == '.', character == '~':
+			default:
+				return fmt.Errorf("MetricsToken: must use bearer-token-safe characters")
+			}
+		}
 	}
 	if o.SetupToken != "" && utf8.RuneCountInString(o.SetupToken) < 32 {
 		return fmt.Errorf("SetupToken: must contain at least 32 characters")

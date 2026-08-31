@@ -14,7 +14,8 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 )
@@ -27,6 +28,7 @@ type App struct {
 	httpServer      *http.Server
 	readiness       *readinessState
 	cleaner         backgroundRunner
+	recordCleaner   backgroundRunner
 	schemaListener  backgroundRunner
 	listen          func(string, string) (net.Listener, error)
 	shutdownMu      sync.Mutex
@@ -67,6 +69,7 @@ var (
 type readinessState struct {
 	accepting    atomic.Bool
 	dependencies []api.Readiness
+	recorder     observability.Recorder
 }
 
 type systemStatusState struct {
@@ -85,6 +88,7 @@ func (s systemStatusState) Status(ctx context.Context) api.SystemStatus {
 		if migrationStatus, err := s.runner.Status(ctx); err == nil {
 			status.MigrationCurrent = migrationStatus.Current
 			status.MigrationLatest = migrationStatus.Latest
+			status.MigrationDirty = migrationStatus.Dirty
 		}
 	}
 	if s.cache != nil {
@@ -101,14 +105,47 @@ func (s *readinessState) Ready(ctx context.Context) error {
 		return readinessFailure{components: []string{"http"}}
 	}
 	for _, dependency := range s.dependencies {
-		if err := dependency.Ready(ctx); err != nil {
-			if named, ok := dependency.(interface{ Component() string }); ok {
-				return readinessFailure{components: []string{named.Component()}}
+		name := "dependency"
+		if named, ok := dependency.(interface{ Component() string }); ok {
+			name = named.Component()
+		}
+		err := dependency.Ready(ctx)
+		if component, ok := readinessTelemetryComponent(name); ok {
+			s.recordReadiness(ctx, component, err == nil)
+		}
+		if err != nil {
+			if name != "dependency" {
+				return readinessFailure{components: []string{name}}
 			}
 			return readinessFailure{components: []string{"dependency"}}
 		}
 	}
 	return nil
+}
+
+func (s *readinessState) setAccepting(ctx context.Context, accepting bool) {
+	if s == nil {
+		return
+	}
+	s.accepting.Store(accepting)
+	s.recordReadiness(ctx, observability.ReadinessHTTP, accepting)
+}
+
+func (s *readinessState) recordReadiness(ctx context.Context, component observability.ReadinessComponent, ready bool) {
+	if s != nil && s.recorder != nil {
+		s.recorder.Record(ctx, observability.ReadinessEvent(component, ready))
+	}
+}
+
+func readinessTelemetryComponent(name string) (observability.ReadinessComponent, bool) {
+	switch name {
+	case "database":
+		return observability.ReadinessDatabase, true
+	case "migrations":
+		return observability.ReadinessMigrations, true
+	default:
+		return "", false
+	}
 }
 
 type readinessFunc func(context.Context) error
@@ -151,7 +188,11 @@ func New(ctx context.Context, options Options) (*App, error) {
 		}
 	}()
 
-	runner := migrate.New(pool, normalized.Logger)
+	var metrics *observability.Metrics
+	if len(normalized.MetricsToken) > 0 {
+		metrics = observability.NewMetrics(pool.Stats)
+	}
+	runner := migrate.NewWithRecorder(pool, normalized.Logger, metrics)
 	if normalized.AutoMigrate {
 		if err := runner.Up(ctx); err != nil {
 			return nil, fmt.Errorf("apply system migrations: %w", err)
@@ -164,8 +205,12 @@ func New(ctx context.Context, options Options) (*App, error) {
 	if status.Dirty || status.Current != status.Latest {
 		return nil, errors.New("system migrations are not current")
 	}
+	if metrics != nil {
+		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessDatabase, true))
+		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessMigrations, true))
+	}
 
-	readiness := &readinessState{dependencies: []api.Readiness{
+	readiness := &readinessState{recorder: metrics, dependencies: []api.Readiness{
 		namedReadiness{name: "database", check: readinessFunc(pool.Ping)},
 		namedReadiness{name: "migrations", check: readinessFunc(func(ctx context.Context) error {
 			status, err := runner.Status(ctx)
@@ -179,8 +224,8 @@ func New(ctx context.Context, options Options) (*App, error) {
 		})},
 	}}
 	schemaCache := &schema.Cache{}
-	schemaService := schema.NewService(pool, schemaCache, schema.Planner{})
-	schemaListener := schema.NewListener(pool, schemaCache)
+	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics)
+	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	authService := adminauth.NewService(
 		pool,
@@ -190,7 +235,7 @@ func New(ctx context.Context, options Options) (*App, error) {
 		normalized.AdminSessionTTL,
 		nil,
 	)
-	recordService := query.NewService(pool, schemaService, normalized.TokenSecret)
+	recordService := recordops.NewServiceWithRecorder(pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics)
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
@@ -207,13 +252,16 @@ func New(ctx context.Context, options Options) (*App, error) {
 		TokenSecret:        normalized.TokenSecret,
 		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
 		AdminUI:            adminHandler,
+		Metrics:            metrics,
+		MetricsToken:       normalized.MetricsToken,
 	})
 	app := &App{
 		options:          normalized,
 		pool:             pool,
 		handler:          handler,
 		readiness:        readiness,
-		cleaner:          adminauth.NewCleaner(pool, nil),
+		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
+		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
 		schemaListener:   schemaListener,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
@@ -255,7 +303,7 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	go func() {
 		<-backgroundDone
-		a.readiness.accepting.Store(false)
+		a.readiness.setAccepting(context.Background(), false)
 	}()
 	return nil
 }
@@ -292,7 +340,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case serverErr := <-serverDone:
-		a.readiness.accepting.Store(false)
+		a.readiness.setAccepting(context.Background(), false)
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		closeErr := a.Close(closeCtx)
 		cancel()
@@ -301,7 +349,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return errors.Join(serverErr, closeErr)
 	case <-backgroundDone:
-		a.readiness.accepting.Store(false)
+		a.readiness.setAccepting(context.Background(), false)
 		a.closeMu.Lock()
 		backgroundErr := a.backgroundErr
 		a.closeMu.Unlock()
@@ -314,7 +362,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return errors.Join(backgroundErr, closeErr, serverErr)
 	case <-ctx.Done():
-		a.readiness.accepting.Store(false)
+		a.readiness.setAccepting(context.Background(), false)
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		closeErr := a.Close(closeCtx)
 		serverErr := waitForServer(closeCtx, serverDone)
@@ -356,7 +404,7 @@ func (a *App) activateStartup(ctx context.Context, listener net.Listener, server
 	go func() {
 		serverDone <- a.httpServer.Serve(listener)
 	}()
-	a.readiness.accepting.Store(true)
+	a.readiness.setAccepting(ctx, true)
 	a.lifecycleState = appLifecycleRunning
 	a.completeStartupLocked(startupDone)
 	return backgroundDone, true
@@ -370,7 +418,7 @@ func (a *App) activateBackground(ctx context.Context, startupDone chan struct{})
 		return nil, false
 	}
 	backgroundDone := a.startBackground(ctx)
-	a.readiness.accepting.Store(true)
+	a.readiness.setAccepting(ctx, true)
 	a.lifecycleState = appLifecycleRunning
 	a.completeStartupLocked(startupDone)
 	return backgroundDone, true
@@ -398,9 +446,12 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]backgroundRunner, 0, 2)
+		runners := make([]backgroundRunner, 0, 3)
 		if a.cleaner != nil {
 			runners = append(runners, a.cleaner)
+		}
+		if a.recordCleaner != nil {
+			runners = append(runners, a.recordCleaner)
 		}
 		if a.schemaListener != nil {
 			runners = append(runners, a.schemaListener)
@@ -443,7 +494,7 @@ func (a *App) Close(ctx context.Context) error {
 		a.shutdownDone = make(chan struct{})
 		startupDone := a.beginClose()
 		if a.readiness != nil {
-			a.readiness.accepting.Store(false)
+			a.readiness.setAccepting(context.Background(), false)
 		}
 		go a.closeResources(ctx, startupDone, a.shutdownDone)
 	}

@@ -7,6 +7,7 @@ export class APIClientError extends Error {
     public readonly code: string,
     public readonly details: Record<string, string[]> = {},
     message = "Request failed",
+    public readonly headers = new Headers(),
   ) {
     super(message);
     this.name = "APIClientError";
@@ -15,6 +16,12 @@ export class APIClientError extends Error {
 
 interface RequestBehavior {
   notifyUnauthorized?: boolean;
+}
+
+export interface APIResponse<T> {
+  data: T;
+  headers: Headers;
+  status: number;
 }
 
 function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
@@ -68,6 +75,10 @@ export class APIClient {
   }
 
   async request<T>(path: string, init: RequestInit = {}, behavior: RequestBehavior = {}): Promise<T> {
+    return (await this.requestWithResponse<T>(path, init, behavior)).data;
+  }
+
+  async requestWithResponse<T>(path: string, init: RequestInit = {}, behavior: RequestBehavior = {}): Promise<APIResponse<T>> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
@@ -78,15 +89,15 @@ export class APIClient {
       credentials: "include",
     });
     if (response.ok) {
-      if (response.status === 204) return undefined as T;
-      return await responseBody(response) as T;
+      const data = response.status === 204 ? undefined as T : await responseBody(response) as T;
+      return { data, headers: new Headers(response.headers), status: response.status };
     }
 
     const body = await responseBody(response);
     if (response.status === 401 && behavior.notifyUnauthorized !== false) this.onUnauthorized?.();
     if (isErrorEnvelope(body)) {
-      throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message);
+      throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message, new Headers(response.headers));
     }
-    throw new APIClientError(response.status, "request_failed");
+    throw new APIClientError(response.status, "request_failed", {}, "Request failed", new Headers(response.headers));
   }
 }

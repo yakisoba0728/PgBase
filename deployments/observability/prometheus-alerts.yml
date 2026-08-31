@@ -1,0 +1,95 @@
+groups:
+  - name: pgbase-initial-guardrails
+    rules:
+      - alert: PgBaseMetricsScrapeUnavailable
+        expr: up{job="pgbase"} == 0 or absent(up{job="pgbase"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: pgBase metrics scrape is unavailable
+          description: The pgbase Prometheus job has no target or a target has failed scraping for two minutes; verify target discovery, network reachability, and bearer-token rotation.
+
+      - alert: PgBaseComponentNotReady
+        expr: pgbase_application_readiness == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: pgBase component is not ready
+          description: A required pgBase component has remained not ready for two minutes.
+
+      - alert: PgBasePoolSaturated
+        expr: pgbase_database_pool_acquired_connections / clamp_min(pgbase_database_pool_max_connections, 1) >= 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: pgBase PostgreSQL pool is close to saturation
+          description: At least 90% of the configured pool has been acquired for five minutes.
+
+      - alert: PgBasePoolAcquireCanceled
+        expr: |
+          (
+            increase(pgbase_database_pool_canceled_acquire_count_total[5m])
+            /
+            clamp_min(
+              increase(pgbase_database_pool_acquire_count_total[5m])
+              + increase(pgbase_database_pool_canceled_acquire_count_total[5m]),
+              1
+            )
+          ) > 0.01
+          and (
+            increase(pgbase_database_pool_acquire_count_total[5m])
+            + increase(pgbase_database_pool_canceled_acquire_count_total[5m])
+          ) >= 100
+          and (
+            pgbase_database_pool_acquired_connections
+            / clamp_min(pgbase_database_pool_max_connections, 1)
+          ) >= 0.8
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: pgBase requests canceled while waiting for PostgreSQL
+          description: More than 1% of at least 100 pool acquisitions were canceled while pool usage stayed above 80%; calibrate after staging baselines.
+
+      - alert: PgBaseHTTPServerErrorRate
+        expr: |
+          sum without (method, route, status) (rate(pgbase_http_requests_total{route!~"/metrics|/health/.*",status="5xx"}[5m]))
+          /
+          clamp_min(sum without (method, route, status) (rate(pgbase_http_requests_total{route!~"/metrics|/health/.*"}[5m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: pgBase HTTP 5xx ratio exceeds the initial guardrail
+          description: More than 5% of requests have returned 5xx for ten minutes; calibrate this threshold after three staging baselines.
+
+      - alert: PgBaseTransactionRetriesExhausted
+        expr: increase(pgbase_database_transaction_retries_total{exhausted="true"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: pgBase exhausted its record transaction retry budget
+          description: At least one record transaction could not complete after bounded retries.
+
+      - alert: PgBaseRelationBudgetExceeded
+        expr: increase(pgbase_application_operations_total{component="relation",outcome="budget"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: pgBase rejected a relation operation at a safety budget
+          description: A relation delete or expand reached a bounded row, depth, node, query-step, or response-size guard; inspect request shape and capacity before changing limits.
+
+      - alert: PgBaseTelemetryEventsDropped
+        expr: increase(pgbase_observability_dropped_events_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: pgBase rejected an invalid telemetry event
+          description: A bounded telemetry enum or event shape was invalid; inspect the deployed build for an instrumentation regression.

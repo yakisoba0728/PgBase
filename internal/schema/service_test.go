@@ -14,11 +14,130 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
+
+func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
+	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
+	recorder := &schemaTelemetryRecorder{}
+	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	ctx := context.Background()
+
+	createInput := CreateCollectionInput{Name: "telemetry_records", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	createPlan, err := service.PlanCreate(ctx, createInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyCreate(ctx, createInput, createPlan.Checksum, createPlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate(): %v", err)
+	}
+
+	updateInput := UpdateCollectionInput{Name: createInput.Name, Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
+	updatePlan, err := service.PlanUpdate(ctx, updateInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyUpdate(ctx, updateInput, updatePlan.Checksum, updatePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyUpdate(): %v", err)
+	}
+
+	deletePlan, err := service.PlanDelete(ctx, createInput.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ApplyDelete(ctx, createInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyDelete(): %v", err)
+	}
+	if err := service.ApplyDelete(ctx, createInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ApplyDelete(stale) error = %v, want conflict", err)
+	}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	canceledPlan, err := service.PlanCreate(ctx, CreateCollectionInput{Name: "canceled_apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyCreate(canceled, CreateCollectionInput{Name: "canceled_apply"}, canceledPlan.Checksum, canceledPlan.BaseVersion, administratorID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyCreate(canceled) error = %v", err)
+	}
+
+	events := recorder.snapshot()
+	want := []struct {
+		operation observability.Operation
+		outcome   observability.Outcome
+	}{
+		{observability.OperationSchemaCreate, observability.OutcomeSuccess},
+		{observability.OperationSchemaUpdate, observability.OutcomeSuccess},
+		{observability.OperationSchemaDelete, observability.OutcomeSuccess},
+		{observability.OperationSchemaDelete, observability.OutcomeConflict},
+		{observability.OperationSchemaCreate, observability.OutcomeCanceled},
+	}
+	if len(events) != len(want) {
+		t.Fatalf("operation telemetry count = %d, want %d: %#v", len(events), len(want), events)
+	}
+	for index, expected := range want {
+		event := events[index]
+		if event.Kind() != observability.EventKindOperation || event.Component() != observability.ComponentSchema || event.Operation() != expected.operation || event.Outcome() != expected.outcome || event.Duration() < 0 {
+			t.Fatalf("operation telemetry[%d] = %#v, want operation=%q outcome=%q", index, event, expected.operation, expected.outcome)
+		}
+	}
+}
+
+func TestRelationSchemaApplyRecordsBoundedRelationEvents(t *testing.T) {
+	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
+	recorder := &schemaTelemetryRecorder{}
+	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	ctx := context.Background()
+
+	targetInput := CreateCollectionInput{Name: "telemetry_targets", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	targetPlan, err := service.PlanCreate(ctx, targetInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyCreate(ctx, targetInput, targetPlan.Checksum, targetPlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate(target): %v", err)
+	}
+
+	sourceInput := CreateCollectionInput{Name: "telemetry_sources", Fields: []FieldInput{{
+		Name: "target", Type: TypeRelation, Relation: &RelationInput{TargetCollection: targetInput.Name},
+	}}}
+	sourcePlan, err := service.PlanCreate(ctx, sourceInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyCreate(ctx, sourceInput, sourcePlan.Checksum, sourcePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate(source): %v", err)
+	}
+
+	deletePlan, err := service.PlanDelete(ctx, sourceInput.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ApplyDelete(ctx, sourceInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyDelete(source): %v", err)
+	}
+
+	var relationEvents []observability.Event
+	for _, event := range recorder.snapshot() {
+		if event.Component() == observability.ComponentRelation {
+			relationEvents = append(relationEvents, event)
+		}
+	}
+	if len(relationEvents) != 2 {
+		t.Fatalf("relation schema telemetry = %#v, want create and delete events", relationEvents)
+	}
+	for index, event := range relationEvents {
+		if event.Operation() != observability.OperationRelationSchema || event.Outcome() != observability.OutcomeSuccess || event.Duration() < 0 {
+			t.Fatalf("relation schema telemetry[%d] = %#v", index, event)
+		}
+	}
+}
 
 func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
@@ -171,6 +290,37 @@ func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 	}
 	if physicalTable != "" {
 		t.Fatalf("rolled-back physical table still exists: %q", physicalTable)
+	}
+}
+
+func TestApplyCreateDoesNotApplyRequestStatementTimeoutToDDL(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	administratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000011")
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admins (id, email, password_hash, active, created_at, updated_at)
+		values ($1, 'slow-schema@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
+		t.Fatal(err)
+	}
+	plan := Plan{
+		Operation:   createCollectionOperation,
+		BaseVersion: 0,
+		Checksum:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Definition:  PlannedCollection{Name: "slow_table", TableName: "slow_table"},
+		Statements: []string{
+			`CREATE TABLE "app"."slow_table" ("id" uuid primary key, "created_at" timestamptz not null, "updated_at" timestamptz not null)`,
+			`select pg_sleep(0.25)`,
+		},
+	}
+	service := NewService(pool, &Cache{}, fixedPlanBuilder{plan: plan})
+	if _, err := service.ApplyCreate(ctx, CreateCollectionInput{Name: "slow_table"}, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate() applied the request statement timeout to DDL: %v", err)
 	}
 }
 
@@ -350,7 +500,7 @@ func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
 	}
 }
 
-func TestEnsureCurrentReturnsCatalogPinnedToCallerTransactionSnapshot(t *testing.T) {
+func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testing.T) {
 	ctx := context.Background()
 	databaseURL := testutil.NewDatabase(t)
 	firstPool, err := database.Open(ctx, databaseURL, 5*time.Second)
@@ -378,13 +528,9 @@ func TestEnsureCurrentReturnsCatalogPinnedToCallerTransactionSnapshot(t *testing
 	secondService := NewService(secondPool, secondCache, Planner{})
 	snapshotPinned := make(chan struct{})
 	newerPublished := make(chan struct{})
-	type ensureResult struct {
-		catalog Catalog
-		err     error
-	}
+	type ensureResult struct{ err error }
 	result := make(chan ensureResult, 1)
 	go func() {
-		var catalog Catalog
 		err := firstPool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
 			var pinnedVersion int64
 			if err := tx.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&pinnedVersion); err != nil {
@@ -395,11 +541,10 @@ func TestEnsureCurrentReturnsCatalogPinnedToCallerTransactionSnapshot(t *testing
 			}
 			close(snapshotPinned)
 			<-newerPublished
-			var err error
-			catalog, err = firstService.EnsureCurrent(ctx, tx)
+			_, err := firstService.EnsureCurrent(ctx, tx)
 			return err
 		})
-		result <- ensureResult{catalog: catalog, err: err}
+		result <- ensureResult{err: err}
 	}()
 	<-snapshotPinned
 
@@ -408,14 +553,69 @@ func TestEnsureCurrentReturnsCatalogPinnedToCallerTransactionSnapshot(t *testing
 	close(newerPublished)
 
 	ensured := <-result
-	if ensured.err != nil {
-		t.Fatalf("EnsureCurrent: %v", ensured.err)
-	}
-	if ensured.catalog.Version != 0 || len(ensured.catalog.Collections) != 0 {
-		t.Fatalf("transaction-local catalog = %+v, want empty version 0 snapshot", ensured.catalog)
+	var postgresError *pgconn.PgError
+	if !errors.As(ensured.err, &postgresError) || postgresError.Code != "40001" {
+		t.Fatalf("EnsureCurrent error = %v, want serialization failure 40001", ensured.err)
 	}
 	if current := firstCache.Load(); current.Version != 1 {
 		t.Fatalf("opportunistic publication regressed cache to version %d, want 1", current.Version)
+	}
+}
+
+func TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	ctx := context.Background()
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
+	update := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "summary", Type: TypeText},
+	}}
+	plan, err := service.PlanUpdate(ctx, update)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	recordTx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recordTx.Rollback(ctx)
+	if _, err := service.EnsureCurrent(ctx, recordTx); err != nil {
+		t.Fatal(err)
+	}
+
+	applyResult := make(chan error, 1)
+	go func() {
+		_, err := service.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, administratorID)
+		applyResult <- err
+	}()
+	waitForSchemaStateLockWaiter(t, pool)
+
+	var summaryColumns int
+	if err := pool.QueryRow(ctx, `select count(*) from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'summary'`).Scan(&summaryColumns); err != nil {
+		t.Fatal(err)
+	}
+	if summaryColumns != 0 {
+		t.Fatal("schema DDL ran while a record transaction held the catalog pin")
+	}
+	if err := recordTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-applyResult; err != nil {
+		t.Fatalf("ApplyUpdate after record transaction ended: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'summary'`).Scan(&summaryColumns); err != nil {
+		t.Fatal(err)
+	}
+	if summaryColumns != 1 {
+		t.Fatalf("summary column count = %d after schema apply, want 1", summaryColumns)
 	}
 }
 
@@ -588,6 +788,34 @@ func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 		t.Fatalf("migrations=%d operation=%q indexes=%d, want 2/%q/1", migrations, operation, indexes, updateCollectionOperation)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 1, fields: 3, migrations: 2})
+}
+
+func TestApplyUpdatePreservesRetainedFieldIDsAndCreatesIDsOnlyForNewFields(t *testing.T) {
+	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "views", Type: TypeBigInt},
+	}}, administratorID)
+
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText, Indexed: true},
+		{Name: "views", Type: TypeNumeric},
+		{Name: "summary", Type: TypeText},
+	}}
+	plan, err := service.PlanUpdate(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.ApplyUpdate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Fields[0].ID != created.Fields[0].ID || updated.Fields[1].ID != created.Fields[1].ID {
+		t.Fatalf("retained field IDs changed: before=%v after=%v", []uuid.UUID{created.Fields[0].ID, created.Fields[1].ID}, []uuid.UUID{updated.Fields[0].ID, updated.Fields[1].ID})
+	}
+	if updated.Fields[2].ID.Version() != 7 || updated.Fields[2].ID == created.Fields[0].ID || updated.Fields[2].ID == created.Fields[1].ID {
+		t.Fatalf("new field ID = %s, want a fresh UUIDv7", updated.Fields[2].ID)
+	}
 }
 
 func TestApplyUpdateRejectsUnknownCollectionStaleVersionAndChecksum(t *testing.T) {
@@ -866,6 +1094,50 @@ func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
 	}
 }
 
+func TestApplyUpdateReportsExistingDuplicateValuesAsDataConstraint(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, slug) values
+		(gen_random_uuid(), statement_timestamp(), statement_timestamp(), 'duplicate'),
+		(gen_random_uuid(), statement_timestamp(), statement_timestamp(), 'duplicate')`); err != nil {
+		t.Fatal(err)
+	}
+
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText, Unique: true}}}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("ApplyUpdate error = %v, want ErrDataConstraint", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+}
+
+func TestApplyUpdateReportsOversizedExistingBtreeValueAsDataConstraint(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText}}}, administratorID)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, slug)
+		select gen_random_uuid(), statement_timestamp(), statement_timestamp(), string_agg(md5(value::text), '')
+		from generate_series(1, 200) as value`); err != nil {
+		t.Fatal(err)
+	}
+
+	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText, Indexed: true}}}
+	plan, err := service.PlanUpdate(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	if !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("ApplyUpdate error = %v, want ErrDataConstraint", err)
+	}
+	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
+}
+
 type barrierPlanBuilder struct {
 	delegate PlanBuilder
 	entered  chan struct{}
@@ -896,6 +1168,42 @@ func (f fixedPlanBuilder) PlanUpdate(int64, Collection, UpdateCollectionInput) (
 }
 
 func (f fixedPlanBuilder) PlanDelete(int64, Collection) (Plan, error) { return f.plan, nil }
+
+type schemaTelemetryRecorder struct {
+	mu     sync.Mutex
+	events []observability.Event
+}
+
+func TestSchemaOperationPanicIsRecordedAsFailureAndRepanics(t *testing.T) {
+	recorder := &schemaTelemetryRecorder{}
+	service := &Service{recorder: recorder}
+	panicValue := errors.New("schema panic sentinel")
+	recovered := func() (value any) {
+		defer func() { value = recover() }()
+		var operationErr error
+		defer service.finishOperation(context.Background(), observability.OperationSchemaUpdate, time.Now(), &operationErr)
+		panic(panicValue)
+	}()
+	if recovered != panicValue {
+		t.Fatalf("recovered panic = %v, want original panic", recovered)
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 || events[0].Operation() != observability.OperationSchemaUpdate || events[0].Outcome() != observability.OutcomeFailure {
+		t.Fatalf("panic telemetry = %#v", events)
+	}
+}
+
+func (r *schemaTelemetryRecorder) Record(_ context.Context, event observability.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *schemaTelemetryRecorder) snapshot() []observability.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]observability.Event(nil), r.events...)
+}
 
 type schemaCounts struct {
 	version     int64
@@ -976,4 +1284,24 @@ func waitForAdvisoryLockWaiters(t *testing.T, pool *database.Pool, wanted int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("advisory lock waiters did not reach %d", wanted)
+}
+
+func waitForSchemaStateLockWaiter(t *testing.T, pool *database.Pool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiters int
+		if err := pool.QueryRow(context.Background(), `select count(*) from pg_stat_activity
+			where datname = current_database()
+			  and wait_event_type = 'Lock'
+			  and query like '%pgbase_meta.schema_state%'
+			  and query like '%FOR UPDATE%'`).Scan(&waiters); err != nil {
+			t.Fatalf("read schema_state lock waiters: %v", err)
+		}
+		if waiters >= 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("schema writer did not wait on the pinned schema_state row")
 }

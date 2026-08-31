@@ -19,6 +19,7 @@ const (
 	TypeTimestampTZ FieldType = "timestamptz"
 	TypeUUID        FieldType = "uuid"
 	TypeJSONB       FieldType = "jsonb"
+	TypeRelation    FieldType = "relation"
 )
 
 type FieldInput struct {
@@ -28,6 +29,7 @@ type FieldInput struct {
 	Unique   bool            `json:"unique"`
 	Indexed  bool            `json:"indexed"`
 	Default  json.RawMessage `json:"default,omitempty"`
+	Relation *RelationInput  `json:"relation,omitempty"`
 }
 
 type CreateCollectionInput struct {
@@ -49,6 +51,7 @@ type Field struct {
 	Unique     bool
 	Indexed    bool
 	Default    json.RawMessage
+	Relation   *RelationSpec `json:"relation,omitempty"`
 	Ordinal    int
 }
 
@@ -67,6 +70,7 @@ type PlannedField struct {
 	Unique   bool
 	Indexed  bool
 	Default  json.RawMessage
+	Relation *PlannedRelation `json:"relation,omitempty"`
 	Ordinal  int
 }
 

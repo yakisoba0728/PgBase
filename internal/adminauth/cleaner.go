@@ -3,6 +3,7 @@ package adminauth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,14 +27,19 @@ type Cleaner struct {
 	retryMin time.Duration
 	retryMax time.Duration
 	interval time.Duration
+	logger   *slog.Logger
 }
 
 // NewCleaner constructs an administrator authentication state cleaner.
-func NewCleaner(pool *database.Pool, clock Clock) *Cleaner {
-	return &Cleaner{
+func NewCleaner(pool *database.Pool, clock Clock, loggers ...*slog.Logger) *Cleaner {
+	cleaner := &Cleaner{
 		pool: pool, clock: normalizedClock(clock),
 		retryMin: cleanerRetryMin, retryMax: cleanerRetryMax, interval: cleanerInterval,
 	}
+	if len(loggers) > 0 {
+		cleaner.logger = loggers[0]
+	}
+	return cleaner
 }
 
 // Run cleans immediately, then repeats hourly until the context is canceled.
@@ -61,6 +67,9 @@ func (c *Cleaner) Run(ctx context.Context) error {
 				return ctx.Err()
 			}
 			delay = retry
+			if c.logger != nil {
+				c.logger.WarnContext(ctx, "administrator authentication cleanup failed", "error", err, "retry_in", delay)
+			}
 			retry *= 2
 			if retry > retryMax {
 				retry = retryMax

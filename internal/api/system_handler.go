@@ -11,6 +11,7 @@ type SystemStatus struct {
 	DatabaseReachable bool   `json:"databaseReachable"`
 	MigrationCurrent  int64  `json:"migrationCurrent"`
 	MigrationLatest   int64  `json:"migrationLatest"`
+	MigrationDirty    bool   `json:"migrationDirty"`
 	CatalogVersion    int64  `json:"catalogVersion"`
 	ListenerReady     bool   `json:"listenerReady"`
 }
