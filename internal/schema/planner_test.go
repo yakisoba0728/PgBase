@@ -40,6 +40,29 @@ func TestPlanCreateIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestPlanChecksumIncludesCompilerVersion(t *testing.T) {
+	plan := Plan{
+		Operation:   "create",
+		BaseVersion: 7,
+		Definition:  PlannedCollection{Name: "versioned_checksum", TableName: "versioned_checksum"},
+		Statements:  []string{`CREATE TABLE "app"."versioned_checksum" ()`},
+	}
+	first, err := planChecksumWithCompilerVersion(plan, "schema-plan-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planChecksumWithCompilerVersion(plan, "schema-plan-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("checksum did not include the compiler version")
+	}
+	if _, err := planChecksumWithCompilerVersion(plan, ""); err == nil {
+		t.Fatal("checksum accepted an empty compiler version")
+	}
+}
+
 func TestPlanCreateValidatesFieldsAndAvoidsRedundantIndexes(t *testing.T) {
 	planner := Planner{}
 	_, err := planner.PlanCreate(0, CreateCollectionInput{

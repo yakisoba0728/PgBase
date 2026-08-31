@@ -1,16 +1,36 @@
 name: Backup restore drill
 
 on:
+  workflow_call:
   push:
+    branches: ["**"]
     paths:
       - "migrations/**"
+      - "cmd/pgbase/**"
+      - "pgbase/**"
       - "internal/migrate/**"
+      - "internal/cli/**"
+      - "internal/doctor/**"
+      - "internal/api/**"
+      - "internal/query/**"
+      - "internal/recordops/**"
+      - "internal/relation/**"
+      - "internal/schema/**"
       - "docs/backup-restore.md"
       - ".github/workflows/backup-restore.yml"
   pull_request:
     paths:
       - "migrations/**"
+      - "cmd/pgbase/**"
+      - "pgbase/**"
       - "internal/migrate/**"
+      - "internal/cli/**"
+      - "internal/doctor/**"
+      - "internal/api/**"
+      - "internal/query/**"
+      - "internal/recordops/**"
+      - "internal/relation/**"
+      - "internal/schema/**"
       - "docs/backup-restore.md"
       - ".github/workflows/backup-restore.yml"
   schedule:
@@ -40,6 +60,8 @@ jobs:
     env:
       PGBASE_DATABASE_URL: postgres://pgbase:restore-test-password@127.0.0.1:5432/pgbase?sslmode=disable
       PGBASE_TOKEN_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      PGBASE_HTTP_ADDRESS: 127.0.0.1:8090
+      PGBASE_PUBLIC_URL: http://127.0.0.1:8090
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,18 +73,140 @@ jobs:
           cache: true
 
       - name: Migrate and seed the source database
+        shell: bash
         run: |
+          set -euo pipefail
           go run ./cmd/pgbase migrate up
+          printf '%s\n' 'restore-drill-administrator-password' | \
+            go run ./cmd/pgbase admin create --email restore@example.test --password-stdin
           container="${{ job.services.postgres.id }}"
           test -n "$container"
-          docker exec "$container" psql --username pgbase --dbname pgbase --set ON_ERROR_STOP=1 --command \
-            "insert into pgbase_meta.admins (id,email,password_hash,active,created_at,updated_at) values ('019551d0-e9c0-7000-8000-000000000001','restore@example.test','test-hash',true,now(),now())"
+          docker exec --interactive "$container" psql --username pgbase --dbname pgbase --set ON_ERROR_STOP=1 <<'SQL'
+          create table app.restore_records (
+            id uuid primary key,
+            created_at timestamptz not null,
+            updated_at timestamptz not null,
+            title text not null
+          );
+          create index restore_records_page_idx on app.restore_records (created_at, id);
+          insert into pgbase_meta.collections (id,name,table_name,status,created_at,updated_at)
+          values ('019551d0-e9c0-7000-8000-000000000002','restore_records','restore_records','active',now(),now());
+          insert into pgbase_meta.fields
+            (id,collection_id,name,column_name,field_type,required,is_unique,is_indexed,has_default,default_json,ordinal,created_at)
+          values
+            ('019551d0-e9c0-7000-8000-000000000003','019551d0-e9c0-7000-8000-000000000002','title','title','text',true,false,false,false,null,0,now());
+          insert into pgbase_meta.schema_migrations
+            (version,operation_id,operation,checksum,plan_json,sql_statements,applied_by,applied_at,execution_ms)
+          values
+            (1,'019551d0-e9c0-7000-8000-000000000004','collection_create',decode(repeat('11',32),'hex'),'{}'::jsonb,array['CREATE TABLE app.restore_records'],(select id from pgbase_meta.admins where email = 'restore@example.test'),now(),0);
+          update pgbase_meta.schema_state set version = 1, updated_at = now() where singleton;
+          insert into app.restore_records (id,created_at,updated_at,title)
+          values ('019551d0-e9c0-7000-8000-000000000005',now(),now(),'restore-record-sentinel');
+          SQL
+
+          go build -o "$RUNNER_TEMP/pgbase-restore-drill" ./cmd/pgbase
+          "$RUNNER_TEMP/pgbase-restore-drill" serve > "$RUNNER_TEMP/pgbase-restore-source.log" 2>&1 &
+          server_pid="$!"
+          cleanup_source_server() {
+            kill -TERM "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup_source_server EXIT
+          ready=false
+          for _ in $(seq 1 120); do
+            if curl --silent --fail --show-error http://127.0.0.1:8090/health/ready > /dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/pgbase-restore-source.log"
+              exit 1
+            fi
+            sleep 0.25
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$RUNNER_TEMP/pgbase-restore-source.log"
+            exit 1
+          fi
+
+          origin='http://127.0.0.1:8090'
+          cookie_jar="$RUNNER_TEMP/pgbase-restore.cookies"
+          login_response="$(curl --silent --show-error --fail-with-body \
+            --cookie-jar "$cookie_jar" \
+            --header 'Content-Type: application/json' \
+            --header "Origin: $origin" \
+            --data '{"email":"restore@example.test","password":"restore-drill-administrator-password"}' \
+            "$origin/api/admin/auth/login")"
+          csrf_token="$(jq --exit-status --raw-output '.csrfToken | select(length > 0)' <<< "$login_response")"
+
+          admin_post() {
+            local path="$1"
+            local body="$2"
+            curl --silent --show-error --fail-with-body \
+              --cookie "$cookie_jar" \
+              --header 'Content-Type: application/json' \
+              --header "Origin: $origin" \
+              --header "X-PgBase-CSRF: $csrf_token" \
+              --data "$body" \
+              "$origin$path"
+          }
+          apply_collection() {
+            local definition="$1"
+            local plan_body plan_response base_version checksum apply_body
+            plan_body="$(jq --compact-output '. + {operation:"create"}' <<< "$definition")"
+            plan_response="$(admin_post '/api/admin/collections/plan' "$plan_body")"
+            base_version="$(jq --exit-status --raw-output '.baseVersion' <<< "$plan_response")"
+            checksum="$(jq --exit-status --raw-output '.checksum | select(length > 0)' <<< "$plan_response")"
+            apply_body="$(jq --compact-output \
+              --argjson baseVersion "$base_version" --arg checksum "$checksum" \
+              '. + {operation:"create", baseVersion:$baseVersion, checksum:$checksum}' <<< "$definition")"
+            admin_post '/api/admin/collections/apply' "$apply_body" > /dev/null
+          }
+          create_record() {
+            local collection="$1"
+            local key="$2"
+            local body="$3"
+            local response
+            if ! response="$(curl --silent --show-error --fail-with-body \
+              --cookie "$cookie_jar" \
+              --header 'Content-Type: application/json' \
+              --header "Origin: $origin" \
+              --header "X-PgBase-CSRF: $csrf_token" \
+              --header "Idempotency-Key: $key" \
+              --data "$body" \
+              "$origin/api/v1/collections/$collection/records")"; then
+              printf '%s\n' "$response" >&2
+              return 1
+            fi
+            printf '%s\n' "$response"
+          }
+
+          apply_collection '{"name":"restore_people","fields":[{"name":"name","type":"text","required":true,"unique":false,"indexed":true}]}'
+          apply_collection '{"name":"restore_articles","fields":[{"name":"title","type":"text","required":true,"unique":false,"indexed":false},{"name":"owner","type":"relation","required":false,"unique":false,"indexed":true,"relation":{"targetCollection":"restore_people","cardinality":"single","onDelete":"restrict"}},{"name":"reviewers","type":"relation","required":false,"unique":false,"indexed":true,"relation":{"targetCollection":"restore_people","cardinality":"multiple","maxSelect":4,"onDelete":"restrict"}}]}'
+
+          ada_response="$(create_record restore_people restore-person-ada '{"name":"Ada"}')"
+          bob_response="$(create_record restore_people restore-person-bob '{"name":"Bob"}')"
+          ada_id="$(jq --exit-status --raw-output '.id' <<< "$ada_response")"
+          bob_id="$(jq --exit-status --raw-output '.id' <<< "$bob_response")"
+          article_body="$(jq --null-input --compact-output \
+            --arg owner "$ada_id" --arg firstReviewer "$bob_id" --arg secondReviewer "$ada_id" \
+            '{title:"restore-relation-sentinel",owner:$owner,reviewers:[$firstReviewer,$secondReviewer]}')"
+          create_record restore_articles restore-article-record "$article_body" > /dev/null
+
+          cleanup_source_server
+          trap - EXIT
 
       - name: Dump and restore into an empty database
         shell: bash
         run: |
           set -euo pipefail
           container="${{ job.services.postgres.id }}"
+          client_major="$(docker exec "$container" pg_restore --version | awk '{print $3}' | cut -d. -f1)"
+          server_version_num="$(docker exec "$container" psql --username pgbase --dbname pgbase --tuples-only --no-align --command 'show server_version_num')"
+          [[ "$client_major" =~ ^[0-9]+$ ]]
+          [[ "$server_version_num" =~ ^[0-9]+$ ]]
+          server_major="$((server_version_num / 10000))"
+          test "$client_major" = "$server_major"
           docker exec "$container" pg_dump --username pgbase --dbname pgbase --format=custom --no-owner --no-privileges > pgbase.dump
           docker exec "$container" createdb --username pgbase pgbase_restore
           docker cp pgbase.dump "$container:/tmp/pgbase.dump"
@@ -79,3 +223,16 @@ jobs:
           expected="$(ls -1 migrations/system/*.sql | wc -l | tr -d ' ')"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.system_migrations')" = "$expected"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.admins')" = "1"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.collections')" = "3"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.field_relations')" = "2"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from app.restore_records')" = "1"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select title from app.restore_records')" = "restore-record-sentinel"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from app.restore_people')" = "2"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from app.restore_articles')" = "1"
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select people.name from app.restore_articles articles join app.restore_people people on people.id = articles.owner')" = "Ada"
+          edge_table="$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command "select format('%I.%I', 'pgbase_relation', relations.storage_name) from pgbase_meta.field_relations relations join pgbase_meta.fields fields on fields.id = relations.field_id join pgbase_meta.collections collections on collections.id = relations.source_collection_id where collections.name = 'restore_articles' and fields.name = 'reviewers' and relations.cardinality = 'multiple'")"
+          [[ "$edge_table" == 'pgbase_relation.'* ]]
+          test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command "select string_agg(people.name, ',' order by edges.position) from $edge_table edges join app.restore_people people on people.id = edges.target_id")" = "Bob,Ada"
+          PGBASE_DATABASE_URL='postgres://pgbase:restore-test-password@127.0.0.1:5432/pgbase_restore?sslmode=disable' \
+            go run ./cmd/pgbase doctor --json > restore-doctor.json
+          jq --exit-status '.ok == true and (.findings | length == 0)' restore-doctor.json

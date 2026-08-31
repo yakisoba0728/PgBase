@@ -21,6 +21,12 @@ type apiClient struct {
 	csrf    string
 }
 
+type apiHTTPResponse struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
 func TestBootstrapCRUDAndRestart(t *testing.T) {
 	bootstrapCRUDAndRestart(t)
 }
@@ -40,17 +46,41 @@ func newAPIClient(baseURL string) *apiClient {
 }
 
 func (c *apiClient) request(ctx context.Context, method, path string, body any, wantStatus int, destination any) error {
+	_, err := c.requestWithHeaders(ctx, method, path, body, nil, wantStatus, destination)
+	return err
+}
+
+func (c *apiClient) requestWithHeaders(ctx context.Context, method, path string, body any, headers http.Header, wantStatus int, destination any) (http.Header, error) {
+	response, err := c.exchangeWithHeaders(ctx, method, path, body, headers)
+	if err != nil {
+		return response.Header, err
+	}
+	if response.Status != wantStatus {
+		return response.Header, fmt.Errorf("%s %s status = %d, want %d, body = %s", method, path, response.Status, wantStatus, response.Body)
+	}
+	if destination != nil && len(response.Body) != 0 {
+		if err := json.Unmarshal(response.Body, destination); err != nil {
+			return response.Header, fmt.Errorf("decode %s %s response: %w (body = %s)", method, path, err, response.Body)
+		}
+	}
+	return response.Header, nil
+}
+
+func (c *apiClient) exchangeWithHeaders(ctx context.Context, method, path string, body any, headers http.Header) (apiHTTPResponse, error) {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return apiHTTPResponse{}, err
 		}
 		reader = bytes.NewReader(encoded)
 	}
 	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
 	if err != nil {
-		return err
+		return apiHTTPResponse{}, err
+	}
+	if headers != nil {
+		request.Header = headers.Clone()
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -63,22 +93,16 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any, 
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return err
+		return apiHTTPResponse{}, err
 	}
 	defer response.Body.Close()
+	result := apiHTTPResponse{Status: response.StatusCode, Header: response.Header.Clone()}
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
-		return err
+		return result, err
 	}
-	if response.StatusCode != wantStatus {
-		return fmt.Errorf("%s %s status = %d, want %d, body = %s", method, path, response.StatusCode, wantStatus, data)
-	}
-	if destination != nil && len(data) != 0 {
-		if err := json.Unmarshal(data, destination); err != nil {
-			return fmt.Errorf("decode %s %s response: %w (body = %s)", method, path, err, data)
-		}
-	}
-	return nil
+	result.Body = data
+	return result, nil
 }
 
 func (c *apiClient) ready(ctx context.Context) error {

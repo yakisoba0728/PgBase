@@ -19,6 +19,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -74,17 +75,20 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
 	handler := NewRouter(Dependencies{
-		Logger:    observability.NewJSONLogger(&logs),
-		AdminAuth: auth,
-		Schema:    securityPlannerService{},
+		Logger:      observability.NewJSONLogger(&logs),
+		AdminAuth:   auth,
+		Schema:      securityPlannerService{},
+		TokenSecret: testTokenSecret,
 	})
 	body := `{"operation":"create","name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/collections/plan", body)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+	request.Header.Set("Origin", "http://pgbase.test")
+	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, validSession().RawToken))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
-	assertSecurityError(t, response, http.StatusBadRequest, "validation_failed", attack, "DROP TABLE")
+	assertSecurityError(t, response, http.StatusUnprocessableEntity, "validation_failed", attack, "DROP TABLE")
 	assertSecuritySecretsAbsent(t, logs.String(), attack, "DROP TABLE")
 }
 
@@ -393,7 +397,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create records collection: %v", err)
 	}
-	records := query.NewService(pool, schemas, testTokenSecret)
+	records := recordops.NewService(pool, schemas, testTokenSecret)
 	codec := query.NewCursorCodec(testTokenSecret)
 	valid, err := codec.Encode(query.PageCursor{
 		Version:      3,
@@ -462,28 +466,28 @@ type securityCompilerRecords struct {
 	createErr  error
 }
 
-func (*securityCompilerRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
+func (*securityCompilerRecords) List(context.Context, recordops.ListRequest) (recordops.RecordPage, error) {
 	panic("unexpected List call")
 }
 
-func (*securityCompilerRecords) Get(context.Context, string, uuid.UUID) (map[string]any, error) {
+func (*securityCompilerRecords) Get(context.Context, recordops.GetRequest) (recordops.Record, error) {
 	panic("unexpected Get call")
 }
 
-func (r *securityCompilerRecords) Create(_ context.Context, _ string, input map[string]json.RawMessage) (map[string]any, error) {
-	statement, err := query.CompileInsert(r.collection, input, uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"))
+func (r *securityCompilerRecords) Create(_ context.Context, request recordops.CreateRequest) (recordops.MutationResult, error) {
+	statement, err := query.CompileInsert(r.collection, request.Input, uuid.MustParse("018f1f09-7b44-7cc1-98e8-6f9a46a17d21"))
 	if err != nil {
-		return nil, err
+		return recordops.MutationResult{}, err
 	}
 	r.statement = statement
-	return nil, r.createErr
+	return recordops.MutationResult{}, r.createErr
 }
 
-func (*securityCompilerRecords) Update(context.Context, string, uuid.UUID, map[string]json.RawMessage) (map[string]any, error) {
+func (*securityCompilerRecords) Update(context.Context, recordops.UpdateRequest) (recordops.MutationResult, error) {
 	panic("unexpected Update call")
 }
 
-func (*securityCompilerRecords) Delete(context.Context, string, uuid.UUID) error {
+func (*securityCompilerRecords) Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error) {
 	panic("unexpected Delete call")
 }
 
@@ -520,23 +524,25 @@ func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
 
 type securityErrorRecords struct{ err error }
 
-func (r securityErrorRecords) List(context.Context, string, string, int, string, string) (query.RecordPage, error) {
-	return query.RecordPage{}, r.err
+func (r securityErrorRecords) List(context.Context, recordops.ListRequest) (recordops.RecordPage, error) {
+	return recordops.RecordPage{}, r.err
 }
 
-func (r securityErrorRecords) Get(context.Context, string, uuid.UUID) (map[string]any, error) {
-	return nil, r.err
+func (r securityErrorRecords) Get(context.Context, recordops.GetRequest) (recordops.Record, error) {
+	return recordops.Record{}, r.err
 }
 
-func (r securityErrorRecords) Create(context.Context, string, map[string]json.RawMessage) (map[string]any, error) {
-	return nil, r.err
+func (r securityErrorRecords) Create(context.Context, recordops.CreateRequest) (recordops.MutationResult, error) {
+	return recordops.MutationResult{}, r.err
 }
 
-func (r securityErrorRecords) Update(context.Context, string, uuid.UUID, map[string]json.RawMessage) (map[string]any, error) {
-	return nil, r.err
+func (r securityErrorRecords) Update(context.Context, recordops.UpdateRequest) (recordops.MutationResult, error) {
+	return recordops.MutationResult{}, r.err
 }
 
-func (r securityErrorRecords) Delete(context.Context, string, uuid.UUID) error { return r.err }
+func (r securityErrorRecords) Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error) {
+	return recordops.MutationResult{}, r.err
+}
 
 func newSecurityDatabase(t *testing.T) *database.Pool {
 	t.Helper()

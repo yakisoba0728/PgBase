@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -24,7 +25,7 @@ func TestSystemStatusRequiresAdministratorSession(t *testing.T) {
 }
 
 func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
-	status := SystemStatus{Version: "v1.2.3", DatabaseReachable: true, MigrationCurrent: 4, MigrationLatest: 4, CatalogVersion: 9, ListenerReady: true}
+	status := SystemStatus{Version: "v1.2.3", DatabaseReachable: true, MigrationCurrent: 4, MigrationLatest: 4, MigrationDirty: true, CatalogVersion: 9, ListenerReady: true}
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	dependencies := testDependencies(auth, nil)
 	dependencies.System = fakeSystemStatus{status: status}
@@ -42,6 +43,9 @@ func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
 	}
 	if got != status {
 		t.Fatalf("status = %#v, want %#v", got, status)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"migrationDirty":true`)) {
+		t.Fatalf("response omitted dirty migration state: %s", response.Body.String())
 	}
 	if response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))

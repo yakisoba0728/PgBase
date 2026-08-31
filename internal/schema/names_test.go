@@ -26,6 +26,15 @@ func TestNameRejectsInvalidNames(t *testing.T) {
 		{name: "id", code: "reserved_name"},
 		{name: "created_at", code: "reserved_name"},
 		{name: "updated_at", code: "reserved_name"},
+		{name: "ctid", code: "reserved_name"},
+		{name: "xmin", code: "reserved_name"},
+		{name: "xmax", code: "reserved_name"},
+		{name: "cmin", code: "reserved_name"},
+		{name: "cmax", code: "reserved_name"},
+		{name: "tableoid", code: "reserved_name"},
+		{name: "true", code: "reserved_name"},
+		{name: "false", code: "reserved_name"},
+		{name: "null", code: "reserved_name"},
 		{name: "pgbase_internal", code: "reserved_name"},
 	}
 

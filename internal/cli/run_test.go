@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestRunRejectsUnknownCommand(t *testing.T) {
@@ -279,15 +281,38 @@ func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *te
 	}
 }
 
+func TestMigrateReportsRedactedOperationalDiagnostics(t *testing.T) {
+	const secret = "migrate-password-must-not-leak"
+	const databaseURL = "postgres://pgbase:" + secret + "@127.0.0.1:1/pgbase?sslmode=disable&connect_timeout=1"
+	var stderr bytes.Buffer
+	code := Run(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), io.Discard, &stderr, DefaultCommands())
+	if code != 1 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "open PostgreSQL pool") {
+		t.Fatalf("stderr lost migration diagnostic: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), secret) || strings.Contains(stderr.String(), databaseURL) {
+		t.Fatalf("stderr leaked migration database credentials: %q", stderr.String())
+	}
+}
+
 func TestMigrateUpAndStatus(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	lookup := migrationEnv(databaseURL)
+	migrations := system.Migrations()
+	if len(migrations) == 0 {
+		t.Fatal("embedded system migrations are empty")
+	}
+	latest := migrations[len(migrations)-1].Version
+	wantCurrent := fmt.Sprintf("current=%d", latest)
+	wantLatest := fmt.Sprintf("latest=%d", latest)
 
 	var upOutput bytes.Buffer
 	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, &upOutput, io.Discard, DefaultCommands()); code != 0 {
 		t.Fatalf("migrate up exit code = %d, stdout = %q", code, upOutput.String())
 	}
-	if !strings.Contains(upOutput.String(), "current=3") || !strings.Contains(upOutput.String(), "latest=3") {
+	if !strings.Contains(upOutput.String(), wantCurrent) || !strings.Contains(upOutput.String(), wantLatest) {
 		t.Fatalf("migrate up stdout = %q", upOutput.String())
 	}
 
@@ -295,7 +320,7 @@ func TestMigrateUpAndStatus(t *testing.T) {
 	if code := Run(context.Background(), []string{"migrate", "status"}, lookup, &statusOutput, io.Discard, DefaultCommands()); code != 0 {
 		t.Fatalf("migrate status exit code = %d, stdout = %q", code, statusOutput.String())
 	}
-	if !strings.Contains(statusOutput.String(), "current=3") || !strings.Contains(statusOutput.String(), "dirty=false") {
+	if !strings.Contains(statusOutput.String(), wantCurrent) || !strings.Contains(statusOutput.String(), "dirty=false") {
 		t.Fatalf("migrate status stdout = %q", statusOutput.String())
 	}
 }

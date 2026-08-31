@@ -1,8 +1,11 @@
 package adminauth
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -107,6 +110,7 @@ func TestCleanerDeletesOnlyStaleExpiredAndRevokedSessions(t *testing.T) {
 func TestCleanerRetriesTransientFailuresInsteadOfStopping(t *testing.T) {
 	var calls atomic.Int32
 	succeeded := make(chan struct{})
+	var logs bytes.Buffer
 	cleaner := &Cleaner{
 		cleanFn: func(context.Context) error {
 			if calls.Add(1) == 1 {
@@ -118,6 +122,7 @@ func TestCleanerRetriesTransientFailuresInsteadOfStopping(t *testing.T) {
 		retryMin: time.Millisecond,
 		retryMax: 5 * time.Millisecond,
 		interval: time.Hour,
+		logger:   slog.New(slog.NewTextHandler(&logs, nil)),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -133,5 +138,9 @@ func TestCleanerRetriesTransientFailuresInsteadOfStopping(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("clean attempts = %d, want 2", calls.Load())
+	}
+	if !strings.Contains(logs.String(), "administrator authentication cleanup failed") ||
+		!strings.Contains(logs.String(), "temporary database failure") {
+		t.Fatalf("cleaner retry was not observable: %q", logs.String())
 	}
 }

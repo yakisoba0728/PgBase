@@ -9,8 +9,101 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
+
+func TestListenerRecordsConnectReloadAndReadinessTransitions(t *testing.T) {
+	pool, _, _ := newSchemaServiceTest(t, Planner{})
+	recorder := &schemaTelemetryRecorder{}
+	listener := NewListenerWithRecorder(pool, &Cache{}, recorder)
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- listener.Run(runCtx) }()
+	waitForListenerReady(t, listener)
+	cancelRun()
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	events := recorder.snapshot()
+	var connectSuccess, reloadSuccess int
+	readiness := make([]bool, 0, 2)
+	for _, event := range events {
+		switch event.Kind() {
+		case observability.EventKindOperation:
+			if event.Component() != observability.ComponentSchemaListener {
+				t.Fatalf("listener operation component = %q", event.Component())
+			}
+			if event.Operation() == observability.OperationListenerConnect && event.Outcome() == observability.OutcomeSuccess {
+				connectSuccess++
+			}
+			if event.Operation() == observability.OperationListenerReload && event.Outcome() == observability.OutcomeSuccess {
+				reloadSuccess++
+			}
+			if event.Duration() < 0 {
+				t.Fatalf("negative listener operation duration: %v", event.Duration())
+			}
+		case observability.EventKindReadiness:
+			if event.ReadinessComponent() != observability.ReadinessSchemaListener {
+				t.Fatalf("readiness component = %q", event.ReadinessComponent())
+			}
+			readiness = append(readiness, event.Ready())
+		}
+	}
+	if connectSuccess != 1 || reloadSuccess != 1 {
+		t.Fatalf("listener operation telemetry connect=%d reload=%d events=%#v", connectSuccess, reloadSuccess, events)
+	}
+	if len(readiness) != 2 || !readiness[0] || readiness[1] {
+		t.Fatalf("readiness transitions = %v, want [true false] without duplicates", readiness)
+	}
+
+	connection, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := listener.reload(canceled, connection.Conn()); !errors.Is(err, context.Canceled) {
+		connection.Release()
+		t.Fatalf("reload(canceled) error = %v", err)
+	}
+	connection.Release()
+	events = recorder.snapshot()
+	last := events[len(events)-1]
+	if last.Operation() != observability.OperationListenerReload || last.Outcome() != observability.OutcomeCanceled {
+		t.Fatalf("canceled reload telemetry = %#v", last)
+	}
+
+	pool.Close()
+	if _, err := listener.listenOnce(context.Background()); err == nil {
+		t.Fatal("listenOnce() with closed pool unexpectedly succeeded")
+	}
+	events = recorder.snapshot()
+	last = events[len(events)-1]
+	if last.Operation() != observability.OperationListenerConnect || last.Outcome() == observability.OutcomeSuccess {
+		t.Fatalf("failed connect telemetry = %#v", last)
+	}
+}
+
+func TestListenerOperationPanicIsRecordedAsFailureAndRepanics(t *testing.T) {
+	recorder := &schemaTelemetryRecorder{}
+	listener := &Listener{recorder: recorder}
+	panicValue := errors.New("listener panic sentinel")
+	recovered := func() (value any) {
+		defer func() { value = recover() }()
+		var operationErr error
+		defer listener.finishOperation(context.Background(), observability.OperationListenerReload, time.Now(), &operationErr)
+		panic(panicValue)
+	}()
+	if recovered != panicValue {
+		t.Fatalf("recovered panic = %v, want original panic", recovered)
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 || events[0].Operation() != observability.OperationListenerReload || events[0].Outcome() != observability.OutcomeFailure {
+		t.Fatalf("panic telemetry = %#v", events)
+	}
+}
 
 func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectReady(t *testing.T) {
 	ctx := context.Background()

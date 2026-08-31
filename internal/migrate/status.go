@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 // Status describes the embedded system schema migration state.
@@ -15,19 +18,20 @@ type Status struct {
 
 // Status returns the applied and latest embedded migration versions. Dirty is
 // true when recorded migration history no longer matches this binary.
-func (r *Runner) Status(ctx context.Context) (Status, error) {
-	status := Status{}
+func (r *Runner) Status(ctx context.Context) (status Status, err error) {
+	started := time.Now()
+	defer r.finishOperation(ctx, observability.OperationMigrationStatus, started, &err)
+	if r == nil || r.pool == nil {
+		return Status{}, fmt.Errorf("migration pool is nil")
+	}
 	for _, migration := range r.migrations {
 		if migration.Version > status.Latest {
 			status.Latest = migration.Version
 		}
 	}
-	if r.pool == nil {
-		return Status{}, fmt.Errorf("migration pool is nil")
-	}
 
 	var historyTable *string
-	if err := r.pool.QueryRow(ctx, "select to_regclass('pgbase_meta.system_migrations')::text").Scan(&historyTable); err != nil {
+	if err = r.pool.QueryRow(ctx, "select to_regclass('pgbase_meta.system_migrations')::text").Scan(&historyTable); err != nil {
 		return Status{}, fmt.Errorf("check system migration history: %w", err)
 	}
 	if historyTable == nil {
@@ -48,6 +52,16 @@ func (r *Runner) Status(ctx context.Context) (Status, error) {
 		}
 		expected, ok := known[version]
 		if !ok || !bytes.Equal(checksum, expected[:]) {
+			status.Dirty = true
+		}
+	}
+	missingKnownMigration := false
+	for _, migration := range r.migrations {
+		if _, ok := applied[migration.Version]; !ok {
+			missingKnownMigration = true
+			continue
+		}
+		if missingKnownMigration {
 			status.Dirty = true
 		}
 	}

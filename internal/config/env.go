@@ -39,6 +39,22 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	if raw, ok := value(lookup, "PGBASE_SETUP_TOKEN"); ok {
 		opts.SetupToken = raw
 	}
+	if raw, ok := value(lookup, "PGBASE_METRICS_TOKEN"); ok && raw != "" {
+		if len(raw) < 32 || len(raw) > 256 {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_METRICS_TOKEN: must contain between 32 and 256 bytes")
+		}
+		for _, character := range []byte(raw) {
+			switch {
+			case character >= 'a' && character <= 'z':
+			case character >= 'A' && character <= 'Z':
+			case character >= '0' && character <= '9':
+			case character == '-', character == '_', character == '.', character == '~':
+			default:
+				return pgbase.Options{}, fmt.Errorf("PGBASE_METRICS_TOKEN: must use bearer-token-safe characters")
+			}
+		}
+		opts.MetricsToken = []byte(raw)
+	}
 	if raw, ok := value(lookup, "PGBASE_PUBLIC_URL"); ok && raw != "" {
 		origin, err := parseOrigin(raw)
 		if err != nil {

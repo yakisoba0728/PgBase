@@ -6,15 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -142,6 +147,283 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if _, err := records.Get(canceled, "records", uuid.New()); database.Classify(err) != database.KindCanceled {
 		t.Fatalf("Get(canceled) error=%v", err)
 	}
+}
+
+func TestRecordServicePreservesNumericZeroScale(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "numeric_scale_records",
+		Fields: []schema.FieldInput{
+			{Name: "amount", Type: schema.TypeNumeric, Required: true},
+		},
+	})
+
+	for _, input := range []string{"0.0", "0.00", "0.000000"} {
+		created, err := records.Create(ctx, "numeric_scale_records", map[string]json.RawMessage{
+			"amount": json.RawMessage(strconv.Quote(input)),
+		})
+		if err != nil {
+			t.Fatalf("Create(%s): %v", input, err)
+		}
+		if created["amount"] != input {
+			t.Fatalf("Create(%s) amount = %#v, want exact scale", input, created["amount"])
+		}
+		got, err := records.Get(ctx, "numeric_scale_records", uuid.MustParse(created["id"].(string)))
+		if err != nil {
+			t.Fatalf("Get(%s): %v", input, err)
+		}
+		if got["amount"] != input {
+			t.Fatalf("Get(%s) amount = %#v, want exact scale", input, got["amount"])
+		}
+	}
+}
+
+func TestRecordServiceRetriesConcurrentSameRecordUpdates(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name:   "concurrent_records",
+		Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}},
+	})
+	created, err := records.Create(ctx, "concurrent_records", map[string]json.RawMessage{
+		"title": json.RawMessage(`"initial"`),
+	})
+	if err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+	id := uuid.MustParse(created["id"].(string))
+	records.schemas = newFirstAttemptBarrierEnsurer(schemas)
+
+	start := make(chan struct{})
+	errorsByWriter := make(chan error, 2)
+	for _, title := range []string{"left", "right"} {
+		title := title
+		go func() {
+			<-start
+			_, err := records.Update(ctx, "concurrent_records", id, map[string]json.RawMessage{
+				"title": json.RawMessage(strconv.Quote(title)),
+			})
+			errorsByWriter <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errorsByWriter; err != nil {
+			t.Fatalf("concurrent Update() error = %v, want bounded internal retry", err)
+		}
+	}
+}
+
+func TestRecordServiceRetriesAndLogsCachedPlanInvalidation(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name:   "retry_records",
+		Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}},
+	})
+	created, err := records.Create(ctx, "retry_records", map[string]json.RawMessage{"title": json.RawMessage(`"ready"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flaky := &oneFailureCatalogEnsurer{inner: schemas}
+	recorder := &queryTelemetryRecorder{}
+	var logs bytes.Buffer
+	records.schemas = flaky
+	records.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	records.recorder = recorder
+
+	if _, err := records.Get(ctx, "retry_records", uuid.MustParse(created["id"].(string))); err != nil {
+		t.Fatalf("Get() after retryable catalog error = %v", err)
+	}
+	if flaky.calls < 2 || !strings.Contains(logs.String(), "retrying record transaction") || strings.Contains(logs.String(), "0A000") {
+		t.Fatalf("retry calls=%d logs=%q", flaky.calls, logs.String())
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 || events[0].Kind() != observability.EventKindTransactionRetry || events[0].RetryCause() != observability.RetryCauseCachedPlan || events[0].Exhausted() {
+		t.Fatalf("retry telemetry = %#v, want one non-exhausted cached-plan event", events)
+	}
+}
+
+func TestRecordServiceRetryTelemetryIsBoundedAndPreservesCancellation(t *testing.T) {
+	_, _, records := newRecordServiceTest(t)
+	recorder := &queryTelemetryRecorder{}
+	ctx, cancel := context.WithCancel(context.Background())
+	records.schemas = cancelingCatalogEnsurer{cancel: cancel, code: "40001"}
+	records.recorder = recorder
+
+	if _, err := records.Get(ctx, "unused", uuid.New()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Get() error = %v, want context cancellation during retry backoff", err)
+	}
+	events := recorder.snapshot()
+	if len(events) != 0 {
+		t.Fatalf("retry telemetry = %#v, want no event before a retry attempt starts", events)
+	}
+
+	for code, want := range map[string]observability.RetryCause{
+		"0A000": observability.RetryCauseCachedPlan,
+		"40001": observability.RetryCauseSerialization,
+		"40P01": observability.RetryCauseDeadlock,
+	} {
+		got, ok := transactionRetryCause(&pgconn.PgError{Code: code, Message: "must not escape telemetry"})
+		if !ok || got != want {
+			t.Fatalf("transactionRetryCause(%s) = %q, %v; want %q, true", code, got, ok, want)
+		}
+	}
+	if _, ok := transactionRetryCause(&pgconn.PgError{Code: "23505", Message: "not retryable"}); ok {
+		t.Fatal("non-retryable SQLSTATE produced retry telemetry")
+	}
+}
+
+type oneFailureCatalogEnsurer struct {
+	inner CatalogEnsurer
+	calls int
+}
+
+type cancelingCatalogEnsurer struct {
+	cancel context.CancelFunc
+	code   string
+}
+
+func (e cancelingCatalogEnsurer) EnsureCurrent(context.Context, database.DBTX) (schema.Catalog, error) {
+	e.cancel()
+	return schema.Catalog{}, &pgconn.PgError{Code: e.code, Message: "sensitive database detail"}
+}
+
+type queryTelemetryRecorder struct {
+	mu     sync.Mutex
+	events []observability.Event
+}
+
+func (r *queryTelemetryRecorder) Record(_ context.Context, event observability.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *queryTelemetryRecorder) snapshot() []observability.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]observability.Event(nil), r.events...)
+}
+
+func (e *oneFailureCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
+	e.calls++
+	if e.calls == 1 {
+		return schema.Catalog{}, &pgconn.PgError{Code: "0A000", Message: "forced cached plan invalidation"}
+	}
+	return e.inner.EnsureCurrent(ctx, tx)
+}
+
+func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "long_sort_records",
+		Fields: []schema.FieldInput{
+			{Name: "part_a", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "part_b", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "part_c", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+
+	longPart := strings.Repeat("a", 1800)
+	wantSuffixes := []string{"1", "2", "3"}
+	for _, suffix := range wantSuffixes {
+		if _, err := records.Create(ctx, "long_sort_records", map[string]json.RawMessage{
+			"part_a": json.RawMessage(strconv.Quote(longPart)),
+			"part_b": json.RawMessage(strconv.Quote(longPart)),
+			"part_c": json.RawMessage(strconv.Quote(longPart + suffix)),
+		}); err != nil {
+			t.Fatalf("Create(long sort values): %v", err)
+		}
+	}
+
+	const sortText = "part_a,part_b,part_c"
+	first, err := records.List(ctx, "long_sort_records", "", 2, "", sortText)
+	if err != nil {
+		t.Fatalf("List(first) error = %v", err)
+	}
+	if len(first.Items) != 2 || first.NextCursor == "" || len(first.NextCursor) > 4096 {
+		t.Fatalf("List(first) = %d items, cursor bytes %d", len(first.Items), len(first.NextCursor))
+	}
+	second, err := records.List(ctx, "long_sort_records", first.NextCursor, 2, "", sortText)
+	if err != nil {
+		t.Fatalf("List(second) error = %v", err)
+	}
+	gotSuffixes := []string{
+		strings.TrimPrefix(first.Items[0]["part_c"].(string), longPart),
+		strings.TrimPrefix(first.Items[1]["part_c"].(string), longPart),
+		strings.TrimPrefix(second.Items[0]["part_c"].(string), longPart),
+	}
+	if !reflect.DeepEqual(gotSuffixes, wantSuffixes) || second.NextCursor != "" {
+		t.Fatalf("paginated values/cursor mismatch: values=%v cursor=%q", gotSuffixes, second.NextCursor)
+	}
+
+	anchorID := uuid.MustParse(first.Items[len(first.Items)-1]["id"].(string))
+	if _, err := records.Update(ctx, "long_sort_records", anchorID, map[string]json.RawMessage{
+		"part_c": json.RawMessage(strconv.Quote(longPart + "9")),
+	}); err != nil {
+		t.Fatalf("Update(cursor anchor): %v", err)
+	}
+	if _, err := records.List(ctx, "long_sort_records", first.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
+		t.Fatalf("List(after changed anchor) error = %v, want invalid cursor", err)
+	}
+
+	fresh, err := records.List(ctx, "long_sort_records", "", 2, "", sortText)
+	if err != nil || fresh.NextCursor == "" {
+		t.Fatalf("List(fresh cursor) = %#v, %v", fresh, err)
+	}
+	update := schema.UpdateCollectionInput{
+		Name: "long_sort_records",
+		Fields: []schema.FieldInput{
+			{Name: "part_a", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "part_b", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	}
+	plan, err := schemas.PlanUpdate(ctx, update)
+	if err != nil {
+		t.Fatalf("PlanUpdate(drop cursor sort field): %v", err)
+	}
+	if _, err := schemas.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
+		t.Fatalf("ApplyUpdate(drop cursor sort field): %v", err)
+	}
+	if _, err := records.List(ctx, "long_sort_records", fresh.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
+		t.Fatalf("List(after dropped cursor sort field) error = %v, want invalid cursor", err)
+	}
+}
+
+type firstAttemptBarrierEnsurer struct {
+	inner CatalogEnsurer
+	mu    sync.Mutex
+	calls int
+	ready chan struct{}
+}
+
+func newFirstAttemptBarrierEnsurer(inner CatalogEnsurer) *firstAttemptBarrierEnsurer {
+	return &firstAttemptBarrierEnsurer{inner: inner, ready: make(chan struct{})}
+}
+
+func (e *firstAttemptBarrierEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
+	catalog, err := e.inner.EnsureCurrent(ctx, tx)
+	if err != nil {
+		return schema.Catalog{}, err
+	}
+	e.mu.Lock()
+	e.calls++
+	call := e.calls
+	if call == 2 {
+		close(e.ready)
+	}
+	e.mu.Unlock()
+	if call <= 2 {
+		select {
+		case <-e.ready:
+		case <-ctx.Done():
+			return schema.Catalog{}, ctx.Err()
+		}
+	}
+	return catalog, nil
 }
 
 func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
@@ -333,7 +615,7 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		Name: "items",
 		Fields: []schema.FieldInput{
 			{Name: "title", Type: schema.TypeText, Required: true},
-			{Name: "rank", Type: schema.TypeInteger},
+			{Name: "rank", Type: schema.TypeInteger, Indexed: true},
 		},
 	})
 	ctx := context.Background()

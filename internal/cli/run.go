@@ -96,7 +96,7 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	if _, err := adminauth.NormalizeEmail(*email); err != nil {
 		return configurationError{err: err, message: "invalid administrator email"}
 	}
-	password, err := readAdministratorPassword(commandStdin, stderr, *passwordFromStdin)
+	password, err := readAdministratorPassword(ctx, commandStdin, stderr, *passwordFromStdin)
 	if err != nil {
 		return err
 	}
@@ -104,6 +104,7 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	if err != nil {
 		return configurationError{err: err}
 	}
+	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
 		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
 	}
@@ -114,19 +115,21 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	defer pool.Close()
 	service := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), options.TokenSecret, options.SetupToken, options.AdminSessionTTL, nil)
 	var administrator adminauth.Administrator
+	operationMessage := "create administrator"
 	if operation == "create" {
 		administrator, err = service.CreateAdministrator(ctx, *email, password)
 	} else {
+		operationMessage = "reset administrator password"
 		administrator, err = service.ResetAdministratorPassword(ctx, *email, password)
 	}
 	if errors.Is(err, adminauth.ErrValidation) {
 		return configurationError{err: err, message: "invalid administrator credentials"}
 	}
 	if errors.Is(err, adminauth.ErrConflict) {
-		return migrationOperationError(options.Logger, "create administrator", err)
+		return migrationOperationError(options.Logger, operationMessage, err)
 	}
 	if err != nil {
-		return migrationOperationError(options.Logger, "create administrator", err)
+		return migrationOperationError(options.Logger, operationMessage, err)
 	}
 	message := "administrator created"
 	if operation == "reset-password" {
@@ -136,7 +139,7 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	return err
 }
 
-func runDoctor(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, _ io.Writer) error {
+func runDoctor(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	jsonOutput := flags.Bool("json", false, "")
@@ -148,6 +151,7 @@ func runDoctor(ctx context.Context, args []string, lookup func(string) (string, 
 		configErr := configurationError{err: err}
 		return emitDoctorFailure(stdout, *jsonOutput, "configuration_invalid", "pgBase configuration is invalid", configErr)
 	}
+	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
 		configErr := configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
 		return emitDoctorFailure(stdout, *jsonOutput, "configuration_invalid", "pgBase configuration is invalid", configErr)
@@ -271,7 +275,7 @@ func runServe(ctx context.Context, args []string, lookup func(string) (string, b
 	return nil
 }
 
-func runMigrate(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, _ io.Writer) error {
+func runMigrate(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
 	if len(args) != 1 || (args[0] != "status" && args[0] != "up") {
 		return configurationError{err: errors.New("invalid migrate usage"), message: "usage: pgbase migrate <status|up>"}
 	}
@@ -280,6 +284,7 @@ func runMigrate(ctx context.Context, args []string, lookup func(string) (string,
 	if err != nil {
 		return configurationError{err: err}
 	}
+	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
 		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
 	}

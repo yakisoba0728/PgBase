@@ -1,6 +1,6 @@
 # Backup and restore
 
-A valid pgBase backup contains the project database's `pgbase_meta` and `app` schemas from one consistent point in time. `pgbase_meta` contains administrators, sessions, schema definitions, and migration history; `app` contains the physical collection tables. Backing up only one schema does not produce a recoverable project.
+A valid pgBase backup contains the project database's `pgbase_meta`, `app`, and `pgbase_relation` schemas from one consistent point in time. `pgbase_meta` contains administrators, sessions, catalog/relation definitions, migration history, record revisions, audit events, outbox rows, and idempotency results. `app` contains physical collection tables and inline single-relation UUID columns/FKs/indexes. `pgbase_relation` contains ordered multiple-relation edge tables plus their integrity functions and triggers. Omitting any one schema does not produce a recoverable project.
 
 Environment configuration and secrets are outside PostgreSQL. Store the deployment configuration, `PGBASE_TOKEN_SECRET`, setup policy, TLS configuration, and database credentials separately in a protected secret/configuration system. Never put them in the database dump or backup logs.
 
@@ -54,17 +54,18 @@ PGSERVICE=pgbase-backup pg_dump \
   --no-acl \
   --schema=pgbase_meta \
   --schema=app \
+  --schema=pgbase_relation \
   --file=pgbase.dump
 pg_restore --list pgbase.dump > pgbase.dump.list
 ```
 
-The custom format is compressed and supports selective inspection, but restore both schemas together. Schedule dumps when collection DDL is not being applied. `pg_dump` provides a transactionally consistent database snapshot; PostgreSQL point-in-time recovery is preferable when recovery-point objectives include writes after the last logical dump.
+The custom format is compressed and supports selective inspection, but restore all three schemas together. Schedule dumps when collection or relation DDL is not being applied. `pg_dump` provides a transactionally consistent database snapshot; PostgreSQL point-in-time recovery is preferable when recovery-point objectives include writes after the last logical dump.
 
 Encrypt backups at rest, restrict access, copy them off the database host, retain multiple generations, and test restoration regularly. A backup that has not been restored is unverified.
 
 ## Point-in-time recovery
 
-For PostgreSQL PITR, configure regular physical base backups plus continuous WAL archiving using your PostgreSQL platform's supported procedure. Monitor WAL archival, retention, encryption, and restore tests. Recover the entire pgBase database to one target time so `pgbase_meta` migration/catalog state and `app` table state remain consistent; do not splice schemas from different recovery points.
+For PostgreSQL PITR, configure regular physical base backups plus continuous WAL archiving using your PostgreSQL platform's supported procedure. Monitor WAL archival, retention, encryption, and restore tests. Recover the entire pgBase database to one target time so `pgbase_meta` migration/catalog and record-artifact state, `app` records/inline relations, and `pgbase_relation` ordered edges remain consistent; do not splice schemas from different recovery points.
 
 ## Restore drill
 
@@ -72,11 +73,28 @@ Restore into a new, empty database first. Do not restore over a running project.
 
 1. Stop all pgBase instances that could connect to the restore target.
 2. Create an empty target database owned by the pgBase database role.
-3. Restore the custom dump:
+3. Require the `pg_restore` client major to match the target server major. This prevents a newer client from replaying settings that an older server does not recognize:
 
    ```sh
+   set -eu
    export PGSERVICEFILE="${XDG_CONFIG_HOME:-$HOME/.config}/pgbase/pg_service.conf"
    export PGPASSFILE="${XDG_CONFIG_HOME:-$HOME/.config}/pgbase/pgpass"
+   client_major="$(pg_restore --version | awk '{print $3}' | cut -d. -f1)"
+   server_version_num="$(PGSERVICE=pgbase-restore psql --no-psqlrc --tuples-only --no-align --command 'show server_version_num')"
+   case "$client_major:$server_version_num" in
+     *[!0-9:]*|:*) echo "could not determine PostgreSQL client/server major versions" >&2; exit 1 ;;
+   esac
+   server_major="$((server_version_num / 10000))"
+   if [ "$client_major" -ne "$server_major" ]; then
+     echo "pg_restore client major $client_major must match server major $server_major" >&2
+     exit 1
+   fi
+   ```
+
+   Use the server distribution's client tools or a PostgreSQL container pinned to the server major if the check fails.
+4. Restore the custom dump:
+
+   ```sh
    PGSERVICE=pgbase-restore pg_restore \
      --dbname='service=pgbase-restore' \
      --single-transaction \
@@ -86,17 +104,17 @@ Restore into a new, empty database first. Do not restore over a running project.
      pgbase.dump
    ```
 
-4. Configure the restored instance with the separately protected token secret and the restored database URL. If the original `PGBASE_TOKEN_SECRET` is not restored, existing sessions and signed cursors will be invalid; stored records and administrator password hashes remain in the database.
-5. Have the secret manager inject the restored `PGBASE_DATABASE_URL` and `PGBASE_TOKEN_SECRET` into the operator environment without rendering either value in the command line. Using the same pgBase release that produced the backup, verify migration state and database invariants:
+5. Configure the restored instance with the separately protected token secret and the restored database URL. If the original `PGBASE_TOKEN_SECRET` is not restored, existing sessions and signed cursors will be invalid; stored records and administrator password hashes remain in the database.
+6. Have the secret manager inject the restored `PGBASE_DATABASE_URL` and `PGBASE_TOKEN_SECRET` into the operator environment without rendering either value in the command line. Using the same pgBase release that produced the backup, verify migration state and database invariants:
 
    ```sh
    pgbase migrate status
    pgbase doctor --json
    ```
 
-   Require the doctor JSON result to contain `"ok":true`.
+   Require the doctor JSON result to contain `"ok":true`. Relation-aware doctor checks metadata bindings and all pgBase-owned relation columns, foreign keys, edge tables, constraints, indexes, functions, and triggers; treat any missing, mismatched, or orphaned relation object as a failed restore.
 
-6. Start one pgBase instance, require `/health/ready` to return HTTP 200, and verify representative collection records before allowing traffic.
+7. Start one pgBase instance and require `/health/ready` to return HTTP 200. Through the administrator-authenticated HTTP record API, verify representative scalar records, raw single/multiple relation UUIDs and their order, `?expand=` results, and matching ETags. Where the drill permits a disposable mutation, use `Idempotency-Key`/`If-Match` to exercise a relation PATCH and a configured delete action, then confirm the expected record state. Do not use direct SQL as the validation path because it bypasses the Record Operations contract being tested.
 
 For disaster recovery, promote a fully validated PITR target or restored database, update the secret-managed `PGBASE_DATABASE_URL`, and roll out all instances. Keep the damaged source isolated until the recovered project has been accepted.
 

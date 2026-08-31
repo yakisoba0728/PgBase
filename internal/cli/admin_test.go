@@ -18,11 +18,13 @@ import (
 func TestAdminCreateReadsConfirmedTerminalPasswordWithoutEchoingIt(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareAdminDatabase(t, databaseURL)
-	originalTerminal, originalReader, originalStdin := terminalInput, passwordInput, commandStdin
-	t.Cleanup(func() { terminalInput, passwordInput, commandStdin = originalTerminal, originalReader, originalStdin })
+	originalTerminal, originalReader, originalStdin := terminalInput, terminalPasswordInput, commandStdin
+	t.Cleanup(func() {
+		terminalInput, terminalPasswordInput, commandStdin = originalTerminal, originalReader, originalStdin
+	})
 	terminalInput = func(int) bool { return true }
 	passwords := [][]byte{[]byte("correct horse battery staple"), []byte("correct horse battery staple")}
-	passwordInput = func(int) ([]byte, error) {
+	terminalPasswordInput = func(context.Context, int) ([]byte, error) {
 		password := passwords[0]
 		passwords = passwords[1:]
 		return password, nil
@@ -70,17 +72,22 @@ func TestAdminCreateDuplicateReturnsOperationalExitCode(t *testing.T) {
 	commandStdin = strings.NewReader("correct horse battery staple\n")
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
-	if code != 1 || stdout.Len() != 0 || stderr.String() != "pgbase: command failed\n" {
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "create administrator") {
 		t.Fatalf("duplicate create exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "correct horse battery staple") {
+		t.Fatalf("duplicate create diagnostic leaked the password: %q", stderr.String())
 	}
 }
 
 func TestAdminCreateRejectsMismatchedTerminalPasswords(t *testing.T) {
-	originalTerminal, originalReader, originalStdin := terminalInput, passwordInput, commandStdin
-	t.Cleanup(func() { terminalInput, passwordInput, commandStdin = originalTerminal, originalReader, originalStdin })
+	originalTerminal, originalReader, originalStdin := terminalInput, terminalPasswordInput, commandStdin
+	t.Cleanup(func() {
+		terminalInput, terminalPasswordInput, commandStdin = originalTerminal, originalReader, originalStdin
+	})
 	terminalInput = func(int) bool { return true }
 	passwords := [][]byte{[]byte("correct horse battery staple"), []byte("different horse battery staple")}
-	passwordInput = func(int) ([]byte, error) {
+	terminalPasswordInput = func(context.Context, int) ([]byte, error) {
 		password := passwords[0]
 		passwords = passwords[1:]
 		return password, nil
@@ -139,7 +146,7 @@ func TestAdminResetPasswordReturnsOperationalExitCodeForUnknownAdministrator(t *
 	t.Cleanup(func() { commandStdin = originalStdin })
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"admin", "reset-password", "--email", "unknown@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
-	if code != 1 || stderr.String() != "pgbase: command failed\n" {
+	if code != 1 || !strings.Contains(stderr.String(), "reset administrator password") || strings.Contains(stderr.String(), "create administrator") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if strings.Contains(stdout.String()+stderr.String(), "new correct horse battery staple") {

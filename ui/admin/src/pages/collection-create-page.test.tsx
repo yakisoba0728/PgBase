@@ -29,6 +29,149 @@ afterEach(() => {
 });
 
 describe("collection creation", () => {
+  it("does not silently select self when the collection name is entered after choosing relation type", async () => {
+    window.history.replaceState(null, "", "/admin/collections/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, { version: 1, collections: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Create collection" });
+    await user.selectOptions(screen.getByLabelText("Field 1 type"), "relation");
+    await user.type(screen.getByLabelText("Collection name"), "nodes");
+
+    expect(await screen.findByRole("option", { name: "nodes (self)" })).toBeVisible();
+    expect(screen.getByLabelText("Field 1 relation target")).toHaveValue("");
+  });
+
+  it("builds a self relation from the live catalog and previews normalized relation SQL", async () => {
+    window.history.replaceState(null, "", "/admin/collections/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 4,
+        collections: {
+          users: { id: "users-id", name: "users", tableName: "users", fields: [] },
+        },
+      }))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 4,
+        checksum: "relation-checksum",
+        definition: {
+          name: "nodes",
+          tableName: "nodes",
+          fields: [{
+            name: "parent", type: "relation", required: false, unique: false, indexed: true, ordinal: 0,
+            relation: {
+              targetCollection: "nodes", cardinality: "single", minSelect: 0, maxSelect: 1,
+              onDelete: "set_null", valueCodecVersion: 1,
+              storage: { kind: "inline_fk_v1", name: "parent" },
+            },
+          }],
+        },
+        sql: ["ALTER TABLE app.nodes ADD CONSTRAINT relation_parent ..."],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Create collection" });
+    await user.type(screen.getByLabelText("Collection name"), "nodes");
+    await user.type(screen.getByLabelText("Field 1 name"), "parent");
+    await user.selectOptions(screen.getByLabelText("Field 1 type"), "relation");
+
+    const target = await screen.findByLabelText("Field 1 relation target");
+    await waitFor(() => expect(target).toBeEnabled());
+    expect(screen.getByRole("option", { name: "nodes (self)" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "users" })).toBeVisible();
+    await user.selectOptions(target, "nodes");
+    await user.selectOptions(screen.getByLabelText("Field 1 relation delete action"), "set_null");
+    expect(screen.getByLabelText("Field 1 required")).toBeDisabled();
+    expect(screen.getByLabelText("Field 1 indexed")).toBeChecked();
+    expect(screen.getByLabelText("Field 1 indexed")).toBeDisabled();
+    expect(screen.getByLabelText("Field 1 has default")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Preview collection" }));
+    expect(await screen.findByText("parent · relation · indexed · target: nodes · single · min: 0 · max: 1 · on delete: set_null")).toBeVisible();
+    expect(screen.getByText(/ALTER TABLE app\.nodes/)).toBeVisible();
+
+    const [, planOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(planOptions.body as string)).toEqual({
+      operation: "create",
+      name: "nodes",
+      fields: [{
+        name: "parent", type: "relation", required: false, unique: false, indexed: true,
+        relation: { targetCollection: "nodes", cardinality: "single", minSelect: 0, maxSelect: 1, onDelete: "set_null" },
+      }],
+    });
+  });
+
+  it("keeps multiple relation bounds, required state, and uniqueness consistent", async () => {
+    window.history.replaceState(null, "", "/admin/collections/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 9,
+        collections: {
+          tags: { id: "tags-id", name: "tags", tableName: "tags", fields: [] },
+        },
+      }))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 9,
+        checksum: "multiple-checksum",
+        definition: {
+          name: "posts", tableName: "posts",
+          fields: [{
+            name: "tags", type: "relation", required: true, unique: false, indexed: true, ordinal: 0,
+            relation: {
+              targetCollection: "tags", targetCollectionId: "tags-id", cardinality: "multiple",
+              minSelect: 2, maxSelect: 20, onDelete: "cascade", valueCodecVersion: 1,
+              storage: { kind: "edge_table_v1", name: "rel_table" },
+            },
+          }],
+        },
+        sql: ["CREATE TABLE pgbase_relation.rel_table (...)"],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Create collection" });
+    await user.type(screen.getByLabelText("Collection name"), "posts");
+    await user.type(screen.getByLabelText("Field 1 name"), "tags");
+    await user.selectOptions(screen.getByLabelText("Field 1 type"), "relation");
+    await waitFor(() => expect(screen.getByLabelText("Field 1 relation target")).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText("Field 1 relation target"), "tags");
+    await user.click(screen.getByLabelText("Field 1 unique"));
+    await user.selectOptions(screen.getByLabelText("Field 1 relation cardinality"), "multiple");
+
+    const minimum = screen.getByLabelText("Field 1 relation minimum");
+    const maximum = screen.getByLabelText("Field 1 relation maximum");
+    expect(maximum).toHaveAttribute("min", "2");
+    expect(maximum).toHaveAttribute("max", "1000");
+    expect(maximum).toHaveValue(20);
+    expect(screen.getByLabelText("Field 1 unique")).not.toBeChecked();
+    expect(screen.getByLabelText("Field 1 unique")).toBeDisabled();
+    await user.clear(minimum);
+    await user.type(minimum, "2");
+    expect(screen.getByLabelText("Field 1 required")).toBeChecked();
+    await user.selectOptions(screen.getByLabelText("Field 1 relation delete action"), "cascade");
+    await user.click(screen.getByRole("button", { name: "Preview collection" }));
+
+    await screen.findByText(/CREATE TABLE pgbase_relation\.rel_table/);
+    const [, planOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(planOptions.body as string)).toMatchObject({
+      fields: [{
+        required: true,
+        unique: false,
+        indexed: true,
+        relation: { targetCollection: "tags", cardinality: "multiple", minSelect: 2, maxSelect: 20, onDelete: "cascade" },
+      }],
+    });
+  });
+
   it("previews normalized server output and applies the exact preview input and checksum", async () => {
     window.history.replaceState(null, "", "/admin/collections/new");
     const fetchMock = vi.fn()
@@ -76,6 +219,7 @@ describe("collection creation", () => {
     const [, planOptions] = fetchMock.mock.calls[1] as [string, RequestInit];
     const [applyPath, applyOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(applyPath).toBe("/api/admin/collections/apply");
+    expect(new Headers(planOptions.headers).get("X-PgBase-CSRF")).toBe("csrf-token");
     expect(JSON.parse(planOptions.body as string)).toMatchObject({ operation: "create", name: "posts" });
     const plannedInput = JSON.parse(planOptions.body as string) as unknown;
     expect(JSON.parse(applyOptions.body as string)).toEqual({

@@ -163,7 +163,7 @@ func (s *Store) RevokeSession(ctx context.Context, tokenHash []byte, now time.Ti
 
 // LockRateLimits serializes decisions for multiple rate-limit subjects in a
 // stable order so concurrent requests cannot deadlock while taking the same
-// set of account, network, and global locks.
+// set of account and network locks.
 func (s *Store) LockRateLimits(ctx context.Context, keys []int64) error {
 	for _, key := range keys {
 		if _, err := s.db.Exec(ctx, "select pg_advisory_xact_lock($1)", key); err != nil {
@@ -231,7 +231,7 @@ func (s *Store) ClearRateLimit(ctx context.Context, subjectHash []byte) error {
 }
 
 // ReleaseRateLimitAttempt removes only the current successful reservation from
-// a shared network or global bucket without erasing other clients' failures.
+// a shared network bucket without erasing other clients' failures.
 func (s *Store) ReleaseRateLimitAttempt(ctx context.Context, subjectHash []byte) error {
 	if _, err := s.db.Exec(ctx, `
 		with deleted as (

@@ -11,6 +11,17 @@ var reservedNames = map[string]struct{}{
 	"id":         {},
 	"created_at": {},
 	"updated_at": {},
+	// PostgreSQL system columns cannot be shadowed by user columns.
+	"ctid":     {},
+	"xmin":     {},
+	"xmax":     {},
+	"cmin":     {},
+	"cmax":     {},
+	"tableoid": {},
+	// Filter grammar literals are not valid field operands.
+	"true":  {},
+	"false": {},
+	"null":  {},
 }
 
 func validateName(field, name string) error {

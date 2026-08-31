@@ -35,6 +35,9 @@ func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
 	if strings.Contains(stdout.String(), "must-not-leak") || strings.Contains(stderr.String(), "must-not-leak") {
 		t.Fatalf("doctor output leaked database credentials: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "open PostgreSQL pool") {
+		t.Fatalf("doctor stderr lost the operational diagnostic: %q", stderr.String())
+	}
 }
 
 func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {

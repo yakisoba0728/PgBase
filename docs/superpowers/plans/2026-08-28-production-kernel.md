@@ -1141,7 +1141,7 @@ Acquire a dedicated pgx connection, issue `LISTEN pgbase_schema_changed`, and lo
 
 - [ ] **Step 6: Implement plan/apply/catalog administrator routes**
 
-`POST /api/admin/collections/plan` returns the base version, checksum, normalized definition, and SQL. `POST /api/admin/collections/apply` requires the original input plus checksum and returns 201. `GET /api/admin/collections` returns the current version and definitions. All three require administrator authentication; apply also requires CSRF.
+`POST /api/admin/collections/plan` returns the base version, checksum, normalized definition, and SQL. `POST /api/admin/collections/apply` requires the original input plus checksum and returns 201. `GET /api/admin/collections` returns the current version and definitions. All three require administrator authentication; both POST routes use the same Origin and CSRF mutation boundary.
 
 - [ ] **Step 7: Run race and integration tests**
 
@@ -1279,7 +1279,7 @@ Expected: FAIL because the service does not exist.
 
 - [ ] **Step 3: Implement request transactions and catalog pinning**
 
-For every operation, begin a transaction, call `EnsureCurrent` inside it, compile against the returned immutable collection, execute with request context, and commit only after successful decoding. If the database version differs, reload and compile once; never retry a write after SQL execution begins.
+For every operation, begin a transaction, call `EnsureCurrent` inside it, compile against the returned immutable collection, execute with request context, and commit only after successful decoding. If the database version differs, reload and compile once. Never retry an ambiguous transport or commit failure after SQL execution begins. The service may retry only PostgreSQL errors that guarantee the transaction was aborted (`0A000`, `40001`, `40P01`), with a finite capped-jitter budget.
 
 - [ ] **Step 4: Write REST handler contract tests**
 

@@ -27,6 +27,7 @@ it("navigates to the read-only redacted system status", async () => {
       databaseReachable: true,
       migrationCurrent: 4,
       migrationLatest: 5,
+      migrationDirty: true,
       catalogVersion: 9,
       listenerReady: false,
       internalDatabaseURL: "postgres://secret",
@@ -42,6 +43,7 @@ it("navigates to the read-only redacted system status", async () => {
   expect(screen.getByText("v1.2.3")).toBeVisible();
   expect(screen.getByText("Reachable")).toBeVisible();
   expect(screen.getByText("4 / 5")).toBeVisible();
+  expect(screen.getByText("Dirty")).toBeVisible();
   expect(screen.getByText("9")).toBeVisible();
   expect(screen.getByText("Not ready")).toBeVisible();
   expect(screen.queryByText(/postgres:\/\/secret/)).not.toBeInTheDocument();

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 type adminPrincipalKey struct{}
@@ -67,6 +68,11 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 		if err != nil {
 			if errors.Is(err, adminauth.ErrInvalidCredentials) {
 				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+				return
+			}
+			if database.Classify(err) == database.KindUnavailable {
+				w.Header().Set("Retry-After", "1")
+				writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Administrator authentication is unavailable"})
 				return
 			}
 			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,37 @@ func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	}
 	if !got.ExpiresAt.Equal(want.ExpiresAt) || got.ExpiresAt.Location() != time.UTC {
 		t.Fatalf("expiry = %#v, want %#v", got.ExpiresAt, want.ExpiresAt)
+	}
+}
+
+func TestCursorCodecFallsBackToBoundedSignedAnchorForLargeValues(t *testing.T) {
+	t.Parallel()
+
+	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
+	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	anchorID := uuid.MustParse("12345678-1234-4567-8901-123456789abc")
+	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
+	token, err := codec.Encode(PageCursor{
+		Version: cursorVersion, CollectionID: collectionID,
+		Sort: []SortKey{{Field: "title"}, {Field: systemFieldID}},
+		Values: []json.RawMessage{
+			json.RawMessage(strconv.Quote(strings.Repeat("x", maxDecodedCursorSize))),
+			json.RawMessage(strconv.Quote(anchorID.String())),
+		},
+		AnchorID: anchorID, ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if len(token) > base64.RawURLEncoding.EncodedLen(maxDecodedCursorSize) {
+		t.Fatalf("fallback cursor length = %d, exceeds bound", len(token))
+	}
+	decoded, err := codec.Decode(token, collectionID, expiresAt.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if decoded.AnchorID != anchorID || len(decoded.Values) != 0 || len(decoded.AnchorHash) != sha256.Size {
+		t.Fatalf("Decode() = %#v, want anchor-only fallback", decoded)
 	}
 }
 
@@ -192,6 +224,7 @@ func TestCursorCodecRejectsInvalidValuesBeforeEncoding(t *testing.T) {
 		{name: "no sort", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Values: testCursorValues(), ExpiresAt: expiresAt}},
 		{name: "sort without values", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), ExpiresAt: expiresAt}},
 		{name: "empty sort value", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: []json.RawMessage{nil, json.RawMessage(`"x"`)}, ExpiresAt: expiresAt}},
+		{name: "caller supplied anchor hash", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), AnchorHash: make([]byte, sha256.Size), ExpiresAt: expiresAt}},
 		{name: "non utc time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: time.Date(2026, 8, 28, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60))}},
 		{name: "zero time", cursor: PageCursor{Version: cursorVersion, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues()}},
 	}

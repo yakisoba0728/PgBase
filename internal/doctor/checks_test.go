@@ -72,6 +72,141 @@ func TestRunReportsMissingPhysicalCollectionTable(t *testing.T) {
 	assertFindingCode(t, runDoctor(t, pool), "collection_table_missing")
 }
 
+func TestRunReportsUncataloguedPhysicalCollectionTable(t *testing.T) {
+	pool := newDoctorPool(t)
+	if _, err := pool.Exec(context.Background(), `create table app.stray (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCode(t, runDoctor(t, pool), "collection_table_orphaned")
+}
+
+func TestRunReportsUncataloguedZeroColumnPhysicalTable(t *testing.T) {
+	pool := newDoctorPool(t)
+	if _, err := pool.Exec(context.Background(), `create table app.empty_stray ()`); err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCode(t, runDoctor(t, pool), "collection_table_orphaned")
+}
+
+func TestRunReportsUncataloguedPhysicalCollectionColumn(t *testing.T) {
+	pool := newDoctorPool(t)
+	insertCollectionMetadata(t, pool, "posts", "title", "text")
+	if _, err := pool.Exec(context.Background(), `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		title text,
+		legacy text
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCode(t, runDoctor(t, pool), "collection_column_orphaned")
+}
+
+func TestRunReportsUnexpectedPhysicalColumnDefault(t *testing.T) {
+	pool := newDoctorPool(t)
+	insertCollectionMetadata(t, pool, "posts", "title", "text")
+	if _, err := pool.Exec(context.Background(), `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		title text default 'physical-only'
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCode(t, runDoctor(t, pool), "collection_column_default_mismatch")
+}
+
+func TestRunReportsChangedPhysicalColumnDefaultValue(t *testing.T) {
+	pool := newDoctorPool(t)
+	collectionID := insertCollection(t, pool, "posts", "posts")
+	insertFieldWithDefault(t, pool, collectionID, "title", "text", `"catalog-right"`, 0)
+	if _, err := pool.Exec(context.Background(), `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		title text default 'physical-wrong'
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCode(t, runDoctor(t, pool), "collection_column_default_mismatch")
+}
+
+func TestRunAcceptsMatchingTypedPhysicalDefaults(t *testing.T) {
+	pool := newDoctorPool(t)
+	collectionID := insertCollection(t, pool, "defaults", "defaults")
+	defaults := []struct {
+		name, fieldType, value string
+	}{
+		{name: "flag", fieldType: "boolean", value: `false`},
+		{name: "count", fieldType: "integer", value: `"1"`},
+		{name: "total", fieldType: "bigint", value: `"-42"`},
+		{name: "ratio", fieldType: "numeric", value: `"3.4"`},
+		{name: "label", fieldType: "text", value: `"sa\\fe'x"`},
+		{name: "published_at", fieldType: "timestamptz", value: `{"kind":"now"}`},
+		{name: "fixed_at", fieldType: "timestamptz", value: `"2026-08-28T12:34:56.123456789Z"`},
+		{name: "tie_even_at", fieldType: "timestamptz", value: `"2026-08-28T12:34:56.1234565Z"`},
+		{name: "external_id", fieldType: "uuid", value: `"12345678-1234-4567-8901-123456789abc"`},
+		{name: "metadata", fieldType: "jsonb", value: `{"z":1,"a":[2]}`},
+	}
+	for ordinal, field := range defaults {
+		insertFieldWithDefault(t, pool, collectionID, field.name, field.fieldType, field.value, ordinal)
+	}
+	if _, err := pool.Exec(context.Background(), `create table app.defaults (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		flag boolean default false,
+		count integer default 1,
+		total bigint default -42,
+		ratio numeric default 3.4::numeric,
+		label text default E'sa\\fe''x'::text,
+		published_at timestamptz default current_timestamp,
+		fixed_at timestamptz default E'2026-08-28T12:34:56.123456789Z'::timestamptz,
+		tie_even_at timestamptz default E'2026-08-28T12:34:56.1234565Z'::timestamptz,
+		external_id uuid default E'12345678-1234-4567-8901-123456789abc'::uuid,
+		metadata jsonb default E'{"a":[2],"z":1}'::jsonb
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctor(t, pool)
+	if !report.OK {
+		t.Fatalf("report = %#v, want matching typed defaults to be healthy", report)
+	}
+}
+
+func TestPostgresTimestampPrecisionRoundsHalfToEven(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "2026-08-28T12:34:56.123456499Z", want: "2026-08-28T12:34:56.123456Z"},
+		{input: "2026-08-28T12:34:56.1234565Z", want: "2026-08-28T12:34:56.123456Z"},
+		{input: "2026-08-28T12:34:56.1234575Z", want: "2026-08-28T12:34:56.123458Z"},
+		{input: "2026-08-28T12:34:56.123456501Z", want: "2026-08-28T12:34:56.123457Z"},
+		{input: "2026-08-28T12:34:56.9999995Z", want: "2026-08-28T12:34:57Z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			input, err := time.Parse(time.RFC3339Nano, tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := time.Parse(time.RFC3339Nano, tt.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := postgresTimestampPrecision(input); !got.Equal(want) {
+				t.Fatalf("postgresTimestampPrecision(%s) = %s, want %s", tt.input, got.Format(time.RFC3339Nano), tt.want)
+			}
+		})
+	}
+}
+
 func TestRunSkipsEveryFieldOfMissingTableAndContinuesToLaterCollection(t *testing.T) {
 	pool := newDoctorPool(t)
 	missingID := insertCollection(t, pool, "missing", "missing")
@@ -292,6 +427,17 @@ func insertField(t *testing.T, pool *database.Pool, collectionID uuid.UUID, fiel
 	fieldID := uuid.New()
 	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.fields (id, collection_id, name, column_name, field_type, required, is_unique, is_indexed, has_default, ordinal, created_at)
 		values ($1, $2, $3, $3, $4, $5, $6, $7, false, $8, current_timestamp)`, fieldID, collectionID, field, fieldType, required, unique, indexed, ordinal); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertFieldWithDefault(t *testing.T, pool *database.Pool, collectionID uuid.UUID, field, fieldType, defaultJSON string, ordinal int) {
+	t.Helper()
+	fieldID := uuid.New()
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.fields
+		(id, collection_id, name, column_name, field_type, required, is_unique, is_indexed, has_default, default_json, ordinal, created_at)
+		values ($1, $2, $3, $3, $4, false, false, false, true, $5::jsonb, $6, current_timestamp)`,
+		fieldID, collectionID, field, fieldType, defaultJSON, ordinal); err != nil {
 		t.Fatal(err)
 	}
 }

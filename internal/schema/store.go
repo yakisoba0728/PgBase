@@ -3,7 +3,9 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,11 +16,33 @@ type Store struct {
 	db database.DBTX
 }
 
+var errCatalogIntegrity = errors.New("catalog integrity violation")
+
 func NewStore(db database.DBTX) *Store { return &Store{db: db} }
 
 func (s *Store) SchemaVersion(ctx context.Context) (int64, error) {
+	return s.schemaVersion(ctx, "")
+}
+
+// PinnedSchemaVersion takes a shared row lock for the caller transaction.
+// Schema writers take the matching exclusive lock before DDL, so the catalog
+// metadata and physical collection tables cannot change underneath a record
+// operation. Under repeatable-read, a reader that waited behind a committed
+// writer receives PostgreSQL's serialization failure and retries with a fresh
+// snapshot instead of using a stale catalog.
+func (s *Store) PinnedSchemaVersion(ctx context.Context) (int64, error) {
+	return s.schemaVersion(ctx, " FOR SHARE")
+}
+
+// LockedSchemaVersion takes the exclusive side of the catalog/record lock
+// order and must be acquired before executing collection DDL.
+func (s *Store) LockedSchemaVersion(ctx context.Context) (int64, error) {
+	return s.schemaVersion(ctx, " FOR UPDATE")
+}
+
+func (s *Store) schemaVersion(ctx context.Context, lockClause string) (int64, error) {
 	var version int64
-	if err := s.db.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&version); err != nil {
+	if err := s.db.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`+lockClause).Scan(&version); err != nil {
 		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 	return version, nil
@@ -49,13 +73,18 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	}
 	rows.Close()
 
+	type fieldLocation struct {
+		collectionID   uuid.UUID
+		collectionName string
+		fieldIndex     int
+	}
+	fieldLocations := make(map[uuid.UUID]fieldLocation)
 	fieldRows, err := s.db.Query(ctx, `select id, collection_id, name, column_name, field_type,
 		required, is_unique, is_indexed, has_default, default_json, ordinal
 		from pgbase_meta.fields order by collection_id, ordinal`)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read collection fields: %w", err)
 	}
-	defer fieldRows.Close()
 	for fieldRows.Next() {
 		var field Field
 		var collectionID uuid.UUID
@@ -65,6 +94,7 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 			&field.ID, &collectionID, &field.Name, &field.ColumnName, &field.Type,
 			&field.Required, &field.Unique, &field.Indexed, &hasDefault, &defaultJSON, &field.Ordinal,
 		); err != nil {
+			fieldRows.Close()
 			return Catalog{}, fmt.Errorf("scan collection field: %w", err)
 		}
 		if hasDefault {
@@ -72,16 +102,114 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		}
 		name, ok := collectionNames[collectionID]
 		if !ok {
+			fieldRows.Close()
 			return Catalog{}, fmt.Errorf("collection field references unknown collection")
 		}
 		collection := collections[name]
+		if _, exists := fieldLocations[field.ID]; exists {
+			fieldRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+		fieldLocations[field.ID] = fieldLocation{
+			collectionID:   collectionID,
+			collectionName: name,
+			fieldIndex:     len(collection.Fields),
+		}
 		collection.Fields = append(collection.Fields, field)
 		collections[name] = collection
 	}
 	if err := fieldRows.Err(); err != nil {
+		fieldRows.Close()
 		return Catalog{}, fmt.Errorf("iterate collection fields: %w", err)
 	}
-	return Catalog{Version: version, Collections: collections}, nil
+	fieldRows.Close()
+
+	incoming := make(map[uuid.UUID][]RelationRef)
+	relationRows, err := s.db.Query(ctx, `select field_id, source_collection_id,
+		target_collection_id, cardinality, min_select, max_select, on_delete,
+		value_codec_version, storage_kind, storage_name
+		from pgbase_meta.field_relations`)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("read relation metadata: %w", err)
+	}
+	for relationRows.Next() {
+		var fieldID, sourceCollectionID uuid.UUID
+		var spec RelationSpec
+		if err := relationRows.Scan(
+			&fieldID,
+			&sourceCollectionID,
+			&spec.TargetCollectionID,
+			&spec.Cardinality,
+			&spec.MinSelect,
+			&spec.MaxSelect,
+			&spec.OnDelete,
+			&spec.ValueCodecVersion,
+			&spec.Storage.Kind,
+			&spec.Storage.Name,
+		); err != nil {
+			relationRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+
+		location, ok := fieldLocations[fieldID]
+		if !ok || location.collectionID != sourceCollectionID {
+			relationRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+		if _, ok := collectionNames[sourceCollectionID]; !ok {
+			relationRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+		if _, ok := collectionNames[spec.TargetCollectionID]; !ok {
+			relationRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+
+		collection := collections[location.collectionName]
+		field := collection.Fields[location.fieldIndex]
+		if field.Type != TypeRelation || field.Relation != nil || !relationFieldMatchesSpec(field, spec) {
+			relationRows.Close()
+			return Catalog{}, errCatalogIntegrity
+		}
+		if err := ValidateRelationSpec("field", spec); err != nil {
+			relationRows.Close()
+			return Catalog{}, fmt.Errorf("%w: %w", errCatalogIntegrity, err)
+		}
+
+		field.Relation = cloneRelationSpec(&spec)
+		collection.Fields[location.fieldIndex] = field
+		collections[location.collectionName] = collection
+		incoming[spec.TargetCollectionID] = append(incoming[spec.TargetCollectionID], RelationRef{
+			SourceCollectionID: sourceCollectionID,
+			SourceFieldID:      fieldID,
+			Spec:               spec,
+		})
+	}
+	if err := relationRows.Err(); err != nil {
+		relationRows.Close()
+		return Catalog{}, fmt.Errorf("iterate relation metadata: %w", err)
+	}
+	relationRows.Close()
+
+	for name, collection := range collections {
+		for _, field := range collection.Fields {
+			if (field.Type == TypeRelation) != (field.Relation != nil) {
+				return Catalog{}, errCatalogIntegrity
+			}
+		}
+		collections[name] = collection
+	}
+	for targetCollectionID := range incoming {
+		sort.Slice(incoming[targetCollectionID], func(i, j int) bool {
+			left := incoming[targetCollectionID][i]
+			right := incoming[targetCollectionID][j]
+			if left.SourceCollectionID != right.SourceCollectionID {
+				return left.SourceCollectionID.String() < right.SourceCollectionID.String()
+			}
+			return left.SourceFieldID.String() < right.SourceFieldID.String()
+		})
+	}
+	return Catalog{Version: version, Collections: collections, Incoming: incoming}, nil
 }
 
 func (s *Store) InsertCollection(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {
@@ -115,8 +243,14 @@ func (s *Store) DeleteCollection(ctx context.Context, collectionID uuid.UUID) er
 }
 
 func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {
+	if len(collection.Fields) != len(definition.Fields) {
+		return fmt.Errorf("insert field metadata: invalid definition")
+	}
 	for index, plannedField := range definition.Fields {
 		field := collection.Fields[index]
+		if field.Name != plannedField.Name || field.Type != plannedField.Type || field.Ordinal != plannedField.Ordinal {
+			return fmt.Errorf("insert field metadata: invalid definition")
+		}
 		var defaultJSON any
 		if len(plannedField.Default) != 0 {
 			defaultJSON = string(plannedField.Default)
@@ -129,6 +263,48 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 			field.Required, field.Unique, field.Indexed, len(plannedField.Default) != 0,
 			defaultJSON, field.Ordinal, createdAt); err != nil {
 			return fmt.Errorf("insert field metadata: %w", err)
+		}
+	}
+
+	for index, plannedField := range definition.Fields {
+		field := collection.Fields[index]
+		if field.Type == TypeRelation {
+			if plannedField.Relation == nil || len(plannedField.Default) != 0 || len(field.Default) != 0 {
+				return fmt.Errorf("insert relation metadata: invalid definition")
+			}
+			spec, err := ResolvePlannedRelation("field", *plannedField.Relation, collection.ID)
+			if err != nil {
+				return fmt.Errorf("insert relation metadata: %w", err)
+			}
+			if !relationFieldMatchesSpec(field, *spec) {
+				return fmt.Errorf("insert relation metadata: invalid definition")
+			}
+			if err := ValidateRelationSpec("field", *spec); err != nil {
+				return fmt.Errorf("insert relation metadata: %w", err)
+			}
+			if _, err := s.db.Exec(ctx, `insert into pgbase_meta.field_relations
+				(field_id, source_collection_id, target_collection_id, cardinality,
+				 min_select, max_select, on_delete, value_codec_version, storage_kind,
+				 storage_name, created_at)
+				values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				field.ID,
+				collection.ID,
+				spec.TargetCollectionID,
+				spec.Cardinality,
+				spec.MinSelect,
+				spec.MaxSelect,
+				spec.OnDelete,
+				spec.ValueCodecVersion,
+				spec.Storage.Kind,
+				spec.Storage.Name,
+				createdAt,
+			); err != nil {
+				return fmt.Errorf("insert relation metadata: %w", err)
+			}
+			continue
+		}
+		if plannedField.Relation != nil {
+			return fmt.Errorf("insert field metadata: invalid definition")
 		}
 		if !field.Unique && !field.Indexed {
 			continue
@@ -145,6 +321,13 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 		}
 	}
 	return nil
+}
+
+func relationFieldMatchesSpec(field Field, spec RelationSpec) bool {
+	if field.Required != (spec.MinSelect > 0) || len(field.Default) != 0 || !field.Indexed {
+		return false
+	}
+	return spec.Cardinality != RelationMultiple || !field.Unique
 }
 
 func (s *Store) InsertMigration(ctx context.Context, version int64, operationID uuid.UUID, plan Plan, checksum []byte, administratorID uuid.UUID, appliedAt time.Time, executionMS int64) error {

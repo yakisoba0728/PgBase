@@ -11,7 +11,23 @@ permissions:
   attestations: write
 
 jobs:
+  backend:
+    uses: ./.github/workflows/backend.yml
+
+  frontend:
+    uses: ./.github/workflows/frontend.yml
+
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+
+  security:
+    uses: ./.github/workflows/security.yml
+
+  backup_restore:
+    uses: ./.github/workflows/backup-restore.yml
+
   image:
+    needs: [backend, frontend, e2e, security, backup_restore]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

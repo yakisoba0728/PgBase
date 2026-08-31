@@ -6,6 +6,7 @@ interface SystemStatus {
   databaseReachable: boolean;
   migrationCurrent: number;
   migrationLatest: number;
+  migrationDirty: boolean;
   catalogVersion: number;
   listenerReady: boolean;
 }
@@ -31,6 +32,7 @@ export function SystemPage() {
       <div><dt>Binary version</dt><dd>{status.version}</dd></div>
       <div><dt>Database</dt><dd>{status.databaseReachable ? "Reachable" : "Unavailable"}</dd></div>
       <div><dt>Migrations</dt><dd>{status.migrationCurrent} / {status.migrationLatest}</dd></div>
+      <div><dt>Migration history</dt><dd>{status.migrationDirty ? "Dirty" : "Clean"}</dd></div>
       <div><dt>Catalog version</dt><dd>{status.catalogVersion}</dd></div>
       <div><dt>Catalog listener</dt><dd>{status.listenerReady ? "Ready" : "Not ready"}</dd></div>
     </dl>}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,31 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := NewRouter(Dependencies{Logger: logger})
+	const (
+		collectionSentinel = "private_collection_sentinel"
+		recordSentinel     = "019551d0-e9c0-7000-8000-private404"
+		querySentinel      = "private_query_sentinel"
+	)
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/v1/collections/"+collectionSentinel+"/records/"+recordSentinel+"?token="+querySentinel, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	encoded := logs.String()
+	if !strings.Contains(encoded, `"route":"/api/v1/collections/{collection}/records/{id}"`) {
+		t.Fatalf("access log missing route template: %s", encoded)
+	}
+	for _, sentinel := range []string{collectionSentinel, recordSentinel, querySentinel, "token="} {
+		if strings.Contains(encoded, sentinel) {
+			t.Fatalf("access log leaked raw request data %q: %s", sentinel, encoded)
+		}
+	}
+}
 
 func TestRecoveryDiscardsPartialResponseBeforeWriting500(t *testing.T) {
 	handler := recoveryMiddleware(slog.New(slog.NewJSONHandler(io.Discard, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -63,7 +89,7 @@ func TestCORSAnswersListedOriginPreflight(t *testing.T) {
 	request := httptest.NewRequest(http.MethodOptions, "/health/live", nil)
 	request.Header.Set("Origin", "https://admin.example")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
-	request.Header.Set("Access-Control-Request-Headers", "Content-Type")
+	request.Header.Set("Access-Control-Request-Headers", "Content-Type, Idempotency-Key, If-Match")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
@@ -74,6 +100,46 @@ func TestCORSAnswersListedOriginPreflight(t *testing.T) {
 	}
 	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("allow credentials = %q", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Idempotency-Key") || !strings.Contains(got, "If-Match") {
+		t.Fatalf("allow headers = %q", got)
+	}
+	if got := response.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "ETag") ||
+		!strings.Contains(got, "Idempotency-Replayed") || !strings.Contains(got, "PgBase-Compatibility") ||
+		!strings.Contains(got, "Location") || strings.Contains(got, "Deprecation") {
+		t.Fatalf("expose headers = %q", got)
+	}
+}
+
+func TestCORSAllowlistDoesNotGrantCrossOriginMutationAuthority(t *testing.T) {
+	session := validSession()
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
+	dependencies := testDependencies(auth, mustURL("https://api.example"))
+	dependencies.CORSAllowedOrigins = []string{"https://admin.example"}
+	handler := NewRouter(dependencies)
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/admin/auth/logout", nil)
+	preflight.Header.Set("Origin", "https://admin.example")
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	preflight.Header.Set("Access-Control-Request-Headers", "X-PgBase-CSRF")
+	preflightResponse := httptest.NewRecorder()
+	handler.ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent {
+		t.Fatalf("preflight status=%d body=%s", preflightResponse.Code, preflightResponse.Body.String())
+	}
+
+	mutation := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
+	mutation.Header.Set("Origin", "https://admin.example")
+	mutation.Header.Set("X-PgBase-CSRF", validCSRF())
+	mutation.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
+	mutationResponse := httptest.NewRecorder()
+	handler.ServeHTTP(mutationResponse, mutation)
+	if mutationResponse.Code != http.StatusForbidden {
+		t.Fatalf("mutation status=%d body=%s", mutationResponse.Code, mutationResponse.Body.String())
+	}
+	assertErrorCode(t, mutationResponse.Body.Bytes(), "origin_rejected")
+	if auth.logoutCalls != 0 {
+		t.Fatalf("Logout() calls = %d, want 0", auth.logoutCalls)
 	}
 }
 

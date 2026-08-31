@@ -18,6 +18,12 @@ import (
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 var integerStringInput = regexp.MustCompile(`^-?[0-9]+$`)
 
+// PostgreSQL btree entries have a page-dependent limit below 2704 bytes.
+// Keeping indexed text at 2048 bytes provides deterministic headroom for the
+// tuple header instead of letting data-dependent compression decide whether a
+// request becomes an opaque database failure.
+const maximumIndexedTextBytes = 2048
+
 func decodeInput(collection schema.Collection, input map[string]json.RawMessage) (map[string]any, error) {
 	fields := make(map[string]schema.Field, len(collection.Fields))
 	for _, field := range collection.Fields {
@@ -53,6 +59,14 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 			schema.TypeText, schema.TypeTimestampTZ, schema.TypeUUID:
 			if field.Required {
 				return nil, validation(field.Name, "required")
+			}
+			return nil, nil
+		case schema.TypeRelation:
+			if field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle {
+				return nil, validation(field.Name, "relation_invalid_value")
+			}
+			if field.Relation.MinSelect > 0 {
+				return nil, validation(field.Name, "relation_min_select")
 			}
 			return nil, nil
 		}
@@ -94,6 +108,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !ok {
 			return invalid()
 		}
+		if (field.Indexed || field.Unique) && len(value) > maximumIndexedTextBytes {
+			return nil, validation(field.Name, "value_too_long")
+		}
 		return value, nil
 	case schema.TypeTimestampTZ:
 		value, ok := jsonString(raw)
@@ -115,6 +132,8 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 			return invalid()
 		}
 		return parsed, nil
+	case schema.TypeRelation:
+		return decodeRelationFieldValue(field, raw)
 	case schema.TypeJSONB:
 		if !validJSON(raw) {
 			return invalid()
@@ -125,6 +144,56 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 	}
 }
 
+func decodeRelationFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
+	if field.Relation == nil {
+		return nil, validation(field.Name, "relation_invalid_value")
+	}
+	spec := field.Relation
+	if spec.Cardinality == schema.RelationSingle {
+		value, ok := jsonString(raw)
+		if !ok {
+			return nil, validation(field.Name, "relation_invalid_value")
+		}
+		parsed, err := uuid.Parse(value)
+		if err != nil || parsed == uuid.Nil {
+			return nil, validation(field.Name, "relation_invalid_value")
+		}
+		return parsed, nil
+	}
+	if spec.Cardinality != schema.RelationMultiple {
+		return nil, validation(field.Name, "relation_invalid_value")
+	}
+
+	var encoded []json.RawMessage
+	if err := json.Unmarshal(raw, &encoded); err != nil || encoded == nil {
+		return nil, validation(field.Name, "relation_invalid_value")
+	}
+	if len(encoded) < spec.MinSelect {
+		return nil, validation(field.Name, "relation_min_select")
+	}
+	if len(encoded) > spec.MaxSelect {
+		return nil, validation(field.Name, "relation_max_select")
+	}
+	values := make([]uuid.UUID, 0, len(encoded))
+	seen := make(map[uuid.UUID]struct{}, len(encoded))
+	for _, item := range encoded {
+		value, ok := jsonString(item)
+		if !ok {
+			return nil, validation(field.Name, "relation_invalid_value")
+		}
+		parsed, err := uuid.Parse(value)
+		if err != nil || parsed == uuid.Nil {
+			return nil, validation(field.Name, "relation_invalid_value")
+		}
+		if _, duplicate := seen[parsed]; duplicate {
+			return nil, validation(field.Name, "duplicate_relation_value")
+		}
+		seen[parsed] = struct{}{}
+		values = append(values, parsed)
+	}
+	return values, nil
+}
+
 func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any, error) {
 	fields := fieldsByOrdinal(collection)
 	var id pgtype.UUID
@@ -132,6 +201,9 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 	destinations := []any{&id, &createdAt, &updatedAt}
 	values := make([]any, len(fields))
 	for index, field := range fields {
+		if isMultipleRelation(field) {
+			continue
+		}
 		destination, err := scanDestination(field)
 		if err != nil {
 			return nil, err
@@ -151,6 +223,10 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 	record["created_at"] = createdAt.UTC().Format(time.RFC3339Nano)
 	record["updated_at"] = updatedAt.UTC().Format(time.RFC3339Nano)
 	for index, field := range fields {
+		if isMultipleRelation(field) {
+			record[field.Name] = []string{}
+			continue
+		}
 		encoded, err := encodeScannedValue(field, values[index])
 		if err != nil {
 			return nil, err
@@ -169,12 +245,17 @@ func scanDestination(field schema.Field) (any, error) {
 	case schema.TypeBigInt:
 		return &pgtype.Int8{}, nil
 	case schema.TypeNumeric:
-		return &pgtype.Numeric{}, nil
+		return &pgtype.Text{}, nil
 	case schema.TypeText:
 		return &pgtype.Text{}, nil
 	case schema.TypeTimestampTZ:
 		return &pgtype.Timestamptz{}, nil
 	case schema.TypeUUID:
+		return &pgtype.UUID{}, nil
+	case schema.TypeRelation:
+		if field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle {
+			return nil, validation(field.Name, "relation_invalid_value")
+		}
 		return &pgtype.UUID{}, nil
 	case schema.TypeJSONB:
 		value := []byte(nil)
@@ -182,6 +263,10 @@ func scanDestination(field schema.Field) (any, error) {
 	default:
 		return nil, validation(field.Name, "unsupported_type")
 	}
+}
+
+func isMultipleRelation(field schema.Field) bool {
+	return field.Type == schema.TypeRelation && field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple
 }
 
 func encodeScannedValue(field schema.Field, destination any) (any, error) {

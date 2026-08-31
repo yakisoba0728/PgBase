@@ -23,7 +23,6 @@ const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ
 const (
 	accountFailureLimit = 5
 	networkFailureLimit = 20
-	globalFailureLimit  = 1000
 )
 
 type rateLimitBucket struct {
@@ -166,8 +165,12 @@ func (s *Service) ResetAdministratorPassword(ctx context.Context, email, passwor
 	var administrator Administrator
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var resetErr error
-		administrator, resetErr = NewStore(tx).ResetAdministratorPassword(ctx, normalizedEmail, passwordHash, now)
-		return resetErr
+		store := NewStore(tx)
+		administrator, resetErr = store.ResetAdministratorPassword(ctx, normalizedEmail, passwordHash, now)
+		if resetErr != nil {
+			return resetErr
+		}
+		return store.ClearRateLimit(ctx, rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail))
 	})
 	if err != nil {
 		return Administrator{}, err
@@ -287,7 +290,6 @@ func (s *Service) rateLimitBuckets(operation, normalizedEmail, subject string) [
 	buckets := []rateLimitBucket{
 		{hash: rateLimitSubjectHash(s.tokenSecret, operation, "account", normalizedEmail), limit: accountFailureLimit, clearOnSuccess: true},
 		{hash: rateLimitSubjectHash(s.tokenSecret, operation, "network", subject), limit: networkFailureLimit},
-		{hash: rateLimitSubjectHash(s.tokenSecret, operation, "global", "v1"), limit: globalFailureLimit},
 	}
 	if operation == "setup" {
 		for index := range buckets {

@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -21,6 +25,8 @@ var (
 const (
 	cursorTTL              = 15 * time.Minute
 	maximumRecordPageBytes = 4 << 20
+	maximumTxRetries       = 32
+	maximumTxRetryDelay    = 100 * time.Millisecond
 )
 
 type CatalogEnsurer interface {
@@ -33,14 +39,41 @@ type RecordPage struct {
 }
 
 type Service struct {
-	pool    *database.Pool
-	schemas CatalogEnsurer
-	cursors *CursorCodec
-	now     func() time.Time
+	pool         *database.Pool
+	schemas      CatalogEnsurer
+	cursors      *CursorCodec
+	policy       ProjectionPolicy
+	expandLimits expandLimits
+	now          func() time.Time
+	logger       *slog.Logger
+	recorder     observability.Recorder
 }
 
-func NewService(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte) *Service {
-	return &Service{pool: pool, schemas: schemas, cursors: NewCursorCodec(cursorSecret), now: time.Now}
+func NewService(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte, loggers ...*slog.Logger) *Service {
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
+	return NewServiceWithRecorder(pool, schemas, cursorSecret, logger, nil)
+}
+
+func NewServiceWithRecorder(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
+	return NewServiceWithProjectionPolicy(pool, schemas, cursorSecret, AdminAllowAll{}, logger, recorder)
+}
+
+func NewServiceWithProjectionPolicy(
+	pool *database.Pool,
+	schemas CatalogEnsurer,
+	cursorSecret []byte,
+	policy ProjectionPolicy,
+	logger *slog.Logger,
+	recorder observability.Recorder,
+) *Service {
+	return &Service{
+		pool: pool, schemas: schemas, cursors: NewCursorCodec(cursorSecret), now: time.Now,
+		policy: policy, expandLimits: defaultExpandLimits,
+		logger: logger, recorder: recorder,
+	}
 }
 
 func (s *Service) List(ctx context.Context, collectionName, cursorToken string, limit int, filterText, sortText string) (RecordPage, error) {
@@ -55,145 +88,179 @@ func (s *Service) List(ctx context.Context, collectionName, cursorToken string, 
 	if err != nil {
 		return RecordPage{}, err
 	}
-	sortKeys := effectiveSortKeys(requestedSort)
 	page := RecordPage{Items: []map[string]any{}}
-	err = s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
-		operationTime := s.now().UTC()
-		var after *PageCursor
-		if cursorToken != "" {
-			decoded, err := s.cursors.Decode(cursorToken, collection.ID, operationTime)
-			if err != nil {
-				return err
-			}
-			if !sameSortKeys(decoded.Sort, sortKeys) {
-				return invalidCursor()
-			}
-			after = &decoded
-		}
-		statement, err := CompileList(collection, ListQuery{Filter: filterNode, Sort: requestedSort, After: after, Limit: limit})
+	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		root, err := s.readRootPageInTx(ctx, tx, collection, rootPageReadRequest{
+			cursorToken: cursorToken, limit: limit, filter: filterNode, requestedSort: requestedSort,
+			operationTime: s.now().UTC(),
+			hydrate: func(items []map[string]any) error {
+				return hydrateRelationRecords(ctx, tx, catalog, collection, items)
+			},
+		})
 		if err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		pageLimit := normalizedFetchLimit(limit) - 1
-		responseBytes := 0
-		hasMore := false
-		for rows.Next() {
-			record, err := EncodeRecord(collection, rows)
-			if err != nil {
-				return err
-			}
-			encoded, err := json.Marshal(record)
-			if err != nil {
-				return fmt.Errorf("measure record page item: %w", err)
-			}
-			if len(page.Items) > 0 && responseBytes+len(encoded) > maximumRecordPageBytes {
-				hasMore = true
-				break
-			}
-			page.Items = append(page.Items, record)
-			responseBytes += len(encoded)
-			if len(page.Items) > pageLimit {
-				page.Items = page.Items[:pageLimit]
-				hasMore = true
-				break
-			}
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if hasMore && len(page.Items) > 0 {
-			values, err := recordSortValues(sortKeys, page.Items[len(page.Items)-1])
-			if err != nil {
-				return err
-			}
-			page.NextCursor, err = s.cursors.Encode(PageCursor{
-				Version: cursorVersion, CollectionID: collection.ID,
-				Sort: sortKeys, Values: values, ExpiresAt: operationTime.Add(cursorTTL),
-			})
-			if err != nil {
-				return err
-			}
-		}
+		page = root.page
 		return nil
 	}, collectionName)
 	return page, err
 }
 
+// finalizeRecordPage measures the exact JSON object emitted by the API,
+// including commas, the envelope, the continuation cursor, and writeJSON's
+// trailing newline. Item-only accounting can otherwise cross the advertised
+// bound as soon as a cursor is added. A single item that cannot fit is rejected
+// with a stable error instead of being silently skipped by cursor advancement.
+func (s *Service) finalizeRecordPage(page *RecordPage, collectionID uuid.UUID, sortKeys []SortKey, expiresAt time.Time, hasMore bool) error {
+	for {
+		page.NextCursor = ""
+		if hasMore && len(page.Items) > 0 {
+			anchor := page.Items[len(page.Items)-1]
+			values, err := recordSortValues(sortKeys, anchor)
+			if err != nil {
+				return err
+			}
+			anchorText, ok := anchor[systemFieldID].(string)
+			if !ok {
+				return errors.New("encode page cursor: invalid record id")
+			}
+			anchorID, err := uuid.Parse(anchorText)
+			if err != nil || anchorID == uuid.Nil || anchorID.String() != anchorText {
+				return errors.New("encode page cursor: invalid record id")
+			}
+			page.NextCursor, err = s.cursors.Encode(PageCursor{
+				Version: cursorVersion, CollectionID: collectionID,
+				Sort: sortKeys, Values: values, AnchorID: anchorID, ExpiresAt: expiresAt,
+			})
+			if err != nil {
+				return err
+			}
+		}
+
+		encoded, err := json.Marshal(page)
+		if err != nil {
+			return fmt.Errorf("measure record page response: %w", err)
+		}
+		if len(encoded)+1 <= maximumRecordPageBytes {
+			return nil
+		}
+		if len(page.Items) <= 1 {
+			return validation("response", "response_too_large")
+		}
+		page.Items = page.Items[:len(page.Items)-1]
+		hasMore = true
+	}
+}
+
 func (s *Service) Get(ctx context.Context, collectionName string, id uuid.UUID) (map[string]any, error) {
 	var record map[string]any
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+	err := s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		statement := CompileSelectByID(collection, id)
 		var err error
 		record, err = EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		return recordQueryError(err)
-	}, collectionName)
-	return record, err
-}
-
-func (s *Service) Create(ctx context.Context, collectionName string, input map[string]json.RawMessage) (map[string]any, error) {
-	var record map[string]any
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
-		id, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("generate record id: %w", err)
-		}
-		statement, err := CompileInsert(collection, input, id)
-		if err != nil {
+		if err := recordQueryError(err); err != nil {
 			return err
 		}
-		record, err = EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		return recordQueryError(err)
+		return hydrateRelationRecords(ctx, tx, catalog, collection, []map[string]any{record})
 	}, collectionName)
 	return record, err
-}
-
-func (s *Service) Update(ctx context.Context, collectionName string, id uuid.UUID, input map[string]json.RawMessage) (map[string]any, error) {
-	var record map[string]any
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
-		statement, err := CompileUpdate(collection, id, input)
-		if err != nil {
-			return err
-		}
-		record, err = EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		return recordQueryError(err)
-	}, collectionName)
-	return record, err
-}
-
-func (s *Service) Delete(ctx context.Context, collectionName string, id uuid.UUID) error {
-	return s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
-		statement := CompileDelete(collection, id)
-		tag, err := tx.Exec(ctx, statement.SQL, statement.Args...)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return ErrRecordNotFound
-		}
-		return nil
-	}, collectionName)
 }
 
 func (s *Service) inTx(ctx context.Context, operation func(pgx.Tx, schema.Collection) error, collectionName string) error {
+	return s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
+		return operation(tx, collection)
+	}, collectionName)
+}
+
+func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-		if err != nil {
+	for attempt := 0; ; attempt++ {
+		err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+			if err != nil {
+				return err
+			}
+			collection, ok := catalog.Collections[collectionName]
+			if !ok {
+				return ErrCollectionNotFound
+			}
+			return operation(tx, catalog, collection)
+		})
+		cause, retryable := transactionRetryCause(err)
+		if err == nil || !retryable {
 			return err
 		}
-		collection, ok := catalog.Collections[collectionName]
-		if !ok {
-			return ErrCollectionNotFound
+		if attempt >= maximumTxRetries {
+			s.record(ctx, observability.TransactionRetryEvent(cause, true))
+			if s.logger != nil {
+				s.logger.WarnContext(ctx, "record transaction retries exhausted", "cause", cause, "attempts", attempt+1)
+			}
+			return err
 		}
-		return operation(tx, collection)
-	})
+
+		delay := transactionRetryDelay(attempt)
+		timer := time.NewTimer(delay)
+		select {
+		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			s.record(ctx, observability.TransactionRetryEvent(cause, false))
+			if s.logger != nil {
+				s.logger.WarnContext(ctx, "retrying record transaction", "cause", cause, "attempt", attempt+1, "retry_in", delay)
+			}
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		}
+	}
+}
+
+func transactionRetryDelay(attempt int) time.Duration {
+	delay := 2 * time.Millisecond
+	for step := 0; step < attempt && delay < maximumTxRetryDelay; step++ {
+		delay *= 2
+		if delay > maximumTxRetryDelay {
+			delay = maximumTxRetryDelay
+		}
+	}
+	half := delay / 2
+	return half + time.Duration(rand.Int64N(int64(delay-half)+1))
+}
+
+func transactionRetryCause(err error) (observability.RetryCause, bool) {
+	var postgresError *pgconn.PgError
+	if !errors.As(err, &postgresError) {
+		return "", false
+	}
+	switch postgresError.Code {
+	case "0A000":
+		return observability.RetryCauseCachedPlan, true
+	case "40001":
+		return observability.RetryCauseSerialization, true
+	case "40P01":
+		return observability.RetryCauseDeadlock, true
+	default:
+		return "", false
+	}
+}
+
+func retryableTransactionError(err error) bool {
+	_, retryable := transactionRetryCause(err)
+	return retryable
+}
+
+func (s *Service) record(ctx context.Context, event observability.Event) {
+	if s != nil && s.recorder != nil {
+		s.recorder.Record(ctx, event)
+	}
 }
 
 func (s *Service) ready() error {
@@ -253,3 +320,9 @@ func recordQueryError(err error) error {
 	}
 	return err
 }
+
+// NormalizeRecordError converts the deliberately opaque row-scan sentinel into
+// the stable record-not-found error while keeping all other diagnostic causes
+// out of public error strings. Transaction kernels that reuse the query codec
+// should call this at their database boundary.
+func NormalizeRecordError(err error) error { return recordQueryError(err) }

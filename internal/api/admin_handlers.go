@@ -17,6 +17,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 const adminCookieName = "pgbase_admin"
@@ -51,6 +52,7 @@ type adminEndpoints struct {
 	tokenSecret    []byte
 	publicURL      *url.URL
 	trustedProxies []netip.Prefix
+	recorder       observability.Recorder
 }
 
 type administratorResponse struct {
@@ -68,55 +70,114 @@ type adminSessionResponse struct {
 }
 
 func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
+	var recorder observability.Recorder
+	if dependencies.Metrics != nil {
+		recorder = dependencies.Metrics
+	}
 	return adminEndpoints{
 		auth:           dependencies.AdminAuth,
 		tokenSecret:    append([]byte(nil), dependencies.TokenSecret...),
 		publicURL:      dependencies.PublicURL,
 		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
+		recorder:       recorder,
 	}
 }
 
 func (e adminEndpoints) setup(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	outcome := observability.OutcomeFailure
+	defer func() {
+		e.recordOperation(r.Context(), observability.OperationAdminSetup, outcome, time.Since(started))
+	}()
 	var input struct {
 		SetupToken string `json:"setupToken"`
 		Email      string `json:"email"`
 		Password   string `json:"password"`
 	}
 	if err := decodeStrictJSON(r, &input); err != nil {
+		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
 	if e.auth == nil {
+		outcome = observability.OutcomeUnavailable
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
 	session, err := e.auth.Setup(r.Context(), input.SetupToken, input.Email, input.Password, clientAddress(r, e.trustedProxies))
 	if err != nil {
+		outcome = adminAuthOutcome(err)
 		writeAdminAuthError(w, r, err)
 		return
 	}
+	outcome = observability.OutcomeSuccess
 	e.writeIssuedSession(w, r, http.StatusCreated, session)
 }
 
 func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	outcome := observability.OutcomeFailure
+	defer func() {
+		e.recordOperation(r.Context(), observability.OperationAdminLogin, outcome, time.Since(started))
+	}()
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := decodeStrictJSON(r, &input); err != nil {
+		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
 	if e.auth == nil {
+		outcome = observability.OutcomeUnavailable
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
 	session, err := e.auth.Login(r.Context(), input.Email, input.Password, clientAddress(r, e.trustedProxies))
 	if err != nil {
+		outcome = adminAuthOutcome(err)
 		writeAdminAuthError(w, r, err)
 		return
 	}
+	outcome = observability.OutcomeSuccess
 	e.writeIssuedSession(w, r, http.StatusOK, session)
+}
+
+func (e adminEndpoints) recordOperation(ctx context.Context, operation observability.Operation, outcome observability.Outcome, duration time.Duration) {
+	if e.recorder == nil {
+		return
+	}
+	e.recorder.Record(ctx, observability.OperationEvent(observability.ComponentAdminAuth, operation, outcome, duration))
+}
+
+func adminAuthOutcome(err error) observability.Outcome {
+	switch {
+	case err == nil:
+		return observability.OutcomeSuccess
+	case errors.Is(err, adminauth.ErrValidation):
+		return observability.OutcomeValidation
+	case errors.Is(err, adminauth.ErrInvalidCredentials):
+		return observability.OutcomeInvalidCredentials
+	case errors.Is(err, adminauth.ErrSetupUnavailable):
+		return observability.OutcomeSetupUnavailable
+	case errors.Is(err, adminauth.ErrRateLimited):
+		return observability.OutcomeRateLimited
+	case errors.Is(err, adminauth.ErrConflict):
+		return observability.OutcomeConflict
+	}
+	switch database.Classify(err) {
+	case database.KindValidation:
+		return observability.OutcomeValidation
+	case database.KindConflict:
+		return observability.OutcomeConflict
+	case database.KindUnavailable:
+		return observability.OutcomeUnavailable
+	case database.KindCanceled:
+		return observability.OutcomeCanceled
+	default:
+		return observability.OutcomeFailure
+	}
 }
 
 func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +277,7 @@ func decodeStrictJSON(r *http.Request, destination any) error {
 // parsing to smuggle contradictory values.
 func rejectDuplicateJSONKeys(raw []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	type frame struct {
 		object    bool
 		keys      map[string]struct{}
@@ -228,8 +290,7 @@ func rejectDuplicateJSONKeys(raw []byte) error {
 			return nil
 		}
 		if err != nil {
-			// Malformed JSON is reported by the strict decode itself.
-			return nil
+			return err
 		}
 		switch token := token.(type) {
 		case json.Delim:

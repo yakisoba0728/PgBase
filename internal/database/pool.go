@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,6 +19,25 @@ type Pool struct {
 	closeDone chan struct{}
 }
 
+// PoolStats is a point-in-time snapshot of every statistic exposed by pgxpool.
+// Keeping this type independent of pgx lets observability code collect pool
+// metrics without gaining access to the underlying pool or its configuration.
+type PoolStats struct {
+	AcquireCount            int64
+	AcquireDuration         time.Duration
+	AcquiredConns           int32
+	CanceledAcquireCount    int64
+	ConstructingConns       int32
+	EmptyAcquireCount       int64
+	EmptyAcquireWaitTime    time.Duration
+	IdleConns               int32
+	MaxConns                int32
+	MaxIdleDestroyCount     int64
+	MaxLifetimeDestroyCount int64
+	NewConnsCount           int64
+	TotalConns              int32
+}
+
 // Open creates a PostgreSQL pool whose connections use pgBase session settings.
 func Open(ctx context.Context, databaseURL string, statementTimeout time.Duration) (*Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
@@ -28,14 +48,16 @@ func Open(ctx context.Context, databaseURL string, statementTimeout time.Duratio
 		return nil, fmt.Errorf("parse PostgreSQL pool configuration: pool_max_conns must be at least 2")
 	}
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if _, err := conn.Exec(ctx, "select set_config('statement_timeout', $1, false)", statementTimeout.String()); err != nil {
-			return fmt.Errorf("set statement timeout: %w", err)
-		}
 		if _, err := conn.Exec(ctx, "set application_name = 'pgbase'"); err != nil {
 			return fmt.Errorf("set application name: %w", err)
 		}
 		if _, err := conn.Exec(ctx, "set timezone = 'UTC'"); err != nil {
 			return fmt.Errorf("set timezone: %w", err)
+		}
+		// Apply the caller's request timeout last so an intentionally tiny
+		// value cannot cancel the remaining connection initialization commands.
+		if _, err := conn.Exec(ctx, "select set_config('statement_timeout', $1, false)", postgresDuration(statementTimeout)); err != nil {
+			return fmt.Errorf("set statement timeout: %w", err)
 		}
 		return nil
 	}
@@ -50,6 +72,18 @@ func Open(ctx context.Context, databaseURL string, statementTimeout time.Duratio
 		return nil, fmt.Errorf("ping PostgreSQL pool: %w", err)
 	}
 	return pool, nil
+}
+
+// postgresDuration avoids Go's duration units (for example "1m30s" and
+// "100µs") that PostgreSQL does not accept. A unitless PostgreSQL timeout is
+// milliseconds; rounding up keeps a positive sub-millisecond Go duration from
+// accidentally disabling the timeout.
+func postgresDuration(duration time.Duration) string {
+	milliseconds := duration / time.Millisecond
+	if duration%time.Millisecond != 0 {
+		milliseconds++
+	}
+	return strconv.FormatInt(int64(milliseconds), 10)
 }
 
 // Ping verifies that the pool can reach PostgreSQL.
@@ -112,4 +146,28 @@ func (p *Pool) Query(ctx context.Context, sql string, arguments ...any) (pgx.Row
 // QueryRow runs a query expected to return at most one row through the pool.
 func (p *Pool) QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row {
 	return p.inner.QueryRow(ctx, sql, arguments...)
+}
+
+// Stats returns a complete point-in-time snapshot of the pgx pool counters and
+// gauges. A nil pool has no connections and returns the zero snapshot.
+func (p *Pool) Stats() PoolStats {
+	if p == nil || p.inner == nil {
+		return PoolStats{}
+	}
+	stats := p.inner.Stat()
+	return PoolStats{
+		AcquireCount:            stats.AcquireCount(),
+		AcquireDuration:         stats.AcquireDuration(),
+		AcquiredConns:           stats.AcquiredConns(),
+		CanceledAcquireCount:    stats.CanceledAcquireCount(),
+		ConstructingConns:       stats.ConstructingConns(),
+		EmptyAcquireCount:       stats.EmptyAcquireCount(),
+		EmptyAcquireWaitTime:    stats.EmptyAcquireWaitTime(),
+		IdleConns:               stats.IdleConns(),
+		MaxConns:                stats.MaxConns(),
+		MaxIdleDestroyCount:     stats.MaxIdleDestroyCount(),
+		MaxLifetimeDestroyCount: stats.MaxLifetimeDestroyCount(),
+		NewConnsCount:           stats.NewConnsCount(),
+		TotalConns:              stats.TotalConns(),
+	}
 }

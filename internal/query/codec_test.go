@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -168,13 +169,41 @@ func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 	}
 }
 
+func TestDecodeInputBoundsIndexedTextBeforePostgreSQLBtreeLimits(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []schema.Field{
+		{Name: "indexed", Type: schema.TypeText, Indexed: true},
+		{Name: "unique", Type: schema.TypeText, Unique: true},
+	} {
+		collection := schema.Collection{Fields: []schema.Field{field}}
+		atLimit := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes)))
+		if _, err := decodeInput(collection, map[string]json.RawMessage{field.Name: atLimit}); err != nil {
+			t.Fatalf("decodeInput(%s at limit) error = %v", field.Name, err)
+		}
+
+		overLimit := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes+1)))
+		_, err := decodeInput(collection, map[string]json.RawMessage{field.Name: overLimit})
+		var validationErr *ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("decodeInput(%s over limit) error = %v, want validation", field.Name, err)
+		}
+		want := []ValidationDetail{{Field: field.Name, Code: "value_too_long"}}
+		if !reflect.DeepEqual(validationErr.Details, want) {
+			t.Fatalf("validation details = %#v, want %#v", validationErr.Details, want)
+		}
+	}
+
+	unindexed := schema.Collection{Fields: []schema.Field{{Name: "body", Type: schema.TypeText}}}
+	longBody := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes+1)))
+	if _, err := decodeInput(unindexed, map[string]json.RawMessage{"body": longBody}); err != nil {
+		t.Fatalf("unindexed text should remain unbounded: %v", err)
+	}
+}
+
 func TestEncodeRecordReturnsCanonicalJSONContract(t *testing.T) {
 	t.Parallel()
 
-	numeric := pgtype.Numeric{}
-	if err := numeric.Scan("12345678901234567890.12345678901234567890"); err != nil {
-		t.Fatalf("scan numeric fixture: %v", err)
-	}
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	externalID := uuid.MustParse("12345678-1234-4567-8901-123456789abc")
 	createdAt := time.Date(2026, 8, 28, 12, 34, 56, 123456789, time.FixedZone("KST", 9*60*60))
@@ -186,7 +215,7 @@ func TestEncodeRecordReturnsCanonicalJSONContract(t *testing.T) {
 		pgtype.Bool{Bool: true, Valid: true},
 		pgtype.Int4{Int32: -42, Valid: true},
 		pgtype.Int8{Int64: 9223372036854775807, Valid: true},
-		numeric,
+		pgtype.Text{String: "12345678901234567890.12345678901234567890", Valid: true},
 		pgtype.Text{String: "hello", Valid: true},
 		pgtype.Timestamptz{Time: createdAt, Valid: true},
 		pgtype.UUID{Bytes: externalID, Valid: true},
@@ -236,6 +265,34 @@ func TestEncodeRecordPreservesJSONBShapesAndSQLNulls(t *testing.T) {
 				t.Fatalf("optional_text = %#v, want nil", got["optional_text"])
 			}
 			assertJSONEqual(t, got["metadata"], raw)
+		})
+	}
+}
+
+func TestEncodeRecordPreservesNumericZeroScale(t *testing.T) {
+	t.Parallel()
+
+	collection := schema.Collection{Fields: []schema.Field{
+		{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric, Ordinal: 0},
+	}}
+	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	now := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+
+	for _, input := range []string{"0", "0.0", "0.00", "0.000000", "1.50", "-12.3400"} {
+		input := input
+		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+			row := &fixtureRow{values: []any{
+				pgtype.UUID{Bytes: id, Valid: true}, now, now,
+				pgtype.Text{String: input, Valid: true},
+			}}
+			got, err := EncodeRecord(collection, row)
+			if err != nil {
+				t.Fatalf("EncodeRecord() error = %v", err)
+			}
+			if got["amount"] != input {
+				t.Fatalf("amount = %#v, want %q", got["amount"], input)
+			}
 		})
 	}
 }

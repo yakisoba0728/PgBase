@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 const schemaChangeChannel = "pgbase_schema_changed"
@@ -23,15 +24,20 @@ type Listener struct {
 	pid      atomic.Uint32
 	retryMin time.Duration
 	retryMax time.Duration
+	recorder observability.Recorder
 
 	afterInitialReload func(Catalog)
 }
 
 func NewListener(pool *database.Pool, cache *Cache) *Listener {
+	return NewListenerWithRecorder(pool, cache, nil)
+}
+
+func NewListenerWithRecorder(pool *database.Pool, cache *Cache, recorder observability.Recorder) *Listener {
 	if cache == nil {
 		cache = &Cache{}
 	}
-	return &Listener{pool: pool, cache: cache, retryMin: 100 * time.Millisecond, retryMax: 5 * time.Second}
+	return &Listener{pool: pool, cache: cache, retryMin: 100 * time.Millisecond, retryMax: 5 * time.Second, recorder: recorder}
 }
 
 func (l *Listener) Run(ctx context.Context) error {
@@ -41,8 +47,8 @@ func (l *Listener) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	l.ready.Store(false)
-	defer l.ready.Store(false)
+	l.setReady(ctx, false)
+	defer l.setReady(ctx, false)
 
 	minimum, maximum := l.backoffBounds()
 	backoff := minimum
@@ -51,7 +57,7 @@ func (l *Listener) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		l.ready.Store(false)
+		l.setReady(ctx, false)
 		if becameReady {
 			backoff = minimum
 		}
@@ -93,12 +99,14 @@ func (l *Listener) Ready(ctx context.Context) error {
 func (*Listener) Component() string { return "schema" }
 
 func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
+	connectStarted := time.Now()
 	connection, err := l.pool.Acquire(ctx)
 	if err != nil {
+		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
 	defer func() {
-		l.ready.Store(false)
+		l.setReady(ctx, false)
 		l.pid.Store(0)
 		cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
 		defer cancel()
@@ -108,8 +116,10 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 
 	l.pid.Store(connection.Conn().PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
+		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
+	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
 	catalog, err := l.reload(ctx, connection.Conn())
 	if err != nil {
 		return false, err
@@ -117,7 +127,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	if l.afterInitialReload != nil {
 		l.afterInitialReload(catalog)
 	}
-	l.ready.Store(true)
+	l.setReady(ctx, true)
 	becameReady := true
 
 	for {
@@ -130,7 +140,9 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	}
 }
 
-func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (Catalog, error) {
+func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (catalog Catalog, err error) {
+	started := time.Now()
+	defer l.finishOperation(ctx, observability.OperationListenerReload, started, &err)
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return Catalog{}, fmt.Errorf("begin schema catalog reload: %w", err)
@@ -148,7 +160,7 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (Catalog, e
 	if err != nil {
 		return Catalog{}, err
 	}
-	catalog, err := store.ReadCatalog(ctx, version)
+	catalog, err = store.ReadCatalog(ctx, version)
 	if err != nil {
 		return Catalog{}, err
 	}
@@ -158,6 +170,49 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (Catalog, e
 	committed = true
 	l.cache.Replace(catalog)
 	return catalog, nil
+}
+
+func (l *Listener) setReady(ctx context.Context, ready bool) {
+	if l == nil || l.ready.Swap(ready) == ready {
+		return
+	}
+	l.record(ctx, observability.ReadinessEvent(observability.ReadinessSchemaListener, ready))
+}
+
+func (l *Listener) record(ctx context.Context, event observability.Event) {
+	if l != nil && l.recorder != nil {
+		l.recorder.Record(ctx, event)
+	}
+}
+
+func (l *Listener) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
+	if recovered := recover(); recovered != nil {
+		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, observability.OutcomeFailure, time.Since(started)))
+		panic(recovered)
+	}
+	var err error
+	if operationErr != nil {
+		err = *operationErr
+	}
+	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, listenerOperationOutcome(err), time.Since(started)))
+}
+
+func listenerOperationOutcome(err error) observability.Outcome {
+	if err == nil {
+		return observability.OutcomeSuccess
+	}
+	switch database.Classify(err) {
+	case database.KindValidation:
+		return observability.OutcomeValidation
+	case database.KindConflict:
+		return observability.OutcomeConflict
+	case database.KindUnavailable:
+		return observability.OutcomeUnavailable
+	case database.KindCanceled:
+		return observability.OutcomeCanceled
+	default:
+		return observability.OutcomeFailure
+	}
 }
 
 func (l *Listener) backoffBounds() (time.Duration, time.Duration) {

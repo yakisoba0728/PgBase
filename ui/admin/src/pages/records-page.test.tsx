@@ -11,15 +11,17 @@ const fields = [
   { name: "count", type: "integer", required: true, unique: false, indexed: false, ordinal: 1 },
   { name: "views", type: "bigint", required: true, unique: false, indexed: false, ordinal: 2 },
   { name: "amount", type: "numeric", required: true, unique: false, indexed: false, ordinal: 3 },
-  { name: "title", type: "text", required: true, unique: false, indexed: false, ordinal: 4 },
+  { name: "title", type: "text", required: true, unique: false, indexed: true, ordinal: 4 },
   { name: "published_at", type: "timestamptz", required: true, unique: false, indexed: false, ordinal: 5 },
   { name: "external_id", type: "uuid", required: true, unique: false, indexed: false, ordinal: 6 },
   { name: "metadata", type: "jsonb", required: true, unique: false, indexed: false, ordinal: 7 },
 ] as const;
 const catalog = { version: 4, collections: { posts: { id: "collection", name: "posts", tableName: "posts", fields } } };
 
-function response(status: number, body?: unknown): Response {
-  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+function response(status: number, body?: unknown, headers?: HeadersInit): Response {
+  const responseHeaders = new Headers({ "content-type": "application/json", ...headers });
+  if (status >= 200 && status < 300 && !responseHeaders.has("ETag")) responseHeaders.set("ETag", '"pgb1.test"');
+  return { ok: status >= 200 && status < 300, status, headers: responseHeaders, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
 }
 
 function session(): Response { return response(200, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() }); }
@@ -54,6 +56,58 @@ afterEach(() => {
 });
 
 describe("record administration", () => {
+  it("treats an inherited collection name as missing on the records page", async () => {
+    window.history.replaceState(null, "", "/admin/collections/constructor/records");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, { version: 4, collections: {} }))
+      .mockResolvedValueOnce(response(404, { error: { code: "not_found", message: "unsafe detail", details: {} } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load records.");
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+  });
+
+  it("treats an inherited collection name as missing on the record editor", async () => {
+    window.history.replaceState(null, "", `/admin/collections/constructor/records/${recordID}`);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, { version: 4, collections: {} }))
+      .mockResolvedValueOnce(response(404, { error: { code: "not_found", message: "unsafe detail", details: {} } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load the record editor.");
+    expect(screen.queryByText("This record no longer exists.")).not.toBeInTheDocument();
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+  });
+
+  it("keeps edit actions hidden until the requested record has loaded", async () => {
+    window.history.replaceState(null, "", `/admin/collections/posts/records/${recordID}`);
+    let resolveRecord: ((value: Response) => void) | undefined;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveRecord = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(screen.getByText("Loading record…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete record" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("title")).not.toBeInTheDocument();
+
+    resolveRecord?.(response(200, {
+      id: recordID, enabled: false, count: 0, views: "0", amount: "0", title: "loaded",
+      published_at: "2026-08-28T00:00:00Z", external_id: recordID, metadata: {},
+    }));
+    expect(await screen.findByLabelText("title")).toHaveValue("loaded");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete record" })).toBeEnabled();
+  });
+
   it("lists first and next cursor pages and forwards applied filters and sort", async () => {
     window.history.replaceState(null, "", "/admin/collections/posts/records");
     const fetchMock = vi.fn()
@@ -70,6 +124,8 @@ describe("record administration", () => {
 
     expect(await screen.findByRole("heading", { name: "posts records" })).toBeVisible();
     expect(await screen.findByText("first")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "count" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "updated_at" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByText("second")).toBeVisible();
     expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/collections/posts/records?limit=50&cursor=signed+cursor", expect.objectContaining({ credentials: "include" }));
@@ -156,7 +212,49 @@ describe("record administration", () => {
       external_id: "abcdefab-cdef-0abc-0def-abcdefabcdef",
       metadata: { tags: ["safe"], rank: 2 },
     });
-    expect(new Headers(options.headers).get("X-PgBase-CSRF")).toBe("csrf-token");
+    const requestHeaders = new Headers(options.headers);
+    expect(requestHeaders.get("X-PgBase-CSRF")).toBe("csrf-token");
+    expect(requestHeaders.get("Idempotency-Key")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("reuses a create key after ambiguous failures and rotates it when the input changes", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/records/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(response(201, { id: recordID }))
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, { items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.selectOptions(await screen.findByLabelText("title state"), "value");
+    await user.type(screen.getByLabelText("title"), "first attempt");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save the record.");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create record" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create record" })).toBeEnabled());
+
+    const firstRequest = fetchMock.mock.calls[2][1] as RequestInit;
+    const retryRequest = fetchMock.mock.calls[3][1] as RequestInit;
+    const firstKey = new Headers(firstRequest.headers).get("Idempotency-Key");
+    expect(retryRequest.body).toBe(firstRequest.body);
+    expect(new Headers(retryRequest.headers).get("Idempotency-Key")).toBe(firstKey);
+
+    await user.clear(screen.getByLabelText("title"));
+    await user.type(screen.getByLabelText("title"), "changed attempt");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
+
+    const changedRequest = fetchMock.mock.calls[4][1] as RequestInit;
+    expect(changedRequest.body).not.toBe(firstRequest.body);
+    expect(new Headers(changedRequest.headers).get("Idempotency-Key")).not.toBe(firstKey);
   });
 
   it("omits untouched fields so database defaults can apply", async () => {
@@ -278,6 +376,55 @@ describe("record administration", () => {
     expect(screen.queryByText("unsafe SQL detail")).not.toBeInTheDocument();
     const [, options] = fetchMock.mock.calls[3] as [string, RequestInit];
     expect(JSON.parse(options.body as string)).toEqual({ amount: "99999999999999999999.0001" });
+    expect(new Headers(options.headers).get("If-Match")).toBe('"pgb1.test"');
+  });
+
+  it("keeps a stale draft intact and requires an explicit reload after a 412", async () => {
+    window.history.replaceState(null, "", `/admin/collections/posts/records/${recordID}`);
+    const original = {
+      id: recordID, enabled: true, count: 1, views: "2", amount: "3", title: "original",
+      published_at: "2026-08-28T12:34:56Z", external_id: recordID, metadata: {},
+      created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z",
+    };
+    const latest = { ...original, title: "latest from server", updated_at: "2026-08-28T00:01:00Z" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, original, { ETag: '"pgb1.old"' }))
+      .mockResolvedValueOnce(response(412, { error: { code: "precondition_failed", message: "unsafe detail", details: {} } }, { ETag: '"pgb1.current"' }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, latest, { ETag: '"pgb1.current"' }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    const title = await screen.findByLabelText("title");
+    await user.clear(title);
+    await user.type(title, "my unsaved edit");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Reload the latest version before saving or deleting.");
+    expect(screen.queryByText("unsafe detail")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("title")).toHaveValue("my unsaved edit");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete record" })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const [, updateOptions] = fetchMock.mock.calls[3] as [string, RequestInit];
+    expect(new Headers(updateOptions.headers).get("If-Match")).toBe('"pgb1.old"');
+
+    await user.click(screen.getByRole("button", { name: "Reload record" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your draft was preserved; try again.");
+    expect(screen.getByLabelText("title")).toHaveValue("my unsaved edit");
+    expect(screen.getByRole("button", { name: "Reload record" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete record" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Reload record" }));
+    await waitFor(() => expect(screen.getByLabelText("title")).toHaveValue("latest from server"));
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete record" })).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it("confirms deletion and handles a record deleted by another administrator", async () => {
@@ -316,5 +463,6 @@ describe("record administration", () => {
     const [deletePath, deleteOptions] = fetchMock.mock.calls[3] as [string, RequestInit];
     expect(deletePath).toBe(`/api/v1/collections/posts/records/${recordID}`);
     expect(deleteOptions.method).toBe("DELETE");
+    expect(new Headers(deleteOptions.headers).get("If-Match")).toBe('"pgb1.test"');
   });
 });

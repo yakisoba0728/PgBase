@@ -27,6 +27,7 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 		"PGBASE_HTTP_ADDRESS":         "127.0.0.1:9000",
 		"PGBASE_PUBLIC_URL":           "https://pgbase.example",
 		"PGBASE_SETUP_TOKEN":          strings.Repeat("s", 32),
+		"PGBASE_METRICS_TOKEN":        strings.Repeat("m", 32),
 		"PGBASE_TOKEN_SECRET":         base64.StdEncoding.EncodeToString(make([]byte, 32)),
 		"PGBASE_AUTO_MIGRATE":         "true",
 		"PGBASE_TRUSTED_PROXIES":      "10.0.0.0/8, 2001:db8::/32",
@@ -58,6 +59,9 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 	if opts.AdminSessionTTL != 30*time.Minute || opts.StatementTimeout != 7*time.Second || opts.ShutdownTimeout != 20*time.Second {
 		t.Fatalf("unexpected duration settings: %#v", opts)
 	}
+	if string(opts.MetricsToken) != strings.Repeat("m", 32) {
+		t.Fatalf("MetricsToken = %q", opts.MetricsToken)
+	}
 }
 
 func TestLoadEnvReportsInvalidParsingWithEnvironmentVariable(t *testing.T) {
@@ -77,6 +81,7 @@ func TestLoadEnvReportsInvalidParsingWithEnvironmentVariable(t *testing.T) {
 		{name: "CORS origin", key: "PGBASE_CORS_ALLOWED_ORIGINS", value: "https://example.com/path"},
 		{name: "public origin empty fragment", key: "PGBASE_PUBLIC_URL", value: "https://example.com#"},
 		{name: "CORS origin empty fragment", key: "PGBASE_CORS_ALLOWED_ORIGINS", value: "https://example.com#"},
+		{name: "short metrics token", key: "PGBASE_METRICS_TOKEN", value: strings.Repeat("m", 31)},
 	}
 
 	for _, tt := range tests {

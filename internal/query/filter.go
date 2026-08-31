@@ -294,7 +294,7 @@ func (p *filterParser) consumeNumber() (string, bool) {
 
 func (p *filterParser) consumeWord() (string, bool) {
 	start := p.pos
-	for p.pos < len(p.input) && isWordByte(p.input[p.pos]) {
+	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.') {
 		p.pos++
 	}
 	if p.pos == start {
@@ -355,22 +355,11 @@ func parseSort(input string) ([]SortKey, error) {
 }
 
 func validSortFieldName(field string) bool {
-	if field == systemFieldID || field == systemFieldCreatedAt || field == systemFieldUpdatedAt {
-		return true
-	}
-	if len(field) == 0 || len(field) > 48 {
+	if len(field) == 0 {
 		return false
 	}
-	for index := 0; index < len(field); index++ {
-		current := field[index]
-		switch {
-		case current >= 'a' && current <= 'z':
-		case current >= '0' && current <= '9':
-			if index == 0 {
-				return false
-			}
-		case current == '_':
-		default:
+	for _, segment := range strings.Split(field, ".") {
+		if !validSortFieldSegment(segment) {
 			return false
 		}
 	}
@@ -395,8 +384,10 @@ func effectiveSortKeys(requested []SortKey) []SortKey {
 func filterField(collection schema.Collection, name string) (schema.Field, bool) {
 	switch name {
 	case systemFieldID:
-		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}, true
-	case systemFieldCreatedAt, systemFieldUpdatedAt:
+		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}, true
+	case systemFieldCreatedAt:
+		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeTimestampTZ, Indexed: true}, true
+	case systemFieldUpdatedAt:
 		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeTimestampTZ}, true
 	}
 	for _, field := range collection.Fields {

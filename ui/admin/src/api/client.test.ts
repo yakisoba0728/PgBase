@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { APIClient, APIClientError } from "./client";
 import { stringifyJSON } from "./json";
 
-function textResponse(status: number, body: string): Response {
+function textResponse(status: number, body: string, headers?: HeadersInit): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: new Headers({ "content-type": "application/json" }),
+    headers: new Headers({ "content-type": "application/json", ...headers }),
     text: vi.fn().mockResolvedValue(body),
   } as unknown as Response;
 }
@@ -16,6 +16,36 @@ describe("APIClient JSON and session boundaries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(200, `{"metadata":{"sequence":9007199254740993,"ratio":1.234567890123456789}}`)));
     const value = await new APIClient().request<unknown>("/api/value");
     expect(stringifyJSON(value)).toBe(`{"metadata":{"sequence":9007199254740993,"ratio":1.234567890123456789}}`);
+    vi.unstubAllGlobals();
+  });
+
+  it("retains response status and headers without changing the existing data-only API", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(textResponse(200, `{"id":"one"}`, { ETag: '"pgb1.one"' }))
+      .mockResolvedValueOnce(textResponse(200, `{"id":"two"}`, { ETag: '"pgb1.two"' }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new APIClient();
+
+    const metadata = await client.requestWithResponse<{ id: string }>("/api/one");
+    expect(metadata.data).toEqual({ id: "one" });
+    expect(metadata.status).toBe(200);
+    expect(metadata.headers.get("ETag")).toBe('"pgb1.one"');
+    await expect(client.request<{ id: string }>("/api/two")).resolves.toEqual({ id: "two" });
+    vi.unstubAllGlobals();
+  });
+
+  it("retains error response headers for failed preconditions", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(412, `{"error":{"code":"precondition_failed","message":"stale","details":{}}}`, { ETag: '"pgb1.current"' })));
+
+    await expect(new APIClient().request("/api/record")).rejects.toEqual(
+      expect.objectContaining<Partial<APIClientError>>({ status: 412, code: "precondition_failed" }),
+    );
+    try {
+      await new APIClient().request("/api/record");
+    } catch (caught) {
+      expect(caught).toBeInstanceOf(APIClientError);
+      expect((caught as APIClientError).headers.get("ETag")).toBe('"pgb1.current"');
+    }
     vi.unstubAllGlobals();
   });
 
