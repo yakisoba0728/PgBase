@@ -147,14 +147,17 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ifMatch, ok := parseIfMatch(r.Header)
-	if !ok {
-		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidPrecondition})
-		return
-	}
 	input, ok := recordInput(w, r)
 	if !ok {
 		return
+	}
+	ifMatch, ok := parseIfMatch(r.Header)
+	if !ok {
+		// Preserve an invalid sentinel so the service can evaluate normal
+		// schema/type validation before the precondition, as required by
+		// RFC 9110 ordering. The service returns invalid_precondition only
+		// after the patch itself is known to be valid.
+		ifMatch = recordops.EntityTagSet{Present: true}
 	}
 	if e.service == nil {
 		writeRecordError(w, r, errors.New("record service is unavailable"))
@@ -189,8 +192,10 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	ifMatch, ok := parseIfMatch(r.Header)
 	if !ok {
-		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidPrecondition})
-		return
+		// Defer the malformed precondition result until the service has
+		// established whether the target record exists. Missing records keep
+		// their normal 404 result before precondition evaluation.
+		ifMatch = recordops.EntityTagSet{Present: true}
 	}
 	if e.service == nil {
 		writeRecordError(w, r, errors.New("record service is unavailable"))

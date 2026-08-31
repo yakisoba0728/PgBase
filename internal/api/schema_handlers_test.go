@@ -458,10 +458,10 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 	t.Run("relation validation keeps generic detail mapping", func(t *testing.T) {
 		validation := &schema.ValidationError{Details: []schema.ValidationDetail{{
 			Field: "fields.0.relation.maxSelect",
-			Code:  "relation_max_select_invalid",
+			Code:  "relation_invalid_bounds",
 		}}}
 		response := requestPlan(t, fmt.Errorf("secret physical relation table r_private: %w", validation), "create")
-		if response.Code != http.StatusBadRequest {
+		if response.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 		var body struct {
@@ -476,7 +476,7 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 		}
 		if body.Error.Code != "validation_failed" || body.Error.Message != "Schema input is invalid" ||
 			len(body.Error.Details["fields.0.relation.maxSelect"]) != 1 ||
-			body.Error.Details["fields.0.relation.maxSelect"][0] != "relation_max_select_invalid" {
+			body.Error.Details["fields.0.relation.maxSelect"][0] != "relation_invalid_bounds" {
 			t.Fatalf("relation validation response=%#v", body.Error)
 		}
 		if strings.Contains(response.Body.String(), "r_private") {
@@ -546,7 +546,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
-		if response.Code != http.StatusBadRequest {
+		if response.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 		var body struct {

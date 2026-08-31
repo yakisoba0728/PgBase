@@ -313,6 +313,36 @@ func TestRecordOperationsRejectInvalidPatchBeforeEvaluatingStalePrecondition(t *
 	}
 }
 
+func TestRecordOperationsRejectMalformedPatchBeforeMalformedPrecondition(t *testing.T) {
+	_, _, records, principal := newRecordOperationsTest(t)
+	_, err := records.Update(context.Background(), UpdateRequest{
+		Principal: principal, RequestID: "request_malformed_patch", Collection: "records",
+		ID:      uuid.New(),
+		Input:   map[string]json.RawMessage{"title": json.RawMessage(`{`)},
+		IfMatch: EntityTagSet{Present: true},
+	})
+	var validation *query.ValidationError
+	if !errors.As(err, &validation) || len(validation.Details) != 1 ||
+		validation.Details[0].Field != "title" || validation.Details[0].Code != "type_mismatch" {
+		t.Fatalf("Update(malformed patch/precondition) error = %#v, want title type_mismatch", err)
+	}
+}
+
+func TestRecordOperationsRejectTypeMismatchBeforeMalformedPrecondition(t *testing.T) {
+	_, _, records, principal := newRecordOperationsTest(t)
+	_, err := records.Update(context.Background(), UpdateRequest{
+		Principal: principal, RequestID: "request_type_mismatch", Collection: "records",
+		ID:      uuid.New(),
+		Input:   map[string]json.RawMessage{"title": json.RawMessage(`123`)},
+		IfMatch: EntityTagSet{Present: true},
+	})
+	var validation *query.ValidationError
+	if !errors.As(err, &validation) || len(validation.Details) != 1 ||
+		validation.Details[0].Field != "title" || validation.Details[0].Code != "type_mismatch" {
+		t.Fatalf("Update(type mismatch/precondition) error = %#v, want title type_mismatch", err)
+	}
+}
+
 func TestRecordOperationsCreateReplayConflictAndDataMinimization(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()

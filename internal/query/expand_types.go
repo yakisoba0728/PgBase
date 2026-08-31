@@ -92,7 +92,12 @@ type ProjectionPolicy interface {
 type AdminAllowAll struct{}
 
 func (AdminAllowAll) ReadScope(_ context.Context, principal Principal, _ schema.Collection, action ReadAction) (Predicate, FieldSet, error) {
-	if principal.Kind != PrincipalAdministrator || principal.ID == uuid.Nil || action != ReadActionExpand {
+	if principal.Kind != PrincipalAdministrator || principal.ID == uuid.Nil {
+		return Predicate{}, FieldSet{}, ErrProjectionDenied
+	}
+	switch action {
+	case ReadActionExpand, ReadActionRelationFilter, ReadActionRelationSort:
+	default:
 		return Predicate{}, FieldSet{}, ErrProjectionDenied
 	}
 	return AllowAllRecords(), AllFields(), nil

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,31 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := NewRouter(Dependencies{Logger: logger})
+	const (
+		collectionSentinel = "private_collection_sentinel"
+		recordSentinel     = "019551d0-e9c0-7000-8000-private404"
+		querySentinel      = "private_query_sentinel"
+	)
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/v1/collections/"+collectionSentinel+"/records/"+recordSentinel+"?token="+querySentinel, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	encoded := logs.String()
+	if !strings.Contains(encoded, `"route":"/api/v1/collections/{collection}/records/{id}"`) {
+		t.Fatalf("access log missing route template: %s", encoded)
+	}
+	for _, sentinel := range []string{collectionSentinel, recordSentinel, querySentinel, "token="} {
+		if strings.Contains(encoded, sentinel) {
+			t.Fatalf("access log leaked raw request data %q: %s", sentinel, encoded)
+		}
+	}
+}
 
 func TestRecoveryDiscardsPartialResponseBeforeWriting500(t *testing.T) {
 	handler := recoveryMiddleware(slog.New(slog.NewJSONHandler(io.Discard, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

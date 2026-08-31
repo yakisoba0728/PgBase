@@ -299,7 +299,7 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 	var validation *schema.ValidationError
 	switch {
 	case errors.As(err, &validation):
-		status := http.StatusBadRequest
+		status := http.StatusUnprocessableEntity
 		code := "validation_failed"
 		message := "Schema input is invalid"
 		for _, detail := range validation.Details {
@@ -308,9 +308,6 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 				code = "collection_referenced"
 				message = "Collection is referenced"
 				break
-			}
-			if detail.Code == "unsupported_schema_change" {
-				status = http.StatusUnprocessableEntity
 			}
 		}
 		details := make(map[string][]string, len(validation.Details))

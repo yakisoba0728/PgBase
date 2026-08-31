@@ -462,6 +462,17 @@ Relation/schema lifecycle 구현 뒤에는 별도 독립 리뷰와 반증 검증
 - relation sort는 target join 전에 root 100,000행 hard budget을 적용해 지원 범위 밖 비용을 안정적인 validation error로 거부한다.
 - PostgreSQL 16/17의 deferred constraint SQLSTATE 차이와 1 ms statement-timeout 테스트의 초기화 순서/타이밍 flake를 제거했다.
 
+PR 직전에는 standards/spec/adversarial 3축으로 전체 branch diff를 다시 검토하고 다음 계약 누락을 추가로 종결했다.
+
+- 새 required relation은 source collection이 비어 있을 때만 허용한다. plan 시점과 apply transaction 안에서 모두 row 존재를 확인하고, apply에서는 DDL과 같은 `ACCESS EXCLUSIVE` lock으로 검사 이후 insert race를 차단한다.
+- relation schema validation code를 승인된 stable code로 통일하고 schema constraint 오류를 HTTP 422로 매핑한다.
+- PATCH는 body/schema/type 검증, target row 존재 확인, `If-Match` 평가 순서를 지키며 DELETE도 missing row의 정상 404를 malformed precondition보다 먼저 반환한다.
+- relation plan도 bounded `relation_schema` outcome/duration을 기록하고 schema validation을 `validation` outcome으로 분류한다.
+- schema plan checksum canonical payload에 고정 compiler version을 포함한다.
+- access log에서 raw URL path를 제거하고 등록된 route template 또는 `unmatched`만 기록해 collection/record/query 값을 노출하지 않는다.
+- policy action의 concrete-type 예외와 중복 relation invariant 검사를 제거했다.
+- 태그 이미지 발행이 reusable backup/restore drill 성공도 기다리도록 release gate를 연결했다.
+
 최종 워킹트리 검증 결과:
 
 | Gate | 결과 |

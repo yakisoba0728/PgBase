@@ -77,7 +77,10 @@ func planDeleteAgainstCatalog(planner PlanBuilder, catalog Catalog, current Coll
 	return planner.PlanDelete(catalog.Version, current)
 }
 
-func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (Plan, error) {
+func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (plan Plan, err error) {
+	operationStarted := time.Now()
+	relationOperation := inputHasRelationField(input.Fields)
+	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return Plan{}, err
@@ -85,7 +88,10 @@ func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (
 	return planCreateAgainstCatalog(s.planner, catalog, input)
 }
 
-func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (Plan, error) {
+func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (plan Plan, err error) {
+	operationStarted := time.Now()
+	relationOperation := inputHasRelationField(input.Fields)
+	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return Plan{}, err
@@ -94,10 +100,21 @@ func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (
 	if !ok {
 		return Plan{}, ErrCollectionNotFound
 	}
-	return planUpdateAgainstCatalog(s.planner, catalog, current, input)
+	relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+	plan, err = planUpdateAgainstCatalog(s.planner, catalog, current, input)
+	if err != nil {
+		return Plan{}, err
+	}
+	if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
 }
 
-func (s *Service) PlanDelete(ctx context.Context, name string) (Plan, error) {
+func (s *Service) PlanDelete(ctx context.Context, name string) (plan Plan, err error) {
+	operationStarted := time.Now()
+	relationOperation := false
+	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return Plan{}, err
@@ -106,6 +123,7 @@ func (s *Service) PlanDelete(ctx context.Context, name string) (Plan, error) {
 	if !ok {
 		return Plan{}, ErrCollectionNotFound
 	}
+	relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
 	return planDeleteAgainstCatalog(s.planner, catalog, current)
 }
 
@@ -230,6 +248,9 @@ func (s *Service) ApplyUpdate(ctx context.Context, input UpdateCollectionInput, 
 		if plan.Checksum != checksum {
 			return ErrConflict
 		}
+		if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
+			return err
+		}
 
 		fields, err := updatedFieldMetadata(current.ID, current.Fields, plan.Definition)
 		if err != nil {
@@ -257,6 +278,51 @@ func (s *Service) ApplyUpdate(ctx context.Context, input UpdateCollectionInput, 
 	}
 	s.cache.Replace(nextCatalog)
 	return updated, nil
+}
+
+func validateRequiredRelationAdds(
+	ctx context.Context,
+	db database.DBTX,
+	current Collection,
+	desired PlannedCollection,
+	lock bool,
+) error {
+	ordinal, added := requiredRelationAddOrdinal(current, desired)
+	if !added {
+		return nil
+	}
+	table := pgx.Identifier{"app", current.TableName}.Sanitize()
+	if lock {
+		// Keep writers out between the emptiness check and relation DDL.
+		// The subsequent ALTER TABLE needs this lock strength anyway.
+		if _, err := db.Exec(ctx, "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE"); err != nil {
+			return fmt.Errorf("lock collection for required relation: %w", err)
+		}
+	}
+	var hasRows bool
+	if err := db.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+table+" LIMIT 1)").Scan(&hasRows); err != nil {
+		return fmt.Errorf("inspect collection for required relation: %w", err)
+	}
+	if hasRows {
+		return validation(fmt.Sprintf("fields.%d.required", ordinal), "relation_required_backfill_needed")
+	}
+	return nil
+}
+
+func requiredRelationAddOrdinal(current Collection, desired PlannedCollection) (int, bool) {
+	existing := make(map[string]struct{}, len(current.Fields))
+	for _, field := range current.Fields {
+		existing[field.Name] = struct{}{}
+	}
+	for ordinal, field := range desired.Fields {
+		if _, ok := existing[field.Name]; ok {
+			continue
+		}
+		if field.Type == TypeRelation && field.Required {
+			return ordinal, true
+		}
+	}
+	return 0, false
 }
 
 func (s *Service) ApplyDelete(ctx context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) (err error) {
@@ -581,6 +647,10 @@ func schemaOperationOutcome(err error) observability.Outcome {
 		return observability.OutcomeConflict
 	}
 	if errors.Is(err, ErrDataConstraint) || errors.Is(err, ErrCollectionNotFound) {
+		return observability.OutcomeValidation
+	}
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
 		return observability.OutcomeValidation
 	}
 	switch database.Classify(err) {

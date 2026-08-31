@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -150,11 +151,13 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 		previous, exists := currentFields[field.Name]
 		if !exists {
 			if field.Required && len(field.Default) == 0 {
-				code := "missing_default"
-				if field.Type == TypeRelation {
-					code = "relation_required_backfill_needed"
+				// A required relation is valid when the source collection is
+				// empty. The service checks row existence both while planning
+				// and again under an apply-time table lock. Scalar fields retain
+				// the unconditional default requirement.
+				if field.Type != TypeRelation {
+					return Plan{}, validation(fmt.Sprintf("fields.%d.required", ordinal), "missing_default")
 				}
-				return Plan{}, validation(fmt.Sprintf("fields.%d.required", ordinal), code)
 			}
 			if field.Type == TypeRelation {
 				statements = append(statements, addRelationFieldStatements(current.TableName, field)...)
@@ -857,7 +860,16 @@ func indexName(collection, field string) string {
 	return name
 }
 
+const schemaPlanCompilerVersion = "schema-plan-v1"
+
 func planChecksum(plan Plan) (string, error) {
+	return planChecksumWithCompilerVersion(plan, schemaPlanCompilerVersion)
+}
+
+func planChecksumWithCompilerVersion(plan Plan, compilerVersion string) (string, error) {
+	if compilerVersion == "" {
+		return "", errors.New("schema plan compiler version is required")
+	}
 	definition := plan.Definition
 	definition.Fields = append([]PlannedField(nil), definition.Fields...)
 	sort.Slice(definition.Fields, func(i, j int) bool {
@@ -867,15 +879,17 @@ func planChecksum(plan Plan) (string, error) {
 		return definition.Fields[i].Name < definition.Fields[j].Name
 	})
 	canonical := struct {
-		Operation   string
-		BaseVersion int64
-		Definition  PlannedCollection
-		Statements  []string
+		CompilerVersion string
+		Operation       string
+		BaseVersion     int64
+		Definition      PlannedCollection
+		Statements      []string
 	}{
-		Operation:   plan.Operation,
-		BaseVersion: plan.BaseVersion,
-		Definition:  definition,
-		Statements:  plan.Statements,
+		CompilerVersion: compilerVersion,
+		Operation:       plan.Operation,
+		BaseVersion:     plan.BaseVersion,
+		Definition:      definition,
+		Statements:      plan.Statements,
 	}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {

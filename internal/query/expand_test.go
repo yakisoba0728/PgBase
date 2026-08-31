@@ -345,11 +345,13 @@ func TestProjectionTypesFailClosed(t *testing.T) {
 			t.Fatalf("principal %#v error = %v, want projection denied", principal, err)
 		}
 	}
-	predicate, fields, err := policy.ReadScope(t.Context(), Principal{
-		Kind: PrincipalAdministrator, ID: uuid.New(),
-	}, collection, ReadActionExpand)
-	if err != nil || predicate.kind != predicateAllowAll || !fields.all {
-		t.Fatalf("admin scope = %#v %#v err=%v", predicate, fields, err)
+	for _, action := range []ReadAction{ReadActionExpand, ReadActionRelationFilter, ReadActionRelationSort} {
+		predicate, fields, err := policy.ReadScope(t.Context(), Principal{
+			Kind: PrincipalAdministrator, ID: uuid.New(),
+		}, collection, action)
+		if err != nil || predicate.kind != predicateAllowAll || !fields.all {
+			t.Fatalf("admin %q scope = %#v %#v err=%v", action, predicate, fields, err)
+		}
 	}
 	if err := validateProjection(collection, Predicate{}, AllFields()); !errors.Is(err, ErrProjectionDenied) {
 		t.Fatalf("zero predicate error = %v", err)

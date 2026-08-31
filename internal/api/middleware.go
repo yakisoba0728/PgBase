@@ -142,8 +142,25 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
-		logger.Info("http request", "request_id", requestID(r.Context()), "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds())
+		logger.Info("http request", "request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds())
 	})
+}
+
+// requestRoute returns only a registered ServeMux template. Raw request paths
+// can contain collection names, record IDs, tokens, or other private values and
+// must never be copied into access logs.
+func requestRoute(request *http.Request) string {
+	if request == nil || request.Pattern == "" {
+		return "unmatched"
+	}
+	pattern := request.Pattern
+	if _, route, found := strings.Cut(pattern, " "); found {
+		pattern = route
+	}
+	if pattern == "" {
+		return "unmatched"
+	}
+	return pattern
 }
 
 func bodyLimitMiddleware(next http.Handler) http.Handler {

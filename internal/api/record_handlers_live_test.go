@@ -144,6 +144,24 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 	}
 	assertErrorCode(t, missingResponse.Body.Bytes(), "not_found")
 
+	for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		body := ""
+		if method == http.MethodPatch {
+			body = `{"title":"absent"}`
+		}
+		missingWithMalformedPrecondition := authenticatedRecordRequest(method,
+			"/api/v1/collections/nullable_api_records/records/019551d0-e9c0-7000-8000-000000000404",
+			body, true)
+		missingWithMalformedPrecondition.Header.Set("If-Match", "not-an-entity-tag")
+		malformedResponse := httptest.NewRecorder()
+		handler.ServeHTTP(malformedResponse, missingWithMalformedPrecondition)
+		if malformedResponse.Code != http.StatusNotFound || malformedResponse.Header().Get("ETag") != "" {
+			t.Fatalf("missing %s with malformed precondition status = %d ETag = %q body = %s",
+				method, malformedResponse.Code, malformedResponse.Header().Get("ETag"), malformedResponse.Body.String())
+		}
+		assertErrorCode(t, malformedResponse.Body.Bytes(), "not_found")
+	}
+
 	update := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/nullable_api_records/records/"+id,
 		`{"title":null}`, true)
 	update.Header.Set("If-Match", currentETag)

@@ -258,7 +258,7 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 
 2026-08-31 최종 워킹트리는 PostgreSQL 16.13, 17.9, 18.3 각각에서 `go test -race ./... -count=1`을 skip 없이 통과했다. Admin UI는 12개 파일 80개 테스트와 typecheck/build를 통과했고, Docker black-box E2E는 relation 시나리오를 포함해 `-count=2 -shuffle=on`으로 통과했다. gofmt/vet/build/diff check, reachable Go vulnerability 0, high npm vulnerability 0, dashboard JSON과 8개 Prometheus alert rule 검증도 통과했다. 상세 finding별 종결 근거는 [2026-08-31 codebase audit](codebase-audit-2026-08-31.md#7-수정-종결과-최종-재검증)에 남겼다.
 
-GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 typecheck/test/build/dist 재현성, Docker black-box E2E를 각각 gate한다. 이 검증은 구현 정확성의 근거지만 실제 트래픽의 용량·지연·장시간 안정성 증거를 대신하지 않는다.
+GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 typecheck/test/build/dist 재현성, Docker black-box E2E와 backup/restore drill을 각각 gate한다. 태그 이미지 발행은 이 reusable gate가 모두 성공한 뒤에만 실행된다. 이 검증은 구현 정확성의 근거지만 실제 트래픽의 용량·지연·장시간 안정성 증거를 대신하지 않는다.
 
 ## 11. 운영 배포 계약
 

@@ -23,8 +23,11 @@ jobs:
   security:
     uses: ./.github/workflows/security.yml
 
+  backup_restore:
+    uses: ./.github/workflows/backup-restore.yml
+
   image:
-    needs: [backend, frontend, e2e, security]
+    needs: [backend, frontend, e2e, security, backup_restore]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

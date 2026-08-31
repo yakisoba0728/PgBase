@@ -88,7 +88,7 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
-	assertSecurityError(t, response, http.StatusBadRequest, "validation_failed", attack, "DROP TABLE")
+	assertSecurityError(t, response, http.StatusUnprocessableEntity, "validation_failed", attack, "DROP TABLE")
 	assertSecuritySecretsAbsent(t, logs.String(), attack, "DROP TABLE")
 }
 

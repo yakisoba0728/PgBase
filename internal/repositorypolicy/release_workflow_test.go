@@ -48,14 +48,15 @@ func TestReleaseWorkflowRequiresCompleteReusableVerificationBeforePublishing(t *
 		"frontend:\n    uses: ./.github/workflows/frontend.yml",
 		"e2e:\n    uses: ./.github/workflows/e2e.yml",
 		"security:\n    uses: ./.github/workflows/security.yml",
-		"needs: [backend, frontend, e2e, security]",
+		"backup_restore:\n    uses: ./.github/workflows/backup-restore.yml",
+		"needs: [backend, frontend, e2e, security, backup_restore]",
 	} {
 		if !strings.Contains(workflow, marker) {
 			t.Fatalf("release workflow is missing verification gate %q", marker)
 		}
 	}
 
-	for _, name := range []string{"backend.yml", "frontend.yml", "e2e.yml", "security.yml"} {
+	for _, name := range []string{"backend.yml", "frontend.yml", "e2e.yml", "security.yml", "backup-restore.yml"} {
 		path := filepath.Join("..", "..", ".github", "workflows", name)
 		calledWorkflow, err := os.ReadFile(path)
 		if err != nil {

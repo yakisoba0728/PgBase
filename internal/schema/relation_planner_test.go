@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,12 +147,12 @@ func TestRelationPlanCreateReusesDomainValidation(t *testing.T) {
 		{
 			name:  "relation default",
 			field: relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict),
-			want:  ValidationDetail{Field: "fields.0.default", Code: "relation_default_forbidden"},
+			want:  ValidationDetail{Field: "fields.0.default", Code: "relation_default_unsupported"},
 		},
 		{
 			name:  "multiple requires maximum",
 			field: relationPlannerField("tags", "tags", RelationMultiple, false, 0, RelationRestrict),
-			want:  ValidationDetail{Field: "fields.0.relation.maxSelect", Code: "relation_max_select_required"},
+			want:  ValidationDetail{Field: "fields.0.relation.maxSelect", Code: "relation_invalid_bounds"},
 		},
 		{
 			name:  "required mismatch",
@@ -282,14 +283,6 @@ func TestRelationPlanUpdateRejectsStorageConversionsAndUnsafeAdds(t *testing.T) 
 			}},
 			want: ValidationDetail{Field: "fields.0.type", Code: "relation_storage_migration_required"},
 		},
-		{
-			name: "required relation add",
-			input: UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
-				relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict),
-				relationPlannerField("reviewer", "users", RelationSingle, true, 0, RelationCascade),
-			}},
-			want: ValidationDetail{Field: "fields.1.required", Code: "relation_required_backfill_needed"},
-		},
 	}
 
 	for _, test := range cases {
@@ -297,6 +290,25 @@ func TestRelationPlanUpdateRejectsStorageConversionsAndUnsafeAdds(t *testing.T) 
 			_, err := (Planner{}).PlanUpdateWithCatalog(8, catalog, current, test.input)
 			assertRelationPlannerValidation(t, err, test.want)
 		})
+	}
+}
+
+func TestRelationPlannerDefersRequiredRelationAddRowCheckToService(t *testing.T) {
+	t.Parallel()
+	current, catalog := relationPlannerCurrentSingle()
+	plan, err := (Planner{}).PlanUpdateWithCatalog(8, catalog, current, UpdateCollectionInput{
+		Name: "posts",
+		Fields: []FieldInput{
+			relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict),
+			relationPlannerField("reviewer", "users", RelationSingle, true, 0, RelationCascade),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlanUpdateWithCatalog(required relation): %v", err)
+	}
+	want := `ALTER TABLE "app"."posts" ADD COLUMN "reviewer" uuid not null`
+	if !slices.Contains(plan.Statements, want) {
+		t.Fatalf("required relation statements = %#v, want %q", plan.Statements, want)
 	}
 }
 

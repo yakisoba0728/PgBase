@@ -100,10 +100,6 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 		if !ok {
 			return nil, ErrInvalidBinding
 		}
-		if field.Required != (spec.MinSelect > 0) || len(field.Default) != 0 || !field.Indexed ||
-			(spec.Cardinality == schema.RelationMultiple && field.Unique) {
-			return nil, ErrInvalidBinding
-		}
 		switch spec.Storage.Kind {
 		case schema.RelationStorageInlineFKV1:
 			if spec.Cardinality != schema.RelationSingle || spec.Storage.Name != field.ColumnName {

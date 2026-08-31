@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -313,6 +314,108 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 	}
 	if len(catalog.Incoming) != 0 {
 		t.Fatalf("drop left incoming catalog entries: %#v", catalog.Incoming)
+	}
+}
+
+func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
+	applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}},
+	}, administratorID)
+
+	requiredOwner := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "owner", Type: TypeRelation, Required: true, Relation: &RelationInput{
+			TargetCollection: "users", OnDelete: RelationCascade,
+		}},
+	}}
+	plan, err := service.PlanUpdate(ctx, requiredOwner)
+	if err != nil {
+		t.Fatalf("PlanUpdate(empty required relation): %v", err)
+	}
+	updated, err := service.ApplyUpdate(ctx, requiredOwner, plan.Checksum, plan.BaseVersion, administratorID)
+	if err != nil {
+		t.Fatalf("ApplyUpdate(empty required relation): %v", err)
+	}
+	if len(updated.Fields) != 2 || updated.Fields[1].Relation == nil || !updated.Fields[1].Required {
+		t.Fatalf("required relation update = %#v", updated.Fields)
+	}
+	var nullable string
+	if err := pool.QueryRow(ctx, `select is_nullable from information_schema.columns
+		where table_schema = 'app' and table_name = 'posts' and column_name = 'owner'`).Scan(&nullable); err != nil {
+		t.Fatal(err)
+	}
+	if nullable != "NO" {
+		t.Fatalf("required owner nullable = %q, want NO", nullable)
+	}
+	applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "groups", Fields: []FieldInput{{Name: "name", Type: TypeText}},
+	}, administratorID)
+	maximumMembers := 4
+	requiredMembers := UpdateCollectionInput{Name: "groups", Fields: []FieldInput{
+		{Name: "name", Type: TypeText},
+		{Name: "members", Type: TypeRelation, Required: true, Relation: &RelationInput{
+			TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: &maximumMembers,
+		}},
+	}}
+	membersPlan, err := service.PlanUpdate(ctx, requiredMembers)
+	if err != nil {
+		t.Fatalf("PlanUpdate(empty required multiple relation): %v", err)
+	}
+	if _, err := service.ApplyUpdate(ctx, requiredMembers, membersPlan.Checksum, membersPlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyUpdate(empty required multiple relation): %v", err)
+	}
+	membersNames := NewRelationPhysicalNames("groups", "members")
+	var membersTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass($1)::text, '')`,
+		"pgbase_relation."+membersNames.MultiTable).Scan(&membersTable); err != nil {
+		t.Fatal(err)
+	}
+	if membersTable == "" {
+		t.Fatal("required multiple relation edge table is missing")
+	}
+
+	applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "drafts", Fields: []FieldInput{{Name: "title", Type: TypeText}},
+	}, administratorID)
+	maximumReviewers := 4
+	requiredReviewers := UpdateCollectionInput{Name: "drafts", Fields: []FieldInput{
+		{Name: "title", Type: TypeText},
+		{Name: "reviewers", Type: TypeRelation, Required: true, Relation: &RelationInput{
+			TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: &maximumReviewers,
+		}},
+	}}
+	stalePlan, err := service.PlanUpdate(ctx, requiredReviewers)
+	if err != nil {
+		t.Fatalf("PlanUpdate(empty required multiple relation): %v", err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.drafts (id, created_at, updated_at, title)
+		values ($1, current_timestamp, current_timestamp, 'needs backfill')`, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	assertBackfillNeeded := func(err error) {
+		t.Helper()
+		var validationError *ValidationError
+		want := []ValidationDetail{{Field: "fields.1.required", Code: "relation_required_backfill_needed"}}
+		if !errors.As(err, &validationError) || !reflect.DeepEqual(validationError.Details, want) {
+			t.Fatalf("required relation error = %#v, want %#v", err, want)
+		}
+	}
+	_, err = service.PlanUpdate(ctx, requiredReviewers)
+	assertBackfillNeeded(err)
+	_, err = service.ApplyUpdate(ctx, requiredReviewers, stalePlan.Checksum, stalePlan.BaseVersion, administratorID)
+	assertBackfillNeeded(err)
+
+	names := NewRelationPhysicalNames("drafts", "reviewers")
+	var edgeTable string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass($1)::text, '')`,
+		"pgbase_relation."+names.MultiTable).Scan(&edgeTable); err != nil {
+		t.Fatal(err)
+	}
+	if edgeTable != "" {
+		t.Fatalf("rejected required relation left edge table %q", edgeTable)
 	}
 }
 

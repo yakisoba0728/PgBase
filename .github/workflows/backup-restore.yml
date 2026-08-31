@@ -1,7 +1,9 @@
 name: Backup restore drill
 
 on:
+  workflow_call:
   push:
+    branches: ["**"]
     paths:
       - "migrations/**"
       - "cmd/pgbase/**"

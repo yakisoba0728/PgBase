@@ -64,6 +64,9 @@ func (s *Service) deleteGraphInTransaction(
 	if err != nil {
 		return MutationResult{}, normalizeRelationError(err)
 	}
+	if err := validateEntityTagSet(request.IfMatch); err != nil {
+		return MutationResult{}, err
+	}
 
 	deletes := plan.Deletes()
 	updates := plan.Updates()

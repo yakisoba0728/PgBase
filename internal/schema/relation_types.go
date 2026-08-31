@@ -170,22 +170,22 @@ func NormalizeRelationField(
 	switch relation.Cardinality {
 	case RelationSingle:
 		if minSelect < 0 || minSelect > 1 {
-			addDetail(".relation.minSelect", "relation_min_select_invalid")
+			addDetail(".relation.minSelect", "relation_invalid_bounds")
 		}
 		if maxSelect != 1 {
-			addDetail(".relation.maxSelect", "relation_max_select_invalid")
+			addDetail(".relation.maxSelect", "relation_invalid_bounds")
 		}
 	case RelationMultiple:
 		if !maxWasExplicit {
-			addDetail(".relation.maxSelect", "relation_max_select_required")
+			addDetail(".relation.maxSelect", "relation_invalid_bounds")
 		} else if maxSelect < 2 || maxSelect > maximumRelationSelect {
-			addDetail(".relation.maxSelect", "relation_max_select_invalid")
+			addDetail(".relation.maxSelect", "relation_invalid_bounds")
 		}
 		if minSelect < 0 || (maxWasExplicit && minSelect > maxSelect) {
-			addDetail(".relation.minSelect", "relation_min_select_invalid")
+			addDetail(".relation.minSelect", "relation_invalid_bounds")
 		}
 	default:
-		addDetail(".relation.cardinality", "relation_cardinality_invalid")
+		addDetail(".relation.cardinality", "relation_invalid_cardinality")
 	}
 
 	if minWasExplicit && field.Required != (minSelect > 0) {
@@ -203,7 +203,7 @@ func NormalizeRelationField(
 	}
 
 	if len(field.Default) != 0 {
-		addDetail(".default", "relation_default_forbidden")
+		addDetail(".default", "relation_default_unsupported")
 	}
 	if field.Unique && relation.Cardinality != RelationSingle {
 		addDetail(".unique", "relation_unique_requires_single")
@@ -306,21 +306,21 @@ func ValidateRelationSpec(fieldPath string, spec RelationSpec) error {
 	case RelationSingle:
 		wantStorageKind = RelationStorageInlineFKV1
 		if spec.MinSelect < 0 || spec.MinSelect > 1 {
-			addDetail(".relation.minSelect", "relation_min_select_invalid")
+			addDetail(".relation.minSelect", "relation_invalid_bounds")
 		}
 		if spec.MaxSelect != 1 {
-			addDetail(".relation.maxSelect", "relation_max_select_invalid")
+			addDetail(".relation.maxSelect", "relation_invalid_bounds")
 		}
 	case RelationMultiple:
 		wantStorageKind = RelationStorageEdgeTableV1
 		if spec.MaxSelect < 2 || spec.MaxSelect > maximumRelationSelect {
-			addDetail(".relation.maxSelect", "relation_max_select_invalid")
+			addDetail(".relation.maxSelect", "relation_invalid_bounds")
 		}
 		if spec.MinSelect < 0 || spec.MinSelect > spec.MaxSelect {
-			addDetail(".relation.minSelect", "relation_min_select_invalid")
+			addDetail(".relation.minSelect", "relation_invalid_bounds")
 		}
 	default:
-		addDetail(".relation.cardinality", "relation_cardinality_invalid")
+		addDetail(".relation.cardinality", "relation_invalid_cardinality")
 	}
 
 	switch spec.OnDelete {

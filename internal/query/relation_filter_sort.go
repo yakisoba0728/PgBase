@@ -324,15 +324,7 @@ func relationReadScope(
 	if policy == nil {
 		return Predicate{}, FieldSet{}, ErrProjectionDenied
 	}
-	// AdminAllowAll predates the two typed relation actions. Preserve that
-	// adapter's fail-closed authentication contract while custom policies see
-	// the precise action for every hop.
-	switch policy.(type) {
-	case AdminAllowAll, *AdminAllowAll:
-		return policy.ReadScope(ctx, principal, collection, ReadActionExpand)
-	default:
-		return policy.ReadScope(ctx, principal, collection, action)
-	}
+	return policy.ReadScope(ctx, principal, collection, action)
 }
 
 func projectionAllowsField(fields FieldSet, name string) bool {

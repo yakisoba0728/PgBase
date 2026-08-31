@@ -89,7 +89,7 @@ func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
 	}
 }
 
-func TestRelationSchemaApplyRecordsBoundedRelationEvents(t *testing.T) {
+func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
 	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
 	recorder := &schemaTelemetryRecorder{}
 	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
@@ -129,12 +129,57 @@ func TestRelationSchemaApplyRecordsBoundedRelationEvents(t *testing.T) {
 			relationEvents = append(relationEvents, event)
 		}
 	}
-	if len(relationEvents) != 2 {
-		t.Fatalf("relation schema telemetry = %#v, want create and delete events", relationEvents)
+	if len(relationEvents) != 4 {
+		t.Fatalf("relation schema telemetry = %#v, want plan/apply create and plan/apply delete events", relationEvents)
 	}
 	for index, event := range relationEvents {
 		if event.Operation() != observability.OperationRelationSchema || event.Outcome() != observability.OutcomeSuccess || event.Duration() < 0 {
 			t.Fatalf("relation schema telemetry[%d] = %#v", index, event)
+		}
+	}
+}
+
+func TestRelationSchemaPlanRecordsValidationAndSkipsScalarPlans(t *testing.T) {
+	pool, _, _ := newSchemaServiceTest(t, Planner{})
+	recorder := &schemaTelemetryRecorder{}
+	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	ctx := context.Background()
+
+	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+		Name:   "telemetry_scalar_plan",
+		Fields: []FieldInput{{Name: "title", Type: TypeText}},
+	}); err != nil {
+		t.Fatalf("PlanCreate(scalar): %v", err)
+	}
+	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+		Name: "telemetry_relation_plan",
+		Fields: []FieldInput{{
+			Name: "parent", Type: TypeRelation,
+			Relation: &RelationInput{TargetCollection: "telemetry_relation_plan"},
+		}},
+	}); err != nil {
+		t.Fatalf("PlanCreate(relation): %v", err)
+	}
+	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+		Name: "telemetry_invalid_relation_plan",
+		Fields: []FieldInput{{
+			Name: "parent", Type: TypeRelation,
+			Relation: &RelationInput{TargetCollection: "missing_telemetry_target"},
+		}},
+	}); err == nil {
+		t.Fatal("PlanCreate(invalid relation) succeeded")
+	}
+
+	events := recorder.snapshot()
+	if len(events) != 2 {
+		t.Fatalf("relation plan telemetry = %#v, want success and validation events only", events)
+	}
+	want := []observability.Outcome{observability.OutcomeSuccess, observability.OutcomeValidation}
+	for index, event := range events {
+		if event.Component() != observability.ComponentRelation ||
+			event.Operation() != observability.OperationRelationSchema ||
+			event.Outcome() != want[index] || event.Duration() < 0 {
+			t.Fatalf("relation plan telemetry[%d] = %#v, want outcome=%q", index, event, want[index])
 		}
 	}
 }

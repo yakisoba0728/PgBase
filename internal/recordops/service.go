@@ -303,9 +303,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if request.ID == uuid.Nil {
 		return MutationResult{}, &Error{Code: CodeInvalidRequest}
 	}
-	if err := validateEntityTagSet(request.IfMatch); err != nil {
-		return MutationResult{}, err
-	}
 	canonicalRequest, err := canonicalInput(request.Input)
 	if err != nil {
 		return MutationResult{}, err
@@ -339,6 +336,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		before, err := readRecord(ctx, tx, collection, request.ID, !relations.present)
 		if err != nil {
+			return err
+		}
+		if err := validateEntityTagSet(request.IfMatch); err != nil {
 			return err
 		}
 		if err := relations.hydrate(ctx, tx, request.ID, before); err != nil {
@@ -411,9 +411,6 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	}
 	if request.ID == uuid.Nil {
 		return MutationResult{}, &Error{Code: CodeInvalidRequest}
-	}
-	if err := validateEntityTagSet(request.IfMatch); err != nil {
-		return MutationResult{}, err
 	}
 	inputHash := digestParts("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	eventID, err := uuid.NewV7()

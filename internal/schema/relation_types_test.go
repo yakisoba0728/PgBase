@@ -208,8 +208,8 @@ func TestValidateRelationSpecRejectsPersistedMetadataDriftDeterministically(t *t
 	}
 	err := ValidateRelationSpec("fields.1", spec)
 	assertValidationDetails(t, err, []ValidationDetail{
-		{Field: "fields.1.relation.maxSelect", Code: "relation_max_select_invalid"},
-		{Field: "fields.1.relation.minSelect", Code: "relation_min_select_invalid"},
+		{Field: "fields.1.relation.maxSelect", Code: "relation_invalid_bounds"},
+		{Field: "fields.1.relation.minSelect", Code: "relation_invalid_bounds"},
 		{Field: "fields.1.relation.onDelete", Code: "relation_set_null_requires_optional"},
 		{Field: "fields.1.relation.storage.kind", Code: "relation_storage_invalid"},
 		{Field: "fields.1.relation.storage.name", Code: "relation_storage_invalid"},
@@ -275,61 +275,61 @@ func TestNormalizeRelationFieldRejectsInvalidCombinations(t *testing.T) {
 			name:   "cardinality",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", Cardinality: "many"}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.relation.cardinality", Code: "relation_cardinality_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.cardinality", Code: "relation_invalid_cardinality"}},
 		},
 		{
 			name:   "single min below range",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", MinSelect: intPointer(-1)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_min_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "single min above range",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Required: true, Relation: &RelationInput{TargetCollection: "users", MinSelect: intPointer(2)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_min_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "single max zero",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", MaxSelect: intPointer(0)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_max_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "single max above one",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", MaxSelect: intPointer(2)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_max_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "multiple max required",
 			field:  FieldInput{Name: "tags", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", Cardinality: RelationMultiple}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "r_tags",
-			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_max_select_required"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "multiple max below range",
 			field:  FieldInput{Name: "tags", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: intPointer(1)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "r_tags",
-			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_max_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "multiple max above range",
 			field:  FieldInput{Name: "tags", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: intPointer(1001)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "r_tags",
-			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_max_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.maxSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "multiple min below range",
 			field:  FieldInput{Name: "tags", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users", Cardinality: RelationMultiple, MinSelect: intPointer(-1), MaxSelect: intPointer(5)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "r_tags",
-			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_min_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "multiple min above max",
 			field:  FieldInput{Name: "tags", Type: TypeRelation, Required: true, Relation: &RelationInput{TargetCollection: "users", Cardinality: RelationMultiple, MinSelect: intPointer(6), MaxSelect: intPointer(5)}},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "r_tags",
-			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_min_select_invalid"}},
+			want: []ValidationDetail{{Field: "fields.3.relation.minSelect", Code: "relation_invalid_bounds"}},
 		},
 		{
 			name:   "required min mismatch",
@@ -359,7 +359,7 @@ func TestNormalizeRelationFieldRejectsInvalidCombinations(t *testing.T) {
 			name:   "default",
 			field:  FieldInput{Name: "owner", Type: TypeRelation, Default: json.RawMessage(`null`), Relation: validRelation()},
 			source: "posts", targetID: &testTargetCollectionID, storageName: "owner",
-			want: []ValidationDetail{{Field: "fields.3.default", Code: "relation_default_forbidden"}},
+			want: []ValidationDetail{{Field: "fields.3.default", Code: "relation_default_unsupported"}},
 		},
 		{
 			name:   "unique multiple",
@@ -405,8 +405,8 @@ func TestNormalizeRelationFieldSortsAllValidationDetails(t *testing.T) {
 	}
 	_, _, err := NormalizeRelationField("fields.9", "posts", field, &testTargetCollectionID, "")
 	assertValidationDetails(t, err, []ValidationDetail{
-		{Field: "fields.9.default", Code: "relation_default_forbidden"},
-		{Field: "fields.9.relation.minSelect", Code: "relation_min_select_invalid"},
+		{Field: "fields.9.default", Code: "relation_default_unsupported"},
+		{Field: "fields.9.relation.minSelect", Code: "relation_invalid_bounds"},
 		{Field: "fields.9.relation.minSelect", Code: "relation_required_mismatch"},
 		{Field: "fields.9.relation.onDelete", Code: "relation_set_null_requires_optional"},
 		{Field: "fields.9.relation.storage", Code: "relation_storage_invalid"},

@@ -292,7 +292,7 @@ func TestRecordMutationsParseBoundedIfMatch(t *testing.T) {
 	}
 }
 
-func TestRecordMutationsRejectMalformedOrDuplicateIfMatchBeforeServiceCall(t *testing.T) {
+func TestRecordMutationsRejectMalformedOrDuplicateIfMatch(t *testing.T) {
 	tags := make([]string, 9)
 	for index := range tags {
 		tags[index] = `"tag-` + strconv.Itoa(index) + `"`
@@ -314,6 +314,11 @@ func TestRecordMutationsRejectMalformedOrDuplicateIfMatchBeforeServiceCall(t *te
 		for _, test := range tests {
 			t.Run(method+"/"+test.name, func(t *testing.T) {
 				records := &fakeRecordService{}
+				if method == http.MethodPatch {
+					records.updateErr = &recordops.Error{Code: recordops.CodeInvalidPrecondition}
+				} else {
+					records.deleteErr = &recordops.Error{Code: recordops.CodeInvalidPrecondition}
+				}
 				handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 				body := ""
 				if method == http.MethodPatch {
@@ -329,11 +334,63 @@ func TestRecordMutationsRejectMalformedOrDuplicateIfMatchBeforeServiceCall(t *te
 					t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 				}
 				assertErrorCode(t, response.Body.Bytes(), "invalid_precondition")
-				if records.updateCalls != 0 || records.deleteCalls != 0 {
-					t.Fatalf("service calls update=%d delete=%d", records.updateCalls, records.deleteCalls)
+				wantUpdateCalls, wantDeleteCalls := 0, 0
+				if method == http.MethodPatch {
+					wantUpdateCalls = 1
+				} else {
+					wantDeleteCalls = 1
+				}
+				if records.updateCalls != wantUpdateCalls || records.deleteCalls != wantDeleteCalls {
+					t.Fatalf("service calls update=%d delete=%d, want %d/%d", records.updateCalls, records.deleteCalls, wantUpdateCalls, wantDeleteCalls)
+				}
+				var got recordops.EntityTagSet
+				if method == http.MethodPatch {
+					got = records.updateRequest.IfMatch
+				} else {
+					got = records.deleteRequest.IfMatch
+				}
+				if !got.Present || got.Any || len(got.Values) != 0 {
+					t.Fatalf("invalid If-Match sentinel = %#v", got)
 				}
 			})
 		}
+	}
+}
+
+func TestRecordPatchRejectsMalformedBodyBeforeMalformedIfMatch(t *testing.T) {
+	records := &fakeRecordService{}
+	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodPatch,
+		"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{`, true)
+	request.Header.Set("If-Match", "not-an-entity-tag")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+	if records.updateCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", records.updateCalls)
+	}
+}
+
+func TestRecordPatchRejectsTypeMismatchBeforeMalformedIfMatch(t *testing.T) {
+	records := &fakeRecordService{updateErr: &query.ValidationError{Details: []query.ValidationDetail{{
+		Field: "title", Code: "type_mismatch",
+	}}}}
+	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodPatch,
+		"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{"title":123}`, true)
+	request.Header.Set("If-Match", "not-an-entity-tag")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+	if records.updateCalls != 1 || !records.updateRequest.IfMatch.Present ||
+		records.updateRequest.IfMatch.Any || len(records.updateRequest.IfMatch.Values) != 0 {
+		t.Fatalf("update request = %#v calls=%d", records.updateRequest, records.updateCalls)
 	}
 }
 
