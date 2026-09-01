@@ -313,7 +313,7 @@ func TestUpThroughClassifiesUnknownVersionAndGapWithoutApplyingTarget(t *testing
 			if statusErr != nil {
 				t.Fatal(statusErr)
 			}
-			if status != (Status{Current: previous.Version, Latest: target.Version}) {
+			if status != (Status{Current: previous.Version, Latest: target.Version, Compatible: true}) {
 				t.Fatalf("Status after history repair = %#v, target migration was not expected to run", status)
 			}
 		})
@@ -564,15 +564,15 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-func TestNewRunnerRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
+func TestNewRunnerAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
 	migrations := system.Migrations()
-	if len(migrations) != 6 || migrations[len(migrations)-2].Version != 5 || migrations[len(migrations)-1].Version != 6 {
-		t.Fatalf("schema-operations feature manifest = %#v", migrations)
+	if len(migrations) != 7 || migrations[len(migrations)-2].Version != 6 || migrations[len(migrations)-1].Version != 7 {
+		t.Fatalf("record-membership preparatory manifest = %#v", migrations)
 	}
 
 	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -587,19 +587,19 @@ func TestNewRunnerRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 5, Latest: 6}) {
-		t.Fatalf("feature status before required migration = %#v", status)
+	if status != (Status{Current: 6, Latest: 7, Compatible: true}) {
+		t.Fatalf("pre-migration P0 status = %#v", status)
 	}
 
-	if _, err := runner.UpThrough(context.Background(), 6); err != nil {
+	if _, err := runner.UpThrough(context.Background(), 7); err != nil {
 		t.Fatal(err)
 	}
 	status, err = runner.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 6, Latest: 6, Compatible: true}) {
-		t.Fatalf("feature status after required migration = %#v", status)
+	if status != (Status{Current: 7, Latest: 7, Compatible: true}) {
+		t.Fatalf("post-migration P0 status = %#v", status)
 	}
 }
 
@@ -702,6 +702,81 @@ func TestUpWaitsForMigrationAdvisoryLock(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("migration did not continue after lock release")
+	}
+}
+
+func TestRecordMembershipMigrationWaitsForConcurrentCollectionCreateFence(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	migrations := system.Migrations()
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runner.migrations = migrations[:len(migrations)-1]
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	runner.migrations = migrations
+
+	connection, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	collectionCreate, err := connection.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = collectionCreate.Rollback(context.Background()) }()
+	if _, err := collectionCreate.Exec(context.Background(), `SELECT version
+		FROM pgbase_meta.schema_state WHERE singleton FOR UPDATE;
+		CREATE TABLE app.concurrent_collection (
+			id uuid PRIMARY KEY,
+			created_at timestamptz NOT NULL,
+			updated_at timestamptz NOT NULL
+		);
+		INSERT INTO pgbase_meta.collections
+			(id, name, table_name, status, created_at, updated_at)
+		VALUES ('019551d0-e9c0-7000-8000-000000000721', 'concurrent_collection',
+			'concurrent_collection', 'active', transaction_timestamp(), transaction_timestamp())`); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.UpThrough(context.Background(), 7)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("v7 returned before the collection creation fence committed: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := collectionCreate.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("v7 did not continue after the collection creation fence committed")
+	}
+
+	var counterRows, backfillRows int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM pgbase_meta.collection_creation_counters
+		 WHERE collection_id = '019551d0-e9c0-7000-8000-000000000721'),
+		(SELECT count(*) FROM pgbase_meta.record_membership_backfills
+		 WHERE collection_id = '019551d0-e9c0-7000-8000-000000000721')`).Scan(
+		&counterRows, &backfillRows,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if counterRows != 1 || backfillRows != 1 {
+		t.Fatalf("concurrent collection seed counters=%d backfills=%d", counterRows, backfillRows)
 	}
 }
 

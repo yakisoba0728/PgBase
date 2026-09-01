@@ -225,8 +225,13 @@ func newWithCatalogPreflight(
 		if before.Current != 0 && !before.Compatible {
 			return nil, errors.New("system migrations are not current")
 		}
-		if err := runner.Up(ctx); err != nil {
-			return nil, fmt.Errorf("apply system migrations: %w", err)
+		// P0 accepts the checksum-pinned v6 and v7 histories, but only a
+		// designated exact-target job may cross the v6 -> v7 boundary.
+		// Auto-migration remains available for a fresh database bootstrap.
+		if before.Current == 0 {
+			if err := runner.Up(ctx); err != nil {
+				return nil, fmt.Errorf("apply system migrations: %w", err)
+			}
 		}
 	}
 	status, err := runner.Status(ctx)

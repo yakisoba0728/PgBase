@@ -45,10 +45,11 @@ func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observab
 		logger = slog.Default()
 	}
 	return &Runner{
-		pool:       pool,
-		logger:     logger,
-		migrations: system.Migrations(),
-		recorder:   recorder,
+		pool:          pool,
+		logger:        logger,
+		migrations:    system.Migrations(),
+		compatibility: recordMembershipPreparationPolicy(system.Migrations()),
+		recorder:      recorder,
 	}
 }
 

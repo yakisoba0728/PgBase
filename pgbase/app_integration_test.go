@@ -198,37 +198,59 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	}
 }
 
-func TestNewRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
+func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 6 {
-		t.Fatalf("schema-operations feature manifest = %#v", migrations)
+	if len(migrations) != 7 {
+		t.Fatalf("record-membership preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name        string
 		through     int
 		dirty       bool
 		autoMigrate bool
+		populate    bool
 		wantAccept  bool
 	}{
-		{name: "v4 rejected", through: 4},
 		{name: "v5 rejected", through: 5},
 		{name: "v5 rejected without auto-upgrade", through: 5, autoMigrate: true},
 		{name: "v6 accepted", through: 6, wantAccept: true},
+		{name: "populated v6 accepted without auto-upgrade", through: 6, autoMigrate: true, populate: true, wantAccept: true},
+		{name: "v7 accepted", through: 7, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
+		{name: "dirty v7 rejected", through: 7, dirty: true},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			databaseURL := testutil.NewDatabase(t)
 			testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:testCase.through])
-			if testCase.dirty {
+			if testCase.dirty || testCase.populate {
 				pool, err := database.Open(context.Background(), databaseURL, time.Second)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := pool.Exec(context.Background(), `update pgbase_meta.system_migrations
-					set checksum = decode(repeat('00', 32), 'hex') where version = 1`); err != nil {
-					pool.Close()
-					t.Fatal(err)
+				if testCase.dirty {
+					if _, err := pool.Exec(context.Background(), `update pgbase_meta.system_migrations
+						set checksum = decode(repeat('00', 32), 'hex') where version = 1`); err != nil {
+						pool.Close()
+						t.Fatal(err)
+					}
+				}
+				if testCase.populate {
+					if _, err := pool.Exec(context.Background(), `CREATE TABLE app.existing_records (
+						id uuid PRIMARY KEY,
+						created_at timestamptz NOT NULL,
+						updated_at timestamptz NOT NULL
+					);
+					INSERT INTO pgbase_meta.collections
+						(id, name, table_name, status, created_at, updated_at)
+					VALUES ('019551d0-e9c0-7000-8000-000000000701', 'existing_records',
+						'existing_records', 'active', transaction_timestamp(), transaction_timestamp());
+					INSERT INTO app.existing_records (id, created_at, updated_at)
+					VALUES ('019551d0-e9c0-7000-8000-000000000702',
+						transaction_timestamp(), transaction_timestamp())`); err != nil {
+						pool.Close()
+						t.Fatal(err)
+					}
 				}
 				pool.Close()
 			}
@@ -240,7 +262,27 @@ func TestNewRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 			})
 			if testCase.wantAccept {
 				if err != nil {
-					t.Fatalf("New rejected feature history: %v", err)
+					t.Fatalf("New rejected P0 history: %v", err)
+				}
+				status, statusErr := migrate.New(app.pool, slog.New(slog.NewJSONHandler(io.Discard, nil))).Status(context.Background())
+				if statusErr != nil {
+					_ = app.Close(context.Background())
+					t.Fatal(statusErr)
+				}
+				if status.Current != int64(testCase.through) || !status.Compatible {
+					_ = app.Close(context.Background())
+					t.Fatalf("startup changed accepted P0 history: %#v", status)
+				}
+				var membershipTable *string
+				if queryErr := app.pool.QueryRow(context.Background(),
+					"select to_regclass('pgbase_meta.record_membership_capability')::text",
+				).Scan(&membershipTable); queryErr != nil {
+					_ = app.Close(context.Background())
+					t.Fatal(queryErr)
+				}
+				if (membershipTable != nil) != (testCase.through == 7) {
+					_ = app.Close(context.Background())
+					t.Fatalf("membership table after v%d startup = %v", testCase.through, membershipTable)
 				}
 				if err := app.Start(context.Background()); err != nil {
 					_ = app.Close(context.Background())
@@ -256,14 +298,26 @@ func TestNewRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 				}
 				if _, err := app.pool.Exec(context.Background(),
 					"delete from pgbase_meta.system_migrations where version = $1",
-					migrations[len(migrations)-1].Version,
+					testCase.through,
 				); err != nil {
 					_ = app.Close(context.Background())
 					t.Fatal(err)
 				}
+				if testCase.through == 7 {
+					if err := app.readiness.Ready(context.Background()); err != nil {
+						_ = app.Close(context.Background())
+						t.Fatalf("readiness rejected clean v6 after v7 startup: %v", err)
+					}
+					if _, err := app.pool.Exec(context.Background(),
+						"delete from pgbase_meta.system_migrations where version = 6",
+					); err != nil {
+						_ = app.Close(context.Background())
+						t.Fatal(err)
+					}
+				}
 				if err := app.readiness.Ready(context.Background()); err == nil {
 					_ = app.Close(context.Background())
-					t.Fatal("readiness accepted clean v5 after the feature artifact started")
+					t.Fatalf("readiness accepted history below v6 after v%d startup", testCase.through)
 				}
 				if closeErr := app.Close(context.Background()); closeErr != nil {
 					t.Fatal(closeErr)
@@ -272,7 +326,7 @@ func TestNewRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 			}
 			if err == nil {
 				_ = app.Close(context.Background())
-				t.Fatal("New accepted history outside the v6 feature boundary")
+				t.Fatal("New accepted history outside the v6/v7 P0 boundary")
 			}
 			if testCase.autoMigrate {
 				pool, openErr := database.Open(context.Background(), databaseURL, time.Second)
@@ -284,17 +338,8 @@ func TestNewRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 				if statusErr != nil {
 					t.Fatal(statusErr)
 				}
-				if status.Current != 5 || status.Compatible {
-					t.Fatalf("rejected feature auto-migration changed history: %#v", status)
-				}
-				var ledgerTable *string
-				if queryErr := pool.QueryRow(context.Background(),
-					"select to_regclass('pgbase_meta.schema_operations')::text",
-				).Scan(&ledgerTable); queryErr != nil {
-					t.Fatal(queryErr)
-				}
-				if ledgerTable != nil {
-					t.Fatalf("feature artifact auto-applied v6 ledger %q", *ledgerTable)
+				if status.Current != int64(testCase.through) || status.Compatible {
+					t.Fatalf("rejected P0 auto-migration changed history: %#v", status)
 				}
 			}
 		})

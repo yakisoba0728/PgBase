@@ -32,6 +32,9 @@ var relationSchemaSQL string
 //go:embed 000006_schema_operations.sql
 var schemaOperationsSQL string
 
+//go:embed 000007_record_membership.sql
+var recordMembershipSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -68,6 +71,12 @@ var migrations = []Migration{
 		Name:    "schema_operations",
 		SQL:     schemaOperationsSQL,
 		SHA256:  sha256.Sum256([]byte(schemaOperationsSQL)),
+	},
+	{
+		Version: 7,
+		Name:    "record_membership",
+		SQL:     recordMembershipSQL,
+		SHA256:  sha256.Sum256([]byte(recordMembershipSQL)),
 	},
 }
 

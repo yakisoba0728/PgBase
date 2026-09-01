@@ -140,6 +140,18 @@ type historyCompatibilityPolicy struct {
 	optionalVersion int64
 }
 
+// recordMembershipPreparationPolicy is deliberately tied to the one declared
+// P0 migration boundary. A later embedded migration must choose and test its
+// own compatibility range instead of silently widening startup acceptance.
+func recordMembershipPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
+	if len(migrations) != 7 ||
+		migrations[5].Version != 6 || migrations[5].Name != "schema_operations" ||
+		migrations[6].Version != 7 || migrations[6].Name != "record_membership" {
+		return nil
+	}
+	return &historyCompatibilityPolicy{requiredVersion: 6, optionalVersion: 7}
+}
+
 func requiredHistoryPolicy(migrations []system.Migration) historyCompatibilityPolicy {
 	if len(migrations) == 0 {
 		return historyCompatibilityPolicy{}
