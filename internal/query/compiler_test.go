@@ -250,12 +250,97 @@ func TestCompileListCompilesFilterAndSortAgainstCatalog(t *testing.T) {
 	}
 	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
 		`WHERE ((("title" = $1) AND ("large_count" >= $2)) OR ("optional_note" IS NULL)) ` +
-		`ORDER BY "title" DESC NULLS LAST, "id" ASC NULLS LAST LIMIT $3`
+		`ORDER BY "title" DESC NULLS FIRST, "id" DESC NULLS FIRST LIMIT $3`
 	if statement.SQL != wantSQL {
 		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
 	}
 	if !reflect.DeepEqual(statement.Args, []any{"wanted", int64(10), 11}) {
 		t.Fatalf("Args = %#v", statement.Args)
+	}
+}
+
+func TestCompileListOrdersDescendingPagesAlongOneIndexDirection(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	after := &PageCursor{
+		Version:   cursorVersion,
+		Sort:      []SortKey{{Field: systemFieldCreatedAt, Desc: true}, {Field: systemFieldID}},
+		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
+	}
+	statement, err := CompileList(collection, ListQuery{
+		Sort: []SortKey{{Field: systemFieldCreatedAt, Desc: true}}, After: after, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
+	// Both keys are "not null" columns, so the descending page is spelled with
+	// the btree default NULLS FIRST and the appended tiebreaker follows the key
+	// it breaks ties for. A mixed "DESC NULLS FIRST, ASC NULLS LAST" order can
+	// use the "(created_at, id)" index in neither direction.
+	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
+		`WHERE (("created_at" < $1 OR ($1 IS NULL AND "created_at" IS NOT NULL)) ` +
+		`OR (("created_at" IS NOT DISTINCT FROM $1) AND ("id" < $2 OR ($2 IS NULL AND "id" IS NOT NULL)))) ` +
+		`ORDER BY "created_at" DESC NULLS FIRST, "id" DESC NULLS FIRST LIMIT $3`
+	if statement.SQL != wantSQL {
+		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	wantArgs := []any{
+		time.Date(2026, 8, 28, 12, 34, 56, 123456789, time.UTC),
+		uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+		51,
+	}
+	if !reflect.DeepEqual(statement.Args, wantArgs) {
+		t.Fatalf("Args = %#v, want %#v", statement.Args, wantArgs)
+	}
+}
+
+func TestCompileListKeepsNullsLastForNullableSortColumnsAndExplicitTiebreakers(t *testing.T) {
+	t.Parallel()
+
+	// "note" is indexed but not required, so it can hold NULL and keeps the
+	// documented NULLS LAST placement in both directions.
+	collection := schema.Collection{
+		Name:      "records",
+		TableName: "physical_records",
+		Fields:    []schema.Field{{Name: "note", ColumnName: "note", Type: schema.TypeText, Indexed: true}},
+	}
+	after := &PageCursor{
+		Version: cursorVersion,
+		Sort:    []SortKey{{Field: "note", Desc: true}, {Field: systemFieldID}},
+		Values:  []json.RawMessage{json.RawMessage(`null`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+	}
+	statement, err := CompileList(collection, ListQuery{
+		Sort: []SortKey{{Field: "note", Desc: true}}, After: after, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
+	wantSQL := `SELECT "id", "created_at", "updated_at", "note" FROM "app"."physical_records" ` +
+		`WHERE (("note" < $1 OR ($1 IS NOT NULL AND "note" IS NULL)) ` +
+		`OR (("note" IS NOT DISTINCT FROM $1) AND ("id" < $2 OR ($2 IS NULL AND "id" IS NOT NULL)))) ` +
+		`ORDER BY "note" DESC NULLS LAST, "id" DESC NULLS FIRST LIMIT $3`
+	if statement.SQL != wantSQL {
+		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	if statement.Args[0] != nil {
+		t.Fatalf("null cursor value decoded to %#v, want untyped nil", statement.Args[0])
+	}
+
+	// A caller that spells out its own trailing "id" key keeps the direction it
+	// asked for; only the tiebreaker the compiler appends is realigned.
+	explicit, err := CompileList(collection, ListQuery{
+		Sort:  []SortKey{{Field: "note", Desc: true}, {Field: systemFieldID}},
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("CompileList(explicit tiebreaker) error = %v", err)
+	}
+	wantExplicit := `SELECT "id", "created_at", "updated_at", "note" FROM "app"."physical_records" ` +
+		`ORDER BY "note" DESC NULLS LAST, "id" ASC NULLS LAST LIMIT $1`
+	if explicit.SQL != wantExplicit {
+		t.Fatalf("SQL =\n%q\nwant\n%q", explicit.SQL, wantExplicit)
 	}
 }
 
@@ -459,5 +544,61 @@ func assertValidationDetail(t *testing.T, err error, field, code string) {
 	}
 	if len(validationErr.Details) != 1 || validationErr.Details[0] != (ValidationDetail{Field: field, Code: code}) {
 		t.Fatalf("validation details = %#v, want field %q code %q", validationErr.Details, field, code)
+	}
+}
+
+// TestEverySortEntryPointSharesTheTiebreakerDirection pins tie ordering at the
+// single place that decides it. The scalar page compiler, the relation-aware
+// page, the root page and expansion each derive their sort keys from
+// effectiveSortKeys; aligning the appended tiebreaker inside one caller instead
+// would make the same sort produce a different tie order depending on whether a
+// request happened to touch a relation, and a cursor issued by one path would
+// then anchor against the other path's ordering.
+func TestEverySortEntryPointSharesTheTiebreakerDirection(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		requested []SortKey
+		want      []SortKey
+	}{
+		{
+			name:      "descending key carries its appended tiebreaker down",
+			requested: []SortKey{{Field: "created_at", Desc: true}},
+			want:      []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID, Desc: true}},
+		},
+		{
+			name:      "ascending key keeps an ascending tiebreaker",
+			requested: []SortKey{{Field: "created_at"}},
+			want:      []SortKey{{Field: "created_at"}, {Field: systemFieldID}},
+		},
+		{
+			name:      "only the last key decides the appended direction",
+			requested: []SortKey{{Field: "title", Desc: true}, {Field: "rank"}},
+			want:      []SortKey{{Field: "title", Desc: true}, {Field: "rank"}, {Field: systemFieldID}},
+		},
+		{
+			name:      "an explicit trailing tiebreaker is left alone",
+			requested: []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID}},
+			want:      []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID}},
+		},
+		{
+			name:      "the default page order is unchanged",
+			requested: nil,
+			want:      []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := effectiveSortKeys(test.requested)
+			if len(got) != len(test.want) {
+				t.Fatalf("effectiveSortKeys(%v) = %v, want %v", test.requested, got, test.want)
+			}
+			for index := range got {
+				if got[index] != test.want[index] {
+					t.Fatalf("effectiveSortKeys(%v)[%d] = %+v, want %+v", test.requested, index, got[index], test.want[index])
+				}
+			}
+		})
 	}
 }

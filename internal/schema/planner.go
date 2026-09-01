@@ -35,7 +35,7 @@ func (Planner) PlanCreateWithCatalog(baseVersion int64, catalog Catalog, input C
 }
 
 func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollectionInput, catalogAware bool) (Plan, error) {
-	if err := validateName("name", input.Name); err != nil {
+	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
 	if len(input.Fields) > maximumCollectionFields {
@@ -46,7 +46,7 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 	seenNames := make(map[string]struct{}, len(input.Fields))
 	for ordinal, field := range input.Fields {
 		namePath := fmt.Sprintf("fields.%d.name", ordinal)
-		if err := validateName(namePath, field.Name); err != nil {
+		if err := validateInputName(namePath, field.Name); err != nil {
 			return Plan{}, err
 		}
 		if _, duplicate := seenNames[field.Name]; duplicate {
@@ -90,7 +90,7 @@ func (Planner) PlanUpdateWithCatalog(baseVersion int64, catalog Catalog, current
 }
 
 func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection, input UpdateCollectionInput, catalogAware bool) (Plan, error) {
-	if err := validateName("name", input.Name); err != nil {
+	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
 	if input.Name != current.Name || current.TableName != current.Name {
@@ -104,7 +104,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 	desiredNames := make(map[string]struct{}, len(input.Fields))
 	for ordinal, field := range input.Fields {
 		namePath := fmt.Sprintf("fields.%d.name", ordinal)
-		if err := validateName(namePath, field.Name); err != nil {
+		if err := validateInputName(namePath, field.Name); err != nil {
 			return Plan{}, err
 		}
 		if _, duplicate := desiredNames[field.Name]; duplicate {

@@ -21,7 +21,7 @@ const fourthTagID = "44444444-4444-4444-8444-444444444444";
 function response(status: number, body?: unknown, headers?: HeadersInit): Response {
   const responseHeaders = new Headers({ "content-type": "application/json", ...headers });
   if (status >= 200 && status < 300 && !responseHeaders.has("ETag")) responseHeaders.set("ETag", '"pgb1.test"');
-  return { ok: status >= 200 && status < 300, status, headers: responseHeaders, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+  return { ok: status >= 200 && status < 300, status, headers: responseHeaders, text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)) } as unknown as Response;
 }
 
 function session(): Response {

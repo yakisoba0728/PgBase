@@ -13,11 +13,24 @@ import (
 )
 
 const (
-	cursorVersion        = 3
 	maxDecodedCursorSize = 4096
 	cursorDomain         = "cursor\x00"
 	maximumCursorSortLen = maximumSortKeys + 1
+
+	// cursorVersion 4 retires tokens issued when an appended "id" tiebreaker
+	// always sorted ascending. A cursor records its sort fields but not their
+	// directions, so a descending page issued before that change anchors on the
+	// old tie order and would repeat or skip rows inside a tie group while the
+	// token stayed within its TTL. Rejecting those tokens costs the holder one
+	// re-listing from the first page.
+	cursorVersion = 4
 )
+
+// CursorVersion is the page-cursor payload version this binary issues and
+// accepts. It is exported so callers outside this package can build a cursor
+// the codec still honours instead of pinning a literal that a version bump
+// would silently turn into an expired token.
+const CursorVersion = cursorVersion
 
 type CursorCodec struct {
 	secret []byte

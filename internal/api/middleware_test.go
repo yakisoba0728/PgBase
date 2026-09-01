@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -157,5 +158,49 @@ func TestCORSResponseVaryIsCacheSafe(t *testing.T) {
 	}
 	if !strings.Contains(response.Header().Get("Vary"), "Origin") {
 		t.Fatalf("Vary = %q", response.Header().Get("Vary"))
+	}
+}
+
+// TestBodyLimitAppliesToEveryContentTypeSpelling pins the body cap to every
+// request instead of to a Content-Type prefix match. decodeStrictJSON accepts a
+// media type through mime.ParseMediaType, which trims Unicode spaces such as
+// U+00A0, so a prefix gate here used to skip MaxBytesReader for a header the
+// decoder still read as application/json.
+func TestBodyLimitAppliesToEveryContentTypeSpelling(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+	}{
+		{name: "canonical", contentType: "application/json"},
+		{name: "absent", contentType: ""},
+		{name: "no break space prefix", contentType: "\u00a0application/json"},
+		{name: "next line prefix", contentType: "\u0085application/json"},
+		{name: "vertical tab prefix", contentType: "\vapplication/json"},
+		{name: "unrelated media type", contentType: "text/plain"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			var read int
+			var readErr error
+			handler := bodyLimitMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				read, readErr = len(raw), err
+			}))
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login",
+				strings.NewReader(strings.Repeat("x", maxJSONBodyBytes+1)))
+			if test.contentType != "" {
+				request.Header.Set("Content-Type", test.contentType)
+			}
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+
+			var oversized *http.MaxBytesError
+			if !errors.As(readErr, &oversized) {
+				t.Fatalf("read error = %v, want *http.MaxBytesError", readErr)
+			}
+			if read > maxJSONBodyBytes {
+				t.Fatalf("handler read %d bytes, want at most %d", read, maxJSONBodyBytes)
+			}
+		})
 	}
 }

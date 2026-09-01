@@ -321,9 +321,10 @@ git switch main
 git pull --ff-only
 ```
 
-새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx를 준비한다. clone 직후 다음 순서로 전달 상태를 확인한다.
+새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx, 그리고 데이터베이스를 만들 수 있는 superuser 계정을 가진 PostgreSQL 16 이상을 준비한다. `PGBASE_TEST_ADMIN_URL` 없이 `go test`를 실행하면 live PostgreSQL이 필요한 테스트가 `internal/testutil`에서 전부 조용히 skip되면서도 모든 패키지가 `ok`로 보고되므로, §10 검증 gate와 같은 조건을 만들려면 이 변수를 반드시 설정한다. clone 직후 다음 순서로 전달 상태를 확인한다.
 
 ```console
+export PGBASE_TEST_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
 go test ./... -count=1
 go vet ./...
 cd ui/admin

@@ -58,6 +58,7 @@ const (
 	OperationRelationWrite   Operation = "relation_write"
 	OperationRelationDelete  Operation = "relation_delete"
 	OperationRelationExpand  Operation = "relation_expand"
+	OperationRelationRead    Operation = "relation_read"
 )
 
 // Outcome is a bounded operation result label.
@@ -338,7 +339,8 @@ func validOperationEvent(event Event) bool {
 		return event.operation == OperationAdminSetup || event.operation == OperationAdminLogin
 	case ComponentRelation:
 		return event.operation == OperationRelationSchema || event.operation == OperationRelationWrite ||
-			event.operation == OperationRelationDelete || event.operation == OperationRelationExpand
+			event.operation == OperationRelationDelete || event.operation == OperationRelationExpand ||
+			event.operation == OperationRelationRead
 	default:
 		return false
 	}

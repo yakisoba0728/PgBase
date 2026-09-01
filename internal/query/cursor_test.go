@@ -54,7 +54,7 @@ func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode token fixture: %v", err)
 	}
-	wantPayload := `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56.123456789Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T12:49:56Z"}`
+	wantPayload := `{"v":` + strconv.Itoa(cursorVersion) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56.123456789Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T12:49:56Z"}`
 	if got := string(raw[:len(raw)-sha256.Size]); got != wantPayload {
 		t.Fatalf("payload = %q, want %q", got, wantPayload)
 	}
@@ -181,23 +181,23 @@ func TestCursorCodecRejectsAuthenticatedInvalidPayloads(t *testing.T) {
 	codec := NewCursorCodec(secret)
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	now := time.Date(2026, 8, 28, 12, 40, 0, 0, time.UTC)
-	base := `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`
+	base := `{"v":` + strconv.Itoa(cursorVersion) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`
 	tests := []struct {
 		name    string
 		payload string
 	}{
-		{name: "unsupported version", payload: strings.Replace(base, `"v":3`, `"v":2`, 1)},
-		{name: "missing sort", payload: `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","values":["1"],"expiresAt":"2026-08-28T13:00:00Z"}`},
-		{name: "empty sort", payload: `{"v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[],"values":[],"expiresAt":"2026-08-28T13:00:00Z"}`},
+		{name: "unsupported version", payload: strings.Replace(base, `"v":`+strconv.Itoa(cursorVersion), `"v":`+strconv.Itoa(cursorVersion-1), 1)},
+		{name: "missing sort", payload: `{"v":` + strconv.Itoa(cursorVersion) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","values":["1"],"expiresAt":"2026-08-28T13:00:00Z"}`},
+		{name: "empty sort", payload: `{"v":` + strconv.Itoa(cursorVersion) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[],"values":[],"expiresAt":"2026-08-28T13:00:00Z"}`},
 		{name: "value count mismatch", payload: strings.Replace(base, `,"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"]`, `,"values":["2026-08-28T12:34:56Z"]`, 1)},
 		{name: "empty sort field", payload: strings.Replace(base, `"field":"created_at"`, `"field":""`, 1)},
 		{name: "invalid collection", payload: strings.Replace(base, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "not-a-uuid", 1)},
 		{name: "non utc expiry", payload: strings.Replace(base, "2026-08-28T13:00:00Z", "2026-08-28T22:00:00+09:00", 1)},
 		{name: "unknown field", payload: strings.Replace(base, `,"expiresAt":`, `,"role":"admin","expiresAt":`, 1)},
-		{name: "wrong type", payload: strings.Replace(base, `"v":3`, `"v":"3"`, 1)},
-		{name: "malformed json", payload: `{"v":3`},
+		{name: "wrong type", payload: strings.Replace(base, `"v":`+strconv.Itoa(cursorVersion), `"v":"`+strconv.Itoa(cursorVersion)+`"`, 1)},
+		{name: "malformed json", payload: `{"v":` + strconv.Itoa(cursorVersion)},
 		{name: "trailing json", payload: base + `{}`},
-		{name: "non canonical json", payload: `{ "v":3,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`},
+		{name: "non canonical json", payload: `{ "v":` + strconv.Itoa(cursorVersion) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`},
 	}
 	for _, test := range tests {
 		test := test

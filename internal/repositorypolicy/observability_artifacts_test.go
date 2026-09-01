@@ -60,7 +60,19 @@ func TestOperationalTelemetryArtifactsAndLinks(t *testing.T) {
 		{from: filepath.Join(root, "docs", "deployment.md"), target: filepath.Join("..", "deployments", "observability", "grafana-dashboard.json")},
 		{from: filepath.Join(root, "docs", "deployment.md"), target: filepath.Join("..", "deployments", "observability", "prometheus-alerts.yml")},
 	}
+	// The source document has to be read, not just used for its directory:
+	// checking only that the target file exists passes even when the document
+	// or the link text is gone.
 	for _, link := range links {
+		source, err := os.ReadFile(link.from)
+		if err != nil {
+			t.Errorf("read documentation source %s: %v", link.from, err)
+			continue
+		}
+		if !strings.Contains(string(source), filepath.ToSlash(link.target)) {
+			t.Errorf("documentation %s no longer links to %s", link.from, link.target)
+			continue
+		}
 		if _, err := os.Stat(filepath.Clean(filepath.Join(filepath.Dir(link.from), link.target))); err != nil {
 			t.Errorf("documentation link from %s to %s does not resolve: %v", link.from, link.target, err)
 		}

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -604,6 +606,92 @@ func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testi
 	}
 	if current := firstCache.Load(); current.Version != 1 {
 		t.Fatalf("opportunistic publication regressed cache to version %d, want 1", current.Version)
+	}
+}
+
+// TestCatalogRetriesSerializationFailureFromACommittedSchemaChange holds a
+// schema writer inside its planner while it owns the exclusive schema_state
+// row, so the catalog reader pins the shared side of the same row from a
+// repeatable-read snapshot that predates the writer's commit. PostgreSQL
+// aborts that wait with 40001; without Catalog's retry loop the reader would
+// surface the serialization failure instead of reading the committed catalog.
+func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	ctx := context.Background()
+	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+
+	recorder := &schemaTelemetryRecorder{}
+	service.recorder = recorder
+	plannerEntered := make(chan struct{})
+	plannerRelease := make(chan struct{})
+	service.planner = &barrierPlanBuilder{delegate: Planner{}, entered: plannerEntered, release: plannerRelease}
+	var releaseWriter sync.Once
+	release := func() { releaseWriter.Do(func() { close(plannerRelease) }) }
+	defer release()
+
+	applyResult := make(chan error, 1)
+	go func() {
+		_, applyErr := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+		applyResult <- applyErr
+	}()
+	<-plannerEntered
+
+	type catalogResult struct {
+		catalog Catalog
+		err     error
+	}
+	catalogRead := make(chan catalogResult, 1)
+	go func() {
+		catalog, err := service.Catalog(ctx)
+		catalogRead <- catalogResult{catalog: catalog, err: err}
+	}()
+	waitForPinnedSchemaStateReader(t, pool)
+	release()
+
+	if err := <-applyResult; err != nil {
+		t.Fatalf("ApplyCreate while a catalog reader waited: %v", err)
+	}
+	read := <-catalogRead
+	if read.err != nil {
+		t.Fatalf("Catalog() error = %v, want a retry against a fresh snapshot", read.err)
+	}
+	if read.catalog.Version != 1 {
+		t.Fatalf("catalog version = %d, want the committed version 1", read.catalog.Version)
+	}
+	if _, ok := read.catalog.Collections["posts"]; !ok {
+		t.Fatalf("catalog collections = %v, want the committed posts collection", read.catalog.Collections)
+	}
+
+	var retries []observability.Event
+	for _, event := range recorder.snapshot() {
+		if event.Kind() == observability.EventKindTransactionRetry {
+			retries = append(retries, event)
+		}
+	}
+	if len(retries) != 1 || retries[0].RetryCause() != observability.RetryCauseSerialization || retries[0].Exhausted() {
+		t.Fatalf("retry telemetry = %#v, want one non-exhausted serialization event", retries)
+	}
+}
+
+func TestCatalogRetryCauseCoversRetryableSQLStatesOnly(t *testing.T) {
+	for code, want := range map[string]observability.RetryCause{
+		"0A000": observability.RetryCauseCachedPlan,
+		"40001": observability.RetryCauseSerialization,
+		"40P01": observability.RetryCauseDeadlock,
+	} {
+		got, ok := catalogRetryCause(fmt.Errorf("read schema version: %w", &pgconn.PgError{Code: code, Message: "must not escape telemetry"}))
+		if !ok || got != want {
+			t.Fatalf("catalogRetryCause(%s) = %q, %v; want %q, true", code, got, ok, want)
+		}
+	}
+	for _, err := range []error{nil, errors.New("not a database error"), &pgconn.PgError{Code: "23505", Message: "not retryable"}} {
+		if cause, ok := catalogRetryCause(err); ok {
+			t.Fatalf("catalogRetryCause(%v) = %q, true; want no retry", err, cause)
+		}
 	}
 }
 
@@ -1331,6 +1419,26 @@ func waitForAdvisoryLockWaiters(t *testing.T, pool *database.Pool, wanted int) {
 	t.Fatalf("advisory lock waiters did not reach %d", wanted)
 }
 
+func waitForPinnedSchemaStateReader(t *testing.T, pool *database.Pool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiters int
+		if err := pool.QueryRow(context.Background(), `select count(*) from pg_stat_activity
+			where datname = current_database()
+			  and wait_event_type = 'Lock'
+			  and query like '%pgbase_meta.schema_state%'
+			  and query like '%FOR SHARE%'`).Scan(&waiters); err != nil {
+			t.Fatalf("read schema_state shared lock waiters: %v", err)
+		}
+		if waiters >= 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("catalog reader did not wait on the pinned schema_state row")
+}
+
 func waitForSchemaStateLockWaiter(t *testing.T, pool *database.Pool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1349,4 +1457,75 @@ func waitForSchemaStateLockWaiter(t *testing.T, pool *database.Pool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("schema writer did not wait on the pinned schema_state row")
+}
+
+// TestCatalogReadsSurviveLegacyOversizedTextDefault pins the wiring half of the
+// input/stored default split. validateCatalogIntegrity runs on every
+// EnsureCurrent, so pointing it at the input validator would turn one legacy
+// column into ErrConflict for every collection in the database, not just the
+// one carrying the default. The unit test around normalizeStoredDefault cannot
+// catch that: it passes whether or not the catalog path actually calls it.
+func TestCatalogReadsSurviveLegacyOversizedTextDefault(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	ctx := context.Background()
+
+	input := CreateCollectionInput{
+		Name: "legacy_defaults",
+		Fields: []FieldInput{
+			{Name: "body", Type: TypeText, Default: json.RawMessage(`"short"`)},
+		},
+	}
+	plan, err := service.PlanCreate(ctx, input)
+	if err != nil {
+		t.Fatalf("PlanCreate: %v", err)
+	}
+	if _, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate: %v", err)
+	}
+	bystander := CreateCollectionInput{Name: "bystander", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
+	bystanderPlan, err := service.PlanCreate(ctx, bystander)
+	if err != nil {
+		t.Fatalf("PlanCreate bystander: %v", err)
+	}
+	if _, err := service.ApplyCreate(ctx, bystander, bystanderPlan.Checksum, bystanderPlan.BaseVersion, administratorID); err != nil {
+		t.Fatalf("ApplyCreate bystander: %v", err)
+	}
+
+	// An older binary bounded record values but not schema defaults, so a
+	// catalog it wrote can hold a text default this binary refuses on input.
+	oversized := strings.Repeat("x", MaximumTextBytes+1)
+	if _, err := pool.Exec(ctx, `update pgbase_meta.fields as fields
+		set default_json = to_jsonb($1::text)
+		from pgbase_meta.collections as collections
+		where fields.collection_id = collections.id
+			and collections.name = 'legacy_defaults' and fields.name = 'body'`, oversized); err != nil {
+		t.Fatalf("write legacy default: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_state
+		set version = version + 1, updated_at = current_timestamp where singleton`); err != nil {
+		t.Fatalf("bump schema version: %v", err)
+	}
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("Catalog() error = %v, want the legacy default to stay readable", err)
+	}
+	legacy, ok := catalog.Collections["legacy_defaults"]
+	if !ok {
+		t.Fatal("catalog lost the collection holding the legacy default")
+	}
+	if got := string(legacy.Fields[0].Default); got != strconv.Quote(oversized) {
+		t.Fatalf("legacy default = %d bytes, want the stored value preserved", len(got))
+	}
+	// The whole catalog has to survive, not only the offending collection.
+	if _, ok := catalog.Collections["bystander"]; !ok {
+		t.Fatal("catalog lost an unrelated collection, so one legacy default locked the database")
+	}
+	// The bound still closes the input path.
+	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+		Name:   "rejected_defaults",
+		Fields: []FieldInput{{Name: "body", Type: TypeText, Default: json.RawMessage(strconv.Quote(oversized))}},
+	}); err == nil {
+		t.Fatal("PlanCreate accepted an oversized text default, want validation error")
+	}
 }

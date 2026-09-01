@@ -419,22 +419,55 @@ func TestExpandRecordsClassifiesTargetCatalogDriftAsOpaqueConflict(t *testing.T)
 }
 
 func TestExpandedReadRejectsLegacyExpandFieldCollisionWithoutBreakingPlainGet(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
+	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
 		Name:   "expand_collision_targets",
 		Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText}},
 	})
+	// "expand" is a reserved field name, so a collection carrying one can no
+	// longer be created through the schema API. Databases written before the
+	// reservation can still hold one, and the expand planner must keep
+	// rejecting those rather than silently mis-resolving the response key, so
+	// this test reproduces that legacy shape by renaming the catalogued field
+	// after apply. Only the logical name moves; the physical column keeps its
+	// original identifier, exactly as a pre-reservation catalog would.
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
 		Name: "expand_collision_roots",
 		Fields: []schema.FieldInput{
-			{Name: "expand", Type: schema.TypeText},
+			{Name: "legacy_expand", Type: schema.TypeText},
 			{Name: "owner", Type: schema.TypeRelation, Relation: &schema.RelationInput{
 				TargetCollection: "expand_collision_targets", Cardinality: schema.RelationSingle,
 				OnDelete: schema.RelationRestrict,
 			}},
 		},
 	})
+	if _, err := schemas.PlanCreate(ctx, schema.CreateCollectionInput{
+		Name:   "expand_collision_rejected",
+		Fields: []schema.FieldInput{{Name: "expand", Type: schema.TypeText}},
+	}); err == nil {
+		t.Fatal("PlanCreate with a field named expand = nil error, want reserved name rejection")
+	}
+	if _, err := pool.Exec(ctx, `alter table app.expand_collision_roots
+		rename column legacy_expand to expand`); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := pool.Exec(ctx, `update pgbase_meta.fields as fields
+		set name = 'expand', column_name = 'expand'
+		from pgbase_meta.collections as collections
+		where fields.collection_id = collections.id
+			and collections.name = 'expand_collision_roots'
+			and fields.name = 'legacy_expand'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("legacy field rename affected %d rows, want 1", tag.RowsAffected())
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_state
+		set version = version + 1, updated_at = current_timestamp where singleton`); err != nil {
+		t.Fatal(err)
+	}
 	target, err := records.Create(ctx, "expand_collision_targets", map[string]json.RawMessage{"name": json.RawMessage(`"target"`)})
 	if err != nil {
 		t.Fatal(err)

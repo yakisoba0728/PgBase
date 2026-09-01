@@ -70,6 +70,28 @@ func TestMetricsRecordsOnlyBoundedEvents(t *testing.T) {
 	)
 }
 
+// TestRelationReadOperationIsInsideTheClosedWhitelist pins the relation
+// operation set. A relation read that only filters or sorts must be able to
+// leave a sample of its own instead of being charged to expansion, and the
+// label stays a closed whitelist: an operation nobody registered still drops.
+func TestRelationReadOperationIsInsideTheClosedWhitelist(t *testing.T) {
+	metrics := NewMetrics(nil)
+	unlisted := "relation_sort_sentinel"
+	metrics.Record(context.Background(), OperationEvent(ComponentRelation, OperationRelationRead, OutcomeBudget, 10*time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(ComponentRelation, OperationRelationRead, OutcomeValidation, time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(ComponentRelation, Operation(unlisted), OutcomeBudget, time.Millisecond))
+
+	body := scrape(t, metrics, "metrics-access-token")
+	if strings.Contains(body, unlisted) {
+		t.Fatalf("metrics output accepted the unlisted relation operation %q:\n%s", unlisted, body)
+	}
+	assertContains(t, body,
+		`pgbase_application_operations_total{component="relation",operation="relation_read",outcome="budget"} 1`,
+		`pgbase_application_operations_total{component="relation",operation="relation_read",outcome="validation"} 1`,
+		`pgbase_observability_dropped_events_total 1`,
+	)
+}
+
 func TestWrapHTTPUsesMuxRouteTemplatesWithoutRequestData(t *testing.T) {
 	metrics := NewMetrics(nil)
 	mux := http.NewServeMux()

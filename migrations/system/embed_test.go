@@ -21,12 +21,18 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		2: "fe3eebdc35d995593d3185169e61670b37a1c5906d06562649a00c50448c32fb",
 		3: "effa5a5895a8ec387c73b4a0afdb1ed3aeb154f09f3d0825862f00d6237c1303",
 		4: "747f4377b19f70e2bdeaf77e5ee9b96f0bb019f0ba0a6d5f7d856d8adb90751b",
+		5: "576df4a578efbd1259cf5dbf22da8d7669bd729e33d2ef1d1b4ed30e1d16197a",
 	}
 	migrations := system.Migrations()
 	if len(migrations) != 5 || migrations[4].Version != 5 || migrations[4].Name != "relation_schema" {
 		t.Fatalf("migration ordering=%+v", migrations)
 	}
-	for _, migration := range migrations[:4] {
+	// Every applied migration is pinned, so adding one without its checksum
+	// fails here instead of at the runner of an already migrated database.
+	if len(want) != len(migrations) {
+		t.Fatalf("pinned checksums=%d migrations=%d", len(want), len(migrations))
+	}
+	for _, migration := range migrations {
 		if got := hex.EncodeToString(migration.SHA256[:]); got != want[migration.Version] {
 			t.Fatalf("historical migration %d checksum=%s want=%s", migration.Version, got, want[migration.Version])
 		}

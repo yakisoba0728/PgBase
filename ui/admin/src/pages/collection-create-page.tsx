@@ -17,10 +17,27 @@ import {
 export { buildInput, parseDefault } from "./collection-field-editor";
 export type { DraftField } from "./collection-field-editor";
 
+// The shared field editor does not know which collection is being created, so
+// this page records whether a relation target was picked as the "(self)" option
+// at selection time. Re-deriving self-ness from `targetCollection === name`
+// would retarget a relation the moment a half-typed name happens to equal an
+// existing collection ("users" while typing "users_profiles"). The editor
+// rebuilds fields with `{ ...field }`, so the flag survives its edits.
+interface CreateDraftField extends DraftField {
+  selfRelation?: boolean;
+}
+
+function selfRelationFlag(previous: CreateDraftField, next: DraftField, collectionName: string): boolean {
+  const nextTarget = next.relation?.targetCollection;
+  if (nextTarget === undefined) return false;
+  if (nextTarget === previous.relation?.targetCollection) return previous.selfRelation === true;
+  return nextTarget !== "" && nextTarget === collectionName;
+}
+
 export function CollectionCreatePage({ navigate }: { navigate(path: string): void }) {
   const { collections } = useSession();
   const [name, setName] = useState("");
-  const [fields, setFields] = useState<DraftField[]>([newDraftField()]);
+  const [fields, setFields] = useState<CreateDraftField[]>([newDraftField()]);
   const [relationCatalog, setRelationCatalog] = useState<CollectionCatalog | null>(null);
   const [relationCatalogLoading, setRelationCatalogLoading] = useState(false);
   const [relationCatalogFailed, setRelationCatalogFailed] = useState(false);
@@ -53,7 +70,9 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
   function changeField(index: number, field: DraftField) {
     setPlan(null);
     setPlannedInput(null);
-    setFields((current) => current.map((currentField, position) => position === index ? field : currentField));
+    setFields((current) => current.map((currentField, position) => position === index
+      ? { ...field, selfRelation: selfRelationFlag(currentField, field, name) }
+      : currentField));
   }
 
   function removeField(index: number) {
@@ -117,7 +136,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
         const nextName = event.target.value;
         setPlan(null);
         setPlannedInput(null);
-        setFields((current) => current.map((field) => name !== "" && field.relation?.targetCollection === name
+        setFields((current) => current.map((field) => field.selfRelation === true && field.relation !== undefined
           ? { ...field, relation: { ...field.relation, targetCollection: nextName } }
           : field));
         setName(nextName);

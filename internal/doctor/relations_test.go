@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -473,5 +474,117 @@ func assertRelationFindingsRedacted(t *testing.T, report Report, fixture relatio
 				t.Fatalf("finding leaked internal identifier %q: %#v", secret, item)
 			}
 		}
+	}
+}
+
+// TestRunReportsLegacyOversizedTextDefault exercises the wired path: a catalog
+// row written before the schema input path bounded text defaults, matched by
+// an equal physical default so no drift finding can mask the result.
+func TestRunReportsLegacyOversizedTextDefault(t *testing.T) {
+	pool := newDoctorPool(t)
+	collectionID := insertCollection(t, pool, "posts", "posts")
+	oversized := strings.Repeat("x", schema.MaximumTextBytes+1)
+	encoded, err := json.Marshal(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertFieldWithDefault(t, pool, collectionID, "title", "text", string(encoded), 0)
+	execDoctorSQL(t, pool, `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		title text default '`+oversized+`'
+	)`, `create index posts_page on app.posts (created_at, id)`)
+
+	report := runDoctor(t, pool)
+	assertFindingCode(t, report, "text_default_oversized")
+	if len(report.Findings) != 1 {
+		t.Fatalf("findings = %#v, want only the oversized text default", report.Findings)
+	}
+	if strings.Contains(report.Findings[0].Message, oversized) {
+		t.Fatal("oversized text default finding echoed the stored value")
+	}
+}
+
+// TestRunAcceptsTextDefaultAtTheByteBound keeps the diagnostic off the value the
+// schema input path still accepts, so upgrading a healthy database stays quiet.
+func TestRunAcceptsTextDefaultAtTheByteBound(t *testing.T) {
+	pool := newDoctorPool(t)
+	collectionID := insertCollection(t, pool, "posts", "posts")
+	bounded := strings.Repeat("x", schema.MaximumTextBytes)
+	encoded, err := json.Marshal(bounded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertFieldWithDefault(t, pool, collectionID, "title", "text", string(encoded), 0)
+	execDoctorSQL(t, pool, `create table app.posts (
+		id uuid primary key,
+		created_at timestamptz not null,
+		updated_at timestamptz not null,
+		title text default '`+bounded+`'
+	)`, `create index posts_page on app.posts (created_at, id)`)
+
+	if report := runDoctor(t, pool); !report.OK || len(report.Findings) != 0 {
+		t.Fatalf("report = %#v, want a healthy catalog", report)
+	}
+}
+
+func TestOversizedTextDefaultCheckIsBoundedAndTypeAware(t *testing.T) {
+	text := string(schema.TypeText)
+	jsonb := string(schema.TypeJSONB)
+	present := true
+	absent := false
+	oversized := `"` + strings.Repeat("x", schema.MaximumTextBytes+1) + `"`
+	bounded := `"` + strings.Repeat("x", schema.MaximumTextBytes) + `"`
+
+	for _, test := range []struct {
+		name    string
+		catalog []catalogRow
+		want    int
+	}{
+		{name: "no rows"},
+		{
+			name:    "collection row without a field",
+			catalog: []catalogRow{{collection: "posts", table: "posts"}},
+		},
+		{
+			name:    "text default at the bound",
+			catalog: []catalogRow{{fieldType: &text, hasDefault: &present, defaultJSON: &bounded}},
+		},
+		{
+			name:    "default column set without has_default",
+			catalog: []catalogRow{{fieldType: &text, hasDefault: &absent, defaultJSON: &oversized}},
+		},
+		{
+			name:    "oversized value on a non-text field",
+			catalog: []catalogRow{{fieldType: &jsonb, hasDefault: &present, defaultJSON: &oversized}},
+		},
+		{
+			name:    "oversized text default",
+			catalog: []catalogRow{{fieldType: &text, hasDefault: &present, defaultJSON: &oversized}},
+			want:    1,
+		},
+		{
+			name: "many oversized text defaults report once",
+			catalog: []catalogRow{
+				{fieldType: &text, hasDefault: &present, defaultJSON: &oversized},
+				{fieldType: &text, hasDefault: &present, defaultJSON: &oversized},
+				{fieldType: &text, hasDefault: &present, defaultJSON: &oversized},
+			},
+			want: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			report := Report{Findings: []Finding{}}
+			checkOversizedTextDefaults(test.catalog, &report)
+			if len(report.Findings) != test.want {
+				t.Fatalf("findings = %#v, want %d", report.Findings, test.want)
+			}
+			for _, item := range report.Findings {
+				if item.Code != "text_default_oversized" {
+					t.Fatalf("finding code = %q", item.Code)
+				}
+			}
+		})
 	}
 }

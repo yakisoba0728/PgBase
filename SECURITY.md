@@ -19,6 +19,6 @@ pgBase has no stable release yet. Security fixes are supported only on the lates
 
 ## Deployment responsibility
 
-Operators must protect PostgreSQL and pgBase secrets, terminate TLS at a trusted proxy, configure exact origins and trusted proxy CIDRs, keep production auto-migration disabled, back up both `pgbase_meta` and `app`, and run current dependencies/images. See [Deployment](docs/deployment.md) and [Backup and restore](docs/backup-restore.md).
+Operators must protect PostgreSQL and pgBase secrets, terminate TLS at a trusted proxy, configure exact origins and trusted proxy CIDRs, keep production auto-migration disabled, back up all three pgBase schemas (`pgbase_meta`, `app`, and `pgbase_relation`) together, and run current dependencies/images. See [Deployment](docs/deployment.md) and [Backup and restore](docs/backup-restore.md).
 
-The Production Kernel does not include public user authentication, relationships, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Do not infer security guarantees for those excluded capabilities.
+The Production Kernel does not include public user authentication or record rules, cross-project relations, arbitrary SQL joins, relation edge attributes, files, realtime, an SDK, generated OpenAPI, online DDL, replicas, or sharding. Do not infer security guarantees for those excluded capabilities.

@@ -170,7 +170,8 @@ func TestRunAcceptsMatchingTypedPhysicalDefaults(t *testing.T) {
 		tie_even_at timestamptz default E'2026-08-28T12:34:56.1234565Z'::timestamptz,
 		external_id uuid default E'12345678-1234-4567-8901-123456789abc'::uuid,
 		metadata jsonb default E'{"a":[2],"z":1}'::jsonb
-	)`); err != nil {
+	);
+		create index defaults_page on app.defaults (created_at, id)`); err != nil {
 		t.Fatal(err)
 	}
 	report := runDoctor(t, pool)
@@ -261,7 +262,8 @@ func TestRunAcceptsExactSingleIDPrimaryKey(t *testing.T) {
 		id uuid primary key,
 		created_at timestamptz not null,
 		updated_at timestamptz not null
-	)`); err != nil {
+	);
+		create index posts_page on app.posts (created_at, id)`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -344,12 +346,57 @@ func TestRunAcceptsExactSingleColumnUniqueIndex(t *testing.T) {
 	collectionID := insertCollection(t, pool, "posts", "posts")
 	insertField(t, pool, collectionID, "name", "text", false, true, false, 0)
 	if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null, name text);
+		create index posts_page on app.posts (created_at, id);
 		create unique index posts_name_unique on app.posts (name)`); err != nil {
 		t.Fatal(err)
 	}
 	report := runDoctor(t, pool)
 	if !report.OK {
 		t.Fatalf("report = %#v, want exact index to be healthy", report)
+	}
+}
+
+func TestRunReportsMissingOrMismatchedCollectionPageIndex(t *testing.T) {
+	// The planner emits a (created_at, id) index for every collection and the
+	// list kernel assumes it exists, so doctor has to notice when it is gone or
+	// replaced by an index PostgreSQL cannot use for the same ordering.
+	cases := []struct {
+		name  string
+		index string
+	}{
+		{name: "missing"},
+		{name: "reversed column order", index: `create index posts_page on app.posts (id, created_at)`},
+		{name: "created_at only", index: `create index posts_page on app.posts (created_at)`},
+		{name: "extra leading column", index: `create index posts_page on app.posts (updated_at, created_at, id)`},
+		{name: "partial", index: `create index posts_page on app.posts (created_at, id) where created_at > '2000-01-01T00:00:00Z'::timestamptz`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := newDoctorPool(t)
+			insertCollection(t, pool, "posts", "posts")
+			if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null)`); err != nil {
+				t.Fatal(err)
+			}
+			if tc.index != "" {
+				if _, err := pool.Exec(context.Background(), tc.index); err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertFindingCode(t, runDoctor(t, pool), "collection_page_index_missing")
+		})
+	}
+}
+
+func TestRunAcceptsPlannerGeneratedCollectionPageIndex(t *testing.T) {
+	pool := newDoctorPool(t)
+	insertCollection(t, pool, "posts", "posts")
+	if _, err := pool.Exec(context.Background(), `create table app.posts (id uuid primary key, created_at timestamptz not null, updated_at timestamptz not null);
+		create index posts_page on app.posts (created_at, id)`); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctor(t, pool)
+	if !report.OK {
+		t.Fatalf("report = %#v, want the pagination index to be healthy", report)
 	}
 }
 

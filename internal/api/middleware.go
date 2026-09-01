@@ -163,9 +163,16 @@ func requestRoute(request *http.Request) string {
 	return pattern
 }
 
+// bodyLimitMiddleware caps every request body, not only the ones whose
+// Content-Type looks like JSON. The decoder that actually reads a body accepts
+// a media type through mime.ParseMediaType, which trims Unicode spaces such as
+// U+00A0 that a prefix match keeps, so any Content-Type gate here can disagree
+// with the decoder and let an unauthenticated request stream an unbounded body
+// into memory. No route accepts a body larger than maxJSONBodyBytes, so one
+// unconditional limit keeps the two decisions from drifting apart again.
 func bodyLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 		}
 		next.ServeHTTP(w, r)

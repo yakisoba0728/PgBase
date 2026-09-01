@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,9 @@ func TestDefaultRendersTypedLiterals(t *testing.T) {
 		{name: "text quote", typ: TypeText, raw: `"O'Brien"`, want: "E'O''Brien'::text"},
 		{name: "timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+00:00"`, want: "E'2026-08-28T12:34:56Z'::timestamptz"},
 		{name: "timestamp lower PostgreSQL boundary", typ: TypeTimestampTZ, raw: `"0001-01-01T00:00:00Z"`, want: "E'0001-01-01T00:00:00Z'::timestamptz"},
-		{name: "timestamp upper RFC3339 boundary", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999999Z"`, want: "E'9999-12-31T23:59:59.999999999Z'::timestamptz"},
+		{name: "timestamp upper PostgreSQL boundary", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999Z"`, want: "E'9999-12-31T23:59:59.999999Z'::timestamptz"},
+		{name: "timestamp just below the microsecond rounding carry", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.9999994Z"`, want: "E'9999-12-31T23:59:59.9999994Z'::timestamptz"},
+		{name: "text at the byte bound", typ: TypeText, raw: `"` + strings.Repeat("x", MaximumTextBytes) + `"`, want: "E'" + strings.Repeat("x", MaximumTextBytes) + "'::text"},
 		{name: "uuid", typ: TypeUUID, raw: `"12345678-1234-4567-8901-123456789ABC"`, want: "E'12345678-1234-4567-8901-123456789abc'::uuid"},
 		{name: "jsonb", typ: TypeJSONB, raw: `{"quote":"O'Brien","items":[2,1]}`, want: "E'{\"items\":[2,1],\"quote\":\"O''Brien\"}'::jsonb"},
 		{name: "now", typ: TypeTimestampTZ, raw: `{"kind":"now"}`, want: "CURRENT_TIMESTAMP"},
@@ -50,6 +53,9 @@ func TestDefaultRejectsUntypedAndSQLInputs(t *testing.T) {
 		{name: "numeric JSON number", typ: TypeNumeric, raw: "1.2"},
 		{name: "invalid timestamp", typ: TypeTimestampTZ, raw: `"not-a-timestamp"`},
 		{name: "PostgreSQL has no year zero", typ: TypeTimestampTZ, raw: `"0000-01-01T00:00:00Z"`},
+		{name: "microsecond rounding carries past year 9999", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999999Z"`},
+		{name: "microsecond rounding tie carries past year 9999", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.9999995Z"`},
+		{name: "text default over the byte bound", typ: TypeText, raw: `"` + strings.Repeat("x", MaximumTextBytes+1) + `"`},
 		{name: "invalid uuid", typ: TypeUUID, raw: `"not-a-uuid"`},
 		{name: "non-UTC timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+09:00"`},
 		{name: "sql object", typ: TypeText, raw: `{"sql":"CURRENT_TIMESTAMP; DROP TABLE app.posts"}`},
@@ -60,6 +66,46 @@ func TestDefaultRejectsUntypedAndSQLInputs(t *testing.T) {
 	for _, tc := range cases {
 		if _, _, err := normalizeDefault(tc.typ, json.RawMessage(tc.raw)); err == nil {
 			t.Errorf("renderDefault(%s, %s) succeeded, want validation error", tc.typ, tc.raw)
+		}
+	}
+}
+
+// TestStoredDefaultToleratesLegacyOversizedText pins the input/stored split.
+// A database written before MaximumTextBytes reached defaults can hold a text
+// default above the bound; the input path must keep refusing it while the
+// catalog path must keep reading it, because every other bound stays shared.
+func TestStoredDefaultToleratesLegacyOversizedText(t *testing.T) {
+	legacy := json.RawMessage(`"` + strings.Repeat("x", MaximumTextBytes+1) + `"`)
+	if _, _, err := normalizeDefault(TypeText, legacy); err == nil {
+		t.Fatal("normalizeDefault accepted an oversized text default, want validation error")
+	}
+	canonical, rendered, err := normalizeStoredDefault(TypeText, legacy)
+	if err != nil {
+		t.Fatalf("normalizeStoredDefault(oversized text) error = %v, want nil", err)
+	}
+	if string(canonical) != string(legacy) {
+		t.Fatalf("stored canonical default = %q, want the original value", canonical)
+	}
+	if rendered != "E'"+strings.Repeat("x", MaximumTextBytes+1)+"'::text" {
+		t.Fatalf("stored rendered default = %q, want the escaped literal", rendered)
+	}
+
+	// Leniency is scoped to the text byte bound. Every other refusal is a
+	// value no catalog can legally hold, so it must survive on both paths.
+	for _, tc := range []struct {
+		name string
+		typ  FieldType
+		raw  string
+	}{
+		{name: "nan", typ: TypeNumeric, raw: `"NaN"`},
+		{name: "invalid uuid", typ: TypeUUID, raw: `"not-a-uuid"`},
+		{name: "non-UTC timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+09:00"`},
+		{name: "sql object", typ: TypeText, raw: `{"sql":"DROP TABLE app.posts"}`},
+		{name: "text with NUL", typ: TypeText, raw: `"a\u0000b"`},
+		{name: "unsupported type", typ: TypeRelation, raw: `"x"`},
+	} {
+		if _, _, err := normalizeStoredDefault(tc.typ, json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("normalizeStoredDefault(%s) accepted %s, want validation error", tc.name, tc.raw)
 		}
 	}
 }

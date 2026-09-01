@@ -106,7 +106,7 @@ func runAdmin(ctx context.Context, args []string, lookup func(string) (string, b
 	}
 	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+		return configurationError{err: migrationOperationError(options.Logger, "parse PostgreSQL pool configuration", err)}
 	}
 	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
 	if err != nil {
@@ -153,7 +153,7 @@ func runDoctor(ctx context.Context, args []string, lookup func(string) (string, 
 	}
 	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		configErr := configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+		configErr := configurationError{err: migrationOperationError(options.Logger, "parse PostgreSQL pool configuration", err)}
 		return emitDoctorFailure(stdout, *jsonOutput, "configuration_invalid", "pgBase configuration is invalid", configErr)
 	}
 	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
@@ -286,7 +286,7 @@ func runMigrate(ctx context.Context, args []string, lookup func(string) (string,
 	}
 	options.Logger = observability.NewJSONLogger(stderr)
 	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		return configurationError{err: fmt.Errorf("parse PostgreSQL pool configuration: %w", err)}
+		return configurationError{err: migrationOperationError(options.Logger, "parse PostgreSQL pool configuration", err)}
 	}
 	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
 	if err != nil {
@@ -314,6 +314,10 @@ func runMigrate(ctx context.Context, args []string, lookup func(string) (string,
 	return nil
 }
 
+// migrationOperationError logs an operator diagnostic through the redacting
+// JSON logger and returns the wrapped cause. Every command failure that has a
+// configured logger reports through it, including the pool-configuration
+// rejections that exit as configuration errors, so no command exits silently.
 func migrationOperationError(logger *slog.Logger, message string, err error) error {
 	logger.Error(message, "error", err)
 	return fmt.Errorf("%s: %w", message, err)

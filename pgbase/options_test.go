@@ -107,6 +107,15 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			want: "AdminSessionTTL",
 		},
 		{
+			name: "statement timeout cannot exceed the PostgreSQL millisecond ceiling",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, StatementTimeout: maximumStatementTimeout + time.Nanosecond},
+			want: "StatementTimeout",
+		},
+		{
+			name: "statement timeout at the PostgreSQL millisecond ceiling is accepted",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, StatementTimeout: maximumStatementTimeout},
+		},
+		{
 			name: "valid public URL is accepted",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, PublicURL: publicURL, CORSAllowedOrigins: []string{"https://admin.example:8443"}, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}},
 		},

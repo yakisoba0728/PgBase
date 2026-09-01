@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"time"
 
@@ -16,6 +17,11 @@ import (
 )
 
 const schemaAdvisoryLockKey int64 = 0x7067626173650002
+
+const (
+	maximumCatalogRetries    = 32
+	maximumCatalogRetryDelay = 100 * time.Millisecond
+)
 
 var ErrConflict = errors.New("schema plan conflicts with current state")
 
@@ -537,7 +543,12 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				return ErrConflict
 			}
 			if len(field.Default) != 0 {
-				if _, _, err := normalizeDefault(field.Type, field.Default); err != nil {
+				// Stored defaults carry the bounds of the binary that wrote
+				// them, not this one. A bound added after a release must not
+				// reach this check: it runs on every EnsureCurrent, so one
+				// legacy column would turn into ErrConflict for every schema
+				// and record operation in the database.
+				if _, _, err := normalizeStoredDefault(field.Type, field.Default); err != nil {
 					return ErrConflict
 				}
 			}
@@ -610,17 +621,76 @@ func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog,
 	return catalog, nil
 }
 
+// Catalog reads the current catalog from one pinned snapshot. An apply that
+// commits its version bump while this reader waits aborts it with a
+// serialization failure, so the read retries with a fresh snapshot exactly like
+// the record reader's inTxCatalog instead of surfacing 40001 as unavailable.
 func (s *Service) Catalog(ctx context.Context) (Catalog, error) {
 	if err := s.ready(); err != nil {
 		return Catalog{}, err
 	}
 	var catalog Catalog
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		var err error
-		catalog, err = s.EnsureCurrent(ctx, tx)
-		return err
-	})
-	return catalog, err
+	for attempt := 0; ; attempt++ {
+		err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var err error
+			catalog, err = s.EnsureCurrent(ctx, tx)
+			return err
+		})
+		cause, retryable := catalogRetryCause(err)
+		if err == nil || !retryable {
+			return catalog, err
+		}
+		if attempt >= maximumCatalogRetries {
+			s.record(ctx, observability.TransactionRetryEvent(cause, true))
+			return Catalog{}, err
+		}
+
+		timer := time.NewTimer(catalogRetryDelay(attempt))
+		select {
+		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return Catalog{}, err
+			}
+			s.record(ctx, observability.TransactionRetryEvent(cause, false))
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return Catalog{}, ctx.Err()
+		}
+	}
+}
+
+func catalogRetryDelay(attempt int) time.Duration {
+	delay := 2 * time.Millisecond
+	for step := 0; step < attempt && delay < maximumCatalogRetryDelay; step++ {
+		delay *= 2
+		if delay > maximumCatalogRetryDelay {
+			delay = maximumCatalogRetryDelay
+		}
+	}
+	half := delay / 2
+	return half + time.Duration(rand.Int64N(int64(delay-half)+1))
+}
+
+func catalogRetryCause(err error) (observability.RetryCause, bool) {
+	var postgresError *pgconn.PgError
+	if !errors.As(err, &postgresError) {
+		return "", false
+	}
+	switch postgresError.Code {
+	case "0A000":
+		return observability.RetryCauseCachedPlan, true
+	case "40001":
+		return observability.RetryCauseSerialization, true
+	case "40P01":
+		return observability.RetryCauseDeadlock, true
+	default:
+		return "", false
+	}
 }
 
 func (s *Service) ready() error {

@@ -19,6 +19,7 @@ var (
 	testParentFieldID      = uuid.MustParse("0199aa20-0000-7000-8000-000000000102")
 	testTagsFieldID        = uuid.MustParse("0199aa20-0000-7000-8000-000000000103")
 	testLabelsFieldID      = uuid.MustParse("0199aa20-0000-7000-8000-000000000104")
+	testAuthorFieldID      = uuid.MustParse("0199aa20-0000-7000-8000-000000000105")
 )
 
 func TestDecodePreservesOmittedClearAndCanonicalOrder(t *testing.T) {
@@ -105,7 +106,8 @@ func TestDecodeStableValidationCodes(t *testing.T) {
 	}{
 		{name: "single object", field: "owner", raw: `{}`, code: "relation_invalid_value"},
 		{name: "single nil UUID", field: "owner", raw: `"00000000-0000-0000-0000-000000000000"`, code: "relation_invalid_value"},
-		{name: "required single clear", field: "tags", raw: `null`, code: "relation_invalid_value"},
+		{name: "required single clear", field: "author", raw: `null`, code: "relation_min_select"},
+		{name: "required multi null", field: "tags", raw: `null`, code: "relation_invalid_value"},
 		{name: "multi null", field: "labels", raw: `null`, code: "relation_invalid_value"},
 		{name: "multi member type", field: "labels", raw: `[1]`, code: "relation_invalid_value"},
 		{name: "duplicate", field: "labels", raw: `["` + first.String() + `","` + strings.ToUpper(first.String()) + `"]`, code: "duplicate_relation_value"},
@@ -253,6 +255,8 @@ func codecCatalog() (schema.Catalog, schema.Collection) {
 				Relation: relationSpec(testTargetCollectionID, schema.RelationMultiple, 1, 2, schema.RelationStorageEdgeTableV1, tagsTable)},
 			{ID: testLabelsFieldID, Name: "labels", ColumnName: "labels", Type: schema.TypeRelation, Indexed: true, Ordinal: 3,
 				Relation: relationSpec(testTargetCollectionID, schema.RelationMultiple, 0, 3, schema.RelationStorageEdgeTableV1, labelsTable)},
+			{ID: testAuthorFieldID, Name: "author", ColumnName: "author", Type: schema.TypeRelation, Required: true, Indexed: true, Ordinal: 4,
+				Relation: relationSpec(testTargetCollectionID, schema.RelationSingle, 1, 1, schema.RelationStorageInlineFKV1, "author")},
 		},
 	}
 	target := schema.Collection{ID: testTargetCollectionID, Name: "people", TableName: "people", Fields: []schema.Field{}}

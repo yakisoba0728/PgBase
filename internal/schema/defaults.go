@@ -14,7 +14,41 @@ import (
 
 var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 
+// MaximumTextBytes bounds indexed and unique text values, because PostgreSQL
+// btree entries have a page-dependent limit below 2704 bytes. Every text
+// default a request supplies carries the same bound regardless of the field's
+// index settings, so the catalog never accepts a default the record write path
+// rejects on write-back and making a field indexed later cannot strand its own
+// default. The bound is an input rule only; see normalizeStoredDefault.
+const MaximumTextBytes = 2048
+
+// normalizeDefault validates and renders a default a schema request supplied.
+// It carries every bound this binary refuses to accept, including the text
+// byte bound, so plan and apply reject a default the record write path could
+// not later write back.
 func normalizeDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, string, error) {
+	return normalizeTypedDefault(typ, raw, true)
+}
+
+// normalizeStoredDefault validates a default this or an older binary already
+// wrote to the catalog. Bounds introduced after a release must not appear
+// here: validateCatalogIntegrity re-normalizes every stored default on every
+// EnsureCurrent, so a bound a stored default fails turns one legacy column
+// into ErrConflict for every schema and record operation in the database
+// rather than for the one collection carrying it. This mirrors
+// reservedInputNames, which closes a name to new schemas without locking
+// catalogs that already hold it.
+//
+// validateCatalogIntegrity calls this function, so a database holding a legacy
+// oversized text default stays readable across the upgrade. internal/doctor
+// reports the condition so an operator can find and shrink it.
+func normalizeStoredDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, string, error) {
+	return normalizeTypedDefault(typ, raw, false)
+}
+
+// normalizeTypedDefault renders one default. boundText applies MaximumTextBytes,
+// which only the input path may enforce.
+func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (json.RawMessage, string, error) {
 	switch typ {
 	case TypeBoolean:
 		var value bool
@@ -45,7 +79,7 @@ func normalizeDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, stri
 		return jsonString(value), value + "::numeric", nil
 	case TypeText:
 		value, ok := parseJSONString(raw)
-		if !ok {
+		if !ok || (boundText && len(value) > MaximumTextBytes) {
 			return nil, "", validation("", "invalid_default")
 		}
 		literal, ok := sqlLiteral(value)
@@ -149,6 +183,13 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil || parsed.Year() < 1 {
+		return nil, "", validation("", "invalid_default")
+	}
+	// PostgreSQL stores timestamps at microsecond precision, so a value within
+	// half a microsecond of the year 10000 boundary carries into a five digit
+	// year that RFC3339 cannot parse back. Reject it here instead of emitting a
+	// default the catalog and the record write path can no longer read.
+	if parsed.Round(time.Microsecond).Year() > 9999 {
 		return nil, "", validation("", "invalid_default")
 	}
 	_, offset := parsed.Zone()

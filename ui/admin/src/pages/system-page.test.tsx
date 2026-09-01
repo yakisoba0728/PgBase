@@ -5,7 +5,7 @@ import { App } from "../app";
 import { activeSessionExpiresAt } from "../test/fixtures";
 
 function response(status: number, body?: unknown): Response {
-  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)) } as unknown as Response;
 }
 
 afterEach(() => {
