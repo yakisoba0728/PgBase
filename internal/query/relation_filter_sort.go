@@ -350,6 +350,10 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 }
 
 func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, error) {
+	return p.pageStatement(after, normalizedFetchLimit(limit))
+}
+
+func (p relationListPlan) pageStatement(after *PageCursor, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
@@ -380,7 +384,7 @@ func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, er
 		sql += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	sql += order.orderBy()
-	sql += " LIMIT " + builder.placeholder(normalizedFetchLimit(limit))
+	sql += " LIMIT " + builder.placeholder(fetchLimit)
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 

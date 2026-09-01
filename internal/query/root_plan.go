@@ -37,13 +37,13 @@ func plannedRootPlan(collection schema.Collection, filter filterNode, requestedS
 	}
 }
 
-func (p rootPlan) statement(after *PageCursor, limit int) (Statement, error) {
+func (p rootPlan) pageStatement(after *PageCursor, fetchLimit int) (Statement, error) {
 	if p.relation != nil {
-		return p.relation.statement(after, limit)
+		return p.relation.pageStatement(after, fetchLimit)
 	}
-	return CompileList(p.collection, ListQuery{
-		Filter: p.filter, Sort: p.requestedSort, After: after, Limit: limit,
-	})
+	return compileListPage(p.collection, ListQuery{
+		Filter: p.filter, Sort: p.requestedSort, After: after,
+	}, fetchLimit)
 }
 
 func (p rootPlan) anchorValues(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]json.RawMessage, error) {

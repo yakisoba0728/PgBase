@@ -104,6 +104,10 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 }
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
+	return compileListPage(collection, query, normalizedFetchLimit(query.Limit))
+}
+
+func compileListPage(collection schema.Collection, query ListQuery, fetchLimit int) (Statement, error) {
 	sortKeys := effectiveSortKeys(query.Sort)
 	order, err := resolveOrderSpec(collection, sortKeys)
 	if err != nil {
@@ -125,7 +129,7 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 		}
 		conditions = append(conditions, keysetSQL)
 	}
-	limit := builder.placeholder(normalizedFetchLimit(query.Limit))
+	limit := builder.placeholder(fetchLimit)
 	statement := "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")

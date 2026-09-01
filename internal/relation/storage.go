@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -48,6 +51,169 @@ type RowsQuerier interface {
 // junction row than the caller's remaining budget. Its text deliberately
 // excludes relation values and physical storage identifiers.
 var ErrHydrationBudgetExceeded = errors.New("relation hydration budget exceeded")
+
+// HydrateSequential reads a bounded set of sources in one query and visits
+// their hydrated multi-relation values in the caller's source order. Only the
+// current source's relation arrays are retained; returning false stops before
+// later sources are decoded or validated.
+func (b *Bindings) HydrateSequential(
+	ctx context.Context,
+	querier RowsQuerier,
+	sourceIDs []uuid.UUID,
+	visit func(uuid.UUID, map[string]any) bool,
+) (visited int, err error) {
+	if b == nil || querier == nil || visit == nil {
+		return 0, ErrInvalidBinding
+	}
+	if len(sourceIDs) == 0 {
+		return 0, nil
+	}
+	seen := make(map[uuid.UUID]struct{}, len(sourceIDs))
+	for _, id := range sourceIDs {
+		if id == uuid.Nil {
+			return 0, ErrInvalidBinding
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return 0, ErrInvalidBinding
+		}
+		seen[id] = struct{}{}
+	}
+	fields := make([]fieldBinding, 0, len(b.fields))
+	for _, field := range b.fields {
+		if field.spec.Cardinality == schema.RelationMultiple {
+			fields = append(fields, field)
+		}
+	}
+	if len(fields) == 0 {
+		for _, id := range sourceIDs {
+			visited++
+			if !visit(id, map[string]any{}) {
+				break
+			}
+		}
+		return visited, nil
+	}
+
+	rows, err := querier.Query(ctx, sequentialHydrationStatement(fields), sourceIDs)
+	if err != nil {
+		return 0, fmt.Errorf("hydrate relation values: %w", err)
+	}
+	defer rows.Close()
+
+	var currentOrdinal int64
+	var currentID uuid.UUID
+	var values map[string]any
+	var expectedPositions []int
+	lastFieldOrdinal := -1
+	sentinelSeen := false
+	finishCurrent := func() bool {
+		if currentOrdinal == 0 || !sentinelSeen {
+			err = ErrInvalidStoredValue
+			return false
+		}
+		for index, field := range fields {
+			fieldValues, ok := values[field.field.Name].([]string)
+			if !ok || len(fieldValues) < field.spec.MinSelect || len(fieldValues) > field.spec.MaxSelect ||
+				expectedPositions[index] != len(fieldValues) {
+				err = ErrInvalidStoredValue
+				return false
+			}
+		}
+		visited++
+		return visit(currentID, values)
+	}
+
+	for rows.Next() {
+		var sourceID uuid.UUID
+		var sourceOrdinal int64
+		var fieldOrdinal int
+		var targetID pgtype.UUID
+		var position pgtype.Int4
+		if scanErr := rows.Scan(&sourceID, &sourceOrdinal, &fieldOrdinal, &targetID, &position); scanErr != nil {
+			return visited, fmt.Errorf("hydrate relation values: %w", scanErr)
+		}
+		if sourceOrdinal < 1 || sourceOrdinal > int64(len(sourceIDs)) || sourceID != sourceIDs[sourceOrdinal-1] {
+			return visited, ErrInvalidStoredValue
+		}
+		if sourceOrdinal != currentOrdinal {
+			if currentOrdinal != 0 && !finishCurrent() {
+				return visited, err
+			}
+			if sourceOrdinal != currentOrdinal+1 {
+				return visited, ErrInvalidStoredValue
+			}
+			currentOrdinal = sourceOrdinal
+			currentID = sourceID
+			values = make(map[string]any, len(fields))
+			expectedPositions = make([]int, len(fields))
+			for _, field := range fields {
+				values[field.field.Name] = []string{}
+			}
+			lastFieldOrdinal = -1
+			sentinelSeen = false
+		}
+		if sourceID != currentID {
+			return visited, ErrInvalidStoredValue
+		}
+		if fieldOrdinal == -1 {
+			if sentinelSeen || targetID.Valid || position.Valid || lastFieldOrdinal != -1 {
+				return visited, ErrInvalidStoredValue
+			}
+			sentinelSeen = true
+			continue
+		}
+		if !sentinelSeen || fieldOrdinal < 0 || fieldOrdinal >= len(fields) ||
+			fieldOrdinal < lastFieldOrdinal || !targetID.Valid || !position.Valid ||
+			uuid.UUID(targetID.Bytes) == uuid.Nil || int(position.Int32) != expectedPositions[fieldOrdinal] {
+			return visited, ErrInvalidStoredValue
+		}
+		valuesForField, ok := values[fields[fieldOrdinal].field.Name].([]string)
+		if !ok {
+			return visited, ErrInvalidStoredValue
+		}
+		values[fields[fieldOrdinal].field.Name] = append(valuesForField, uuid.UUID(targetID.Bytes).String())
+		expectedPositions[fieldOrdinal]++
+		lastFieldOrdinal = fieldOrdinal
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return visited, fmt.Errorf("hydrate relation values: %w", rowsErr)
+	}
+	if currentOrdinal != int64(len(sourceIDs)) {
+		return visited, ErrInvalidStoredValue
+	}
+	if !finishCurrent() {
+		return visited, err
+	}
+	return visited, nil
+}
+
+func sequentialHydrationStatement(fields []fieldBinding) string {
+	var statement strings.Builder
+	statement.WriteString(`with requested(source_id, source_ordinal) as (
+		select source_id, source_ordinal
+		from unnest($1::uuid[]) with ordinality as input(source_id, source_ordinal)
+	), hydration_rows as (
+		select requested.source_id, requested.source_ordinal,
+			-1::integer as field_ordinal, null::uuid as target_id, null::integer as position
+		from requested`)
+	for index, field := range fields {
+		statement.WriteString(`
+		union all
+		select requested.source_id, requested.source_ordinal, `)
+		statement.WriteString(strconv.Itoa(index))
+		statement.WriteString(`::integer, edges.target_id, edges.position
+		from requested
+		join `)
+		statement.WriteString(field.storageSQL)
+		statement.WriteString(` as edges on edges.source_id = requested.source_id`)
+	}
+	statement.WriteString(`
+	)
+	select source_id, source_ordinal, field_ordinal, target_id, position
+	from hydration_rows
+	order by source_ordinal, field_ordinal, position`)
+	return statement.String()
+}
 
 // Hydrate fills every multi-relation field in records with []string values.
 // It executes exactly one ordered query per multi field (and none when there

@@ -106,100 +106,106 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	if err != nil {
 		return listResult{}, err
 	}
-	result = listResult{page: RecordPage{Items: []map[string]any{}}}
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		var expansion expandPlan
-		var usage *expansionUsage
-		if request.Expand != "" {
-			usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
-			expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
-			if err != nil {
-				return err
-			}
-		}
-		relationOperation = relationOperation || requestAddressesRelationField(
-			collection, filterNode, effectiveSortKeys(requestedSort),
-		)
-		relationPlan, err := compileRelationListPlan(
-			ctx,
-			catalog,
-			collection,
-			request.Principal,
-			s.policy,
-			filterNode,
-			effectiveSortKeys(requestedSort),
-		)
-		if err != nil {
-			if request.Cursor != "" && validationField(err, "sort") {
-				return invalidCursor()
-			}
-			return err
-		}
-		rootRequest := rootPageReadRequest{
-			plan:        plannedRootPlan(collection, filterNode, requestedSort, relationPlan),
-			cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
-		}
-		if usage == nil {
-			rootRequest.hydrate = func(items []map[string]any) error {
-				return hydrateRelationRecords(ctx, tx, catalog, collection, items)
-			}
-		} else {
-			rootRequest.charge = usage.takeQuerySteps
-			rootRequest.hydrate = func(items []map[string]any) error {
-				if len(items) == 0 {
-					return nil
-				}
-				if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
-					return err
-				}
-				return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, usage)
-			}
-		}
-		root, err := s.readRootPageInTx(ctx, tx, rootRequest)
-		if err != nil {
-			return err
-		}
-		if usage == nil {
-			result.page = root.page
-			return nil
-		}
-
-		expanded, err := s.executeExpandPlan(ctx, tx, catalog, root.page.Items, ExpandRequest{
-			Principal: request.Principal,
-			Expand:    request.Expand,
-		}, expansion, usage)
-		if err != nil {
-			return err
-		}
-		candidates := make([]pageCandidate, len(expanded))
-		for index := range expanded {
-			candidates[index] = pageCandidate{
-				root: root.candidates[index].root, wire: expanded[index],
-				cursorValues: root.candidates[index].cursorValues, oversized: expanded[index].oversized,
-			}
-		}
-		assembler := pageAssembler{
-			cursors: s.cursors, collectionID: collection.ID, sortKeys: root.sortKeys,
-			private: root.privateCursor, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
-		}
-		keep, cursor, err := assembler.finish(candidates, root.page.NextCursor != "")
-		if err != nil {
-			return err
-		}
-		items := make([]map[string]any, keep)
-		for index := range keep {
-			items[index], err = expanded[index].Flatten()
-			if err != nil {
-				return err
-			}
-		}
-		result = listResult{
-			page:     RecordPage{Items: items, NextCursor: cursor},
-			expanded: expanded[:keep], querySteps: usage.querySteps,
-		}
-		return nil
+		var operation bool
+		var readErr error
+		result, operation, readErr = s.readListInTx(ctx, tx, catalog, collection, request, filterNode, requestedSort)
+		relationOperation = relationOperation || operation
+		return readErr
 	}, request.Collection)
 	return result, err
+}
+
+func (s *Service) readListInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	catalog schema.Catalog,
+	collection schema.Collection,
+	request ListRequest,
+	filterNode filterNode,
+	requestedSort []SortKey,
+) (listResult, bool, error) {
+	var expansion expandPlan
+	var usage *expansionUsage
+	var err error
+	if request.Expand != "" {
+		usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
+		expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+		if err != nil {
+			return listResult{}, false, err
+		}
+	}
+	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
+	relationPlan, err := compileRelationListPlan(
+		ctx, catalog, collection, request.Principal, s.policy,
+		filterNode, effectiveSortKeys(requestedSort),
+	)
+	if err != nil {
+		if request.Cursor != "" && validationField(err, "sort") {
+			return listResult{}, relationOperation, invalidCursor()
+		}
+		return listResult{}, relationOperation, err
+	}
+	rootRequest := rootPageReadRequest{
+		plan:        plannedRootPlan(collection, filterNode, requestedSort, relationPlan),
+		cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
+	}
+	if usage == nil {
+		if collectionHasMultipleRelation(collection) {
+			rootRequest.hydrator = newRootHydrator(tx, catalog, collection)
+		}
+	} else {
+		rootRequest.charge = usage.takeQuerySteps
+		rootRequest.hydrate = func(items []map[string]any) error {
+			if len(items) == 0 {
+				return nil
+			}
+			if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
+				return err
+			}
+			return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, usage)
+		}
+	}
+	root, err := s.readRootPageInTx(ctx, tx, rootRequest)
+	if err != nil {
+		return listResult{}, relationOperation, err
+	}
+	if usage == nil {
+		return listResult{page: root.page}, relationOperation, nil
+	}
+
+	expanded, err := s.executeExpandPlan(ctx, tx, catalog, root.page.Items, ExpandRequest{
+		Principal: request.Principal, Expand: request.Expand,
+	}, expansion, usage)
+	if err != nil {
+		return listResult{}, relationOperation, err
+	}
+	candidates := make([]pageCandidate, len(expanded))
+	for index := range expanded {
+		candidates[index] = pageCandidate{
+			root: root.candidates[index].root, wire: expanded[index],
+			cursorValues: root.candidates[index].cursorValues, oversized: expanded[index].oversized,
+		}
+	}
+	assembler := pageAssembler{
+		cursors: s.cursors, collectionID: collection.ID, sortKeys: root.sortKeys,
+		private: root.privateCursor, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
+	}
+	keep, cursor, err := assembler.finish(candidates, root.page.NextCursor != "")
+	if err != nil {
+		return listResult{}, relationOperation, err
+	}
+	items := make([]map[string]any, keep)
+	for index := range keep {
+		items[index], err = expanded[index].Flatten()
+		if err != nil {
+			return listResult{}, relationOperation, err
+		}
+	}
+	return listResult{
+		page:     RecordPage{Items: items, NextCursor: cursor},
+		expanded: expanded[:keep], querySteps: usage.querySteps,
+	}, relationOperation, nil
 }
 
 // ExpandRecords is the narrow executor seam for callers such as recordops
