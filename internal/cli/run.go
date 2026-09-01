@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -431,46 +432,35 @@ type migrateInvocation struct {
 	exact     bool
 }
 
-type positiveInt64Flag struct {
-	value int64
-	set   bool
-}
-
-func (target *positiveInt64Flag) String() string {
-	if target == nil || !target.set {
-		return ""
-	}
-	return strconv.FormatInt(target.value, 10)
-}
-
-func (target *positiveInt64Flag) Set(raw string) error {
-	if target.set {
-		return errors.New("migration target was provided more than once")
-	}
+func parseMigrationTarget(raw string) (int64, error) {
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value <= 0 {
-		return errors.New("migration target must be a positive integer")
+		return 0, errors.New("migration target must be a positive integer")
 	}
-	target.value = value
-	target.set = true
-	return nil
+	return value, nil
 }
 
 func parseMigrateInvocation(args []string) (migrateInvocation, error) {
 	if len(args) == 1 && args[0] == "status" {
 		return migrateInvocation{operation: "status"}, nil
 	}
-	if len(args) == 0 || args[0] != "up" {
+	if len(args) == 1 && args[0] == "up" {
+		return migrateInvocation{operation: "up"}, nil
+	}
+	var rawTarget string
+	switch {
+	case len(args) == 3 && args[0] == "up" && args[1] == "--through":
+		rawTarget = args[2]
+	case len(args) == 2 && args[0] == "up" && strings.HasPrefix(args[1], "--through="):
+		rawTarget = strings.TrimPrefix(args[1], "--through=")
+	default:
 		return migrateInvocation{}, errors.New("invalid migrate usage")
 	}
-	flags := flag.NewFlagSet("migrate up", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	var through positiveInt64Flag
-	flags.Var(&through, "through", "")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
-		return migrateInvocation{}, errors.New("invalid migrate usage")
+	through, err := parseMigrationTarget(rawTarget)
+	if err != nil {
+		return migrateInvocation{}, err
 	}
-	return migrateInvocation{operation: "up", through: through.value, exact: through.set}, nil
+	return migrateInvocation{operation: "up", through: through, exact: true}, nil
 }
 
 // migrationOperationError logs an operator diagnostic through the redacting

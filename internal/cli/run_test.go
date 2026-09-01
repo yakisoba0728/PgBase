@@ -406,6 +406,8 @@ func TestMigrateRejectsInvalidExactTargetGrammarBeforeLoadingConfiguration(t *te
 		{name: "overflow", args: []string{"migrate", "up", "--through", "9223372036854775808"}},
 		{name: "duplicate", args: []string{"migrate", "up", "--through", "5", "--through=5"}},
 		{name: "extra positional", args: []string{"migrate", "up", "--through", "5", "extra"}},
+		{name: "bare flag terminator", args: []string{"migrate", "up", "--"}},
+		{name: "single dash alias", args: []string{"migrate", "up", "-through", "5"}},
 		{name: "status flag", args: []string{"migrate", "status", "--through", "5"}},
 	}
 	for _, test := range tests {
