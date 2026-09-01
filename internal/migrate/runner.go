@@ -2,7 +2,6 @@
 package migrate
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -28,10 +27,11 @@ CREATE TABLE IF NOT EXISTS pgbase_meta.system_migrations (
 
 // Runner applies the system schema migrations using the shared database pool.
 type Runner struct {
-	pool       *database.Pool
-	logger     *slog.Logger
-	migrations []system.Migration
-	recorder   observability.Recorder
+	pool          *database.Pool
+	logger        *slog.Logger
+	migrations    []system.Migration
+	compatibility *historyCompatibilityPolicy
+	recorder      observability.Recorder
 }
 
 // New creates a system migration runner.
@@ -53,6 +53,9 @@ func (r *Runner) Up(ctx context.Context) (err error) {
 	defer r.finishOperation(ctx, observability.OperationMigrationUp, started, &err)
 	if r == nil || r.pool == nil {
 		return fmt.Errorf("migration pool is nil")
+	}
+	if err := validateMigrationManifest(r.migrations); err != nil {
+		return err
 	}
 
 	type appliedMigration struct {
@@ -79,31 +82,15 @@ func (r *Runner) Up(ctx context.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		known := make(map[int64]system.Migration, len(r.migrations))
-		for _, migration := range r.migrations {
-			known[migration.Version] = migration
+		history := inspectHistory(r.migrations, applied)
+		if history.err != nil {
+			return history.err
 		}
-		for version := range applied {
-			if _, ok := known[version]; !ok {
-				return fmt.Errorf("system migration history contains unknown version %d", version)
-			}
-		}
-		missingKnownMigration := false
-		for _, migration := range r.migrations {
-			checksum, ok := applied[migration.Version]
-			if !ok {
-				missingKnownMigration = true
-				continue
-			}
-			if missingKnownMigration {
-				return fmt.Errorf("system migration history is out of order at applied version %d", migration.Version)
-			}
-			if !bytes.Equal(checksum, migration.SHA256[:]) {
-				return fmt.Errorf("system migration %d (%s) checksum mismatch", migration.Version, migration.Name)
-			}
+		if history.issue != nil {
+			return history.issue
 		}
 		for _, migration := range r.migrations {
-			if _, ok := applied[migration.Version]; ok {
+			if _, ok := history.applied[migration.Version]; ok {
 				continue
 			}
 
@@ -186,4 +173,19 @@ func readApplied(ctx context.Context, db database.DBTX) (map[int64][]byte, error
 		return nil, fmt.Errorf("iterate applied system migrations: %w", err)
 	}
 	return applied, nil
+}
+
+func readAppliedIfPresent(ctx context.Context, db database.DBTX) (map[int64][]byte, bool, error) {
+	var historyTable *string
+	if err := db.QueryRow(ctx, "select to_regclass('pgbase_meta.system_migrations')::text").Scan(&historyTable); err != nil {
+		return nil, false, fmt.Errorf("check system migration history: %w", err)
+	}
+	if historyTable == nil {
+		return nil, false, nil
+	}
+	applied, err := readApplied(ctx, db)
+	if err != nil {
+		return nil, true, err
+	}
+	return applied, true, nil
 }

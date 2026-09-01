@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -11,9 +10,11 @@ import (
 
 // Status describes the embedded system schema migration state.
 type Status struct {
-	Current int64
-	Latest  int64
-	Dirty   bool
+	Current    int64
+	Latest     int64
+	Dirty      bool
+	Compatible bool
+	Issue      *HistoryIssue
 }
 
 // Status returns the applied and latest embedded migration versions. Dirty is
@@ -24,46 +25,27 @@ func (r *Runner) Status(ctx context.Context) (status Status, err error) {
 	if r == nil || r.pool == nil {
 		return Status{}, fmt.Errorf("migration pool is nil")
 	}
-	for _, migration := range r.migrations {
-		if migration.Version > status.Latest {
-			status.Latest = migration.Version
-		}
-	}
-
-	var historyTable *string
-	if err = r.pool.QueryRow(ctx, "select to_regclass('pgbase_meta.system_migrations')::text").Scan(&historyTable); err != nil {
-		return Status{}, fmt.Errorf("check system migration history: %w", err)
-	}
-	if historyTable == nil {
-		return status, nil
-	}
-
-	applied, err := readApplied(ctx, r.pool)
+	policy, err := validateHistoryPolicy(r.migrations, r.compatibility)
 	if err != nil {
 		return Status{}, err
 	}
-	known := make(map[int64][32]byte, len(r.migrations))
-	for _, migration := range r.migrations {
-		known[migration.Version] = migration.SHA256
+	empty := inspectHistory(r.migrations, nil)
+	status.Latest = empty.latest
+	applied, present, err := readAppliedIfPresent(ctx, r.pool)
+	if err != nil {
+		return Status{}, err
 	}
-	for version, checksum := range applied {
-		if version > status.Current {
-			status.Current = version
-		}
-		expected, ok := known[version]
-		if !ok || !bytes.Equal(checksum, expected[:]) {
-			status.Dirty = true
-		}
+	if !present {
+		status.Compatible = policy.compatible(empty.state)
+		return status, nil
 	}
-	missingKnownMigration := false
-	for _, migration := range r.migrations {
-		if _, ok := applied[migration.Version]; !ok {
-			missingKnownMigration = true
-			continue
-		}
-		if missingKnownMigration {
-			status.Dirty = true
-		}
+	history := inspectHistory(r.migrations, applied)
+	if history.err != nil {
+		return Status{}, history.err
 	}
+	status.Current = history.state.Version
+	status.Dirty = history.state.Dirty
+	status.Compatible = policy.compatible(history.state)
+	status.Issue = history.issue
 	return status, nil
 }
