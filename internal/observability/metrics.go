@@ -78,12 +78,12 @@ const (
 )
 
 // RetryCause is a bounded transaction retry cause label.
-type RetryCause string
+type RetryCause = database.RetryCause
 
 const (
-	RetryCauseCachedPlan    RetryCause = "cached_plan"
-	RetryCauseSerialization RetryCause = "serialization"
-	RetryCauseDeadlock      RetryCause = "deadlock"
+	RetryCauseCachedPlan    = database.RetryCauseCachedPlan
+	RetryCauseSerialization = database.RetryCauseSerialization
+	RetryCauseDeadlock      = database.RetryCauseDeadlock
 )
 
 // ReadinessComponent is a bounded readiness dependency label.
