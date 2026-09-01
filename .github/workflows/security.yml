@@ -4,16 +4,31 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned release candidate; empty keeps local CI mode
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Required with candidate_image
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: "17 3 * * 1"
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   audit:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      PGBASE_SECURITY_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+      PGBASE_SECURITY_EXPECTED_VERSION: ${{ inputs.expected_version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,13 +57,39 @@ jobs:
           npm ci --ignore-scripts
           npm audit --audit-level=high
 
-      - name: Build the production image
+      - name: Select the image under test
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$PGBASE_SECURITY_CANDIDATE_IMAGE" && -z "$PGBASE_SECURITY_EXPECTED_VERSION" ]]; then
+            echo "image_ref=pgbase:audit" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            scripts/support/validate-release-candidate.sh \
+              "$PGBASE_SECURITY_CANDIDATE_IMAGE" "$PGBASE_SECURITY_EXPECTED_VERSION"
+            echo "image_ref=$PGBASE_SECURITY_CANDIDATE_IMAGE" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate and pull release candidate
+        if: steps.image.outputs.release == 'true'
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PGBASE_SECURITY_CANDIDATE_IMAGE"
+
+      - name: Build the production image in local CI mode
+        if: steps.image.outputs.release == 'false'
         run: docker build --file deployments/Dockerfile --tag pgbase:audit .
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
         with:
-          image: pgbase:audit
+          image: ${{ steps.image.outputs.image_ref }}
           format: spdx-json
           output-file: pgbase.spdx.json
           artifact-name: pgbase-sbom
@@ -56,7 +97,7 @@ jobs:
       - name: Scan production image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: pgbase:audit
+          image-ref: ${{ steps.image.outputs.image_ref }}
           format: table
           exit-code: "1"
           ignore-unfixed: true

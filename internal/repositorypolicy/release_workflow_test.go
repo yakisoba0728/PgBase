@@ -11,7 +11,7 @@ import (
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
-func TestReleaseWorkflowPinsBuilderAndInjectsVersion(t *testing.T) {
+func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t *testing.T) {
 	workflowPath := filepath.Join("..", "..", ".github", "workflows", "release-image.yml")
 	contents, err := os.ReadFile(workflowPath)
 	if err != nil {
@@ -25,8 +25,11 @@ func TestReleaseWorkflowPinsBuilderAndInjectsVersion(t *testing.T) {
 		t.Fatal("release workflow does not pin the BuildKit image by digest")
 	}
 	buildCommand := shellCommand(t, workflow, "docker buildx build")
-	if !strings.Contains(workflow, `tag="${GITHUB_REF_NAME}"`) || !strings.Contains(buildCommand, `--build-arg "VERSION=$tag"`) {
-		t.Fatal("release workflow does not inject the release tag into the binary version")
+	if strings.Count(workflow, "docker buildx build") != 1 || !strings.Contains(buildCommand, `--build-arg "VERSION=$release_version"`) {
+		t.Fatal("release workflow does not inject the preflight version into exactly one candidate build")
+	}
+	if strings.Contains(buildCommand, `--tag "$image:$tag"`) || strings.Contains(buildCommand, `--tag "$image:latest"`) {
+		t.Fatal("candidate build mutates an exact release tag or moving channel before verification")
 	}
 
 	dockerfilePath := filepath.Join("..", "..", "deployments", "Dockerfile")
@@ -39,7 +42,7 @@ func TestReleaseWorkflowPinsBuilderAndInjectsVersion(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowRequiresCompleteReusableVerificationBeforePublishing(t *testing.T) {
+func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *testing.T) {
 	workflowPath := filepath.Join("..", "..", ".github", "workflows", "release-image.yml")
 	contents, err := os.ReadFile(workflowPath)
 	if err != nil {
@@ -47,19 +50,53 @@ func TestReleaseWorkflowRequiresCompleteReusableVerificationBeforePublishing(t *
 	}
 	workflow := string(contents)
 	for _, marker := range []string{
-		"backend:\n    uses: ./.github/workflows/backend.yml",
-		"frontend:\n    uses: ./.github/workflows/frontend.yml",
-		"e2e:\n    uses: ./.github/workflows/e2e.yml",
-		"security:\n    uses: ./.github/workflows/security.yml",
-		"backup_restore:\n    uses: ./.github/workflows/backup-restore.yml",
-		"needs: [backend, frontend, e2e, security, backup_restore]",
+		"group: release-${{ github.ref }}\n  cancel-in-progress: false",
+		"preflight:",
+		"candidate:\n    needs: preflight",
+		"candidate_image: ${{ steps.candidate.outputs.candidate_image }}",
+		"expected_version: ${{ needs.preflight.outputs.expected_version }}",
+		"gate:\n    needs: candidate\n    uses: ./.github/workflows/release-gate.yml",
+		"candidate_image: ${{ needs.candidate.outputs.candidate_image }}",
+		"expected_version: ${{ needs.candidate.outputs.expected_version }}",
+		"promotion:\n    needs: [preflight, candidate, gate]",
+		"scripts/support/promote-release-image.sh",
 	} {
 		if !strings.Contains(workflow, marker) {
-			t.Fatalf("release workflow is missing verification gate %q", marker)
+			t.Fatalf("release workflow is missing candidate-first contract %q", marker)
+		}
+	}
+	preflight := strings.Index(workflow, "preflight:")
+	build := strings.Index(workflow, "docker buildx build")
+	promotion := strings.Index(workflow, "scripts/support/promote-release-image.sh")
+	if preflight < 0 || build < preflight || promotion < build {
+		t.Fatal("release operations are not ordered preflight, candidate build, promotion")
+	}
+	if strings.Contains(workflow, "docker push") || strings.Contains(workflow[promotion:], "docker build") {
+		t.Fatal("promotion rebuilds or directly pushes an image")
+	}
+
+	gatePath := filepath.Join("..", "..", ".github", "workflows", "release-gate.yml")
+	gateBytes, err := os.ReadFile(gatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := string(gateBytes)
+	for _, marker := range []string{
+		"candidate_image:\n        description:",
+		"candidate_image:\n        description: Digest-pinned candidate image\n        required: true",
+		"expected_version:\n        description: Canonical release version\n        required: true",
+		"backend:\n    needs: contract\n    uses: ./.github/workflows/backend.yml",
+		"frontend:\n    needs: contract\n    uses: ./.github/workflows/frontend.yml",
+		"e2e:\n    needs: contract\n    uses: ./.github/workflows/e2e.yml",
+		"security:\n    needs: contract\n    uses: ./.github/workflows/security.yml",
+		"backup_restore:\n    needs: contract\n    uses: ./.github/workflows/backup-restore.yml",
+	} {
+		if !strings.Contains(gate, marker) {
+			t.Errorf("reusable release gate is missing %q", marker)
 		}
 	}
 
-	for _, name := range []string{"backend.yml", "frontend.yml", "e2e.yml", "security.yml", "backup-restore.yml"} {
+	for _, name := range []string{"backend.yml", "frontend.yml", "e2e.yml", "security.yml", "backup-restore.yml", "release-gate.yml"} {
 		path := filepath.Join("..", "..", ".github", "workflows", name)
 		calledWorkflow, err := os.ReadFile(path)
 		if err != nil {
@@ -67,6 +104,49 @@ func TestReleaseWorkflowRequiresCompleteReusableVerificationBeforePublishing(t *
 		}
 		if !strings.Contains(string(calledWorkflow), "workflow_call:") {
 			t.Fatalf("%s is not reusable by the release gate", name)
+		}
+	}
+
+	for _, consumer := range []struct {
+		name    string
+		markers []string
+	}{
+		{name: "e2e.yml", markers: []string{
+			"PGBASE_E2E_CANDIDATE_IMAGE", "PGBASE_E2E_EXPECTED_VERSION",
+			"scripts/support/validate-release-candidate.sh", "--no-build",
+		}},
+		{name: "security.yml", markers: []string{
+			"PGBASE_SECURITY_CANDIDATE_IMAGE", "scripts/support/validate-release-candidate.sh",
+			"image-ref: ${{ steps.image.outputs.image_ref }}",
+		}},
+		{name: "backup-restore.yml", markers: []string{
+			"PGBASE_RESTORE_CANDIDATE_IMAGE", "PGBASE_RESTORE_EXPECTED_VERSION",
+			"scripts/support/validate-release-candidate.sh", "actual_version",
+		}},
+	} {
+		contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", consumer.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, marker := range consumer.markers {
+			if !strings.Contains(string(contents), marker) {
+				t.Errorf("%s does not enforce release candidate contract %q", consumer.name, marker)
+			}
+		}
+	}
+
+	e2eSource, err := os.ReadFile(filepath.Join("..", "..", "tests", "e2e", "e2e_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		`os.Getenv("PGBASE_E2E_CANDIDATE_IMAGE")`,
+		`os.Getenv("PGBASE_E2E_EXPECTED_VERSION")`,
+		`if suite.release {`,
+		`startupArguments = append(startupArguments, "--no-build")`,
+	} {
+		if !strings.Contains(string(e2eSource), marker) {
+			t.Errorf("black-box E2E release mode is missing %q", marker)
 		}
 	}
 
@@ -103,6 +183,8 @@ func TestBackupRestoreDrillCoversAppRelationDataDiagnosticsAndToolCompatibility(
 		"go run ./cmd/pgbase doctor --json",
 		"pg_restore --version",
 		"server_version_num",
+		"tests/restore/**",
+		"scripts/support/**",
 	} {
 		if !strings.Contains(strings.ToLower(workflow), strings.ToLower(marker)) {
 			t.Fatalf("backup restore drill is missing %q", marker)

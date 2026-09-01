@@ -2,6 +2,17 @@ name: Backup restore drill
 
 on:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned release candidate; empty keeps local and scheduled modes
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Required with candidate_image
+        required: false
+        default: ""
+        type: string
   push:
     branches: ["**"]
     paths:
@@ -16,6 +27,8 @@ on:
       - "internal/recordops/**"
       - "internal/relation/**"
       - "internal/schema/**"
+      - "tests/restore/**"
+      - "scripts/support/**"
       - "docs/backup-restore.md"
       - ".github/workflows/backup-restore.yml"
   pull_request:
@@ -31,6 +44,8 @@ on:
       - "internal/recordops/**"
       - "internal/relation/**"
       - "internal/schema/**"
+      - "tests/restore/**"
+      - "scripts/support/**"
       - "docs/backup-restore.md"
       - ".github/workflows/backup-restore.yml"
   schedule:
@@ -38,6 +53,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   restore:
@@ -62,6 +78,8 @@ jobs:
       PGBASE_TOKEN_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       PGBASE_HTTP_ADDRESS: 127.0.0.1:8090
       PGBASE_PUBLIC_URL: http://127.0.0.1:8090
+      PGBASE_RESTORE_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+      PGBASE_RESTORE_EXPECTED_VERSION: ${{ inputs.expected_version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,13 +90,45 @@ jobs:
           go-version: 1.26.7
           cache: true
 
+      - name: Select restore drill runtime
+        id: mode
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PGBASE_RESTORE_CANDIDATE_IMAGE" && -z "$PGBASE_RESTORE_EXPECTED_VERSION" ]]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            scripts/support/validate-release-candidate.sh \
+              "$PGBASE_RESTORE_CANDIDATE_IMAGE" "$PGBASE_RESTORE_EXPECTED_VERSION"
+            echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+            docker pull "$PGBASE_RESTORE_CANDIDATE_IMAGE"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Migrate and seed the source database
         shell: bash
         run: |
           set -euo pipefail
-          go run ./cmd/pgbase migrate up
+          candidate_runtime=(
+            --env "PGBASE_DATABASE_URL=$PGBASE_DATABASE_URL"
+            --env "PGBASE_TOKEN_SECRET=$PGBASE_TOKEN_SECRET"
+            --env "PGBASE_HTTP_ADDRESS=$PGBASE_HTTP_ADDRESS"
+            --env "PGBASE_PUBLIC_URL=$PGBASE_PUBLIC_URL"
+          )
+          run_pgbase() {
+            if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+              docker run --rm --interactive --network host \
+                "${candidate_runtime[@]}" "$PGBASE_RESTORE_CANDIDATE_IMAGE" "$@"
+            else
+              go run ./cmd/pgbase "$@"
+            fi
+          }
+
+          run_pgbase migrate up
           printf '%s\n' 'restore-drill-administrator-password' | \
-            go run ./cmd/pgbase admin create --email restore@example.test --password-stdin
+            run_pgbase admin create --email restore@example.test --password-stdin
           container="${{ job.services.postgres.id }}"
           test -n "$container"
           docker exec --interactive "$container" psql --username pgbase --dbname pgbase --set ON_ERROR_STOP=1 <<'SQL'
@@ -104,12 +154,38 @@ jobs:
           values ('019551d0-e9c0-7000-8000-000000000005',now(),now(),'restore-record-sentinel');
           SQL
 
-          go build -o "$RUNNER_TEMP/pgbase-restore-drill" ./cmd/pgbase
-          "$RUNNER_TEMP/pgbase-restore-drill" serve > "$RUNNER_TEMP/pgbase-restore-source.log" 2>&1 &
-          server_pid="$!"
+          server_pid=""
+          server_container=""
+          if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+            server_container="pgbase-restore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            docker run --detach --name "$server_container" --network host \
+              "${candidate_runtime[@]}" "$PGBASE_RESTORE_CANDIDATE_IMAGE" serve >/dev/null
+          else
+            go build -o "$RUNNER_TEMP/pgbase-restore-drill" ./cmd/pgbase
+            "$RUNNER_TEMP/pgbase-restore-drill" serve > "$RUNNER_TEMP/pgbase-restore-source.log" 2>&1 &
+            server_pid="$!"
+          fi
           cleanup_source_server() {
-            kill -TERM "$server_pid" 2>/dev/null || true
-            wait "$server_pid" 2>/dev/null || true
+            if [[ -n "$server_container" ]]; then
+              docker rm --force "$server_container" >/dev/null 2>&1 || true
+            elif [[ -n "$server_pid" ]]; then
+              kill -TERM "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+          }
+          source_server_running() {
+            if [[ -n "$server_container" ]]; then
+              [[ "$(docker inspect --format '{{.State.Running}}' "$server_container" 2>/dev/null)" == "true" ]]
+            else
+              kill -0 "$server_pid" 2>/dev/null
+            fi
+          }
+          print_source_logs() {
+            if [[ -n "$server_container" ]]; then
+              docker logs "$server_container" 2>&1 || true
+            else
+              cat "$RUNNER_TEMP/pgbase-restore-source.log"
+            fi
           }
           trap cleanup_source_server EXIT
           ready=false
@@ -118,14 +194,14 @@ jobs:
               ready=true
               break
             fi
-            if ! kill -0 "$server_pid" 2>/dev/null; then
-              cat "$RUNNER_TEMP/pgbase-restore-source.log"
+            if ! source_server_running; then
+              print_source_logs
               exit 1
             fi
             sleep 0.25
           done
           if [[ "$ready" != true ]]; then
-            cat "$RUNNER_TEMP/pgbase-restore-source.log"
+            print_source_logs
             exit 1
           fi
 
@@ -138,6 +214,15 @@ jobs:
             --data '{"email":"restore@example.test","password":"restore-drill-administrator-password"}' \
             "$origin/api/admin/auth/login")"
           csrf_token="$(jq --exit-status --raw-output '.csrfToken | select(length > 0)' <<< "$login_response")"
+          if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+            system_response="$(curl --silent --show-error --fail-with-body \
+              --cookie "$cookie_jar" "$origin/api/admin/system")"
+            actual_version="$(jq --exit-status --raw-output '.version' <<< "$system_response")"
+            if [[ "$actual_version" != "$PGBASE_RESTORE_EXPECTED_VERSION" ]]; then
+              echo "candidate version $actual_version does not match expected $PGBASE_RESTORE_EXPECTED_VERSION" >&2
+              exit 1
+            fi
+          fi
 
           admin_post() {
             local path="$1"
@@ -220,7 +305,7 @@ jobs:
           set -euo pipefail
           container="${{ job.services.postgres.id }}"
           # Every embedded system migration must exist in the restored history.
-          expected="$(ls -1 migrations/system/*.sql | wc -l | tr -d ' ')"
+          expected="$(find migrations/system -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.system_migrations')" = "$expected"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.admins')" = "1"
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command 'select count(*) from pgbase_meta.collections')" = "3"
@@ -233,6 +318,15 @@ jobs:
           edge_table="$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command "select format('%I.%I', 'pgbase_relation', relations.storage_name) from pgbase_meta.field_relations relations join pgbase_meta.fields fields on fields.id = relations.field_id join pgbase_meta.collections collections on collections.id = relations.source_collection_id where collections.name = 'restore_articles' and fields.name = 'reviewers' and relations.cardinality = 'multiple'")"
           [[ "$edge_table" == 'pgbase_relation.'* ]]
           test "$(docker exec "$container" psql --username pgbase --dbname pgbase_restore --tuples-only --no-align --command "select string_agg(people.name, ',' order by edges.position) from $edge_table edges join app.restore_people people on people.id = edges.target_id")" = "Bob,Ada"
-          PGBASE_DATABASE_URL='postgres://pgbase:restore-test-password@127.0.0.1:5432/pgbase_restore?sslmode=disable' \
-            go run ./cmd/pgbase doctor --json > restore-doctor.json
+          restored_url='postgres://pgbase:restore-test-password@127.0.0.1:5432/pgbase_restore?sslmode=disable'
+          if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+            docker run --rm --network host \
+              --env "PGBASE_DATABASE_URL=$restored_url" \
+              --env "PGBASE_TOKEN_SECRET=$PGBASE_TOKEN_SECRET" \
+              --env "PGBASE_HTTP_ADDRESS=$PGBASE_HTTP_ADDRESS" \
+              --env "PGBASE_PUBLIC_URL=$PGBASE_PUBLIC_URL" \
+              "$PGBASE_RESTORE_CANDIDATE_IMAGE" doctor --json > restore-doctor.json
+          else
+            PGBASE_DATABASE_URL="$restored_url" go run ./cmd/pgbase doctor --json > restore-doctor.json
+          fi
           jq --exit-status '.ok == true and (.findings | length == 0)' restore-doctor.json

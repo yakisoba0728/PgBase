@@ -4,14 +4,29 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned release candidate; empty keeps local CI mode
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Required with candidate_image
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      PGBASE_E2E_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+      PGBASE_E2E_EXPECTED_VERSION: ${{ inputs.expected_version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,16 +46,33 @@ jobs:
           cache-dependency-path: ui/admin/package-lock.json
 
       - name: Generate isolated Compose configuration
+        id: mode
         shell: bash
         run: |
-          echo "COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          echo "PGBASE_IMAGE=pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          echo "PGBASE_HTTP_PORT=18090" >> "$GITHUB_ENV"
-          echo "PGBASE_POSTGRES_PORT=15432" >> "$GITHUB_ENV"
-          echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090" >> "$GITHUB_ENV"
-          echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-          echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-          echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [[ -z "$PGBASE_E2E_CANDIDATE_IMAGE" && -z "$PGBASE_E2E_EXPECTED_VERSION" ]]; then
+            selected_image="pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            selected_version="e2e-workflow"
+            release=false
+          else
+            scripts/support/validate-release-candidate.sh \
+              "$PGBASE_E2E_CANDIDATE_IMAGE" "$PGBASE_E2E_EXPECTED_VERSION"
+            selected_image="$PGBASE_E2E_CANDIDATE_IMAGE"
+            selected_version="$PGBASE_E2E_EXPECTED_VERSION"
+            release=true
+          fi
+          {
+            echo "COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "PGBASE_IMAGE=$selected_image"
+            echo "PGBASE_VERSION=$selected_version"
+            echo "PGBASE_HTTP_PORT=18090"
+            echo "PGBASE_POSTGRES_PORT=15432"
+            echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090"
+            echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)"
+            echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
+          } >> "$GITHUB_ENV"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
       - name: Verify Compose shutdown policy
         shell: bash
@@ -53,11 +85,29 @@ jobs:
             exit 1
           fi
 
-      - name: Build image
+      - name: Authenticate and pull release candidate
+        if: steps.mode.outputs.release == 'true'
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PGBASE_E2E_CANDIDATE_IMAGE"
+
+      - name: Build image in local CI mode
+        if: steps.mode.outputs.release == 'false'
         run: docker compose -f deployments/docker-compose.yml build
 
       - name: Start isolated PostgreSQL 16.13 project
-        run: docker compose -f deployments/docker-compose.yml up -d --wait
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+            docker compose -f deployments/docker-compose.yml up -d --wait --no-build
+          else
+            docker compose -f deployments/docker-compose.yml up -d --wait
+          fi
 
       - name: Install browser test dependencies
         working-directory: ui/admin

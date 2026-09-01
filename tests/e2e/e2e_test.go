@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ type e2eSuite struct {
 	administrator string
 	password      string
 	version       string
+	release       bool
 	environment   []string
 }
 
@@ -60,7 +62,18 @@ func TestMain(m *testing.M) {
 	}
 	suite = configured
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	output, err := suite.compose(startupCtx, "up", "-d", "--build")
+	startupArguments := []string{"up", "-d"}
+	if suite.release {
+		if output, pullErr := suite.compose(startupCtx, "pull", "pgbase"); pullErr != nil {
+			startupCancel()
+			fmt.Fprintf(os.Stderr, "pull digest-pinned e2e candidate: %v\n%s\n", pullErr, output)
+			os.Exit(1)
+		}
+		startupArguments = append(startupArguments, "--no-build")
+	} else {
+		startupArguments = append(startupArguments, "--build")
+	}
+	output, err := suite.compose(startupCtx, startupArguments...)
 	startupCancel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start e2e compose project: %v\n%s\n", err, output)
@@ -721,6 +734,29 @@ func configureSuite() (e2eSuite, error) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	image := project + ":test"
 	version := "e2e-test"
+	release := false
+	candidateImage := os.Getenv("PGBASE_E2E_CANDIDATE_IMAGE")
+	expectedVersion := os.Getenv("PGBASE_E2E_EXPECTED_VERSION")
+	if (candidateImage == "") != (expectedVersion == "") {
+		return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE and PGBASE_E2E_EXPECTED_VERSION must be set together")
+	}
+	if candidateImage != "" {
+		candidatePattern := regexp.MustCompile(`^[^@\s]+@sha256:[0-9a-f]{64}$`)
+		if !candidatePattern.MatchString(candidateImage) {
+			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE must be an image@sha256 digest reference without a mutable tag")
+		}
+		imageName := candidateImage[:strings.LastIndex(candidateImage, "@")]
+		if strings.Contains(imageName[strings.LastIndex(imageName, "/")+1:], ":") {
+			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE must be an image@sha256 digest reference without a mutable tag")
+		}
+		versionPattern := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$`)
+		if !versionPattern.MatchString(expectedVersion) {
+			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_EXPECTED_VERSION is not a supported canonical release version")
+		}
+		image = candidateImage
+		version = expectedVersion
+		release = true
+	}
 	environment := append(os.Environ(),
 		"PGBASE_HTTP_PORT="+strconv.Itoa(httpPort),
 		"PGBASE_POSTGRES_PORT="+strconv.Itoa(postgresPort),
@@ -736,7 +772,7 @@ func configureSuite() (e2eSuite, error) {
 		repoRoot: repoRoot, composeFile: filepath.Join(repoRoot, "deployments", "docker-compose.yml"),
 		project: project, image: image, baseURL: baseURL, httpPort: httpPort, postgresPort: postgresPort,
 		setupToken: setupToken, tokenSecret: base64.StdEncoding.EncodeToString(rawSecret), metricsToken: metricsToken, databasePass: databasePass,
-		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, environment: environment,
+		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, release: release, environment: environment,
 	}, nil
 }
 
@@ -766,11 +802,13 @@ func (s e2eSuite) cleanup() error {
 	if err != nil {
 		cleanupErrors = append(cleanupErrors, fmt.Errorf("clean compose project: %w (output: %s)", err, strings.TrimSpace(output)))
 	}
-	imageCtx, imageCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	output, err = s.docker(imageCtx, "image", "rm", s.image)
-	imageCancel()
-	if err != nil && !strings.Contains(output, "No such image") {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove image: %w (output: %s)", err, strings.TrimSpace(output)))
+	if !s.release {
+		imageCtx, imageCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		output, err = s.docker(imageCtx, "image", "rm", s.image)
+		imageCancel()
+		if err != nil && !strings.Contains(output, "No such image") {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove image: %w (output: %s)", err, strings.TrimSpace(output)))
+		}
 	}
 	return errors.Join(cleanupErrors...)
 }
