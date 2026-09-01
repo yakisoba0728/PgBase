@@ -20,6 +20,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 - [Production Kernel final handoff and current status](docs/production-kernel-handoff.md)
 - [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)
 - [Codebase audit findings and remediation evidence](docs/codebase-audit-2026-08-28.md)
+- [Round 4-5 codebase audit and remediation evidence](docs/codebase-audit-2026-09-01.md)
 - [10-minute quickstart](docs/quickstart.md)
 - [Deployment and configuration](docs/deployment.md)
 - [Backup and restore](docs/backup-restore.md)

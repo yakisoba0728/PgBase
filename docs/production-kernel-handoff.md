@@ -6,11 +6,11 @@
 
 | 항목 | 상태 |
 | --- | --- |
-| 원격 브랜치 | `origin/main` (PR #8은 `6dd81f9`로 병합 완료) |
-| 구현 기준점 | `main` @ `6dd81f9`와 이 문서를 포함한 후속 변경 집합 |
+| 원격 브랜치 | `origin/main` (PR #10은 `03a0fc1`로 병합 완료) |
+| 구현 기준점 | `main` @ `03a0fc1`와 이 문서를 포함한 후속 변경 집합 |
 | 구현 계획 | Production Kernel 15개 작업 + 데이터/Record Operations/relation 확장 구현 |
-| 코드 리뷰 | 2026-08-28 감사 29건(최초 28건 + 후속 1건), 2026-08-31 감사 27건과 relation 독립 리뷰 finding을 모두 재현·수정·교차 검증 완료 |
-| 알려진 미해결 구현 finding | 0건 (현재 문서화된 pre-v0.1 구현 범위) |
+| 코드 리뷰 | 2026-08-28 감사 29건(최초 28건 + 후속 1건), 2026-08-31 감사 27건, [2026-09-01 4·5라운드 감사](codebase-audit-2026-09-01.md) 37건을 재현·수정·교차 검증 완료 |
+| 알려진 미해결 구현 finding | 3건 — keyset 커서의 커밋 가시성 레이스, nullable 컬럼 내림차순의 인덱스 미매칭, legacy 초과 기본값을 가진 컬렉션의 `PlanUpdate` 거부. [2026-09-01 감사 §7](codebase-audit-2026-09-01.md#7-수정-종결과-최종-검증)에 사유와 함께 기록했다 |
 | 릴리스 상태 | pre-v0.1 개발 프리뷰 |
 
 현재 결과물은 PostgreSQL 기반 관리자용 컬렉션/레코드 백엔드의 배포 후보이며 single/multiple relation과 bounded traversal을 포함한다. 공개 사용자 인증·접근 규칙·파일·realtime까지 제공하는 PocketBase 기능 대체 완성본은 아니고, 실제 트래픽의 용량·복구·장애 증거가 쌓이기 전에는 대규모 운영 준비가 끝났다고 보지 않는다.
@@ -347,6 +347,7 @@ E2E는 임시 Compose 프로젝트, 포트와 비밀을 자체 생성하고 종�
 | [README](../README.md) | 프로젝트 진입점과 현재 범위 |
 | [Tradeoffs](production-kernel-tradeoffs.md) | 확정된 결정의 이점·비용·재검토 조건과 의도적으로 남긴 위험 |
 | [Codebase audit](codebase-audit-2026-08-28.md) | 최초 finding, 수정 증거와 후속 재감사 결과 |
+| [Round 4-5 audit](codebase-audit-2026-09-01.md) | 전수 정독과 적대적 검증으로 찾은 37건, 수정 증거와 미수정 항목 |
 | [10-minute quickstart](quickstart.md) | 로컬 첫 실행과 첫 CRUD |
 | [Deployment and configuration](deployment.md) | 운영 topology, 설정, TLS/proxy, rollout, secret rotation |
 | [Backup and restore](backup-restore.md) | 세 schema와 relation artifact의 일관된 backup/PITR/restore drill |
