@@ -23,6 +23,29 @@ const (
 	maximumCollectionFields   = 1597
 )
 
+// Plan produces the deterministic DDL plan for one opaque change against one
+// validated catalog snapshot.
+func (Planner) Plan(catalog Catalog, change Change) (Plan, error) {
+	switch change.kind {
+	case changeCreate:
+		return (Planner{}).planCreate(catalog.Version, catalog, change.create, true)
+	case changeUpdate:
+		current, ok := catalog.Collections[change.update.Name]
+		if !ok {
+			return Plan{}, ErrCollectionNotFound
+		}
+		return (Planner{}).planUpdate(catalog.Version, catalog, current, change.update, true)
+	case changeDelete:
+		current, ok := catalog.Collections[change.deleteName]
+		if !ok {
+			return Plan{}, ErrCollectionNotFound
+		}
+		return (Planner{}).planDelete(catalog.Version, catalog, current, true)
+	default:
+		return Plan{}, ErrConflict
+	}
+}
+
 // PlanCreate validates a collection definition and produces its deterministic DDL plan.
 func (Planner) PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error) {
 	return (Planner{}).planCreate(baseVersion, Catalog{}, input, false)

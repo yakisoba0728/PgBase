@@ -160,16 +160,26 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (catalog Ca
 	if err != nil {
 		return Catalog{}, err
 	}
-	catalog, err = store.ReadCatalog(ctx, version)
-	if err != nil {
-		return Catalog{}, err
+	current := l.cache.find(version)
+	var compiled *compiledCatalog
+	if current != nil && current.catalog.Version == version {
+		compiled = current
+	} else {
+		catalog, err = store.ReadCatalog(ctx, version)
+		if err != nil {
+			return Catalog{}, err
+		}
+		compiled, err = l.cache.prepare(catalog, maximumCatalogWireBytes)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("compile schema catalog: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Catalog{}, fmt.Errorf("commit schema catalog reload: %w", err)
 	}
 	committed = true
-	l.cache.Replace(catalog)
-	return catalog, nil
+	l.cache.publish(compiled)
+	return cloneCatalog(compiled.catalog), nil
 }
 
 func (l *Listener) setReady(ctx context.Context, ready bool) {

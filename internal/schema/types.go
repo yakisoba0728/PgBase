@@ -42,25 +42,91 @@ type UpdateCollectionInput struct {
 	Fields []FieldInput `json:"fields"`
 }
 
+type changeKind uint8
+
+const (
+	changeCreate changeKind = iota + 1
+	changeUpdate
+	changeDelete
+)
+
+// Change is an immutable schema intent. Values are created only through the
+// operation-specific constructors so callers cannot combine incompatible
+// create, update, and delete members.
+type Change struct {
+	kind       changeKind
+	create     CreateCollectionInput
+	update     UpdateCollectionInput
+	deleteName string
+}
+
+func NewCreateChange(input CreateCollectionInput) Change {
+	input.Fields = cloneFieldInputs(input.Fields)
+	return Change{kind: changeCreate, create: input}
+}
+
+func NewUpdateChange(input UpdateCollectionInput) Change {
+	input.Fields = cloneFieldInputs(input.Fields)
+	return Change{kind: changeUpdate, update: input}
+}
+
+func NewDeleteChange(name string) Change {
+	return Change{kind: changeDelete, deleteName: name}
+}
+
+func cloneFieldInputs(fields []FieldInput) []FieldInput {
+	if fields == nil {
+		return nil
+	}
+	cloned := make([]FieldInput, len(fields))
+	for index, field := range fields {
+		cloned[index] = cloneFieldInput(field)
+	}
+	return cloned
+}
+
+// ApplyIntent binds one immutable change to the plan version/checksum approved
+// by the caller and the administrator responsible for the mutation.
+type ApplyIntent struct {
+	change      Change
+	checksum    string
+	baseVersion int64
+	actor       uuid.UUID
+}
+
+func LegacyApply(change Change, expectedPlan Plan, actor uuid.UUID) ApplyIntent {
+	return ApplyIntent{
+		change:      change,
+		checksum:    expectedPlan.Checksum,
+		baseVersion: expectedPlan.BaseVersion,
+		actor:       actor,
+	}
+}
+
+type ApplyResult struct {
+	Collection Collection
+	Deleted    bool
+}
+
 type Field struct {
-	ID         uuid.UUID
-	Name       string
-	ColumnName string
-	Type       FieldType
-	Required   bool
-	Unique     bool
-	Indexed    bool
-	Default    json.RawMessage
-	Relation   *RelationSpec `json:"relation,omitempty"`
-	Ordinal    int
+	ID         uuid.UUID       `json:"id"`
+	Name       string          `json:"name"`
+	ColumnName string          `json:"columnName"`
+	Type       FieldType       `json:"type"`
+	Required   bool            `json:"required"`
+	Unique     bool            `json:"unique"`
+	Indexed    bool            `json:"indexed"`
+	Default    json.RawMessage `json:"default,omitempty"`
+	Relation   *RelationSpec   `json:"relation,omitempty"`
+	Ordinal    int             `json:"ordinal"`
 }
 
 type Collection struct {
-	ID        uuid.UUID
-	Name      string
-	TableName string
-	Fields    []Field
-	CreatedAt time.Time
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	TableName string    `json:"tableName"`
+	Fields    []Field   `json:"fields"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type PlannedField struct {
@@ -89,12 +155,6 @@ type Plan struct {
 }
 
 type Planner struct{}
-
-type PlanBuilder interface {
-	PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error)
-	PlanUpdate(baseVersion int64, current Collection, input UpdateCollectionInput) (Plan, error)
-	PlanDelete(baseVersion int64, current Collection) (Plan, error)
-}
 
 // ValidationDetail identifies a rejected input member without exposing it in an error string.
 type ValidationDetail struct {

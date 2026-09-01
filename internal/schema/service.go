@@ -1,11 +1,11 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strconv"
 	"time"
 
@@ -18,11 +18,6 @@ import (
 
 const schemaAdvisoryLockKey int64 = 0x7067626173650002
 
-const (
-	maximumCatalogRetries    = 32
-	maximumCatalogRetryDelay = 100 * time.Millisecond
-)
-
 var ErrConflict = errors.New("schema plan conflicts with current state")
 
 var ErrCollectionNotFound = errors.New("collection does not exist")
@@ -34,188 +29,118 @@ var ErrDataConstraint = errors.New("existing data violates the schema change")
 type Service struct {
 	pool     *database.Pool
 	cache    *Cache
-	planner  PlanBuilder
+	planner  Planner
 	recorder observability.Recorder
+
+	beforeDDL        func(context.Context, pgx.Tx) error
+	catalogWireLimit int
 }
 
-// catalogPlanBuilder is an optional deepening of the legacy PlanBuilder seam.
-// Scalar-only test doubles keep the original small interface, while the
-// production Planner receives the exact pinned catalog required to resolve
-// relation targets and incoming dependencies deterministically.
-type catalogPlanBuilder interface {
-	PlanCreateWithCatalog(int64, Catalog, CreateCollectionInput) (Plan, error)
-	PlanUpdateWithCatalog(int64, Catalog, Collection, UpdateCollectionInput) (Plan, error)
-	PlanDeleteWithCatalog(int64, Catalog, Collection) (Plan, error)
-}
-
-func NewService(pool *database.Pool, cache *Cache, planner PlanBuilder) *Service {
+func NewService(pool *database.Pool, cache *Cache, planner Planner) *Service {
 	return NewServiceWithRecorder(pool, cache, planner, nil)
 }
 
-func NewServiceWithRecorder(pool *database.Pool, cache *Cache, planner PlanBuilder, recorder observability.Recorder) *Service {
+func NewServiceWithRecorder(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder) *Service {
 	if cache == nil {
 		cache = &Cache{}
 	}
-	if planner == nil {
-		planner = Planner{}
+	return &Service{
+		pool: pool, cache: cache, planner: planner, recorder: recorder,
+		catalogWireLimit: maximumCatalogWireBytes,
 	}
-	return &Service{pool: pool, cache: cache, planner: planner, recorder: recorder}
 }
 
-func planCreateAgainstCatalog(planner PlanBuilder, catalog Catalog, input CreateCollectionInput) (Plan, error) {
-	if relationPlanner, ok := planner.(catalogPlanBuilder); ok {
-		return relationPlanner.PlanCreateWithCatalog(catalog.Version, catalog, input)
-	}
-	return planner.PlanCreate(catalog.Version, input)
-}
-
-func planUpdateAgainstCatalog(planner PlanBuilder, catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
-	if relationPlanner, ok := planner.(catalogPlanBuilder); ok {
-		return relationPlanner.PlanUpdateWithCatalog(catalog.Version, catalog, current, input)
-	}
-	return planner.PlanUpdate(catalog.Version, current, input)
-}
-
-func planDeleteAgainstCatalog(planner PlanBuilder, catalog Catalog, current Collection) (Plan, error) {
-	if relationPlanner, ok := planner.(catalogPlanBuilder); ok {
-		return relationPlanner.PlanDeleteWithCatalog(catalog.Version, catalog, current)
-	}
-	return planner.PlanDelete(catalog.Version, current)
-}
-
-func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (plan Plan, err error) {
+func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err error) {
 	operationStarted := time.Now()
-	relationOperation := inputHasRelationField(input.Fields)
+	relationOperation := changeHasRelationInput(change)
 	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return Plan{}, err
 	}
-	return planCreateAgainstCatalog(s.planner, catalog, input)
-}
-
-func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (plan Plan, err error) {
-	operationStarted := time.Now()
-	relationOperation := inputHasRelationField(input.Fields)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	catalog, err := s.Catalog(ctx)
+	plan, err = s.planner.Plan(catalog, change)
 	if err != nil {
 		return Plan{}, err
 	}
-	current, ok := catalog.Collections[input.Name]
-	if !ok {
-		return Plan{}, ErrCollectionNotFound
+	switch change.kind {
+	case changeUpdate:
+		current := catalog.Collections[change.update.Name]
+		relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+		if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
+			return Plan{}, err
+		}
+	case changeDelete:
+		current := catalog.Collections[change.deleteName]
+		relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
 	}
-	relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-	plan, err = planUpdateAgainstCatalog(s.planner, catalog, current, input)
+	projected, err := projectCatalog(catalog, change, plan)
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
+	if _, err := s.compileCatalog(projected); err != nil {
 		return Plan{}, err
 	}
 	return plan, nil
 }
 
+func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (Plan, error) {
+	return s.Preview(ctx, NewCreateChange(input))
+}
+
+func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (Plan, error) {
+	return s.Preview(ctx, NewUpdateChange(input))
+}
+
 func (s *Service) PlanDelete(ctx context.Context, name string) (plan Plan, err error) {
-	operationStarted := time.Now()
-	relationOperation := false
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	catalog, err := s.Catalog(ctx)
-	if err != nil {
-		return Plan{}, err
-	}
-	current, ok := catalog.Collections[name]
-	if !ok {
-		return Plan{}, ErrCollectionNotFound
-	}
-	relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-	return planDeleteAgainstCatalog(s.planner, catalog, current)
+	return s.Preview(ctx, NewDeleteChange(name))
 }
 
 func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (created Collection, err error) {
-	operationStarted := time.Now()
-	relationOperation := inputHasRelationField(input.Fields)
-	defer s.finishOperation(ctx, observability.OperationSchemaCreate, operationStarted, &err)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	if err = s.ready(); err != nil {
-		return Collection{}, err
-	}
-	var nextCatalog Catalog
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
-			return fmt.Errorf("set schema lock timeout: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
-			return fmt.Errorf("disable request statement timeout for schema DDL: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
-			return fmt.Errorf("acquire schema advisory lock: %w", err)
-		}
-
-		store := NewStore(tx)
-		version, err := store.LockedSchemaVersion(ctx)
-		if err != nil {
-			return err
-		}
-		if version != baseVersion {
-			return ErrConflict
-		}
-		catalog, err := store.ReadCatalog(ctx, version)
-		if err != nil {
-			return err
-		}
-		if err := validateCatalogIntegrity(catalog); err != nil {
-			return err
-		}
-		plan, err := planCreateAgainstCatalog(s.planner, catalog, input)
-		if err != nil {
-			return err
-		}
-		if err := validateCreateAgainstCatalog(catalog, plan.Definition); err != nil {
-			return err
-		}
-		if plan.Checksum != checksum {
-			return ErrConflict
-		}
-
-		created, err = newCollectionMetadata(plan.Definition)
-		if err != nil {
-			return err
-		}
-		var createdAt time.Time
-		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&createdAt); err != nil {
-			return fmt.Errorf("read schema application timestamp: %w", err)
-		}
-		createdAt = createdAt.UTC()
-		created.CreatedAt = createdAt
-		started := time.Now()
-		for _, statement := range plan.Statements {
-			if _, err := tx.Exec(ctx, statement); err != nil {
-				return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
-			}
-		}
-		if err := store.InsertCollection(ctx, created, plan.Definition, createdAt); err != nil {
-			return classifyApplyError(err)
-		}
-		return s.commitSchemaChange(ctx, tx, store, plan, checksum, administratorID, version, createdAt, started, &nextCatalog)
-	})
+	result, err := s.Apply(ctx, LegacyApply(
+		NewCreateChange(input),
+		Plan{Checksum: checksum, BaseVersion: baseVersion},
+		administratorID,
+	))
 	if err != nil {
 		return Collection{}, err
 	}
-	s.cache.Replace(nextCatalog)
-	return created, nil
+	return result.Collection, nil
 }
 
 func (s *Service) ApplyUpdate(ctx context.Context, input UpdateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (updated Collection, err error) {
-	operationStarted := time.Now()
-	relationOperation := inputHasRelationField(input.Fields)
-	defer s.finishOperation(ctx, observability.OperationSchemaUpdate, operationStarted, &err)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	if err = s.ready(); err != nil {
+	result, err := s.Apply(ctx, LegacyApply(
+		NewUpdateChange(input),
+		Plan{Checksum: checksum, BaseVersion: baseVersion},
+		administratorID,
+	))
+	if err != nil {
 		return Collection{}, err
 	}
-	var nextCatalog Catalog
+	return result.Collection, nil
+}
+
+func (s *Service) ApplyDelete(ctx context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) error {
+	_, err := s.Apply(ctx, LegacyApply(
+		NewDeleteChange(name),
+		Plan{Checksum: checksum, BaseVersion: baseVersion},
+		administratorID,
+	))
+	return err
+}
+
+func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyResult, err error) {
+	operation, ok := schemaOperationForChange(intent.change)
+	if !ok {
+		return ApplyResult{}, ErrConflict
+	}
+	operationStarted := time.Now()
+	relationOperation := changeHasRelationInput(intent.change)
+	defer s.finishOperation(ctx, operation, operationStarted, &err)
+	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
+	if err = s.ready(); err != nil {
+		return ApplyResult{}, err
+	}
+	var nextCatalog *compiledCatalog
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
 			return fmt.Errorf("set schema lock timeout: %w", err)
@@ -232,58 +157,94 @@ func (s *Service) ApplyUpdate(ctx context.Context, input UpdateCollectionInput, 
 		if err != nil {
 			return err
 		}
-		if version != baseVersion {
+		if version != intent.baseVersion {
 			return ErrConflict
 		}
-		catalog, err := store.ReadCatalog(ctx, version)
+		persisted, err := store.ReadCatalog(ctx, version)
 		if err != nil {
 			return err
 		}
-		current, ok := catalog.Collections[input.Name]
-		if !ok {
-			return ErrCollectionNotFound
+		currentCatalog := s.cache.find(version)
+		if currentCatalog == nil {
+			currentCatalog, err = s.cache.prepare(persisted, s.catalogLimit())
+			if err != nil {
+				return err
+			}
+			s.cache.publish(currentCatalog)
+		} else if !sameCatalogContent(persisted, currentCatalog.catalog) {
+			return ErrConflict
 		}
-		relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-		if err := validateCatalogIntegrity(catalog); err != nil {
-			return err
-		}
-		plan, err := planUpdateAgainstCatalog(s.planner, catalog, current, input)
+		catalog := currentCatalog.catalog
+		plan, err := s.planner.Plan(catalog, intent.change)
 		if err != nil {
 			return err
 		}
-		if plan.Checksum != checksum {
+		if plan.Checksum != intent.checksum {
 			return ErrConflict
-		}
-		if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
-			return err
 		}
 
-		fields, err := updatedFieldMetadata(current.ID, current.Fields, plan.Definition)
-		if err != nil {
-			return err
+		var current Collection
+		switch intent.change.kind {
+		case changeCreate:
+			if err := validateCreateAgainstCatalog(catalog, plan.Definition); err != nil {
+				return err
+			}
+			created, err := newCollectionMetadata(plan.Definition)
+			if err != nil {
+				return err
+			}
+			result.Collection = created
+		case changeUpdate:
+			current = catalog.Collections[intent.change.update.Name]
+			relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+			if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
+				return err
+			}
+			fields, err := updatedFieldMetadata(current.ID, current.Fields, plan.Definition)
+			if err != nil {
+				return err
+			}
+			result.Collection = Collection{
+				ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName,
+				Fields: fields, CreatedAt: current.CreatedAt,
+			}
+		case changeDelete:
+			current = catalog.Collections[intent.change.deleteName]
+			relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+			result.Deleted = true
 		}
-		updated = Collection{ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName, Fields: fields, CreatedAt: current.CreatedAt}
-		var createdAt time.Time
-		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&createdAt); err != nil {
+
+		var appliedAt time.Time
+		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&appliedAt); err != nil {
 			return fmt.Errorf("read schema application timestamp: %w", err)
 		}
-		createdAt = createdAt.UTC()
-		started := time.Now()
-		for _, statement := range plan.Statements {
-			if _, err := tx.Exec(ctx, statement); err != nil {
-				return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
-			}
+		appliedAt = appliedAt.UTC()
+		if intent.change.kind == changeCreate {
+			result.Collection.CreatedAt = appliedAt
 		}
-		if err := store.UpdateCollection(ctx, updated, plan.Definition, createdAt); err != nil {
+		started := time.Now()
+		if err := s.executePlan(ctx, tx, plan); err != nil {
+			return err
+		}
+		switch intent.change.kind {
+		case changeCreate:
+			err = store.InsertCollection(ctx, result.Collection, plan.Definition, appliedAt)
+		case changeUpdate:
+			err = store.UpdateCollection(ctx, result.Collection, plan.Definition, appliedAt)
+		case changeDelete:
+			err = store.DeleteCollection(ctx, current.ID)
+		}
+		if err != nil {
 			return classifyApplyError(err)
 		}
-		return s.commitSchemaChange(ctx, tx, store, plan, checksum, administratorID, version, createdAt, started, &nextCatalog)
+		return s.commitSchemaChange(ctx, tx, store, plan, intent.checksum, intent.actor, version, appliedAt, started, &nextCatalog)
 	})
 	if err != nil {
-		return Collection{}, err
+		s.cache.discardPrepared(nextCatalog)
+		return ApplyResult{}, err
 	}
-	s.cache.Replace(nextCatalog)
-	return updated, nil
+	s.cache.publish(nextCatalog)
+	return result, nil
 }
 
 func validateRequiredRelationAdds(
@@ -331,78 +292,21 @@ func requiredRelationAddOrdinal(current Collection, desired PlannedCollection) (
 	return 0, false
 }
 
-func (s *Service) ApplyDelete(ctx context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) (err error) {
-	operationStarted := time.Now()
-	relationOperation := false
-	defer s.finishOperation(ctx, observability.OperationSchemaDelete, operationStarted, &err)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	if err = s.ready(); err != nil {
-		return err
+func (s *Service) executePlan(ctx context.Context, tx pgx.Tx, plan Plan) error {
+	if s.beforeDDL != nil {
+		if err := s.beforeDDL(ctx, tx); err != nil {
+			return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
+		}
 	}
-	var nextCatalog Catalog
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
-			return fmt.Errorf("set schema lock timeout: %w", err)
+	for _, statement := range plan.Statements {
+		if _, err := tx.Exec(ctx, statement); err != nil {
+			return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
 		}
-		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
-			return fmt.Errorf("disable request statement timeout for schema DDL: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
-			return fmt.Errorf("acquire schema advisory lock: %w", err)
-		}
-
-		store := NewStore(tx)
-		version, err := store.LockedSchemaVersion(ctx)
-		if err != nil {
-			return err
-		}
-		if version != baseVersion {
-			return ErrConflict
-		}
-		catalog, err := store.ReadCatalog(ctx, version)
-		if err != nil {
-			return err
-		}
-		current, ok := catalog.Collections[name]
-		if !ok {
-			return ErrCollectionNotFound
-		}
-		relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-		if err := validateCatalogIntegrity(catalog); err != nil {
-			return err
-		}
-		plan, err := planDeleteAgainstCatalog(s.planner, catalog, current)
-		if err != nil {
-			return err
-		}
-		if plan.Checksum != checksum {
-			return ErrConflict
-		}
-
-		var createdAt time.Time
-		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&createdAt); err != nil {
-			return fmt.Errorf("read schema application timestamp: %w", err)
-		}
-		createdAt = createdAt.UTC()
-		started := time.Now()
-		for _, statement := range plan.Statements {
-			if _, err := tx.Exec(ctx, statement); err != nil {
-				return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
-			}
-		}
-		if err := store.DeleteCollection(ctx, current.ID); err != nil {
-			return classifyApplyError(err)
-		}
-		return s.commitSchemaChange(ctx, tx, store, plan, checksum, administratorID, version, createdAt, started, &nextCatalog)
-	})
-	if err != nil {
-		return err
 	}
-	s.cache.Replace(nextCatalog)
 	return nil
 }
 
-func (s *Service) commitSchemaChange(ctx context.Context, tx pgx.Tx, store *Store, plan Plan, checksum string, administratorID uuid.UUID, version int64, createdAt time.Time, started time.Time, nextCatalog *Catalog) error {
+func (s *Service) commitSchemaChange(ctx context.Context, tx pgx.Tx, store *Store, plan Plan, checksum string, administratorID uuid.UUID, version int64, createdAt time.Time, started time.Time, nextCatalog **compiledCatalog) error {
 	checksumBytes, err := hex.DecodeString(checksum)
 	if err != nil || len(checksumBytes) != 32 {
 		return ErrConflict
@@ -430,11 +334,23 @@ func (s *Service) commitSchemaChange(ctx context.Context, tx pgx.Tx, store *Stor
 	if err != nil {
 		return fmt.Errorf("build committed schema catalog: %w", err)
 	}
-	if err := validateCatalogIntegrity(published); err != nil {
-		return fmt.Errorf("validate committed schema catalog: %w", err)
+	compiled, err := s.cache.prepare(published, s.catalogLimit())
+	if err != nil {
+		return fmt.Errorf("compile committed schema catalog: %w", err)
 	}
-	*nextCatalog = published
+	*nextCatalog = compiled
 	return nil
+}
+
+func (s *Service) compileCatalog(catalog Catalog) (*compiledCatalog, error) {
+	return compileCatalogWithLimit(catalog, s.catalogLimit())
+}
+
+func (s *Service) catalogLimit() int {
+	if s.catalogWireLimit > 0 {
+		return s.catalogWireLimit
+	}
+	return maximumCatalogWireBytes
 }
 
 func (s *Service) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
@@ -475,6 +391,30 @@ func inputHasRelationField(fields []FieldInput) bool {
 	return false
 }
 
+func changeHasRelationInput(change Change) bool {
+	switch change.kind {
+	case changeCreate:
+		return inputHasRelationField(change.create.Fields)
+	case changeUpdate:
+		return inputHasRelationField(change.update.Fields)
+	default:
+		return false
+	}
+}
+
+func schemaOperationForChange(change Change) (observability.Operation, bool) {
+	switch change.kind {
+	case changeCreate:
+		return observability.OperationSchemaCreate, true
+	case changeUpdate:
+		return observability.OperationSchemaUpdate, true
+	case changeDelete:
+		return observability.OperationSchemaDelete, true
+	default:
+		return "", false
+	}
+}
+
 func collectionHasRelationField(collection Collection) bool {
 	for _, field := range collection.Fields {
 		if field.Type == TypeRelation || field.Relation != nil {
@@ -485,15 +425,54 @@ func collectionHasRelationField(collection Collection) bool {
 }
 
 func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection) error {
-	if err := validateCatalogIntegrity(catalog); err != nil {
-		return err
-	}
 	for _, collection := range catalog.Collections {
 		if collection.Name == definition.Name || collection.TableName == definition.TableName {
 			return ErrConflict
 		}
 	}
 	return nil
+}
+
+func sameCatalogContent(left, right Catalog) bool {
+	if left.Version != right.Version || len(left.Collections) != len(right.Collections) || len(left.Incoming) != len(right.Incoming) {
+		return false
+	}
+	for name, leftCollection := range left.Collections {
+		rightCollection, ok := right.Collections[name]
+		if !ok || leftCollection.ID != rightCollection.ID || leftCollection.Name != rightCollection.Name ||
+			leftCollection.TableName != rightCollection.TableName || !leftCollection.CreatedAt.Equal(rightCollection.CreatedAt) ||
+			len(leftCollection.Fields) != len(rightCollection.Fields) {
+			return false
+		}
+		for index, leftField := range leftCollection.Fields {
+			rightField := rightCollection.Fields[index]
+			if leftField.ID != rightField.ID || leftField.Name != rightField.Name || leftField.ColumnName != rightField.ColumnName ||
+				leftField.Type != rightField.Type || leftField.Required != rightField.Required || leftField.Unique != rightField.Unique ||
+				leftField.Indexed != rightField.Indexed || leftField.Ordinal != rightField.Ordinal ||
+				!bytes.Equal(leftField.Default, rightField.Default) || !sameRelationSpec(leftField.Relation, rightField.Relation) {
+				return false
+			}
+		}
+	}
+	for targetID, leftIncoming := range left.Incoming {
+		rightIncoming, ok := right.Incoming[targetID]
+		if !ok || len(leftIncoming) != len(rightIncoming) {
+			return false
+		}
+		for index := range leftIncoming {
+			if leftIncoming[index] != rightIncoming[index] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func sameRelationSpec(left, right *RelationSpec) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validateCatalogIntegrity(catalog Catalog) error {
@@ -566,6 +545,13 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			if err := ValidateRelationSpec("field", *field.Relation); err != nil {
 				return ErrConflict
 			}
+			expectedStorageName := field.ColumnName
+			if field.Relation.Cardinality == RelationMultiple {
+				expectedStorageName = NewRelationPhysicalNames(collection.TableName, field.Name).MultiTable
+			}
+			if field.Relation.Storage.Name != expectedStorageName {
+				return ErrConflict
+			}
 			if _, ok := collectionIDs[field.Relation.TargetCollectionID]; !ok {
 				return ErrConflict
 			}
@@ -595,6 +581,9 @@ func validateCatalogIntegrity(catalog Catalog) error {
 	return nil
 }
 
+// EnsureCurrent pins the transaction's schema version and returns its compiled
+// catalog in O(1). The returned value is an immutable view of the cache;
+// transaction-owning callers must not mutate its maps, slices, or nested data.
 func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog, error) {
 	if s == nil || s.cache == nil || tx == nil {
 		return Catalog{}, fmt.Errorf("schema catalog is unavailable")
@@ -604,21 +593,21 @@ func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog,
 	if err != nil {
 		return Catalog{}, err
 	}
-	current := s.cache.Load()
-	if current.Version == version {
-		if err := validateCatalogIntegrity(current); err == nil {
-			return current, nil
-		}
+	current := s.cache.find(version)
+	if current != nil {
+		s.cache.publish(current)
+		return current.catalog, nil
 	}
 	catalog, err := store.ReadCatalog(ctx, version)
 	if err != nil {
 		return Catalog{}, err
 	}
-	if err := validateCatalogIntegrity(catalog); err != nil {
+	compiled, err := s.cache.prepare(catalog, s.catalogLimit())
+	if err != nil {
 		return Catalog{}, err
 	}
-	s.cache.Replace(catalog)
-	return catalog, nil
+	s.cache.publish(compiled)
+	return compiled.catalog, nil
 }
 
 // Catalog reads the current catalog from one pinned snapshot. An apply that
@@ -630,71 +619,20 @@ func (s *Service) Catalog(ctx context.Context) (Catalog, error) {
 		return Catalog{}, err
 	}
 	var catalog Catalog
-	for attempt := 0; ; attempt++ {
-		err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
 			var err error
 			catalog, err = s.EnsureCurrent(ctx, tx)
 			return err
 		})
-		cause, retryable := catalogRetryCause(err)
-		if err == nil || !retryable {
-			return catalog, err
-		}
-		if attempt >= maximumCatalogRetries {
-			s.record(ctx, observability.TransactionRetryEvent(cause, true))
-			return Catalog{}, err
-		}
-
-		timer := time.NewTimer(catalogRetryDelay(attempt))
-		select {
-		case <-timer.C:
-			if err := ctx.Err(); err != nil {
-				return Catalog{}, err
-			}
-			s.record(ctx, observability.TransactionRetryEvent(cause, false))
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			return Catalog{}, ctx.Err()
-		}
-	}
-}
-
-func catalogRetryDelay(attempt int) time.Duration {
-	delay := 2 * time.Millisecond
-	for step := 0; step < attempt && delay < maximumCatalogRetryDelay; step++ {
-		delay *= 2
-		if delay > maximumCatalogRetryDelay {
-			delay = maximumCatalogRetryDelay
-		}
-	}
-	half := delay / 2
-	return half + time.Duration(rand.Int64N(int64(delay-half)+1))
-}
-
-func catalogRetryCause(err error) (observability.RetryCause, bool) {
-	var postgresError *pgconn.PgError
-	if !errors.As(err, &postgresError) {
-		return "", false
-	}
-	switch postgresError.Code {
-	case "0A000":
-		return observability.RetryCauseCachedPlan, true
-	case "40001":
-		return observability.RetryCauseSerialization, true
-	case "40P01":
-		return observability.RetryCauseDeadlock, true
-	default:
-		return "", false
-	}
+	}, func(cause database.RetryCause, exhausted bool) {
+		s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
+	})
+	return catalog, err
 }
 
 func (s *Service) ready() error {
-	if s == nil || s.pool == nil || s.cache == nil || s.planner == nil {
+	if s == nil || s.pool == nil || s.cache == nil {
 		return fmt.Errorf("schema service is unavailable")
 	}
 	return nil
@@ -715,6 +653,9 @@ func schemaOperationOutcome(err error) observability.Outcome {
 	}
 	if errors.Is(err, ErrConflict) {
 		return observability.OutcomeConflict
+	}
+	if errors.Is(err, ErrCatalogLimitExceeded) {
+		return observability.OutcomeBudget
 	}
 	if errors.Is(err, ErrDataConstraint) || errors.Is(err, ErrCollectionNotFound) {
 		return observability.OutcomeValidation

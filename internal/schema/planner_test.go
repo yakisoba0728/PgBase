@@ -11,6 +11,81 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestPlannerPlanUsesOpaqueChangesAndPreservesExistingGoldens(t *testing.T) {
+	planner := Planner{}
+	current := updateTestCollection()
+	catalog := Catalog{
+		Version:     7,
+		Collections: map[string]Collection{current.Name: current},
+		Incoming:    map[uuid.UUID][]RelationRef{},
+	}
+	createInput := CreateCollectionInput{Name: "comments", Fields: []FieldInput{{
+		Name: "body", Type: TypeText, Default: json.RawMessage(`"draft"`),
+	}}}
+	updateInput := UpdateCollectionInput{Name: current.Name, Fields: planInputFields(Plan{Definition: PlannedCollection{Fields: []PlannedField{
+		{Name: "title", Type: TypeText, Required: true, Indexed: true},
+		{Name: "views", Type: TypeBigInt},
+	}}})}
+	wantCreate, err := planner.PlanCreateWithCatalog(catalog.Version, catalog, createInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUpdate, err := planner.PlanUpdateWithCatalog(catalog.Version, catalog, current, updateInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDelete, err := planner.PlanDeleteWithCatalog(catalog.Version, catalog, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		change Change
+		want   Plan
+	}{
+		{
+			name:   "create",
+			change: NewCreateChange(createInput),
+			want:   wantCreate,
+		},
+		{
+			name:   "update",
+			change: NewUpdateChange(updateInput),
+			want:   wantUpdate,
+		},
+		{
+			name:   "delete",
+			change: NewDeleteChange(current.Name),
+			want:   wantDelete,
+		},
+	}
+
+	createInput.Name = "mutated"
+	createInput.Fields[0].Name = "mutated"
+	updateInput.Name = "mutated"
+	updateInput.Fields[0].Name = "mutated"
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := planner.Plan(catalog, test.change)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("Plan() = %#v, want existing golden %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestPlannerPlanRejectsUnconstructedChange(t *testing.T) {
+	_, err := (Planner{}).Plan(Catalog{Collections: map[string]Collection{}}, Change{})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Plan(zero Change) error = %v, want ErrConflict", err)
+	}
+}
+
 func TestPlanCreateIsDeterministic(t *testing.T) {
 	input := CreateCollectionInput{
 		Name: "posts",
