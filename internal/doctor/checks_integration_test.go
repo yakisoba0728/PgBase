@@ -158,6 +158,45 @@ func TestRunReportsMigrationChecksumMismatch(t *testing.T) {
 	assertFindingCode(t, runDoctor(t, pool), "migration_checksum_mismatch")
 }
 
+func TestRunReportsExactMigrationHistoryIssue(t *testing.T) {
+	tests := []struct {
+		name     string
+		breakSQL string
+		wantCode string
+	}{
+		{
+			name: "unknown version",
+			breakSQL: `insert into pgbase_meta.system_migrations
+				(version, name, checksum, execution_ms)
+				values (99, 'future', decode(repeat('00', 32), 'hex'), 0)`,
+			wantCode: "migration_unknown_version",
+		},
+		{
+			name:     "history gap",
+			breakSQL: "delete from pgbase_meta.system_migrations where version = 2",
+			wantCode: "migration_history_gap",
+		},
+		{
+			name: "duplicate version",
+			breakSQL: `alter table pgbase_meta.system_migrations drop constraint system_migrations_pkey;
+				insert into pgbase_meta.system_migrations
+					(version, name, checksum, applied_at, execution_ms)
+				select version, name, checksum, applied_at, execution_ms
+				from pgbase_meta.system_migrations where version = 1`,
+			wantCode: "migration_history_duplicate",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			pool := newDoctorPool(t)
+			if _, err := pool.Exec(context.Background(), testCase.breakSQL); err != nil {
+				t.Fatal(err)
+			}
+			assertFindingCode(t, runDoctor(t, pool), testCase.wantCode)
+		})
+	}
+}
+
 func TestRunReportsMissingPhysicalCollectionTable(t *testing.T) {
 	pool := newDoctorPool(t)
 	insertCollectionMetadata(t, pool, "posts", "title", "text")

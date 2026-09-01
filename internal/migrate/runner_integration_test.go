@@ -757,6 +757,41 @@ func TestStatusMarksOutOfOrderMigrationHistoryDirty(t *testing.T) {
 	}
 }
 
+func TestStatusAndExactTargetRejectDuplicateMigrationVersions(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := runner.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+		alter table pgbase_meta.system_migrations drop constraint system_migrations_pkey;
+		insert into pgbase_meta.system_migrations (version, name, checksum, applied_at, execution_ms)
+		select version, name, checksum, applied_at, execution_ms
+		from pgbase_meta.system_migrations where version = 1`); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := latestSystemMigrationVersion(t)
+	if !status.Dirty || status.Current != latest || status.Latest != latest || status.Compatible ||
+		status.Issue == nil || status.Issue.Kind != HistoryIssueKind("duplicate_version") || status.Issue.Version != 1 {
+		t.Fatalf("status with duplicate migration version = %#v", status)
+	}
+	_, err = runner.UpThrough(context.Background(), latest)
+	var issue *HistoryIssue
+	if !errors.As(err, &issue) || issue.Kind != HistoryIssueKind("duplicate_version") || issue.Version != 1 {
+		t.Fatalf("UpThrough error = %v, issue = %#v", err, issue)
+	}
+}
+
 func TestUpRejectsOutOfOrderMigrationHistoryWithoutFillingGap(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	pool, err := database.Open(context.Background(), databaseURL, time.Second)

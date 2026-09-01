@@ -31,10 +31,10 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 	if err != nil {
 		return report, fmt.Errorf("read system migration status: %w", err)
 	}
-	if status.Dirty {
-		report.Findings = append(report.Findings, finding("migration_checksum_mismatch", "System migration history does not match this binary"))
+	if migrationFinding, ok := migrationHistoryFinding(status); ok {
+		report.Findings = append(report.Findings, migrationFinding)
 	}
-	if status.Current != status.Latest && !status.Compatible {
+	if !status.Dirty && status.Current != status.Latest && !status.Compatible {
 		report.Findings = append(report.Findings, finding("migration_not_current", "System migrations are not current"))
 	}
 	if status.Compatible {
@@ -70,6 +70,27 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 	}
 	report.OK = len(report.Findings) == 0
 	return report, nil
+}
+
+func migrationHistoryFinding(status migrate.Status) (Finding, bool) {
+	if !status.Dirty {
+		return Finding{}, false
+	}
+	if status.Issue == nil {
+		return finding("migration_history_invalid", "System migration history is invalid"), true
+	}
+	switch status.Issue.Kind {
+	case migrate.HistoryIssueChecksumMismatch:
+		return finding("migration_checksum_mismatch", "System migration history does not match this binary"), true
+	case migrate.HistoryIssueUnknownVersion:
+		return finding("migration_unknown_version", "System migration history contains a version unknown to this binary"), true
+	case migrate.HistoryIssueGap:
+		return finding("migration_history_gap", "System migration history is not a contiguous prefix"), true
+	case migrate.HistoryIssueDuplicateVersion:
+		return finding("migration_history_duplicate", "System migration history contains a duplicate version"), true
+	default:
+		return finding("migration_history_invalid", "System migration history is invalid"), true
+	}
 }
 
 func finding(code, message string) Finding {

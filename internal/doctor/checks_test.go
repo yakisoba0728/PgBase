@@ -47,6 +47,38 @@ func TestRunReportsUnreachableDatabase(t *testing.T) {
 	assertFindingCode(t, report, "database_unreachable")
 }
 
+func TestMigrationHistoryFindingPreservesTypedIssueKind(t *testing.T) {
+	tests := []struct {
+		name string
+		kind migrate.HistoryIssueKind
+		code string
+	}{
+		{name: "checksum", kind: migrate.HistoryIssueChecksumMismatch, code: "migration_checksum_mismatch"},
+		{name: "unknown", kind: migrate.HistoryIssueUnknownVersion, code: "migration_unknown_version"},
+		{name: "gap", kind: migrate.HistoryIssueGap, code: "migration_history_gap"},
+		{name: "duplicate", kind: migrate.HistoryIssueDuplicateVersion, code: "migration_history_duplicate"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, ok := migrationHistoryFinding(migrate.Status{
+				Dirty: true,
+				Issue: &migrate.HistoryIssue{Kind: testCase.kind, Version: 2},
+			})
+			if !ok || got.Code != testCase.code || got.Severity != "error" || got.Message == "" {
+				t.Fatalf("finding = %#v, ok = %t", got, ok)
+			}
+		})
+	}
+
+	if got, ok := migrationHistoryFinding(migrate.Status{}); ok || got != (Finding{}) {
+		t.Fatalf("clean history finding = %#v, ok = %t", got, ok)
+	}
+	got, ok := migrationHistoryFinding(migrate.Status{Dirty: true})
+	if !ok || got.Code != "migration_history_invalid" {
+		t.Fatalf("untyped dirty history finding = %#v, ok = %t", got, ok)
+	}
+}
+
 func newDoctorPool(t *testing.T) *database.Pool {
 	t.Helper()
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), 5*time.Second)

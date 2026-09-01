@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,6 +34,13 @@ func (r *Runner) Status(ctx context.Context) (status Status, err error) {
 	status.Latest = empty.latest
 	applied, present, err := readAppliedIfPresent(ctx, r.pool)
 	if err != nil {
+		var issue *HistoryIssue
+		if errors.As(err, &issue) {
+			status.Current = issue.appliedVersion
+			status.Dirty = true
+			status.Issue = issue
+			return status, nil
+		}
 		return Status{}, err
 	}
 	if !present {

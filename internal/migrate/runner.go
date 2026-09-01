@@ -161,16 +161,35 @@ func readApplied(ctx context.Context, db database.DBTX) (map[int64][]byte, error
 	defer rows.Close()
 
 	applied := make(map[int64][]byte)
+	var duplicateVersion, latestVersion int64
+	var duplicateFound bool
 	for rows.Next() {
 		var version int64
 		var checksum []byte
 		if err := rows.Scan(&version, &checksum); err != nil {
 			return nil, fmt.Errorf("scan applied system migration: %w", err)
 		}
+		if version > latestVersion {
+			latestVersion = version
+		}
+		if _, exists := applied[version]; exists {
+			if !duplicateFound || version < duplicateVersion {
+				duplicateVersion = version
+			}
+			duplicateFound = true
+			continue
+		}
 		applied[version] = checksum
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate applied system migrations: %w", err)
+	}
+	if duplicateFound {
+		return nil, &HistoryIssue{
+			Kind:           HistoryIssueDuplicateVersion,
+			Version:        duplicateVersion,
+			appliedVersion: latestVersion,
+		}
 	}
 	return applied, nil
 }

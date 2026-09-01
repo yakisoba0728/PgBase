@@ -16,6 +16,7 @@ const (
 	HistoryIssueUnknownVersion   HistoryIssueKind = "unknown_version"
 	HistoryIssueChecksumMismatch HistoryIssueKind = "checksum_mismatch"
 	HistoryIssueGap              HistoryIssueKind = "gap"
+	HistoryIssueDuplicateVersion HistoryIssueKind = "duplicate_version"
 )
 
 // HistoryIssue describes one fail-closed migration history defect.
@@ -41,6 +42,8 @@ func (i *HistoryIssue) Error() string {
 		return fmt.Sprintf("system migration %d checksum mismatch", i.Version)
 	case HistoryIssueGap:
 		return fmt.Sprintf("system migration history is out of order at applied version %d after missing version %d", i.appliedVersion, i.Version)
+	case HistoryIssueDuplicateVersion:
+		return fmt.Sprintf("system migration history contains duplicate version %d", i.Version)
 	default:
 		return fmt.Sprintf("system migration history issue at version %d", i.Version)
 	}
