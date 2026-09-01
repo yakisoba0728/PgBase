@@ -440,6 +440,22 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 	}
 }
 
+func TestSchemaCatalogRouteMapsCatalogLimitToStableUnprocessableError(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	schemas := &fakeSchemaService{catalogErr: schema.ErrCatalogLimitExceeded}
+	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "catalog_limit_exceeded")
+}
+
 func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *testing.T) {
 	requestPlan := func(t *testing.T, planErr error, operation string) *httptest.ResponseRecorder {
 		t.Helper()

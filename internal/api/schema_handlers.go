@@ -215,15 +215,8 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	collections := make(map[string]collectionResponse, len(catalog.Collections))
-	for name, collection := range catalog.Collections {
-		collections[name] = collectionDTO(collection)
-	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, struct {
-		Version     int64                         `json:"version"`
-		Collections map[string]collectionResponse `json:"collections"`
-	}{Version: catalog.Version, Collections: collections})
+	writeJSON(w, http.StatusOK, catalog)
 }
 
 func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollectionResponse {
@@ -319,6 +312,8 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 		apiError = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"}
 	case errors.Is(err, schema.ErrDataConstraint):
 		apiError = APIError{Status: http.StatusUnprocessableEntity, Code: "validation_failed", Message: "Existing data violates the schema change"}
+	case errors.Is(err, schema.ErrCatalogLimitExceeded):
+		apiError = APIError{Status: http.StatusUnprocessableEntity, Code: "catalog_limit_exceeded", Message: "Schema catalog exceeds the supported size"}
 	case errors.Is(err, schema.ErrConflict):
 		apiError = APIError{Status: http.StatusConflict, Code: "schema_conflict", Message: "Schema plan conflicts with current state"}
 	case errors.Is(err, schema.ErrSynchronizationUnavailable), database.Classify(err) == database.KindUnavailable:
