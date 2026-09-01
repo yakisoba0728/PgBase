@@ -368,13 +368,20 @@ func validSortFieldName(field string) bool {
 
 // effectiveSortKeys normalizes requested keys and appends the "id" tiebreaker
 // so keyset pagination has a stable total order.
+// An appended tiebreaker follows the direction of the key it breaks ties for.
+// A mixed order such as "created_at DESC, id ASC" matches neither scan
+// direction of the (created_at, id) page index, so it costs a full sort of the
+// table. Aligning it here rather than in one compiler keeps every sort entry
+// point — scalar pages, relation-aware pages, root pages and expansion — on the
+// same tie order, which the cursor encodes and later pages have to reproduce.
+// A tiebreaker the caller wrote out itself is left exactly as requested.
 func effectiveSortKeys(requested []SortKey) []SortKey {
 	if len(requested) == 0 {
 		return []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}
 	}
 	keys := append([]SortKey(nil), requested...)
 	if keys[len(keys)-1].Field != systemFieldID {
-		keys = append(keys, SortKey{Field: systemFieldID})
+		keys = append(keys, SortKey{Field: systemFieldID, Desc: keys[len(keys)-1].Desc})
 	}
 	return keys
 }

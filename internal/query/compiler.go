@@ -104,7 +104,7 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 }
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
-	sortKeys := alignAppendedTiebreaker(query.Sort, effectiveSortKeys(query.Sort))
+	sortKeys := effectiveSortKeys(query.Sort)
 	columns, err := resolveSortColumns(collection, sortKeys)
 	if err != nil {
 		return Statement{}, err
@@ -184,26 +184,6 @@ func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortCol
 		})
 	}
 	return columns, nil
-}
-
-// alignAppendedTiebreaker points the compiler's own "id" tiebreaker the same way
-// as the key it breaks ties for. A btree index is only scannable as a whole,
-// forwards or backwards, so "created_at DESC NULLS FIRST, id ASC NULLS LAST"
-// matches the "(created_at, id)" index in neither direction and degrades into a
-// full scan plus a sort, while "created_at DESC NULLS FIRST, id DESC NULLS
-// FIRST" is an index scan backward. A caller that spells out its own trailing
-// "id" key keeps the direction it asked for.
-func alignAppendedTiebreaker(requested, effective []SortKey) []SortKey {
-	if len(effective) != len(requested)+1 {
-		return effective
-	}
-	last := len(effective) - 1
-	if effective[last].Field != systemFieldID || effective[last].Desc {
-		return effective
-	}
-	aligned := append([]SortKey(nil), effective...)
-	aligned[last].Desc = effective[last-1].Desc
-	return aligned
 }
 
 // notNullColumn reports whether the physical column can never hold NULL. The

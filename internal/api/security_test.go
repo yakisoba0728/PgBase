@@ -438,7 +438,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	records := recordops.NewService(pool, schemas, testTokenSecret)
 	codec := query.NewCursorCodec(testTokenSecret)
 	valid, err := codec.Encode(query.PageCursor{
-		Version:      3,
+		Version:      query.CursorVersion,
 		CollectionID: collection.ID,
 		Sort:         []query.SortKey{{Field: "created_at"}, {Field: "id"}},
 		Values: []json.RawMessage{

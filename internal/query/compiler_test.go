@@ -546,3 +546,59 @@ func assertValidationDetail(t *testing.T, err error, field, code string) {
 		t.Fatalf("validation details = %#v, want field %q code %q", validationErr.Details, field, code)
 	}
 }
+
+// TestEverySortEntryPointSharesTheTiebreakerDirection pins tie ordering at the
+// single place that decides it. The scalar page compiler, the relation-aware
+// page, the root page and expansion each derive their sort keys from
+// effectiveSortKeys; aligning the appended tiebreaker inside one caller instead
+// would make the same sort produce a different tie order depending on whether a
+// request happened to touch a relation, and a cursor issued by one path would
+// then anchor against the other path's ordering.
+func TestEverySortEntryPointSharesTheTiebreakerDirection(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		requested []SortKey
+		want      []SortKey
+	}{
+		{
+			name:      "descending key carries its appended tiebreaker down",
+			requested: []SortKey{{Field: "created_at", Desc: true}},
+			want:      []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID, Desc: true}},
+		},
+		{
+			name:      "ascending key keeps an ascending tiebreaker",
+			requested: []SortKey{{Field: "created_at"}},
+			want:      []SortKey{{Field: "created_at"}, {Field: systemFieldID}},
+		},
+		{
+			name:      "only the last key decides the appended direction",
+			requested: []SortKey{{Field: "title", Desc: true}, {Field: "rank"}},
+			want:      []SortKey{{Field: "title", Desc: true}, {Field: "rank"}, {Field: systemFieldID}},
+		},
+		{
+			name:      "an explicit trailing tiebreaker is left alone",
+			requested: []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID}},
+			want:      []SortKey{{Field: "created_at", Desc: true}, {Field: systemFieldID}},
+		},
+		{
+			name:      "the default page order is unchanged",
+			requested: nil,
+			want:      []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := effectiveSortKeys(test.requested)
+			if len(got) != len(test.want) {
+				t.Fatalf("effectiveSortKeys(%v) = %v, want %v", test.requested, got, test.want)
+			}
+			for index := range got {
+				if got[index] != test.want[index] {
+					t.Fatalf("effectiveSortKeys(%v)[%d] = %+v, want %+v", test.requested, index, got[index], test.want[index])
+				}
+			}
+		})
+	}
+}
