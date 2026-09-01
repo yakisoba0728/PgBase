@@ -1,12 +1,15 @@
 # PgBase 전체 코드베이스 감사 보고서 (2026-09-01)
 
-> **종결 상태 (2026-09-01):** 아래 확정 finding 37건 중 34건을 수정하고 각각 회귀 테스트로 고정한 뒤 PR #10(`03a0fc1`)으로 `main`에 병합했다. 미수정 3건과 잔여 커버리지 공백은 7절에 명시한다.
+> **역사적 종결 기록 (PR #10, `03a0fc1`):** 아래 확정 finding 37건 중 34건을 수정하고 각각 회귀 테스트로 고정한 뒤 `main`에 병합했다. 당시 미수정 3건과 잔여 커버리지 공백은 7절에 명시한다.
+>
+> **현재 상태 주의:** 이 문서는 PR #10의 감사·검증 스냅샷이지 현재 `main`의 미해결 finding 장부나 release 승인서가 아니다. 후속 전수 재검토에서 추가 결함과 검증 공백이 확인됐으며, 현재 상태와 해결 순서는 [전체 코드베이스 리팩터링 계획](superpowers/plans/2026-09-01-whole-codebase-refactor.md)을 따른다. 아래의 “종결”, 테스트 수, CI 통과 수는 모두 명시된 커밋과 당시 실행에만 적용된다.
 
 ## 0. 이 문서의 상태
 
 - 기준 커밋: `main` @ `05b6e50` (Merge pull request #9 from webisnoteasy/codex/relation-production-hardening)
 - 종결 커밋: `main` @ `03a0fc1` (Merge pull request #10) — 68 파일, +2,706 / −231
-- 이전 감사: [2026-08-28](codebase-audit-2026-08-28.md) 29건, [2026-08-31](codebase-audit-2026-08-31.md) 27건. 둘 다 "알려진 미해결 구현 finding 없음"으로 종결됐다.
+- 문서 성격: `03a0fc1`에 대한 역사적 감사 스냅샷. 이후 코드·workflow의 현재 상태를 인증하지 않는다.
+- 이전 감사: [2026-08-28](codebase-audit-2026-08-28.md) 29건, [2026-08-31](codebase-audit-2026-08-31.md) 27건. 둘 다 당시에는 "알려진 미해결 구현 finding 없음"으로 종결됐지만, 이번 감사와 후속 재검토가 그 문구를 현재 상태로 해석할 수 없음을 보여줬다.
 - 이번 감사가 찾은 것은 **모두 그 두 라운드를 통과한 항목**이다. 공통 원인은 6절에 정리했다.
 
 감사 규모: 3개 워크플로로 41개 에이전트를 운용했다.
@@ -189,7 +192,7 @@
 
 ## 7. 수정 종결과 최종 검증
 
-확정 37건 중 **34건을 수정**했다. 각 수정은 그것이 되돌려지면 실패하는 회귀 테스트를 동반한다.
+PR #10 범위에서는 확정 37건 중 **34건을 수정**했다고 판정했다. 각 수정은 당시 그것이 되돌려지면 실패하는 회귀 테스트를 동반한다고 기록했다. 이 문장은 후속 커밋이나 후속 재감사 finding까지 종결했다는 뜻이 아니다.
 
 수정 과정에서 **새 결함 3건을 자체 발견해 함께 고쳤다.**
 
@@ -197,7 +200,7 @@
 2. **FR-9가 같은 위험을 반복했다.** `normalizeStoredDefault`가 정의만 되고 `validateCatalogIntegrity`에 연결되지 않아, 그 함수의 주석 자체가 "legacy oversized text default keeps failing every catalog read"라고 인정하고 있었다. 연결하고 라이브 회귀 테스트를 넣은 뒤, 연결을 되돌리면 정확히 그 오류로 실패하는 것을 확인했다.
 3. **정렬 정합이 두 커널에서 갈렸다.** MEDIUM-4 수정이 `CompileList`에만 적용돼, 같은 `sort=-created_at`이 relation 필터 유무에 따라 동점 순서가 달라졌다. 정합 로직을 네 진입점이 공유하는 `effectiveSortKeys`로 올리고, 옛 동점 순서를 전제한 커서를 무효화하기 위해 `cursorVersion`을 4로 올렸다.
 
-### 미수정 3건
+### PR #10 시점 미수정 3건
 
 | finding | 사유 |
 | --- | --- |
@@ -205,9 +208,9 @@
 | nullable 컬럼 DESC 인덱스 매칭 | NULL 가능 컬럼은 여전히 `NULLS LAST`라 단일 컬럼 인덱스를 역방향으로 못 탄다. 확대하려면 relation 커널의 `compileRelationOrder`와 `compileRelationKeyset`을 같은 커밋에서 함께 바꿔야 한다 |
 | `PlanUpdate`의 legacy 기본값 거부 | `planner.go:337`이 재전송된 필드를 엄격 검증하므로, legacy 초과 기본값을 가진 컬렉션은 읽기는 되지만 저장은 여전히 거부된다 |
 
-### 최종 검증 결과
+### 당시 최종 검증 결과
 
-라이브 PostgreSQL 16.13에 `PGBASE_TEST_ADMIN_URL`을 설정해 실행했다.
+라이브 PostgreSQL 16.13에 `PGBASE_TEST_ADMIN_URL`을 설정해 `03a0fc1`을 검증했다.
 
 | Gate | 결과 |
 | --- | --- |
@@ -219,6 +222,8 @@
 | CI (PR #10) | **16/16 통과** — PostgreSQL 16.13 / 17 / 18 매트릭스, e2e, security audit, backup/restore drill, frontend, 관측성 아티팩트 |
 | CI (병합 후 `main`) | **5/5 통과** |
 
+이 표는 당시 source revision에 대한 실행 기록이다. 특히 현재 tag release workflow는 이 결과를 하나의 publish candidate digest에 결합하지 않는다. E2E는 Compose에서 pgBase 이미지를 새로 만들고, security는 별도의 `pgbase:audit` 이미지를 만들며, backup/restore는 source-built Go binary를 사용한다. 이 gate들이 끝난 뒤 release job이 다시 Buildx로 publish 이미지를 만든다. 따라서 위 CI 통과는 같은 source revision의 gate 통과를 뜻하지만, E2E·security·restore가 최종 publish digest 자체를 검증했다는 뜻은 아니다. publish digest에는 release SBOM과 provenance attestation이 연결된다. 현재 artifact-equivalence 공백과 단일 candidate/promotion 작업은 [리팩터링 계획의 R10/R12](superpowers/plans/2026-09-01-whole-codebase-refactor.md)에서 추적한다.
+
 ## 8. 이번 감사의 정직한 한계
 
 - **탐색 단계는 라이브 PostgreSQL 없이 정적 정독으로만 수행했다.** 수정 검증에서야 라이브 DB를 붙였다. 그 전까지 다섯 라운드 전부 `go test`를 실행하지 않았다.
@@ -227,4 +232,5 @@
 - **부하·용량·장시간 안정성은 측정하지 않았다.** 이전 두 감사와 같은 한계다.
 - **탐색 중 도달하지 못한 범위:** `ui/admin/dist` 재빌드 대조(정황 판단만), `tests/e2e` 전수 정독, `docs/superpowers/` 8개 문서 전수, Windows·BSD 터미널 경로(해당 플랫폼에서 컴파일 불가).
 - **검증 라운드는 각 finding을 검증자 1명이 판정했다.** 4라운드의 2렌즈 교차검증보다 얕은 구조다.
-- **신뢰할 수 있는 것:** 코드 인용의 정확성(전 항목 file:line 직접 대조), 도달 경로의 정적 추적, HIGH-1·MEDIUM-4·LOW-9·LOW-20의 실행 재현, 그리고 최종 게이트가 skip 0으로 통과했다는 사실.
+- **release artifact 동일성은 검증하지 않았다.** 현재 workflow 구조에서 E2E, security, backup/restore와 publish가 서로 독립적으로 build하므로, 당시 gate 통과만으로 최종 registry digest가 같은 artifact였다고 결론낼 수 없다.
+- **신뢰할 수 있는 것:** 코드 인용의 정확성(전 항목 file:line 직접 대조), 도달 경로의 정적 추적, HIGH-1·MEDIUM-4·LOW-9·LOW-20의 실행 재현, 그리고 `03a0fc1`에 대해 당시 최종 게이트가 skip 0으로 통과했다는 사실. 이는 현재 branch나 publish digest에 자동 승계되는 보증이 아니다.

@@ -31,6 +31,12 @@ docker compose --env-file deployments/.env -f deployments/docker-compose.yml run
 
 Do not use `docker compose ... up pgbase` as a production migration job unless the Compose service is overridden to `PGBASE_AUTO_MIGRATE=false`.
 
+## Release image verification status
+
+Deploy immutable `image@sha256:...` references rather than relying on a mutable tag. The current tag workflow runs backend, frontend, E2E, security, and backup/restore jobs before it publishes an image, but the image-dependent jobs do not consume one shared candidate: E2E builds a Compose image from source, security builds a separate audit image, backup/restore builds a Go binary from source, and the release job then performs another Buildx build for publication.
+
+This ordering proves that the same source revision passed those jobs; it does not prove that the final registry digest itself passed E2E, image scanning, or restore validation. The release workflow does generate SBOM and provenance attestations for the published digest. Until a single-candidate, digest-pinned gate and rebuild-free promotion path is implemented, verify the exact chosen digest in staging and retain that digest with the deployment record instead of describing the published image as same-artifact tested.
+
 ## Configuration
 
 The production binary reads configuration from environment variables:
@@ -49,6 +55,7 @@ The production binary reads configuration from environment variables:
 | `PGBASE_ADMIN_SESSION_TTL` | Go duration; positive and no greater than `12h`; default `12h`. |
 | `PGBASE_STATEMENT_TIMEOUT` | Go duration; default `5s`. Applies to ordinary request and diagnostic SQL. System migrations and approved collection DDL disable this statement limit locally so large schema work can finish; they retain a 5-second lock-acquisition timeout and remain cancelable through the command/request context. |
 | `PGBASE_SHUTDOWN_TIMEOUT` | Go duration; default `15s`. |
+| `PGBASE_STOP_GRACE_PERIOD` | Compose stop grace Go duration; default `20s`. When set, it must be at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`; pgBase refuses startup when the margin is smaller. |
 
 Never put secret values in command arguments, source control, images, support bundles, or logs. Supply them through a secret manager or protected environment injection. The JSON logger redacts known credentials, but redaction is not a substitute for avoiding secret-bearing log messages.
 
@@ -122,7 +129,7 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 
 Use liveness only to detect a stuck process. Use readiness for load-balancer admission and rollout gates. The container health check invokes `/pgbase healthcheck --url http://127.0.0.1:8090/health/ready` and requires no shell or curl.
 
-On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. Set the orchestrator termination grace period longer than that timeout. Requests exceeding the grace period can be interrupted.
+On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. The bundled Compose profile applies `PGBASE_STOP_GRACE_PERIOD` to the container and requires at least a five-second margin over the application timeout. Keep the equivalent margin in other orchestrators. Requests exceeding the grace period can be interrupted.
 
 ## Secret rotation
 
