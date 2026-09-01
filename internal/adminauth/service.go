@@ -19,6 +19,7 @@ import (
 const setupAdvisoryLockKey int64 = 0x7067626173650003
 
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ$AnRqzUvZayQh6Siwo8bh8R9TAt8al8dpPzH25DzI5Tk"
+const dummyPassword = "pgbase dummy credential 2026"
 
 const (
 	accountFailureLimit = 5
@@ -29,6 +30,46 @@ type rateLimitBucket struct {
 	hash           []byte
 	limit          int
 	clearOnSuccess bool
+}
+
+type loginCandidate struct {
+	administrator Administrator
+	passwordHash  string
+}
+
+// loginTraceStage and loginTraceContextKey form an unexported characterization seam.
+// Only code in this package can attach a callback, and ordinary request
+// contexts therefore take the nil/no-op path.
+type loginTraceStage string
+
+const (
+	loginStageNetworkAdmission   loginTraceStage = "network admission complete; legacy global bucket ignored"
+	loginStageFailureSignalRead  loginTraceStage = "email failure signal short read complete"
+	loginStageDelayNone          loginTraceStage = "delay class: 0s"
+	loginStageDelay250MS         loginTraceStage = "delay class: 250ms"
+	loginStageDelay500MS         loginTraceStage = "delay class: 500ms"
+	loginStageDelay1S            loginTraceStage = "delay class: 1s"
+	loginStageKDFSlotAcquired    loginTraceStage = "KDF slot acquired"
+	loginStageCandidateHashRead  loginTraceStage = "candidate hash short read complete"
+	loginStageRealKDF            loginTraceStage = "real KDF complete"
+	loginStageDummyKDF           loginTraceStage = "dummy KDF complete"
+	loginStageKDFSlotReleased    loginTraceStage = "KDF slot released"
+	loginStageAdministratorCheck loginTraceStage = "administrator hash and active recheck complete"
+	loginStageSessionInsert      loginTraceStage = "session insert complete"
+	loginStageLimiterCleanup     loginTraceStage = "successful limiter cleanup complete"
+	loginStageFailureRecorded    loginTraceStage = "failure limiter signal recorded"
+)
+
+type loginTraceContextKey struct{}
+
+func traceLogin(ctx context.Context, stage loginTraceStage) {
+	if ctx == nil {
+		return
+	}
+	trace, _ := ctx.Value(loginTraceContextKey{}).(func(loginTraceStage))
+	if trace != nil {
+		trace(stage)
+	}
 }
 
 // Setup creates the only first administrator and its initial session.
@@ -170,7 +211,11 @@ func (s *Service) ResetAdministratorPassword(ctx context.Context, email, passwor
 		if resetErr != nil {
 			return resetErr
 		}
-		return store.ClearRateLimit(ctx, rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail))
+		emailHash := rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail)
+		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
+			return err
+		}
+		return store.ClearRateLimit(ctx, emailHash)
 	})
 	if err != nil {
 		return Administrator{}, err
@@ -200,27 +245,51 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 		normalizedEmail = strings.ToLower(strings.TrimSpace(email))
 	}
 	now := s.clock.Now()
-	buckets := s.rateLimitBuckets("login", normalizedEmail, subject)
-	if err := s.admitRateLimit(ctx, buckets, now); err != nil {
+	emailBucket := rateLimitBucket{
+		hash:           rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail),
+		clearOnSuccess: true,
+	}
+	networkBucket := rateLimitBucket{
+		hash:  rateLimitSubjectHash(s.tokenSecret, "login", "network", subject),
+		limit: networkFailureLimit,
+	}
+	if err := s.admitRateLimit(ctx, []rateLimitBucket{networkBucket}, now); err != nil {
 		return Session{}, err
 	}
+	traceLogin(ctx, loginStageNetworkAdmission)
+	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now)
+	if err != nil {
+		return Session{}, err
+	}
+	traceLogin(ctx, loginStageFailureSignalRead)
+	if err := waitLoginFailureDelay(ctx, failures); err != nil {
+		return Session{}, err
+	}
+	candidate, valid, err := s.verifyLoginCandidate(ctx, normalizedEmail, normalizationErr, password)
+	if err != nil {
+		return Session{}, err
+	}
+	if !valid {
+		if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+			return Session{}, err
+		}
+		traceLogin(ctx, loginStageFailureRecorded)
+		return Session{}, ErrInvalidCredentials
+	}
+
+	buckets := []rateLimitBucket{emailBucket, networkBucket}
 	var issued Session
 	var operationErr error
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
 		administrator, passwordHash, lookupErr := store.AdministratorByEmailForUpdate(ctx, normalizedEmail)
 		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
 			return lookupErr
 		}
-		if normalizationErr != nil || lookupErr != nil {
-			passwordHash = dummyPasswordHash
-		}
-		verificationErr := s.verifyPassword(ctx, passwordHash, password)
-		if verificationErr != nil && !errors.Is(verificationErr, ErrInvalidCredentials) {
-			return verificationErr
-		}
-		credentialsValid := normalizationErr == nil && lookupErr == nil && verificationErr == nil
-		if !credentialsValid {
+		candidateStillValid := lookupErr == nil && administrator.ID == candidate.administrator.ID &&
+			constantTimeStringEqual(passwordHash, candidate.passwordHash)
+		traceLogin(ctx, loginStageAdministratorCheck)
+		if !candidateStillValid {
 			operationErr = ErrInvalidCredentials
 			return nil
 		}
@@ -232,9 +301,11 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 		if err := store.CreateSession(ctx, uuid.New(), administrator.ID, HashSessionToken(s.tokenSecret, rawToken), expiresAt, now); err != nil {
 			return err
 		}
+		traceLogin(ctx, loginStageSessionInsert)
 		if err := clearSuccessfulRateLimits(ctx, store, buckets); err != nil {
 			return err
 		}
+		traceLogin(ctx, loginStageLimiterCleanup)
 		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt}
 		return nil
 	})
@@ -242,6 +313,12 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 		return Session{}, err
 	}
 	if operationErr != nil {
+		if errors.Is(operationErr, ErrInvalidCredentials) {
+			if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+				return Session{}, err
+			}
+			traceLogin(ctx, loginStageFailureRecorded)
+		}
 		return Session{}, operationErr
 	}
 	return issued, nil
@@ -276,14 +353,105 @@ func (s *Service) ready() error {
 	return nil
 }
 
-func (s *Service) verifyPassword(ctx context.Context, encodedHash, password string) error {
+func (s *Service) acquirePasswordVerification(ctx context.Context) (func(), error) {
 	select {
 	case s.verifySlots <- struct{}{}:
-		defer func() { <-s.verifySlots }()
+		return func() { <-s.verifySlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) verifyLoginCandidate(
+	ctx context.Context,
+	normalizedEmail string,
+	normalizationErr error,
+	password string,
+) (loginCandidate, bool, error) {
+	release, err := s.acquirePasswordVerification(ctx)
+	if err != nil {
+		return loginCandidate{}, false, err
+	}
+	traceLogin(ctx, loginStageKDFSlotAcquired)
+	defer func() {
+		release()
+		traceLogin(ctx, loginStageKDFSlotReleased)
+	}()
+
+	administrator, passwordHash, lookupErr := NewStore(s.pool).AdministratorByEmail(ctx, normalizedEmail)
+	if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
+		return loginCandidate{}, false, lookupErr
+	}
+	traceLogin(ctx, loginStageCandidateHashRead)
+	candidate := loginCandidate{administrator: administrator, passwordHash: passwordHash}
+	credentialShapeValid := normalizationErr == nil && lookupErr == nil && validatePassword(password) == nil
+	dummy := false
+	if _, _, ok := parsePasswordHash(passwordHash); !credentialShapeValid || !ok {
+		passwordHash = dummyPasswordHash
+		password = dummyPassword
+		credentialShapeValid = false
+		dummy = true
+	}
+	verificationErr := s.passwords.Verify(passwordHash, password)
+	if dummy {
+		traceLogin(ctx, loginStageDummyKDF)
+	} else {
+		traceLogin(ctx, loginStageRealKDF)
+	}
+	if verificationErr != nil && !errors.Is(verificationErr, ErrInvalidCredentials) {
+		return loginCandidate{}, false, verificationErr
+	}
+	return candidate, credentialShapeValid && verificationErr == nil, nil
+}
+
+func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now time.Time) (int, error) {
+	failures := 0
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		store := NewStore(tx)
+		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
+			return err
+		}
+		var err error
+		failures, err = store.RateLimitFailures(ctx, emailHash, now)
+		return err
+	})
+	return failures, err
+}
+
+func (s *Service) recordLoginFailure(ctx context.Context, emailHash []byte, now time.Time) error {
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		store := NewStore(tx)
+		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
+			return err
+		}
+		return store.RecordRateLimitSignal(ctx, emailHash, now)
+	})
+}
+
+func waitLoginFailureDelay(ctx context.Context, failures int) error {
+	var delay time.Duration
+	switch {
+	case failures >= 5:
+		delay = time.Second
+		traceLogin(ctx, loginStageDelay1S)
+	case failures == 4:
+		delay = 500 * time.Millisecond
+		traceLogin(ctx, loginStageDelay500MS)
+	case failures == 3:
+		delay = 250 * time.Millisecond
+		traceLogin(ctx, loginStageDelay250MS)
+	default:
+		traceLogin(ctx, loginStageDelayNone)
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	return s.passwords.Verify(encodedHash, password)
 }
 
 func (s *Service) rateLimitBuckets(operation, normalizedEmail, subject string) []rateLimitBucket {
