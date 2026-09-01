@@ -93,7 +93,7 @@ func readRelationBindings(ctx context.Context, db database.DBTX) ([]relationBind
 // classifyRelations validates the catalog-to-binding seam before any physical
 // inspection. At most one finding per relation invariant is emitted, keeping a
 // badly corrupted large catalog from creating an unbounded diagnostic payload.
-func classifyRelations(catalog []catalogRow, bindings []relationBinding, report *Report) (relationChecks, error) {
+func classifyRelations(catalog []catalogRow, bindings []relationBinding, report *Report) relationChecks {
 	// Stored text defaults are not a relation invariant, but they are read
 	// from the same catalog snapshot and must be reported even when every
 	// physical object below is healthy, so the pass runs here first.
@@ -140,7 +140,6 @@ func classifyRelations(catalog []catalogRow, bindings []relationBinding, report 
 
 		binding := fieldBindings[0]
 		target, targetExists := collections[binding.targetCollectionID]
-		metadataMatches := binding.sourceCollectionID == row.collectionID && targetExists
 		spec := schema.RelationSpec{
 			TargetCollectionID: binding.targetCollectionID,
 			Cardinality:        binding.cardinality,
@@ -153,13 +152,9 @@ func classifyRelations(catalog []catalogRow, bindings []relationBinding, report 
 				Name: binding.storageName,
 			},
 		}
-		if err := schema.ValidateRelationSpec("field", spec); err != nil {
-			metadataMatches = false
-		}
 
 		if row.field == nil || row.column == nil || row.required == nil || row.unique == nil ||
 			row.indexed == nil || row.hasDefault == nil {
-			metadataMatches = false
 			appendRelationFinding(report, "relation_metadata_mismatch", "Relation metadata is internally inconsistent")
 			continue
 		}
@@ -171,7 +166,8 @@ func classifyRelations(catalog []catalogRow, bindings []relationBinding, report 
 		case schema.RelationMultiple:
 			storageMatches = binding.storageKind == schema.RelationStorageEdgeTableV1 && binding.storageName == names.MultiTable
 		}
-		metadataMatches = metadataMatches && storageMatches &&
+		metadataMatches := binding.sourceCollectionID == row.collectionID && targetExists &&
+			schema.ValidateRelationSpec("field", spec) == nil && storageMatches &&
 			*row.required == (binding.minimum > 0) && *row.indexed && !*row.hasDefault && row.defaultJSON == nil &&
 			(binding.cardinality != schema.RelationMultiple || !*row.unique)
 		if !metadataMatches {
@@ -190,7 +186,7 @@ func classifyRelations(catalog []catalogRow, bindings []relationBinding, report 
 			binding: binding, physicalName: names,
 		}
 	}
-	return checks, nil
+	return checks
 }
 
 func fieldUsesCollectionColumn(row catalogRow, relations relationChecks) bool {

@@ -65,7 +65,7 @@ func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (Expanded
 		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, usage); err != nil {
 			return err
 		}
-		expanded, err := s.executeExpandPlan(ctx, tx, catalog, collection, []map[string]any{root}, ExpandRequest{
+		expanded, err := s.executeExpandPlan(ctx, tx, catalog, []map[string]any{root}, ExpandRequest{
 			Principal: request.Principal,
 			Expand:    request.Expand,
 		}, plan, usage)
@@ -111,7 +111,7 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 			effectiveSortKeys(requestedSort),
 		)
 		if err != nil {
-			return relationPlanningErrorForCursor(err, request.Cursor != "")
+			return err
 		}
 		root, err := s.readRelationRootPageInTx(ctx, tx, catalog, collection, relationRootPageReadRequest{
 			plan: relationPlan, cursorToken: request.Cursor, limit: request.Limit,
@@ -131,7 +131,7 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 			return err
 		}
 
-		expanded, err := s.executeExpandPlan(ctx, tx, catalog, collection, root.page.Items, ExpandRequest{
+		expanded, err := s.executeExpandPlan(ctx, tx, catalog, root.page.Items, ExpandRequest{
 			Principal: request.Principal,
 			Expand:    request.Expand,
 		}, plan, usage)
@@ -261,7 +261,7 @@ func (s *Service) ExpandRecords(
 	if err != nil {
 		return nil, err
 	}
-	return s.finishExpandedRecords(ctx, tx, catalog, canonical, roots, request, plan, usage)
+	return s.finishExpandedRecords(ctx, tx, catalog, roots, request, plan, usage)
 }
 
 // ExpandBaseRecords is the recordops integration seam. Its inputs are base
@@ -303,7 +303,7 @@ func (s *Service) ExpandBaseRecords(
 			return nil, err
 		}
 	}
-	return s.finishExpandedRecords(ctx, tx, catalog, canonical, roots, request, plan, usage)
+	return s.finishExpandedRecords(ctx, tx, catalog, roots, request, plan, usage)
 }
 
 func (s *Service) validateExpandExecutor(
@@ -325,7 +325,6 @@ func (s *Service) finishExpandedRecords(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
-	collection schema.Collection,
 	roots []map[string]any,
 	request ExpandRequest,
 	plan expandPlan,
@@ -336,7 +335,7 @@ func (s *Service) finishExpandedRecords(
 			return nil, schema.ErrConflict
 		}
 	}
-	expanded, err := s.executeExpandPlan(ctx, tx, catalog, collection, roots, request, plan, usage)
+	expanded, err := s.executeExpandPlan(ctx, tx, catalog, roots, request, plan, usage)
 	if err != nil {
 		return nil, err
 	}
@@ -362,27 +361,10 @@ func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {
 	return nil
 }
 
-func (s *Service) expandRecords(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	roots []map[string]any,
-	request ExpandRequest,
-	usage *expansionUsage,
-) ([]ExpandedRecord, error) {
-	plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
-	if err != nil {
-		return nil, err
-	}
-	return s.executeExpandPlan(ctx, tx, catalog, collection, roots, request, plan, usage)
-}
-
 func (s *Service) executeExpandPlan(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
-	collection schema.Collection,
 	roots []map[string]any,
 	request ExpandRequest,
 	plan expandPlan,

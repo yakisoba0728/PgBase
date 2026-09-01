@@ -162,7 +162,7 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 		if err != nil {
 			return err
 		}
-		etag, err := recordETag(collection.ID, request.ID, digest, root, version, validator, present)
+		etag, err := recordETag(collection.ID, request.ID, digest, root, validator, present)
 		if err != nil {
 			return err
 		}
@@ -357,7 +357,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return err
 		}
-		previousETag, err := recordETag(collection.ID, request.ID, digest, before, previousVersion, previousValidator, revisionPresent)
+		previousETag, err := recordETag(collection.ID, request.ID, digest, before, previousValidator, revisionPresent)
 		if err != nil {
 			return err
 		}
@@ -1087,7 +1087,7 @@ func schemaDigest(collection schema.Collection) ([32]byte, error) {
 }
 
 func recordETag(collectionID, recordID uuid.UUID, schemaDigest [32]byte, record map[string]any,
-	version int64, validator []byte, revisionPresent bool,
+	validator []byte, revisionPresent bool,
 ) (string, error) {
 	if revisionPresent {
 		return revisionETag(collectionID, recordID, schemaDigest, validator), nil

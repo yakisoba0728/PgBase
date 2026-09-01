@@ -207,7 +207,7 @@ func captureDeleteSnapshots(
 		if err != nil {
 			return nil, err
 		}
-		etag, err := recordETag(ref.CollectionID, ref.RecordID, digest, record, version, validator, revisionPresent)
+		etag, err := recordETag(ref.CollectionID, ref.RecordID, digest, record, validator, revisionPresent)
 		if err != nil {
 			return nil, err
 		}

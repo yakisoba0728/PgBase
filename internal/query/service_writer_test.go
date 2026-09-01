@@ -17,7 +17,7 @@ import (
 
 func (s *Service) Create(ctx context.Context, collectionName string, input map[string]json.RawMessage) (map[string]any, error) {
 	var record map[string]any
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+	err := s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
 		id, err := uuid.NewV7()
 		if err != nil {
 			return fmt.Errorf("generate record id: %w", err)
@@ -34,7 +34,7 @@ func (s *Service) Create(ctx context.Context, collectionName string, input map[s
 
 func (s *Service) Update(ctx context.Context, collectionName string, id uuid.UUID, input map[string]json.RawMessage) (map[string]any, error) {
 	var record map[string]any
-	err := s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+	err := s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
 		statement, err := CompileUpdate(collection, id, input)
 		if err != nil {
 			return err
@@ -46,7 +46,7 @@ func (s *Service) Update(ctx context.Context, collectionName string, id uuid.UUI
 }
 
 func (s *Service) Delete(ctx context.Context, collectionName string, id uuid.UUID) error {
-	return s.inTx(ctx, func(tx pgx.Tx, collection schema.Collection) error {
+	return s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
 		statement := CompileDelete(collection, id)
 		tag, err := tx.Exec(ctx, statement.SQL, statement.Args...)
 		if err != nil {

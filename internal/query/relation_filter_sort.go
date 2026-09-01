@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -357,23 +358,7 @@ type relationSQLRenderer struct {
 
 func (r *relationSQLRenderer) alias(prefix string) string {
 	r.next++
-	return prefix + "_" + strconvItoa(r.next)
-}
-
-// strconvItoa is kept local to avoid exposing aliases to caller input.
-func strconvItoa(value int) string {
-	const digits = "0123456789"
-	if value == 0 {
-		return "0"
-	}
-	var buffer [20]byte
-	position := len(buffer)
-	for value > 0 {
-		position--
-		buffer[position] = digits[value%10]
-		value /= 10
-	}
-	return string(buffer[position:])
+	return prefix + "_" + strconv.Itoa(r.next)
 }
 
 func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, error) {
@@ -692,14 +677,3 @@ func compileRelationOrder(columns []compiledRelationSort) string {
 }
 
 func qualified(alias, column string) string { return quoted(alias) + "." + quoted(column) }
-
-// relationPlanningErrorForCursor returns plan compilation errors unchanged.
-// Planning never reads the cursor: an unknown filter field or an unsortable
-// field is a request shape error whatever the caller paginates with, and a
-// stale or tampered cursor is still rejected where it is decoded and its
-// anchor hash is verified. Rewriting every planning failure into invalid_cursor
-// told the client to restart pagination instead of naming what it got wrong,
-// and disagreed with the scalar kernel on the same input.
-func relationPlanningErrorForCursor(err error, _ bool) error {
-	return err
-}

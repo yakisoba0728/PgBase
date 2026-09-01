@@ -51,7 +51,7 @@ func (s *Service) ListRelationAwareUsage(ctx context.Context, request RelationLi
 		usesRelation = requestAddressesRelationField(collection, filter, sortKeys)
 		plan, err := compileRelationListPlan(ctx, catalog, collection, request.Principal, s.policy, filter, sortKeys)
 		if err != nil {
-			return relationPlanningErrorForCursor(err, request.Cursor != "")
+			return err
 		}
 		root, err := s.readRelationRootPageInTx(ctx, tx, catalog, collection, relationRootPageReadRequest{
 			plan: plan, cursorToken: request.Cursor, limit: request.Limit,

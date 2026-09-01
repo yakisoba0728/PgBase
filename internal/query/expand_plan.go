@@ -1,7 +1,6 @@
 package query
 
 import (
-	"errors"
 	"sort"
 	"strings"
 
@@ -363,9 +362,3 @@ func validateProjection(collection schema.Collection, predicate Predicate, field
 }
 
 func expandBudgetError() error { return validation("expand", "expand_budget_exceeded") }
-
-func isExpandBudgetError(err error) bool {
-	var validationError *ValidationError
-	return errors.As(err, &validationError) && len(validationError.Details) == 1 &&
-		validationError.Details[0] == (ValidationDetail{Field: "expand", Code: "expand_budget_exceeded"})
-}

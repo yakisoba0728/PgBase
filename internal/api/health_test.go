@@ -9,9 +9,13 @@ import (
 	"testing"
 )
 
+type failingReadiness struct{}
+
+func (failingReadiness) Ready(context.Context) error { return errors.New("db down") }
+
 func TestReadyFailsWhenDependencyFails(t *testing.T) {
 	handler := NewRouter(Dependencies{
-		Readiness: readinessFunc(func(context.Context) error { return errors.New("db down") }),
+		Readiness: failingReadiness{},
 	})
 	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	response := httptest.NewRecorder()

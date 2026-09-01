@@ -12,10 +12,6 @@ type Readiness interface {
 	Ready(context.Context) error
 }
 
-type readinessFunc func(context.Context) error
-
-func (f readinessFunc) Ready(ctx context.Context) error { return f(ctx) }
-
 func live(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

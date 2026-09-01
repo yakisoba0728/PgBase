@@ -70,9 +70,12 @@ func runHealthcheck(ctx context.Context, args []string, _ func(string) (string, 
 	if err != nil {
 		return fmt.Errorf("healthcheck request failed: %w", err)
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("healthcheck returned HTTP %d", response.StatusCode)
+	statusCode := response.StatusCode
+	if err := response.Body.Close(); err != nil {
+		return fmt.Errorf("close healthcheck response: %w", err)
+	}
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck returned HTTP %d", statusCode)
 	}
 	return nil
 }
@@ -202,7 +205,9 @@ func writeDoctorReport(stdout io.Writer, jsonOutput bool, report doctor.Report) 
 // Run dispatches a command and returns its process exit code.
 func Run(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer, commands CommandSet) int {
 	if len(args) == 0 {
-		printUsage(stderr)
+		if err := printUsage(stderr); err != nil {
+			return 1
+		}
 		return 2
 	}
 
@@ -220,13 +225,19 @@ func Run(ctx context.Context, args []string, lookup func(string) (string, bool),
 	case "healthcheck":
 		command = commands.Healthcheck
 	default:
-		fmt.Fprintf(stderr, "pgbase: unknown command %q\n", name)
-		printUsage(stderr)
+		if _, err := fmt.Fprintf(stderr, "pgbase: unknown command %q\n", name); err != nil {
+			return 1
+		}
+		if err := printUsage(stderr); err != nil {
+			return 1
+		}
 		return 2
 	}
 
 	if command == nil {
-		fmt.Fprintf(stderr, "pgbase: command %q is unavailable\n", name)
+		if _, err := fmt.Fprintf(stderr, "pgbase: command %q is unavailable\n", name); err != nil {
+			return 1
+		}
 		return 1
 	}
 	if err := command(ctx, args[1:], lookup, stdout, stderr); err != nil {
@@ -236,10 +247,14 @@ func Run(ctx context.Context, args []string, lookup func(string) (string, bool),
 			if message == "" {
 				message = "invalid configuration"
 			}
-			fmt.Fprintf(stderr, "pgbase: %s\n", message)
+			if _, writeErr := fmt.Fprintf(stderr, "pgbase: %s\n", message); writeErr != nil {
+				return 1
+			}
 			return 2
 		}
-		fmt.Fprintln(stderr, "pgbase: command failed")
+		if _, writeErr := fmt.Fprintln(stderr, "pgbase: command failed"); writeErr != nil {
+			return 1
+		}
 		return 1
 	}
 	return 0
@@ -323,6 +338,7 @@ func migrationOperationError(logger *slog.Logger, message string, err error) err
 	return fmt.Errorf("%s: %w", message, err)
 }
 
-func printUsage(stderr io.Writer) {
-	fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor> [arguments]")
+func printUsage(stderr io.Writer) error {
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor> [arguments]")
+	return err
 }

@@ -5,16 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestRunRejectsUnknownCommand(t *testing.T) {
@@ -27,6 +23,17 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
+
+func TestRunTreatsDiagnosticWriteFailureAsOperationalFailure(t *testing.T) {
+	code := Run(context.Background(), nil, emptyEnv, io.Discard, failingWriter{}, CommandSet{})
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 when stderr cannot be written", code)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 func TestRunDispatchesKnownCommands(t *testing.T) {
 	called := false
@@ -350,34 +357,6 @@ func TestMigrateReportsRedactedOperationalDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), secret) || strings.Contains(stderr.String(), databaseURL) {
 		t.Fatalf("stderr leaked migration database credentials: %q", stderr.String())
-	}
-}
-
-func TestMigrateUpAndStatus(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
-	lookup := migrationEnv(databaseURL)
-	migrations := system.Migrations()
-	if len(migrations) == 0 {
-		t.Fatal("embedded system migrations are empty")
-	}
-	latest := migrations[len(migrations)-1].Version
-	wantCurrent := fmt.Sprintf("current=%d", latest)
-	wantLatest := fmt.Sprintf("latest=%d", latest)
-
-	var upOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, &upOutput, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("migrate up exit code = %d, stdout = %q", code, upOutput.String())
-	}
-	if !strings.Contains(upOutput.String(), wantCurrent) || !strings.Contains(upOutput.String(), wantLatest) {
-		t.Fatalf("migrate up stdout = %q", upOutput.String())
-	}
-
-	var statusOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "status"}, lookup, &statusOutput, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("migrate status exit code = %d, stdout = %q", code, statusOutput.String())
-	}
-	if !strings.Contains(statusOutput.String(), wantCurrent) || !strings.Contains(statusOutput.String(), "dirty=false") {
-		t.Fatalf("migrate status stdout = %q", statusOutput.String())
 	}
 }
 

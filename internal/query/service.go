@@ -188,12 +188,6 @@ func (s *Service) Get(ctx context.Context, collectionName string, id uuid.UUID) 
 	return record, err
 }
 
-func (s *Service) inTx(ctx context.Context, operation func(pgx.Tx, schema.Collection) error, collectionName string) error {
-	return s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
-		return operation(tx, collection)
-	}, collectionName)
-}
-
 func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {
 	if err := s.ready(); err != nil {
 		return err
@@ -272,11 +266,6 @@ func transactionRetryCause(err error) (observability.RetryCause, bool) {
 	default:
 		return "", false
 	}
-}
-
-func retryableTransactionError(err error) bool {
-	_, retryable := transactionRetryCause(err)
-	return retryable
 }
 
 func (s *Service) record(ctx context.Context, event observability.Event) {
