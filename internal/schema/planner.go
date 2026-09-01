@@ -100,6 +100,25 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 		return Plan{}, validation("fields", "too_many_fields")
 	}
 
+	currentFields := make(map[string]PlannedField, len(current.Fields))
+	for _, field := range current.Fields {
+		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
+		if err != nil {
+			return Plan{}, err
+		}
+		// Defaults are stored in a jsonb column whose text rendering differs
+		// from the Go-canonical form; re-normalize so an unchanged object or
+		// "now" default does not re-emit SET DEFAULT on every update.
+		if len(planned.Default) != 0 {
+			canonical, _, err := normalizeStoredDefault(planned.Type, planned.Default)
+			if err != nil {
+				return Plan{}, ErrConflict
+			}
+			planned.Default = canonical
+		}
+		currentFields[planned.Name] = planned
+	}
+
 	desired := make([]PlannedField, 0, len(input.Fields))
 	desiredNames := make(map[string]struct{}, len(input.Fields))
 	for ordinal, field := range input.Fields {
@@ -111,28 +130,22 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 			return Plan{}, validation(namePath, "duplicate_name")
 		}
 		desiredNames[field.Name] = struct{}{}
+
+		carriedDefault := json.RawMessage(nil)
+		if previous, exists := currentFields[field.Name]; exists {
+			carriedDefault = unchangedStoredDefault(previous, field)
+		}
+		if len(carriedDefault) != 0 {
+			field.Default = nil
+		}
 		planned, err := planInputField(catalog, current.Name, current.ID, field, ordinal, false, catalogAware)
 		if err != nil {
 			return Plan{}, err
 		}
+		if len(carriedDefault) != 0 {
+			planned.Default = append(json.RawMessage(nil), carriedDefault...)
+		}
 		desired = append(desired, planned)
-	}
-
-	currentFields := make(map[string]PlannedField, len(current.Fields))
-	for _, field := range current.Fields {
-		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
-		if err != nil {
-			return Plan{}, err
-		}
-		// Defaults are stored in a jsonb column whose text rendering differs
-		// from the Go-canonical form; re-normalize so an unchanged object or
-		// "now" default does not re-emit SET DEFAULT on every update.
-		if len(planned.Default) != 0 {
-			if canonical, _, err := normalizeDefault(planned.Type, planned.Default); err == nil {
-				planned.Default = canonical
-			}
-		}
-		currentFields[planned.Name] = planned
 	}
 
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
@@ -198,6 +211,17 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 	}
 	plan.Checksum = checksum
 	return plan, nil
+}
+
+func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawMessage {
+	if previous.Type != desired.Type || len(previous.Default) == 0 || len(desired.Default) == 0 {
+		return nil
+	}
+	canonical, _, err := normalizeStoredDefault(desired.Type, desired.Default)
+	if err != nil || !bytes.Equal(previous.Default, canonical) {
+		return nil
+	}
+	return previous.Default
 }
 
 // PlanDelete produces the deterministic plan that removes a collection and its

@@ -129,7 +129,7 @@ func parseInteger(raw json.RawMessage, bits int) (string, bool) {
 
 func parseNumeric(raw json.RawMessage) (string, bool) {
 	value, ok := parseJSONString(raw)
-	if !ok || !decimalLiteral.MatchString(value) || !jsonvalue.ValidPostgresNumber(value) {
+	if !ok || !decimalLiteral.MatchString(value) {
 		return "", false
 	}
 	negative := strings.HasPrefix(value, "-")
@@ -138,6 +138,16 @@ func parseNumeric(raw json.RawMessage) (string, bool) {
 	whole := strings.TrimLeft(parts[0], "0")
 	if whole == "" {
 		whole = "0"
+	}
+	postgresLexeme := whole
+	if len(parts) == 2 {
+		postgresLexeme += "." + parts[1]
+	}
+	if negative {
+		postgresLexeme = "-" + postgresLexeme
+	}
+	if !jsonvalue.ValidPostgresNumber(postgresLexeme) {
+		return "", false
 	}
 	fraction := ""
 	if len(parts) == 2 {

@@ -448,6 +448,53 @@ func TestPlanUpdateEmitsSingleDefaultChangeWithTypeChange(t *testing.T) {
 	}
 }
 
+func TestPlanUpdateCarriesOnlyAnUnchangedLegacyOversizedDefault(t *testing.T) {
+	legacy := json.RawMessage(`"` + strings.Repeat("x", MaximumTextBytes+1) + `"`)
+	base := Collection{
+		Name: "legacy_defaults", TableName: "legacy_defaults",
+		Fields: []Field{{
+			Name: "body", ColumnName: "body", Type: TypeText, Default: legacy, Ordinal: 0,
+		}},
+	}
+	input := UpdateCollectionInput{
+		Name:   "legacy_defaults",
+		Fields: []FieldInput{{Name: "body", Type: TypeText, Default: append(json.RawMessage(nil), legacy...)}},
+	}
+
+	first, err := (Planner{}).PlanUpdate(7, base, input)
+	if err != nil {
+		t.Fatalf("PlanUpdate unchanged legacy default: %v", err)
+	}
+	second, err := (Planner{}).PlanUpdate(7, base, input)
+	if err != nil {
+		t.Fatalf("PlanUpdate unchanged legacy default again: %v", err)
+	}
+	if len(first.Statements) != 0 {
+		t.Fatalf("unchanged legacy default emitted DDL: %#v", first.Statements)
+	}
+	if got := string(first.Definition.Fields[0].Default); got != string(legacy) {
+		t.Fatalf("carried default changed bytes: got %d bytes, want %d", len(got), len(legacy))
+	}
+	if first.Checksum == "" || first.Checksum != second.Checksum || !reflect.DeepEqual(first, second) {
+		t.Fatalf("unchanged legacy plan is not byte-stable: first=%#v second=%#v", first, second)
+	}
+
+	changed := input
+	changed.Fields = append([]FieldInput(nil), input.Fields...)
+	changed.Fields[0].Default = json.RawMessage(`"` + strings.Repeat("y", MaximumTextBytes+1) + `"`)
+	if _, err := (Planner{}).PlanUpdate(7, base, changed); err == nil {
+		t.Fatal("PlanUpdate accepted a changed oversized default")
+	}
+
+	added := input
+	added.Fields = append(append([]FieldInput(nil), input.Fields...), FieldInput{
+		Name: "other", Type: TypeText, Default: legacy,
+	})
+	if _, err := (Planner{}).PlanUpdate(7, base, added); err == nil {
+		t.Fatal("PlanUpdate accepted a new oversized default")
+	}
+}
+
 func TestPlanDeleteProducesSingleDropStatement(t *testing.T) {
 	planner := Planner{}
 	first, err := planner.PlanDelete(9, updateTestCollection())
