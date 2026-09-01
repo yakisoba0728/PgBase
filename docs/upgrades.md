@@ -49,6 +49,21 @@ When release notes declare one additive migration as optional, use the release's
 
 The exact-target command is a rollout guard, not a general migration selector. Do not substitute the legacy `pgbase migrate up` command in a release procedure that specifies `--through`.
 
+### Schema-operation ledger v6 preparation
+
+The preparatory artifact in this source state recognizes exactly the following two clean histories while the schema-operation ledger feature remains disabled:
+
+- previous version `5`, checksum `576df4a578efbd1259cf5dbf22da8d7669bd729e33d2ef1d1b4ed30e1d16197a`;
+- optional target version `6`, checksum `6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a`.
+
+After the full P0 fleet and in-flight schema writers are drained, the designated migration job is:
+
+```console
+pgbase migrate up --through 6 > migration-receipt.json
+```
+
+Do not activate ledger-backed schema writes merely because v6 is present. That requires the later feature artifact to make v6 mandatory and to pass its own fleet and writer-drain gate.
+
 ## Rollback actions are different operations
 
 | Action | Before M commits | After M commits |

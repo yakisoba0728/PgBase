@@ -52,11 +52,13 @@ func TestMigrateUpAndStatus(t *testing.T) {
 func TestMigrateUpThroughEmitsExactMachineReadableReceipt(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	lookup := migrationEnv(databaseURL)
-	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, io.Discard, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("initial migrate up exit code = %d", code)
-	}
 	migrations := system.Migrations()
+	if len(migrations) < 2 {
+		t.Fatal("exact-target CLI test requires two migrations")
+	}
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:len(migrations)-1])
 	target := migrations[len(migrations)-1]
+	before := migrations[len(migrations)-2]
 	var stdout, stderr bytes.Buffer
 	if code := Run(context.Background(), []string{"migrate", "up", "--through", fmt.Sprint(target.Version)}, lookup, &stdout, &stderr, DefaultCommands()); code != 0 {
 		t.Fatalf("migrate up --through exit code = %d, stderr = %q", code, stderr.String())
@@ -89,9 +91,10 @@ func TestMigrateUpThroughEmitsExactMachineReadableReceipt(t *testing.T) {
 		t.Fatalf("receipt contains trailing data: %q", stdout.String())
 	}
 	wantChecksum := hex.EncodeToString(target.SHA256[:])
+	wantBeforeChecksum := hex.EncodeToString(before.SHA256[:])
 	wantWire := fmt.Sprintf(
 		`{"receiptVersion":1,"target":{"version":%d,"checksum":%q},"before":{"version":%d,"checksum":%q,"dirty":false},"after":{"version":%d,"checksum":%q,"dirty":false}}`+"\n",
-		target.Version, wantChecksum, target.Version, wantChecksum, target.Version, wantChecksum,
+		target.Version, wantChecksum, before.Version, wantBeforeChecksum, target.Version, wantChecksum,
 	)
 	if stdout.String() != wantWire {
 		t.Fatalf("receipt wire = %q, want %q", stdout.String(), wantWire)
@@ -99,12 +102,18 @@ func TestMigrateUpThroughEmitsExactMachineReadableReceipt(t *testing.T) {
 	if receipt.ReceiptVersion != 1 || receipt.Target.Version != target.Version || receipt.Target.Checksum != wantChecksum {
 		t.Fatalf("receipt target = %#v", receipt)
 	}
-	if receipt.Before.Version != target.Version || receipt.Before.Checksum != wantChecksum || receipt.Before.Dirty {
+	if receipt.Before.Version != before.Version || receipt.Before.Checksum != wantBeforeChecksum || receipt.Before.Dirty {
 		t.Fatalf("receipt before = %#v", receipt.Before)
 	}
 	if receipt.After.Version != target.Version || receipt.After.Checksum != wantChecksum || receipt.After.Dirty {
 		t.Fatalf("receipt after = %#v", receipt.After)
 	}
+	pool, err := database.Open(context.Background(), databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	requireSchemaOperationsPhysicalDDL(t, pool)
 }
 
 func TestMigrateUpThroughRejectsMoreThanOnePendingMigrationWithoutDDL(t *testing.T) {
@@ -145,10 +154,12 @@ func TestMigrateUpThroughRejectsMoreThanOnePendingMigrationWithoutDDL(t *testing
 func TestMigrateUpThroughSuppressesReceiptWhenPostMigrationCatalogPreflightFails(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	lookup := migrationEnv(databaseURL)
-	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, io.Discard, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("initial migrate up exit code = %d", code)
+	migrations := system.Migrations()
+	if len(migrations) < 2 {
+		t.Fatal("exact-target CLI test requires two migrations")
 	}
-	target := system.Migrations()[len(system.Migrations())-1].Version
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:len(migrations)-1])
+	target := migrations[len(migrations)-1].Version
 	preflightCalls := 0
 	var firstCache *schema.Cache
 	var stdout, stderr bytes.Buffer
@@ -179,6 +190,19 @@ func TestMigrateUpThroughSuppressesReceiptWhenPostMigrationCatalogPreflightFails
 	if stdout.Len() != 0 {
 		t.Fatalf("failed rollout preflight emitted exact-target receipt: %q", stdout.String())
 	}
+	pool, openErr := database.Open(context.Background(), databaseURL, time.Second)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	defer pool.Close()
+	status, statusErr := migrate.New(pool, nil).Status(context.Background())
+	if statusErr != nil {
+		t.Fatal(statusErr)
+	}
+	if status.Current != target || status.Dirty {
+		t.Fatalf("post-preflight failure did not preserve committed exact target: %#v", status)
+	}
+	requireSchemaOperationsPhysicalDDL(t, pool)
 }
 
 func TestMigrateUpBlocksRolloutAfterUpgradingAnOlderDatabaseWhenCatalogPreflightFails(t *testing.T) {
@@ -233,5 +257,31 @@ func TestMigrateUpBlocksRolloutAfterUpgradingAnOlderDatabaseWhenCatalogPreflight
 	}
 	if status.Dirty || status.Current != status.Latest {
 		t.Fatalf("migration status = %#v, want upgraded current database before catalog preflight", status)
+	}
+}
+
+func requireSchemaOperationsPhysicalDDL(t *testing.T, pool *database.Pool) {
+	t.Helper()
+	var tableExists, stateConstraintExists bool
+	if err := pool.QueryRow(context.Background(), `
+		select
+			to_regclass('pgbase_meta.schema_operations') is not null,
+			exists (
+				select 1
+				from pg_constraint constraint_definition
+				join pg_class relation on relation.oid = constraint_definition.conrelid
+				join pg_namespace namespace on namespace.oid = relation.relnamespace
+				where namespace.nspname = 'pgbase_meta'
+					and relation.relname = 'schema_operations'
+					and constraint_definition.conname = 'schema_operations_state_check'
+			)
+	`).Scan(&tableExists, &stateConstraintExists); err != nil {
+		t.Fatal(err)
+	}
+	if !tableExists {
+		t.Fatal("exact-target migration did not create pgbase_meta.schema_operations")
+	}
+	if !stateConstraintExists {
+		t.Fatal("exact-target migration did not create schema_operations_state_check")
 	}
 }

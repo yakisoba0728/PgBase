@@ -20,6 +20,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
@@ -194,6 +195,72 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	if err == nil {
 		app.Close(context.Background())
 		t.Fatal("New succeeded with pending migrations")
+	}
+}
+
+func TestNewAcceptsOnlySchemaOperationsP0Histories(t *testing.T) {
+	migrations := system.Migrations()
+	if len(migrations) != 6 {
+		t.Fatalf("schema-operations P0 manifest = %#v", migrations)
+	}
+	tests := []struct {
+		name       string
+		through    int
+		dirty      bool
+		wantAccept bool
+	}{
+		{name: "v4 rejected", through: 4},
+		{name: "v5 accepted", through: 5, wantAccept: true},
+		{name: "v6 accepted", through: 6, wantAccept: true},
+		{name: "dirty v5 rejected", through: 5, dirty: true},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			databaseURL := testutil.NewDatabase(t)
+			testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:testCase.through])
+			if testCase.dirty {
+				pool, err := database.Open(context.Background(), databaseURL, time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := pool.Exec(context.Background(), `update pgbase_meta.system_migrations
+					set checksum = decode(repeat('00', 32), 'hex') where version = 1`); err != nil {
+					pool.Close()
+					t.Fatal(err)
+				}
+				pool.Close()
+			}
+			app, err := New(context.Background(), Options{
+				DatabaseURL: databaseURL,
+				TokenSecret: make([]byte, 32),
+				Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+			})
+			if testCase.wantAccept {
+				if err != nil {
+					t.Fatalf("New rejected P0 history: %v", err)
+				}
+				if err := app.Start(context.Background()); err != nil {
+					_ = app.Close(context.Background())
+					t.Fatalf("start app with P0 history: %v", err)
+				}
+				deadline := time.Now().Add(3 * time.Second)
+				for app.readiness.Ready(context.Background()) != nil {
+					if time.Now().After(deadline) {
+						_ = app.Close(context.Background())
+						t.Fatal("app with P0 history did not become ready")
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				if closeErr := app.Close(context.Background()); closeErr != nil {
+					t.Fatal(closeErr)
+				}
+				return
+			}
+			if err == nil {
+				_ = app.Close(context.Background())
+				t.Fatal("New accepted history outside the P0 compatibility boundary")
+			}
+		})
 	}
 }
 

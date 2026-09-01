@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
@@ -25,6 +26,52 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 	}
 	if !report.OK || len(report.Findings) != 0 {
 		t.Fatalf("report = %#v, want healthy report", report)
+	}
+}
+
+func TestRunAcceptsOnlySchemaOperationsP0Histories(t *testing.T) {
+	migrations := system.Migrations()
+	if len(migrations) != 6 {
+		t.Fatalf("schema-operations P0 manifest = %#v", migrations)
+	}
+	tests := []struct {
+		name     string
+		through  int
+		dirty    bool
+		wantCode string
+	}{
+		{name: "v4 rejected", through: 4, wantCode: "migration_not_current"},
+		{name: "v5 accepted", through: 5},
+		{name: "v6 accepted", through: 6},
+		{name: "dirty v5 rejected", through: 5, dirty: true, wantCode: "migration_checksum_mismatch"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			databaseURL := testutil.NewDatabase(t)
+			testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:testCase.through])
+			pool, err := database.Open(context.Background(), databaseURL, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pool.Close()
+			if testCase.dirty {
+				if _, err := pool.Exec(context.Background(), `update pgbase_meta.system_migrations
+					set checksum = decode(repeat('00', 32), 'hex') where version = 1`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report, err := Run(context.Background(), pool, migrate.New(pool, nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testCase.wantCode == "" {
+				if !report.OK || len(report.Findings) != 0 {
+					t.Fatalf("P0 report = %#v, want healthy", report)
+				}
+				return
+			}
+			assertFindingCode(t, report, testCase.wantCode)
+		})
 	}
 }
 

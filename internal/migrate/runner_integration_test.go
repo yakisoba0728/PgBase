@@ -313,7 +313,7 @@ func TestUpThroughClassifiesUnknownVersionAndGapWithoutApplyingTarget(t *testing
 			if statusErr != nil {
 				t.Fatal(statusErr)
 			}
-			if status != (Status{Current: previous.Version, Latest: target.Version}) {
+			if status != (Status{Current: previous.Version, Latest: target.Version, Compatible: true}) {
 				t.Fatalf("Status after history repair = %#v, target migration was not expected to run", status)
 			}
 		})
@@ -532,6 +532,7 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 		t.Fatal(err)
 	}
 	runner.migrations = migrations
+	runner.compatibility = nil
 	status, err := runner.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -560,6 +561,45 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	runner.compatibility = &historyCompatibilityPolicy{requiredVersion: migrations[len(migrations)-3].Version, optionalVersion: target.Version}
 	if _, err := runner.Status(context.Background()); err == nil || !strings.Contains(err.Error(), "latest manifest entry optional") {
 		t.Fatalf("Status with invalid compatibility policy error = %v", err)
+	}
+}
+
+func TestNewRunnerAcceptsOnlyTheSchemaOperationsP0Histories(t *testing.T) {
+	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	migrations := system.Migrations()
+	if len(migrations) != 6 || migrations[len(migrations)-2].Version != 5 || migrations[len(migrations)-1].Version != 6 {
+		t.Fatalf("schema-operations P0 manifest = %#v", migrations)
+	}
+
+	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	bootstrap.migrations = migrations[:len(migrations)-1]
+	bootstrap.compatibility = nil
+	if err := bootstrap.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != (Status{Current: 5, Latest: 6, Compatible: true}) {
+		t.Fatalf("P0 status before optional migration = %#v", status)
+	}
+
+	if _, err := runner.UpThrough(context.Background(), 6); err != nil {
+		t.Fatal(err)
+	}
+	status, err = runner.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != (Status{Current: 6, Latest: 6, Compatible: true}) {
+		t.Fatalf("P0 status after optional migration = %#v", status)
 	}
 }
 
