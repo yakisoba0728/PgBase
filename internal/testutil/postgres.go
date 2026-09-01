@@ -14,7 +14,7 @@ import (
 )
 
 // NewDatabase creates an isolated PostgreSQL database and drops it when t ends.
-func NewDatabase(t *testing.T) string {
+func NewDatabase(t testing.TB) string {
 	t.Helper()
 
 	adminURL, err := requiredAdminURL(os.Getenv)

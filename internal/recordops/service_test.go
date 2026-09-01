@@ -242,12 +242,12 @@ func (c *countingCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.
 	return c.inner.EnsureCurrent(ctx, tx)
 }
 
-func newRecordOperationsTest(t *testing.T) (*database.Pool, *schema.Service, *Service, Principal) {
+func newRecordOperationsTest(t testing.TB) (*database.Pool, *schema.Service, *Service, Principal) {
 	_, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
 	return pool, schemas, records, principal
 }
 
-func newRecordOperationsTestWithURL(t *testing.T) (string, *database.Pool, *schema.Service, *Service, Principal) {
+func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *schema.Service, *Service, Principal) {
 	t.Helper()
 	ctx := context.Background()
 	databaseURL := testutil.NewDatabase(t)
