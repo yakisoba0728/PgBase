@@ -88,14 +88,21 @@ func cloneFieldInputs(fields []FieldInput) []FieldInput {
 // ApplyIntent binds one immutable change to the plan version/checksum approved
 // by the caller and the administrator responsible for the mutation.
 type ApplyIntent struct {
-	change      Change
-	checksum    string
-	baseVersion int64
-	actor       uuid.UUID
+	mode               operationMode
+	change             Change
+	checksum           string
+	baseVersion        int64
+	actor              uuid.UUID
+	operationID        uuid.UUID
+	resourceKeyHash    [32]byte
+	idempotencyKeyHash [32]byte
+	requestHash        [32]byte
+	planChecksum       [32]byte
 }
 
 func LegacyApply(change Change, expectedPlan Plan, actor uuid.UUID) ApplyIntent {
 	return ApplyIntent{
+		mode:        operationModeLegacy,
 		change:      change,
 		checksum:    expectedPlan.Checksum,
 		baseVersion: expectedPlan.BaseVersion,
@@ -106,6 +113,8 @@ func LegacyApply(change Change, expectedPlan Plan, actor uuid.UUID) ApplyIntent 
 type ApplyResult struct {
 	Collection Collection
 	Deleted    bool
+	Receipt    OperationReceipt
+	Replayed   bool
 }
 
 type Field struct {

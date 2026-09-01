@@ -29,10 +29,10 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 	}
 }
 
-func TestRunAcceptsOnlySchemaOperationsP0Histories(t *testing.T) {
+func TestRunRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 	migrations := system.Migrations()
 	if len(migrations) != 6 {
-		t.Fatalf("schema-operations P0 manifest = %#v", migrations)
+		t.Fatalf("schema-operations feature manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name     string
@@ -41,9 +41,9 @@ func TestRunAcceptsOnlySchemaOperationsP0Histories(t *testing.T) {
 		wantCode string
 	}{
 		{name: "v4 rejected", through: 4, wantCode: "migration_not_current"},
-		{name: "v5 accepted", through: 5},
+		{name: "v5 rejected", through: 5, wantCode: "migration_not_current"},
 		{name: "v6 accepted", through: 6},
-		{name: "dirty v5 rejected", through: 5, dirty: true, wantCode: "migration_checksum_mismatch"},
+		{name: "dirty v6 rejected", through: 6, dirty: true, wantCode: "migration_checksum_mismatch"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestRunAcceptsOnlySchemaOperationsP0Histories(t *testing.T) {
 			}
 			if testCase.wantCode == "" {
 				if !report.OK || len(report.Findings) != 0 {
-					t.Fatalf("P0 report = %#v, want healthy", report)
+					t.Fatalf("feature report = %#v, want healthy", report)
 				}
 				return
 			}

@@ -313,7 +313,7 @@ func TestUpThroughClassifiesUnknownVersionAndGapWithoutApplyingTarget(t *testing
 			if statusErr != nil {
 				t.Fatal(statusErr)
 			}
-			if status != (Status{Current: previous.Version, Latest: target.Version, Compatible: true}) {
+			if status != (Status{Current: previous.Version, Latest: target.Version}) {
 				t.Fatalf("Status after history repair = %#v, target migration was not expected to run", status)
 			}
 		})
@@ -564,7 +564,7 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-func TestNewRunnerAcceptsOnlyTheSchemaOperationsP0Histories(t *testing.T) {
+func TestNewRunnerRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -572,7 +572,7 @@ func TestNewRunnerAcceptsOnlyTheSchemaOperationsP0Histories(t *testing.T) {
 	defer pool.Close()
 	migrations := system.Migrations()
 	if len(migrations) != 6 || migrations[len(migrations)-2].Version != 5 || migrations[len(migrations)-1].Version != 6 {
-		t.Fatalf("schema-operations P0 manifest = %#v", migrations)
+		t.Fatalf("schema-operations feature manifest = %#v", migrations)
 	}
 
 	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -587,8 +587,8 @@ func TestNewRunnerAcceptsOnlyTheSchemaOperationsP0Histories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 5, Latest: 6, Compatible: true}) {
-		t.Fatalf("P0 status before optional migration = %#v", status)
+	if status != (Status{Current: 5, Latest: 6}) {
+		t.Fatalf("feature status before required migration = %#v", status)
 	}
 
 	if _, err := runner.UpThrough(context.Background(), 6); err != nil {
@@ -599,7 +599,7 @@ func TestNewRunnerAcceptsOnlyTheSchemaOperationsP0Histories(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status != (Status{Current: 6, Latest: 6, Compatible: true}) {
-		t.Fatalf("P0 status after optional migration = %#v", status)
+		t.Fatalf("feature status after required migration = %#v", status)
 	}
 }
 

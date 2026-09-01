@@ -3,10 +3,8 @@ package schema
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,20 +30,31 @@ type Service struct {
 	planner  Planner
 	recorder observability.Recorder
 
+	operationCursors *schemaOperationCursorCodec
+	now              func() time.Time
+	commitTx         func(context.Context, pgx.Tx) error
+
 	beforeDDL        func(context.Context, pgx.Tx) error
 	catalogWireLimit int
 }
 
-func NewService(pool *database.Pool, cache *Cache, planner Planner) *Service {
-	return NewServiceWithRecorder(pool, cache, planner, nil)
+func NewService(pool *database.Pool, cache *Cache, planner Planner, cursorSecret ...[]byte) *Service {
+	return NewServiceWithRecorder(pool, cache, planner, nil, cursorSecret...)
 }
 
-func NewServiceWithRecorder(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder) *Service {
+func NewServiceWithRecorder(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
 	if cache == nil {
 		cache = &Cache{}
 	}
+	var operationCursorSecret []byte
+	if len(cursorSecret) != 0 {
+		operationCursorSecret = cursorSecret[0]
+	}
 	return &Service{
 		pool: pool, cache: cache, planner: planner, recorder: recorder,
+		operationCursors: newSchemaOperationCursorCodec(operationCursorSecret),
+		now:              time.Now,
+		commitTx:         func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) },
 		catalogWireLimit: maximumCatalogWireBytes,
 	}
 }
@@ -128,125 +137,6 @@ func (s *Service) ApplyDelete(ctx context.Context, name string, checksum string,
 	return err
 }
 
-func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyResult, err error) {
-	operation, ok := schemaOperationForChange(intent.change)
-	if !ok {
-		return ApplyResult{}, ErrConflict
-	}
-	operationStarted := time.Now()
-	relationOperation := changeHasRelationInput(intent.change)
-	defer s.finishOperation(ctx, operation, operationStarted, &err)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
-	if err = s.ready(); err != nil {
-		return ApplyResult{}, err
-	}
-	var nextCatalog *compiledCatalog
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
-			return fmt.Errorf("set schema lock timeout: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
-			return fmt.Errorf("disable request statement timeout for schema DDL: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", schemaAdvisoryLockKey); err != nil {
-			return fmt.Errorf("acquire schema advisory lock: %w", err)
-		}
-
-		store := NewStore(tx)
-		version, err := store.LockedSchemaVersion(ctx)
-		if err != nil {
-			return err
-		}
-		if version != intent.baseVersion {
-			return ErrConflict
-		}
-		persisted, err := store.ReadCatalog(ctx, version)
-		if err != nil {
-			return err
-		}
-		currentCatalog := s.cache.find(version)
-		if currentCatalog == nil {
-			currentCatalog, err = s.cache.prepare(persisted, s.catalogLimit())
-			if err != nil {
-				return err
-			}
-			s.cache.publish(currentCatalog)
-		} else if !sameCatalogContent(persisted, currentCatalog.catalog) {
-			return ErrConflict
-		}
-		catalog := currentCatalog.catalog
-		plan, err := s.planner.Plan(catalog, intent.change)
-		if err != nil {
-			return err
-		}
-		if plan.Checksum != intent.checksum {
-			return ErrConflict
-		}
-
-		var current Collection
-		switch intent.change.kind {
-		case changeCreate:
-			if err := validateCreateAgainstCatalog(catalog, plan.Definition); err != nil {
-				return err
-			}
-			created, err := newCollectionMetadata(plan.Definition)
-			if err != nil {
-				return err
-			}
-			result.Collection = created
-		case changeUpdate:
-			current = catalog.Collections[intent.change.update.Name]
-			relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-			if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
-				return err
-			}
-			fields, err := updatedFieldMetadata(current.ID, current.Fields, plan.Definition)
-			if err != nil {
-				return err
-			}
-			result.Collection = Collection{
-				ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName,
-				Fields: fields, CreatedAt: current.CreatedAt,
-			}
-		case changeDelete:
-			current = catalog.Collections[intent.change.deleteName]
-			relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
-			result.Deleted = true
-		}
-
-		var appliedAt time.Time
-		if err := tx.QueryRow(ctx, "select current_timestamp").Scan(&appliedAt); err != nil {
-			return fmt.Errorf("read schema application timestamp: %w", err)
-		}
-		appliedAt = appliedAt.UTC()
-		if intent.change.kind == changeCreate {
-			result.Collection.CreatedAt = appliedAt
-		}
-		started := time.Now()
-		if err := s.executePlan(ctx, tx, plan); err != nil {
-			return err
-		}
-		switch intent.change.kind {
-		case changeCreate:
-			err = store.InsertCollection(ctx, result.Collection, plan.Definition, appliedAt)
-		case changeUpdate:
-			err = store.UpdateCollection(ctx, result.Collection, plan.Definition, appliedAt)
-		case changeDelete:
-			err = store.DeleteCollection(ctx, current.ID)
-		}
-		if err != nil {
-			return classifyApplyError(err)
-		}
-		return s.commitSchemaChange(ctx, tx, store, plan, intent.checksum, intent.actor, version, appliedAt, started, &nextCatalog)
-	})
-	if err != nil {
-		s.cache.discardPrepared(nextCatalog)
-		return ApplyResult{}, err
-	}
-	s.cache.publish(nextCatalog)
-	return result, nil
-}
-
 func validateRequiredRelationAdds(
 	ctx context.Context,
 	db database.DBTX,
@@ -303,42 +193,6 @@ func (s *Service) executePlan(ctx context.Context, tx pgx.Tx, plan Plan) error {
 			return classifyDDLApplyError(fmt.Errorf("execute collection DDL: %w", err))
 		}
 	}
-	return nil
-}
-
-func (s *Service) commitSchemaChange(ctx context.Context, tx pgx.Tx, store *Store, plan Plan, checksum string, administratorID uuid.UUID, version int64, createdAt time.Time, started time.Time, nextCatalog **compiledCatalog) error {
-	checksumBytes, err := hex.DecodeString(checksum)
-	if err != nil || len(checksumBytes) != 32 {
-		return ErrConflict
-	}
-	operationID, err := uuid.NewV7()
-	if err != nil {
-		return fmt.Errorf("generate schema operation ID: %w", err)
-	}
-	newVersion := version + 1
-	executionMS := time.Since(started).Milliseconds()
-	if err := store.InsertMigration(ctx, newVersion, operationID, plan, checksumBytes, administratorID, createdAt, executionMS); err != nil {
-		return classifyApplyError(err)
-	}
-	persistedVersion, err := store.IncrementVersion(ctx)
-	if err != nil {
-		return err
-	}
-	if persistedVersion != newVersion {
-		return fmt.Errorf("schema version increment mismatch")
-	}
-	if _, err := tx.Exec(ctx, "select pg_notify('pgbase_schema_changed', $1)", strconv.FormatInt(newVersion, 10)); err != nil {
-		return fmt.Errorf("notify schema change: %w", err)
-	}
-	published, err := store.ReadCatalog(ctx, newVersion)
-	if err != nil {
-		return fmt.Errorf("build committed schema catalog: %w", err)
-	}
-	compiled, err := s.cache.prepare(published, s.catalogLimit())
-	if err != nil {
-		return fmt.Errorf("compile committed schema catalog: %w", err)
-	}
-	*nextCatalog = compiled
 	return nil
 }
 
@@ -683,14 +537,7 @@ func newCollectionMetadata(definition PlannedCollection) (Collection, error) {
 	if err != nil {
 		return Collection{}, fmt.Errorf("generate collection ID: %w", err)
 	}
-	fields, err := newFieldMetadata(collectionID, definition)
-	if err != nil {
-		return Collection{}, err
-	}
-	return Collection{
-		ID: collectionID, Name: definition.Name, TableName: definition.TableName,
-		Fields: fields,
-	}, nil
+	return newCollectionMetadataWithID(collectionID, definition)
 }
 
 func newFieldMetadata(collectionID uuid.UUID, definition PlannedCollection) ([]Field, error) {

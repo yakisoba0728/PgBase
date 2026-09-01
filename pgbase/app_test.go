@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,12 +56,14 @@ func (r *readinessTelemetryRecorder) snapshot() []observability.Event {
 func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	adminCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	recordCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	schemaOperations := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	schemaListener := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	app := &App{
 		httpServer:       &http.Server{},
 		readiness:        &readinessState{},
 		cleaner:          adminCleaner,
 		recordCleaner:    recordCleaner,
+		schemaOperations: schemaOperations,
 		schemaListener:   schemaListener,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -70,9 +73,26 @@ func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	for name, runner := range map[string]*barrierCleaner{
 		"administrator cleaner": adminCleaner,
 		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
 		"schema listener":       schemaListener,
 	} {
 		waitForSignal(t, runner.started, name+" did not start")
+		if got := runner.runs.Load(); got != 1 {
+			t.Fatalf("%s run count = %d, want one", name, got)
+		}
+	}
+	if err := app.Start(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
+		t.Fatalf("second Start error = %v, want %v", err, errAppAlreadyStarted)
+	}
+	for name, runner := range map[string]*barrierCleaner{
+		"administrator cleaner": adminCleaner,
+		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
+		"schema listener":       schemaListener,
+	} {
+		if got := runner.runs.Load(); got != 1 {
+			t.Fatalf("%s run count after second Start = %d, want one", name, got)
+		}
 	}
 	closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -82,6 +102,7 @@ func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	for name, runner := range map[string]*barrierCleaner{
 		"administrator cleaner": adminCleaner,
 		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
 		"schema listener":       schemaListener,
 	} {
 		waitForSignal(t, runner.stopped, name+" did not stop")
@@ -118,6 +139,35 @@ func TestRunReportsUnexpectedBackgroundRunnerExit(t *testing.T) {
 		t.Fatalf("Run error = %q, want the failed background runner name", err)
 	}
 	waitForSignal(t, sibling.stopped, "unexpected runner exit did not cancel its sibling")
+}
+
+func TestRunReportsSchemaOperationMaintenanceExitByName(t *testing.T) {
+	listener := &barrierListener{accepted: make(chan struct{}), closed: make(chan struct{})}
+	earlyExit := &releasedRunner{release: make(chan struct{})}
+	sibling := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: time.Second},
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		schemaOperations: earlyExit,
+		schemaListener:   sibling,
+		lifecycleClosing: make(chan struct{}),
+		listen: func(_, _ string) (net.Listener, error) {
+			return listener, nil
+		},
+	}
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(context.Background()) }()
+	waitForSignal(t, listener.accepted, "HTTP server did not start")
+	waitForSignal(t, sibling.started, "sibling background runner did not start")
+	close(earlyExit.release)
+
+	err := waitForResult(t, runDone, "Run did not return after schema operation maintenance exited")
+	if err == nil || !strings.Contains(err.Error(), "schema operation maintenance") {
+		t.Fatalf("Run error = %v, want schema operation maintenance runner name", err)
+	}
+	waitForSignal(t, sibling.stopped, "schema operation maintenance exit did not cancel its sibling")
 }
 
 func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
@@ -295,6 +345,7 @@ func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
 type barrierCleaner struct {
 	started chan struct{}
 	stopped chan struct{}
+	runs    atomic.Int32
 }
 
 type releasedRunner struct {
@@ -307,6 +358,7 @@ func (r *releasedRunner) Run(context.Context) error {
 }
 
 func (c *barrierCleaner) Run(ctx context.Context) error {
+	c.runs.Add(1)
 	close(c.started)
 	<-ctx.Done()
 	close(c.stopped)

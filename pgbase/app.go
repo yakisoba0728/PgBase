@@ -22,18 +22,19 @@ import (
 
 // App owns the pgBase HTTP server and its required process resources.
 type App struct {
-	options         Options
-	pool            *database.Pool
-	handler         http.Handler
-	httpServer      *http.Server
-	readiness       *readinessState
-	cleaner         backgroundRunner
-	recordCleaner   backgroundRunner
-	schemaListener  backgroundRunner
-	listen          func(string, string) (net.Listener, error)
-	shutdownMu      sync.Mutex
-	shutdownStarted bool
-	shutdownDone    chan struct{}
+	options          Options
+	pool             *database.Pool
+	handler          http.Handler
+	httpServer       *http.Server
+	readiness        *readinessState
+	cleaner          backgroundRunner
+	recordCleaner    backgroundRunner
+	schemaOperations backgroundRunner
+	schemaListener   backgroundRunner
+	listen           func(string, string) (net.Listener, error)
+	shutdownMu       sync.Mutex
+	shutdownStarted  bool
+	shutdownDone     chan struct{}
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -217,6 +218,13 @@ func newWithCatalogPreflight(
 		if err := preflight(ctx, pool, schemaCache); err != nil {
 			return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
 		}
+		before, err := runner.Status(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read system migration status before auto-migration: %w", err)
+		}
+		if before.Current != 0 && !before.Compatible {
+			return nil, errors.New("system migrations are not current")
+		}
 		if err := runner.Up(ctx); err != nil {
 			return nil, fmt.Errorf("apply system migrations: %w", err)
 		}
@@ -249,7 +257,7 @@ func newWithCatalogPreflight(
 			return nil
 		})},
 	}}
-	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics)
+	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
 	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	authService := adminauth.NewService(
@@ -287,6 +295,7 @@ func newWithCatalogPreflight(
 		readiness:        readiness,
 		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
+		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
@@ -471,12 +480,15 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]namedBackgroundRunner, 0, 3)
+		runners := make([]namedBackgroundRunner, 0, 4)
 		if a.cleaner != nil {
 			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
 		}
 		if a.recordCleaner != nil {
 			runners = append(runners, namedBackgroundRunner{name: "record idempotency cleaner", runner: a.recordCleaner})
+		}
+		if a.schemaOperations != nil {
+			runners = append(runners, namedBackgroundRunner{name: "schema operation maintenance", runner: a.schemaOperations})
 		}
 		if a.schemaListener != nil {
 			runners = append(runners, namedBackgroundRunner{name: "schema listener", runner: a.schemaListener})

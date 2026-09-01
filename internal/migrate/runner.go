@@ -15,11 +15,6 @@ import (
 
 const advisoryLockKey int64 = 0x7067626173650001
 
-const (
-	schemaOperationsP0RequiredVersion int64 = 5
-	schemaOperationsP0OptionalVersion int64 = 6
-)
-
 const bootstrapSQL = `
 CREATE SCHEMA IF NOT EXISTS pgbase_meta;
 CREATE TABLE IF NOT EXISTS pgbase_meta.system_migrations (
@@ -53,11 +48,7 @@ func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observab
 		pool:       pool,
 		logger:     logger,
 		migrations: system.Migrations(),
-		compatibility: &historyCompatibilityPolicy{
-			requiredVersion: schemaOperationsP0RequiredVersion,
-			optionalVersion: schemaOperationsP0OptionalVersion,
-		},
-		recorder: recorder,
+		recorder:   recorder,
 	}
 }
 
