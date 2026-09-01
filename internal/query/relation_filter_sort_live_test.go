@@ -1,3 +1,5 @@
+//go:build integration
+
 package query
 
 import (
@@ -242,7 +244,7 @@ func TestListExpandedCombinesRelationFilterSortWithNestedAndReverseExpansion(t *
 	}
 }
 
-func TestRelationSortRejectsOversizedRootCollectionBeforeJoinAndSort(t *testing.T) {
+func TestRelationSortCurrentBudgetIncludesBareRelationSortAt100001(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
@@ -279,21 +281,25 @@ func TestRelationSortRejectsOversizedRootCollectionBeforeJoinAndSort(t *testing.
 	}
 	insertRange(1, maximumRelationSortRootRows)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}
-	page, err := records.ListRelationAware(ctx, RelationListRequest{
-		Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: "owner.name",
-	})
-	if err != nil {
-		t.Fatalf("relation sort at budget: %v", err)
-	}
-	if len(page.Items) != 1 || page.NextCursor == "" {
-		t.Fatalf("relation sort at budget page = %#v", page)
+	for _, sortText := range []string{"owner.name", "owner"} {
+		page, err := records.ListRelationAware(ctx, RelationListRequest{
+			Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: sortText,
+		})
+		if err != nil {
+			t.Fatalf("relation sort %q at budget: %v", sortText, err)
+		}
+		if len(page.Items) != 1 || page.NextCursor == "" {
+			t.Fatalf("relation sort %q at budget page = %#v", sortText, page)
+		}
 	}
 
 	insertRange(maximumRelationSortRootRows+1, maximumRelationSortRootRows+1)
-	_, err = records.ListRelationAware(ctx, RelationListRequest{
-		Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: "owner.name",
-	})
-	assertValidationDetail(t, err, "sort", "relation_sort_budget_exceeded")
+	for _, sortText := range []string{"owner.name", "owner"} {
+		_, err := records.ListRelationAware(ctx, RelationListRequest{
+			Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: sortText,
+		})
+		assertValidationDetail(t, err, "sort", "relation_sort_budget_exceeded")
+	}
 }
 
 type relationFilterSortFixture struct {

@@ -207,6 +207,43 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
 }
 
+func TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor(t *testing.T) {
+	t.Parallel()
+
+	catalog, posts := relationFilterSortCatalog()
+	requested, err := parseSort("owner")
+	if err != nil {
+		t.Fatalf("parseSort(owner) error = %v", err)
+	}
+	plan, err := compileRelationListPlan(
+		context.Background(), catalog, posts,
+		Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")},
+		AdminAllowAll{}, nil, effectiveSortKeys(requested),
+	)
+	if err != nil {
+		t.Fatalf("compileRelationListPlan(owner) error = %v", err)
+	}
+	if !plan.privateCursor || !relationListPlanUsesRelation(plan) {
+		t.Fatalf("bare relation plan private/uses-relation = %t/%t, want true/true", plan.privateCursor, relationListPlanUsesRelation(plan))
+	}
+	statement, err := plan.statement(nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`LEFT JOIN "app"."relation_people" AS "rq_sort_1" ON "rq_sort_1"."id" = "rq_root"."owner"`,
+		`SELECT "rq_root"."id", "rq_root"."created_at", "rq_root"."updated_at", "rq_root"."owner", "rq_sort_1"."id"`,
+		`ORDER BY "rq_sort_1"."id" ASC NULLS LAST`,
+	} {
+		if !strings.Contains(statement.SQL, fragment) {
+			t.Fatalf("bare relation sort SQL = %q, want current join fragment %q", statement.SQL, fragment)
+		}
+	}
+	if maximumRelationSortRootRows != 100_000 {
+		t.Fatalf("bare relation sort root budget = %d, want current 100000", maximumRelationSortRootRows)
+	}
+}
+
 func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {
 	t.Parallel()
 

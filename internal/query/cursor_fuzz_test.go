@@ -1,6 +1,7 @@
 package query
 
 import (
+	"crypto/sha256"
 	"errors"
 	"strings"
 	"testing"
@@ -22,7 +23,18 @@ func FuzzCursorDecode(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, seed := range []string{"", "%%%", valid, valid + "=", "eyJ2IjoyfQ"} {
+	anchorOnly, err := codec.Encode(PageCursor{
+		Version: cursorVersion, CollectionID: collectionID,
+		Sort:          testCursorSort(),
+		Values:        testCursorValues(),
+		AnchorID:      uuid.MustParse("99999999-9999-4999-8999-999999999999"),
+		PrivateValues: true,
+		ExpiresAt:     now.Add(time.Minute),
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range []string{"", "%%%", valid, anchorOnly, valid + "=", "eyJ2IjoyfQ"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, token string) {
@@ -36,7 +48,10 @@ func FuzzCursorDecode(f *testing.F) {
 		if cursor.CollectionID != collectionID || cursor.Version != cursorVersion || !cursor.ExpiresAt.After(now) {
 			t.Fatalf("invalid decoded cursor: %#v", cursor)
 		}
-		if len(cursor.Sort) == 0 || len(cursor.Values) != len(cursor.Sort) {
+		valuesShape := len(cursor.Values) == len(cursor.Sort)
+		anchorOnlyShape := cursor.PrivateValues && len(cursor.Values) == 0 &&
+			cursor.AnchorID != uuid.Nil && len(cursor.AnchorHash) == sha256.Size
+		if len(cursor.Sort) == 0 || (!valuesShape && !anchorOnlyShape) {
 			t.Fatalf("invalid decoded cursor shape: %#v", cursor)
 		}
 	})
