@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -19,6 +20,8 @@ const (
 )
 
 var ErrInvalid = errors.New("invalid JSON value")
+
+var jsonNumberLexeme = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 
 // ValidateUnicode rejects byte-invalid UTF-8, NUL, and unpaired UTF-16
 // surrogate escapes before encoding/json can replace them with U+FFFD.
@@ -116,7 +119,7 @@ func String(raw []byte) (string, error) {
 // ValidPostgresNumber reports whether a JSON number lexeme is within
 // PostgreSQL numeric/jsonb's documented digit limits.
 func ValidPostgresNumber(raw string) bool {
-	if raw == "" {
+	if !jsonNumberLexeme.MatchString(raw) {
 		return false
 	}
 	unsigned := strings.TrimPrefix(raw, "-")

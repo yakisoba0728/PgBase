@@ -1,6 +1,9 @@
 package jsonvalue
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func FuzzStrictPostgreSQLJSON(f *testing.F) {
 	for _, seed := range [][]byte{
@@ -20,6 +23,17 @@ func FuzzStrictPostgreSQLJSON(f *testing.F) {
 		}
 		if err == nil && !Valid(canonical) {
 			t.Fatalf("canonical output became invalid: %q", canonical)
+		}
+	})
+}
+
+func FuzzValidPostgresNumberLexeme(f *testing.F) {
+	for _, seed := range []string{"0", "-1.25e+3", "+1", "01", ".", "1e"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		if ValidPostgresNumber(raw) && !json.Valid([]byte(raw)) {
+			t.Fatalf("accepted a non-JSON number lexeme: %q", raw)
 		}
 	})
 }
