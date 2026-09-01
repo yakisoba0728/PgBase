@@ -51,6 +51,17 @@ type backgroundRunner interface {
 	Run(context.Context) error
 }
 
+type namedBackgroundRunner struct {
+	name   string
+	runner backgroundRunner
+}
+
+type backgroundResult struct {
+	name            string
+	err             error
+	cancellationErr error
+}
+
 type appLifecycleState uint8
 
 const (
@@ -446,26 +457,31 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]backgroundRunner, 0, 3)
+		runners := make([]namedBackgroundRunner, 0, 3)
 		if a.cleaner != nil {
-			runners = append(runners, a.cleaner)
+			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
 		}
 		if a.recordCleaner != nil {
-			runners = append(runners, a.recordCleaner)
+			runners = append(runners, namedBackgroundRunner{name: "record idempotency cleaner", runner: a.recordCleaner})
 		}
 		if a.schemaListener != nil {
-			runners = append(runners, a.schemaListener)
+			runners = append(runners, namedBackgroundRunner{name: "schema listener", runner: a.schemaListener})
 		}
-		results := make(chan error, len(runners))
+		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {
-			go func(runner backgroundRunner) { results <- runner.Run(runCtx) }(runner)
+			go func(runner namedBackgroundRunner) {
+				err := runner.runner.Run(runCtx)
+				results <- backgroundResult{name: runner.name, err: err, cancellationErr: runCtx.Err()}
+			}(runner)
 		}
 		var backgroundErr error
 		for index := range runners {
-			err := <-results
-			cancellationErr := runCtx.Err()
-			if err != nil && !(cancellationErr != nil && errors.Is(err, cancellationErr)) {
-				backgroundErr = errors.Join(backgroundErr, err)
+			result := <-results
+			switch {
+			case result.err == nil && result.cancellationErr == nil:
+				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s stopped unexpectedly", result.name))
+			case result.err != nil && !(result.cancellationErr != nil && errors.Is(result.err, result.cancellationErr)):
+				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s: %w", result.name, result.err))
 			}
 			if index == 0 {
 				cancel()
