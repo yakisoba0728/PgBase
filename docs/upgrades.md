@@ -32,6 +32,33 @@ pgBase is pre-v0.1. v0.x binaries, HTTP contracts, environment variables, system
 9. Through the administrator-authenticated HTTP record API, perform representative scalar and relation operations: create/read an ordered multiple relation, read an expanded single relation, and execute the configured `restrict`, `cascade`, or `set_null` path applicable to the project. Use `Idempotency-Key` and `If-Match`; do not validate the upgrade by writing pgBase-owned tables directly.
 10. Resume schema changes only after the rollout is accepted.
 
+## One-migration compatibility rollout
+
+When release notes declare one additive migration as optional, use the release's preparatory artifact and the `P0 -> M -> F` sequence below. This exception supports only the two checksum-pinned histories named by that release: the history immediately before the migration and the history immediately after it. It does not make arbitrary old and new binaries compatible.
+
+1. **P0 (prepare):** keep `PGBASE_AUTO_MIGRATE=false`, verify the immutable P0 image digest, and deploy P0 to every instance with the new feature disabled. P0 must be ready on both declared histories. Drain the previous binary and all of its in-flight schema transactions before continuing.
+2. **M (migrate):** keep application auto-migration disabled and run one designated job from the same P0 artifact:
+
+   ```console
+   pgbase migrate up --through TARGET_VERSION > migration-receipt.json
+   ```
+
+   Substitute the exact numeric version and checksum published with the release. The command accepts only the latest embedded migration, refuses to cross more than one pending migration, rechecks history while holding the migration lock, and writes its JSON receipt only after committed history and the schema catalog have been read back successfully. A retry at an already-applied target is safe and records the target as both the before and after checkpoint.
+3. Validate and retain `migration-receipt.json` with the deployment record. Require `receiptVersion=1`, the published target version and checksum, `after.version` equal to the target, `after.checksum` equal to the target checksum, and `after.dirty=false`. The `before` checkpoint must be either the declared previous history or the same target history on a retry. Also retain the P0 image digest, job exit status, target database identity, and execution time; keep structured stderr logs separate from stdout so they do not corrupt the receipt.
+4. **F (activate):** deploy the feature artifact that requires the post-migration history. Enable the capability or feature only after every instance is on the approved artifact and all release-specific writer fences and drain hold points have passed.
+
+The exact-target command is a rollout guard, not a general migration selector. Do not substitute the legacy `pgbase migrate up` command in a release procedure that specifies `--through`.
+
+## Rollback actions are different operations
+
+| Action | Before M commits | After M commits |
+| --- | --- | --- |
+| Code revert | Revert or discard the unshipped code stack and rebuild through the normal gate. | Do not recreate a pre-P0 artifact. A source revert is allowed only if its resulting artifact still recognizes the migrated checksum and keeps the feature off. |
+| Deployment rollback | Redeploy the previously verified artifact while the database is still on its pre-migration history. | Redeploy the exact verified P0 artifact, with the feature disabled. Never deploy a pre-P0 binary that treats the new migration as unknown. Forward-fix from P0. |
+| Database migration rollback | No migration has committed, so no database rollback exists. | There is no down migration and the added objects remain. Do not delete history rows, drop objects, or run reverse SQL. If forward recovery is impossible, stop every writer and restore the verified whole-database backup or PITR point so `pgbase_meta`, `app`, and `pgbase_relation` return to one consistent instant. |
+
+After a feature-specific cutover, use only the newer rollback target named by that release. The generic P0 target is no longer sufficient unless the release procedure explicitly says otherwise.
+
 ## Legacy catalog reduction preflight
 
 The candidate binary refuses to start when the authenticated canonical schema catalog is larger than 16 MiB. `pgbase doctor` reports this as `catalog_limit_exceeded`, and `pgbase migrate up` runs the same check before and after migrations so the rollout cannot continue silently.

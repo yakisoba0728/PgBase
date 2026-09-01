@@ -21,6 +21,8 @@ For each deployment:
 5. Start or roll out `pgbase serve` instances.
 6. Require `/health/ready` to return HTTP 200 before adding each instance to load balancing.
 
+If the release declares a single optional compatibility migration, replace step 3 with the checksum-pinned `pgbase migrate up --through TARGET_VERSION` job and retain its JSON receipt. Follow the [P0 -> M -> F procedure and rollback matrix](upgrades.md#one-migration-compatibility-rollout); the ordinary `migrate up` sequence is not a substitute for that release gate.
+
 The bundled Compose stack is for development and has `PGBASE_AUTO_MIGRATE=true`. To exercise an explicit migration with that image, start PostgreSQL first and override the setting for the one-off command:
 
 ```console
