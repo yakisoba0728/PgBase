@@ -173,7 +173,7 @@ func TestReserveTimestampStartsAfterCreationFenceAcquisition(t *testing.T) {
 		t,
 		fixture.pool,
 		createPID,
-		"from pgbase_meta.collection_creation_counters",
+		"join pgbase_meta.collection_creation_counters as creation_counter",
 	)
 
 	var releasedAfter time.Time

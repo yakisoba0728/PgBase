@@ -58,16 +58,22 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
-const capabilitySelect = `select state, generation, minimum_writer_version,
+const capabilityColumns = `state, generation, minimum_writer_version,
 	cursor_issue_version, cutover_at, cutover_collection_count, cutover_record_count,
-	ready_at, ready_collection_count, v5_enabled_at, v4_decode_until, v4_retired_at, updated_at
+	ready_at, ready_collection_count, v5_enabled_at, v4_decode_until, v4_retired_at, updated_at`
+
+const capabilitySelect = `select ` + capabilityColumns + `
 	from pgbase_meta.record_membership_capability where singleton`
 
 func scanStatus(row pgx.Row) (Status, error) {
+	return scanStatusWithTrailing(row)
+}
+
+func scanStatusWithTrailing(row pgx.Row, trailing ...any) (Status, error) {
 	var status Status
 	var cutoverAt, readyAt, v5EnabledAt, decodeV4Until, v4RetiredAt pgtype.Timestamptz
 	var cutoverCollections, cutoverRecords, readyCollections pgtype.Int8
-	if err := row.Scan(
+	targets := []any{
 		&status.State,
 		&status.Generation,
 		&status.MinimumWriterVersion,
@@ -81,7 +87,9 @@ func scanStatus(row pgx.Row) (Status, error) {
 		&decodeV4Until,
 		&v4RetiredAt,
 		&status.UpdatedAt,
-	); err != nil {
+	}
+	targets = append(targets, trailing...)
+	if err := row.Scan(targets...); err != nil {
 		return Status{}, err
 	}
 	if status.Generation < 0 || status.MinimumWriterVersion < WriterA0 ||

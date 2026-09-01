@@ -3,11 +3,14 @@ package membership
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 type Writer struct {
@@ -45,6 +48,13 @@ func (w Writer) Begin(ctx context.Context, tx pgx.Tx) (WriteFence, error) {
 }
 
 func (w Writer) readFence(ctx context.Context, tx pgx.Tx) (WriteFence, error) {
+	if w.version != WriterA0 {
+		return w.readCurrentFence(ctx, tx)
+	}
+	return w.readA0Fence(ctx, tx)
+}
+
+func (w Writer) readA0Fence(ctx context.Context, tx pgx.Tx) (WriteFence, error) {
 	installation, err := inspectInstallation(ctx, tx)
 	if err != nil {
 		return WriteFence{}, err
@@ -81,6 +91,125 @@ func (w Writer) readFence(ctx context.Context, tx pgx.Tx) (WriteFence, error) {
 	return WriteFence{state: status.State, generation: status.Generation, tx: tx}, nil
 }
 
+const currentWriterValidationSelect = `with locked_capability as materialized (
+	select singleton, ` + capabilityColumns + `
+	from pgbase_meta.record_membership_capability
+	where singleton
+	for share
+), known_migrations(version, checksum_hex, ordinal) as (
+	select known.version, known.checksum_hex, known.ordinal
+	from unnest($3::bigint[], $4::text[]) with ordinality
+		as known(version, checksum_hex, ordinal)
+), applied_migrations as materialized (
+	select version, checksum, row_number() over (order by version) as ordinal
+	from pgbase_meta.system_migrations
+	order by version
+	limit $5
+)
+select ` + capabilityColumns + `,
+	to_regclass('pgbase_meta.record_membership_capability') is not null,
+	to_regclass('pgbase_meta.collection_creation_counters') is not null,
+	to_regclass('pgbase_meta.record_creation_ordinals') is not null,
+	to_regclass('pgbase_meta.record_membership_backfills') is not null,
+	to_regclass('pgbase_meta.runtime_writer_leases') is not null,
+	(select count(*) from applied_migrations),
+	coalesce((
+		select bool_and(coalesce(
+			applied.version = known.version
+			and encode(applied.checksum, 'hex') = known.checksum_hex,
+			false))
+		from applied_migrations as applied
+		left join known_migrations as known using (ordinal)
+	), false),
+	exists (
+		select 1
+		from pgbase_meta.runtime_writer_leases as lease
+		where lease.instance_id = $1
+		  and lease.writer_version = $2
+		  and lease.lease_expires_at > clock_timestamp()
+		  and locked_capability.singleton
+		for key share
+	)
+from locked_capability`
+
+func (w Writer) readCurrentFence(ctx context.Context, tx pgx.Tx) (WriteFence, error) {
+	versions, checksums, err := currentWriterMigrationHistory()
+	if err != nil {
+		return WriteFence{}, err
+	}
+	var capability, counters, ordinals, backfills, leases bool
+	var historyCount int64
+	var historyMatches, leaseCurrent bool
+	status, err := scanStatusWithTrailing(
+		tx.QueryRow(
+			ctx,
+			currentWriterValidationSelect,
+			w.instanceID,
+			w.version,
+			versions,
+			checksums,
+			len(versions)+1,
+		),
+		&capability,
+		&counters,
+		&ordinals,
+		&backfills,
+		&leases,
+		&historyCount,
+		&historyMatches,
+		&leaseCurrent,
+	)
+	if err != nil {
+		return WriteFence{}, currentWriterValidationError(err)
+	}
+	present := 0
+	for _, exists := range []bool{capability, counters, ordinals, backfills, leases} {
+		if exists {
+			present++
+		}
+	}
+	if present != 5 || !historyMatches || historyCount < 7 || historyCount > int64(len(versions)) {
+		return WriteFence{}, ErrInvalidState
+	}
+	if w.version < status.MinimumWriterVersion {
+		return WriteFence{}, ErrWriterTooOld
+	}
+	if status.State == StateCutover {
+		return WriteFence{}, ErrUnavailable
+	}
+	if !leaseCurrent {
+		return WriteFence{}, ErrWriterTooOld
+	}
+	return WriteFence{state: status.State, generation: status.Generation, tx: tx}, nil
+}
+
+func currentWriterMigrationHistory() ([]int64, []string, error) {
+	migrations := system.Migrations()
+	if len(migrations) < 7 || migrations[5].Version != 6 || migrations[6].Version != 7 {
+		return nil, nil, ErrInvalidState
+	}
+	versions := make([]int64, len(migrations))
+	checksums := make([]string, len(migrations))
+	for index, migration := range migrations {
+		versions[index] = migration.Version
+		checksums[index] = fmt.Sprintf("%x", migration.SHA256)
+	}
+	return versions, checksums, nil
+}
+
+func currentWriterValidationError(err error) error {
+	if currentWriterStateInvalid(err) {
+		return fmt.Errorf("validate current record writer: %w", ErrInvalidState)
+	}
+	return fmt.Errorf("validate current record writer: %w", err)
+}
+
+func currentWriterStateInvalid(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.Is(err, pgx.ErrNoRows) ||
+		(errors.As(err, &postgresError) && postgresError.Code == "42P01")
+}
+
 func (w Writer) LockCreate(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -93,26 +222,41 @@ func (w Writer) LockCreate(
 	if err := pinSchemaShared(ctx, tx); err != nil {
 		return CreateFence{}, err
 	}
-	var tableName string
-	if err := tx.QueryRow(ctx, `select table_name from pgbase_meta.collections
-		where id = $1`, collectionID).Scan(&tableName); err != nil {
-		return CreateFence{}, fmt.Errorf("resolve membership collection table: %w", err)
-	}
-	if tableName == "" {
-		return CreateFence{}, ErrInvalidState
-	}
 	if w.version == WriterA0 {
+		var tableName string
+		if err := tx.QueryRow(ctx, `select table_name from pgbase_meta.collections
+			where id = $1`, collectionID).Scan(&tableName); err != nil {
+			return CreateFence{}, fmt.Errorf("resolve membership collection table: %w", err)
+		}
+		if tableName == "" {
+			return CreateFence{}, ErrInvalidState
+		}
 		write, err := w.readFence(ctx, tx)
 		if err != nil {
 			return CreateFence{}, err
 		}
 		return CreateFence{WriteFence: write, collectionID: collectionID, tableName: tableName}, nil
 	}
+	var tableName string
 	var counterGeneration, lastOrdinal int64
-	if err := tx.QueryRow(ctx, `select generation, last_ordinal
-		from pgbase_meta.collection_creation_counters
-		where collection_id = $1 for no key update`, collectionID).Scan(&counterGeneration, &lastOrdinal); err != nil {
+	if err := tx.QueryRow(ctx, `select collection.table_name,
+		creation_counter.generation, creation_counter.last_ordinal
+		from pgbase_meta.collections as collection
+		join pgbase_meta.collection_creation_counters as creation_counter
+		  on creation_counter.collection_id = collection.id
+		where collection.id = $1
+		for no key update of creation_counter`, collectionID).Scan(
+		&tableName,
+		&counterGeneration,
+		&lastOrdinal,
+	); err != nil {
+		if currentWriterStateInvalid(err) {
+			return CreateFence{}, fmt.Errorf("lock record creation fence: %w", ErrInvalidState)
+		}
 		return CreateFence{}, fmt.Errorf("lock record creation fence: %w", err)
+	}
+	if tableName == "" {
+		return CreateFence{}, ErrInvalidState
 	}
 	write, err := w.readFence(ctx, tx)
 	if err != nil {
