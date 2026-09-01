@@ -16,7 +16,7 @@ function response(status: number, body?: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ "content-type": "application/json" }),
-    json: vi.fn().mockResolvedValue(body),
+    text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)),
   } as unknown as Response;
 }
 
@@ -153,23 +153,38 @@ describe("administrator setup", () => {
     await user.click(screen.getByRole("button", { name: "Create administrator" }));
 
     expect(screen.getByRole("button", { name: "Creating administrator…" })).toBeDisabled();
+    // writeAdminAuthError sends validation_failed with an empty details object,
+    // so this is the real shape of the response the screen has to explain. The
+    // earlier version of this test mocked per-field details that the server
+    // never produces, which kept a dead per-field message table alive.
     resolveSetup?.(response(400, {
-      error: {
-        code: "validation_failed",
-        message: "unsafe internal detail",
-        details: { setupToken: ["invalid"], email: ["invalid"], password: ["too_short"], unknown: ["raw detail"] },
-      },
+      error: { code: "validation_failed", message: "unsafe internal detail", details: {} },
     }));
 
-    expect(await screen.findByText("Setup token is invalid.")).toBeVisible();
-    expect(await screen.findByText("Enter a valid email address.")).toBeVisible();
-    expect(screen.getByText("Password does not meet requirements.")).toBeVisible();
+    expect(await screen.findByText("Enter a valid email address and a password of 12 to 1024 bytes.")).toBeVisible();
     expect(screen.queryByText("unsafe internal detail")).not.toBeInTheDocument();
-    expect(screen.queryByText("raw detail")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Setup token")).toHaveAttribute("aria-describedby", "setup-token-error");
-    expect(screen.getByLabelText("Setup token")).toHaveFocus();
     expect(screen.getByLabelText("Password")).toHaveValue("");
     expect(screen.getByLabelText("Confirm password")).toHaveValue("");
+  });
+
+  it("explains the password byte bounds before sending a request the server would reject", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(setupRequired());
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up pgBase" });
+    await user.type(screen.getByLabelText("Setup token"), "first-run-token");
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    // 11 bytes: one under the server's minimum, so the screen must catch it.
+    await user.type(screen.getByLabelText("Password"), "short-pass");
+    await user.type(screen.getByLabelText("Confirm password"), "short-pass");
+    await user.click(screen.getByRole("button", { name: "Create administrator" }));
+
+    expect(await screen.findByText("Password must be 12 to 1024 bytes.")).toBeVisible();
+    expect(screen.getByLabelText("Password")).toHaveFocus();
+    // Only the status probe ran; the rejected password never reached the server.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stays on setup and shows a safe field error when the setup token is rejected", async () => {

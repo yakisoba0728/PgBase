@@ -41,6 +41,7 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${PGBASE_HTTP_PORT:-8090}:8090"
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "/pgbase", "healthcheck", "--url", "http://127.0.0.1:8090/health/ready"]
       interval: 5s

@@ -137,6 +137,44 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 	}
 }
 
+// TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling covers the
+// unauthenticated login route with Content-Type values that mime.ParseMediaType
+// still reads as application/json. bodyLimitMiddleware once gated on a prefix
+// match, so any of these headers let decodeStrictJSON read an unbounded body.
+func TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling(t *testing.T) {
+	t.Parallel()
+
+	body := `{"email":"admin@example.test","password":"security-oversized-content-type-7f31` + strings.Repeat("x", maxJSONBodyBytes) + `"}`
+	tests := []struct {
+		name        string
+		contentType string
+	}{
+		{name: "canonical", contentType: "application/json"},
+		{name: "no break space prefix", contentType: "\u00a0application/json"},
+		{name: "next line prefix", contentType: "\u0085application/json"},
+		{name: "vertical tab prefix", contentType: "\vapplication/json"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			auth := &fakeAdminAuth{loginSession: validSession()}
+			var logs bytes.Buffer
+			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			request := securityRequestWithContentType(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", body, test.contentType)
+			request.Header.Set("Origin", "http://pgbase.test")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			assertSecurityError(t, response, http.StatusBadRequest, "invalid_request", "security-", "7f31")
+			assertSecuritySecretsAbsent(t, logs.String(), "security-", "7f31")
+			if auth.loginCalls != 0 {
+				t.Fatalf("Login() calls = %d, want 0", auth.loginCalls)
+			}
+		})
+	}
+}
+
 func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -559,8 +597,15 @@ func newSecurityDatabase(t *testing.T) *database.Pool {
 
 func securityRequest(t *testing.T, method, target, body string) *http.Request {
 	t.Helper()
+	return securityRequestWithContentType(t, method, target, body, "application/json")
+}
+
+// securityRequestWithContentType sets the Content-Type header verbatim so a test
+// can exercise a spelling the decoder accepts but a prefix match does not.
+func securityRequestWithContentType(t *testing.T, method, target, body, contentType string) *http.Request {
+	t.Helper()
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", contentType)
 	return request
 }
 

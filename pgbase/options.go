@@ -13,6 +13,13 @@ import (
 
 const maximumAdminSessionTTL = 12 * time.Hour
 
+// maximumStatementTimeout is PostgreSQL's own statement_timeout ceiling: the
+// GUC is a signed 32-bit millisecond count. internal/database.postgresDuration
+// rounds a partial millisecond up, so anything above this renders a value
+// set_config rejects and every pooled connection fails to initialize instead of
+// the configuration being refused here with a name the operator can act on.
+const maximumStatementTimeout = 2147483647 * time.Millisecond
+
 // Options configures a pgBase application.
 type Options struct {
 	DatabaseURL string
@@ -105,8 +112,8 @@ func validateOptions(o Options) error {
 	if o.AdminSessionTTL <= 0 || o.AdminSessionTTL > maximumAdminSessionTTL {
 		return fmt.Errorf("AdminSessionTTL: must be positive and no greater than 12h")
 	}
-	if o.StatementTimeout <= 0 {
-		return fmt.Errorf("StatementTimeout: must be positive")
+	if o.StatementTimeout <= 0 || o.StatementTimeout > maximumStatementTimeout {
+		return fmt.Errorf("StatementTimeout: must be positive and no greater than 2147483647ms")
 	}
 	if o.ShutdownTimeout <= 0 {
 		return fmt.Errorf("ShutdownTimeout: must be positive")

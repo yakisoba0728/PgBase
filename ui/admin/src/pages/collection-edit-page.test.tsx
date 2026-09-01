@@ -7,7 +7,7 @@ import { activeSessionExpiresAt } from "../test/fixtures";
 const administrator = { id: "9a2e0000-0000-4000-8000-000000000001", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" };
 
 function response(status: number, body?: unknown): Response {
-  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)) } as unknown as Response;
 }
 
 function session(): Response {

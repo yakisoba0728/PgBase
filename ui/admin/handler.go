@@ -68,7 +68,10 @@ func Handler() (http.Handler, error) {
 			http.ServeContent(w, r, name, info.ModTime(), bytes.NewReader(contents))
 			return
 		}
-		if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		// A sub-filesystem rejects names that io/fs.ValidPath refuses (trailing
+		// slash, invalid UTF-8) with fs.ErrInvalid, not fs.ErrNotExist; both mean
+		// the request names no embedded asset.
+		if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, fs.ErrInvalid) {
 			http.Error(w, "Static asset unavailable", http.StatusInternalServerError)
 			return
 		}

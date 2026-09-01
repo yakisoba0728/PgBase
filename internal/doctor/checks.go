@@ -228,6 +228,35 @@ func checkBaseColumns(ctx context.Context, db database.DBTX, table string, repor
 	if !hasPrimaryKey {
 		report.Findings = append(report.Findings, finding("collection_primary_key_missing", "A catalog collection primary key is missing"))
 	}
+	// Every collection the planner creates carries a (created_at, id) index and
+	// the list kernel treats created_at as indexed unconditionally, so losing
+	// this index turns every list request into a full-table top-N sort without
+	// any other check noticing.
+	var hasPageIndex bool
+	if err := db.QueryRow(ctx, `select exists(
+		select 1
+		from pg_index as indexes
+		join pg_class as tables on tables.oid = indexes.indrelid
+		join pg_namespace as schemas on schemas.oid = tables.relnamespace
+		join pg_attribute as created
+			on created.attrelid = tables.oid
+			and created.attname = 'created_at'
+			and not created.attisdropped
+		join pg_attribute as identifier
+			on identifier.attrelid = tables.oid
+			and identifier.attname = 'id'
+			and not identifier.attisdropped
+		where schemas.nspname = 'app' and tables.relname = $1
+			and indexes.indisvalid and indexes.indisready and indexes.indislive
+			and indexes.indpred is null and indexes.indexprs is null
+			and indexes.indnkeyatts = 2
+			and indexes.indkey[0] = created.attnum
+			and indexes.indkey[1] = identifier.attnum)`, table).Scan(&hasPageIndex); err != nil {
+		return fmt.Errorf("check collection page index: %w", err)
+	}
+	if !hasPageIndex {
+		report.Findings = append(report.Findings, finding("collection_page_index_missing", "A collection list pagination index on (created_at, id) is missing"))
+	}
 	return nil
 }
 

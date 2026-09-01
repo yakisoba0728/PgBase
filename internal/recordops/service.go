@@ -71,7 +71,7 @@ func NewServiceWithRecorder(pool *database.Pool, schemas CatalogEnsurer, cursorS
 
 func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPage, err error) {
 	operationStarted := time.Now()
-	relationOperation := request.Expand != ""
+	relationOperation := readTouchesRelationField(request.Expand, request.Filter, request.Sort)
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationExpand, operationStarted, &err, &relationOperation)
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return RecordPage{}, err
@@ -110,7 +110,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {
 	operationStarted := time.Now()
-	relationOperation := request.Expand != ""
+	relationOperation := readTouchesRelationField(request.Expand, "", "")
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationExpand, operationStarted, &err, &relationOperation)
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return Record{}, err
@@ -691,6 +691,50 @@ func (s *Service) finishRelationRecordOperation(
 	s.record(ctx, observability.OperationEvent(observability.ComponentRelation, operation, relationOperationOutcome(err), time.Since(started)))
 }
 
+// readTouchesRelationField reports whether a read request reaches the relation
+// query kernel, the way the mutation paths compute the same flag from their own
+// state. Expansion is explicit, and relation filters and sorts are addressed
+// with dotted paths that a catalog name can never contain, so a relation sort
+// budget rejection is recorded whether or not the request also expands.
+func readTouchesRelationField(expand, filter, sort string) bool {
+	if expand != "" || strings.Contains(sort, ".") {
+		return true
+	}
+	return filterTouchesRelationPath(filter)
+}
+
+// filterTouchesRelationPath scans filter operands without re-implementing the
+// grammar: quoted literals are skipped whole, and only a word that starts a
+// field name can carry the dot of a relation path.
+func filterTouchesRelationPath(filter string) bool {
+	for index := 0; index < len(filter); {
+		switch character := filter[index]; {
+		case character == '\'':
+			index++
+			for index < len(filter) && filter[index] != '\'' {
+				index++
+			}
+			index++
+		case character == '_' || (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'):
+			start := index
+			for index < len(filter) && (isFilterWordByte(filter[index]) || filter[index] == '.') {
+				index++
+			}
+			if strings.Contains(filter[start:index], ".") {
+				return true
+			}
+		default:
+			index++
+		}
+	}
+	return false
+}
+
+func isFilterWordByte(current byte) bool {
+	return current == '_' || (current >= 'a' && current <= 'z') ||
+		(current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9')
+}
+
 func inputTouchesRelationField(collection schema.Collection, input map[string]json.RawMessage) bool {
 	for _, field := range collection.Fields {
 		if field.Type != schema.TypeRelation {
@@ -715,6 +759,13 @@ func collectionParticipatesInRelations(catalog schema.Catalog, collection schema
 	return false
 }
 
+// relationBudgetCode reports whether a validation code is a bounded-guard
+// rejection. The response-size guard is the one budget that does not carry the
+// shared suffix, and PgBaseRelationBudgetExceeded alerts on it like the rest.
+func relationBudgetCode(code string) bool {
+	return strings.HasSuffix(code, "_budget_exceeded") || code == "response_too_large"
+}
+
 func relationOperationOutcome(err error) observability.Outcome {
 	if err == nil {
 		return observability.OutcomeSuccess
@@ -725,7 +776,7 @@ func relationOperationOutcome(err error) observability.Outcome {
 	var validationError *query.ValidationError
 	if errors.As(err, &validationError) {
 		for _, detail := range validationError.Details {
-			if strings.HasSuffix(detail.Code, "_budget_exceeded") {
+			if relationBudgetCode(detail.Code) {
 				return observability.OutcomeBudget
 			}
 		}

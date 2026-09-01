@@ -49,6 +49,44 @@ describe("APIClient JSON and session boundaries", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rejects a 2xx whose body cannot be parsed instead of resolving without data", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(200, "<html><body>502 Bad Gateway</body></html>")));
+    await expect(new APIClient().request("/api/v1/collections/posts/records")).rejects.toEqual(
+      expect.objectContaining<Partial<APIClientError>>({ status: 200, code: "invalid_response_body" }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("still resolves an empty successful body as undefined", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(200, "")));
+    await expect(new APIClient().request("/api/admin/auth/logout")).resolves.toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the transport status when a failure body is unreadable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(412, "<html><body>proxy</body></html>")));
+    await expect(new APIClient().request("/api/record")).rejects.toEqual(
+      expect.objectContaining<Partial<APIClientError>>({ status: 412, code: "request_failed" }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("reads every response through text() so the shipped parser is never bypassed", async () => {
+    const json = vi.fn().mockResolvedValue({ id: "one" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json,
+    } as unknown as Response));
+
+    await expect(new APIClient().request("/api/value")).rejects.toEqual(
+      expect.objectContaining<Partial<APIClientError>>({ status: 200, code: "invalid_response_body" }),
+    );
+    expect(json).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("notifies the session owner for every protected-request 401", async () => {
     const unauthorized = vi.fn();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textResponse(401, `{"error":{"code":"authentication_required","message":"Authentication required","details":{}}}`)));

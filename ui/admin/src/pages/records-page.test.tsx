@@ -18,10 +18,14 @@ const fields = [
 ] as const;
 const catalog = { version: 4, collections: { posts: { id: "collection", name: "posts", tableName: "posts", fields } } };
 
-function response(status: number, body?: unknown, headers?: HeadersInit): Response {
+function rawResponse(status: number, body: string, headers?: HeadersInit): Response {
   const responseHeaders = new Headers({ "content-type": "application/json", ...headers });
   if (status >= 200 && status < 300 && !responseHeaders.has("ETag")) responseHeaders.set("ETag", '"pgb1.test"');
-  return { ok: status >= 200 && status < 300, status, headers: responseHeaders, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+  return { ok: status >= 200 && status < 300, status, headers: responseHeaders, text: vi.fn().mockResolvedValue(body) } as unknown as Response;
+}
+
+function response(status: number, body?: unknown, headers?: HeadersInit): Response {
+  return rawResponse(status, body === undefined ? "" : JSON.stringify(body), headers);
 }
 
 function session(): Response { return response(200, { administrator, csrfToken: "csrf-token", expiresAt: activeSessionExpiresAt() }); }
@@ -173,6 +177,21 @@ describe("record administration", () => {
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(await screen.findByText("first")).toBeVisible();
     expect(screen.queryByText("The filter or sort expression is invalid.")).not.toBeInTheDocument();
+  });
+
+  it("lists integers outside the JavaScript safe range without rounding them", async () => {
+    window.history.replaceState(null, "", "/admin/collections/posts/records");
+    // A raw body, so the page path runs the shipped lossless-json parser instead
+    // of a pre-built fixture object.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(rawResponse(200, `{"items":[{"id":"${recordID}","enabled":true,"count":1,"views":9007199254740993,"amount":"1.5","title":"first","published_at":"2026-08-28T00:00:00Z","external_id":"${recordID}","metadata":{},"created_at":"2026-08-28T00:00:00Z","updated_at":"2026-08-28T00:00:00Z"}]}`));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText("9007199254740993")).toBeVisible();
+    expect(screen.queryByText("9007199254740992")).not.toBeInTheDocument();
   });
 
   it("creates all eight JSON representations without rounding decimal strings", async () => {
@@ -425,6 +444,52 @@ describe("record administration", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete record" })).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("names the text byte limit when the server rejects a value as too long", async () => {
+    window.history.replaceState(null, "", `/admin/collections/posts/records/${recordID}`);
+    const record = {
+      id: recordID, enabled: true, count: 1, views: "2", amount: "3", title: "old",
+      published_at: "2026-08-28T12:34:56Z", external_id: recordID, metadata: {},
+      created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T00:00:00Z",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, record))
+      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe SQL detail", details: { title: ["value_too_long"] } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Edit posts record" });
+    expect(await screen.findByLabelText("title")).toHaveAttribute("maxlength", "2048");
+    await user.clear(screen.getByLabelText("title"));
+    await user.type(screen.getByLabelText("title"), "new title");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Value exceeds the 2,048-byte limit for text values.")).toBeVisible();
+    expect(screen.queryByText("Value is invalid.")).not.toBeInTheDocument();
+    expect(screen.queryByText("unsafe SQL detail")).not.toBeInTheDocument();
+  });
+
+  it("explains a delete the server refused because other records still reference it", async () => {
+    window.history.replaceState(null, "", `/admin/collections/posts/records/${recordID}`);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, catalog))
+      .mockResolvedValueOnce(response(200, { id: recordID, enabled: false, count: 0, views: "0", amount: "0", title: "old", published_at: "2026-08-28T00:00:00Z", external_id: recordID, metadata: {} }))
+      .mockResolvedValueOnce(response(422, { error: { code: "validation_failed", message: "unsafe SQL detail", details: { id: ["relation_delete_restricted"] } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByLabelText("title");
+    await user.click(screen.getByRole("button", { name: "Delete record" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Other records still reference this record. Remove those references first.");
+    expect(screen.queryByText("unsafe SQL detail")).not.toBeInTheDocument();
   });
 
   it("confirms deletion and handles a record deleted by another administrator", async () => {

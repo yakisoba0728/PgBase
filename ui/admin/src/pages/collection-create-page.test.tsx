@@ -15,7 +15,7 @@ function response(status: number, body?: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ "content-type": "application/json" }),
-    json: vi.fn().mockResolvedValue(body),
+    text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)),
   } as unknown as Response;
 }
 
@@ -44,6 +44,88 @@ describe("collection creation", () => {
 
     expect(await screen.findByRole("option", { name: "nodes (self)" })).toBeVisible();
     expect(screen.getByLabelText("Field 1 relation target")).toHaveValue("");
+  });
+
+  it("keeps a chosen relation target when the typed collection name passes through it", async () => {
+    window.history.replaceState(null, "", "/admin/collections/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 4,
+        collections: {
+          users: { id: "users-id", name: "users", tableName: "users", fields: [] },
+        },
+      }))
+      .mockResolvedValueOnce(response(200, {
+        baseVersion: 4,
+        checksum: "target-checksum",
+        definition: {
+          name: "users_profiles",
+          tableName: "users_profiles",
+          fields: [{
+            name: "owner", type: "relation", required: false, unique: false, indexed: true, ordinal: 0,
+            relation: {
+              targetCollection: "users", targetCollectionId: "users-id", cardinality: "single",
+              minSelect: 0, maxSelect: 1, onDelete: "restrict", valueCodecVersion: 1,
+              storage: { kind: "inline_fk_v1", name: "owner" },
+            },
+          }],
+        },
+        sql: ["ALTER TABLE app.users_profiles ADD COLUMN owner uuid"],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Create collection" });
+    await user.type(screen.getByLabelText("Field 1 name"), "owner");
+    await user.selectOptions(screen.getByLabelText("Field 1 type"), "relation");
+    const target = await screen.findByLabelText("Field 1 relation target");
+    await waitFor(() => expect(target).toBeEnabled());
+    await user.selectOptions(target, "users");
+
+    // Typing the name one keystroke at a time makes it equal the chosen target
+    // on the way to its final value.
+    await user.type(screen.getByLabelText("Collection name"), "users_profiles");
+    expect(target).toHaveValue("users");
+
+    await user.click(screen.getByRole("button", { name: "Preview collection" }));
+    expect(await screen.findByText("owner · relation · indexed · target: users · single · min: 0 · max: 1 · on delete: restrict")).toBeVisible();
+    const [, planOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(JSON.parse(planOptions.body as string)).toEqual({
+      operation: "create",
+      name: "users_profiles",
+      fields: [{
+        name: "owner", type: "relation", required: false, unique: false, indexed: true,
+        relation: { targetCollection: "users", cardinality: "single", minSelect: 0, maxSelect: 1, onDelete: "restrict" },
+      }],
+    });
+  });
+
+  it("retargets a relation chosen as self when the collection name changes", async () => {
+    window.history.replaceState(null, "", "/admin/collections/new");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(response(200, {
+        version: 4,
+        collections: {
+          users: { id: "users-id", name: "users", tableName: "users", fields: [] },
+        },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Create collection" });
+    await user.type(screen.getByLabelText("Collection name"), "node");
+    await user.selectOptions(screen.getByLabelText("Field 1 type"), "relation");
+    const target = await screen.findByLabelText("Field 1 relation target");
+    await waitFor(() => expect(target).toBeEnabled());
+    await user.selectOptions(target, "node");
+
+    await user.type(screen.getByLabelText("Collection name"), "s");
+    expect(target).toHaveValue("nodes");
+    expect(await screen.findByRole("option", { name: "nodes (self)" })).toBeVisible();
   });
 
   it("builds a self relation from the live catalog and previews normalized relation SQL", async () => {

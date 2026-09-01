@@ -33,10 +33,26 @@ function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
 }
 
 async function responseBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  return text.trim() === "" ? undefined : parseJSON(text);
+}
+
+// A 2xx whose body cannot be read or parsed is not a usable success: callers
+// must not treat the missing payload as an empty result.
+async function successBody<T>(response: Response): Promise<T> {
+  if (response.status === 204) return undefined as T;
   try {
-    if (typeof response.text !== "function") return await response.json();
-    const text = await response.text();
-    return text.trim() === "" ? undefined : parseJSON(text);
+    return await responseBody(response) as T;
+  } catch {
+    throw new APIClientError(response.status, "invalid_response_body", {}, "Response body is unreadable", new Headers(response.headers));
+  }
+}
+
+// Error envelopes are best-effort: an unreadable failure body still has to
+// surface the transport status rather than a body-read exception.
+async function errorResponseBody(response: Response): Promise<unknown> {
+  try {
+    return await responseBody(response);
   } catch {
     return undefined;
   }
@@ -89,11 +105,11 @@ export class APIClient {
       credentials: "include",
     });
     if (response.ok) {
-      const data = response.status === 204 ? undefined as T : await responseBody(response) as T;
+      const data = await successBody<T>(response);
       return { data, headers: new Headers(response.headers), status: response.status };
     }
 
-    const body = await responseBody(response);
+    const body = await errorResponseBody(response);
     if (response.status === 401 && behavior.notifyUnauthorized !== false) this.onUnauthorized?.();
     if (isErrorEnvelope(body)) {
       throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message, new Headers(response.headers));

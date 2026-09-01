@@ -9,26 +9,23 @@ interface SetupPageProps {
 type SetupField = "setupToken" | "email" | "password" | "confirmation";
 type SetupErrors = Partial<Record<SetupField | "form", string>>;
 
-const serverMessages: Record<Exclude<SetupField, "confirmation">, Record<string, string>> = {
-  setupToken: { invalid: "Setup token is invalid.", required: "Setup token is required." },
-  email: { invalid: "Enter a valid email address.", required: "Email is required." },
-  password: {
-    invalid: "Password does not meet requirements.",
-    required: "Password is required.",
-    too_short: "Password does not meet requirements.",
-    weak: "Password does not meet requirements.",
-  },
-};
+// Administrator setup errors carry a code and no field details
+// (writeAdminAuthError never fills Details), so every server message is keyed by
+// code alone and the byte bounds are enforced here before the request is sent.
+const minimumPasswordBytes = 12;
+const maximumPasswordBytes = 1024;
+
+function passwordBytes(password: string): number {
+  return new TextEncoder().encode(password).length;
+}
 
 function safeServerErrors(error: unknown): SetupErrors {
-  if (!(error instanceof APIClientError)) return {};
-  if (error.code === "invalid_credentials") return { setupToken: "Setup token is invalid." };
-  return Object.fromEntries(
-    (Object.keys(serverMessages) as Array<Exclude<SetupField, "confirmation">>).flatMap((field) => {
-      const message = serverMessages[field][error.details[field]?.[0] ?? ""];
-      return message ? [[field, message]] : [];
-    }),
-  ) as SetupErrors;
+  if (error instanceof APIClientError) {
+    if (error.code === "invalid_credentials") return { setupToken: "Setup token is invalid." };
+    if (error.code === "setup_unavailable") return { form: "Administrator setup is no longer available." };
+    if (error.code === "validation_failed") return { form: "Enter a valid email address and a password of 12 to 1024 bytes." };
+  }
+  return { form: "Unable to create the administrator. Try again." };
 }
 
 export function SetupPage({ onSetup }: SetupPageProps) {
@@ -58,7 +55,11 @@ export function SetupPage({ onSetup }: SetupPageProps) {
     const nextErrors: SetupErrors = {};
     if (!setupToken.trim()) nextErrors.setupToken = "Setup token is required.";
     if (!email.trim()) nextErrors.email = "Email is required.";
+    const bytes = passwordBytes(password);
     if (!password) nextErrors.password = "Password is required.";
+    else if (bytes < minimumPasswordBytes || bytes > maximumPasswordBytes) {
+      nextErrors.password = `Password must be ${minimumPasswordBytes} to ${maximumPasswordBytes} bytes.`;
+    }
     if (password && password !== confirmation) nextErrors.confirmation = "Passwords do not match.";
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -72,12 +73,7 @@ export function SetupPage({ onSetup }: SetupPageProps) {
     } catch (error) {
       setPassword("");
       setConfirmation("");
-      const serverErrors = safeServerErrors(error);
-      setErrors(Object.keys(serverErrors).length > 0 ? serverErrors : {
-        form: error instanceof APIClientError && error.code === "setup_unavailable"
-          ? "Administrator setup is no longer available."
-          : "Unable to create the administrator. Try again.",
-      });
+      setErrors(safeServerErrors(error));
     } finally {
       setPending(false);
     }
@@ -97,7 +93,8 @@ export function SetupPage({ onSetup }: SetupPageProps) {
         <input aria-describedby={errors.email ? "email-error" : undefined} aria-invalid={errors.email ? true : undefined} id="email" type="email" autoComplete="email" disabled={pending} onChange={(event) => setEmail(event.target.value)} ref={emailRef} value={email} />
         {errors.email && <p className="field-error" id="email-error">{errors.email}</p>}
         <label htmlFor="password">Password</label>
-        <input aria-describedby={errors.password ? "password-error" : undefined} aria-invalid={errors.password ? true : undefined} id="password" type="password" autoComplete="new-password" disabled={pending} onChange={(event) => setPassword(event.target.value)} ref={passwordRef} value={password} />
+        <input aria-describedby={errors.password ? "password-hint password-error" : "password-hint"} aria-invalid={errors.password ? true : undefined} id="password" type="password" autoComplete="new-password" disabled={pending} minLength={minimumPasswordBytes} onChange={(event) => setPassword(event.target.value)} ref={passwordRef} value={password} />
+        <p id="password-hint">Passwords must be 12 to 1024 bytes; non-ASCII characters count as more than one byte.</p>
         {errors.password && <p className="field-error" id="password-error">{errors.password}</p>}
         <label htmlFor="confirmation">Confirm password</label>
         <input aria-describedby={errors.confirmation ? "confirmation-error" : undefined} aria-invalid={errors.confirmation ? true : undefined} id="confirmation" type="password" autoComplete="new-password" disabled={pending} onChange={(event) => setConfirmation(event.target.value)} ref={confirmationRef} value={confirmation} />

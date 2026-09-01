@@ -14,6 +14,13 @@ import (
 
 var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 
+// MaximumTextBytes bounds indexed and unique text values, because PostgreSQL
+// btree entries have a page-dependent limit below 2704 bytes. Every text
+// default carries the same bound regardless of the field's index settings, so
+// the catalog never emits a default the record write path rejects on
+// write-back and making a field indexed later cannot strand its own default.
+const MaximumTextBytes = 2048
+
 func normalizeDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, string, error) {
 	switch typ {
 	case TypeBoolean:
@@ -45,7 +52,7 @@ func normalizeDefault(typ FieldType, raw json.RawMessage) (json.RawMessage, stri
 		return jsonString(value), value + "::numeric", nil
 	case TypeText:
 		value, ok := parseJSONString(raw)
-		if !ok {
+		if !ok || len(value) > MaximumTextBytes {
 			return nil, "", validation("", "invalid_default")
 		}
 		literal, ok := sqlLiteral(value)
@@ -149,6 +156,13 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil || parsed.Year() < 1 {
+		return nil, "", validation("", "invalid_default")
+	}
+	// PostgreSQL stores timestamps at microsecond precision, so a value within
+	// half a microsecond of the year 10000 boundary carries into a five digit
+	// year that RFC3339 cannot parse back. Reject it here instead of emitting a
+	// default the catalog and the record write path can no longer read.
+	if parsed.Round(time.Microsecond).Year() > 9999 {
 		return nil, "", validation("", "invalid_default")
 	}
 	_, offset := parsed.Zone()

@@ -64,6 +64,34 @@ func TestHandlerServesAdminRootAssetsAndSPAFallback(t *testing.T) {
 	}
 }
 
+func TestHandlerFallsBackForNamesTheEmbeddedFilesystemRejects(t *testing.T) {
+	handler, err := Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fs.Sub rejects these names with fs.ErrInvalid rather than fs.ErrNotExist.
+	for _, path := range []string{"/admin/collections/", "/admin/collections/posts/records/", "/admin/%FF"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<div id="root"></div>`) {
+			t.Fatalf("SPA %s status=%d body=%q", path, response.Code, response.Body.String())
+		}
+	}
+
+	// Asset-shaped names stay 404 so the widened filter does not serve the SPA
+	// for a missing bundle.
+	for _, path := range []string{"/admin/assets/", "/admin/assets/%FF", "/admin/missing.js"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("asset %s status=%d body=%q", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestHandlerAppliesAdminSecurityHeaders(t *testing.T) {
 	handler, err := Handler()
 	if err != nil {

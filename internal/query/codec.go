@@ -18,11 +18,20 @@ import (
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 var integerStringInput = regexp.MustCompile(`^-?[0-9]+$`)
 
-// PostgreSQL btree entries have a page-dependent limit below 2704 bytes.
-// Keeping indexed text at 2048 bytes provides deterministic headroom for the
-// tuple header instead of letting data-dependent compression decide whether a
-// request becomes an opaque database failure.
-const maximumIndexedTextBytes = 2048
+// nonFiniteNumericLiterals holds every value PostgreSQL's numeric output can
+// produce that this API cannot represent as a decimal string.
+var nonFiniteNumericLiterals = map[string]bool{"NaN": true, "Infinity": true, "-Infinity": true}
+
+// maximumUnindexedTextBytes restates the request body limit at the codec layer
+// so a single text value stays bounded even where that limit is bypassed.
+// Indexed and unique text keeps the much smaller schema.MaximumTextBytes,
+// because PostgreSQL btree entries have a page-dependent limit below 2704
+// bytes and deterministic headroom beats letting data-dependent compression
+// decide whether a request becomes an opaque database failure. Neither bound
+// is a whole-record invariant: patching several unindexed text fields in turn
+// can still grow one record past the list page budget, and that invariant
+// belongs to the write service which sees the merged record.
+const maximumUnindexedTextBytes = 1 << 20
 
 func decodeInput(collection schema.Collection, input map[string]json.RawMessage) (map[string]any, error) {
 	fields := make(map[string]schema.Field, len(collection.Fields))
@@ -108,7 +117,10 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !ok {
 			return invalid()
 		}
-		if (field.Indexed || field.Unique) && len(value) > maximumIndexedTextBytes {
+		if (field.Indexed || field.Unique) && len(value) > schema.MaximumTextBytes {
+			return nil, validation(field.Name, "value_too_long")
+		}
+		if len(value) > maximumUnindexedTextBytes {
 			return nil, validation(field.Name, "value_too_long")
 		}
 		return value, nil
@@ -287,25 +299,15 @@ func encodeScannedValue(field schema.Field, destination any) (any, error) {
 			return nil, nil
 		}
 		return strconv.FormatInt(value.Int64, 10), nil
-	case *pgtype.Numeric:
-		if !value.Valid {
-			return nil, nil
-		}
-		if value.NaN || value.InfinityModifier != pgtype.Finite {
-			return invalid()
-		}
-		driverValue, err := value.Value()
-		if err != nil {
-			return nil, fmt.Errorf("encode field %s: %w", field.Name, err)
-		}
-		text, ok := driverValue.(string)
-		if !ok {
-			return invalid()
-		}
-		return text, nil
 	case *pgtype.Text:
 		if !value.Valid {
 			return nil, nil
+		}
+		// scanDestination reads numeric columns as text, so this is the only
+		// place a non-finite numeric written outside the API (operator SQL)
+		// can be caught. Text fields keep accepting the same literals as data.
+		if field.Type == schema.TypeNumeric && nonFiniteNumericLiterals[value.String] {
+			return invalid()
 		}
 		return value.String, nil
 	case *pgtype.Timestamptz:

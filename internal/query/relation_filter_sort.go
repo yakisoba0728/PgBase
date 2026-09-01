@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -694,9 +693,13 @@ func compileRelationOrder(columns []compiledRelationSort) string {
 
 func qualified(alias, column string) string { return quoted(alias) + "." + quoted(column) }
 
-func relationPlanningErrorForCursor(err error, hasCursor bool) error {
-	if err == nil || !hasCursor || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-	return invalidCursor()
+// relationPlanningErrorForCursor returns plan compilation errors unchanged.
+// Planning never reads the cursor: an unknown filter field or an unsortable
+// field is a request shape error whatever the caller paginates with, and a
+// stale or tampered cursor is still rejected where it is decoded and its
+// anchor hash is verified. Rewriting every planning failure into invalid_cursor
+// told the client to restart pagination instead of naming what it got wrong,
+// and disagreed with the scalar kernel on the same input.
+func relationPlanningErrorForCursor(err error, _ bool) error {
+	return err
 }

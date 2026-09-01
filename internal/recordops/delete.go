@@ -314,8 +314,11 @@ func touchDeleteGraphUpdates(
 		if !ok {
 			return schema.ErrConflict
 		}
+		// updated_at uses statement_timestamp() like every other record write so a
+		// derived update never stamps a time older than a PATCH that committed
+		// while this delete waited on the collection locks.
 		tag, err := tx.Exec(ctx, "UPDATE "+quotedRecordCollection(snapshot.collection)+
-			" SET updated_at = transaction_timestamp() WHERE id = $1", snapshot.ref.RecordID)
+			" SET updated_at = statement_timestamp() WHERE id = $1", snapshot.ref.RecordID)
 		if err != nil {
 			return err
 		}

@@ -112,6 +112,21 @@ func (s *Service) List(ctx context.Context, collectionName, cursorToken string, 
 // bound as soon as a cursor is added. A single item that cannot fit is rejected
 // with a stable error instead of being silently skipped by cursor advancement.
 func (s *Service) finalizeRecordPage(page *RecordPage, collectionID uuid.UUID, sortKeys []SortKey, expiresAt time.Time, hasMore bool) error {
+	// Item encodings never change while the tail is trimmed, so they are
+	// measured once. Only the envelope is re-encoded per attempt, because its
+	// size follows the continuation cursor, which follows the anchor record.
+	// Re-marshalling the whole page on every attempt was quadratic in the page
+	// size for a bound that is exceeded by a few kilobytes.
+	itemBytes := make([]int, len(page.Items))
+	measured := 0
+	for index, item := range page.Items {
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("measure record page response: %w", err)
+		}
+		itemBytes[index] = len(encoded)
+		measured += len(encoded)
+	}
 	for {
 		page.NextCursor = ""
 		if hasMore && len(page.Items) > 0 {
@@ -137,16 +152,23 @@ func (s *Service) finalizeRecordPage(page *RecordPage, collectionID uuid.UUID, s
 			}
 		}
 
-		encoded, err := json.Marshal(page)
+		// An empty page encodes the exact envelope this page will emit; the
+		// items add their own bytes plus one separating comma each.
+		envelope, err := json.Marshal(RecordPage{Items: []map[string]any{}, NextCursor: page.NextCursor})
 		if err != nil {
 			return fmt.Errorf("measure record page response: %w", err)
 		}
-		if len(encoded)+1 <= maximumRecordPageBytes {
+		responseBytes := len(envelope) + measured
+		if len(page.Items) > 0 {
+			responseBytes += len(page.Items) - 1
+		}
+		if responseBytes+1 <= maximumRecordPageBytes {
 			return nil
 		}
 		if len(page.Items) <= 1 {
 			return validation("response", "response_too_large")
 		}
+		measured -= itemBytes[len(page.Items)-1]
 		page.Items = page.Items[:len(page.Items)-1]
 		hasMore = true
 	}

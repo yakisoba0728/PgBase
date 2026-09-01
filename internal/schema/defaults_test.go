@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,9 @@ func TestDefaultRendersTypedLiterals(t *testing.T) {
 		{name: "text quote", typ: TypeText, raw: `"O'Brien"`, want: "E'O''Brien'::text"},
 		{name: "timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+00:00"`, want: "E'2026-08-28T12:34:56Z'::timestamptz"},
 		{name: "timestamp lower PostgreSQL boundary", typ: TypeTimestampTZ, raw: `"0001-01-01T00:00:00Z"`, want: "E'0001-01-01T00:00:00Z'::timestamptz"},
-		{name: "timestamp upper RFC3339 boundary", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999999Z"`, want: "E'9999-12-31T23:59:59.999999999Z'::timestamptz"},
+		{name: "timestamp upper PostgreSQL boundary", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999Z"`, want: "E'9999-12-31T23:59:59.999999Z'::timestamptz"},
+		{name: "timestamp just below the microsecond rounding carry", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.9999994Z"`, want: "E'9999-12-31T23:59:59.9999994Z'::timestamptz"},
+		{name: "text at the byte bound", typ: TypeText, raw: `"` + strings.Repeat("x", MaximumTextBytes) + `"`, want: "E'" + strings.Repeat("x", MaximumTextBytes) + "'::text"},
 		{name: "uuid", typ: TypeUUID, raw: `"12345678-1234-4567-8901-123456789ABC"`, want: "E'12345678-1234-4567-8901-123456789abc'::uuid"},
 		{name: "jsonb", typ: TypeJSONB, raw: `{"quote":"O'Brien","items":[2,1]}`, want: "E'{\"items\":[2,1],\"quote\":\"O''Brien\"}'::jsonb"},
 		{name: "now", typ: TypeTimestampTZ, raw: `{"kind":"now"}`, want: "CURRENT_TIMESTAMP"},
@@ -50,6 +53,9 @@ func TestDefaultRejectsUntypedAndSQLInputs(t *testing.T) {
 		{name: "numeric JSON number", typ: TypeNumeric, raw: "1.2"},
 		{name: "invalid timestamp", typ: TypeTimestampTZ, raw: `"not-a-timestamp"`},
 		{name: "PostgreSQL has no year zero", typ: TypeTimestampTZ, raw: `"0000-01-01T00:00:00Z"`},
+		{name: "microsecond rounding carries past year 9999", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.999999999Z"`},
+		{name: "microsecond rounding tie carries past year 9999", typ: TypeTimestampTZ, raw: `"9999-12-31T23:59:59.9999995Z"`},
+		{name: "text default over the byte bound", typ: TypeText, raw: `"` + strings.Repeat("x", MaximumTextBytes+1) + `"`},
 		{name: "invalid uuid", typ: TypeUUID, raw: `"not-a-uuid"`},
 		{name: "non-UTC timestamp", typ: TypeTimestampTZ, raw: `"2026-08-28T12:34:56+09:00"`},
 		{name: "sql object", typ: TypeText, raw: `{"sql":"CURRENT_TIMESTAMP; DROP TABLE app.posts"}`},

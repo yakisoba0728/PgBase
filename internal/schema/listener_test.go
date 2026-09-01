@@ -128,13 +128,6 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 	secondListener.retryMax = 750 * time.Millisecond
 	reloadedBeforeReady := make(chan struct{})
 	allowReady := make(chan struct{})
-	t.Cleanup(func() {
-		select {
-		case <-allowReady:
-		default:
-			close(allowReady)
-		}
-	})
 	secondListener.afterInitialReload = func(catalog Catalog) {
 		if catalog.Version != 2 {
 			return
@@ -153,6 +146,16 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 			if err := <-results; err != nil && !errors.Is(err, context.Canceled) {
 				t.Errorf("listener run: %v", err)
 			}
+		}
+	})
+	// Cleanups run last registered first, so this one releases a listener parked
+	// in afterInitialReload before the drain above waits for both Run results.
+	// afterInitialReload has no run-context case, so cancel() alone cannot free it.
+	t.Cleanup(func() {
+		select {
+		case <-allowReady:
+		default:
+			close(allowReady)
 		}
 	})
 	waitForListenerReady(t, firstListener)

@@ -169,36 +169,47 @@ func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 	}
 }
 
-func TestDecodeInputBoundsIndexedTextBeforePostgreSQLBtreeLimits(t *testing.T) {
+func TestDecodeInputBoundsTextByIndexAndByRequestBodySize(t *testing.T) {
 	t.Parallel()
 
-	for _, field := range []schema.Field{
-		{Name: "indexed", Type: schema.TypeText, Indexed: true},
-		{Name: "unique", Type: schema.TypeText, Unique: true},
-	} {
+	assertTooLong := func(t *testing.T, field schema.Field, size int) {
+		t.Helper()
 		collection := schema.Collection{Fields: []schema.Field{field}}
-		atLimit := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes)))
-		if _, err := decodeInput(collection, map[string]json.RawMessage{field.Name: atLimit}); err != nil {
-			t.Fatalf("decodeInput(%s at limit) error = %v", field.Name, err)
-		}
-
-		overLimit := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes+1)))
-		_, err := decodeInput(collection, map[string]json.RawMessage{field.Name: overLimit})
+		raw := json.RawMessage(strconv.Quote(strings.Repeat("x", size)))
+		_, err := decodeInput(collection, map[string]json.RawMessage{field.Name: raw})
 		var validationErr *ValidationError
 		if !errors.As(err, &validationErr) {
-			t.Fatalf("decodeInput(%s over limit) error = %v, want validation", field.Name, err)
+			t.Fatalf("decodeInput(%s, %d bytes) error = %v, want validation", field.Name, size, err)
 		}
 		want := []ValidationDetail{{Field: field.Name, Code: "value_too_long"}}
 		if !reflect.DeepEqual(validationErr.Details, want) {
 			t.Fatalf("validation details = %#v, want %#v", validationErr.Details, want)
 		}
 	}
-
-	unindexed := schema.Collection{Fields: []schema.Field{{Name: "body", Type: schema.TypeText}}}
-	longBody := json.RawMessage(strconv.Quote(strings.Repeat("x", maximumIndexedTextBytes+1)))
-	if _, err := decodeInput(unindexed, map[string]json.RawMessage{"body": longBody}); err != nil {
-		t.Fatalf("unindexed text should remain unbounded: %v", err)
+	assertAccepted := func(t *testing.T, field schema.Field, size int) {
+		t.Helper()
+		collection := schema.Collection{Fields: []schema.Field{field}}
+		raw := json.RawMessage(strconv.Quote(strings.Repeat("x", size)))
+		if _, err := decodeInput(collection, map[string]json.RawMessage{field.Name: raw}); err != nil {
+			t.Fatalf("decodeInput(%s, %d bytes) error = %v", field.Name, size, err)
+		}
 	}
+
+	for _, field := range []schema.Field{
+		{Name: "indexed", Type: schema.TypeText, Indexed: true},
+		{Name: "unique", Type: schema.TypeText, Unique: true},
+	} {
+		assertAccepted(t, field, schema.MaximumTextBytes)
+		assertTooLong(t, field, schema.MaximumTextBytes+1)
+	}
+
+	// Unindexed text is not held to the btree bound - long documents are a
+	// supported product capability - but it is still bounded, so one field
+	// cannot grow without limit when the request body limit is bypassed.
+	body := schema.Field{Name: "body", Type: schema.TypeText}
+	assertAccepted(t, body, schema.MaximumTextBytes+1)
+	assertAccepted(t, body, maximumUnindexedTextBytes)
+	assertTooLong(t, body, maximumUnindexedTextBytes+1)
 }
 
 func TestEncodeRecordReturnsCanonicalJSONContract(t *testing.T) {
@@ -307,7 +318,9 @@ func TestEncodeRecordRejectsInvalidDatabaseValues(t *testing.T) {
 		collection schema.Collection
 		value      any
 	}{
-		{name: "non-finite numeric", collection: schema.Collection{Fields: []schema.Field{{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric}}}, value: pgtype.Numeric{NaN: true, Valid: true}},
+		{name: "numeric NaN", collection: numericCollection(), value: pgtype.Text{String: "NaN", Valid: true}},
+		{name: "numeric Infinity", collection: numericCollection(), value: pgtype.Text{String: "Infinity", Valid: true}},
+		{name: "numeric negative Infinity", collection: numericCollection(), value: pgtype.Text{String: "-Infinity", Valid: true}},
 		{name: "invalid jsonb", collection: schema.Collection{Fields: []schema.Field{{Name: "metadata", ColumnName: "metadata", Type: schema.TypeJSONB}}}, value: []byte(`{}[]`)},
 		{name: "unsupported type", collection: schema.Collection{Fields: []schema.Field{{Name: "broken", ColumnName: "broken", Type: schema.FieldType("money")}}}, value: pgtype.Text{String: "1", Valid: true}},
 	}
@@ -320,6 +333,109 @@ func TestEncodeRecordRejectsInvalidDatabaseValues(t *testing.T) {
 				t.Fatal("EncodeRecord() error = nil, want error")
 			}
 		})
+	}
+}
+
+// TestEncodeRecordKeepsNonFiniteLiteralsInTextFields proves the rejection above
+// is scoped to numeric columns rather than to the literal text, so the guard
+// cannot pass for the wrong reason.
+func TestEncodeRecordKeepsNonFiniteLiteralsInTextFields(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	now := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	collection := schema.Collection{Fields: []schema.Field{{Name: "label", ColumnName: "label", Type: schema.TypeText}}}
+	record, err := EncodeRecord(collection, &fixtureRow{values: []any{
+		pgtype.UUID{Bytes: id, Valid: true}, now, now, pgtype.Text{String: "NaN", Valid: true},
+	}})
+	if err != nil {
+		t.Fatalf("EncodeRecord() error = %v", err)
+	}
+	if record["label"] != "NaN" {
+		t.Fatalf("label = %#v, want the literal text preserved", record["label"])
+	}
+}
+
+func numericCollection() schema.Collection {
+	return schema.Collection{Fields: []schema.Field{{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric}}}
+}
+
+// The two tests below cover query package seams whose own source files carry no
+// unit test file: finalizeRecordPage in service.go and the relation planning
+// error mapping in relation_filter_sort.go.
+
+func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{cursors: NewCursorCodec(bytes.Repeat([]byte("k"), 32))}
+	collectionID := uuid.MustParse("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")
+	sortKeys := effectiveSortKeys(nil)
+	expiresAt := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+
+	// Ten items of roughly 512 KiB overflow the 4 MiB bound, so the page must
+	// lose its tail and still carry a cursor anchored at the last kept item.
+	page := RecordPage{}
+	for index := 0; index < 10; index++ {
+		page.Items = append(page.Items, map[string]any{
+			"id":         uuid.NewSHA1(collectionID, []byte{byte(index)}).String(),
+			"created_at": time.Date(2026, 8, 28, 0, 0, index, 0, time.UTC).Format(time.RFC3339Nano),
+			"payload":    strings.Repeat("x", 512*1024),
+		})
+	}
+	if err := service.finalizeRecordPage(&page, collectionID, sortKeys, expiresAt, true); err != nil {
+		t.Fatalf("finalizeRecordPage() error = %v", err)
+	}
+	if len(page.Items) == 0 || len(page.Items) >= 10 {
+		t.Fatalf("kept %d items, want the tail trimmed", len(page.Items))
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded)+1 > maximumRecordPageBytes {
+		t.Fatalf("finalized page = %d bytes, want at most %d", len(encoded)+1, maximumRecordPageBytes)
+	}
+	if page.NextCursor == "" {
+		t.Fatal("trimmed page lost its continuation cursor")
+	}
+	decoded, err := service.cursors.Decode(page.NextCursor, collectionID, expiresAt.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("decode continuation cursor: %v", err)
+	}
+	anchor := page.Items[len(page.Items)-1]
+	wantValues := []string{strconv.Quote(anchor["created_at"].(string)), strconv.Quote(anchor["id"].(string))}
+	if len(decoded.Values) != len(wantValues) {
+		t.Fatalf("cursor values = %v, want %v", decoded.Values, wantValues)
+	}
+	for index, want := range wantValues {
+		if string(decoded.Values[index]) != want {
+			t.Fatalf("cursor value %d = %s, want %s (cursor must anchor at the last kept item)", index, decoded.Values[index], want)
+		}
+	}
+
+	single := RecordPage{Items: []map[string]any{{
+		"id":         uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee").String(),
+		"created_at": time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		"payload":    strings.Repeat("x", maximumRecordPageBytes),
+	}}}
+	err = service.finalizeRecordPage(&single, collectionID, sortKeys, expiresAt, true)
+	assertValidationDetail(t, err, "response", "response_too_large")
+}
+
+func TestRelationPlanningErrorKeepsValidationFailuresWhenACursorIsPresent(t *testing.T) {
+	t.Parallel()
+
+	planningErr := validation("filter", "unknown_field")
+	for _, hasCursor := range []bool{false, true} {
+		got := relationPlanningErrorForCursor(planningErr, hasCursor)
+		var cursorErr *InvalidCursorError
+		if errors.As(got, &cursorErr) {
+			t.Fatalf("planning error with cursor=%v became %T, want the validation error", hasCursor, got)
+		}
+		assertValidationDetail(t, got, "filter", "unknown_field")
+	}
+	if got := relationPlanningErrorForCursor(nil, true); got != nil {
+		t.Fatalf("relationPlanningErrorForCursor(nil, true) = %v, want nil", got)
 	}
 }
 

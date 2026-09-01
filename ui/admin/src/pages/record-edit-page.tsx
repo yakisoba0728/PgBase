@@ -76,6 +76,7 @@ const fieldErrorText: Record<string, string> = {
   required: "This field is required.",
   type_mismatch: "Value does not match the field type.",
   unknown_field: "This field is not recognized.",
+  value_too_long: "Value exceeds the 2,048-byte limit for text values.",
 };
 
 function validationText(field: FieldDefinition, code: string): string {
@@ -325,6 +326,12 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       else if (caught instanceof APIClientError && caught.status === 412) {
         setStale(true);
         setMessage("This record changed after you loaded it. Reload the latest version before saving or deleting.");
+      } else if (caught instanceof APIClientError && caught.status === 422) {
+        // The server reports a restricted relation against the record id, so
+        // save()'s field mapping cannot render it.
+        setMessage(caught.details["id"]?.includes("relation_delete_restricted")
+          ? "Other records still reference this record. Remove those references first."
+          : "Unable to delete the record.");
       } else setMessage("Unable to delete the record.");
     }
     finally { setPending(false); }
@@ -368,7 +375,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         <label htmlFor={`record-${field.name}`}>{field.name}</label>
         {field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.checked } }))} type="checkbox" /> :
           field.type === "jsonb" || multipleRelation ? <textarea aria-describedby={describedBy} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.value } }))} rows={multipleRelation ? Math.min(8, Math.max(3, relation?.maxSelect ?? 3)) : 5} value={String(state.value)} /> :
-            <input aria-describedby={describedBy} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.value } }))} value={String(state.value)} />}
+            <input aria-describedby={describedBy} aria-invalid={errors[field.name] ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => setDraft((current) => ({ ...current, [field.name]: { kind: "value", value: event.target.value } }))} value={String(state.value)} />}
         {relation !== undefined && targetCollection !== undefined && <RelationTargetSearch
           disabled={pending || stale}
           draft={String(state.value)}

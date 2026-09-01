@@ -61,7 +61,7 @@ func (c *IdempotencyCleaner) drainWithoutAffectingReadiness(ctx context.Context)
 		deleted, err := c.Clean(ctx)
 		if err != nil {
 			if ctx.Err() == nil && c.logger != nil {
-				c.logger.WarnContext(ctx, "record idempotency cleanup failed")
+				c.logger.WarnContext(ctx, "record idempotency cleanup failed", "error", err)
 			}
 			return
 		}
