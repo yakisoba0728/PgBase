@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { APIClientError } from "../api/client";
 import { stringifyJSON } from "../api/json";
 import { fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionPlan } from "../api/collections";
@@ -45,6 +45,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
   const [plannedInput, setPlannedInput] = useState<CollectionChangeInput | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeRef = useRef(true);
   const inputSignature = useMemo(() => {
     try { return stringifyJSON(buildInput("create", name, fields)); } catch { return "invalid"; }
   }, [fields, name]);
@@ -53,10 +54,16 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
   const relationTargets = useMemo(() => relationTargetOptions(relationCatalog, name), [name, relationCatalog]);
 
   useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
+
+  useEffect(() => {
     if (!needsRelationCatalog || relationCatalog !== null || relationCatalogFailed) return;
     const controller = new AbortController();
     setRelationCatalogLoading(true);
     void collections.catalog(controller.signal).then((catalog) => {
+      if (controller.signal.aborted) return;
       setRelationCatalog(catalog);
       setRelationCatalogFailed(false);
     }).catch(() => {
@@ -88,13 +95,17 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setPending(true);
     try {
       const result = await collections.plan(input);
+      if (!activeRef.current) return;
       setPlannedInput(input);
       setPlan(result);
     } catch (caught: unknown) {
+      if (!activeRef.current) return;
       setPlan(null);
       setPlannedInput(null);
       setError(schemaErrorMessage(caught, "Unable to preview the collection."));
-    } finally { setPending(false); }
+    } finally {
+      if (activeRef.current) setPending(false);
+    }
   }
 
   async function apply() {
@@ -104,8 +115,10 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setError(null);
     try {
       await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
+      if (!activeRef.current) return;
       navigate("/admin/collections");
     } catch (caught: unknown) {
+      if (!activeRef.current) return;
       if (caught instanceof APIClientError && caught.status === 409) {
         setPlan(null);
         setPlannedInput(null);
@@ -113,6 +126,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
         // catalog means the preview was stale.
         try {
           const catalog = await collections.catalog();
+          if (!activeRef.current) return;
           if (catalog.version === appliedBaseVersion) {
             setError("A collection with this name likely already exists.");
           } else {
@@ -122,7 +136,9 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
           setError("The catalog changed. Preview the collection again before applying.");
         }
       } else setError(schemaErrorMessage(caught, "Unable to create the collection."));
-    } finally { setPending(false); }
+    } finally {
+      if (activeRef.current) setPending(false);
+    }
   }
 
   return <section>

@@ -216,6 +216,15 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
   const createAttemptRef = useRef(new CreateAttempt());
   const loadedResourceRef = useRef<{ collectionName: string; id?: string } | null>(null);
   const isCreate = id === undefined;
+  const resourceIdentity = `${collectionName}\u0000${id ?? "new"}`;
+  const activeResourceRef = useRef<string | null>(resourceIdentity);
+
+  useEffect(() => {
+    activeResourceRef.current = resourceIdentity;
+    return () => {
+      if (activeResourceRef.current === resourceIdentity) activeResourceRef.current = null;
+    };
+  }, [resourceIdentity]);
 
   useEffect(() => {
     createAttemptRef.current.reset();
@@ -268,6 +277,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
 
   async function save() {
     if (!collection) return;
+    const requestedResource = resourceIdentity;
     const nextErrors: Record<string, string> = {};
     const input: RecordData = {};
     for (const field of collection.fields) {
@@ -310,8 +320,10 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         if (etag === null) throw new Error("record ETag is unavailable");
         await records.update(collectionName, id, input, etag);
       }
+      if (activeResourceRef.current !== requestedResource) return;
       navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records`);
     } catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
       else if (caught instanceof APIClientError && caught.status === 412) {
         setStale(true);
@@ -325,15 +337,23 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         setErrors(mapped);
         if (Object.keys(mapped).length === 0) setMessage("Record input is invalid.");
       } else setMessage("Unable to save the record.");
-    } finally { setPending(false); }
+    } finally {
+      if (activeResourceRef.current === requestedResource) setPending(false);
+    }
   }
 
   async function remove() {
     if (!id || etag === null || !window.confirm("Delete this record? This cannot be undone.")) return;
+    const requestedResource = resourceIdentity;
     setPending(true);
     setMessage(null);
-    try { await records.delete(collectionName, id, etag); navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records`); }
+    try {
+      await records.delete(collectionName, id, etag);
+      if (activeResourceRef.current !== requestedResource) return;
+      navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records`);
+    }
     catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
       else if (caught instanceof APIClientError && caught.status === 412) {
         setStale(true);
@@ -346,7 +366,9 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
           : "Unable to delete the record.");
       } else setMessage("Unable to delete the record.");
     }
-    finally { setPending(false); }
+    finally {
+      if (activeResourceRef.current === requestedResource) setPending(false);
+    }
   }
 
   return <section>

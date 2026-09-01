@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { APIClientError } from "../api/client";
 import { stringifyJSON } from "../api/json";
 import { collectionFromCatalog, fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionDefinition, type CollectionPlan } from "../api/collections";
@@ -36,14 +36,32 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   const [deletePlan, setDeletePlan] = useState<CollectionPlan | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const activeResourceRef = useRef<string | null>(collectionName);
+
+  useEffect(() => {
+    activeResourceRef.current = collectionName;
+    return () => {
+      if (activeResourceRef.current === collectionName) activeResourceRef.current = null;
+    };
+  }, [collectionName]);
 
   useEffect(() => {
     const controller = new AbortController();
     setDefinition(null);
     setCatalog(null);
+    setFields([]);
+    setPlan(null);
+    setPlannedInput(null);
+    setPending(false);
+    setError(null);
     setNotFound(false);
     setLoadFailed(false);
+    setDestructiveConfirmed(false);
+    setDeletePlan(null);
+    setDeletePending(false);
+    setDeleteError(null);
     void collections.catalog(controller.signal).then((catalog) => {
+      if (controller.signal.aborted) return;
       const existing = collectionFromCatalog(catalog, collectionName);
       if (!existing) { setNotFound(true); return; }
       setCatalog(catalog);
@@ -92,30 +110,38 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
 
   async function preview() {
     if (definition === null || pending) return;
+    const requestedResource = collectionName;
     setError(null);
     let input: CollectionChangeInput;
     try { input = toInput(definition, fields); } catch (caught: unknown) { setError(draftErrorMessage(caught, "Collection input is invalid.")); return; }
     setPending(true);
     try {
       const result = await collections.plan(input);
+      if (activeResourceRef.current !== requestedResource) return;
       setPlannedInput(input);
       setPlan(result);
       setDestructiveConfirmed(false);
     } catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       resetPlan();
       setError(schemaErrorMessage(caught, "Unable to preview the collection change."));
-    } finally { setPending(false); }
+    } finally {
+      if (activeResourceRef.current === requestedResource) setPending(false);
+    }
   }
 
   async function apply() {
     if (!previewCurrent || plan === null || plannedInput === null || pending || (removedFields.length > 0 && !destructiveConfirmed)) return;
+    const requestedResource = collectionName;
     const appliedBaseVersion = plan.baseVersion;
     setPending(true);
     setError(null);
     try {
       await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
+      if (activeResourceRef.current !== requestedResource) return;
       navigate(`/admin/collections/${encodeURIComponent(definition?.name ?? collectionName)}/records`);
     } catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       if (caught instanceof APIClientError && caught.status === 409) {
         resetPlan();
         // A 409 covers a stale plan, a plan that conflicts with existing data
@@ -123,6 +149,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
         // collisions. Tell a moved catalog apart from a same-version conflict.
         try {
           const catalog = await collections.catalog();
+          if (activeResourceRef.current !== requestedResource) return;
           if (catalog.version === appliedBaseVersion) {
             setError("The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.");
           } else {
@@ -134,35 +161,48 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
       } else if (caught instanceof APIClientError && caught.status === 422) {
         setError(schemaErrorMessage(caught, "Existing data blocks this change (for example missing or duplicate values).", "Existing data blocks this change (for example missing or duplicate values)."));
       } else setError(schemaErrorMessage(caught, "Unable to apply the collection change."));
-    } finally { setPending(false); }
+    } finally {
+      if (activeResourceRef.current === requestedResource) setPending(false);
+    }
   }
 
   async function previewDelete() {
     if (definition === null || deletePending) return;
+    const requestedResource = collectionName;
     setDeleteError(null);
     setDeletePending(true);
     try {
-      setDeletePlan(await collections.plan({ operation: "delete", name: definition.name }));
+      const result = await collections.plan({ operation: "delete", name: definition.name });
+      if (activeResourceRef.current !== requestedResource) return;
+      setDeletePlan(result);
     } catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       setDeleteError(schemaErrorMessage(caught, "Unable to preview the collection deletion."));
-    } finally { setDeletePending(false); }
+    } finally {
+      if (activeResourceRef.current === requestedResource) setDeletePending(false);
+    }
   }
 
   async function applyDelete() {
     if (definition === null || deletePlan === null || deletePending) return;
+    const requestedResource = collectionName;
     setDeletePending(true);
     setDeleteError(null);
     try {
       await collections.apply({ operation: "delete", name: definition.name }, deletePlan.checksum, deletePlan.baseVersion);
+      if (activeResourceRef.current !== requestedResource) return;
       navigate("/admin/collections");
     } catch (caught: unknown) {
+      if (activeResourceRef.current !== requestedResource) return;
       setDeletePlan(null);
       if (caught instanceof APIClientError && caught.code === "collection_referenced") {
         setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection.", "Collection is referenced."));
       } else if (caught instanceof APIClientError && caught.status === 409) {
         setDeleteError("The catalog changed. Preview the deletion again before applying.");
       } else setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection."));
-    } finally { setDeletePending(false); }
+    } finally {
+      if (activeResourceRef.current === requestedResource) setDeletePending(false);
+    }
   }
 
   if (notFound) return <section><h2>Edit collection</h2><p role="alert">Collection not found.</p></section>;

@@ -40,20 +40,20 @@ function AuthenticatedShell() {
       setLogoutPending(false);
     }
   }
-  let page = <CollectionsPage navigate={navigate} />;
-  if (path === "/admin/collections/new") page = <CollectionCreatePage navigate={navigate} />;
-  else if (path === "/admin/system") page = <SystemPage />;
+  let page = <CollectionsPage key="collections" navigate={navigate} />;
+  if (path === "/admin/collections/new") page = <CollectionCreatePage key="collection:new" navigate={navigate} />;
+  else if (path === "/admin/system") page = <SystemPage key="system" />;
   else if (/^\/admin\/collections\/[^/]+\/edit$/.test(path)) {
     const match = /^\/admin\/collections\/([^/]+)\/edit$/.exec(path);
     const collectionName = match ? decodePathSegment(match[1]) : null;
-    if (collectionName !== null) page = <CollectionEditPage collectionName={collectionName} navigate={navigate} />;
+    if (collectionName !== null) page = <CollectionEditPage collectionName={collectionName} key={`collection:${collectionName}:edit`} navigate={navigate} />;
   } else {
     const match = /^\/admin\/collections\/([^/]+)\/records(?:\/([^/]+))?$/.exec(path);
     if (match) {
       const collectionName = decodePathSegment(match[1]);
       const recordID = match[2] === "new" ? undefined : decodePathSegment(match[2]);
-      if (collectionName !== null && match[2] === undefined) page = <RecordsPage collectionName={collectionName} navigate={navigate} />;
-      else if (collectionName !== null && recordID !== null) page = <RecordEditPage collectionName={collectionName} id={recordID} navigate={navigate} />;
+      if (collectionName !== null && match[2] === undefined) page = <RecordsPage collectionName={collectionName} key={`collection:${collectionName}:records`} navigate={navigate} />;
+      else if (collectionName !== null && recordID !== null) page = <RecordEditPage collectionName={collectionName} id={recordID} key={`collection:${collectionName}:record:${recordID ?? "new"}`} navigate={navigate} />;
     }
   }
   return <main className="shell">
