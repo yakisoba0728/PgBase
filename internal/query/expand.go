@@ -202,6 +202,7 @@ func (s *Service) readListInTx(
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}
+	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
 	rootRequest := rootPageReadRequest{
 		plan:        rootPlan,
 		cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
@@ -243,6 +244,7 @@ func (s *Service) readListInTx(
 	}
 	assembler := pageAssembler{
 		cursors: s.cursors, order: root.order, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
+		cursorV5: root.cursorV5,
 	}
 	keep, cursor, err := assembler.finish(candidates, root.page.NextCursor != "")
 	if err != nil {

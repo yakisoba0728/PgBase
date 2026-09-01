@@ -693,7 +693,7 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 		builder := &statementBuilder{}
 		where := ""
 		if cursorValues != nil {
-			predicate, err := order.keyset(&PageCursor{Values: cursorValues}, builder)
+			predicate, err := order.keyset(&pageBoundary{Values: cursorValues}, builder)
 			if err != nil {
 				t.Fatalf("order.keyset: %v", err)
 			}

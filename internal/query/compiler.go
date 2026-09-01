@@ -60,10 +60,20 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 }
 
 func CompileSelectByID(collection schema.Collection, id uuid.UUID) Statement {
-	return Statement{
+	return compileSelectByIDWithMembership(collection, id, nil)
+}
+
+func compileSelectByIDWithMembership(collection schema.Collection, id uuid.UUID, membership *int64) Statement {
+	statement := Statement{
 		SQL:  "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection) + " WHERE " + quoted("id") + " = $1",
 		Args: []any{id},
 	}
+	if membership != nil {
+		builder := &statementBuilder{args: statement.Args}
+		statement.SQL += " AND " + rootMembershipPredicate(collection, collection.TableName, membership, builder)
+		statement.Args = builder.args
+	}
+	return statement
 }
 
 func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
@@ -103,7 +113,7 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 	}
 }
 
-func compileListPage(filter filterNode, order orderSpec, after *PageCursor, fetchLimit int) (Statement, error) {
+func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -112,6 +122,9 @@ func compileListPage(filter filterNode, order orderSpec, after *PageCursor, fetc
 	var conditions []string
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
+	}
+	if membership := after.membershipBoundary(); membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(order.root, order.root.TableName, membership, builder))
 	}
 	if after != nil {
 		keysetSQL, err := order.keyset(after, builder)
@@ -127,6 +140,13 @@ func compileListPage(filter filterNode, order orderSpec, after *PageCursor, fetc
 	}
 	statement += order.orderBy() + " LIMIT " + limit
 	return Statement{SQL: statement, Args: builder.args}, nil
+}
+
+func rootMembershipPredicate(collection schema.Collection, rootAlias string, membership *int64, builder *statementBuilder) string {
+	return "EXISTS (SELECT 1 FROM pgbase_meta.record_creation_ordinals AS " + quoted("rq_membership") +
+		" WHERE " + qualified("rq_membership", "collection_id") + " = " + builder.placeholder(collection.ID) +
+		" AND " + qualified("rq_membership", "record_id") + " = " + qualified(rootAlias, systemFieldID) +
+		" AND " + qualified("rq_membership", "ordinal") + " <= " + builder.placeholder(*membership) + ")"
 }
 
 type statementBuilder struct {

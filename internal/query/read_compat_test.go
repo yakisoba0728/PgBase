@@ -18,7 +18,7 @@ var testReadPrincipal = Principal{
 type ListQuery struct {
 	Filter filterNode
 	Sort   []SortKey
-	After  *PageCursor
+	After  *pageBoundary
 	Limit  int
 }
 
@@ -38,7 +38,7 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 	return compileListPage(query.Filter, order, query.After, normalizedFetchLimit(query.Limit))
 }
 
-func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, error) {
+func (p relationListPlan) statement(after *pageBoundary, limit int) (Statement, error) {
 	return p.pageStatement(after, normalizedFetchLimit(limit))
 }
 

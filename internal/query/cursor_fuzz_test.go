@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	cursorwire "github.com/webisnoteasy/PgBase/internal/cursor"
 )
 
 func FuzzCursorDecode(f *testing.F) {
-	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
+	codec := cursorwire.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	valid, err := codec.Encode(PageCursor{
-		Version: cursorVersion, CollectionID: collectionID,
+	valid, err := codec.Encode(cursorwire.Page{
+		Version: cursorwire.Version4, CollectionID: collectionID,
 		Sort:      testCursorSort(),
 		Values:    testCursorValues(),
 		ExpiresAt: now.Add(time.Minute),
@@ -23,8 +24,8 @@ func FuzzCursorDecode(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	anchorOnly, err := codec.Encode(PageCursor{
-		Version: cursorVersion, CollectionID: collectionID,
+	anchorOnly, err := codec.Encode(cursorwire.Page{
+		Version: cursorwire.Version4, CollectionID: collectionID,
 		Sort:          testCursorSort(),
 		Values:        testCursorValues(),
 		AnchorID:      uuid.MustParse("99999999-9999-4999-8999-999999999999"),
@@ -34,24 +35,40 @@ func FuzzCursorDecode(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, seed := range []string{"", "%%%", valid, anchorOnly, valid + "=", "eyJ2IjoyfQ"} {
+	v5 := validV5CursorForTest()
+	v5.ExpiresAt = now.Add(time.Minute)
+	v5.AnchorID = uuid.MustParse("88888888-8888-4888-8888-888888888888")
+	v5.PrivateValues = true
+	v5AnchorOnly, err := codec.Encode(v5)
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range []string{"", "%%%", valid, anchorOnly, v5AnchorOnly, valid + "=", "eyJ2IjoyfQ"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, token string) {
 		cursor, err := codec.Decode(token, collectionID, now)
 		if err != nil {
-			if !IsInvalidCursor(err) {
+			if !cursorwire.IsInvalid(err) {
 				t.Fatalf("unexpected error type: %v", err)
 			}
 			return
 		}
-		if cursor.CollectionID != collectionID || cursor.Version != cursorVersion || !cursor.ExpiresAt.After(now) {
+		if cursor.CollectionID != collectionID ||
+			(cursor.Version != cursorwire.Version4 && cursor.Version != cursorwire.Version5) || !cursor.ExpiresAt.After(now) {
 			t.Fatalf("invalid decoded cursor: %#v", cursor)
 		}
-		valuesShape := len(cursor.Values) == len(cursor.Sort)
+		orderLength := len(cursor.Sort)
+		if cursor.Version == cursorwire.Version5 {
+			if cursor.V5 == nil {
+				t.Fatalf("v5 cursor omitted descriptor: %#v", cursor)
+			}
+			orderLength = len(cursor.V5.Order)
+		}
+		valuesShape := len(cursor.Values) == orderLength
 		anchorOnlyShape := cursor.PrivateValues && len(cursor.Values) == 0 &&
 			cursor.AnchorID != uuid.Nil && len(cursor.AnchorHash) == sha256.Size
-		if len(cursor.Sort) == 0 || (!valuesShape && !anchorOnlyShape) {
+		if orderLength == 0 || (!valuesShape && !anchorOnlyShape) {
 			t.Fatalf("invalid decoded cursor shape: %#v", cursor)
 		}
 	})

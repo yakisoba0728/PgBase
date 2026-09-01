@@ -5,9 +5,7 @@ package query
 import (
 	"encoding/json"
 	"errors"
-	"time"
 
-	"github.com/google/uuid"
 	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
 )
 
@@ -16,15 +14,16 @@ type Statement struct {
 	Args []any
 }
 
-type PageCursor struct {
-	Version       int
-	CollectionID  uuid.UUID
-	Sort          []SortKey
-	Values        []json.RawMessage
-	AnchorID      uuid.UUID
-	AnchorHash    []byte
-	PrivateValues bool
-	ExpiresAt     time.Time
+type pageBoundary struct {
+	Values     []json.RawMessage
+	membership *int64
+}
+
+func (boundary *pageBoundary) membershipBoundary() *int64 {
+	if boundary == nil {
+		return nil
+	}
+	return boundary.membership
 }
 
 type RowScanner interface {

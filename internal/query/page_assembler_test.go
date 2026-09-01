@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -16,7 +17,7 @@ func TestPageAssemblerMeasuresEachWireOnceAcrossGrowingPrefixes(t *testing.T) {
 
 	collectionID := uuid.MustParse("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")
 	expiresAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
+	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	assembler := pageAssembler{
 		cursors:      codec,
 		order:        pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
@@ -77,7 +78,7 @@ func TestPageAssemblerFitCanRecoverWhenTerminalCursorDisappears(t *testing.T) {
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	expiresAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	assembler := pageAssembler{
-		cursors:   NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
+		cursors:   cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef")),
 		order:     pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt: expiresAt, maximumBytes: 1 << 20,
 	}
@@ -129,7 +130,7 @@ func TestPageAssemblerFitCanRecoverWhenNextAnchorCursorShrinks(t *testing.T) {
 
 	collectionID := uuid.MustParse("cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa")
 	assembler := pageAssembler{
-		cursors:   NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
+		cursors:   cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef")),
 		order:     pageOrderForTest(collectionID, []SortKey{{Field: "rank"}}),
 		expiresAt: time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC), maximumBytes: 1 << 20,
 	}
@@ -184,7 +185,7 @@ func TestPageAssemblerCursorSurvivesReleasedRootRepresentation(t *testing.T) {
 	collectionID := uuid.MustParse("dddddddd-eeee-4fff-8000-bbbbbbbbbbbb")
 	recordID := uuid.MustParse("11111111-2222-4333-8444-555555555555")
 	expiresAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
+	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	assembler := pageAssembler{
 		cursors: codec, order: pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt: expiresAt, maximumBytes: 1 << 20,
@@ -195,13 +196,16 @@ func TestPageAssemblerCursorSurvivesReleasedRootRepresentation(t *testing.T) {
 		wireBytes: 2, wireMeasured: true,
 	}
 
-	_, cursor, err := assembler.finish([]pageCandidate{candidate}, true)
+	_, cursorToken, err := assembler.finish([]pageCandidate{candidate}, true)
 	if err != nil {
 		t.Fatalf("finish released candidate: %v", err)
 	}
-	decoded, err := codec.Decode(cursor, collectionID, expiresAt.Add(-time.Minute))
+	decoded, err := codec.Decode(cursorToken, collectionID, expiresAt.Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("decode released candidate cursor: %v", err)
+	}
+	if decoded.Version != cursor.Version4 || decoded.V5 != nil {
+		t.Fatalf("production page assembler issued cursor version %d with v5=%#v", decoded.Version, decoded.V5)
 	}
 	if decoded.AnchorID != recordID {
 		t.Fatalf("released candidate anchor = %s, want %s", decoded.AnchorID, recordID)

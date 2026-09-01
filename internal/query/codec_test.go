@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -365,7 +366,7 @@ func numericCollection() schema.Collection {
 func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testing.T) {
 	t.Parallel()
 
-	service := &Service{cursors: NewCursorCodec(bytes.Repeat([]byte("k"), 32))}
+	service := &Service{cursors: cursor.NewCodec(bytes.Repeat([]byte("k"), 32))}
 	collectionID := uuid.MustParse("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")
 	sortKeys := effectiveSortKeys(nil)
 	expiresAt := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)

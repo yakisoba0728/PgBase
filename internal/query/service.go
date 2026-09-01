@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
@@ -35,7 +36,7 @@ type Record = recordartifact.Record
 type Service struct {
 	pool         *database.Pool
 	schemas      *schema.Service
-	cursors      *CursorCodec
+	cursors      *cursor.Codec
 	expandLimits expandLimits
 	now          func() time.Time
 	logger       *slog.Logger
@@ -52,7 +53,7 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 
 func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
 	return &Service{
-		pool: pool, schemas: schemas, cursors: NewCursorCodec(cursorSecret), now: time.Now,
+		pool: pool, schemas: schemas, cursors: cursor.NewCodec(cursorSecret), now: time.Now,
 		expandLimits: defaultExpandLimits,
 		logger:       logger, recorder: recorder,
 	}
@@ -119,18 +120,6 @@ func recordSortValues(keys []SortKey, record map[string]any) ([]json.RawMessage,
 		values = append(values, raw)
 	}
 	return values, nil
-}
-
-func sameSortKeys(left, right []SortKey) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, key := range left {
-		if key.Field != right[index].Field || key.Desc != right[index].Desc {
-			return false
-		}
-	}
-	return true
 }
 
 // parseFilterRequest turns an empty parameter into no filter and otherwise

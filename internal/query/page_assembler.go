@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 )
 
 type pageCandidate struct {
@@ -21,10 +22,11 @@ type pageCandidate struct {
 }
 
 type pageAssembler struct {
-	cursors      *CursorCodec
+	cursors      *cursor.Codec
 	order        orderSpec
 	expiresAt    time.Time
 	maximumBytes int
+	cursorV5     *cursor.V5Descriptor
 }
 
 func (a pageAssembler) finish(candidates []pageCandidate, hasMore bool) (int, string, error) {
@@ -99,23 +101,24 @@ func (a pageAssembler) cursor(candidates []pageCandidate, hasMore bool) (string,
 	if !hasMore || len(candidates) == 0 {
 		return "", nil
 	}
-	return a.order.encodeCursor(a.cursors, candidates[len(candidates)-1], a.expiresAt)
+	return a.order.encodeCursor(a.cursors, candidates[len(candidates)-1], a.expiresAt, a.cursorV5)
 }
 
-func (s orderSpec) encodeCursor(codec *CursorCodec, anchor pageCandidate, expiresAt time.Time) (string, error) {
-	if anchor.id == uuid.Nil {
-		return "", errors.New("encode page cursor: invalid record id")
+func (s orderSpec) encodeCursor(codec *cursor.Codec, anchor pageCandidate, expiresAt time.Time, v5 *cursor.V5Descriptor) (string, error) {
+	if anchor.id == uuid.Nil || len(anchor.cursorValues) != len(s.terms) {
+		return "", errors.New("encode page cursor: invalid anchor")
 	}
-	if len(anchor.cursorValues) != len(s.terms) {
-		return "", errors.New("encode page cursor: missing sort value")
+	page := cursor.Page{
+		Version: cursor.Version5, CollectionID: s.root.ID, Values: cloneCursorValues(anchor.cursorValues),
+		AnchorID: anchor.id, PrivateValues: s.private(), ExpiresAt: expiresAt, V5: v5,
 	}
-	return codec.Encode(PageCursor{
-		Version:       cursorVersion,
-		CollectionID:  s.root.ID,
-		Sort:          s.sortKeys(),
-		Values:        cloneCursorValues(anchor.cursorValues),
-		AnchorID:      anchor.id,
-		PrivateValues: s.private(),
-		ExpiresAt:     expiresAt,
-	})
+	if v5 == nil {
+		page.Version = cursor.Version4
+		page.Sort = s.sortKeys()
+	}
+	token, err := codec.Encode(page)
+	if err != nil {
+		return "", invalidCursor()
+	}
+	return token, nil
 }

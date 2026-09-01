@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 )
 
 type rootPageReadRequest struct {
@@ -29,6 +31,7 @@ type rootPageReadResult struct {
 	expiresAt        time.Time
 	totalHydrated    int
 	maxRetainedRoots int
+	cursorV5         *cursor.V5Descriptor
 }
 
 func (s *Service) readRootPageInTx(
@@ -56,33 +59,53 @@ func (s *Service) readRootPageInTx(
 		}
 	}
 
-	var after *PageCursor
+	var after *pageBoundary
 	if request.cursorToken != "" {
 		decoded, err := s.cursors.Decode(request.cursorToken, order.root.ID, request.operationTime)
-		if err != nil || !sameSortKeys(decoded.Sort, order.sortKeys()) || (order.private() && !decoded.PrivateValues) {
+		if err != nil {
+			return rootPageReadResult{}, invalidCursor()
+		}
+		var membership *int64
+		switch decoded.Version {
+		case cursor.Version4:
+			if !slices.Equal(decoded.Sort, order.sortKeys()) || (order.private() && !decoded.PrivateValues) {
+				return rootPageReadResult{}, invalidCursor()
+			}
+		case cursor.Version5:
+			if order.private() && !decoded.PrivateValues {
+				return rootPageReadResult{}, invalidCursor()
+			}
+			membership, err = s.bindCursorV5(ctx, tx, decoded, plan)
+			if err != nil {
+				return rootPageReadResult{}, err
+			}
+			result.expiresAt = decoded.ExpiresAt
+			result.cursorV5 = decoded.V5
+		default:
 			return rootPageReadResult{}, invalidCursor()
 		}
 		if len(decoded.Values) == 0 {
 			if err := charge(1); err != nil {
 				return rootPageReadResult{}, err
 			}
-			values, err := order.reloadAnchor(ctx, tx, decoded.AnchorID)
+			values, err := order.reloadAnchor(ctx, tx, decoded.AnchorID, membership)
 			if errors.Is(err, ErrRecordNotFound) {
 				return rootPageReadResult{}, invalidCursor()
 			}
 			if err != nil {
 				return rootPageReadResult{}, err
 			}
-			digest, err := s.cursors.privateCursorValuesHash(values)
+			digest, err := s.cursors.ValuesHash(values)
 			if err != nil || !hmac.Equal(digest, decoded.AnchorHash) {
 				return rootPageReadResult{}, invalidCursor()
 			}
 			decoded.Values = values
 		}
-		after = &decoded
+		after = &pageBoundary{Values: decoded.Values, membership: membership}
 	}
 	assembler := pageAssembler{
 		cursors: s.cursors, order: order, expiresAt: result.expiresAt, maximumBytes: maximumRecordPageBytes,
+		cursorV5: result.cursorV5,
 	}
 	if request.hydrator != nil {
 		return s.readSequentialRootPage(ctx, tx, request, result, assembler, after, charge)
@@ -140,7 +163,7 @@ func (s *Service) readSequentialRootPage(
 	request rootPageReadRequest,
 	result rootPageReadResult,
 	assembler pageAssembler,
-	after *PageCursor,
+	after *pageBoundary,
 	charge func(int) error,
 ) (rootPageReadResult, error) {
 	pageLimit := normalizedFetchLimit(request.limit) - 1
@@ -259,7 +282,7 @@ func (s *Service) readSequentialRootPage(
 		}
 
 		last := result.candidates[len(result.candidates)-1]
-		after = &PageCursor{Values: cloneCursorValues(last.cursorValues)}
+		after = &pageBoundary{Values: cloneCursorValues(last.cursorValues), membership: after.membershipBoundary()}
 	}
 	keep, cursor, err := assembler.finish(result.candidates, true)
 	if err != nil {
@@ -298,7 +321,7 @@ func scanRootRows(
 	ctx context.Context,
 	tx pgx.Tx,
 	plan rootPlan,
-	after *PageCursor,
+	after *pageBoundary,
 	fetchLimit int,
 	visit func(pageCandidate) (bool, error),
 ) error {

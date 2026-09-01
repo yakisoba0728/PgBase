@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -389,9 +390,12 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedCursor, err := records.cursors.Encode(PageCursor{
-		Version: cursorVersion, CollectionID: mustCollectionID(t, schemas, "expand_posts"),
-		Sort: sortKeys, Values: values, AnchorID: uuid.MustParse(anchor["id"].(string)),
+	expectedCursor, err := records.cursors.Encode(cursor.Page{
+		Version: cursor.Version4, CollectionID: mustCollectionID(t, schemas, "expand_posts"),
+		Sort: []cursor.SortKey{
+			{Field: sortKeys[0].Field, Desc: sortKeys[0].Desc},
+			{Field: sortKeys[1].Field, Desc: sortKeys[1].Desc},
+		}, Values: values, AnchorID: uuid.MustParse(anchor["id"].(string)),
 		ExpiresAt: fixedNow.Add(cursorTTL),
 	})
 	if err != nil {

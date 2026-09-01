@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -123,11 +125,9 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 	if strings.Contains(statement.SQL, `(SELECT`) || strings.Count(statement.SQL, `LEFT JOIN "app"."relation_people"`) != 1 {
 		t.Fatalf("relation sort retained a correlated or duplicate target lookup: %q", statement.SQL)
 	}
-	after := PageCursor{
-		Version: cursorVersion, CollectionID: posts.ID, Sort: plan.order.sortKeys(),
-		Values:   []json.RawMessage{json.RawMessage(`"Ada"`), json.RawMessage(`"99999999-9999-4999-8999-999999999999"`)},
-		AnchorID: uuid.MustParse("99999999-9999-4999-8999-999999999999"),
-	}
+	after := pageBoundary{Values: []json.RawMessage{
+		json.RawMessage(`"Ada"`), json.RawMessage(`"99999999-9999-4999-8999-999999999999"`),
+	}}
 	continued, err := plan.statement(&after, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 		strings.Count(continued.SQL, `"rq_sort_1"."name"`) < 4 {
 		t.Fatalf("relation sort continuation did not reuse one joined value: %q", continued.SQL)
 	}
-	anchor, err := plan.order.anchorStatement(after.AnchorID)
+	anchor, err := plan.order.anchorStatement(uuid.MustParse("99999999-9999-4999-8999-999999999999"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +149,65 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 	}
 	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
 	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
+}
+
+func TestOrderSpecV5DescriptorUsesStableFieldIDsAndExplicitSemantics(t *testing.T) {
+	t.Parallel()
+
+	catalog, posts := relationFilterSortCatalog()
+	requested, err := parseSort("owner.name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := plan.order.cursorV5Order()
+	if err != nil {
+		t.Fatalf("cursorV5Order() error = %v", err)
+	}
+	want := []cursor.V5OrderTerm{
+		{
+			Path: []string{
+				"55555555-5555-4555-8555-555555555555",
+				"44444444-4444-4444-8444-444444444444",
+			},
+			Type: "text", Nulls: cursor.NullsLast,
+		},
+		{Path: []string{"$id"}, Type: "uuid", Nulls: cursor.NullsLast},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("v5 order descriptor = %#v, want %#v", got, want)
+	}
+}
+
+func TestOrderSpecV5DescriptorPreservesAcceptedExplicitIDBeforeFinalTiebreaker(t *testing.T) {
+	t.Parallel()
+
+	catalog, posts := relationFilterSortCatalog()
+	requested, err := parseSort("id,owner.name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := plan.order.cursorV5Order()
+	if err != nil {
+		t.Fatalf("cursorV5Order(explicit id) error = %v", err)
+	}
+	wantPaths := [][]string{
+		{"$id"},
+		{"55555555-5555-4555-8555-555555555555", "44444444-4444-4444-8444-444444444444"},
+		{"$id"},
+	}
+	for index, want := range wantPaths {
+		if !reflect.DeepEqual(got[index].Path, want) {
+			t.Fatalf("v5 order path %d = %v, want %v", index, got[index].Path, want)
+		}
+	}
 }
 
 func TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor(t *testing.T) {
@@ -190,14 +249,14 @@ func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {
 	collectionID := uuid.MustParse("88888888-8888-4888-8888-888888888888")
 	anchorID := uuid.MustParse("99999999-9999-4999-8999-999999999999")
 	values := []json.RawMessage{json.RawMessage(`"Ada"`), json.RawMessage(`"` + anchorID.String() + `"`)}
-	cursor := PageCursor{
-		Version: cursorVersion, CollectionID: collectionID,
-		Sort:   []SortKey{{Field: "owner.name"}, {Field: systemFieldID}},
+	page := cursor.Page{
+		Version: cursor.Version4, CollectionID: collectionID,
+		Sort:   []cursor.SortKey{{Field: "owner.name"}, {Field: systemFieldID}},
 		Values: values, AnchorID: anchorID, PrivateValues: true,
 		ExpiresAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 	}
-	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
-	token, err := codec.Encode(cursor)
+	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
+	token, err := codec.Encode(page)
 	if err != nil {
 		t.Fatalf("Encode(private cursor) error = %v", err)
 	}
@@ -215,14 +274,14 @@ func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {
 	if !decoded.PrivateValues || len(decoded.Values) != 0 || decoded.AnchorID != anchorID {
 		t.Fatalf("decoded private cursor = %#v", decoded)
 	}
-	wantHash, err := codec.privateCursorValuesHash(values)
+	wantHash, err := codec.ValuesHash(values)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(decoded.AnchorHash, wantHash) {
 		t.Fatalf("private anchor hash = %x, want %x", decoded.AnchorHash, wantHash)
 	}
-	otherHash, err := NewCursorCodec([]byte("abcdef0123456789abcdef0123456789")).privateCursorValuesHash(values)
+	otherHash, err := cursor.NewCodec([]byte("abcdef0123456789abcdef0123456789")).ValuesHash(values)
 	if err != nil {
 		t.Fatal(err)
 	}

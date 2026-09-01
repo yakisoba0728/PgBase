@@ -253,7 +253,7 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 	return prefix + "_" + strconv.Itoa(r.next)
 }
 
-func (p relationListPlan) pageStatement(after *PageCursor, fetchLimit int) (Statement, error) {
+func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
@@ -267,6 +267,9 @@ func (p relationListPlan) pageStatement(after *PageCursor, fetchLimit int) (Stat
 	conditions := make([]string, 0, 2)
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
+	}
+	if membership := after.membershipBoundary(); membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(p.order.root, relationRootAlias, membership, builder))
 	}
 	if after != nil {
 		keyset, err := order.keyset(after, builder)
@@ -312,7 +315,7 @@ func (s orderSpec) renderRelation(
 	return s, joins, nil
 }
 
-func (s orderSpec) anchorStatement(id uuid.UUID) (Statement, error) {
+func (s orderSpec) anchorStatement(id uuid.UUID, membership *int64) (Statement, error) {
 	if id == uuid.Nil {
 		return Statement{}, invalidCursor()
 	}
@@ -323,8 +326,12 @@ func (s orderSpec) anchorStatement(id uuid.UUID) (Statement, error) {
 		return Statement{}, err
 	}
 	selects := order.cursorSelects()
+	conditions := []string{qualified(relationRootAlias, systemFieldID) + " = " + builder.placeholder(id)}
+	if membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(s.root, relationRootAlias, membership, builder))
+	}
 	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(s.root) + " AS " + quoted(relationRootAlias) +
-		strings.Join(joins, "") + " WHERE " + qualified(relationRootAlias, systemFieldID) + " = " + builder.placeholder(id)
+		strings.Join(joins, "") + " WHERE " + strings.Join(conditions, " AND ")
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 

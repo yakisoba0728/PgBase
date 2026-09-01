@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -120,11 +120,11 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 		t.Fatalf("create records collection: %v", err)
 	}
 	records := recordops.NewService(pool, schemas, testTokenSecret)
-	codec := query.NewCursorCodec(testTokenSecret)
-	valid, err := codec.Encode(query.PageCursor{
-		Version:      query.CursorVersion,
+	codec := cursor.NewCodec(testTokenSecret)
+	valid, err := codec.Encode(cursor.Page{
+		Version:      cursor.Version4,
 		CollectionID: collection.ID,
-		Sort:         []query.SortKey{{Field: "created_at"}, {Field: "id"}},
+		Sort:         []cursor.SortKey{{Field: "created_at"}, {Field: "id"}},
 		Values: []json.RawMessage{
 			json.RawMessage(`"2026-08-28T00:00:00Z"`),
 			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),

@@ -10,8 +10,10 @@ import (
 )
 
 type rootPlan struct {
-	filter   filterNode
-	relation relationListPlan
+	filter         filterNode
+	relation       relationListPlan
+	catalogVersion int64
+	principal      Principal
 }
 
 func plannedRootPlan(filter filterNode, relation relationListPlan) (rootPlan, error) {
@@ -31,16 +33,16 @@ func plannedRootPlan(filter filterNode, relation relationListPlan) (rootPlan, er
 
 func (p rootPlan) order() orderSpec { return p.relation.order }
 
-func (p rootPlan) pageStatement(after *PageCursor, fetchLimit int) (Statement, error) {
+func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
 	if p.order().relationAnchor {
 		return p.relation.pageStatement(after, fetchLimit)
 	}
 	return compileListPage(p.filter, p.order(), after, fetchLimit)
 }
 
-func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]json.RawMessage, error) {
+func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {
 	if s.relationAnchor {
-		statement, err := s.anchorStatement(id)
+		statement, err := s.anchorStatement(id, membership)
 		if err != nil {
 			return nil, err
 		}
@@ -50,7 +52,7 @@ func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([
 		}
 		return values, err
 	}
-	statement := CompileSelectByID(s.root, id)
+	statement := compileSelectByIDWithMembership(s.root, id, membership)
 	anchor, err := EncodeRecord(s.root, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 	if err := recordQueryError(err); err != nil {
 		return nil, err

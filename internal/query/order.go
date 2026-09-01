@@ -64,7 +64,7 @@ func (s orderSpec) recordValues(record map[string]any) ([]json.RawMessage, error
 	return recordSortValues(s.sortKeys(), record)
 }
 
-func (s orderSpec) keyset(cursor *PageCursor, builder *statementBuilder) (string, error) {
+func (s orderSpec) keyset(cursor *pageBoundary, builder *statementBuilder) (string, error) {
 	if cursor == nil || len(cursor.Values) != len(s.terms) {
 		return "", invalidCursor()
 	}

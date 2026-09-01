@@ -169,11 +169,8 @@ func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) 
 		t.Fatalf("CompileList(first) = %#v, want %#v", first, wantFirst)
 	}
 
-	after := &PageCursor{
-		Version:   cursorVersion,
-		Sort:      []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
-		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
-		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	next, err := CompileList(collection, ListQuery{After: after, Limit: 200})
 	if err != nil {
@@ -220,10 +217,8 @@ func TestCompileListNormalizesPageLimitBeforeAddingLookahead(t *testing.T) {
 				t.Fatalf("CompileList(nil, %d) args = %#v, want [%d]", test.limit, first.Args, test.want)
 			}
 
-			after := &PageCursor{
-				Version: cursorVersion,
-				Sort:    []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
-				Values:  []json.RawMessage{json.RawMessage(`"2026-08-28T12:00:00Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+			after := &pageBoundary{
+				Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:00:00Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 			}
 			next, err := CompileList(compilerCollection(), ListQuery{After: after, Limit: test.limit})
 			if err != nil {
@@ -263,11 +258,8 @@ func TestCompileListOrdersDescendingPagesAlongOneIndexDirection(t *testing.T) {
 	t.Parallel()
 
 	collection := compilerCollection()
-	after := &PageCursor{
-		Version:   cursorVersion,
-		Sort:      []SortKey{{Field: systemFieldCreatedAt, Desc: true}, {Field: systemFieldID}},
-		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
-		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	statement, err := CompileList(collection, ListQuery{
 		Sort: []SortKey{{Field: systemFieldCreatedAt, Desc: true}}, After: after, Limit: 50,
@@ -310,10 +302,8 @@ func TestCompileListKeepsNullsLastForNullableSortColumnsAndExplicitTiebreakers(t
 	if err != nil || order.terms[0].indexHint != orderIndexRoot {
 		t.Fatalf("scalar order index hint = %v, err=%v", order.terms[0].indexHint, err)
 	}
-	after := &PageCursor{
-		Version: cursorVersion,
-		Sort:    []SortKey{{Field: "note", Desc: true}, {Field: systemFieldID}},
-		Values:  []json.RawMessage{json.RawMessage(`null`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`null`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	statement, err := CompileList(collection, ListQuery{
 		Sort: []SortKey{{Field: "note", Desc: true}}, After: after, Limit: 10,
