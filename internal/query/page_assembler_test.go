@@ -19,8 +19,7 @@ func TestPageAssemblerMeasuresEachWireOnceAcrossGrowingPrefixes(t *testing.T) {
 	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
 	assembler := pageAssembler{
 		cursors:      codec,
-		collectionID: collectionID,
-		sortKeys:     []SortKey{{Field: systemFieldID}},
+		order:        pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt:    expiresAt,
 		maximumBytes: 1 << 20,
 	}
@@ -31,6 +30,7 @@ func TestPageAssemblerMeasuresEachWireOnceAcrossGrowingPrefixes(t *testing.T) {
 	for index := range candidates {
 		id := uuid.NewSHA1(collectionID, []byte{byte(index)})
 		candidates[index] = pageCandidate{
+			id:           id,
 			root:         map[string]any{systemFieldID: id.String()},
 			wire:         countingJSONWire{count: &marshalCounts[index], value: id.String()},
 			cursorValues: []json.RawMessage{json.RawMessage(strconv.Quote(id.String()))},
@@ -77,8 +77,8 @@ func TestPageAssemblerFitCanRecoverWhenTerminalCursorDisappears(t *testing.T) {
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	expiresAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	assembler := pageAssembler{
-		cursors:      NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
-		collectionID: collectionID, sortKeys: []SortKey{{Field: systemFieldID}},
+		cursors:   NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
+		order:     pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt: expiresAt, maximumBytes: 1 << 20,
 	}
 	candidates := make([]pageCandidate, 2)
@@ -89,7 +89,7 @@ func TestPageAssemblerFitCanRecoverWhenTerminalCursorDisappears(t *testing.T) {
 			wire = json.RawMessage(strconv.Quote(strings.Repeat("x", 1024)))
 		}
 		candidates[index] = pageCandidate{
-			root: map[string]any{systemFieldID: id.String()}, wire: wire,
+			id: id, root: map[string]any{systemFieldID: id.String()}, wire: wire,
 			cursorValues: []json.RawMessage{json.RawMessage(strconv.Quote(id.String()))},
 		}
 	}
@@ -129,18 +129,20 @@ func TestPageAssemblerFitCanRecoverWhenNextAnchorCursorShrinks(t *testing.T) {
 
 	collectionID := uuid.MustParse("cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa")
 	assembler := pageAssembler{
-		cursors:      NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
-		collectionID: collectionID, sortKeys: []SortKey{{Field: "rank"}},
+		cursors:   NewCursorCodec([]byte("0123456789abcdef0123456789abcdef")),
+		order:     pageOrderForTest(collectionID, []SortKey{{Field: "rank"}}),
 		expiresAt: time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC), maximumBytes: 1 << 20,
 	}
 	longValue := json.RawMessage(strconv.Quote(strings.Repeat("a", schema.MaximumTextBytes)))
 	shortValue := json.RawMessage(`"b"`)
 	candidates := []pageCandidate{
 		{
+			id:   uuid.NewSHA1(collectionID, []byte{1}),
 			root: map[string]any{systemFieldID: uuid.NewSHA1(collectionID, []byte{1}).String()},
 			wire: json.RawMessage(strconv.Quote(strings.Repeat("x", 1024))), cursorValues: []json.RawMessage{longValue},
 		},
 		{
+			id:   uuid.NewSHA1(collectionID, []byte{2}),
 			root: map[string]any{systemFieldID: uuid.NewSHA1(collectionID, []byte{2}).String()},
 			wire: json.RawMessage(`{}`), cursorValues: []json.RawMessage{shortValue},
 		},
@@ -174,6 +176,44 @@ func TestPageAssemblerFitCanRecoverWhenNextAnchorCursorShrinks(t *testing.T) {
 	if keep != 2 || cursor == "" {
 		t.Fatalf("short-anchor pair kept/cursor = %d/%q, want 2/non-empty", keep, cursor)
 	}
+}
+
+func TestPageAssemblerCursorSurvivesReleasedRootRepresentation(t *testing.T) {
+	t.Parallel()
+
+	collectionID := uuid.MustParse("dddddddd-eeee-4fff-8000-bbbbbbbbbbbb")
+	recordID := uuid.MustParse("11111111-2222-4333-8444-555555555555")
+	expiresAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	codec := NewCursorCodec([]byte("0123456789abcdef0123456789abcdef"))
+	assembler := pageAssembler{
+		cursors: codec, order: pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
+		expiresAt: expiresAt, maximumBytes: 1 << 20,
+	}
+	assembler.order.terms[0].relationPath = &plannedRelationPath{}
+	candidate := pageCandidate{
+		id: recordID, cursorValues: []json.RawMessage{json.RawMessage(strconv.Quote(recordID.String()))},
+		wireBytes: 2, wireMeasured: true,
+	}
+
+	_, cursor, err := assembler.finish([]pageCandidate{candidate}, true)
+	if err != nil {
+		t.Fatalf("finish released candidate: %v", err)
+	}
+	decoded, err := codec.Decode(cursor, collectionID, expiresAt.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("decode released candidate cursor: %v", err)
+	}
+	if decoded.AnchorID != recordID {
+		t.Fatalf("released candidate anchor = %s, want %s", decoded.AnchorID, recordID)
+	}
+}
+
+func pageOrderForTest(collectionID uuid.UUID, sortKeys []SortKey) orderSpec {
+	terms := make([]orderTerm, len(sortKeys))
+	for index := range sortKeys {
+		terms[index].key = sortKeys[index]
+	}
+	return orderSpec{root: schema.Collection{ID: collectionID}, terms: terms}
 }
 
 type countingJSONWire struct {

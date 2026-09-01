@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -603,11 +604,11 @@ func TestRecordOperationsDeleteGraphRetryKeepsDerivedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceCollection := catalog.Collections["null_survivors"]
-	digest, err := schemaDigest(sourceCollection)
+	digest, err := recordartifact.SchemaDigest(sourceCollection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantETag := revisionETag(sourceCollection.ID, survivorID, digest, firstValidator)
+	wantETag := recordartifact.RevisionETag(sourceCollection.ID, survivorID, digest, firstValidator)
 	var derivedEvent uuid.UUID
 	var gotETag string
 	if err := pool.QueryRow(ctx, `SELECT event_id, new_etag
@@ -724,11 +725,11 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		t.Fatal(err)
 	}
 	sourceCollection := catalog.Collections["null_survivors"]
-	digest, err := schemaDigest(sourceCollection)
+	digest, err := recordartifact.SchemaDigest(sourceCollection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantReplacementETag := revisionETag(sourceCollection.ID, replacementID, digest, secondValidator)
+	wantReplacementETag := recordartifact.RevisionETag(sourceCollection.ID, replacementID, digest, secondValidator)
 	if replacementAfter.Data["owner"] != nil || replacementAfter.ETag != wantReplacementETag {
 		t.Fatalf("replacement source identity/value = %#v", replacementAfter)
 	}

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -13,20 +14,54 @@ const (
 	orderNullsFirst
 )
 
-// orderSpec is the single SQL and cursor contract for a root page order.
-// Callers only construct terms; null-safe continuation and ORDER BY rendering
-// stay coupled here so a placement change cannot make the two disagree.
+// orderSpec is the single SQL and cursor contract for a root page order. It
+// retains each logical key's physical type/path plus the anchor strategy, so
+// rendering, continuation, privacy, cursor issuance, and reload cannot drift.
 type orderSpec struct {
-	terms []orderTerm
+	root           schema.Collection
+	terms          []orderTerm
+	relationAnchor bool
 }
 
+type orderIndexHint uint8
+
+const (
+	orderIndexRoot orderIndexHint = iota + 1
+	orderIndexRelationTarget
+)
+
 type orderTerm struct {
-	expression        string
-	cursorExpression  string
-	cursorField       schema.Field
-	descending        bool
-	nulls             orderNullPlacement
-	hiddenCursorValue bool
+	key          SortKey
+	expression   string
+	cursorField  schema.Field
+	relationPath *plannedRelationPath
+	nulls        orderNullPlacement
+	indexHint    orderIndexHint
+}
+
+func indexedOrderHint(field schema.Field, hint orderIndexHint) (orderIndexHint, bool) {
+	return hint, field.Indexed || field.Unique
+}
+
+func (s orderSpec) sortKeys() []SortKey {
+	keys := make([]SortKey, len(s.terms))
+	for index := range s.terms {
+		keys[index] = s.terms[index].key
+	}
+	return keys
+}
+
+func (s orderSpec) private() bool {
+	for index := range s.terms {
+		if s.terms[index].relationPath != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (s orderSpec) recordValues(record map[string]any) ([]json.RawMessage, error) {
+	return recordSortValues(s.sortKeys(), record)
 }
 
 func (s orderSpec) keyset(cursor *PageCursor, builder *statementBuilder) (string, error) {
@@ -49,7 +84,7 @@ func (s orderSpec) keyset(cursor *PageCursor, builder *statementBuilder) (string
 			conjuncts = append(conjuncts, "("+s.terms[prior].expression+" IS NOT DISTINCT FROM "+placeholders[prior]+")")
 		}
 		operator := ">"
-		if s.terms[index].descending {
+		if s.terms[index].key.Desc {
 			operator = "<"
 		}
 		expression := s.terms[index].expression
@@ -71,7 +106,7 @@ func (s orderSpec) orderBy() string {
 	segments := make([]string, 0, len(s.terms))
 	for _, term := range s.terms {
 		direction := "ASC"
-		if term.descending {
+		if term.key.Desc {
 			direction = "DESC"
 		}
 		nulls := "NULLS LAST"
@@ -85,8 +120,8 @@ func (s orderSpec) orderBy() string {
 
 func (s orderSpec) appendHiddenCursorSelects(selects []string) []string {
 	for _, term := range s.terms {
-		if term.hiddenCursorValue {
-			selects = append(selects, term.cursorExpression)
+		if term.relationPath != nil {
+			selects = append(selects, term.cursorExpression())
 		}
 	}
 	return selects
@@ -95,9 +130,13 @@ func (s orderSpec) appendHiddenCursorSelects(selects []string) []string {
 func (s orderSpec) cursorSelects() []string {
 	selects := make([]string, 0, len(s.terms))
 	for _, term := range s.terms {
-		selects = append(selects, term.cursorExpression)
+		selects = append(selects, term.cursorExpression())
 	}
 	return selects
+}
+
+func (t orderTerm) cursorExpression() string {
+	return orderCursorExpression(t.expression, t.cursorField)
 }
 
 func orderCursorExpression(expression string, field schema.Field) string {

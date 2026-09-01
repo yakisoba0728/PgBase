@@ -96,8 +96,7 @@ func readOperationOutcome(err error) observability.Outcome {
 	if errors.Is(err, schema.ErrConflict) {
 		return observability.OutcomeConflict
 	}
-	if errors.Is(err, ErrCollectionNotFound) || errors.Is(err, ErrRecordNotFound) || IsInvalidCursor(err) ||
-		errors.Is(err, ErrProjectionDenied) {
+	if errors.Is(err, ErrCollectionNotFound) || errors.Is(err, ErrRecordNotFound) || IsInvalidCursor(err) {
 		return observability.OutcomeValidation
 	}
 	switch database.Classify(err) {

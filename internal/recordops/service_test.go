@@ -17,6 +17,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -131,12 +132,12 @@ func TestSchemaDigestIsOrderIndependentAndRepresentationSensitive(t *testing.T) 
 		{ID: secondID, Name: "count", Type: schema.TypeInteger, Ordinal: 1},
 		{ID: firstID, Name: "title", Type: schema.TypeText, Ordinal: 0, Required: true},
 	}}
-	left, err := schemaDigest(collection)
+	left, err := recordartifact.SchemaDigest(collection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	collection.Fields[0], collection.Fields[1] = collection.Fields[1], collection.Fields[0]
-	right, err := schemaDigest(collection)
+	right, err := recordartifact.SchemaDigest(collection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestSchemaDigestIsOrderIndependentAndRepresentationSensitive(t *testing.T) 
 		t.Fatal("schema digest depended on slice order")
 	}
 	collection.Fields[0].Name = "headline"
-	changed, err := schemaDigest(collection)
+	changed, err := recordartifact.SchemaDigest(collection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func TestSchemaDigestIncludesRelationSemanticsButNotPhysicalBindingName(t *testi
 			Storage:           schema.RelationStorage{Kind: schema.RelationStorageEdgeTableV1, Name: "rel_tbl_first"},
 		},
 	}}}
-	baseline, err := schemaDigest(collection)
+	baseline, err := recordartifact.SchemaDigest(collection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +176,7 @@ func TestSchemaDigestIncludesRelationSemanticsButNotPhysicalBindingName(t *testi
 	physicalSpec := *collection.Fields[0].Relation
 	physicalSpec.Storage.Name = "rel_tbl_second"
 	physicalRename.Fields[0].Relation = &physicalSpec
-	physicalDigest, err := schemaDigest(physicalRename)
+	physicalDigest, err := recordartifact.SchemaDigest(physicalRename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func TestSchemaDigestIncludesRelationSemanticsButNotPhysicalBindingName(t *testi
 			spec := *collection.Fields[0].Relation
 			test.change(&spec)
 			changed.Fields[0].Relation = &spec
-			digest, err := schemaDigest(changed)
+			digest, err := recordartifact.SchemaDigest(changed)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,16 +217,16 @@ func TestSchemaDigestIncludesRelationSemanticsButNotPhysicalBindingName(t *testi
 func TestLegacyETagIsStrongAndRevisionETagUsesIndependentValidator(t *testing.T) {
 	collectionID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000021")
 	recordID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000022")
-	digest := digestParts("schema")
-	legacy, err := recordETag(collectionID, recordID, digest, map[string]any{"id": recordID.String(), "value": 1}, nil, false)
+	digest := recordartifact.Digest("schema")
+	legacy, err := recordartifact.ETag(collectionID, recordID, digest, map[string]any{"id": recordID.String(), "value": 1}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(legacy, `"pgb0.`) || strings.HasPrefix(legacy, "W/") {
 		t.Fatalf("legacy ETag=%q", legacy)
 	}
-	first := revisionETag(collectionID, recordID, digest, bytes.Repeat([]byte{1}, 32))
-	second := revisionETag(collectionID, recordID, digest, bytes.Repeat([]byte{2}, 32))
+	first := recordartifact.RevisionETag(collectionID, recordID, digest, bytes.Repeat([]byte{1}, 32))
+	second := recordartifact.RevisionETag(collectionID, recordID, digest, bytes.Repeat([]byte{2}, 32))
 	if first == second || !strings.HasPrefix(first, `"pgb1.`) {
 		t.Fatalf("revision tags first=%q second=%q", first, second)
 	}

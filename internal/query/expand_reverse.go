@@ -20,7 +20,6 @@ func (s *Service) executeReverseExpandNode(
 	tx pgx.Tx,
 	catalog schema.Catalog,
 	job expandLevelJob,
-	principal Principal,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
@@ -29,17 +28,6 @@ func (s *Service) executeReverseExpandNode(
 	for _, parent := range job.parents {
 		parent.attach(job.node.name, materializedExpandValue{many: []*materializedRecord{}, plural: true})
 	}
-	predicate, fields, err := s.policy.ReadScope(ctx, principal, job.node.target, ReadActionExpand)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateProjection(job.node.target, predicate, fields); err != nil {
-		return nil, err
-	}
-	if predicate.kind == predicateDenyAll || (predicate.kind == predicateRecordIDs && len(predicate.ids) == 0) {
-		return nil, nil
-	}
-
 	parentsByID := make(map[uuid.UUID][]*materializedRecord, len(job.parents))
 	parentIDs := make([]uuid.UUID, 0, len(job.parents))
 	for _, parent := range job.parents {
@@ -64,7 +52,7 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeQuerySteps(1); err != nil {
 		return nil, err
 	}
-	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, predicate, discoveryLimit)
+	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, discoveryLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +72,13 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeRows(len(sourceIDs)); err != nil {
 		return nil, err
 	}
-	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, predicate, fields, usage)
+	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, usage)
 	if err != nil {
 		return nil, err
 	}
 	targets := make(map[uuid.UUID]*materializedRecord, len(records))
 	for id, record := range records {
-		targets[id] = &materializedRecord{root: record, fields: fields}
+		targets[id] = &materializedRecord{root: record}
 	}
 
 	grouped := make(map[uuid.UUID][]*materializedRecord, len(parentIDs))
@@ -123,7 +111,6 @@ func discoverReverseExpand(
 	catalog schema.Catalog,
 	node expandNode,
 	parentIDs []uuid.UUID,
-	predicate Predicate,
 	maximumRows int,
 ) ([]reverseExpandPair, error) {
 	if maximumRows < 0 {
@@ -132,7 +119,7 @@ func discoverReverseExpand(
 	if _, err := relation.Bind(catalog, node.target); err != nil {
 		return nil, relationHydrationFailure(err)
 	}
-	statement, err := compileReverseExpandDiscovery(node, parentIDs, predicate, maximumRows+1)
+	statement, err := compileReverseExpandDiscovery(node, parentIDs, maximumRows+1)
 	if err != nil {
 		return nil, err
 	}
@@ -175,46 +162,28 @@ func discoverReverseExpand(
 	return pairs, nil
 }
 
-func compileReverseExpandDiscovery(node expandNode, parentIDs []uuid.UUID, predicate Predicate, limit int) (Statement, error) {
+func compileReverseExpandDiscovery(node expandNode, parentIDs []uuid.UUID, limit int) (Statement, error) {
 	if node.kind != expandNodeReverse || node.field.Relation == nil || len(parentIDs) == 0 || limit <= 0 {
 		return Statement{}, schema.ErrConflict
 	}
 	args := []any{parentIDs}
-	predicateSQL := ""
-	appendPredicate := func(idSQL string) error {
-		switch predicate.kind {
-		case predicateAllowAll:
-		case predicateRecordIDs:
-			args = append(args, predicate.ids)
-			predicateSQL = " and " + idSQL + fmt.Sprintf(" = any($%d::uuid[])", len(args))
-		default:
-			return ErrProjectionDenied
-		}
-		return nil
-	}
 
 	var sql string
 	switch node.field.Relation.Storage.Kind {
 	case schema.RelationStorageInlineFKV1:
 		idSQL := `source_records.` + quoted(systemFieldID)
-		if err := appendPredicate(idSQL); err != nil {
-			return Statement{}, err
-		}
 		table := pgx.Identifier{"app", node.target.TableName}.Sanitize()
 		field := `source_records.` + quoted(node.field.ColumnName)
 		sql = "SELECT " + idSQL + ", " + field + " FROM " + table + " AS source_records" +
-			" WHERE " + field + " = any($1::uuid[])" + predicateSQL +
+			" WHERE " + field + " = any($1::uuid[])" +
 			" ORDER BY " + field + ", " + idSQL
 	case schema.RelationStorageEdgeTableV1:
 		idSQL := `source_records.` + quoted(systemFieldID)
-		if err := appendPredicate(idSQL); err != nil {
-			return Statement{}, err
-		}
 		sourceTable := pgx.Identifier{"app", node.target.TableName}.Sanitize()
 		edgeTable := pgx.Identifier{"pgbase_relation", node.field.Relation.Storage.Name}.Sanitize()
 		sql = "SELECT relation_edges.source_id, relation_edges.target_id FROM " + edgeTable + " AS relation_edges" +
 			" JOIN " + sourceTable + " AS source_records ON " + idSQL + " = relation_edges.source_id" +
-			" WHERE relation_edges.target_id = any($1::uuid[])" + predicateSQL +
+			" WHERE relation_edges.target_id = any($1::uuid[])" +
 			" ORDER BY relation_edges.target_id, relation_edges.source_id"
 	default:
 		return Statement{}, schema.ErrConflict

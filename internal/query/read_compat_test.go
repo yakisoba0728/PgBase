@@ -4,11 +4,42 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
+
+const PrincipalAdministrator = identity.Administrator
 
 var testReadPrincipal = Principal{
 	Kind: PrincipalAdministrator,
 	ID:   uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+}
+
+type ListQuery struct {
+	Filter filterNode
+	Sort   []SortKey
+	After  *PageCursor
+	Limit  int
+}
+
+func scalarRootPlan(collection schema.Collection, filter filterNode, requestedSort []SortKey) (rootPlan, error) {
+	order, err := resolveOrderSpec(collection, effectiveSortKeys(requestedSort))
+	if err != nil {
+		return rootPlan{}, err
+	}
+	return rootPlan{filter: filter, relation: relationListPlan{order: order}}, nil
+}
+
+func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
+	order, err := resolveOrderSpec(collection, effectiveSortKeys(query.Sort))
+	if err != nil {
+		return Statement{}, err
+	}
+	return compileListPage(query.Filter, order, query.After, normalizedFetchLimit(query.Limit))
+}
+
+func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, error) {
+	return p.pageStatement(after, normalizedFetchLimit(limit))
 }
 
 type RelationListRequest struct {
@@ -18,6 +49,13 @@ type RelationListRequest struct {
 	Limit      int
 	Filter     string
 	Sort       string
+}
+
+type ExpandedRecordPage struct {
+	Items      []ExpandedRecord `json:"items"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+
+	querySteps int
 }
 
 func (s *Service) listScalar(
@@ -50,4 +88,9 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 	return ExpandedRecordPage{
 		Items: result.expanded, NextCursor: result.page.NextCursor, querySteps: result.querySteps,
 	}, nil
+}
+
+func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (ExpandedRecord, error) {
+	result, err := s.readGet(ctx, request)
+	return result.expanded, err
 }

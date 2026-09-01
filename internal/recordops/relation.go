@@ -132,28 +132,6 @@ func validateRecordSize(record map[string]any) error {
 	return nil
 }
 
-func readRecordWithRelations(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	recordID uuid.UUID,
-	lock bool,
-) (map[string]any, error) {
-	bindings, err := bindRecordRelations(catalog, collection)
-	if err != nil {
-		return nil, err
-	}
-	record, err := readRecord(ctx, tx, collection, recordID, lock)
-	if err != nil {
-		return nil, err
-	}
-	if err := hydrateRecordRelations(ctx, tx, bindings, recordID, record); err != nil {
-		return nil, err
-	}
-	return record, nil
-}
-
 func hydrateRecordRelations(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -176,11 +154,7 @@ func normalizeRelationError(err error) error {
 	}
 	var validation *relation.ValidationError
 	if errors.As(err, &validation) {
-		details := make([]query.ValidationDetail, len(validation.Details))
-		for index, detail := range validation.Details {
-			details[index] = query.ValidationDetail{Field: detail.Field, Code: detail.Code}
-		}
-		return &query.ValidationError{Details: details}
+		return validation
 	}
 	if errors.Is(err, relation.ErrSourceNotFound) {
 		return query.ErrRecordNotFound

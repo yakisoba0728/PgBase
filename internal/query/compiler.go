@@ -103,18 +103,9 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 	}
 }
 
-func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
-	return compileListPage(collection, query, normalizedFetchLimit(query.Limit))
-}
-
-func compileListPage(collection schema.Collection, query ListQuery, fetchLimit int) (Statement, error) {
-	sortKeys := effectiveSortKeys(query.Sort)
-	order, err := resolveOrderSpec(collection, sortKeys)
-	if err != nil {
-		return Statement{}, err
-	}
+func compileListPage(filter filterNode, order orderSpec, after *PageCursor, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
-	filterSQL, err := compileFilter(collection, query.Filter, builder)
+	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
 		return Statement{}, err
 	}
@@ -122,29 +113,20 @@ func compileListPage(collection schema.Collection, query ListQuery, fetchLimit i
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
 	}
-	if query.After != nil {
-		keysetSQL, err := order.keyset(query.After, builder)
+	if after != nil {
+		keysetSQL, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
 		}
 		conditions = append(conditions, keysetSQL)
 	}
 	limit := builder.placeholder(fetchLimit)
-	statement := "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection)
+	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	statement += order.orderBy() + " LIMIT " + limit
 	return Statement{SQL: statement, Args: builder.args}, nil
-}
-
-// ListQuery carries the parsed list request into compilation. Sort keys are
-// logical field names; the compiler resolves them against the catalog.
-type ListQuery struct {
-	Filter filterNode
-	Sort   []SortKey
-	After  *PageCursor
-	Limit  int
 }
 
 type statementBuilder struct {
@@ -171,22 +153,20 @@ func resolveOrderSpec(collection schema.Collection, keys []SortKey) (orderSpec, 
 		if isMultipleRelation(field) {
 			return orderSpec{}, validation("sort", "relation_sort_unsupported")
 		}
-		if !field.Indexed && !field.Unique {
+		indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
+		if !indexed {
 			return orderSpec{}, validation("sort", "unindexed_field")
 		}
 		expression := quoted(field.ColumnName)
 		term := orderTerm{
-			expression:       expression,
-			cursorExpression: orderCursorExpression(expression, field),
-			cursorField:      field,
-			descending:       key.Desc,
+			key: key, expression: expression, cursorField: field, indexHint: indexHint,
 		}
 		if key.Desc && notNullColumn(field) {
 			term.nulls = orderNullsFirst
 		}
 		terms = append(terms, term)
 	}
-	return orderSpec{terms: terms}, nil
+	return orderSpec{root: collection, terms: terms}, nil
 }
 
 // notNullColumn reports whether the physical column can never hold NULL. The

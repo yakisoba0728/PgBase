@@ -10,6 +10,7 @@ import (
 )
 
 type pageCandidate struct {
+	id           uuid.UUID
 	root         map[string]any
 	wire         any
 	cursorValues []json.RawMessage
@@ -21,9 +22,7 @@ type pageCandidate struct {
 
 type pageAssembler struct {
 	cursors      *CursorCodec
-	collectionID uuid.UUID
-	sortKeys     []SortKey
-	private      bool
+	order        orderSpec
 	expiresAt    time.Time
 	maximumBytes int
 }
@@ -100,21 +99,23 @@ func (a pageAssembler) cursor(candidates []pageCandidate, hasMore bool) (string,
 	if !hasMore || len(candidates) == 0 {
 		return "", nil
 	}
-	anchor := candidates[len(candidates)-1]
-	anchorID, err := canonicalRecordID(anchor.root)
-	if err != nil {
+	return a.order.encodeCursor(a.cursors, candidates[len(candidates)-1], a.expiresAt)
+}
+
+func (s orderSpec) encodeCursor(codec *CursorCodec, anchor pageCandidate, expiresAt time.Time) (string, error) {
+	if anchor.id == uuid.Nil {
 		return "", errors.New("encode page cursor: invalid record id")
 	}
-	if len(anchor.cursorValues) != len(a.sortKeys) {
+	if len(anchor.cursorValues) != len(s.terms) {
 		return "", errors.New("encode page cursor: missing sort value")
 	}
-	return a.cursors.Encode(PageCursor{
+	return codec.Encode(PageCursor{
 		Version:       cursorVersion,
-		CollectionID:  a.collectionID,
-		Sort:          a.sortKeys,
+		CollectionID:  s.root.ID,
+		Sort:          s.sortKeys(),
 		Values:        cloneCursorValues(anchor.cursorValues),
-		AnchorID:      anchorID,
-		PrivateValues: a.private,
-		ExpiresAt:     a.expiresAt,
+		AnchorID:      anchor.id,
+		PrivateValues: s.private(),
+		ExpiresAt:     expiresAt,
 	})
 }

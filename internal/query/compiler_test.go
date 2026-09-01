@@ -306,6 +306,10 @@ func TestCompileListKeepsNullsLastForNullableSortColumnsAndExplicitTiebreakers(t
 		TableName: "physical_records",
 		Fields:    []schema.Field{{Name: "note", ColumnName: "note", Type: schema.TypeText, Indexed: true}},
 	}
+	order, err := resolveOrderSpec(collection, effectiveSortKeys([]SortKey{{Field: "note", Desc: true}}))
+	if err != nil || order.terms[0].indexHint != orderIndexRoot {
+		t.Fatalf("scalar order index hint = %v, err=%v", order.terms[0].indexHint, err)
+	}
 	after := &PageCursor{
 		Version: cursorVersion,
 		Sort:    []SortKey{{Field: "note", Desc: true}, {Field: systemFieldID}},

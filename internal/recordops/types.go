@@ -47,11 +47,7 @@ const (
 	CompatibilityLastWriteWins         Compatibility = "missing-if-match"
 )
 
-type Record struct {
-	Data    map[string]any `json:"data"`
-	ETag    string         `json:"-"`
-	Version int64          `json:"-"`
-}
+type Record = query.Record
 
 type MutationResult struct {
 	Record        *Record

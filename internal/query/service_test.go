@@ -55,8 +55,8 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	assertRecordJSON(t, defaulted["metadata"], `"default"`)
 	id := uuid.MustParse(first["id"].(string))
 
-	got, err := records.Get(ctx, "records", id)
-	if err != nil || got["title"] != "first" {
+	got, err := records.Get(ctx, GetRequest{Principal: testReadPrincipal, Collection: "records", ID: id})
+	if err != nil || got.Data["title"] != "first" {
 		t.Fatalf("Get() = %#v, %v", got, err)
 	}
 	updated, err := records.Update(ctx, "records", id, map[string]json.RawMessage{"title": json.RawMessage(`"updated"`)})
@@ -131,18 +131,18 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if err := records.Delete(ctx, "records", id); err != nil {
 		t.Fatalf("Delete(): %v", err)
 	}
-	if _, err := records.Get(ctx, "records", id); !errors.Is(err, ErrRecordNotFound) {
+	if _, err := records.Get(ctx, GetRequest{Principal: testReadPrincipal, Collection: "records", ID: id}); !errors.Is(err, ErrRecordNotFound) {
 		t.Fatalf("Get(deleted) error=%v", err)
 	}
 	if err := records.Delete(ctx, "records", id); !errors.Is(err, ErrRecordNotFound) {
 		t.Fatalf("Delete(missing) error=%v", err)
 	}
-	if _, err := records.Get(ctx, "missing", id); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := records.Get(ctx, GetRequest{Principal: testReadPrincipal, Collection: "missing", ID: id}); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("Get(missing collection) error=%v", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := records.Get(canceled, "records", uuid.New()); database.Classify(err) != database.KindCanceled {
+	if _, err := records.Get(canceled, GetRequest{Principal: testReadPrincipal, Collection: "records", ID: uuid.New()}); database.Classify(err) != database.KindCanceled {
 		t.Fatalf("Get(canceled) error=%v", err)
 	}
 }
@@ -167,12 +167,14 @@ func TestRecordServicePreservesNumericZeroScale(t *testing.T) {
 		if created["amount"] != input {
 			t.Fatalf("Create(%s) amount = %#v, want exact scale", input, created["amount"])
 		}
-		got, err := records.Get(ctx, "numeric_scale_records", uuid.MustParse(created["id"].(string)))
+		got, err := records.Get(ctx, GetRequest{
+			Principal: testReadPrincipal, Collection: "numeric_scale_records", ID: uuid.MustParse(created["id"].(string)),
+		})
 		if err != nil {
 			t.Fatalf("Get(%s): %v", input, err)
 		}
-		if got["amount"] != input {
-			t.Fatalf("Get(%s) amount = %#v, want exact scale", input, got["amount"])
+		if got.Data["amount"] != input {
+			t.Fatalf("Get(%s) amount = %#v, want exact scale", input, got.Data["amount"])
 		}
 	}
 }
@@ -647,8 +649,8 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 		}
 	}
 	order := orderSpec{terms: []orderTerm{
-		{expression: quoted("note"), cursorExpression: quoted("note"), descending: true, nulls: orderNullsFirst, cursorField: schema.Field{Name: "note", ColumnName: "note", Type: schema.TypeText}},
-		{expression: quoted(systemFieldID), cursorExpression: quoted(systemFieldID), descending: true, nulls: orderNullsFirst, cursorField: schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}},
+		{key: SortKey{Field: "note", Desc: true}, expression: quoted("note"), nulls: orderNullsFirst, cursorField: schema.Field{Name: "note", ColumnName: "note", Type: schema.TypeText}},
+		{key: SortKey{Field: systemFieldID, Desc: true}, expression: quoted(systemFieldID), nulls: orderNullsFirst, cursorField: schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}},
 	}}
 
 	selectIDs := func(statement string, args ...any) []string {

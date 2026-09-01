@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -38,15 +39,57 @@ func (u *expansionUsage) takeQuerySteps(count int) error {
 	return nil
 }
 
-func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (ExpandedRecord, error) {
+type getResult struct {
+	record   Record
+	expanded ExpandedRecord
+}
+
+func (s *Service) Get(ctx context.Context, request GetRequest) (Record, error) {
+	result, err := s.readGet(ctx, request)
+	return result.record, err
+}
+
+func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, error) {
 	if err := s.ready(); err != nil {
-		return ExpandedRecord{}, err
+		return getResult{}, err
 	}
-	if s.policy == nil || request.ID == uuid.Nil {
-		return ExpandedRecord{}, errors.New("record expansion is unavailable")
+	if !request.Principal.Valid() {
+		return getResult{}, validation("principal", "invalid")
 	}
-	var result ExpandedRecord
+	if request.ID == uuid.Nil {
+		return getResult{}, validation("id", "invalid")
+	}
+	var result getResult
 	err := s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		return s.readGetInTx(ctx, tx, catalog, collection, request, &result)
+	}, request.Collection)
+	if err != nil {
+		return getResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) readGetInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	catalog schema.Catalog,
+	collection schema.Collection,
+	request GetRequest,
+	result *getResult,
+) error {
+	statement := CompileSelectByID(collection, request.ID)
+	root, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
+	if err := recordQueryError(err); err != nil {
+		return err
+	}
+
+	var response map[string]any
+	if request.Expand == "" {
+		if err := hydrateRelationRecords(ctx, tx, catalog, collection, []map[string]any{root}); err != nil {
+			return err
+		}
+		response = root
+	} else {
 		usage := &expansionUsage{limits: s.expandLimits}
 		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
 		if err != nil {
@@ -55,29 +98,41 @@ func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (Expanded
 		if err := usage.takeQuerySteps(1); err != nil {
 			return err
 		}
-		statement := CompileSelectByID(collection, request.ID)
-		root, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		if err := recordQueryError(err); err != nil {
-			return err
-		}
 		if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
 			return err
 		}
 		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, usage); err != nil {
 			return err
 		}
-		expanded, err := s.executeExpandPlan(ctx, tx, catalog, []map[string]any{root}, ExpandRequest{
-			Principal: request.Principal,
-			Expand:    request.Expand,
-		}, plan, usage)
+		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, []map[string]any{root}, plan, usage)
 		if err != nil {
 			return err
 		}
-		result = expanded[0]
-		result.querySteps = usage.querySteps
-		return validateExpandedRecordSize(result, s.expandLimits.maxBytes)
-	}, request.Collection)
-	return result, err
+		result.expanded = expanded[0]
+		result.expanded.querySteps = usage.querySteps
+		if err := validateExpandedRecordSize(result.expanded, s.expandLimits.maxBytes); err != nil {
+			return err
+		}
+		response, err = result.expanded.Flatten()
+		if err != nil {
+			return err
+		}
+	}
+
+	digest, err := recordartifact.SchemaDigest(collection)
+	if err != nil {
+		return err
+	}
+	version, validator, present, err := recordartifact.ReadRevision(ctx, tx, collection.ID, request.ID)
+	if err != nil {
+		return err
+	}
+	etag, err := recordartifact.ETag(collection.ID, request.ID, digest, root, validator, present)
+	if err != nil {
+		return err
+	}
+	result.record = Record{Data: response, ETag: etag, Version: version}
+	return nil
 }
 
 type listResult struct {
@@ -95,8 +150,8 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	if err := s.ready(); err != nil {
 		return listResult{}, err
 	}
-	if s.policy == nil || !request.Principal.Valid() {
-		return listResult{}, ErrProjectionDenied
+	if !request.Principal.Valid() {
+		return listResult{}, validation("principal", "invalid")
 	}
 	filterNode, err := parseFilterRequest(request.Filter)
 	if err != nil {
@@ -136,18 +191,19 @@ func (s *Service) readListInTx(
 		}
 	}
 	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
-	relationPlan, err := compileRelationListPlan(
-		ctx, catalog, collection, request.Principal, s.policy,
-		filterNode, effectiveSortKeys(requestedSort),
-	)
+	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
 	if err != nil {
 		if request.Cursor != "" && validationField(err, "sort") {
 			return listResult{}, relationOperation, invalidCursor()
 		}
 		return listResult{}, relationOperation, err
 	}
+	rootPlan, err := plannedRootPlan(filterNode, relationPlan)
+	if err != nil {
+		return listResult{}, relationOperation, err
+	}
 	rootRequest := rootPageReadRequest{
-		plan:        plannedRootPlan(collection, filterNode, requestedSort, relationPlan),
+		plan:        rootPlan,
 		cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
 	}
 	if usage == nil {
@@ -174,22 +230,19 @@ func (s *Service) readListInTx(
 		return listResult{page: root.page}, relationOperation, nil
 	}
 
-	expanded, err := s.executeExpandPlan(ctx, tx, catalog, root.page.Items, ExpandRequest{
-		Principal: request.Principal, Expand: request.Expand,
-	}, expansion, usage)
+	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, root.page.Items, expansion, usage)
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}
 	candidates := make([]pageCandidate, len(expanded))
 	for index := range expanded {
 		candidates[index] = pageCandidate{
-			root: root.candidates[index].root, wire: expanded[index],
+			id: root.candidates[index].id, root: root.candidates[index].root, wire: expanded[index],
 			cursorValues: root.candidates[index].cursorValues, oversized: expanded[index].oversized,
 		}
 	}
 	assembler := pageAssembler{
-		cursors: s.cursors, collectionID: collection.ID, sortKeys: root.sortKeys,
-		private: root.privateCursor, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
+		cursors: s.cursors, order: root.order, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
 	}
 	keep, cursor, err := assembler.finish(candidates, root.page.NextCursor != "")
 	if err != nil {
@@ -208,112 +261,6 @@ func (s *Service) readListInTx(
 	}, relationOperation, nil
 }
 
-// ExpandRecords is the narrow executor seam for callers such as recordops
-// that already own a transaction, pinned catalog, root read, revision, and
-// ETag lifecycle. Root maps are copied and are never mutated.
-func (s *Service) ExpandRecords(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	roots []map[string]any,
-	request ExpandRequest,
-) ([]ExpandedRecord, error) {
-	canonical, err := s.validateExpandExecutor(tx, catalog, collection)
-	if err != nil {
-		return nil, err
-	}
-	usage := &expansionUsage{limits: s.expandLimits}
-	plan, err := compileExpandPlan(catalog, canonical, request.Expand, usage.limits)
-	if err != nil {
-		return nil, err
-	}
-	return s.finishExpandedRecords(ctx, tx, catalog, roots, request, plan, usage)
-}
-
-// ExpandBaseRecords is the recordops integration seam. Its inputs are base
-// rows produced by EncodeRecord (multi relations are still [] placeholders).
-// It accounts for the caller's root SELECT, performs bounded root hydration in
-// the same pinned transaction, then expands and measures the flat response.
-func (s *Service) ExpandBaseRecords(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	baseRoots []map[string]any,
-	request ExpandRequest,
-) ([]ExpandedRecord, error) {
-	canonical, err := s.validateExpandExecutor(tx, catalog, collection)
-	if err != nil {
-		return nil, err
-	}
-	usage := &expansionUsage{limits: s.expandLimits}
-	plan, err := compileExpandPlan(catalog, canonical, request.Expand, usage.limits)
-	if err != nil {
-		return nil, err
-	}
-	if err := usage.takeQuerySteps(1); err != nil {
-		return nil, err
-	}
-	roots := make([]map[string]any, len(baseRoots))
-	for index, root := range baseRoots {
-		if _, err := canonicalRecordID(root); err != nil {
-			return nil, schema.ErrConflict
-		}
-		roots[index] = cloneRecord(root)
-	}
-	if len(roots) != 0 {
-		if err := usage.takeQuerySteps(multipleRelationFieldCount(canonical)); err != nil {
-			return nil, err
-		}
-		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, canonical, roots, usage); err != nil {
-			return nil, err
-		}
-	}
-	return s.finishExpandedRecords(ctx, tx, catalog, roots, request, plan, usage)
-}
-
-func (s *Service) validateExpandExecutor(
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-) (schema.Collection, error) {
-	if s == nil || tx == nil || s.policy == nil {
-		return schema.Collection{}, errors.New("record expansion is unavailable")
-	}
-	canonical, ok := catalog.Collections[collection.Name]
-	if !ok || canonical.ID != collection.ID || canonical.TableName != collection.TableName {
-		return schema.Collection{}, schema.ErrConflict
-	}
-	return canonical, nil
-}
-
-func (s *Service) finishExpandedRecords(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	roots []map[string]any,
-	request ExpandRequest,
-	plan expandPlan,
-	usage *expansionUsage,
-) ([]ExpandedRecord, error) {
-	for _, root := range roots {
-		if _, err := canonicalRecordID(root); err != nil {
-			return nil, schema.ErrConflict
-		}
-	}
-	expanded, err := s.executeExpandPlan(ctx, tx, catalog, roots, request, plan, usage)
-	if err != nil {
-		return nil, err
-	}
-	for _, record := range expanded {
-		if err := validateExpandedRecordSize(record, s.expandLimits.maxBytes); err != nil {
-			return nil, err
-		}
-	}
-	return expanded, nil
-}
-
 func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {
 	if record.oversized {
 		return validation("response", "response_too_large")
@@ -328,18 +275,6 @@ func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {
 	return nil
 }
 
-func (s *Service) executeExpandPlan(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	roots []map[string]any,
-	request ExpandRequest,
-	plan expandPlan,
-	usage *expansionUsage,
-) ([]ExpandedRecord, error) {
-	return s.executeMaterializedExpandPlan(ctx, tx, catalog, roots, request, plan, usage)
-}
-
 type relationReferences struct {
 	present bool
 	ids     []uuid.UUID
@@ -348,9 +283,7 @@ type relationReferences struct {
 func relationIDs(field schema.Field, record map[string]any) (relationReferences, error) {
 	value, present := record[field.Name]
 	if !present {
-		// ExpandRecords accepts fully materialized root records. Silently treating
-		// an absent requested field as null would turn catalog/storage drift (or an
-		// accidentally projected root) into partial, misleading output.
+		// Treating a missing relation as null would hide catalog/storage drift.
 		return relationReferences{}, relationHydrationFailure(relation.ErrInvalidStoredValue)
 	}
 	if field.Relation == nil {
@@ -411,31 +344,26 @@ func (s *Service) fetchExpansionTargets(
 	catalog schema.Catalog,
 	collection schema.Collection,
 	ids []uuid.UUID,
-	predicate Predicate,
-	fields FieldSet,
 	usage *expansionUsage,
 ) (map[uuid.UUID]map[string]any, error) {
 	targets := make(map[uuid.UUID]map[string]any, len(ids))
 	if len(ids) == 0 {
 		return targets, nil
 	}
-	projectedCollection, selectedMultiFields := expansionTargetProjection(collection, fields)
+	selectedMultiFields := multipleRelationFieldNames(collection)
 	hydrationSteps := len(selectedMultiFields)
 	requiredSteps := 1 + hydrationSteps
 	if err := usage.takeQuerySteps(requiredSteps); err != nil {
 		return nil, err
 	}
-	statement, err := compileExpandTargetSelect(projectedCollection, ids, predicate)
-	if err != nil {
-		return nil, err
-	}
+	statement := compileExpandTargetSelect(collection, ids)
 	rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 	if err != nil {
 		return nil, expansionTargetFailure(err)
 	}
 	records := make([]map[string]any, 0, len(ids))
 	for rows.Next() {
-		record, err := EncodeRecord(projectedCollection, rows)
+		record, err := EncodeRecord(collection, rows)
 		if err != nil {
 			rows.Close()
 			return nil, expansionTargetFailure(err)
@@ -479,7 +407,7 @@ func (s *Service) fetchExpansionTargets(
 		if _, duplicate := targets[id]; duplicate {
 			return nil, errors.New("read expanded targets: duplicate record id")
 		}
-		targets[id] = projectRecord(collection, record, fields)
+		targets[id] = cloneRecord(record)
 	}
 	return targets, nil
 }
@@ -505,94 +433,26 @@ func isCatalogDriftFailure(err error) bool {
 	return errors.As(err, &scanError)
 }
 
-func compileExpandTargetSelect(collection schema.Collection, ids []uuid.UUID, predicate Predicate) (Statement, error) {
-	args := []any{ids}
-	condition := quoted("id") + " = any($1::uuid[])"
-	switch predicate.kind {
-	case predicateAllowAll:
-	case predicateDenyAll:
-		condition += " and false"
-	case predicateRecordIDs:
-		args = append(args, predicate.ids)
-		condition += " and " + quoted("id") + " = any($2::uuid[])"
-	default:
-		return Statement{}, ErrProjectionDenied
-	}
+func compileExpandTargetSelect(collection schema.Collection, ids []uuid.UUID) Statement {
 	return Statement{
 		SQL: "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection) +
-			" WHERE " + condition + " ORDER BY " + quoted("id"),
-		Args: args,
-	}, nil
+			" WHERE " + quoted("id") + " = any($1::uuid[]) ORDER BY " + quoted("id"),
+		Args: []any{ids},
+	}
 }
 
-func projectRecord(collection schema.Collection, record map[string]any, fields FieldSet) map[string]any {
-	if fields.all {
-		return cloneRecord(record)
-	}
-	projected := make(map[string]any, len(fields.fields)+3)
-	for _, name := range []string{systemFieldID, systemFieldCreatedAt, systemFieldUpdatedAt} {
-		if value, present := record[name]; present {
-			projected[name] = cloneJSONValue(value)
+func multipleRelationFieldNames(collection schema.Collection) []string {
+	names := make([]string, 0)
+	for _, field := range fieldsByOrdinal(collection) {
+		if isMultipleRelation(field) {
+			names = append(names, field.Name)
 		}
 	}
-	for _, field := range collection.Fields {
-		if _, selected := fields.fields[field.Name]; selected {
-			projected[field.Name] = cloneJSONValue(record[field.Name])
-		}
-	}
-	return projected
+	return names
 }
 
 func multipleRelationFieldCount(collection schema.Collection) int {
-	count := 0
-	for _, field := range collection.Fields {
-		if isMultipleRelation(field) {
-			count++
-		}
-	}
-	return count
-}
-
-// expansionTargetProjection limits both the base SELECT and junction
-// hydration to fields authorized by ProjectionPolicy. The returned field
-// names are in catalog ordinal order, matching HydrateFieldsBounded's contract.
-func expansionTargetProjection(collection schema.Collection, fields FieldSet) (schema.Collection, []string) {
-	projected := collection
-	projected.Fields = make([]schema.Field, 0, len(collection.Fields))
-	selectedMulti := make([]string, 0)
-	for _, field := range fieldsByOrdinal(collection) {
-		if !fieldSetAllows(fields, field.Name) {
-			continue
-		}
-		projected.Fields = append(projected.Fields, field)
-		if isMultipleRelation(field) {
-			selectedMulti = append(selectedMulti, field.Name)
-		}
-	}
-	return projected, selectedMulti
-}
-
-func visibleCandidateIDs(ids []uuid.UUID, predicate Predicate) []uuid.UUID {
-	switch predicate.kind {
-	case predicateAllowAll:
-		return ids
-	case predicateDenyAll:
-		return nil
-	case predicateRecordIDs:
-		allowed := make(map[uuid.UUID]struct{}, len(predicate.ids))
-		for _, id := range predicate.ids {
-			allowed[id] = struct{}{}
-		}
-		visible := make([]uuid.UUID, 0, len(ids))
-		for _, id := range ids {
-			if _, ok := allowed[id]; ok {
-				visible = append(visible, id)
-			}
-		}
-		return visible
-	default:
-		return nil
-	}
+	return len(multipleRelationFieldNames(collection))
 }
 
 func uniqueSortedIDs(ids []uuid.UUID) []uuid.UUID {

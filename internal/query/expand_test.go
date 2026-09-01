@@ -334,37 +334,3 @@ func TestExpandCatalogLookupFailsClosedForForgedMapKeysAndDuplicateIDs(t *testin
 		t.Fatal("catalog lookup accepted duplicate collection IDs")
 	}
 }
-
-func TestProjectionTypesFailClosed(t *testing.T) {
-	t.Parallel()
-	collection := schema.Collection{Name: "targets", Fields: []schema.Field{{Name: "name", Type: schema.TypeText}}}
-	policy := AdminAllowAll{}
-	for _, principal := range []Principal{{}, {Kind: PrincipalAdministrator}, {Kind: "public", ID: uuid.New()}} {
-		_, _, err := policy.ReadScope(t.Context(), principal, collection, ReadActionExpand)
-		if !errors.Is(err, ErrProjectionDenied) {
-			t.Fatalf("principal %#v error = %v, want projection denied", principal, err)
-		}
-	}
-	for _, action := range []ReadAction{ReadActionExpand, ReadActionRelationFilter, ReadActionRelationSort} {
-		predicate, fields, err := policy.ReadScope(t.Context(), Principal{
-			Kind: PrincipalAdministrator, ID: uuid.New(),
-		}, collection, action)
-		if err != nil || predicate.kind != predicateAllowAll || !fields.all {
-			t.Fatalf("admin %q scope = %#v %#v err=%v", action, predicate, fields, err)
-		}
-	}
-	if err := validateProjection(collection, Predicate{}, AllFields()); !errors.Is(err, ErrProjectionDenied) {
-		t.Fatalf("zero predicate error = %v", err)
-	}
-	if err := validateProjection(collection, AllowAllRecords(), ProjectFields("missing")); !errors.Is(err, ErrProjectionDenied) {
-		t.Fatalf("unknown projection error = %v", err)
-	}
-	if _, err := AllowRecordIDs(uuid.Nil); err == nil {
-		t.Fatal("nil record ID predicate accepted")
-	}
-	if _, _, err := policy.ReadScope(t.Context(), Principal{
-		Kind: PrincipalAdministrator, ID: uuid.New(),
-	}, collection, ReadAction("future_action")); !errors.Is(err, ErrProjectionDenied) {
-		t.Fatalf("unknown read action error = %v, want projection denied", err)
-	}
-}

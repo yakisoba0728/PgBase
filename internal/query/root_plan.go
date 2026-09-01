@@ -7,83 +7,80 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 type rootPlan struct {
-	collection    schema.Collection
-	filter        filterNode
-	requestedSort []SortKey
-	sortKeys      []SortKey
-	relation      *relationListPlan
-	privateCursor bool
+	filter   filterNode
+	relation relationListPlan
 }
 
-func scalarRootPlan(collection schema.Collection, filter filterNode, requestedSort []SortKey) rootPlan {
-	return rootPlan{
-		collection: collection, filter: filter, requestedSort: requestedSort,
-		sortKeys: effectiveSortKeys(requestedSort),
+func plannedRootPlan(filter filterNode, relation relationListPlan) (rootPlan, error) {
+	if relationListPlanUsesRelation(relation) {
+		relation.order.relationAnchor = true
+		return rootPlan{filter: filter, relation: relation}, nil
 	}
+	// The scalar compiler historically places NULL first for descending
+	// non-null columns. Keep that contract when no relation SQL is required.
+	order, err := resolveOrderSpec(relation.order.root, relation.order.sortKeys())
+	if err != nil {
+		return rootPlan{}, err
+	}
+	relation.order = order
+	return rootPlan{filter: filter, relation: relation}, nil
 }
 
-func plannedRootPlan(collection schema.Collection, filter filterNode, requestedSort []SortKey, relation relationListPlan) rootPlan {
-	if !relationListPlanUsesRelation(relation) {
-		return scalarRootPlan(collection, filter, requestedSort)
-	}
-	return rootPlan{
-		collection: collection, filter: filter, requestedSort: requestedSort,
-		sortKeys: relationPlanSortKeys(relation), relation: &relation,
-		privateCursor: relation.privateCursor,
-	}
-}
+func (p rootPlan) order() orderSpec { return p.relation.order }
 
 func (p rootPlan) pageStatement(after *PageCursor, fetchLimit int) (Statement, error) {
-	if p.relation != nil {
+	if p.order().relationAnchor {
 		return p.relation.pageStatement(after, fetchLimit)
 	}
-	return compileListPage(p.collection, ListQuery{
-		Filter: p.filter, Sort: p.requestedSort, After: after,
-	}, fetchLimit)
+	return compileListPage(p.filter, p.order(), after, fetchLimit)
 }
 
-func (p rootPlan) anchorValues(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]json.RawMessage, error) {
-	if p.relation != nil {
-		statement, err := p.relation.anchorStatement(id)
+func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]json.RawMessage, error) {
+	if s.relationAnchor {
+		statement, err := s.anchorStatement(id)
 		if err != nil {
 			return nil, err
 		}
-		values, err := scanPlannedSortValues(tx.QueryRow(ctx, statement.SQL, statement.Args...), p.relation.sort)
+		values, err := s.scanValues(tx.QueryRow(ctx, statement.SQL, statement.Args...))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrRecordNotFound
 		}
 		return values, err
 	}
-	statement := CompileSelectByID(p.collection, id)
-	anchor, err := EncodeRecord(p.collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
+	statement := CompileSelectByID(s.root, id)
+	anchor, err := EncodeRecord(s.root, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 	if err := recordQueryError(err); err != nil {
 		return nil, err
 	}
-	return recordSortValues(p.sortKeys, anchor)
+	return s.recordValues(anchor)
 }
 
 func (p rootPlan) scan(row RowScanner) (pageCandidate, error) {
-	if p.relation == nil {
-		record, err := EncodeRecord(p.collection, row)
+	order := p.order()
+	if !order.relationAnchor {
+		record, err := EncodeRecord(order.root, row)
 		if err != nil {
 			return pageCandidate{}, err
 		}
-		values, err := recordSortValues(p.sortKeys, record)
+		values, err := order.recordValues(record)
 		if err != nil {
 			return pageCandidate{}, err
 		}
-		return pageCandidate{root: record, wire: record, cursorValues: values}, nil
+		id, err := canonicalRecordID(record)
+		if err != nil {
+			return pageCandidate{}, err
+		}
+		return pageCandidate{id: id, root: record, wire: record, cursorValues: values}, nil
 	}
 
-	scanner, err := newRelationRecordScanner(row, p.relation.sort)
+	scanner, err := newRelationRecordScanner(row, order)
 	if err != nil {
 		return pageCandidate{}, err
 	}
-	record, err := EncodeRecord(p.collection, scanner)
+	record, err := EncodeRecord(order.root, scanner)
 	if err != nil {
 		return pageCandidate{}, err
 	}
@@ -91,5 +88,9 @@ func (p rootPlan) scan(row RowScanner) (pageCandidate, error) {
 	if err != nil {
 		return pageCandidate{}, err
 	}
-	return pageCandidate{root: record, wire: record, cursorValues: values}, nil
+	id, err := canonicalRecordID(record)
+	if err != nil {
+		return pageCandidate{}, err
+	}
+	return pageCandidate{id: id, root: record, wire: record, cursorValues: values}, nil
 }

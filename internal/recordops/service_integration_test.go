@@ -19,6 +19,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -357,7 +358,7 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	key := "lock-order-key-12345678"
-	keyDigest := digestParts("pgbase-idempotency-key-v1", []byte(key))
+	keyDigest := recordartifact.Digest("pgbase-idempotency-key-v1", []byte(key))
 	lockKey := advisoryLockKey(principal, []byte("records"), keyDigest[:])
 
 	connection, err := pool.Acquire(ctx)

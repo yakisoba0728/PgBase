@@ -2,10 +2,8 @@ package query
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,28 +12,13 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-type relationFilterSortPolicyFunc func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error)
-
-func (f relationFilterSortPolicyFunc) ReadScope(
-	ctx context.Context,
-	principal Principal,
-	collection schema.Collection,
-	action ReadAction,
-) (Predicate, FieldSet, error) {
-	return f(ctx, principal, collection, action)
-}
-
 func TestCompileRelationListSingleRelationEqualityUsesVisibleTargetExists(t *testing.T) {
 	t.Parallel()
 
 	catalog, posts := relationFilterSortCatalog()
 	targetID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
 	filter := mustParseFilter(t, "owner = '"+targetID.String()+"'")
-	plan, err := compileRelationListPlan(
-		context.Background(), catalog, posts,
-		Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")},
-		AdminAllowAll{}, filter, effectiveSortKeys(nil),
-	)
+	plan, err := compileRelationListPlan(catalog, posts, filter, effectiveSortKeys(nil))
 	if err != nil {
 		t.Fatalf("compileRelationListPlan() error = %v", err)
 	}
@@ -61,18 +44,13 @@ func TestCompileRelationListSingleRelationEqualityUsesVisibleTargetExists(t *tes
 	}
 }
 
-func TestCompileRelationListMultipleMembershipAndBoundedPathPolicy(t *testing.T) {
+func TestCompileRelationListMultipleMembershipAndBoundedPath(t *testing.T) {
 	t.Parallel()
 
 	catalog, posts := relationFilterSortCatalog()
 	targetID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
-	var actions []ReadAction
-	policy := relationFilterSortPolicyFunc(func(_ context.Context, _ Principal, _ schema.Collection, action ReadAction) (Predicate, FieldSet, error) {
-		actions = append(actions, action)
-		return AllowAllRecords(), ProjectFields("name", "manager"), nil
-	})
 	filter := mustParseFilter(t, "reviewers = '"+targetID.String()+"' && owner.manager.name = 'Ada'")
-	plan, err := compileRelationListPlan(context.Background(), catalog, posts, Principal{}, policy, filter, effectiveSortKeys(nil))
+	plan, err := compileRelationListPlan(catalog, posts, filter, effectiveSortKeys(nil))
 	if err != nil {
 		t.Fatalf("compileRelationListPlan() error = %v", err)
 	}
@@ -91,72 +69,42 @@ func TestCompileRelationListMultipleMembershipAndBoundedPathPolicy(t *testing.T)
 			t.Fatalf("relation path SQL = %q, want fragment %q", statement.SQL, fragment)
 		}
 	}
-	if len(actions) != 3 {
-		t.Fatalf("policy actions = %v, want one typed filter action per hop", actions)
-	}
-	for _, action := range actions {
-		if action != ReadActionRelationFilter {
-			t.Fatalf("policy action = %q, want %q", action, ReadActionRelationFilter)
-		}
-	}
 }
 
-func TestCompileRelationListRejectsPathProjectionAndStaticBudgetsBeforePolicy(t *testing.T) {
+func TestCompileRelationListRejectsStaticBudgets(t *testing.T) {
 	t.Parallel()
 
 	catalog, posts := relationFilterSortCatalog()
-	missingProjection := relationFilterSortPolicyFunc(func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error) {
-		return AllowAllRecords(), ProjectFields("manager"), nil
-	})
-	_, err := compileRelationListPlan(context.Background(), catalog, posts, Principal{}, missingProjection,
-		mustParseFilter(t, "owner.name = 'Ada'"), effectiveSortKeys(nil))
-	if !errors.Is(err, ErrProjectionDenied) {
-		t.Fatalf("missing terminal projection error = %v, want projection denied", err)
-	}
-
-	policyCalls := 0
-	policy := relationFilterSortPolicyFunc(func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error) {
-		policyCalls++
-		return AllowAllRecords(), AllFields(), nil
-	})
-	_, err = compileRelationListPlan(context.Background(), catalog, posts, Principal{}, policy,
+	_, err := compileRelationListPlan(catalog, posts,
 		mustParseFilter(t, "owner.manager.manager.manager.name = 'Ada'"), effectiveSortKeys(nil))
 	assertValidationDetail(t, err, "filter", "relation_filter_unsupported")
-	if policyCalls != 0 {
-		t.Fatalf("over-depth request called policy %d times before rejection", policyCalls)
-	}
 
 	parts := make([]string, 9)
 	for index := range parts {
 		parts[index] = "owner.name = 'Ada'"
 	}
-	_, err = compileRelationListPlan(context.Background(), catalog, posts, Principal{}, policy,
+	_, err = compileRelationListPlan(catalog, posts,
 		mustParseFilter(t, strings.Join(parts, " && ")), effectiveSortKeys(nil))
 	assertValidationDetail(t, err, "filter", "relation_filter_unsupported")
-	if policyCalls != 0 {
-		t.Fatalf("over-node request called policy %d times before rejection", policyCalls)
-	}
 }
 
 func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *testing.T) {
 	t.Parallel()
 
 	catalog, posts := relationFilterSortCatalog()
-	var actions []ReadAction
-	policy := relationFilterSortPolicyFunc(func(_ context.Context, _ Principal, _ schema.Collection, action ReadAction) (Predicate, FieldSet, error) {
-		actions = append(actions, action)
-		return AllowAllRecords(), ProjectFields("name"), nil
-	})
 	requested, err := parseSort("owner.name")
 	if err != nil {
 		t.Fatalf("parseSort(owner.name) error = %v", err)
 	}
-	plan, err := compileRelationListPlan(context.Background(), catalog, posts, Principal{}, policy, nil, effectiveSortKeys(requested))
+	plan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
 	if err != nil {
 		t.Fatalf("compileRelationListPlan() error = %v", err)
 	}
-	if !plan.privateCursor {
+	if !plan.order.private() {
 		t.Fatal("relation sort did not require a private cursor")
+	}
+	if plan.order.terms[0].indexHint != orderIndexRelationTarget {
+		t.Fatalf("relation sort index hint = %v, want target index", plan.order.terms[0].indexHint)
 	}
 	statement, err := plan.statement(nil, 2)
 	if err != nil {
@@ -176,7 +124,7 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 		t.Fatalf("relation sort retained a correlated or duplicate target lookup: %q", statement.SQL)
 	}
 	after := PageCursor{
-		Version: cursorVersion, CollectionID: posts.ID, Sort: relationPlanSortKeys(plan),
+		Version: cursorVersion, CollectionID: posts.ID, Sort: plan.order.sortKeys(),
 		Values:   []json.RawMessage{json.RawMessage(`"Ada"`), json.RawMessage(`"99999999-9999-4999-8999-999999999999"`)},
 		AnchorID: uuid.MustParse("99999999-9999-4999-8999-999999999999"),
 	}
@@ -188,22 +136,18 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 		strings.Count(continued.SQL, `"rq_sort_1"."name"`) < 4 {
 		t.Fatalf("relation sort continuation did not reuse one joined value: %q", continued.SQL)
 	}
-	anchor, err := plan.anchorStatement(after.AnchorID)
+	anchor, err := plan.order.anchorStatement(after.AnchorID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(anchor.SQL, `(SELECT`) || strings.Count(anchor.SQL, `LEFT JOIN "app"."relation_people"`) != 1 {
 		t.Fatalf("relation sort anchor retained a correlated or duplicate target lookup: %q", anchor.SQL)
 	}
-	if len(actions) != 1 || actions[0] != ReadActionRelationSort {
-		t.Fatalf("sort policy actions = %v", actions)
-	}
-
 	multi, err := parseSort("reviewers.name")
 	if err != nil {
 		t.Fatalf("parseSort(reviewers.name) error = %v", err)
 	}
-	_, err = compileRelationListPlan(context.Background(), catalog, posts, Principal{}, policy, nil, effectiveSortKeys(multi))
+	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
 	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
 }
 
@@ -215,16 +159,12 @@ func TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor(t *testing
 	if err != nil {
 		t.Fatalf("parseSort(owner) error = %v", err)
 	}
-	plan, err := compileRelationListPlan(
-		context.Background(), catalog, posts,
-		Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")},
-		AdminAllowAll{}, nil, effectiveSortKeys(requested),
-	)
+	plan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
 	if err != nil {
 		t.Fatalf("compileRelationListPlan(owner) error = %v", err)
 	}
-	if !plan.privateCursor || !relationListPlanUsesRelation(plan) {
-		t.Fatalf("bare relation plan private/uses-relation = %t/%t, want true/true", plan.privateCursor, relationListPlanUsesRelation(plan))
+	if !plan.order.private() || !relationListPlanUsesRelation(plan) {
+		t.Fatalf("bare relation plan private/uses-relation = %t/%t, want true/true", plan.order.private(), relationListPlanUsesRelation(plan))
 	}
 	statement, err := plan.statement(nil, 1)
 	if err != nil {

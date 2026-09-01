@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -30,11 +30,12 @@ type RecordPage struct {
 	NextCursor string           `json:"nextCursor,omitempty"`
 }
 
+type Record = recordartifact.Record
+
 type Service struct {
 	pool         *database.Pool
 	schemas      *schema.Service
 	cursors      *CursorCodec
-	policy       ProjectionPolicy
 	expandLimits expandLimits
 	now          func() time.Time
 	logger       *slog.Logger
@@ -50,41 +51,16 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 }
 
 func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
-	return NewServiceWithProjectionPolicy(pool, schemas, cursorSecret, AdminAllowAll{}, logger, recorder)
-}
-
-func NewServiceWithProjectionPolicy(
-	pool *database.Pool,
-	schemas *schema.Service,
-	cursorSecret []byte,
-	policy ProjectionPolicy,
-	logger *slog.Logger,
-	recorder observability.Recorder,
-) *Service {
 	return &Service{
 		pool: pool, schemas: schemas, cursors: NewCursorCodec(cursorSecret), now: time.Now,
-		policy: policy, expandLimits: defaultExpandLimits,
-		logger: logger, recorder: recorder,
+		expandLimits: defaultExpandLimits,
+		logger:       logger, recorder: recorder,
 	}
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (RecordPage, error) {
 	result, err := s.readList(ctx, request)
 	return result.page, err
-}
-
-func (s *Service) Get(ctx context.Context, collectionName string, id uuid.UUID) (map[string]any, error) {
-	var record map[string]any
-	err := s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		statement := CompileSelectByID(collection, id)
-		var err error
-		record, err = EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		if err := recordQueryError(err); err != nil {
-			return err
-		}
-		return hydrateRelationRecords(ctx, tx, catalog, collection, []map[string]any{record})
-	}, collectionName)
-	return record, err
 }
 
 func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {

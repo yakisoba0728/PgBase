@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -164,7 +165,7 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 	request := DeleteRequest{
 		Principal: principal, RequestID: "r0-cascade-delete", Collection: collection.Name, ID: rootID,
 	}
-	inputHash := digestParts("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
+	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	result, err := records.deleteGraphInTransaction(
 		ctx, tx, catalog, catalog.Collections[collection.Name], request,
 		newDeleteArtifactIdentityCache(eventID), inputHash, CompatibilityLastWriteWins,

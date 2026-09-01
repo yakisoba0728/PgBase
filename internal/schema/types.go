@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
 )
 
 type FieldType string
@@ -165,15 +166,5 @@ type Plan struct {
 
 type Planner struct{}
 
-// ValidationDetail identifies a rejected input member without exposing it in an error string.
-type ValidationDetail struct {
-	Field string
-	Code  string
-}
-
-// ValidationError reports stable, caller-addressable validation details.
-type ValidationError struct {
-	Details []ValidationDetail
-}
-
-func (e *ValidationError) Error() string { return "schema validation failed" }
+type ValidationDetail = validationdomain.Detail
+type ValidationError = validationdomain.Error

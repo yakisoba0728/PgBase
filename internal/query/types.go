@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
 )
 
 type Statement struct {
@@ -30,16 +31,8 @@ type RowScanner interface {
 	Scan(...any) error
 }
 
-type ValidationDetail struct {
-	Field string
-	Code  string
-}
-
-type ValidationError struct {
-	Details []ValidationDetail
-}
-
-func (e *ValidationError) Error() string { return "record validation failed" }
+type ValidationDetail = validationdomain.Detail
+type ValidationError = validationdomain.Error
 
 type InvalidCursorError struct{}
 

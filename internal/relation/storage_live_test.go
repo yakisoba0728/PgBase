@@ -522,7 +522,11 @@ func newLiveFixture(t *testing.T, ctx context.Context, databaseURL string) *live
 		"create schema app",
 		"create schema pgbase_relation",
 		`create table app.targets (id uuid primary key)`,
-		`create table app.sources (id uuid primary key)`,
+		`create table app.sources (
+			id uuid primary key,
+			created_at timestamptz not null default statement_timestamp(),
+			updated_at timestamptz not null default statement_timestamp()
+		)`,
 		createLiveEdgeSQL(fixture.labelTable, "sources", "targets"),
 		createLiveEdgeSQL(fixture.groupTable, "sources", "targets"),
 	}

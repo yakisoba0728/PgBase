@@ -14,7 +14,7 @@ func BenchmarkRecordServiceCRUD20Fields10000Rows(b *testing.B) {
 	b.Run("get", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
-			if _, err := records.Get(ctx, "benchmark_records", seededID); err != nil {
+			if _, err := records.Get(ctx, GetRequest{Principal: testReadPrincipal, Collection: "benchmark_records", ID: seededID}); err != nil {
 				b.Fatal(err)
 			}
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -193,7 +194,7 @@ func captureDeleteSnapshots(
 		digest, ok := digests[ref.CollectionID]
 		if !ok {
 			var err error
-			digest, err = schemaDigest(collection)
+			digest, err = recordartifact.SchemaDigest(collection)
 			if err != nil {
 				return nil, err
 			}
@@ -203,11 +204,11 @@ func captureDeleteSnapshots(
 		if !ok {
 			return nil, schema.ErrConflict
 		}
-		version, validator, revisionPresent, err := readRevision(ctx, tx, ref.CollectionID, ref.RecordID)
+		version, validator, revisionPresent, err := recordartifact.ReadRevision(ctx, tx, ref.CollectionID, ref.RecordID)
 		if err != nil {
 			return nil, err
 		}
-		etag, err := recordETag(ref.CollectionID, ref.RecordID, digest, record, validator, revisionPresent)
+		etag, err := recordartifact.ETag(ref.CollectionID, ref.RecordID, digest, record, validator, revisionPresent)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +283,7 @@ func applyDeleteGraphUpdate(
 	inputHash [32]byte,
 ) error {
 	newVersion := snapshot.previousVersion + 1
-	newETag := revisionETag(snapshot.ref.CollectionID, snapshot.ref.RecordID, snapshot.schemaDigest, identity.validator)
+	newETag := recordartifact.RevisionETag(snapshot.ref.CollectionID, snapshot.ref.RecordID, snapshot.schemaDigest, identity.validator)
 	previousVersion := snapshot.previousVersion
 	if err := writeAudit(ctx, tx, auditWrite{
 		EventID: identity.eventID, Principal: request.Principal, RequestID: request.RequestID,
@@ -295,7 +296,7 @@ func applyDeleteGraphUpdate(
 	}); err != nil {
 		return err
 	}
-	if err := writeRevision(ctx, tx, snapshot.ref.CollectionID, snapshot.ref.RecordID,
+	if err := recordartifact.WriteRevision(ctx, tx, snapshot.ref.CollectionID, snapshot.ref.RecordID,
 		snapshot.previousVersion, newVersion, identity.validator, identity.eventID); err != nil {
 		return err
 	}

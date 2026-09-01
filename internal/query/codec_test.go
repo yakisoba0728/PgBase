@@ -435,10 +435,10 @@ func assembleRecordPageForTest(
 		if err != nil {
 			return RecordPage{}, err
 		}
-		candidates[index] = pageCandidate{root: item, wire: item, cursorValues: values}
+		candidates[index] = pageCandidate{id: uuid.MustParse(item[systemFieldID].(string)), root: item, wire: item, cursorValues: values}
 	}
 	assembler := pageAssembler{
-		cursors: service.cursors, collectionID: collectionID, sortKeys: sortKeys,
+		cursors: service.cursors, order: pageOrderForTest(collectionID, sortKeys),
 		expiresAt: expiresAt, maximumBytes: maximumRecordPageBytes,
 	}
 	keep, cursor, err := assembler.finish(candidates, hasMore)

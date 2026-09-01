@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
 )
 
 // InputMode controls whether an omitted relation is an empty create-time value
@@ -34,21 +35,8 @@ const (
 	SourceStored
 )
 
-// ValidationDetail is deliberately isomorphic to query.ValidationDetail. The
-// record-operation adapter translates it without making this lower-level
-// package depend on query (which consumes Hydrate).
-type ValidationDetail struct {
-	Field string
-	Code  string
-}
-
-// ValidationError contains only stable, caller-addressable relation codes.
-// Values and physical identifiers never appear in its text.
-type ValidationError struct {
-	Details []ValidationDetail
-}
-
-func (e *ValidationError) Error() string { return "relation validation failed" }
+type ValidationDetail = validationdomain.Detail
+type ValidationError = validationdomain.Error
 
 var (
 	// ErrInvalidBinding means catalog metadata could not be safely bound to

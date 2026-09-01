@@ -72,7 +72,7 @@ func enforceRelationSortRootBudget(ctx context.Context, tx pgx.Tx, collection sc
 }
 
 func relationListPlanUsesRelation(plan relationListPlan) bool {
-	if plan.privateCursor {
+	if plan.order.private() {
 		return true
 	}
 	var visit func(*plannedRelationFilter) bool
@@ -93,32 +93,24 @@ func relationListPlanUsesRelation(plan relationListPlan) bool {
 	return visit(plan.filter)
 }
 
-func relationPlanSortKeys(plan relationListPlan) []SortKey {
-	keys := make([]SortKey, len(plan.sort))
-	for index, planned := range plan.sort {
-		keys[index] = planned.key
-	}
-	return keys
-}
-
 type relationRecordScanner struct {
 	row          RowScanner
-	planned      []plannedRelationSort
+	order        orderSpec
 	hiddenFields []schema.Field
 	hidden       []any
 }
 
-func newRelationRecordScanner(row RowScanner, planned []plannedRelationSort) (*relationRecordScanner, error) {
-	scanner := &relationRecordScanner{row: row, planned: planned}
-	for _, sort := range planned {
-		if sort.path == nil {
+func newRelationRecordScanner(row RowScanner, order orderSpec) (*relationRecordScanner, error) {
+	scanner := &relationRecordScanner{row: row, order: order}
+	for _, term := range order.terms {
+		if term.relationPath == nil {
 			continue
 		}
-		destination, err := scanDestination(sort.field)
+		destination, err := scanDestination(term.cursorField)
 		if err != nil {
 			return nil, err
 		}
-		scanner.hiddenFields = append(scanner.hiddenFields, sort.field)
+		scanner.hiddenFields = append(scanner.hiddenFields, term.cursorField)
 		scanner.hidden = append(scanner.hidden, destination)
 	}
 	return scanner, nil
@@ -131,24 +123,24 @@ func (s *relationRecordScanner) Scan(destinations ...any) error {
 func (s *relationRecordScanner) cursorValues(record map[string]any) ([]json.RawMessage, error) {
 	valuesByName := cloneRecord(record)
 	hidden := 0
-	for _, planned := range s.planned {
-		if planned.path == nil {
+	for _, term := range s.order.terms {
+		if term.relationPath == nil {
 			continue
 		}
 		value, err := encodeScannedValue(s.hiddenFields[hidden], s.hidden[hidden])
 		if err != nil {
 			return nil, err
 		}
-		valuesByName[planned.key.Field] = value
+		valuesByName[term.key.Field] = value
 		hidden++
 	}
-	return recordSortValues(relationPlanSortKeys(relationListPlan{sort: s.planned}), valuesByName)
+	return s.order.recordValues(valuesByName)
 }
 
-func scanPlannedSortValues(row RowScanner, planned []plannedRelationSort) ([]json.RawMessage, error) {
-	destinations := make([]any, len(planned))
-	for index := range planned {
-		destination, err := scanDestination(planned[index].field)
+func (s orderSpec) scanValues(row RowScanner) ([]json.RawMessage, error) {
+	destinations := make([]any, len(s.terms))
+	for index := range s.terms {
+		destination, err := scanDestination(s.terms[index].cursorField)
 		if err != nil {
 			return nil, err
 		}
@@ -157,9 +149,9 @@ func scanPlannedSortValues(row RowScanner, planned []plannedRelationSort) ([]jso
 	if err := row.Scan(destinations...); err != nil {
 		return nil, err
 	}
-	values := make([]json.RawMessage, len(planned))
-	for index := range planned {
-		value, err := encodeScannedValue(planned[index].field, destinations[index])
+	values := make([]json.RawMessage, len(s.terms))
+	for index := range s.terms {
+		value, err := encodeScannedValue(s.terms[index].cursorField, destinations[index])
 		if err != nil {
 			return nil, err
 		}

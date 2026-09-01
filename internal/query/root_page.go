@@ -23,13 +23,12 @@ type rootPageReadRequest struct {
 }
 
 type rootPageReadResult struct {
-	page                RecordPage
-	candidates          []pageCandidate
-	sortKeys            []SortKey
-	expiresAt           time.Time
-	privateCursor       bool
-	totalHydrated       int
-	maxRetainedHydrated int
+	page             RecordPage
+	candidates       []pageCandidate
+	order            orderSpec
+	expiresAt        time.Time
+	totalHydrated    int
+	maxRetainedRoots int
 }
 
 func (s *Service) readRootPageInTx(
@@ -38,36 +37,36 @@ func (s *Service) readRootPageInTx(
 	request rootPageReadRequest,
 ) (rootPageReadResult, error) {
 	plan := request.plan
+	order := plan.order()
 	result := rootPageReadResult{
-		page:          RecordPage{Items: []map[string]any{}},
-		sortKeys:      plan.sortKeys,
-		expiresAt:     request.operationTime.Add(cursorTTL),
-		privateCursor: plan.privateCursor,
+		page:      RecordPage{Items: []map[string]any{}},
+		order:     order,
+		expiresAt: request.operationTime.Add(cursorTTL),
 	}
 	charge := request.charge
 	if charge == nil {
 		charge = func(int) error { return nil }
 	}
-	if plan.privateCursor {
+	if order.private() {
 		if err := charge(1); err != nil {
 			return rootPageReadResult{}, err
 		}
-		if err := enforceRelationSortRootBudget(ctx, tx, plan.collection); err != nil {
+		if err := enforceRelationSortRootBudget(ctx, tx, order.root); err != nil {
 			return rootPageReadResult{}, err
 		}
 	}
 
 	var after *PageCursor
 	if request.cursorToken != "" {
-		decoded, err := s.cursors.Decode(request.cursorToken, plan.collection.ID, request.operationTime)
-		if err != nil || !sameSortKeys(decoded.Sort, plan.sortKeys) || (plan.privateCursor && !decoded.PrivateValues) {
+		decoded, err := s.cursors.Decode(request.cursorToken, order.root.ID, request.operationTime)
+		if err != nil || !sameSortKeys(decoded.Sort, order.sortKeys()) || (order.private() && !decoded.PrivateValues) {
 			return rootPageReadResult{}, invalidCursor()
 		}
 		if len(decoded.Values) == 0 {
 			if err := charge(1); err != nil {
 				return rootPageReadResult{}, err
 			}
-			values, err := plan.anchorValues(ctx, tx, decoded.AnchorID)
+			values, err := order.reloadAnchor(ctx, tx, decoded.AnchorID)
 			if errors.Is(err, ErrRecordNotFound) {
 				return rootPageReadResult{}, invalidCursor()
 			}
@@ -83,8 +82,7 @@ func (s *Service) readRootPageInTx(
 		after = &decoded
 	}
 	assembler := pageAssembler{
-		cursors: s.cursors, collectionID: plan.collection.ID, sortKeys: plan.sortKeys,
-		private: plan.privateCursor, expiresAt: result.expiresAt, maximumBytes: maximumRecordPageBytes,
+		cursors: s.cursors, order: order, expiresAt: result.expiresAt, maximumBytes: maximumRecordPageBytes,
 	}
 	if request.hydrator != nil {
 		return s.readSequentialRootPage(ctx, tx, request, result, assembler, after, charge)
@@ -146,7 +144,6 @@ func (s *Service) readSequentialRootPage(
 	charge func(int) error,
 ) (rootPageReadResult, error) {
 	pageLimit := normalizedFetchLimit(request.limit) - 1
-	retainedHydrated := 0
 	measuredBytes := 0
 	accepted := 0
 	acceptedCursor := ""
@@ -156,12 +153,19 @@ func (s *Service) readSequentialRootPage(
 		if err := charge(1); err != nil {
 			return rootPageReadResult{}, err
 		}
-		// Decode one fixed base batch before opening the relation-row stream. This
-		// preserves the existing base scan/error order while bounding speculative
-		// base representations independently of hydrated root retention.
-		batch := make([]pageCandidate, 0, batchLimit+1)
+		// The preflight deliberately decodes every fetched base row so stored-value
+		// errors keep their historical order. Only compact identity/cursor stubs
+		// survive the callback; the full base map is immediately collectible.
+		batch := make([]rootStub, 0, batchLimit+1)
 		err := scanRootRows(ctx, tx, request.plan, after, batchLimit+1, func(candidate pageCandidate) (bool, error) {
-			batch = append(batch, candidate)
+			noteRetainedRoots(&result, result.candidates, 1)
+			stub, err := compactRootCandidate(candidate)
+			candidate.root = nil
+			candidate.wire = nil
+			if err != nil {
+				return false, err
+			}
+			batch = append(batch, stub)
 			return true, nil
 		})
 		if err != nil {
@@ -170,7 +174,7 @@ func (s *Service) readSequentialRootPage(
 
 		hasMore := len(batch) > batchLimit
 		if hasMore {
-			batch[batchLimit] = pageCandidate{}
+			batch[batchLimit] = rootStub{}
 			batch = batch[:batchLimit:batchLimit]
 		}
 		if len(batch) == 0 {
@@ -178,24 +182,24 @@ func (s *Service) readSequentialRootPage(
 			if err != nil {
 				return rootPageReadResult{}, err
 			}
+			releaseRootSuffix(request.hydrator, result.candidates, keep)
 			promoted, err := request.hydrator.ensurePrefix(ctx, result.candidates, keep)
 			if err != nil {
 				return rootPageReadResult{}, err
 			}
 			result.totalHydrated += promoted
-			retainedHydrated += promoted
-			result.maxRetainedHydrated = max(result.maxRetainedHydrated, retainedHydrated)
+			noteRetainedRoots(&result, result.candidates, 0)
 			return finishRootPage(result, keep, cursor), nil
 		}
 		batchIndex := 0
 		complete := false
 		finalKeep := accepted
 		finalCursor := acceptedCursor
-		visited, err := request.hydrator.hydrateSequential(ctx, batch, func(candidate *pageCandidate) (bool, error) {
+		visited, err := request.hydrator.replaySequential(ctx, batch, func(candidate pageCandidate) (bool, error) {
 			result.totalHydrated++
-			result.candidates = append(result.candidates, *candidate)
-			retainedHydrated++
-			result.maxRetainedHydrated = max(result.maxRetainedHydrated, retainedHydrated)
+			noteRetainedRoots(&result, result.candidates, 1)
+			result.candidates = append(result.candidates, candidate)
+			noteRetainedRoots(&result, result.candidates, 0)
 			batchIndex++
 			candidateHasMore := batchIndex < len(batch) || hasMore
 			current := &result.candidates[len(result.candidates)-1]
@@ -213,15 +217,13 @@ func (s *Service) readSequentialRootPage(
 				if !candidateHasMore || !isResponseTooLarge(err) || minimumBytes > assembler.maximumBytes {
 					return false, err
 				}
-				request.hydrator.release(current)
-				retainedHydrated--
+				releaseRootSuffix(request.hydrator, result.candidates, accepted)
 				return true, nil
 			}
 			accepted = keep
 			acceptedCursor = cursor
 			if keep < len(result.candidates) {
-				request.hydrator.release(current)
-				retainedHydrated--
+				releaseRootSuffix(request.hydrator, result.candidates, keep)
 				_, minimumBytes, err := assembler.measureResponse(result.candidates, measuredBytes, false)
 				if err != nil {
 					return false, err
@@ -245,13 +247,13 @@ func (s *Service) readSequentialRootPage(
 		if !complete && visited != len(batch) {
 			return rootPageReadResult{}, errors.New("hydrate relation values: incomplete batch")
 		}
+		releaseRootSuffix(request.hydrator, result.candidates, accepted)
 		promoted, err := request.hydrator.ensurePrefix(ctx, result.candidates, accepted)
 		if err != nil {
 			return rootPageReadResult{}, err
 		}
 		result.totalHydrated += promoted
-		retainedHydrated += promoted
-		result.maxRetainedHydrated = max(result.maxRetainedHydrated, retainedHydrated)
+		noteRetainedRoots(&result, result.candidates, 0)
 		if complete {
 			return finishRootPage(result, finalKeep, finalCursor), nil
 		}
@@ -263,14 +265,33 @@ func (s *Service) readSequentialRootPage(
 	if err != nil {
 		return rootPageReadResult{}, err
 	}
+	releaseRootSuffix(request.hydrator, result.candidates, keep)
 	promoted, err := request.hydrator.ensurePrefix(ctx, result.candidates, keep)
 	if err != nil {
 		return rootPageReadResult{}, err
 	}
 	result.totalHydrated += promoted
-	retainedHydrated += promoted
-	result.maxRetainedHydrated = max(result.maxRetainedHydrated, retainedHydrated)
+	noteRetainedRoots(&result, result.candidates, 0)
 	return finishRootPage(result, keep, cursor), nil
+}
+
+func releaseRootSuffix(hydrator *rootHydrator, candidates []pageCandidate, keep int) {
+	if keep < 0 {
+		keep = 0
+	}
+	for index := keep; index < len(candidates); index++ {
+		hydrator.release(&candidates[index])
+	}
+}
+
+func noteRetainedRoots(result *rootPageReadResult, candidates []pageCandidate, transient int) {
+	retained := transient
+	for index := range candidates {
+		if candidates[index].root != nil {
+			retained++
+		}
+	}
+	result.maxRetainedRoots = max(result.maxRetainedRoots, retained)
 }
 
 func scanRootRows(
@@ -314,7 +335,10 @@ func isResponseTooLarge(err error) bool {
 }
 
 func finishRootPage(result rootPageReadResult, keep int, cursor string) rootPageReadResult {
-	result.candidates = result.candidates[:keep]
+	for index := keep; index < len(result.candidates); index++ {
+		result.candidates[index] = pageCandidate{}
+	}
+	result.candidates = result.candidates[:keep:keep]
 	result.page.Items = make([]map[string]any, keep)
 	result.page.NextCursor = cursor
 	for index := range keep {

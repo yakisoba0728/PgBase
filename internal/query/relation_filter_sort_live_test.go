@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"reflect"
-	"sort"
 	"testing"
 	"time"
 
@@ -84,66 +83,6 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	})
 	if !IsInvalidCursor(err) {
 		t.Fatalf("cursor after target sort mutation error = %v, want invalid cursor", err)
-	}
-}
-
-func TestListRelationAwarePolicyHidesTargetWithoutExistenceOracle(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
-	policy := projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-		if collection.Name == "relation_query_people" {
-			predicate, err := AllowRecordIDs(fixture.bob)
-			return predicate, AllFields(), err
-		}
-		return AllowAllRecords(), AllFields(), nil
-	})
-	secured := NewServiceWithProjectionPolicy(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), policy, nil, nil)
-
-	for _, target := range []uuid.UUID{fixture.ada, uuid.MustParse("ffffffff-ffff-4fff-8fff-ffffffffffff")} {
-		page, err := secured.ListRelationAware(ctx, RelationListRequest{
-			Principal: Principal{}, Collection: "relation_query_posts", Limit: 10,
-			Filter: "owner = '" + target.String() + "'",
-		})
-		if err != nil {
-			t.Fatalf("policy-filter target %s: %v", target, err)
-		}
-		if len(page.Items) != 0 || page.NextCursor != "" {
-			t.Fatalf("policy-filter target %s returned %#v", target, page)
-		}
-	}
-
-	missingOwner, err := records.Create(ctx, "relation_query_posts", map[string]json.RawMessage{
-		"title": json.RawMessage(`"post-without-owner"`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	missingOwnerID := uuid.MustParse(missingOwner["id"].(string))
-	secured.now = func() time.Time { return time.Date(2026, 8, 31, 8, 30, 0, 0, time.UTC) }
-	var sorted []string
-	cursor := ""
-	for range 3 {
-		page, err := secured.ListRelationAware(ctx, RelationListRequest{
-			Principal: Principal{}, Collection: "relation_query_posts", Cursor: cursor, Limit: 1, Sort: "owner.name",
-		})
-		if err != nil {
-			t.Fatalf("policy relation-sort page: %v", err)
-		}
-		if len(page.Items) != 1 {
-			t.Fatalf("policy relation-sort page items = %d", len(page.Items))
-		}
-		sorted = append(sorted, page.Items[0]["id"].(string))
-		cursor = page.NextCursor
-	}
-	if cursor != "" {
-		t.Fatalf("policy relation-sort final cursor = %q", cursor)
-	}
-	nullIDs := []string{fixture.postAda.String(), missingOwnerID.String()}
-	sort.Strings(nullIDs)
-	wantSorted := append([]string{fixture.postBob.String()}, nullIDs...)
-	if !reflect.DeepEqual(sorted, wantSorted) {
-		t.Fatalf("policy relation-sort ids = %v, want visible then stable hidden/missing %v", sorted, wantSorted)
 	}
 }
 

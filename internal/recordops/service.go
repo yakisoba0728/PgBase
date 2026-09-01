@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -23,6 +21,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -33,7 +32,6 @@ const (
 	idempotencyLifetime   = 24 * time.Hour
 	maximumIfMatchBytes   = 1024
 	maximumEntityTags     = 8
-	recordCodecVersion    = 1
 	outboxEnvelopeVersion = 1
 )
 
@@ -103,56 +101,9 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 	if request.ID == uuid.Nil {
 		return Record{}, &Error{Code: CodeInvalidRequest}
 	}
-	var result Record
-	err = s.inTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		var root, response map[string]any
-		if request.Expand == "" {
-			var err error
-			root, err = readRecordWithRelations(ctx, tx, catalog, collection, request.ID, false)
-			if err != nil {
-				return err
-			}
-			response = root
-		} else {
-			base, err := readRecord(ctx, tx, collection, request.ID, false)
-			if err != nil {
-				return err
-			}
-			expanded, err := s.reader.ExpandBaseRecords(ctx, tx, catalog, collection, []map[string]any{base}, query.ExpandRequest{
-				Principal: request.Principal,
-				Expand:    request.Expand,
-			})
-			if err != nil {
-				return err
-			}
-			if len(expanded) != 1 {
-				return errors.New("record expansion returned an invalid result")
-			}
-			root = expanded[0].Root
-			response, err = expanded[0].Flatten()
-			if err != nil {
-				return err
-			}
-		}
-		digest, err := schemaDigest(collection)
-		if err != nil {
-			return err
-		}
-		version, validator, present, err := readRevision(ctx, tx, collection.ID, request.ID)
-		if err != nil {
-			return err
-		}
-		etag, err := recordETag(collection.ID, request.ID, digest, root, validator, present)
-		if err != nil {
-			return err
-		}
-		result = Record{Data: response, ETag: etag, Version: version}
-		return nil
+	return s.reader.Get(ctx, query.GetRequest{
+		Principal: request.Principal, Collection: request.Collection, ID: request.ID, Expand: request.Expand,
 	})
-	if err != nil {
-		return Record{}, err
-	}
-	return result, nil
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
@@ -166,7 +117,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, err
 	}
-	requestHash := digestParts("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest)
+	requestHash := recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest)
 
 	compatibility := CompatibilityNone
 	var keyHash []byte
@@ -176,7 +127,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if !validIdempotencyKey(request.IdempotencyKey) {
 			return MutationResult{}, &Error{Code: CodeInvalidIdempotencyKey}
 		}
-		digest := digestParts("pgbase-idempotency-key-v1", []byte(request.IdempotencyKey))
+		digest := recordartifact.Digest("pgbase-idempotency-key-v1", []byte(request.IdempotencyKey))
 		keyHash = digest[:]
 	}
 
@@ -232,11 +183,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := relations.hydrate(ctx, tx, recordID, data); err != nil {
 			return err
 		}
-		digest, err := schemaDigest(collection)
+		digest, err := recordartifact.SchemaDigest(collection)
 		if err != nil {
 			return err
 		}
-		etag := revisionETag(collection.ID, recordID, digest, validator)
+		etag := recordartifact.RevisionETag(collection.ID, recordID, digest, validator)
 		record := &Record{Data: data, ETag: etag, Version: 1}
 		changed := committedUserFields(collection)
 		if err := writeAudit(ctx, tx, auditWrite{
@@ -248,7 +199,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		}); err != nil {
 			return err
 		}
-		if err := writeRevision(ctx, tx, collection.ID, recordID, 0, 1, validator, eventID); err != nil {
+		if err := recordartifact.WriteRevision(ctx, tx, collection.ID, recordID, 0, 1, validator, eventID); err != nil {
 			return err
 		}
 		if err := writeOutbox(ctx, tx, eventID, collection, recordID, "create", 1,
@@ -256,7 +207,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return err
 		}
 		if len(keyHash) > 0 {
-			body, err := canonicalRecord(data)
+			body, err := recordartifact.CanonicalRecord(data)
 			if err != nil {
 				return err
 			}
@@ -288,7 +239,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, err
 	}
-	inputHash := digestParts("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest)
+	inputHash := recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest)
 	eventID, err := uuid.NewV7()
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
@@ -325,15 +276,15 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := relations.hydrate(ctx, tx, request.ID, before); err != nil {
 			return err
 		}
-		digest, err := schemaDigest(collection)
+		digest, err := recordartifact.SchemaDigest(collection)
 		if err != nil {
 			return err
 		}
-		previousVersion, previousValidator, revisionPresent, err := readRevision(ctx, tx, collection.ID, request.ID)
+		previousVersion, previousValidator, revisionPresent, err := recordartifact.ReadRevision(ctx, tx, collection.ID, request.ID)
 		if err != nil {
 			return err
 		}
-		previousETag, err := recordETag(collection.ID, request.ID, digest, before, previousValidator, revisionPresent)
+		previousETag, err := recordartifact.ETag(collection.ID, request.ID, digest, before, previousValidator, revisionPresent)
 		if err != nil {
 			return err
 		}
@@ -352,7 +303,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 			return err
 		}
 		newVersion := previousVersion + 1
-		newETag := revisionETag(collection.ID, request.ID, digest, validator)
+		newETag := recordartifact.RevisionETag(collection.ID, request.ID, digest, validator)
 		changed := sortedInputFields(request.Input)
 		if err := writeAudit(ctx, tx, auditWrite{
 			EventID: eventID, Principal: request.Principal, RequestID: request.RequestID,
@@ -364,7 +315,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}); err != nil {
 			return err
 		}
-		if err := writeRevision(ctx, tx, collection.ID, request.ID, previousVersion, newVersion, validator, eventID); err != nil {
+		if err := recordartifact.WriteRevision(ctx, tx, collection.ID, request.ID, previousVersion, newVersion, validator, eventID); err != nil {
 			return err
 		}
 		if err := writeOutbox(ctx, tx, eventID, collection, request.ID, "update", newVersion,
@@ -393,7 +344,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	if request.ID == uuid.Nil {
 		return MutationResult{}, &Error{Code: CodeInvalidRequest}
 	}
-	inputHash := digestParts("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
+	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	eventID, err := uuid.NewV7()
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
@@ -813,43 +764,6 @@ func readRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, id
 	return record, query.NormalizeRecordError(err)
 }
 
-func readRevision(ctx context.Context, tx pgx.Tx, collectionID, recordID uuid.UUID) (int64, []byte, bool, error) {
-	var version int64
-	var validator []byte
-	err := tx.QueryRow(ctx, `SELECT version, validator FROM pgbase_meta.record_revisions
-		WHERE collection_id = $1 AND record_id = $2`, collectionID, recordID).Scan(&version, &validator)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil, false, nil
-	}
-	if err != nil {
-		return 0, nil, false, err
-	}
-	if version < 1 || len(validator) != 32 {
-		return 0, nil, false, errors.New("invalid record revision state")
-	}
-	return version, validator, true, nil
-}
-
-func writeRevision(ctx context.Context, tx pgx.Tx, collectionID, recordID uuid.UUID, previousVersion, newVersion int64, validator []byte, eventID uuid.UUID) error {
-	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_revisions
-		(collection_id, record_id, version, validator, last_event_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5, transaction_timestamp())
-		ON CONFLICT (collection_id, record_id) DO UPDATE SET
-			version = EXCLUDED.version,
-			validator = EXCLUDED.validator,
-			last_event_id = EXCLUDED.last_event_id,
-			updated_at = EXCLUDED.updated_at
-		WHERE pgbase_meta.record_revisions.version = $6`,
-		collectionID, recordID, newVersion, validator, eventID, previousVersion)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return errors.New("record revision changed outside the transaction kernel")
-	}
-	return nil
-}
-
 type auditWrite struct {
 	EventID            uuid.UUID
 	Principal          Principal
@@ -989,104 +903,8 @@ func writeIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, 
 }
 
 func advisoryLockKey(principal Principal, collectionScope, keyHash []byte) int64 {
-	digest := digestParts("pgbase-idempotency-lock-v1", []byte(principal.Kind), principal.ID[:], collectionScope, keyHash)
+	digest := recordartifact.Digest("pgbase-idempotency-lock-v1", []byte(principal.Kind), principal.ID[:], collectionScope, keyHash)
 	return int64(binary.BigEndian.Uint64(digest[:8]))
-}
-
-func schemaDigest(collection schema.Collection) ([32]byte, error) {
-	type digestRelation struct {
-		TargetCollectionID uuid.UUID                   `json:"targetCollectionId"`
-		Cardinality        schema.RelationCardinality  `json:"cardinality"`
-		MinSelect          int                         `json:"minSelect"`
-		MaxSelect          int                         `json:"maxSelect"`
-		OnDelete           schema.RelationDeleteAction `json:"onDelete"`
-		ValueCodecVersion  int                         `json:"valueCodecVersion"`
-	}
-	type digestField struct {
-		ID       uuid.UUID        `json:"id"`
-		Name     string           `json:"name"`
-		Type     schema.FieldType `json:"type"`
-		Ordinal  int              `json:"ordinal"`
-		Required bool             `json:"required"`
-		Unique   bool             `json:"unique"`
-		Indexed  bool             `json:"indexed"`
-		Default  json.RawMessage  `json:"default,omitempty"`
-		Relation *digestRelation  `json:"relation,omitempty"`
-	}
-	fields := append([]schema.Field(nil), collection.Fields...)
-	sort.Slice(fields, func(left, right int) bool {
-		if fields[left].Ordinal == fields[right].Ordinal {
-			return fields[left].ID.String() < fields[right].ID.String()
-		}
-		return fields[left].Ordinal < fields[right].Ordinal
-	})
-	encodedFields := make([]digestField, 0, len(fields))
-	for _, field := range fields {
-		var relation *digestRelation
-		if field.Type == schema.TypeRelation {
-			if field.Relation == nil {
-				return [32]byte{}, fmt.Errorf("encode schema digest: invalid relation")
-			}
-			relation = &digestRelation{
-				TargetCollectionID: field.Relation.TargetCollectionID,
-				Cardinality:        field.Relation.Cardinality,
-				MinSelect:          field.Relation.MinSelect,
-				MaxSelect:          field.Relation.MaxSelect,
-				OnDelete:           field.Relation.OnDelete,
-				ValueCodecVersion:  field.Relation.ValueCodecVersion,
-			}
-		} else if field.Relation != nil {
-			return [32]byte{}, fmt.Errorf("encode schema digest: invalid relation")
-		}
-		defaultValue := append(json.RawMessage(nil), field.Default...)
-		if len(defaultValue) > 0 {
-			canonical, err := canonicalJSON(defaultValue)
-			if err != nil {
-				return [32]byte{}, fmt.Errorf("encode schema digest: invalid default")
-			}
-			defaultValue = canonical
-		}
-		encodedFields = append(encodedFields, digestField{
-			ID: field.ID, Name: field.Name, Type: field.Type, Ordinal: field.Ordinal,
-			Required: field.Required, Unique: field.Unique, Indexed: field.Indexed,
-			Default: defaultValue, Relation: relation,
-		})
-	}
-	payload, err := json.Marshal(struct {
-		CodecVersion int           `json:"codecVersion"`
-		Fields       []digestField `json:"fields"`
-	}{CodecVersion: recordCodecVersion, Fields: encodedFields})
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("encode schema digest: %w", err)
-	}
-	return digestParts("pgbase-schema-v1", payload), nil
-}
-
-func recordETag(collectionID, recordID uuid.UUID, schemaDigest [32]byte, record map[string]any,
-	validator []byte, revisionPresent bool,
-) (string, error) {
-	if revisionPresent {
-		return revisionETag(collectionID, recordID, schemaDigest, validator), nil
-	}
-	body, err := canonicalRecord(record)
-	if err != nil {
-		return "", err
-	}
-	digest := digestParts("pgbase-record-etag-legacy-v1", collectionID[:], recordID[:], schemaDigest[:], body)
-	return `"pgb0.` + base64.RawURLEncoding.EncodeToString(digest[:]) + `"`, nil
-}
-
-func revisionETag(collectionID, recordID uuid.UUID, schemaDigest [32]byte, validator []byte) string {
-	digest := digestParts("pgbase-record-etag-v1", collectionID[:], recordID[:], validator, schemaDigest[:])
-	return `"pgb1.` + base64.RawURLEncoding.EncodeToString(digest[:]) + `"`
-}
-
-func canonicalRecord(record map[string]any) ([]byte, error) {
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return nil, fmt.Errorf("encode canonical record: %w", err)
-	}
-	return encoded, nil
 }
 
 func decodeStoredRecord(body []byte) (map[string]any, error) {
@@ -1109,7 +927,7 @@ func decodeStoredRecord(body []byte) (map[string]any, error) {
 func canonicalInput(input map[string]json.RawMessage) ([]byte, error) {
 	canonical := make(map[string]json.RawMessage, len(input))
 	for name, raw := range input {
-		encoded, err := canonicalJSON(raw)
+		encoded, err := recordartifact.CanonicalJSON(raw)
 		if err != nil {
 			return nil, &query.ValidationError{Details: []query.ValidationDetail{{Field: name, Code: "type_mismatch"}}}
 		}
@@ -1120,41 +938,6 @@ func canonicalInput(input map[string]json.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("encode canonical record input: %w", err)
 	}
 	return encoded, nil
-}
-
-func canonicalJSON(raw []byte) ([]byte, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values")
-		}
-		return nil, err
-	}
-	return json.Marshal(value)
-}
-
-func digestParts(domain string, parts ...[]byte) [32]byte {
-	hash := sha256.New()
-	writeDigestPart(hash, []byte(domain))
-	for _, part := range parts {
-		writeDigestPart(hash, part)
-	}
-	var digest [32]byte
-	copy(digest[:], hash.Sum(nil))
-	return digest
-}
-
-func writeDigestPart(destination io.Writer, part []byte) {
-	var size [8]byte
-	binary.BigEndian.PutUint64(size[:], uint64(len(part)))
-	_, _ = destination.Write(size[:])
-	_, _ = destination.Write(part)
 }
 
 func sortedInputFields(input map[string]json.RawMessage) []string {

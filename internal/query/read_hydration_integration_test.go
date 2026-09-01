@@ -33,7 +33,7 @@ type r0HydrationTrace struct {
 func (t *r0HydrationTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	statement := strings.ToLower(strings.TrimSpace(data.SQL))
 	if !strings.HasPrefix(statement, "with requested(source_id, source_ordinal)") ||
-		!strings.Contains(statement, "hydration_rows") {
+		!strings.Contains(statement, "hydration_edges") {
 		return ctx
 	}
 	t.queryCount++
@@ -154,8 +154,12 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatal(err)
 	}
 	collection := catalog.Collections[root.Name]
+	plan, err := scalarRootPlan(collection, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := records.readRootPageInTx(ctx, tx, rootPageReadRequest{
-		plan:  scalarRootPlan(collection, nil, nil),
+		plan:  plan,
 		limit: r0HydrationRootCount, operationTime: operationTime,
 		hydrator: newRootHydrator(tx, catalog, collection),
 	})
@@ -169,7 +173,7 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	wantHydrated := r0HydrationEmitted + 1
 	wantPrefetched := ((wantHydrated + rootHydrationBatchSize - 1) / rootHydrationBatchSize) * rootHydrationBatchSize
 	wantQueries := wantPrefetched / rootHydrationBatchSize
-	wantRows := wantPrefetched*(r0HydrationTargetCount+1) - 1 // one sentinel per root, minus the drift fixture edge
+	wantRows := wantPrefetched // one replay result row per requested root
 	if trace.queryCount != wantQueries || trace.rootCount != wantPrefetched ||
 		trace.rowCount != int64(wantRows) {
 		t.Fatalf("hydration trace queries/roots/rows = %d/%d/%d, want %d/%d/%d",
@@ -179,9 +183,9 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	if result.totalHydrated != wantHydrated {
 		t.Fatalf("total sequential hydration = %d, want %d", result.totalHydrated, wantHydrated)
 	}
-	if result.maxRetainedHydrated > len(result.page.Items)+1 {
-		t.Fatalf("maximum retained hydrated roots = %d, emitted = %d; want emitted + one lookahead",
-			result.maxRetainedHydrated, len(result.page.Items))
+	if result.maxRetainedRoots > len(result.page.Items)+1 {
+		t.Fatalf("maximum retained root maps = %d, emitted = %d; want emitted + one lookahead",
+			result.maxRetainedRoots, len(result.page.Items))
 	}
 	if len(result.page.Items) != r0HydrationEmitted || result.page.NextCursor == "" {
 		t.Fatalf("emitted page items/cursor = %d/%t, want %d/true",
@@ -192,6 +196,93 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatalf("public List and traced root kernel disagree: public=%v/%q traced=%v/%q",
 			recordIDs(publicPage.Items), publicPage.NextCursor,
 			recordIDs(result.page.Items), result.page.NextCursor)
+	}
+}
+
+func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) {
+	_, pool, schemas, records := newR0QueryServiceTest(t)
+	ctx := context.Background()
+	applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "large_scalar_targets",
+		Fields: []schema.FieldInput{
+			{Name: "name", Type: schema.TypeText},
+		},
+	})
+	maximum := 2
+	root := applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "large_scalar_roots",
+		Fields: []schema.FieldInput{
+			{Name: "payload", Type: schema.TypeText, Required: true},
+			{Name: "links_a", Type: schema.TypeRelation, Relation: &schema.RelationInput{
+				TargetCollection: "large_scalar_targets", Cardinality: schema.RelationMultiple,
+				MaxSelect: &maximum, OnDelete: schema.RelationRestrict,
+			}},
+			{Name: "links_b", Type: schema.TypeRelation, Relation: &schema.RelationInput{
+				TargetCollection: "large_scalar_targets", Cardinality: schema.RelationMultiple,
+				MaxSelect: &maximum, OnDelete: schema.RelationRestrict,
+			}},
+		},
+	})
+
+	const rootCount = 8
+	const payloadBytes = maximumUnindexedTextBytes
+	table := pgx.Identifier{"app", root.TableName}.Sanitize()
+	if tag, err := pool.Exec(ctx, `INSERT INTO `+table+` (id, created_at, updated_at, payload)
+		SELECT md5('large-scalar-root-' || value::text)::uuid,
+			'2026-01-03 00:00:00+00'::timestamptz + value * interval '1 microsecond',
+			'2026-01-03 00:00:00+00'::timestamptz + value * interval '1 microsecond',
+			repeat('x', $2::integer)
+		FROM generate_series(1, $1::integer) AS generated(value)`, rootCount, payloadBytes); err != nil {
+		t.Fatal(err)
+	} else if tag.RowsAffected() != rootCount {
+		t.Fatalf("large scalar fixture rows = %d, want %d", tag.RowsAffected(), rootCount)
+	}
+
+	operationTime := time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC)
+	records.now = func() time.Time { return operationTime }
+	publicPage, err := records.listScalar(ctx, root.Name, "", rootCount, "", "")
+	if err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	if len(publicPage.Items) != 3 || publicPage.NextCursor == "" {
+		t.Fatalf("large scalar public page items/cursor = %d/%t, want 3/true",
+			len(publicPage.Items), publicPage.NextCursor != "")
+	}
+
+	var result rootPageReadResult
+	if err := pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		catalog, err := schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
+		}
+		collection := catalog.Collections[root.Name]
+		plan, err := scalarRootPlan(collection, nil, nil)
+		if err != nil {
+			return err
+		}
+		result, err = records.readRootPageInTx(ctx, tx, rootPageReadRequest{
+			plan: plan, limit: rootCount, operationTime: operationTime,
+			hydrator: newRootHydrator(tx, catalog, collection),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("large scalar root kernel: %v", err)
+	}
+	if result.maxRetainedRoots != 4 || result.totalHydrated != 4 {
+		t.Fatalf("large scalar retained/hydrated/emitted = %d/%d/%d, want emitted+1/emitted+1/emitted",
+			result.maxRetainedRoots, result.totalHydrated, len(result.page.Items))
+	}
+	for index, item := range result.page.Items {
+		payload, payloadOK := item["payload"].(string)
+		if !payloadOK || len(payload) != payloadBytes || !reflect.DeepEqual(item["links_a"], []string{}) ||
+			!reflect.DeepEqual(item["links_b"], []string{}) {
+			t.Fatalf("large scalar replay item %d payload/links = %T:%d/%#v/%#v",
+				index, item["payload"], len(payload), item["links_a"], item["links_b"])
+		}
+	}
+	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) || publicPage.NextCursor != result.page.NextCursor {
+		t.Fatalf("large scalar public and kernel pages disagree: public=%v/%q kernel=%v/%q",
+			recordIDs(publicPage.Items), publicPage.NextCursor, recordIDs(result.page.Items), result.page.NextCursor)
 	}
 }
 
@@ -244,12 +335,12 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			candidates[index] = pageCandidate{root: item, wire: item, cursorValues: values}
+			candidates[index] = pageCandidate{id: uuid.MustParse(item[systemFieldID].(string)), root: item, wire: item, cursorValues: values}
 		}
 		return candidates
 	}
 	assembler := pageAssembler{
-		cursors: records.cursors, collectionID: root.ID, sortKeys: effectiveSortKeys(nil),
+		cursors: records.cursors, order: pageOrderForTest(root.ID, effectiveSortKeys(nil)),
 		expiresAt: time.Date(2026, 9, 2, 2, 0, 0, 0, time.UTC), maximumBytes: maximumRecordPageBytes,
 	}
 	candidates := buildCandidates()
@@ -323,8 +414,12 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 			return err
 		}
 		collection := catalog.Collections[root.Name]
+		plan, err := scalarRootPlan(collection, nil, nil)
+		if err != nil {
+			return err
+		}
 		kernel, err = records.readRootPageInTx(ctx, tx, rootPageReadRequest{
-			plan: scalarRootPlan(collection, nil, nil), limit: 2,
+			plan: plan, limit: 2,
 			operationTime: assembler.expiresAt.Add(-cursorTTL),
 			hydrator:      newRootHydrator(tx, catalog, collection),
 		})
@@ -332,8 +427,8 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 	}); err != nil {
 		t.Fatalf("traced root kernel: %v", err)
 	}
-	if !reflect.DeepEqual(kernel.page, page) || kernel.totalHydrated != 3 || kernel.maxRetainedHydrated > 2 {
+	if !reflect.DeepEqual(kernel.page, page) || kernel.totalHydrated != 3 || kernel.maxRetainedRoots > 2 {
 		t.Fatalf("terminal recovery kernel page/hydrated/retained = %#v/%d/%d, want public page/3/<=2",
-			kernel.page, kernel.totalHydrated, kernel.maxRetainedHydrated)
+			kernel.page, kernel.totalHydrated, kernel.maxRetainedRoots)
 	}
 }

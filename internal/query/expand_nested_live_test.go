@@ -150,7 +150,7 @@ func TestGetExpandedHydratesCatalogIncomingReversePathsInDeterministicOrder(t *t
 	}
 }
 
-func TestReverseExpandAppliesPolicyBeforeJobWideNodeBudget(t *testing.T) {
+func TestReverseExpandEnforcesJobWideNodeBudget(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
@@ -179,7 +179,6 @@ func TestReverseExpandAppliesPolicyBeforeJobWideNodeBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondParentID := uuid.MustParse(secondParent["id"].(string))
-	firstChildID := uuid.MustParse("00000000-0000-4000-8000-000000000001")
 	table := pgx.Identifier{"app", "reverse_children"}.Sanitize()
 	if _, err := pool.Exec(ctx, `insert into `+table+` (id, created_at, updated_at, name, parent)
 		select ('00000000-0000-4000-8000-' || lpad(value::text, 12, '0'))::uuid,
@@ -200,61 +199,6 @@ func TestReverseExpandAppliesPolicyBeforeJobWideNodeBudget(t *testing.T) {
 	// cannot be multiplied by the number of roots.
 	_, err = records.ListExpanded(ctx, request)
 	assertValidationDetail(t, err, "expand", "expand_budget_exceeded")
-
-	records.policy = projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-		if collection.Name == "reverse_children" {
-			return DenyAllRecords(), AllFields(), nil
-		}
-		return AllowAllRecords(), AllFields(), nil
-	})
-	hidden, err := records.ListExpanded(ctx, request)
-	if err != nil {
-		t.Fatalf("deny-all reverse expand: %v", err)
-	}
-	for _, item := range hidden.Items {
-		children, ok := item.Expand["reverse_children_via_parent"].([]map[string]any)
-		if !ok || len(children) != 0 {
-			t.Fatalf("deny-all reverse children = %#v", item.Expand["reverse_children_via_parent"])
-		}
-	}
-	if hidden.querySteps != 1 {
-		t.Fatalf("deny-all reverse query steps = %d, want root batch only", hidden.querySteps)
-	}
-
-	allowed, err := AllowRecordIDs(firstChildID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	records.policy = projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-		if collection.Name == "reverse_children" {
-			return allowed, ProjectFields("name"), nil
-		}
-		return AllowAllRecords(), AllFields(), nil
-	})
-	visible, err := records.ListExpanded(ctx, request)
-	if err != nil {
-		t.Fatalf("policy-filtered reverse expand: %v", err)
-	}
-	if len(visible.Items) != 2 {
-		t.Fatalf("policy-filtered roots = %d, want 2", len(visible.Items))
-	}
-	visibleChildren := make([]map[string]any, 0, 1)
-	for _, item := range visible.Items {
-		children, ok := item.Expand["reverse_children_via_parent"].([]map[string]any)
-		if !ok {
-			t.Fatalf("policy-filtered reverse children = %#v", item.Expand["reverse_children_via_parent"])
-		}
-		visibleChildren = append(visibleChildren, children...)
-	}
-	if len(visibleChildren) != 1 || visibleChildren[0]["id"] != firstChildID.String() || visibleChildren[0]["name"] != "child-1" {
-		t.Fatalf("policy-filtered reverse children = %#v", visibleChildren)
-	}
-	if visibleChildren[0]["parent"] != nil {
-		t.Fatalf("FieldSet leaked reverse relation: %#v", visibleChildren[0])
-	}
-	if visible.querySteps != 3 {
-		t.Fatalf("policy-filtered reverse query steps = %d, want base + discovery + target batch", visible.querySteps)
-	}
 }
 
 func TestNestedForwardExpandBoundsSelfCycleByRequestedDepth(t *testing.T) {
@@ -315,158 +259,6 @@ func TestNestedForwardExpandBoundsSelfCycleByRequestedDepth(t *testing.T) {
 		}
 		current = current["expand"].(map[string]any)["parent"].(map[string]any)
 	}
-}
-
-func TestExpandedTargetProjectionHydratesOnlySelectedMultiRelations(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name: "projection_labels",
-		Fields: []schema.FieldInput{
-			{Name: "name", Type: schema.TypeText},
-		},
-	})
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name: "projection_targets",
-		Fields: []schema.FieldInput{
-			{Name: "name", Type: schema.TypeText},
-			{Name: "small", Type: schema.TypeRelation, Relation: &schema.RelationInput{
-				TargetCollection: "projection_labels", Cardinality: schema.RelationMultiple,
-				MinSelect: expandInt(0), MaxSelect: expandInt(4), OnDelete: schema.RelationRestrict,
-			}},
-			{Name: "large", Type: schema.TypeRelation, Relation: &schema.RelationInput{
-				TargetCollection: "projection_labels", Cardinality: schema.RelationMultiple,
-				MinSelect: expandInt(0), MaxSelect: expandInt(4), OnDelete: schema.RelationRestrict,
-			}},
-		},
-	})
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name: "projection_roots",
-		Fields: []schema.FieldInput{
-			{Name: "owner", Type: schema.TypeRelation, Relation: &schema.RelationInput{
-				TargetCollection: "projection_targets", Cardinality: schema.RelationSingle,
-				OnDelete: schema.RelationRestrict,
-			}},
-		},
-	})
-	labels := make([]uuid.UUID, 4)
-	for index := range labels {
-		record, err := records.Create(ctx, "projection_labels", map[string]json.RawMessage{
-			"name": json.RawMessage(`"label"`),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		labels[index] = uuid.MustParse(record["id"].(string))
-	}
-	target, err := records.Create(ctx, "projection_targets", map[string]json.RawMessage{"name": json.RawMessage(`"visible"`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetID := uuid.MustParse(target["id"].(string))
-	insertExpandEdges(t, ctx, pool, "projection_targets", "small", targetID, labels[0])
-	insertExpandEdges(t, ctx, pool, "projection_targets", "large", targetID, labels...)
-	root, err := records.Create(ctx, "projection_roots", map[string]json.RawMessage{
-		"owner": json.RawMessage(`"` + targetID.String() + `"`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	records.policy = projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-		if collection.Name == "projection_targets" {
-			return AllowAllRecords(), ProjectFields("name", "small"), nil
-		}
-		return AllowAllRecords(), AllFields(), nil
-	})
-	records.expandLimits.maxRows = 2
-
-	expanded, err := records.GetExpanded(ctx, GetRequest{
-		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-		Collection: "projection_roots",
-		ID:         uuid.MustParse(root["id"].(string)),
-		Expand:     "owner",
-	})
-	if err != nil {
-		t.Fatalf("projected target expand: %v", err)
-	}
-	owner := expanded.Expand["owner"].(map[string]any)
-	if !reflect.DeepEqual(owner["small"], []string{labels[0].String()}) || owner["large"] != nil {
-		t.Fatalf("projected target = %#v", owner)
-	}
-	if expanded.querySteps != 3 {
-		t.Fatalf("projected target query steps = %d, want base + target + selected hydration", expanded.querySteps)
-	}
-}
-
-func TestNestedExpandStopsBeforeHiddenIntermediateFieldAndFiltersVisibleLeaf(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	posts, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := GetRequest{
-		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-		Collection: "expand_posts",
-		ID:         uuid.MustParse(posts.Items[0]["id"].(string)),
-		Expand:     "owner.labels",
-	}
-
-	t.Run("hidden intermediate relation does not call leaf policy or query leaf", func(t *testing.T) {
-		labelPolicyCalls := 0
-		records.policy = projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-			switch collection.Name {
-			case "expand_people":
-				return AllowAllRecords(), ProjectFields("name"), nil
-			case "expand_labels":
-				labelPolicyCalls++
-			}
-			return AllowAllRecords(), AllFields(), nil
-		})
-		result, err := records.GetExpanded(ctx, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		owner := result.Expand["owner"].(map[string]any)
-		if owner["name"] != "Ada" || owner["labels"] != nil || owner["expand"] != nil {
-			t.Fatalf("hidden intermediate projection = %#v", owner)
-		}
-		if labelPolicyCalls != 0 {
-			t.Fatalf("hidden child invoked leaf policy %d times", labelPolicyCalls)
-		}
-		if result.querySteps != 3 {
-			t.Fatalf("hidden child query steps = %d, want base/root hydration + owner batch", result.querySteps)
-		}
-	})
-
-	t.Run("visible leaf predicate filters before attachment", func(t *testing.T) {
-		allowed, err := AllowRecordIDs(graph.firstLabel)
-		if err != nil {
-			t.Fatal(err)
-		}
-		records.policy = projectionPolicyFunc(func(_ context.Context, _ Principal, collection schema.Collection, _ ReadAction) (Predicate, FieldSet, error) {
-			if collection.Name == "expand_labels" {
-				return allowed, ProjectFields("name"), nil
-			}
-			return AllowAllRecords(), AllFields(), nil
-		})
-		result, err := records.GetExpanded(ctx, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		owner := result.Expand["owner"].(map[string]any)
-		if !reflect.DeepEqual(owner["labels"], []string{graph.secondLabel.String(), graph.firstLabel.String()}) {
-			t.Fatalf("leaf policy changed raw relation ids: %#v", owner["labels"])
-		}
-		labels := owner["expand"].(map[string]any)["labels"].([]map[string]any)
-		if len(labels) != 1 || labels[0]["id"] != graph.firstLabel.String() || labels[0]["name"] != "systems" {
-			t.Fatalf("policy-filtered nested labels = %#v", labels)
-		}
-		if result.querySteps != 5 {
-			t.Fatalf("visible nested leaf query steps = %d, want 5", result.querySteps)
-		}
-	})
 }
 
 func TestNestedReverseThenForwardExpansionBatchesEveryHop(t *testing.T) {

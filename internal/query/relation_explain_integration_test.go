@@ -77,11 +77,7 @@ func TestCurrentRelationFilterRootDescendingSortUsesFullSortInsteadOfPageIndex(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := compileRelationListPlan(
-		ctx, catalog, catalog.Collections[root.Name],
-		Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")},
-		AdminAllowAll{}, filter, effectiveSortKeys(requested),
-	)
+	plan, err := compileRelationListPlan(catalog, catalog.Collections[root.Name], filter, effectiveSortKeys(requested))
 	if err != nil {
 		t.Fatal(err)
 	}
