@@ -102,10 +102,7 @@ func checkCollections(ctx context.Context, db database.DBTX, report *Report) err
 	if err != nil {
 		return err
 	}
-	relations, err := classifyRelations(catalog, bindings, report)
-	if err != nil {
-		return err
-	}
+	relations := classifyRelations(catalog, bindings, report)
 
 	expectedColumns := make(map[string]map[string]struct{})
 	for _, row := range catalog {
@@ -206,8 +203,19 @@ func checkBaseColumns(ctx context.Context, db database.DBTX, table string, repor
 		{column: "updated_at", typeName: "timestamp with time zone"},
 	} {
 		column, typeName := expected.column, expected.typeName
-		if _, err := checkColumnType(ctx, db, table, column, typeName, report); err != nil {
+		present, err := checkColumnType(ctx, db, table, column, typeName, report)
+		if err != nil {
 			return err
+		}
+		if present && column != "id" {
+			var nullable string
+			if err := db.QueryRow(ctx, `select is_nullable from information_schema.columns
+				where table_schema = 'app' and table_name = $1 and column_name = $2`, table, column).Scan(&nullable); err != nil {
+				return fmt.Errorf("read collection base column nullability: %w", err)
+			}
+			if nullable != "NO" {
+				report.Findings = append(report.Findings, finding("collection_column_nullability_mismatch", "A collection base column has unexpected nullability"))
+			}
 		}
 	}
 	var hasPrimaryKey bool
@@ -238,6 +246,8 @@ func checkBaseColumns(ctx context.Context, db database.DBTX, table string, repor
 		from pg_index as indexes
 		join pg_class as tables on tables.oid = indexes.indrelid
 		join pg_namespace as schemas on schemas.oid = tables.relnamespace
+		join pg_class as index_tables on index_tables.oid = indexes.indexrelid
+		join pg_am as access_methods on access_methods.oid = index_tables.relam
 		join pg_attribute as created
 			on created.attrelid = tables.oid
 			and created.attname = 'created_at'
@@ -246,12 +256,20 @@ func checkBaseColumns(ctx context.Context, db database.DBTX, table string, repor
 			on identifier.attrelid = tables.oid
 			and identifier.attname = 'id'
 			and not identifier.attisdropped
+		join pg_opclass as created_opclass on created_opclass.oid = indexes.indclass[0]
+		join pg_opclass as identifier_opclass on identifier_opclass.oid = indexes.indclass[1]
 		where schemas.nspname = 'app' and tables.relname = $1
+			and access_methods.amname = 'btree'
 			and indexes.indisvalid and indexes.indisready and indexes.indislive
 			and indexes.indpred is null and indexes.indexprs is null
-			and indexes.indnkeyatts = 2
+			and indexes.indnkeyatts = 2 and indexes.indnatts = 2
 			and indexes.indkey[0] = created.attnum
-			and indexes.indkey[1] = identifier.attnum)`, table).Scan(&hasPageIndex); err != nil {
+			and indexes.indkey[1] = identifier.attnum
+			and indexes.indoption[0] = 0 and indexes.indoption[1] = 0
+			and created_opclass.opcdefault and created_opclass.opcmethod = index_tables.relam
+			and created_opclass.opcintype = created.atttypid
+			and identifier_opclass.opcdefault and identifier_opclass.opcmethod = index_tables.relam
+			and identifier_opclass.opcintype = identifier.atttypid)`, table).Scan(&hasPageIndex); err != nil {
 		return fmt.Errorf("check collection page index: %w", err)
 	}
 	if !hasPageIndex {
@@ -291,11 +309,19 @@ func checkField(ctx context.Context, db database.DBTX, table, column, fieldType 
 			from pg_index as indexes
 			join pg_class as tables on tables.oid = indexes.indrelid
 			join pg_namespace as schemas on schemas.oid = tables.relnamespace
-			join pg_attribute as columns on columns.attrelid = tables.oid and columns.attname = $2
+			join pg_class as index_tables on index_tables.oid = indexes.indexrelid
+			join pg_am as access_methods on access_methods.oid = index_tables.relam
+			join pg_attribute as columns on columns.attrelid = tables.oid and columns.attname = $2 and not columns.attisdropped
+			join pg_opclass as operator_classes on operator_classes.oid = indexes.indclass[0]
 			where schemas.nspname = 'app' and tables.relname = $1
+				and access_methods.amname = 'btree'
 				and indexes.indisvalid and indexes.indisready and indexes.indislive
 				and indexes.indpred is null and indexes.indexprs is null
-				and indexes.indnkeyatts = 1 and indexes.indkey[0] = columns.attnum
+				and indexes.indnkeyatts = 1 and indexes.indnatts = 1
+				and indexes.indkey[0] = columns.attnum and indexes.indoption[0] = 0
+				and operator_classes.opcdefault and operator_classes.opcmethod = index_tables.relam
+				and operator_classes.opcintype = columns.atttypid
+				and not indexes.indisprimary
 				and indexes.indisunique = $3)`, table, column, unique).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("check collection index: %w", err)
