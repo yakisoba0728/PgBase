@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "name": "ordinary help",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: pgbase <serve, migrate, admin, doctor> [arguments]\n"
+    },
+    {
+      "name": "unknown command",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "pgbase: unknown command \"unknown\"\nusage: pgbase <serve, migrate, admin, doctor> [arguments]\n"
+    },
+    {
+      "name": "invalid configuration",
+      "exit": 2,
+      "stdout": "",
+      "stderr": "pgbase: invalid configuration\n"
+    },
+    {
+      "name": "successful command streams",
+      "exit": 0,
+      "stdout": "system migrations: current=3 latest=3 dirty=false\n",
+      "stderr": "operator notice\n"
+    },
+    {
+      "name": "operational failure redaction",
+      "exit": 1,
+      "stdout": "partial result\n",
+      "stderr": "pgbase: command failed\n"
+    }
+  ]
+}
