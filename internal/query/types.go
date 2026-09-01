@@ -59,6 +59,19 @@ func validation(field, code string) error {
 	return &ValidationError{Details: []ValidationDetail{{Field: field, Code: code}}}
 }
 
+func validationField(err error, field string) bool {
+	var validationError *ValidationError
+	if !errors.As(err, &validationError) {
+		return false
+	}
+	for _, detail := range validationError.Details {
+		if detail.Field == field {
+			return true
+		}
+	}
+	return false
+}
+
 func invalidCursor() error { return &InvalidCursorError{} }
 
 func recordScanError(cause error) error { return &RecordScanError{cause: cause} }

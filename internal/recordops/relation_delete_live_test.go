@@ -687,7 +687,8 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		})
 		return err
 	}
-	retrying := NewService(pool, ensurer, []byte("0123456789abcdef0123456789abcdef"))
+	retrying := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	retrying.schemas = ensurer
 	firstValidator := bytes.Repeat([]byte{0x31}, 32)
 	secondValidator := bytes.Repeat([]byte{0x32}, 32)
 	retrying.random = bytes.NewReader(append(append([]byte(nil), firstValidator...), secondValidator...))

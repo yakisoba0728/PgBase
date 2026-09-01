@@ -9,6 +9,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
 
@@ -26,14 +27,11 @@ import (
 // has no way to know the size of the record it produces.
 const maximumRecordBytes = 2 << 20
 
-type PrincipalKind string
+type PrincipalKind = identity.Kind
 
-const PrincipalAdministrator PrincipalKind = "administrator"
+const PrincipalAdministrator PrincipalKind = identity.Administrator
 
-type Principal struct {
-	Kind PrincipalKind
-	ID   uuid.UUID
-}
+type Principal = identity.Subject
 
 type EntityTagSet struct {
 	Present bool

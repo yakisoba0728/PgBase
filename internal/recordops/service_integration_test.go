@@ -375,7 +375,8 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	}
 
 	counting := &countingCatalogEnsurer{inner: schemas}
-	records := NewService(pool, counting, []byte("0123456789abcdef0123456789abcdef"))
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	records.schemas = counting
 	_, err = records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: testRequestID, Collection: "records",
 		Input:          map[string]json.RawMessage{"title": json.RawMessage(`"lock-order"`)},

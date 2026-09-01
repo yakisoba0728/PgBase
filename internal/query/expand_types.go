@@ -7,23 +7,21 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 const (
-	PrincipalAdministrator PrincipalKind = "administrator"
+	PrincipalAdministrator PrincipalKind = identity.Administrator
 	ReadActionExpand       ReadAction    = "expand"
 )
 
-type PrincipalKind string
+type PrincipalKind = identity.Kind
 
 // Principal is the authenticated identity supplied to ProjectionPolicy. It is
-// intentionally query-owned so recordops and future public-auth adapters can
-// translate their principals without introducing a package cycle.
-type Principal struct {
-	Kind PrincipalKind
-	ID   uuid.UUID
-}
+// shared across application boundaries so callers can pass one typed subject
+// without translation.
+type Principal = identity.Subject
 
 type ReadAction string
 
@@ -92,7 +90,7 @@ type ProjectionPolicy interface {
 type AdminAllowAll struct{}
 
 func (AdminAllowAll) ReadScope(_ context.Context, principal Principal, _ schema.Collection, action ReadAction) (Predicate, FieldSet, error) {
-	if principal.Kind != PrincipalAdministrator || principal.ID == uuid.Nil {
+	if !principal.Valid() {
 		return Predicate{}, FieldSet{}, ErrProjectionDenied
 	}
 	switch action {

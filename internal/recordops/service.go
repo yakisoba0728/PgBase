@@ -53,7 +53,7 @@ type Service struct {
 	random   io.Reader
 }
 
-func NewService(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte, loggers ...*slog.Logger) *Service {
+func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
 	var logger *slog.Logger
 	if len(loggers) > 0 {
 		logger = loggers[0]
@@ -61,7 +61,7 @@ func NewService(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte
 	return NewServiceWithRecorder(pool, schemas, cursorSecret, logger, nil)
 }
 
-func NewServiceWithRecorder(pool *database.Pool, schemas CatalogEnsurer, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
+func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
 	return &Service{
 		pool: pool, schemas: schemas,
 		reader: query.NewServiceWithRecorder(pool, schemas, cursorSecret, logger, recorder),
@@ -70,47 +70,27 @@ func NewServiceWithRecorder(pool *database.Pool, schemas CatalogEnsurer, cursorS
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPage, err error) {
-	operationStarted := time.Now()
-	relationOperation := readTouchesRelationField(request.Expand, request.Filter, request.Sort)
-	defer s.finishRelationRecordOperation(ctx, relationReadOperation(request.Expand), operationStarted, &err, &relationOperation)
+	started := time.Now()
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
+		if readTouchesRelationField(request.Expand, request.Filter, request.Sort) {
+			s.record(ctx, observability.OperationEvent(
+				observability.ComponentRelation,
+				relationReadOperation(request.Expand),
+				relationOperationOutcome(err),
+				time.Since(started),
+			))
+		}
 		return RecordPage{}, err
 	}
-	if request.Expand != "" {
-		expandedPage, err := s.reader.ListExpanded(ctx, query.ListRequest{
-			Principal:  expansionPrincipal(request.Principal),
-			Collection: request.Collection,
-			Cursor:     request.Cursor,
-			Limit:      request.Limit,
-			Filter:     request.Filter,
-			Sort:       request.Sort,
-			Expand:     request.Expand,
-		})
-		if err != nil {
-			return RecordPage{}, err
-		}
-		result := RecordPage{Items: make([]map[string]any, len(expandedPage.Items)), NextCursor: expandedPage.NextCursor}
-		for index, expanded := range expandedPage.Items {
-			result.Items[index], err = expanded.Flatten()
-			if err != nil {
-				return RecordPage{}, err
-			}
-		}
-		return result, nil
-	}
-	// The reader owns the pinned catalog, so it is the only layer that can tell
-	// a bare relation field name (`sort=owner`) from a scalar column and report
-	// the relation work the request actually reached.
-	page, usedRelation, err := s.reader.ListRelationAwareUsage(ctx, query.RelationListRequest{
-		Principal:  expansionPrincipal(request.Principal),
+	return s.reader.List(ctx, query.ListRequest{
+		Principal:  request.Principal,
 		Collection: request.Collection,
 		Cursor:     request.Cursor,
 		Limit:      request.Limit,
 		Filter:     request.Filter,
 		Sort:       request.Sort,
+		Expand:     request.Expand,
 	})
-	relationOperation = relationOperation || usedRelation
-	return page, err
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {
@@ -139,7 +119,7 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 				return err
 			}
 			expanded, err := s.reader.ExpandBaseRecords(ctx, tx, catalog, collection, []map[string]any{base}, query.ExpandRequest{
-				Principal: expansionPrincipal(request.Principal),
+				Principal: request.Principal,
 				Expand:    request.Expand,
 			})
 			if err != nil {
@@ -173,10 +153,6 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 		return Record{}, err
 	}
 	return result, nil
-}
-
-func expansionPrincipal(principal Principal) query.Principal {
-	return query.Principal{Kind: query.PrincipalKind(principal.Kind), ID: principal.ID}
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
@@ -446,7 +422,7 @@ func (s *Service) validateRequest(principal Principal, requestID string) error {
 	if s == nil || s.pool == nil || s.schemas == nil || s.reader == nil || s.random == nil {
 		return errors.New("record operation service is unavailable")
 	}
-	if principal.Kind != PrincipalAdministrator || principal.ID == uuid.Nil {
+	if !principal.Valid() {
 		return &Error{Code: CodeInvalidPrincipal}
 	}
 	if !validRequestID(requestID) {

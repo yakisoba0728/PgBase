@@ -105,7 +105,7 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
 	sortKeys := effectiveSortKeys(query.Sort)
-	columns, err := resolveSortColumns(collection, sortKeys)
+	order, err := resolveOrderSpec(collection, sortKeys)
 	if err != nil {
 		return Statement{}, err
 	}
@@ -119,19 +119,18 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 		conditions = append(conditions, filterSQL)
 	}
 	if query.After != nil {
-		keysetSQL, err := compileKeyset(columns, query.After, builder)
+		keysetSQL, err := order.keyset(query.After, builder)
 		if err != nil {
 			return Statement{}, err
 		}
 		conditions = append(conditions, keysetSQL)
 	}
-	order := compileOrder(columns)
 	limit := builder.placeholder(normalizedFetchLimit(query.Limit))
 	statement := "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += order + " LIMIT " + limit
+	statement += order.orderBy() + " LIMIT " + limit
 	return Statement{SQL: statement, Args: builder.args}, nil
 }
 
@@ -153,37 +152,37 @@ func (b *statementBuilder) placeholder(value any) string {
 	return fmt.Sprintf("$%d", len(b.args))
 }
 
-type sortColumn struct {
-	name       string
-	desc       bool
-	nullsFirst bool
-	field      schema.Field
-}
-
-// resolveSortColumns maps logical sort keys to physical columns. Cursor-driven
+// resolveOrderSpec maps logical sort keys to physical ordering terms. Cursor-driven
 // resolution reports failures as invalid cursors instead of input validation.
-func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortColumn, error) {
-	columns := make([]sortColumn, 0, len(keys))
+func resolveOrderSpec(collection schema.Collection, keys []SortKey) (orderSpec, error) {
+	terms := make([]orderTerm, 0, len(keys))
 	for _, key := range keys {
 		field, ok := filterField(collection, key.Field)
 		if !ok || field.Type == schema.TypeJSONB {
 			if !ok {
-				return nil, validation("sort", "unknown_field")
+				return orderSpec{}, validation("sort", "unknown_field")
 			}
-			return nil, validation("sort", "unsupported_type")
+			return orderSpec{}, validation("sort", "unsupported_type")
 		}
 		if isMultipleRelation(field) {
-			return nil, validation("sort", "relation_sort_unsupported")
+			return orderSpec{}, validation("sort", "relation_sort_unsupported")
 		}
 		if !field.Indexed && !field.Unique {
-			return nil, validation("sort", "unindexed_field")
+			return orderSpec{}, validation("sort", "unindexed_field")
 		}
-		columns = append(columns, sortColumn{
-			name: field.ColumnName, desc: key.Desc,
-			nullsFirst: key.Desc && notNullColumn(field), field: field,
-		})
+		expression := quoted(field.ColumnName)
+		term := orderTerm{
+			expression:       expression,
+			cursorExpression: orderCursorExpression(expression, field),
+			cursorField:      field,
+			descending:       key.Desc,
+		}
+		if key.Desc && notNullColumn(field) {
+			term.nulls = orderNullsFirst
+		}
+		terms = append(terms, term)
 	}
-	return columns, nil
+	return orderSpec{terms: terms}, nil
 }
 
 // notNullColumn reports whether the physical column can never hold NULL. The
@@ -351,51 +350,6 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 	}
 }
 
-// compileKeyset builds the null-safe keyset predicate for the sort order. Every
-// sort column carries the NULLS placement compileOrder emits for it, and the
-// extra disjunct names exactly the rows that placement puts after the NULL
-// boundary: under NULLS LAST a non-NULL cursor value is followed by the NULL
-// rows and a NULL value has no successors on its own key, while under NULLS
-// FIRST a NULL cursor value is followed by the non-NULL rows and a non-NULL
-// value has none. Changing compileOrder without changing this predicate
-// silently duplicates or drops rows across a page boundary.
-func compileKeyset(columns []sortColumn, cursor *PageCursor, builder *statementBuilder) (string, error) {
-	if len(cursor.Values) != len(columns) {
-		return "", invalidCursor()
-	}
-	placeholders := make([]string, len(columns))
-	for index, raw := range cursor.Values {
-		value, err := decodeCursorValue(columns[index].field, raw)
-		if err != nil {
-			return "", err
-		}
-		placeholders[index] = builder.placeholder(value)
-	}
-	disjunctions := make([]string, 0, len(columns))
-	for index := range columns {
-		conjuncts := make([]string, 0, index+1)
-		for prior := 0; prior < index; prior++ {
-			conjuncts = append(conjuncts, "("+quoted(columns[prior].name)+" IS NOT DISTINCT FROM "+placeholders[prior]+")")
-		}
-		operator := ">"
-		if columns[index].desc {
-			operator = "<"
-		}
-		column := quoted(columns[index].name)
-		boundary := "(" + placeholders[index] + " IS NOT NULL AND " + column + " IS NULL)"
-		if columns[index].nullsFirst {
-			boundary = "(" + placeholders[index] + " IS NULL AND " + column + " IS NOT NULL)"
-		}
-		conjuncts = append(conjuncts, "("+column+" "+operator+" "+placeholders[index]+" OR "+boundary+")")
-		conjunction := strings.Join(conjuncts, " AND ")
-		if len(conjuncts) > 1 {
-			conjunction = "(" + conjunction + ")"
-		}
-		disjunctions = append(disjunctions, conjunction)
-	}
-	return "(" + strings.Join(disjunctions, " OR ") + ")", nil
-}
-
 // decodeCursorValue decodes a signed cursor position against the sort column's
 // declared type. Values that no longer decode — for example after a schema
 // change — invalidate the whole cursor.
@@ -408,22 +362,6 @@ func decodeCursorValue(field schema.Field, raw json.RawMessage) (any, error) {
 		return nil, invalidCursor()
 	}
 	return value, nil
-}
-
-func compileOrder(columns []sortColumn) string {
-	segments := make([]string, 0, len(columns))
-	for _, column := range columns {
-		direction := "ASC"
-		if column.desc {
-			direction = "DESC"
-		}
-		nulls := "NULLS LAST"
-		if column.nullsFirst {
-			nulls = "NULLS FIRST"
-		}
-		segments = append(segments, quoted(column.name)+" "+direction+" "+nulls)
-	}
-	return " ORDER BY " + strings.Join(segments, ", ")
 }
 
 func normalizedFetchLimit(limit int) int {

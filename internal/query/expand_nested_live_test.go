@@ -19,7 +19,7 @@ func TestListExpandedHydratesNestedForwardPathsBreadthFirstWithoutNPlusOne(t *te
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
 	records.now = func() time.Time { return time.Date(2026, 8, 31, 7, 0, 0, 0, time.UTC) }
-	base, err := records.List(ctx, "expand_posts", "", 2, "", "")
+	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestGetExpandedHydratesCatalogIncomingReversePathsInDeterministicOrder(t *t
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	posts, err := records.List(ctx, "expand_posts", "", 10, "", "")
+	posts, err := records.listScalar(ctx, "expand_posts", "", 10, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestNestedExpandStopsBeforeHiddenIntermediateFieldAndFiltersVisibleLeaf(t *
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	posts, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	posts, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

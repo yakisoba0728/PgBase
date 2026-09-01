@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -79,28 +80,46 @@ func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (Expanded
 	return result, err
 }
 
-func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (ExpandedRecordPage, error) {
+type listResult struct {
+	page       RecordPage
+	expanded   []ExpandedRecord
+	querySteps int
+}
+
+func (s *Service) readList(ctx context.Context, request ListRequest) (result listResult, err error) {
+	started := time.Now()
+	relationOperation := requestTextAddressesRelation(request.Expand, request.Filter, request.Sort)
+	defer s.finishReadOperation(
+		ctx, readTelemetryOperation(request.Expand), started, &err, &relationOperation,
+	)
 	if err := s.ready(); err != nil {
-		return ExpandedRecordPage{}, err
+		return listResult{}, err
 	}
-	if s.policy == nil {
-		return ExpandedRecordPage{}, errors.New("record expansion is unavailable")
+	if s.policy == nil || !request.Principal.Valid() {
+		return listResult{}, ErrProjectionDenied
 	}
 	filterNode, err := parseFilterRequest(request.Filter)
 	if err != nil {
-		return ExpandedRecordPage{}, err
+		return listResult{}, err
 	}
 	requestedSort, err := parseSort(request.Sort)
 	if err != nil {
-		return ExpandedRecordPage{}, err
+		return listResult{}, err
 	}
-	page := ExpandedRecordPage{Items: []ExpandedRecord{}}
+	result = listResult{page: RecordPage{Items: []map[string]any{}}}
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		usage := &expansionUsage{limits: s.expandLimits, pageResult: true}
-		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
-		if err != nil {
-			return err
+		var expansion expandPlan
+		var usage *expansionUsage
+		if request.Expand != "" {
+			usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
+			expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+			if err != nil {
+				return err
+			}
 		}
+		relationOperation = relationOperation || requestAddressesRelationField(
+			collection, filterNode, effectiveSortKeys(requestedSort),
+		)
 		relationPlan, err := compileRelationListPlan(
 			ctx,
 			catalog,
@@ -111,13 +130,22 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 			effectiveSortKeys(requestedSort),
 		)
 		if err != nil {
+			if request.Cursor != "" && validationField(err, "sort") {
+				return invalidCursor()
+			}
 			return err
 		}
-		root, err := s.readRelationRootPageInTx(ctx, tx, catalog, collection, relationRootPageReadRequest{
-			plan: relationPlan, cursorToken: request.Cursor, limit: request.Limit,
-			filter: filterNode, requestedSort: requestedSort, operationTime: s.now().UTC(),
-			charge: usage.takeQuerySteps,
-			hydrate: func(items []map[string]any) error {
+		rootRequest := rootPageReadRequest{
+			plan:        plannedRootPlan(collection, filterNode, requestedSort, relationPlan),
+			cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
+		}
+		if usage == nil {
+			rootRequest.hydrate = func(items []map[string]any) error {
+				return hydrateRelationRecords(ctx, tx, catalog, collection, items)
+			}
+		} else {
+			rootRequest.charge = usage.takeQuerySteps
+			rootRequest.hydrate = func(items []map[string]any) error {
 				if len(items) == 0 {
 					return nil
 				}
@@ -125,120 +153,53 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 					return err
 				}
 				return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, usage)
-			},
-		})
+			}
+		}
+		root, err := s.readRootPageInTx(ctx, tx, rootRequest)
 		if err != nil {
 			return err
+		}
+		if usage == nil {
+			result.page = root.page
+			return nil
 		}
 
 		expanded, err := s.executeExpandPlan(ctx, tx, catalog, root.page.Items, ExpandRequest{
 			Principal: request.Principal,
 			Expand:    request.Expand,
-		}, plan, usage)
+		}, expansion, usage)
 		if err != nil {
 			return err
 		}
-		page = ExpandedRecordPage{Items: expanded, NextCursor: root.page.NextCursor, querySteps: usage.querySteps}
-		return s.finalizeExpandedPage(&page, collection.ID, root)
+		candidates := make([]pageCandidate, len(expanded))
+		for index := range expanded {
+			candidates[index] = pageCandidate{
+				root: root.candidates[index].root, wire: expanded[index],
+				cursorValues: root.candidates[index].cursorValues, oversized: expanded[index].oversized,
+			}
+		}
+		assembler := pageAssembler{
+			cursors: s.cursors, collectionID: collection.ID, sortKeys: root.sortKeys,
+			private: root.privateCursor, expiresAt: root.expiresAt, maximumBytes: s.expandLimits.maxBytes,
+		}
+		keep, cursor, err := assembler.finish(candidates, root.page.NextCursor != "")
+		if err != nil {
+			return err
+		}
+		items := make([]map[string]any, keep)
+		for index := range keep {
+			items[index], err = expanded[index].Flatten()
+			if err != nil {
+				return err
+			}
+		}
+		result = listResult{
+			page:     RecordPage{Items: items, NextCursor: cursor},
+			expanded: expanded[:keep], querySteps: usage.querySteps,
+		}
+		return nil
 	}, request.Collection)
-	return page, err
-}
-
-// finalizeExpandedPage measures the exact JSON object the API emits the way
-// finalizeRecordPage does. Item encodings never change while the tail is
-// trimmed, so they are measured once and the running total is decremented per
-// dropped item; only the envelope is re-encoded per attempt, because its size
-// follows the continuation cursor, which follows the anchor record.
-// Re-marshalling the whole page on every attempt was quadratic in the page
-// size for a bound that is exceeded by a few kilobytes.
-func (s *Service) finalizeExpandedPage(
-	page *ExpandedRecordPage,
-	collectionID uuid.UUID,
-	root rootPageReadResult,
-) error {
-	// A record too large to represent on its own takes the whole tail with it
-	// before anything is measured, because ExpandedRecord.MarshalJSON refuses
-	// to encode one. Trimming to the first such record leaves none behind, so
-	// this runs at most once.
-	for index := range page.Items {
-		if !page.Items[index].oversized {
-			continue
-		}
-		if index == 0 {
-			return validation("response", "response_too_large")
-		}
-		if err := s.trimExpandedPage(page, index, collectionID, root); err != nil {
-			return err
-		}
-		break
-	}
-	itemBytes := make([]int, len(page.Items))
-	measured := 0
-	for index := range page.Items {
-		encoded, err := json.Marshal(page.Items[index])
-		if err != nil {
-			return fmt.Errorf("measure expanded record page response: %w", err)
-		}
-		itemBytes[index] = len(encoded)
-		measured += len(encoded)
-	}
-	for {
-		// An empty page encodes the exact envelope this page will emit; the
-		// items add their own bytes plus one separating comma each.
-		envelope, err := json.Marshal(ExpandedRecordPage{Items: []ExpandedRecord{}, NextCursor: page.NextCursor})
-		if err != nil {
-			return fmt.Errorf("measure expanded record page response: %w", err)
-		}
-		responseBytes := len(envelope) + measured
-		if len(page.Items) > 0 {
-			responseBytes += len(page.Items) - 1
-		}
-		if responseBytes+1 <= s.expandLimits.maxBytes {
-			return nil
-		}
-		if len(page.Items) <= 1 {
-			return validation("response", "response_too_large")
-		}
-		measured -= itemBytes[len(page.Items)-1]
-		if err := s.trimExpandedPage(page, len(page.Items)-1, collectionID, root); err != nil {
-			return err
-		}
-	}
-}
-
-func (s *Service) trimExpandedPage(
-	page *ExpandedRecordPage,
-	keep int,
-	collectionID uuid.UUID,
-	root rootPageReadResult,
-) error {
-	if keep <= 0 || keep > len(page.Items) {
-		return validation("response", "response_too_large")
-	}
-	page.Items = page.Items[:keep]
-	anchor := page.Items[len(page.Items)-1].Root
-	anchorID, err := canonicalRecordID(anchor)
-	if err != nil {
-		return errors.New("encode page cursor: invalid record id")
-	}
-	values, ok := root.cursorValuesByRoot[anchorID.String()]
-	if !ok {
-		values, err = recordSortValues(root.sortKeys, anchor)
-		if err != nil {
-			return err
-		}
-	} else {
-		values = cloneCursorValues(values)
-	}
-	page.NextCursor, err = s.cursors.Encode(PageCursor{
-		Version: cursorVersion, CollectionID: collectionID,
-		Sort: root.sortKeys, Values: values, AnchorID: anchorID,
-		PrivateValues: root.privateCursor, ExpiresAt: root.expiresAt,
-	})
-	if err != nil {
-		return err
-	}
-	return nil
+	return result, err
 }
 
 // ExpandRecords is the narrow executor seam for callers such as recordops

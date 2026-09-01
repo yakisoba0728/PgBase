@@ -22,18 +22,6 @@ const (
 	relationRootAlias           = "rq_root"
 )
 
-// RelationListRequest is the narrow authenticated seam for relation-aware
-// list queries. List keeps its positional compatibility contract; callers
-// which can supply an authenticated principal opt into this request instead.
-type RelationListRequest struct {
-	Principal  Principal
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-}
-
 type relationListPlan struct {
 	root          schema.Collection
 	filter        *plannedRelationFilter
@@ -368,7 +356,7 @@ func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, er
 	if err != nil {
 		return Statement{}, err
 	}
-	columns, joins, err := p.renderSortColumns(renderer, relationRootAlias, "rq_sort")
+	order, joins, err := p.renderOrderSpec(renderer, relationRootAlias, "rq_sort")
 	if err != nil {
 		return Statement{}, err
 	}
@@ -377,7 +365,7 @@ func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, er
 		conditions = append(conditions, filterSQL)
 	}
 	if after != nil {
-		keyset, err := compileRelationKeyset(columns, after, builder)
+		keyset, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
 		}
@@ -385,62 +373,50 @@ func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, er
 	}
 
 	selects := []string{selectedRelationRootColumns(p.root, relationRootAlias)}
-	for _, column := range columns {
-		if column.relation {
-			selects = append(selects, column.cursorExpression)
-		}
-	}
+	selects = order.appendHiddenCursorSelects(selects)
 	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.root) + " AS " + quoted(relationRootAlias)
 	sql += strings.Join(joins, "")
 	if len(conditions) != 0 {
 		sql += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	sql += compileRelationOrder(columns)
+	sql += order.orderBy()
 	sql += " LIMIT " + builder.placeholder(normalizedFetchLimit(limit))
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 
-type compiledRelationSort struct {
-	expression       string
-	cursorExpression string
-	desc             bool
-	field            schema.Field
-	relation         bool
-}
-
-func (p relationListPlan) renderSortColumns(
+func (p relationListPlan) renderOrderSpec(
 	renderer *relationSQLRenderer,
 	rootAlias string,
 	prefix string,
-) ([]compiledRelationSort, []string, error) {
-	columns := make([]compiledRelationSort, 0, len(p.sort))
+) (orderSpec, []string, error) {
+	terms := make([]orderTerm, 0, len(p.sort))
 	joins := make([]string, 0, len(p.sort)*maximumRelationSortDepth)
 	for index := range p.sort {
 		planned := &p.sort[index]
 		if planned.rootField != nil {
 			expression := qualified(rootAlias, planned.rootField.ColumnName)
-			columns = append(columns, compiledRelationSort{
+			terms = append(terms, orderTerm{
 				expression:       expression,
-				cursorExpression: relationCursorExpression(expression, *planned.rootField),
-				desc:             planned.key.Desc,
-				field:            *planned.rootField,
+				cursorExpression: orderCursorExpression(expression, *planned.rootField),
+				cursorField:      *planned.rootField,
+				descending:       planned.key.Desc,
 			})
 			continue
 		}
 		expression, pathJoins, err := renderRelationSortJoins(planned.path, renderer, rootAlias, prefix)
 		if err != nil {
-			return nil, nil, err
+			return orderSpec{}, nil, err
 		}
 		joins = append(joins, pathJoins...)
-		columns = append(columns, compiledRelationSort{
-			expression:       expression,
-			cursorExpression: relationCursorExpression(expression, planned.field),
-			desc:             planned.key.Desc,
-			field:            planned.field,
-			relation:         true,
+		terms = append(terms, orderTerm{
+			expression:        expression,
+			cursorExpression:  orderCursorExpression(expression, planned.field),
+			cursorField:       planned.field,
+			descending:        planned.key.Desc,
+			hiddenCursorValue: true,
 		})
 	}
-	return columns, joins, nil
+	return orderSpec{terms: terms}, joins, nil
 }
 
 func (p relationListPlan) anchorStatement(id uuid.UUID) (Statement, error) {
@@ -449,14 +425,11 @@ func (p relationListPlan) anchorStatement(id uuid.UUID) (Statement, error) {
 	}
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
-	columns, joins, err := p.renderSortColumns(renderer, relationRootAlias, "rq_anchor")
+	order, joins, err := p.renderOrderSpec(renderer, relationRootAlias, "rq_anchor")
 	if err != nil {
 		return Statement{}, err
 	}
-	selects := make([]string, 0, len(columns))
-	for _, column := range columns {
-		selects = append(selects, column.cursorExpression)
-	}
+	selects := order.cursorSelects()
 	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.root) + " AS " + quoted(relationRootAlias) +
 		strings.Join(joins, "") + " WHERE " + qualified(relationRootAlias, systemFieldID) + " = " + builder.placeholder(id)
 	return Statement{SQL: sql, Args: builder.args}, nil
@@ -610,13 +583,6 @@ func selectedRelationRootColumns(collection schema.Collection, alias string) str
 	return strings.Join(columns, ", ")
 }
 
-func relationCursorExpression(expression string, field schema.Field) string {
-	if field.Type == schema.TypeNumeric {
-		return expression + "::text"
-	}
-	return expression
-}
-
 func compileRelationPredicate(predicate Predicate, alias string, builder *statementBuilder) string {
 	switch predicate.kind {
 	case predicateAllowAll:
@@ -628,52 +594,6 @@ func compileRelationPredicate(predicate Predicate, alias string, builder *statem
 	default:
 		return "FALSE"
 	}
-}
-
-func compileRelationKeyset(columns []compiledRelationSort, cursor *PageCursor, builder *statementBuilder) (string, error) {
-	if cursor == nil || len(cursor.Values) != len(columns) {
-		return "", invalidCursor()
-	}
-	placeholders := make([]string, len(columns))
-	for index, raw := range cursor.Values {
-		value, err := decodeCursorValue(columns[index].field, raw)
-		if err != nil {
-			return "", err
-		}
-		placeholders[index] = builder.placeholder(value)
-	}
-	disjunctions := make([]string, 0, len(columns))
-	for index := range columns {
-		conjuncts := make([]string, 0, index+1)
-		for prior := 0; prior < index; prior++ {
-			conjuncts = append(conjuncts, "("+columns[prior].expression+" IS NOT DISTINCT FROM "+placeholders[prior]+")")
-		}
-		operator := ">"
-		if columns[index].desc {
-			operator = "<"
-		}
-		expression := columns[index].expression
-		conjuncts = append(conjuncts, "("+expression+" "+operator+" "+placeholders[index]+" OR ("+
-			placeholders[index]+" IS NOT NULL AND "+expression+" IS NULL))")
-		conjunction := strings.Join(conjuncts, " AND ")
-		if len(conjuncts) > 1 {
-			conjunction = "(" + conjunction + ")"
-		}
-		disjunctions = append(disjunctions, conjunction)
-	}
-	return "(" + strings.Join(disjunctions, " OR ") + ")", nil
-}
-
-func compileRelationOrder(columns []compiledRelationSort) string {
-	parts := make([]string, 0, len(columns))
-	for _, column := range columns {
-		direction := "ASC"
-		if column.desc {
-			direction = "DESC"
-		}
-		parts = append(parts, column.expression+" "+direction+" NULLS LAST")
-	}
-	return " ORDER BY " + strings.Join(parts, ", ")
 }
 
 func qualified(alias, column string) string { return quoted(alias) + "." + quoted(column) }

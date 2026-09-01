@@ -160,7 +160,7 @@ func TestListRelationAwareKeepsScalarListCursorExactlyCompatible(t *testing.T) {
 		}
 	}
 	records.now = func() time.Time { return time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC) }
-	legacy, err := records.List(ctx, "relation_scalar_compat", "", 2, "name >= 'alpha'", "name")
+	legacy, err := records.listScalar(ctx, "relation_scalar_compat", "", 2, "name >= 'alpha'", "name")
 	if err != nil {
 		t.Fatal(err)
 	}

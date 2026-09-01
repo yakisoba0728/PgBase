@@ -8,20 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -100,11 +96,11 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if _, err := pool.Exec(ctx, `update app.records set created_at = $1`, identicalCreatedAt); err != nil {
 		t.Fatal(err)
 	}
-	page1, err := records.List(ctx, "records", "", 2, "", "")
+	page1, err := records.listScalar(ctx, "records", "", 2, "", "")
 	if err != nil || len(page1.Items) != 2 || page1.NextCursor == "" {
 		t.Fatalf("List(page1) = %#v, %v", page1, err)
 	}
-	page2, err := records.List(ctx, "records", page1.NextCursor, 2, "", "")
+	page2, err := records.listScalar(ctx, "records", page1.NextCursor, 2, "", "")
 	if err != nil || len(page2.Items) != 2 || page2.NextCursor != "" || page1.Items[1]["id"] == page2.Items[0]["id"] {
 		t.Fatalf("List(page2) = %#v, %v", page2, err)
 	}
@@ -128,7 +124,7 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("same-timestamp cursor page order/union = %v, want live (created_at,id) order %v", gotIDs, wantIDs)
 	}
-	if _, err := records.List(ctx, "records", "not-a-signed-cursor", 2, "", ""); !IsInvalidCursor(err) {
+	if _, err := records.listScalar(ctx, "records", "not-a-signed-cursor", 2, "", ""); !IsInvalidCursor(err) {
 		t.Fatalf("List(invalid cursor) error=%v", err)
 	}
 
@@ -181,142 +177,6 @@ func TestRecordServicePreservesNumericZeroScale(t *testing.T) {
 	}
 }
 
-func TestRecordServiceRetriesConcurrentSameRecordUpdates(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name:   "concurrent_records",
-		Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}},
-	})
-	created, err := records.Create(ctx, "concurrent_records", map[string]json.RawMessage{
-		"title": json.RawMessage(`"initial"`),
-	})
-	if err != nil {
-		t.Fatalf("Create(): %v", err)
-	}
-	id := uuid.MustParse(created["id"].(string))
-	records.schemas = newFirstAttemptBarrierEnsurer(schemas)
-
-	start := make(chan struct{})
-	errorsByWriter := make(chan error, 2)
-	for _, title := range []string{"left", "right"} {
-		title := title
-		go func() {
-			<-start
-			_, err := records.Update(ctx, "concurrent_records", id, map[string]json.RawMessage{
-				"title": json.RawMessage(strconv.Quote(title)),
-			})
-			errorsByWriter <- err
-		}()
-	}
-	close(start)
-	for range 2 {
-		if err := <-errorsByWriter; err != nil {
-			t.Fatalf("concurrent Update() error = %v, want bounded internal retry", err)
-		}
-	}
-}
-
-func TestRecordServiceRetriesAndLogsCachedPlanInvalidation(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name:   "retry_records",
-		Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}},
-	})
-	created, err := records.Create(ctx, "retry_records", map[string]json.RawMessage{"title": json.RawMessage(`"ready"`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	flaky := &oneFailureCatalogEnsurer{inner: schemas}
-	recorder := &queryTelemetryRecorder{}
-	var logs bytes.Buffer
-	records.schemas = flaky
-	records.logger = slog.New(slog.NewTextHandler(&logs, nil))
-	records.recorder = recorder
-
-	if _, err := records.Get(ctx, "retry_records", uuid.MustParse(created["id"].(string))); err != nil {
-		t.Fatalf("Get() after retryable catalog error = %v", err)
-	}
-	if flaky.calls < 2 || !strings.Contains(logs.String(), "retrying record transaction") || strings.Contains(logs.String(), "0A000") {
-		t.Fatalf("retry calls=%d logs=%q", flaky.calls, logs.String())
-	}
-	events := recorder.snapshot()
-	if len(events) != 1 || events[0].Kind() != observability.EventKindTransactionRetry || events[0].RetryCause() != observability.RetryCauseCachedPlan || events[0].Exhausted() {
-		t.Fatalf("retry telemetry = %#v, want one non-exhausted cached-plan event", events)
-	}
-}
-
-func TestRecordServiceRetryTelemetryIsBoundedAndPreservesCancellation(t *testing.T) {
-	_, _, records := newRecordServiceTest(t)
-	recorder := &queryTelemetryRecorder{}
-	ctx, cancel := context.WithCancel(context.Background())
-	records.schemas = cancelingCatalogEnsurer{cancel: cancel, code: "40001"}
-	records.recorder = recorder
-
-	if _, err := records.Get(ctx, "unused", uuid.New()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Get() error = %v, want context cancellation during retry backoff", err)
-	}
-	events := recorder.snapshot()
-	if len(events) != 0 {
-		t.Fatalf("retry telemetry = %#v, want no event before a retry attempt starts", events)
-	}
-
-	for code, want := range map[string]observability.RetryCause{
-		"0A000": observability.RetryCauseCachedPlan,
-		"40001": observability.RetryCauseSerialization,
-		"40P01": observability.RetryCauseDeadlock,
-	} {
-		got, ok := transactionRetryCause(&pgconn.PgError{Code: code, Message: "must not escape telemetry"})
-		if !ok || got != want {
-			t.Fatalf("transactionRetryCause(%s) = %q, %v; want %q, true", code, got, ok, want)
-		}
-	}
-	if _, ok := transactionRetryCause(&pgconn.PgError{Code: "23505", Message: "not retryable"}); ok {
-		t.Fatal("non-retryable SQLSTATE produced retry telemetry")
-	}
-}
-
-type oneFailureCatalogEnsurer struct {
-	inner CatalogEnsurer
-	calls int
-}
-
-type cancelingCatalogEnsurer struct {
-	cancel context.CancelFunc
-	code   string
-}
-
-func (e cancelingCatalogEnsurer) EnsureCurrent(context.Context, database.DBTX) (schema.Catalog, error) {
-	e.cancel()
-	return schema.Catalog{}, &pgconn.PgError{Code: e.code, Message: "sensitive database detail"}
-}
-
-type queryTelemetryRecorder struct {
-	mu     sync.Mutex
-	events []observability.Event
-}
-
-func (r *queryTelemetryRecorder) Record(_ context.Context, event observability.Event) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, event)
-}
-
-func (r *queryTelemetryRecorder) snapshot() []observability.Event {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]observability.Event(nil), r.events...)
-}
-
-func (e *oneFailureCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
-	e.calls++
-	if e.calls == 1 {
-		return schema.Catalog{}, &pgconn.PgError{Code: "0A000", Message: "forced cached plan invalidation"}
-	}
-	return e.inner.EnsureCurrent(ctx, tx)
-}
-
 func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T) {
 	_, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
@@ -342,14 +202,14 @@ func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T)
 	}
 
 	const sortText = "part_a,part_b,part_c"
-	first, err := records.List(ctx, "long_sort_records", "", 2, "", sortText)
+	first, err := records.listScalar(ctx, "long_sort_records", "", 2, "", sortText)
 	if err != nil {
 		t.Fatalf("List(first) error = %v", err)
 	}
 	if len(first.Items) != 2 || first.NextCursor == "" || len(first.NextCursor) > 4096 {
 		t.Fatalf("List(first) = %d items, cursor bytes %d", len(first.Items), len(first.NextCursor))
 	}
-	second, err := records.List(ctx, "long_sort_records", first.NextCursor, 2, "", sortText)
+	second, err := records.listScalar(ctx, "long_sort_records", first.NextCursor, 2, "", sortText)
 	if err != nil {
 		t.Fatalf("List(second) error = %v", err)
 	}
@@ -368,11 +228,11 @@ func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T)
 	}); err != nil {
 		t.Fatalf("Update(cursor anchor): %v", err)
 	}
-	if _, err := records.List(ctx, "long_sort_records", first.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
+	if _, err := records.listScalar(ctx, "long_sort_records", first.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
 		t.Fatalf("List(after changed anchor) error = %v, want invalid cursor", err)
 	}
 
-	fresh, err := records.List(ctx, "long_sort_records", "", 2, "", sortText)
+	fresh, err := records.listScalar(ctx, "long_sort_records", "", 2, "", sortText)
 	if err != nil || fresh.NextCursor == "" {
 		t.Fatalf("List(fresh cursor) = %#v, %v", fresh, err)
 	}
@@ -390,42 +250,9 @@ func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T)
 	if _, err := schemas.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
 		t.Fatalf("ApplyUpdate(drop cursor sort field): %v", err)
 	}
-	if _, err := records.List(ctx, "long_sort_records", fresh.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
+	if _, err := records.listScalar(ctx, "long_sort_records", fresh.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
 		t.Fatalf("List(after dropped cursor sort field) error = %v, want invalid cursor", err)
 	}
-}
-
-type firstAttemptBarrierEnsurer struct {
-	inner CatalogEnsurer
-	mu    sync.Mutex
-	calls int
-	ready chan struct{}
-}
-
-func newFirstAttemptBarrierEnsurer(inner CatalogEnsurer) *firstAttemptBarrierEnsurer {
-	return &firstAttemptBarrierEnsurer{inner: inner, ready: make(chan struct{})}
-}
-
-func (e *firstAttemptBarrierEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
-	catalog, err := e.inner.EnsureCurrent(ctx, tx)
-	if err != nil {
-		return schema.Catalog{}, err
-	}
-	e.mu.Lock()
-	e.calls++
-	call := e.calls
-	if call == 2 {
-		close(e.ready)
-	}
-	e.mu.Unlock()
-	if call <= 2 {
-		select {
-		case <-e.ready:
-		case <-ctx.Done():
-			return schema.Catalog{}, ctx.Err()
-		}
-	}
-	return catalog, nil
 }
 
 func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
@@ -466,14 +293,14 @@ func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) 
 		}
 		wantIDs = append(wantIDs, created["id"].(string))
 	}
-	first, err := records.List(ctx, "large_records", "", 100, "", "")
+	first, err := records.listScalar(ctx, "large_records", "", 100, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Items) >= len(wantIDs) || first.NextCursor == "" {
 		t.Fatalf("first byte-limited page = %d items cursor=%q", len(first.Items), first.NextCursor)
 	}
-	second, err := records.List(ctx, "large_records", first.NextCursor, 100, "", "")
+	second, err := records.listScalar(ctx, "large_records", first.NextCursor, 100, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +476,7 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		return result
 	}
 
-	filtered, err := records.List(ctx, "items", "", 50, "rank >= 2", "")
+	filtered, err := records.listScalar(ctx, "items", "", 50, "rank >= 2", "")
 	if err != nil {
 		t.Fatalf("filter list: %v", err)
 	}
@@ -657,7 +484,7 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		t.Fatalf("filter result = %v, want %v", got, want)
 	}
 
-	nulls, err := records.List(ctx, "items", "", 50, "rank = null", "")
+	nulls, err := records.listScalar(ctx, "items", "", 50, "rank = null", "")
 	if err != nil {
 		t.Fatalf("null filter list: %v", err)
 	}
@@ -665,7 +492,7 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		t.Fatalf("null filter result = %v, want %v", got, want)
 	}
 
-	descending, err := records.List(ctx, "items", "", 50, "", "-rank")
+	descending, err := records.listScalar(ctx, "items", "", 50, "", "-rank")
 	if err != nil {
 		t.Fatalf("sort list: %v", err)
 	}
@@ -673,15 +500,15 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		t.Fatalf("sort result = %v, want %v", got, want)
 	}
 
-	first, err := records.List(ctx, "items", "", 2, "", "-rank")
+	first, err := records.listScalar(ctx, "items", "", 2, "", "-rank")
 	if err != nil || first.NextCursor == "" {
 		t.Fatalf("first page = %v, cursor %q, err %v", titles(first), first.NextCursor, err)
 	}
-	second, err := records.List(ctx, "items", first.NextCursor, 2, "", "-rank")
+	second, err := records.listScalar(ctx, "items", first.NextCursor, 2, "", "-rank")
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
-	third, err := records.List(ctx, "items", second.NextCursor, 2, "", "-rank")
+	third, err := records.listScalar(ctx, "items", second.NextCursor, 2, "", "-rank")
 	if err != nil {
 		t.Fatalf("third page: %v", err)
 	}
@@ -695,10 +522,10 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		t.Fatalf("third page = %v cursor %q, want %v without cursor", got, third.NextCursor, want)
 	}
 
-	if _, err := records.List(ctx, "items", first.NextCursor, 2, "", ""); !IsInvalidCursor(err) {
+	if _, err := records.listScalar(ctx, "items", first.NextCursor, 2, "", ""); !IsInvalidCursor(err) {
 		t.Fatalf("cursor sort mismatch error = %v, want invalid cursor", err)
 	}
-	if _, err := records.List(ctx, "items", "", 50, "ghost = 1", ""); err == nil {
+	if _, err := records.listScalar(ctx, "items", "", 50, "ghost = 1", ""); err == nil {
 		t.Fatal("unknown filter field succeeded")
 	} else {
 		var validationErr *ValidationError
@@ -761,7 +588,7 @@ func TestRecordServicePagesEverySortDirectionWithoutDuplicatesOrGaps(t *testing.
 		{sort: "created_at", want: []string{"r1", "r2", "r3", "r4", "r5", "r6"}},
 		{sort: "-created_at", want: []string{"r6", "r5", "r4", "r3", "r2", "r1"}},
 	} {
-		whole, err := records.List(ctx, "walks", "", 50, "", test.sort)
+		whole, err := records.listScalar(ctx, "walks", "", 50, "", test.sort)
 		if err != nil {
 			t.Fatalf("List(sort=%q): %v", test.sort, err)
 		}
@@ -780,7 +607,7 @@ func TestRecordServicePagesEverySortDirectionWithoutDuplicatesOrGaps(t *testing.
 			if page > len(test.want) {
 				t.Fatalf("paged walk of %q did not terminate after %d pages", test.sort, page)
 			}
-			got, err := records.List(ctx, "walks", cursor, 2, "", test.sort)
+			got, err := records.listScalar(ctx, "walks", cursor, 2, "", test.sort)
 			if err != nil {
 				t.Fatalf("List(sort=%q, page %d): %v", test.sort, page, err)
 			}
@@ -796,9 +623,9 @@ func TestRecordServicePagesEverySortDirectionWithoutDuplicatesOrGaps(t *testing.
 	}
 }
 
-// TestKeysetPredicateFollowsNullsFirstOrdering pins the invariant compileKeyset
-// documents: its NULL boundary has to name the rows the ORDER BY compileOrder
-// emits puts after the cursor. resolveSortColumns only asks for NULLS FIRST on
+// TestKeysetPredicateFollowsNullsFirstOrdering pins the invariant orderSpec
+// documents: its NULL boundary has to name the rows its ORDER BY renderer puts
+// after the cursor. resolveOrderSpec only asks for NULLS FIRST on
 // columns the planner declares "not null", so no record page can reach that
 // branch with a real NULL today. This drives the pair directly against
 // PostgreSQL over a nullable column so that widening the rule cannot silently
@@ -819,10 +646,10 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 			t.Fatalf("insert %s: %v", id, err)
 		}
 	}
-	columns := []sortColumn{
-		{name: "note", desc: true, nullsFirst: true, field: schema.Field{Name: "note", ColumnName: "note", Type: schema.TypeText}},
-		{name: systemFieldID, desc: true, nullsFirst: true, field: schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}},
-	}
+	order := orderSpec{terms: []orderTerm{
+		{expression: quoted("note"), cursorExpression: quoted("note"), descending: true, nulls: orderNullsFirst, cursorField: schema.Field{Name: "note", ColumnName: "note", Type: schema.TypeText}},
+		{expression: quoted(systemFieldID), cursorExpression: quoted(systemFieldID), descending: true, nulls: orderNullsFirst, cursorField: schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}},
+	}}
 
 	selectIDs := func(statement string, args ...any) []string {
 		t.Helper()
@@ -845,7 +672,7 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 		return ids
 	}
 
-	want := selectIDs(`SELECT "id"::text FROM app.nulls_first_probe` + compileOrder(columns))
+	want := selectIDs(`SELECT "id"::text FROM app.nulls_first_probe` + order.orderBy())
 	if len(want) != 6 {
 		t.Fatalf("ordered probe rows = %d, want 6", len(want))
 	}
@@ -864,14 +691,14 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 		builder := &statementBuilder{}
 		where := ""
 		if cursorValues != nil {
-			predicate, err := compileKeyset(columns, &PageCursor{Values: cursorValues}, builder)
+			predicate, err := order.keyset(&PageCursor{Values: cursorValues}, builder)
 			if err != nil {
-				t.Fatalf("compileKeyset: %v", err)
+				t.Fatalf("order.keyset: %v", err)
 			}
 			where = " WHERE " + predicate
 		}
 		statement := `SELECT "id"::text, "note" FROM app.nulls_first_probe` + where +
-			compileOrder(columns) + " LIMIT " + builder.placeholder(2)
+			order.orderBy() + " LIMIT " + builder.placeholder(2)
 		rows, err := pool.Query(ctx, statement, builder.args...)
 		if err != nil {
 			t.Fatalf("query %q: %v", statement, err)

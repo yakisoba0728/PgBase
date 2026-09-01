@@ -88,7 +88,7 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	fixedNow := time.Date(2026, 8, 31, 5, 0, 0, 0, time.UTC)
 	records.now = func() time.Time { return fixedNow }
 
-	base, err := records.List(ctx, "expand_posts", "", 2, "", "")
+	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
@@ -171,7 +171,7 @@ func TestGetExpandedBoundsHydratedEdgeRows(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestGetExpandedPrechargesTargetQueryStepsBeforeHydration(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestExpandedPolicyRestrictsTargetReadsAndProjection(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	base, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	base, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestExpandBaseRecordsHydratesRootInOwnedTransactionWithoutMutatingInput(t *
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ func TestGetExpandedMeasuresExactFlatJSONWithTrailingNewline(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +625,7 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := records.List(ctx, "expand_posts", "", 10, "", "")
+	all, err := records.listScalar(ctx, "expand_posts", "", 10, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

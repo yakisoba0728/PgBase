@@ -101,7 +101,7 @@ func TestPlainListCurrentlyHydratesEveryCandidateBeforeFinalByteTrim(t *testing.
 	}
 	operationTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	records.now = func() time.Time { return operationTime }
-	publicPage, err := records.List(ctx, root.Name, "", r0HydrationRootCount, "", "")
+	publicPage, err := records.listScalar(ctx, root.Name, "", r0HydrationRootCount, "", "")
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
@@ -136,7 +136,8 @@ func TestPlainListCurrentlyHydratesEveryCandidateBeforeFinalByteTrim(t *testing.
 	}
 	collection := catalog.Collections[root.Name]
 	var hydratedCandidates []map[string]any
-	result, err := records.readRootPageInTx(ctx, tx, collection, rootPageReadRequest{
+	result, err := records.readRootPageInTx(ctx, tx, rootPageReadRequest{
+		plan:  scalarRootPlan(collection, nil, nil),
 		limit: r0HydrationRootCount, operationTime: operationTime,
 		hydrate: func(items []map[string]any) error {
 			hydratedCandidates = items

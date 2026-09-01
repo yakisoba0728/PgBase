@@ -16,7 +16,7 @@ func TestExpandedReadValidatesPlanBeforeRootHydrationBudget(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
