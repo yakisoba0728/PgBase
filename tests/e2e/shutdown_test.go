@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
 
 func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
@@ -42,10 +44,16 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 		values := url.Values{"limit": []string{"1"}}
 		inflightDone <- client.request(ctx, http.MethodGet, queryPath("/api/v1/collections/"+collectionName+"/records", values), nil, http.StatusOK, nil)
 	}()
+	delay := time.NewTimer(300 * time.Millisecond)
 	select {
 	case err := <-inflightDone:
+		if !delay.Stop() {
+			<-delay.C
+		}
 		t.Fatalf("deliberately delayed request completed before SIGTERM: %v", err)
-	case <-time.After(300 * time.Millisecond):
+	case <-delay.C:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 	suite.waitForShutdownQueryLock(t, ctx, collectionName)
 	readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Second)
@@ -65,20 +73,10 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 		t.Fatalf("send SIGTERM: %v\n%s", err, output)
 	}
 
-	readinessDeadline := time.Now().Add(3 * time.Second)
-	readinessFailed := false
-	for time.Now().Before(readinessDeadline) {
-		probeCtx, probeCancel := context.WithTimeout(ctx, 300*time.Millisecond)
-		err := newAPIClient(baseURL).ready(probeCtx)
-		probeCancel()
-		if err != nil {
-			readinessFailed = true
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if !readinessFailed {
-		t.Fatal("readiness remained successful after SIGTERM")
+	if err := testsupport.Poll(ctx, 3*time.Second, 25*time.Millisecond, 300*time.Millisecond, func(attemptCtx context.Context) (bool, error) {
+		return newAPIClient(baseURL).ready(attemptCtx) != nil, nil
+	}); err != nil {
+		t.Fatalf("readiness remained successful after SIGTERM: %v", err)
 	}
 	if output, err := suite.docker(ctx, "inspect", "--format", "{{.State.Running}}", containerName); err != nil || strings.TrimSpace(output) != "true" {
 		t.Fatalf("container exited before delayed in-flight request drained: err=%v state=%q", err, output)
@@ -92,13 +90,15 @@ func TestGracefulShutdownRejectsNewRequestsAndDrainsInflight(t *testing.T) {
 
 	suite.releaseShutdownTableLock(t, ctx, lockerName, lockerPID)
 	lockHeld = false
+	drainCtx, drainCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer drainCancel()
 	select {
 	case err := <-inflightDone:
 		if err != nil {
 			t.Fatalf("in-flight request did not finish successfully: %v", err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("in-flight request did not finish within shutdown grace period")
+	case <-drainCtx.Done():
+		t.Fatalf("in-flight request did not finish within shutdown grace period: %v", drainCtx.Err())
 	}
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 8*time.Second)
@@ -131,23 +131,30 @@ func (s e2eSuite) holdShutdownTableLock(t *testing.T, ctx context.Context, colle
 	if output, err := s.docker(ctx, arguments...); err != nil {
 		t.Fatalf("start shutdown table lock: %v\n%s", err, output)
 	}
-	deadline := time.Now().Add(10 * time.Second)
 	query := `select l.pid from pg_locks l
 		join pg_class c on c.oid = l.relation
 		join pg_namespace n on n.oid = c.relnamespace
 		where n.nspname = 'app' and c.relname = '` + collectionName + `'
 		and l.mode = 'AccessExclusiveLock' and l.granted`
-	for time.Now().Before(deadline) {
-		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
-		pid, parseErr := strconv.Atoi(strings.TrimSpace(output))
-		if err == nil && parseErr == nil && pid > 0 {
-			return name, pid
+	var backendPID int
+	pollErr := testsupport.Poll(ctx, 10*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
+		output, err := s.compose(attemptCtx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
+		if err != nil {
+			return false, err
 		}
-		time.Sleep(100 * time.Millisecond)
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(output))
+		if parseErr != nil {
+			return false, parseErr
+		}
+		backendPID = pid
+		return pid > 0, nil
+	})
+	if pollErr == nil {
+		return name, backendPID
 	}
 	logs, _ := s.docker(ctx, "logs", name)
 	s.removeContainer(t, name)
-	t.Fatalf("shutdown table lock was not acquired; locker logs:\n%s", logs)
+	t.Fatalf("shutdown table lock was not acquired: %v; locker logs:\n%s", pollErr, logs)
 	return "", 0
 }
 
@@ -165,18 +172,18 @@ func (s e2eSuite) releaseShutdownTableLock(t *testing.T, ctx context.Context, co
 
 func (s e2eSuite) waitForShutdownQueryLock(t *testing.T, ctx context.Context, collectionName string) {
 	t.Helper()
-	deadline := time.Now().Add(4 * time.Second)
 	query := `select count(*) from pg_locks l
 		join pg_class c on c.oid = l.relation
 		join pg_namespace n on n.oid = c.relnamespace
 		where n.nspname = 'app' and c.relname = '` + collectionName + `'
 		and l.mode = 'AccessShareLock' and not l.granted`
-	for time.Now().Before(deadline) {
-		output, err := s.compose(ctx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
-		if err == nil && strings.TrimSpace(output) == "1" {
-			return
+	if err := testsupport.Poll(ctx, 4*time.Second, 50*time.Millisecond, 2*time.Second, func(attemptCtx context.Context) (bool, error) {
+		output, err := s.compose(attemptCtx, "exec", "-T", "postgres", "psql", "--username", "pgbase", "--dbname", "pgbase", "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
+		if err != nil {
+			return false, err
 		}
-		time.Sleep(50 * time.Millisecond)
+		return strings.TrimSpace(output) == "1", nil
+	}); err != nil {
+		t.Fatalf("record request did not block on app.%s: %v", collectionName, err)
 	}
-	t.Fatalf("record request did not block on app.%s", collectionName)
 }

@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
 
 type e2eSuite struct {
@@ -57,7 +59,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	suite = configured
-	if output, err := suite.compose(context.Background(), "up", "-d", "--build"); err != nil {
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	output, err := suite.compose(startupCtx, "up", "-d", "--build")
+	startupCancel()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "start e2e compose project: %v\n%s\n", err, output)
 		suite.writeFailureLogs()
 		if cleanupErr := suite.cleanup(); cleanupErr != nil {
@@ -179,19 +184,11 @@ func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
 	})
 
 	client := newAPIClient(suite.baseURL)
-	deadline := time.Now().Add(10 * time.Second)
-	var unavailable error
-	for time.Now().Before(deadline) {
-		requestCtx, requestCancel := context.WithTimeout(ctx, 3*time.Second)
-		unavailable = client.request(requestCtx, http.MethodGet, "/health/ready", nil, http.StatusServiceUnavailable, nil)
-		requestCancel()
-		if unavailable == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if unavailable != nil {
-		t.Fatalf("readiness did not report PostgreSQL outage: %v", unavailable)
+	if err := testsupport.Poll(ctx, 10*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
+		err := client.request(attemptCtx, http.MethodGet, "/health/ready", nil, http.StatusServiceUnavailable, nil)
+		return err == nil, err
+	}); err != nil {
+		t.Fatalf("readiness did not report PostgreSQL outage: %v", err)
 	}
 	if output, err := suite.compose(ctx, "unpause", "postgres"); err != nil {
 		t.Fatalf("unpause PostgreSQL: %v\n%s", err, output)
@@ -220,21 +217,17 @@ func TestTwoInstancesSynchronizeSchema(t *testing.T) {
 	}
 	applyCollection(t, ctx, instanceA, definition)
 
-	deadline := time.Now().Add(15 * time.Second)
-	for {
+	if err := testsupport.Poll(ctx, 15*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
 		var catalog struct {
 			Collections map[string]json.RawMessage `json:"collections"`
 		}
-		err := instanceB.request(ctx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog)
-		if err == nil {
-			if _, ok := catalog.Collections[collectionName]; ok {
-				break
-			}
+		if err := instanceB.request(attemptCtx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog); err != nil {
+			return false, err
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("instance B did not observe schema applied through A: %v", err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		_, present := catalog.Collections[collectionName]
+		return present, nil
+	}); err != nil {
+		t.Fatalf("instance B did not observe schema applied through A: %v", err)
 	}
 	record := createRecord(t, ctx, instanceB, collectionName, map[string]any{"body": "seen through listener"})
 	if stringValue(t, record, "body") != "seen through listener" {
@@ -852,18 +845,12 @@ func randomHex(bytesCount int) (string, error) {
 func waitReady(t *testing.T, ctx context.Context, baseURL string) {
 	t.Helper()
 	client := newAPIClient(baseURL)
-	deadline := time.Now().Add(90 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		lastErr = client.ready(requestCtx)
-		cancel()
-		if lastErr == nil {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
+	if err := testsupport.Poll(ctx, 90*time.Second, 250*time.Millisecond, 2*time.Second, func(attemptCtx context.Context) (bool, error) {
+		err := client.ready(attemptCtx)
+		return err == nil, err
+	}); err != nil {
+		t.Fatalf("wait for readiness: %v", err)
 	}
-	t.Fatalf("wait for readiness: %v", lastErr)
 }
 
 func applyCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) {
