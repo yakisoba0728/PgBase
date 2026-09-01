@@ -1,0 +1,162 @@
+{
+  "schema_version": 2,
+  "revision": "0fdc66c2fe930951b1934ad4f7ab20288109bf22",
+  "authoritative_plan": {
+    "path": "docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md",
+    "sha256": "e2a0e92f51c1249505b6d60cc2956f2b480dfaf7404aaf2cb5a7cc95548adeb9"
+  },
+  "command": "go run ./tools/repostats --rev 0fdc66c2fe930951b1934ad4f7ab20288109bf22 --pretty",
+  "measurement": {
+    "schema_version": 2,
+    "source": {
+      "kind": "revision",
+      "revision": "0fdc66c2fe930951b1934ad4f7ab20288109bf22",
+      "tracked_files_only": true
+    },
+    "definitions": {
+      "loc": "number of newline bytes, matching wc -l; binary tracked blobs are included in total LOC",
+      "go_runtime": "tracked .go files excluding *_test.go and tools/**; this authoritative-compatible mechanical set includes internal/testutil",
+      "ui_runtime": "ui/admin/src/**/*.{ts,tsx,css}, excluding *.test.{ts,tsx} and ui/admin/src/test/**; CSS is included",
+      "go_tests": "tracked *_test.go files",
+      "vitest": "tracked ui/admin/src/**/*.test.{ts,tsx} files",
+      "playwright": "tracked ui/admin/**/*.spec.{ts,tsx} files",
+      "docs": "tracked files under docs/**",
+      "exported_go_declarations": "exported type declarations plus exported free-function and method declarations in the Go runtime file set, counted with go/ast",
+      "constructors": "free-function declarations whose names begin with New in the Go runtime file set",
+      "go_comments": "Go runtime lines whose trimmed text begins with //",
+      "ui_comments": "comment-only lines beginning with //, /*, or {/* plus continuation lines inside a block comment; runtime, all-source, and legacy-regex totals are reported separately",
+      "page_hooks": "direct useState/useEffect call tokens outside comments and strings in ui/admin/src/pages/** runtime files",
+      "ui_exports": "UI runtime top-level export statement lines, not the number of individually exported symbols",
+      "long_production_files": ">800 newline bytes in a Go or UI runtime file",
+      "comparison_categories": "runtime=the authoritative-compatible Go/UI runtime sets (including internal/testutil); test=Go/Vitest/Playwright; support=tools/scripts/UI test helpers/migrations; generated=embedded UI dist; docs=docs/** plus root README/SECURITY; config=remaining tracked files; exact renames are counted as one deletion plus one addition so category movement remains visible"
+    },
+    "metrics": {
+      "total_tracked": {
+        "files": 253,
+        "loc": 62572
+      },
+      "runtime": {
+        "go": {
+          "files": 86,
+          "loc": 20072
+        },
+        "ui": {
+          "files": 19,
+          "loc": 2412
+        },
+        "handwritten_total": {
+          "files": 105,
+          "loc": 22484
+        }
+      },
+      "tests": {
+        "go": {
+          "files": 81,
+          "loc": 27994
+        },
+        "vitest": {
+          "files": 12,
+          "loc": 2500
+        },
+        "playwright": {
+          "files": 1,
+          "loc": 19
+        }
+      },
+      "docs": {
+        "files": 18,
+        "loc": 5187
+      },
+      "production_go": {
+        "interface_declarations": 19,
+        "exported_type_function_method_declarations": 337,
+        "new_constructors": 24
+      },
+      "comments": {
+        "go_runtime_comment_only_lines": 844,
+        "ui_runtime_comment_like_lines": 30,
+        "ui_all_source_comment_like_lines": 41,
+        "ui_excluded_non_runtime_comment_like_lines": 11,
+        "ui_vitest_comment_like_lines": 11,
+        "ui_legacy_regex_all_source_lines": 42
+      },
+      "production_files_over_800_loc": [
+        {
+          "path": "internal/recordops/service.go",
+          "loc": 1221
+        },
+        {
+          "path": "internal/schema/planner.go",
+          "loc": 900
+        },
+        {
+          "path": "internal/schema/service.go",
+          "loc": 850
+        }
+      ],
+      "ui": {
+        "page_direct_use_state_effect_occurrences": 69,
+        "page_direct_use_state_occurrences": 58,
+        "page_direct_use_effect_occurrences": 11,
+        "runtime_exports": 83
+      }
+    }
+  },
+  "authoritative_values_reproduced": {
+    "total_tracked_files": 253,
+    "total_tracked_loc": 62572,
+    "go_runtime_files": 86,
+    "go_runtime_loc": 20072,
+    "ui_runtime_files": 19,
+    "ui_runtime_loc": 2412,
+    "handwritten_runtime_files": 105,
+    "handwritten_runtime_loc": 22484,
+    "go_test_files": 81,
+    "go_test_loc": 27994,
+    "vitest_files": 12,
+    "vitest_loc": 2500,
+    "docs_files": 18,
+    "docs_loc": 5187,
+    "production_go_interfaces": 19,
+    "production_go_exported_declarations": 337,
+    "production_go_new_constructors": 24,
+    "go_runtime_comment_only_lines": 844,
+    "production_files_over_800_loc": 3,
+    "page_direct_use_state_effect_occurrences": 69,
+    "ui_runtime_exports": 83
+  },
+  "classification_notes": [
+    {
+      "metric": "runtime.go and production_go",
+      "note": "The authoritative mechanical non-test-Go file set includes internal/testutil/postgres.go (60 LOC) and its exported NewDatabase function. The comparison view uses the same classification so measured and compared runtime deltas reconcile; the strict product-only alternative remains recorded here.",
+      "strict_product_values_excluding_internal_testutil": {
+        "go_runtime_files": 85,
+        "go_runtime_loc": 20012,
+        "exported_declarations": 336,
+        "new_constructors": 23
+      }
+    },
+    {
+      "metric": "ui.runtime_exports",
+      "note": "83 is the authoritative count of export statement lines. It represents 84 exported names because one statement re-exports two names."
+    }
+  ],
+  "discrepancies": [
+    {
+      "metric": "comments.ui_runtime_comment_like_lines",
+      "authoritative_value": 42,
+      "measured_runtime_value": 30,
+      "measured_all_source_value": 41,
+      "legacy_regex_all_source_value": 42,
+      "excluded_vitest_value": 11,
+      "reason": "The authoritative value is reproduced only by including 11 real comment lines from four Vitest files plus one CSS universal-selector false positive from the legacy prefix regex. That conflicts with the UI runtime/test exclusion boundary and is not a lexical runtime comment count.",
+      "evidence": {
+        "ui/admin/src/styles.css:2 false-positive universal selector": 1,
+        "ui/admin/src/pages/collection-create-page.test.tsx": 2,
+        "ui/admin/src/pages/collection-edit-page.test.tsx": 1,
+        "ui/admin/src/pages/records-page.test.tsx": 2,
+        "ui/admin/src/pages/setup-page.test.tsx": 6
+      }
+    }
+  ]
+}
