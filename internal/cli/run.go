@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -303,8 +305,9 @@ func runMigrateWithCatalogPreflight(
 	stderr io.Writer,
 	preflight func(context.Context, *database.Pool, *schema.Cache) error,
 ) error {
-	if len(args) != 1 || (args[0] != "status" && args[0] != "up") {
-		return configurationError{err: errors.New("invalid migrate usage"), message: "usage: pgbase migrate <status|up>"}
+	invocation, err := parseMigrateInvocation(args)
+	if err != nil {
+		return configurationError{err: err, message: migrateUsage}
 	}
 
 	options, err := config.LoadEnv(lookup)
@@ -325,16 +328,29 @@ func runMigrateWithCatalogPreflight(
 	}
 
 	runner := migrate.New(pool, options.Logger)
-	if args[0] == "up" {
+	var exactReceipt *migrate.UpThroughReceipt
+	if invocation.operation == "up" {
 		catalogCache := &schema.Cache{}
 		if err := preflight(ctx, pool, catalogCache); err != nil {
 			return migrationOperationError(options.Logger, "preflight schema catalog", err)
 		}
-		if err := runner.Up(ctx); err != nil {
+		if invocation.exact {
+			receipt, err := runner.UpThrough(ctx, invocation.through)
+			if err != nil {
+				return migrationOperationError(options.Logger, "apply exact-target system migration", err)
+			}
+			exactReceipt = &receipt
+		} else if err := runner.Up(ctx); err != nil {
 			return migrationOperationError(options.Logger, "apply system migrations", err)
 		}
 		if err := preflight(ctx, pool, catalogCache); err != nil {
 			return migrationOperationError(options.Logger, "preflight schema catalog", err)
+		}
+		if exactReceipt != nil {
+			if err := writeMigrationReceipt(stdout, *exactReceipt); err != nil {
+				return migrationOperationError(options.Logger, "write migration receipt", err)
+			}
+			return nil
 		}
 	}
 	status, err := runner.Status(ctx)
@@ -346,6 +362,115 @@ func runMigrateWithCatalogPreflight(
 		return migrationOperationError(options.Logger, "write migration status", err)
 	}
 	return nil
+}
+
+type migrationReceiptJSON struct {
+	ReceiptVersion int                        `json:"receiptVersion"`
+	Target         migrationReceiptTarget     `json:"target"`
+	Before         migrationReceiptCheckpoint `json:"before"`
+	After          migrationReceiptCheckpoint `json:"after"`
+}
+
+type migrationReceiptTarget struct {
+	Version  int64  `json:"version"`
+	Checksum string `json:"checksum"`
+}
+
+type migrationReceiptCheckpoint struct {
+	Version  int64   `json:"version"`
+	Checksum *string `json:"checksum"`
+	Dirty    bool    `json:"dirty"`
+}
+
+func writeMigrationReceipt(destination io.Writer, receipt migrate.UpThroughReceipt) error {
+	afterChecksum := migrationChecksum(receipt.After)
+	if afterChecksum == nil {
+		return errors.New("exact-target receipt has no target checksum")
+	}
+	payload, err := json.Marshal(migrationReceiptJSON{
+		ReceiptVersion: 1,
+		Target: migrationReceiptTarget{
+			Version:  receipt.Target,
+			Checksum: *afterChecksum,
+		},
+		Before: migrationReceiptCheckpoint{
+			Version:  receipt.Before.Version,
+			Checksum: migrationChecksum(receipt.Before),
+			Dirty:    receipt.Before.Dirty,
+		},
+		After: migrationReceiptCheckpoint{
+			Version:  receipt.After.Version,
+			Checksum: afterChecksum,
+			Dirty:    receipt.After.Dirty,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	written, err := destination.Write(payload)
+	if err == nil && written != len(payload) {
+		err = io.ErrShortWrite
+	}
+	return err
+}
+
+func migrationChecksum(state migrate.HistoryState) *string {
+	if state.Version == 0 {
+		return nil
+	}
+	encoded := hex.EncodeToString(state.Checksum[:])
+	return &encoded
+}
+
+const migrateUsage = "usage: pgbase migrate status | pgbase migrate up [--through VERSION]"
+
+type migrateInvocation struct {
+	operation string
+	through   int64
+	exact     bool
+}
+
+type positiveInt64Flag struct {
+	value int64
+	set   bool
+}
+
+func (target *positiveInt64Flag) String() string {
+	if target == nil || !target.set {
+		return ""
+	}
+	return strconv.FormatInt(target.value, 10)
+}
+
+func (target *positiveInt64Flag) Set(raw string) error {
+	if target.set {
+		return errors.New("migration target was provided more than once")
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return errors.New("migration target must be a positive integer")
+	}
+	target.value = value
+	target.set = true
+	return nil
+}
+
+func parseMigrateInvocation(args []string) (migrateInvocation, error) {
+	if len(args) == 1 && args[0] == "status" {
+		return migrateInvocation{operation: "status"}, nil
+	}
+	if len(args) == 0 || args[0] != "up" {
+		return migrateInvocation{}, errors.New("invalid migrate usage")
+	}
+	flags := flag.NewFlagSet("migrate up", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var through positiveInt64Flag
+	flags.Var(&through, "through", "")
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+		return migrateInvocation{}, errors.New("invalid migrate usage")
+	}
+	return migrateInvocation{operation: "up", through: through.value, exact: through.set}, nil
 }
 
 // migrationOperationError logs an operator diagnostic through the redacting

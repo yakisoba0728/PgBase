@@ -34,10 +34,10 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 	if status.Dirty {
 		report.Findings = append(report.Findings, finding("migration_checksum_mismatch", "System migration history does not match this binary"))
 	}
-	if status.Current != status.Latest {
+	if status.Current != status.Latest && !status.Compatible {
 		report.Findings = append(report.Findings, finding("migration_not_current", "System migrations are not current"))
 	}
-	if !status.Dirty && status.Current == status.Latest {
+	if status.Compatible {
 		err := schema.PreflightCatalog(ctx, pool, nil)
 		if errors.Is(err, schema.ErrCatalogLimitExceeded) {
 			report.Findings = append(report.Findings, finding(

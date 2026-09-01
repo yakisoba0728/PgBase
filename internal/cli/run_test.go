@@ -371,6 +371,62 @@ func TestMigrateRejectsUnknownOperationWithExitCodeTwo(t *testing.T) {
 	}
 }
 
+func TestMigrateAcceptsExactTargetGrammarBeforeLoadingConfiguration(t *testing.T) {
+	for _, args := range [][]string{
+		{"migrate", "up", "--through", "5"},
+		{"migrate", "up", "--through=5"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			lookupCalled := false
+			lookup := func(string) (string, bool) {
+				lookupCalled = true
+				return "", false
+			}
+			var stderr bytes.Buffer
+			code := Run(context.Background(), args, lookup, io.Discard, &stderr, DefaultCommands())
+			if code != 2 || !lookupCalled {
+				t.Fatalf("code=%d lookupCalled=%t stderr=%q", code, lookupCalled, stderr.String())
+			}
+			if stderr.String() != "pgbase: invalid configuration\n" {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestMigrateRejectsInvalidExactTargetGrammarBeforeLoadingConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing version", args: []string{"migrate", "up", "--through"}},
+		{name: "zero", args: []string{"migrate", "up", "--through", "0"}},
+		{name: "negative", args: []string{"migrate", "up", "--through", "-1"}},
+		{name: "nonnumeric", args: []string{"migrate", "up", "--through", "five"}},
+		{name: "overflow", args: []string{"migrate", "up", "--through", "9223372036854775808"}},
+		{name: "duplicate", args: []string{"migrate", "up", "--through", "5", "--through=5"}},
+		{name: "extra positional", args: []string{"migrate", "up", "--through", "5", "extra"}},
+		{name: "status flag", args: []string{"migrate", "status", "--through", "5"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lookupCalled := false
+			lookup := func(string) (string, bool) {
+				lookupCalled = true
+				return "", false
+			}
+			var stderr bytes.Buffer
+			code := Run(context.Background(), test.args, lookup, io.Discard, &stderr, DefaultCommands())
+			if code != 2 || lookupCalled {
+				t.Fatalf("code=%d lookupCalled=%t stderr=%q", code, lookupCalled, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "usage: pgbase migrate") {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
 func migrationEnv(databaseURL string) func(string) (string, bool) {
 	env := map[string]string{
 		"PGBASE_DATABASE_URL": databaseURL,

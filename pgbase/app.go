@@ -225,7 +225,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("read system migration status: %w", err)
 	}
-	if status.Dirty || status.Current != status.Latest {
+	if !status.Compatible {
 		return nil, errors.New("system migrations are not current")
 	}
 	if err := preflight(ctx, pool, schemaCache); err != nil {
@@ -243,7 +243,7 @@ func newWithCatalogPreflight(
 			if err != nil {
 				return err
 			}
-			if status.Dirty || status.Current != status.Latest {
+			if !status.Compatible {
 				return errors.New("system migrations are not current")
 			}
 			return nil
