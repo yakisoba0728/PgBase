@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -779,22 +781,157 @@ func TestRelationReadTelemetryFollowsRequestedRelationWork(t *testing.T) {
 	}
 
 	// The flag must be wired into List itself: a relation sort rejection has to
-	// leave a relation sample even though the request carries no expand.
+	// leave a relation sample even though the request carries no expand, and it
+	// must not be charged to expansion, whose budgets and alerts are separate.
 	recorder := &relationTelemetryRecorder{}
 	records := NewServiceWithRecorder(nil, nil, []byte("0123456789abcdef0123456789abcdef"), nil, recorder)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse(testAdministratorID)}
 	ctx := context.Background()
-	for _, sort := range []string{"owner.name", "-created_at"} {
-		if _, err := records.List(ctx, ListRequest{
-			Principal: principal, RequestID: testRequestID, Collection: "articles", Sort: sort,
-		}); err == nil {
-			t.Fatalf("List(sort=%q) without a pool returned no error", sort)
+	for _, request := range []ListRequest{{Sort: "owner.name"}, {Sort: "-created_at"}, {Expand: "owner"}} {
+		request.Principal, request.RequestID, request.Collection = principal, testRequestID, "articles"
+		if _, err := records.List(ctx, request); err == nil {
+			t.Fatalf("List(sort=%q, expand=%q) without a pool returned no error", request.Sort, request.Expand)
 		}
 	}
 	events := recorder.snapshot()
-	if len(events) != 1 || events[0].Component() != observability.ComponentRelation ||
-		events[0].Operation() != observability.OperationRelationExpand {
-		t.Fatalf("relation read telemetry = %#v, want one relation sample", events)
+	if len(events) != 2 {
+		t.Fatalf("relation read telemetry = %#v, want two relation samples", events)
+	}
+	for index, want := range []observability.Operation{observability.OperationRelationRead, observability.OperationRelationExpand} {
+		if events[index].Component() != observability.ComponentRelation || events[index].Operation() != want {
+			t.Fatalf("relation read telemetry[%d] = %#v, want operation %q", index, events[index], want)
+		}
+	}
+}
+
+// TestRelationReadTelemetryRecordsBareRelationFieldSort covers what the request
+// text alone cannot answer. `sort=owner` names a root relation field and joins
+// to its target, so it has to leave a relation_read sample, while a scalar sort
+// on the same collection leaves none. A bare relation sort the planner rejects
+// counts too, because that rejection is the relation work being measured.
+func TestRelationReadTelemetryRecordsBareRelationFieldSort(t *testing.T) {
+	pool, schemas, _, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
+
+	recorder := &relationTelemetryRecorder{}
+	records := NewServiceWithRecorder(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, recorder)
+	for _, test := range []struct {
+		sort      string
+		wantError bool
+	}{
+		{sort: "-created_at"},
+		{sort: "owner"},
+		{sort: "links", wantError: true},
+	} {
+		_, err := records.List(ctx, ListRequest{
+			Principal: principal, RequestID: testRequestID, Collection: "null_survivors", Sort: test.sort,
+		})
+		if (err != nil) != test.wantError {
+			t.Fatalf("List(sort=%q) error = %v, want error %t", test.sort, err, test.wantError)
+		}
+	}
+
+	events := recorder.snapshot()
+	if len(events) != 2 {
+		t.Fatalf("bare relation sort telemetry = %#v, want two relation samples", events)
+	}
+	for index, want := range []observability.Outcome{observability.OutcomeSuccess, observability.OutcomeValidation} {
+		if events[index].Component() != observability.ComponentRelation ||
+			events[index].Operation() != observability.OperationRelationRead ||
+			events[index].Outcome() != want {
+			t.Fatalf("bare relation sort telemetry[%d] = %#v, want relation_read/%s", index, events[index], want)
+		}
+	}
+}
+
+// TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget drives an
+// oversized page through both relation-aware readers end to end. Five ~900 KB
+// records overflow the 4 MiB bound, so the row scan stops short, and whatever
+// each reader then emits -- envelope, separators and continuation cursor
+// included -- has to measure under the bound and still hand back every record
+// across the two pages. This pins the readers' page accounting from the
+// outside; it reaches the scan budget rather than the finalize trim, which
+// only fires in the narrow window where the envelope alone crosses the bound
+// and needs the direct unit test noted in the handoff.
+func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T) {
+	pool, schemas, _, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+
+	// query.maximumRecordPageBytes is package-private; this is the same bound
+	// the API contract advertises, and expansion reuses it as its own default.
+	const maximumPageBytes = 4 << 20
+	const recordCount = 5
+	filler, err := json.Marshal(strings.Repeat("x", 900_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]string, 0, recordCount)
+	for index := range recordCount {
+		result, createErr := records.Create(ctx, CreateRequest{
+			Principal: principal, RequestID: fmt.Sprintf("page-budget-%04d", index),
+			Collection: "null_survivors", Input: map[string]json.RawMessage{"name": filler},
+		})
+		if createErr != nil {
+			t.Fatalf("create oversized record %d: %v", index, createErr)
+		}
+		want = append(want, recordResultID(t, result).String())
+	}
+	sort.Strings(want)
+
+	// sort=owner drives the relation list kernel; adding expand drives the
+	// expansion reader. Both must trim the same way.
+	for _, expand := range []string{"", "owner"} {
+		request := ListRequest{
+			Principal: principal, RequestID: testRequestID, Collection: "null_survivors",
+			Sort: "owner", Limit: recordCount, Expand: expand,
+		}
+		page, listErr := records.List(ctx, request)
+		if listErr != nil {
+			t.Fatalf("expand=%q: List(): %v", expand, listErr)
+		}
+		if len(page.Items) == 0 || len(page.Items) >= recordCount {
+			t.Fatalf("expand=%q: page items = %d, want a page trimmed below %d", expand, len(page.Items), recordCount)
+		}
+		if page.NextCursor == "" {
+			t.Fatalf("expand=%q: trimmed page carries no continuation cursor", expand)
+		}
+		encoded, marshalErr := json.Marshal(page)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if len(encoded)+1 > maximumPageBytes {
+			t.Fatalf("expand=%q: emitted page = %d bytes, want at most %d", expand, len(encoded)+1, maximumPageBytes)
+		}
+
+		got := make([]string, 0, recordCount)
+		for cursor := ""; ; {
+			request.Cursor = cursor
+			next, pageErr := records.List(ctx, request)
+			if pageErr != nil {
+				t.Fatalf("expand=%q: List(cursor): %v", expand, pageErr)
+			}
+			for _, item := range next.Items {
+				id, ok := item["id"].(string)
+				if !ok {
+					t.Fatalf("expand=%q: record id = %#v", expand, item["id"])
+				}
+				got = append(got, id)
+			}
+			if next.NextCursor == "" {
+				break
+			}
+			cursor = next.NextCursor
+			if len(got) > recordCount {
+				t.Fatalf("expand=%q: pagination returned %d records, want %d", expand, len(got), recordCount)
+			}
+		}
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expand=%q: paginated ids = %v, want %v", expand, got, want)
+		}
 	}
 }
 

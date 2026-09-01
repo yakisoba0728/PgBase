@@ -104,7 +104,7 @@ func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
 }
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
-	sortKeys := effectiveSortKeys(query.Sort)
+	sortKeys := alignAppendedTiebreaker(query.Sort, effectiveSortKeys(query.Sort))
 	columns, err := resolveSortColumns(collection, sortKeys)
 	if err != nil {
 		return Statement{}, err
@@ -154,9 +154,10 @@ func (b *statementBuilder) placeholder(value any) string {
 }
 
 type sortColumn struct {
-	name  string
-	desc  bool
-	field schema.Field
+	name       string
+	desc       bool
+	nullsFirst bool
+	field      schema.Field
 }
 
 // resolveSortColumns maps logical sort keys to physical columns. Cursor-driven
@@ -177,9 +178,46 @@ func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortCol
 		if !field.Indexed && !field.Unique {
 			return nil, validation("sort", "unindexed_field")
 		}
-		columns = append(columns, sortColumn{name: field.ColumnName, desc: key.Desc, field: field})
+		columns = append(columns, sortColumn{
+			name: field.ColumnName, desc: key.Desc,
+			nullsFirst: key.Desc && notNullColumn(field), field: field,
+		})
 	}
 	return columns, nil
+}
+
+// alignAppendedTiebreaker points the compiler's own "id" tiebreaker the same way
+// as the key it breaks ties for. A btree index is only scannable as a whole,
+// forwards or backwards, so "created_at DESC NULLS FIRST, id ASC NULLS LAST"
+// matches the "(created_at, id)" index in neither direction and degrades into a
+// full scan plus a sort, while "created_at DESC NULLS FIRST, id DESC NULLS
+// FIRST" is an index scan backward. A caller that spells out its own trailing
+// "id" key keeps the direction it asked for.
+func alignAppendedTiebreaker(requested, effective []SortKey) []SortKey {
+	if len(effective) != len(requested)+1 {
+		return effective
+	}
+	last := len(effective) - 1
+	if effective[last].Field != systemFieldID || effective[last].Desc {
+		return effective
+	}
+	aligned := append([]SortKey(nil), effective...)
+	aligned[last].Desc = effective[last-1].Desc
+	return aligned
+}
+
+// notNullColumn reports whether the physical column can never hold NULL. The
+// planner declares every system column "not null" and a user column follows its
+// Required flag, so a descending page over such a column can be ordered with
+// PostgreSQL's btree default NULLS FIRST — matching the index without moving a
+// single row. Nullable columns keep NULLS LAST, which is the placement the
+// relation kernel and the documented API contract also use.
+func notNullColumn(field schema.Field) bool {
+	switch field.Name {
+	case systemFieldID, systemFieldCreatedAt:
+		return true
+	}
+	return field.Required
 }
 
 func compileFilter(collection schema.Collection, node filterNode, builder *statementBuilder) (string, error) {
@@ -333,10 +371,14 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 	}
 }
 
-// compileKeyset builds the null-safe keyset predicate for the sort order.
-// Every sort column is ordered with an explicit NULLS LAST, so a cursor value
-// that is NULL has no successors on its own key and a non-NULL value has the
-// NULL rows strictly after it in both directions.
+// compileKeyset builds the null-safe keyset predicate for the sort order. Every
+// sort column carries the NULLS placement compileOrder emits for it, and the
+// extra disjunct names exactly the rows that placement puts after the NULL
+// boundary: under NULLS LAST a non-NULL cursor value is followed by the NULL
+// rows and a NULL value has no successors on its own key, while under NULLS
+// FIRST a NULL cursor value is followed by the non-NULL rows and a non-NULL
+// value has none. Changing compileOrder without changing this predicate
+// silently duplicates or drops rows across a page boundary.
 func compileKeyset(columns []sortColumn, cursor *PageCursor, builder *statementBuilder) (string, error) {
 	if len(cursor.Values) != len(columns) {
 		return "", invalidCursor()
@@ -360,7 +402,11 @@ func compileKeyset(columns []sortColumn, cursor *PageCursor, builder *statementB
 			operator = "<"
 		}
 		column := quoted(columns[index].name)
-		conjuncts = append(conjuncts, "("+column+" "+operator+" "+placeholders[index]+" OR ("+placeholders[index]+" IS NOT NULL AND "+column+" IS NULL))")
+		boundary := "(" + placeholders[index] + " IS NOT NULL AND " + column + " IS NULL)"
+		if columns[index].nullsFirst {
+			boundary = "(" + placeholders[index] + " IS NULL AND " + column + " IS NOT NULL)"
+		}
+		conjuncts = append(conjuncts, "("+column+" "+operator+" "+placeholders[index]+" OR "+boundary+")")
 		conjunction := strings.Join(conjuncts, " AND ")
 		if len(conjuncts) > 1 {
 			conjunction = "(" + conjunction + ")"
@@ -391,7 +437,11 @@ func compileOrder(columns []sortColumn) string {
 		if column.desc {
 			direction = "DESC"
 		}
-		segments = append(segments, quoted(column.name)+" "+direction+" NULLS LAST")
+		nulls := "NULLS LAST"
+		if column.nullsFirst {
+			nulls = "NULLS FIRST"
+		}
+		segments = append(segments, quoted(column.name)+" "+direction+" "+nulls)
 	}
 	return " ORDER BY " + strings.Join(segments, ", ")
 }

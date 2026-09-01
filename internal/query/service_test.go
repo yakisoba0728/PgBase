@@ -629,7 +629,9 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		}
 	}
 	// Creation order a..f; rank NULL for a and d. UUIDv7 IDs preserve creation
-	// order, so ties on rank resolve deterministically toward earlier records.
+	// order, and the appended "id" tiebreaker follows the requested direction,
+	// so a descending page resolves rank ties toward the newest record. "rank"
+	// is nullable, so its NULL rows stay last in both directions.
 	create("a", "")
 	create("b", "1")
 	create("c", "2")
@@ -665,7 +667,7 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sort list: %v", err)
 	}
-	if got, want := titles(descending), []string{"e", "c", "b", "f", "a", "d"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(descending), []string{"e", "c", "f", "b", "d", "a"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("sort result = %v, want %v", got, want)
 	}
 
@@ -684,10 +686,10 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 	if got, want := titles(first), []string{"e", "c"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("first page = %v, want %v", got, want)
 	}
-	if got, want := titles(second), []string{"b", "f"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(second), []string{"f", "b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("second page = %v, want %v", got, want)
 	}
-	if got, want := titles(third), []string{"a", "d"}; !reflect.DeepEqual(got, want) || third.NextCursor != "" {
+	if got, want := titles(third), []string{"d", "a"}; !reflect.DeepEqual(got, want) || third.NextCursor != "" {
 		t.Fatalf("third page = %v cursor %q, want %v without cursor", got, third.NextCursor, want)
 	}
 
@@ -701,6 +703,214 @@ func TestRecordServiceFiltersSortsAndPaginatesWithNullSafeKeyset(t *testing.T) {
 		if !errors.As(err, &validationErr) || validationErr.Details[0] != (ValidationDetail{Field: "filter", Code: "unknown_field"}) {
 			t.Fatalf("unknown filter field error = %v", err)
 		}
+	}
+}
+
+func TestRecordServicePagesEverySortDirectionWithoutDuplicatesOrGaps(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "walks",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true},
+			{Name: "bucket", Type: schema.TypeInteger, Required: true, Indexed: true},
+			{Name: "note", Type: schema.TypeText, Indexed: true},
+		},
+	})
+	ctx := context.Background()
+	create := func(title string, bucket int, note string) {
+		input := map[string]json.RawMessage{
+			"title":  json.RawMessage(`"` + title + `"`),
+			"bucket": json.RawMessage(strconv.Itoa(bucket)),
+		}
+		if note != "" {
+			input["note"] = json.RawMessage(`"` + note + `"`)
+		}
+		if _, err := records.Create(ctx, "walks", input); err != nil {
+			t.Fatalf("create %s: %v", title, err)
+		}
+	}
+	// Creation order r1..r6 with UUIDv7 IDs, duplicate values in both sort
+	// columns, and NULL notes on r2 and r5. "bucket" is required so a
+	// descending page over it is emitted as NULLS FIRST; "note" is nullable so
+	// its NULL rows stay last in both directions.
+	create("r1", 1, "b")
+	create("r2", 2, "")
+	create("r3", 1, "a")
+	create("r4", 3, "b")
+	create("r5", 2, "")
+	create("r6", 1, "c")
+
+	titles := func(page RecordPage) []string {
+		result := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			result = append(result, item["title"].(string))
+		}
+		return result
+	}
+
+	for _, test := range []struct {
+		sort string
+		want []string
+	}{
+		{sort: "bucket", want: []string{"r1", "r3", "r6", "r2", "r5", "r4"}},
+		{sort: "-bucket", want: []string{"r4", "r5", "r2", "r6", "r3", "r1"}},
+		{sort: "note", want: []string{"r3", "r1", "r4", "r6", "r2", "r5"}},
+		{sort: "-note", want: []string{"r6", "r4", "r1", "r3", "r5", "r2"}},
+		{sort: "created_at", want: []string{"r1", "r2", "r3", "r4", "r5", "r6"}},
+		{sort: "-created_at", want: []string{"r6", "r5", "r4", "r3", "r2", "r1"}},
+	} {
+		whole, err := records.List(ctx, "walks", "", 50, "", test.sort)
+		if err != nil {
+			t.Fatalf("List(sort=%q): %v", test.sort, err)
+		}
+		if got := titles(whole); !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("List(sort=%q) = %v, want %v", test.sort, got, test.want)
+		}
+		if whole.NextCursor != "" {
+			t.Fatalf("List(sort=%q) returned a cursor for a complete page", test.sort)
+		}
+
+		// The same order has to come back one page at a time: every row exactly
+		// once, in the same positions, with the cursor chain terminating.
+		walked := make([]string, 0, len(test.want))
+		cursor := ""
+		for page := 0; ; page++ {
+			if page > len(test.want) {
+				t.Fatalf("paged walk of %q did not terminate after %d pages", test.sort, page)
+			}
+			got, err := records.List(ctx, "walks", cursor, 2, "", test.sort)
+			if err != nil {
+				t.Fatalf("List(sort=%q, page %d): %v", test.sort, page, err)
+			}
+			walked = append(walked, titles(got)...)
+			if got.NextCursor == "" {
+				break
+			}
+			cursor = got.NextCursor
+		}
+		if !reflect.DeepEqual(walked, test.want) {
+			t.Fatalf("paged walk of %q = %v, want %v", test.sort, walked, test.want)
+		}
+	}
+}
+
+// TestKeysetPredicateFollowsNullsFirstOrdering pins the invariant compileKeyset
+// documents: its NULL boundary has to name the rows the ORDER BY compileOrder
+// emits puts after the cursor. resolveSortColumns only asks for NULLS FIRST on
+// columns the planner declares "not null", so no record page can reach that
+// branch with a real NULL today. This drives the pair directly against
+// PostgreSQL over a nullable column so that widening the rule cannot silently
+// duplicate or drop rows at a page boundary.
+func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
+	pool, _, _ := newRecordServiceTest(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `create table app.nulls_first_probe ("id" uuid primary key, "note" text)`); err != nil {
+		t.Fatal(err)
+	}
+	for index, note := range []string{"a", "", "b", "", "a", "c"} {
+		id := fmt.Sprintf("019551d0-e9c0-7000-8000-00000000000%d", index+1)
+		var value any
+		if note != "" {
+			value = note
+		}
+		if _, err := pool.Exec(ctx, `insert into app.nulls_first_probe ("id", "note") values ($1, $2)`, id, value); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	columns := []sortColumn{
+		{name: "note", desc: true, nullsFirst: true, field: schema.Field{Name: "note", ColumnName: "note", Type: schema.TypeText}},
+		{name: systemFieldID, desc: true, nullsFirst: true, field: schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID}},
+	}
+
+	selectIDs := func(statement string, args ...any) []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, statement, args...)
+		if err != nil {
+			t.Fatalf("query %q: %v", statement, err)
+		}
+		defer rows.Close()
+		ids := make([]string, 0, 6)
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("rows: %v", err)
+		}
+		return ids
+	}
+
+	want := selectIDs(`SELECT "id"::text FROM app.nulls_first_probe` + compileOrder(columns))
+	if len(want) != 6 {
+		t.Fatalf("ordered probe rows = %d, want 6", len(want))
+	}
+	// NULLS FIRST really has to place the two NULL notes ahead of every value,
+	// newest ID first, or the walk below would only prove self-consistency.
+	if want[0] != "019551d0-e9c0-7000-8000-000000000004" || want[1] != "019551d0-e9c0-7000-8000-000000000002" {
+		t.Fatalf("NULLS FIRST ordering = %v, want the NULL notes first", want)
+	}
+
+	walked := make([]string, 0, len(want))
+	var cursorValues []json.RawMessage
+	for page := 0; ; page++ {
+		if page > len(want) {
+			t.Fatalf("keyset walk did not terminate after %d pages", page)
+		}
+		builder := &statementBuilder{}
+		where := ""
+		if cursorValues != nil {
+			predicate, err := compileKeyset(columns, &PageCursor{Values: cursorValues}, builder)
+			if err != nil {
+				t.Fatalf("compileKeyset: %v", err)
+			}
+			where = " WHERE " + predicate
+		}
+		statement := `SELECT "id"::text, "note" FROM app.nulls_first_probe` + where +
+			compileOrder(columns) + " LIMIT " + builder.placeholder(2)
+		rows, err := pool.Query(ctx, statement, builder.args...)
+		if err != nil {
+			t.Fatalf("query %q: %v", statement, err)
+		}
+		var lastID string
+		var lastNote *string
+		fetched := 0
+		for rows.Next() {
+			var id string
+			var note *string
+			if err := rows.Scan(&id, &note); err != nil {
+				rows.Close()
+				t.Fatalf("scan: %v", err)
+			}
+			walked = append(walked, id)
+			lastID, lastNote = id, note
+			fetched++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			t.Fatalf("rows: %v", err)
+		}
+		if fetched == 0 {
+			break
+		}
+		noteValue := json.RawMessage(`null`)
+		if lastNote != nil {
+			encoded, err := json.Marshal(*lastNote)
+			if err != nil {
+				t.Fatalf("encode note cursor value: %v", err)
+			}
+			noteValue = encoded
+		}
+		idValue, err := json.Marshal(lastID)
+		if err != nil {
+			t.Fatalf("encode id cursor value: %v", err)
+		}
+		cursorValues = []json.RawMessage{noteValue, idValue}
+	}
+	if !reflect.DeepEqual(walked, want) {
+		t.Fatalf("keyset walk = %v, want %v", walked, want)
 	}
 }
 

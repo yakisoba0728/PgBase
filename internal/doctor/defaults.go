@@ -289,3 +289,34 @@ func parsePostgresTimestamp(value string) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// oversizedTextDefaultCode marks a stored text default longer than the bound
+// the schema input path now enforces. A database written by an older binary
+// can legally hold one, and no read or write on that collection notices until
+// the catalog validator applies the bound to the stored value, at which point
+// the whole catalog stops loading. Reporting it read-only lets an operator
+// shorten the default before upgrading instead of discovering it as a total
+// outage afterwards.
+const oversizedTextDefaultCode = "text_default_oversized"
+
+// checkOversizedTextDefaults emits at most one finding, because a catalog that
+// carries many oversized defaults needs the same single operator action and an
+// unbounded diagnostic payload helps nobody. The message names no collection or
+// field, matching every other finding in this package.
+func checkOversizedTextDefaults(catalog []catalogRow, report *Report) {
+	for _, row := range catalog {
+		if row.fieldType == nil || *row.fieldType != string(schema.TypeText) {
+			continue
+		}
+		if row.hasDefault == nil || !*row.hasDefault || row.defaultJSON == nil {
+			continue
+		}
+		value, err := jsonvalue.String(json.RawMessage(*row.defaultJSON))
+		if err != nil || len(value) <= schema.MaximumTextBytes {
+			continue
+		}
+		report.Findings = append(report.Findings, finding(oversizedTextDefaultCode,
+			"A stored text default is longer than this build accepts"))
+		return
+	}
+}

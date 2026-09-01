@@ -94,6 +94,11 @@ func readRelationBindings(ctx context.Context, db database.DBTX) ([]relationBind
 // inspection. At most one finding per relation invariant is emitted, keeping a
 // badly corrupted large catalog from creating an unbounded diagnostic payload.
 func classifyRelations(catalog []catalogRow, bindings []relationBinding, report *Report) (relationChecks, error) {
+	// Stored text defaults are not a relation invariant, but they are read
+	// from the same catalog snapshot and must be reported even when every
+	// physical object below is healthy, so the pass runs here first.
+	checkOversizedTextDefaults(catalog, report)
+
 	collections := make(map[uuid.UUID]catalogRow, len(catalog))
 	fields := make(map[uuid.UUID]catalogRow)
 	for _, row := range catalog {

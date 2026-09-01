@@ -79,8 +79,20 @@ const fieldErrorText: Record<string, string> = {
   value_too_long: "Value exceeds the 2,048-byte limit for text values.",
 };
 
+// The server bounds indexed and unique text at 2,048 bytes so a btree entry
+// always fits, and every other text value at the 1 MiB body limit restated in
+// the codec. Naming the wrong bound sends people trimming a value that was
+// never near it, so the limit follows the field the same way maxLength does.
+function valueTooLongText(field: FieldDefinition): string {
+  return field.type === "text" && !field.indexed && !field.unique
+    ? "Value exceeds the 1 MiB limit for text values."
+    : fieldErrorText.value_too_long;
+}
+
 function validationText(field: FieldDefinition, code: string): string {
-  return field.type === "relation" ? relationErrorText(field, code) : fieldErrorText[code] ?? "Value is invalid.";
+  if (field.type === "relation") return relationErrorText(field, code);
+  if (code === "value_too_long") return valueTooLongText(field);
+  return fieldErrorText[code] ?? "Value is invalid.";
 }
 
 function RelationTargetSearch({

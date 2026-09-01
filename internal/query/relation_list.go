@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,21 +19,37 @@ import (
 // the original root-page kernel so their SQL and cursor representation remain
 // byte-for-byte compatible.
 func (s *Service) ListRelationAware(ctx context.Context, request RelationListRequest) (RecordPage, error) {
+	page, _, err := s.ListRelationAwareUsage(ctx, request)
+	return page, err
+}
+
+// ListRelationAwareUsage behaves exactly like ListRelationAware and also
+// reports whether the request addressed a relation field. Callers that record
+// relation telemetry cannot derive that from the request text: a bare
+// `sort=owner` names a root relation field and joins to its target, and only
+// the pinned catalog separates it from a scalar column of the same name. The
+// flag follows the parsed request rather than the compiled plan so a planning
+// rejection -- an unsupported path, a static budget, a denied policy hop --
+// still reports the relation work that produced it.
+func (s *Service) ListRelationAwareUsage(ctx context.Context, request RelationListRequest) (RecordPage, bool, error) {
 	if err := s.ready(); err != nil {
-		return RecordPage{}, err
+		return RecordPage{}, false, err
 	}
 	filter, err := parseFilterRequest(request.Filter)
 	if err != nil {
-		return RecordPage{}, err
+		return RecordPage{}, false, err
 	}
 	requestedSort, err := parseSort(request.Sort)
 	if err != nil {
-		return RecordPage{}, err
+		return RecordPage{}, false, err
 	}
 
 	page := RecordPage{Items: []map[string]any{}}
+	usesRelation := false
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		plan, err := compileRelationListPlan(ctx, catalog, collection, request.Principal, s.policy, filter, effectiveSortKeys(requestedSort))
+		sortKeys := effectiveSortKeys(requestedSort)
+		usesRelation = requestAddressesRelationField(collection, filter, sortKeys)
+		plan, err := compileRelationListPlan(ctx, catalog, collection, request.Principal, s.policy, filter, sortKeys)
 		if err != nil {
 			return relationPlanningErrorForCursor(err, request.Cursor != "")
 		}
@@ -49,7 +66,53 @@ func (s *Service) ListRelationAware(ctx context.Context, request RelationListReq
 		page = root.page
 		return nil
 	}, request.Collection)
-	return page, err
+	return page, usesRelation, err
+}
+
+// requestAddressesRelationField mirrors the operand classification that
+// planRelationFilter and planRelationSort perform: an operand is scalar only
+// when it names a known non-relation field without a dotted path. Everything
+// else -- a dotted path, or the bare name of a root relation field -- is
+// resolved against the catalog as a relation path, so it counts as relation
+// work whether the plan then succeeds or is rejected. An unknown bare name is
+// a plain validation error and stays scalar.
+func requestAddressesRelationField(root schema.Collection, filter filterNode, sortKeys []SortKey) bool {
+	for _, key := range sortKeys {
+		if operandAddressesRelationField(root, key.Field) {
+			return true
+		}
+	}
+	return filterAddressesRelationField(root, filter)
+}
+
+func filterAddressesRelationField(root schema.Collection, node filterNode) bool {
+	switch value := node.(type) {
+	case filterAnd:
+		return filterGroupAddressesRelationField(root, value.children)
+	case filterOr:
+		return filterGroupAddressesRelationField(root, value.children)
+	case filterComparison:
+		return operandAddressesRelationField(root, value.field)
+	default:
+		return false
+	}
+}
+
+func filterGroupAddressesRelationField(root schema.Collection, children []filterNode) bool {
+	for _, child := range children {
+		if filterAddressesRelationField(root, child) {
+			return true
+		}
+	}
+	return false
+}
+
+func operandAddressesRelationField(root schema.Collection, name string) bool {
+	if strings.Contains(name, ".") {
+		return true
+	}
+	field, ok := filterField(root, name)
+	return ok && field.Type == schema.TypeRelation
 }
 
 type relationRootPageReadRequest struct {
@@ -331,7 +394,24 @@ func scanPlannedSortValues(row RowScanner, planned []plannedRelationSort) ([]jso
 	return values, nil
 }
 
+// finalizeRelationRecordPage measures the exact JSON object the API emits the
+// way finalizeRecordPage does. Item encodings never change while the tail is
+// trimmed, so they are measured once and the running total is decremented per
+// dropped item. Only the envelope is re-encoded per attempt, because its size
+// follows the continuation cursor, which follows the anchor record.
+// Re-marshalling the whole page on every attempt was quadratic in the page
+// size for a bound that is exceeded by a few kilobytes.
 func (s *Service) finalizeRelationRecordPage(result *rootPageReadResult, collectionID uuid.UUID, hasMore bool) error {
+	itemBytes := make([]int, len(result.page.Items))
+	measured := 0
+	for index, item := range result.page.Items {
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("measure relation record page response: %w", err)
+		}
+		itemBytes[index] = len(encoded)
+		measured += len(encoded)
+	}
 	for {
 		result.page.NextCursor = ""
 		if hasMore && len(result.page.Items) > 0 {
@@ -353,16 +433,23 @@ func (s *Service) finalizeRelationRecordPage(result *rootPageReadResult, collect
 				return err
 			}
 		}
-		encoded, err := json.Marshal(result.page)
+		// An empty page encodes the exact envelope this page will emit; the
+		// items add their own bytes plus one separating comma each.
+		envelope, err := json.Marshal(RecordPage{Items: []map[string]any{}, NextCursor: result.page.NextCursor})
 		if err != nil {
 			return fmt.Errorf("measure relation record page response: %w", err)
 		}
-		if len(encoded)+1 <= maximumRecordPageBytes {
+		responseBytes := len(envelope) + measured
+		if len(result.page.Items) > 0 {
+			responseBytes += len(result.page.Items) - 1
+		}
+		if responseBytes+1 <= maximumRecordPageBytes {
 			return nil
 		}
 		if len(result.page.Items) <= 1 {
 			return validation("response", "response_too_large")
 		}
+		measured -= itemBytes[len(result.page.Items)-1]
 		result.page.Items = result.page.Items[:len(result.page.Items)-1]
 		hasMore = true
 	}

@@ -144,38 +144,62 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 	return page, err
 }
 
+// finalizeExpandedPage measures the exact JSON object the API emits the way
+// finalizeRecordPage does. Item encodings never change while the tail is
+// trimmed, so they are measured once and the running total is decremented per
+// dropped item; only the envelope is re-encoded per attempt, because its size
+// follows the continuation cursor, which follows the anchor record.
+// Re-marshalling the whole page on every attempt was quadratic in the page
+// size for a bound that is exceeded by a few kilobytes.
 func (s *Service) finalizeExpandedPage(
 	page *ExpandedRecordPage,
 	collectionID uuid.UUID,
 	root rootPageReadResult,
 ) error {
-	for {
-		oversizedAt := -1
-		for index := range page.Items {
-			if page.Items[index].oversized {
-				oversizedAt = index
-				break
-			}
-		}
-		if oversizedAt == 0 {
-			return validation("response", "response_too_large")
-		}
-		if oversizedAt > 0 {
-			if err := s.trimExpandedPage(page, oversizedAt, collectionID, root); err != nil {
-				return err
-			}
+	// A record too large to represent on its own takes the whole tail with it
+	// before anything is measured, because ExpandedRecord.MarshalJSON refuses
+	// to encode one. Trimming to the first such record leaves none behind, so
+	// this runs at most once.
+	for index := range page.Items {
+		if !page.Items[index].oversized {
 			continue
 		}
-		encoded, err := json.Marshal(page)
+		if index == 0 {
+			return validation("response", "response_too_large")
+		}
+		if err := s.trimExpandedPage(page, index, collectionID, root); err != nil {
+			return err
+		}
+		break
+	}
+	itemBytes := make([]int, len(page.Items))
+	measured := 0
+	for index := range page.Items {
+		encoded, err := json.Marshal(page.Items[index])
 		if err != nil {
 			return fmt.Errorf("measure expanded record page response: %w", err)
 		}
-		if len(encoded)+1 <= s.expandLimits.maxBytes {
+		itemBytes[index] = len(encoded)
+		measured += len(encoded)
+	}
+	for {
+		// An empty page encodes the exact envelope this page will emit; the
+		// items add their own bytes plus one separating comma each.
+		envelope, err := json.Marshal(ExpandedRecordPage{Items: []ExpandedRecord{}, NextCursor: page.NextCursor})
+		if err != nil {
+			return fmt.Errorf("measure expanded record page response: %w", err)
+		}
+		responseBytes := len(envelope) + measured
+		if len(page.Items) > 0 {
+			responseBytes += len(page.Items) - 1
+		}
+		if responseBytes+1 <= s.expandLimits.maxBytes {
 			return nil
 		}
 		if len(page.Items) <= 1 {
 			return validation("response", "response_too_large")
 		}
+		measured -= itemBytes[len(page.Items)-1]
 		if err := s.trimExpandedPage(page, len(page.Items)-1, collectionID, root); err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,9 @@ type relationMutation struct {
 	input    relation.Input
 	present  bool
 	compiler map[string]json.RawMessage
+	// mode and hydrations carry the record-size bound; see hydrate.
+	mode       relation.InputMode
+	hydrations int
 }
 
 func prepareRelationMutation(
@@ -30,7 +34,7 @@ func prepareRelationMutation(
 		return nil, err
 	}
 	if bindings == nil {
-		return &relationMutation{compiler: cloneRecordInput(payload)}, nil
+		return &relationMutation{compiler: cloneRecordInput(payload), mode: mode}, nil
 	}
 	decoded, err := bindings.Decode(mode, payload)
 	if err != nil {
@@ -45,7 +49,9 @@ func prepareRelationMutation(
 		present = true
 		compiler[value.FieldName] = append(json.RawMessage(nil), value.JSON...)
 	}
-	return &relationMutation{bindings: bindings, input: decoded, present: present, compiler: compiler}, nil
+	return &relationMutation{
+		bindings: bindings, input: decoded, present: present, compiler: compiler, mode: mode,
+	}, nil
 }
 
 func bindRecordRelations(catalog schema.Catalog, collection schema.Collection) (*relation.Bindings, error) {
@@ -83,11 +89,47 @@ func (m *relationMutation) replaceMulti(ctx context.Context, tx pgx.Tx, sourceID
 	return normalizeRelationError(m.bindings.ReplaceMulti(ctx, tx, sourceID, m.input))
 }
 
+// hydrate fills the record's multiple-relation fields and then bounds the
+// finished record. This is the only point either write path holds the merged
+// result: the compiled statement carries just the fields the request supplied,
+// so the size a PATCH produces is unknown until the row is written and read
+// back with its relations attached.
+//
+// Create hydrates once, on the inserted record. Update hydrates twice, first
+// on the stored pre-image and then on the updated record, and only the second
+// call is bounded. Skipping the pre-image is deliberate: a record an older
+// build stored above the bound stays writable, so an operator can shrink it
+// with a PATCH instead of finding it both unreadable through list and frozen.
+// The call order in Service.Create and Service.Update is load-bearing here and
+// is pinned by TestRecordSizeBoundSkipsOnlyThePatchPreImage.
 func (m *relationMutation) hydrate(ctx context.Context, tx pgx.Tx, recordID uuid.UUID, record map[string]any) error {
 	if m == nil {
 		return nil
 	}
-	return hydrateRecordRelations(ctx, tx, m.bindings, recordID, record)
+	m.hydrations++
+	if err := hydrateRecordRelations(ctx, tx, m.bindings, recordID, record); err != nil {
+		return err
+	}
+	if m.mode == relation.PatchInput && m.hydrations < 2 {
+		return nil
+	}
+	return validateRecordSize(record)
+}
+
+// validateRecordSize refuses a record whose encoding the list page budget
+// cannot carry. The failure is a field-level validation so it surfaces as 422
+// alongside every other record validation rather than as an opaque conflict.
+func validateRecordSize(record map[string]any) error {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("measure record size: %w", err)
+	}
+	if len(encoded) > maximumRecordBytes {
+		return &query.ValidationError{
+			Details: []query.ValidationDetail{{Field: "record", Code: "record_too_large"}},
+		}
+	}
+	return nil
 }
 
 func readRecordWithRelations(

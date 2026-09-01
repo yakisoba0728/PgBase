@@ -543,7 +543,12 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				return ErrConflict
 			}
 			if len(field.Default) != 0 {
-				if _, _, err := normalizeDefault(field.Type, field.Default); err != nil {
+				// Stored defaults carry the bounds of the binary that wrote
+				// them, not this one. A bound added after a release must not
+				// reach this check: it runs on every EnsureCurrent, so one
+				// legacy column would turn into ErrConflict for every schema
+				// and record operation in the database.
+				if _, _, err := normalizeStoredDefault(field.Type, field.Default); err != nil {
 					return ErrConflict
 				}
 			}

@@ -12,6 +12,20 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
 
+// maximumRecordBytes bounds one record's JSON encoding at half the list page
+// budget package query enforces on reads (maximumRecordPageBytes, 4 MiB, kept
+// unexported there). The read path admits the first item of a page whatever
+// its size and then fails the entire page with response_too_large when that
+// single item does not fit, so one record above the page budget makes itself
+// and every record after it in sort order permanently unreachable through
+// list. Halving the budget leaves room for the page envelope and cursor and
+// keeps any two bounded records splittable across two pages.
+//
+// The per-field bounds in package query cannot express this: decodeInput sees
+// only the fields a request supplied, so a PATCH that grows a third text field
+// has no way to know the size of the record it produces.
+const maximumRecordBytes = 2 << 20
+
 type PrincipalKind string
 
 const PrincipalAdministrator PrincipalKind = "administrator"

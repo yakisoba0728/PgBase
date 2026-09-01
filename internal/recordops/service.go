@@ -72,7 +72,7 @@ func NewServiceWithRecorder(pool *database.Pool, schemas CatalogEnsurer, cursorS
 func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPage, err error) {
 	operationStarted := time.Now()
 	relationOperation := readTouchesRelationField(request.Expand, request.Filter, request.Sort)
-	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationExpand, operationStarted, &err, &relationOperation)
+	defer s.finishRelationRecordOperation(ctx, relationReadOperation(request.Expand), operationStarted, &err, &relationOperation)
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return RecordPage{}, err
 	}
@@ -98,7 +98,10 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		}
 		return result, nil
 	}
-	return s.reader.ListRelationAware(ctx, query.RelationListRequest{
+	// The reader owns the pinned catalog, so it is the only layer that can tell
+	// a bare relation field name (`sort=owner`) from a scalar column and report
+	// the relation work the request actually reached.
+	page, usedRelation, err := s.reader.ListRelationAwareUsage(ctx, query.RelationListRequest{
 		Principal:  expansionPrincipal(request.Principal),
 		Collection: request.Collection,
 		Cursor:     request.Cursor,
@@ -106,12 +109,14 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		Filter:     request.Filter,
 		Sort:       request.Sort,
 	})
+	relationOperation = relationOperation || usedRelation
+	return page, err
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {
 	operationStarted := time.Now()
 	relationOperation := readTouchesRelationField(request.Expand, "", "")
-	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationExpand, operationStarted, &err, &relationOperation)
+	defer s.finishRelationRecordOperation(ctx, relationReadOperation(request.Expand), operationStarted, &err, &relationOperation)
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return Record{}, err
 	}
@@ -691,11 +696,23 @@ func (s *Service) finishRelationRecordOperation(
 	s.record(ctx, observability.OperationEvent(observability.ComponentRelation, operation, relationOperationOutcome(err), time.Since(started)))
 }
 
-// readTouchesRelationField reports whether a read request reaches the relation
-// query kernel, the way the mutation paths compute the same flag from their own
-// state. Expansion is explicit, and relation filters and sorts are addressed
-// with dotted paths that a catalog name can never contain, so a relation sort
-// budget rejection is recorded whether or not the request also expands.
+// relationReadOperation separates expansion from relation-aware filter and
+// sort work so a sort or filter budget rejection is not counted against
+// expansion, which has its own budgets and its own alerting shape.
+func relationReadOperation(expand string) observability.Operation {
+	if expand != "" {
+		return observability.OperationRelationExpand
+	}
+	return observability.OperationRelationRead
+}
+
+// readTouchesRelationField reports the relation work a read request is known to
+// reach from its text alone, the way the mutation paths compute the same flag
+// from their own state. Expansion is explicit and dotted paths can only be
+// relation paths, so a relation sort budget rejection is recorded whether or
+// not the request also expands. A bare relation field name is indistinguishable
+// from a scalar column without the catalog, so List additionally folds in what
+// the reader reports once the catalog is pinned.
 func readTouchesRelationField(expand, filter, sort string) bool {
 	if expand != "" || strings.Contains(sort, ".") {
 		return true

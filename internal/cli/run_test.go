@@ -264,19 +264,75 @@ func TestServeRedactsPercentEncodedDSNSecretsInStartupErrors(t *testing.T) {
 	}
 }
 
+// TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt pins
+// both halves of the pool-configuration rejection: the operator gets a
+// diagnostic naming the parameter that failed, and neither the password nor
+// the DSN the parser echoes back reaches the process log.
 func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *testing.T) {
-	const databaseURL = "postgres://admin:super-secret@localhost/pgbase?pool_max_conns=not-a-number"
+	const secret = "migrate-configuration-secret-must-not-leak"
+	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
 	var stderr bytes.Buffer
 	code := Run(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), io.Discard, &stderr, DefaultCommands())
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
-	if got, want := stderr.String(), "pgbase: invalid configuration\n"; got != want {
-		t.Fatalf("stderr = %q, want %q", got, want)
+	if !strings.HasSuffix(stderr.String(), "pgbase: invalid configuration\n") {
+		t.Fatalf("stderr = %q, want the invalid configuration line last", stderr.String())
 	}
-	for _, sensitive := range []string{databaseURL, "super-secret", "not-a-number"} {
+	for _, diagnostic := range []string{"parse PostgreSQL pool configuration", "pool_max_conns", "not-a-number", "[REDACTED]"} {
+		if !strings.Contains(stderr.String(), diagnostic) {
+			t.Fatalf("stderr lost configuration diagnostic %q: %q", diagnostic, stderr.String())
+		}
+	}
+	for _, sensitive := range []string{databaseURL, secret} {
 		if strings.Contains(stderr.String(), sensitive) {
 			t.Fatalf("stderr leaked %q: %q", sensitive, stderr.String())
+		}
+	}
+}
+
+func TestAdminRejectsMalformedDatabaseURLWithoutLeakingIt(t *testing.T) {
+	const secret = "admin-configuration-secret-must-not-leak"
+	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
+	originalStdin := commandStdin
+	t.Cleanup(func() { commandStdin = originalStdin })
+	commandStdin = strings.NewReader("correct horse battery staple\n")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	if code != 2 {
+		t.Fatalf("exit code = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
+	}
+	for _, diagnostic := range []string{"parse PostgreSQL pool configuration", "pool_max_conns", "[REDACTED]"} {
+		if !strings.Contains(stderr.String(), diagnostic) {
+			t.Fatalf("stderr lost configuration diagnostic %q: %q", diagnostic, stderr.String())
+		}
+	}
+	for _, sensitive := range []string{databaseURL, secret, "correct horse battery staple"} {
+		if strings.Contains(stdout.String(), sensitive) || strings.Contains(stderr.String(), sensitive) {
+			t.Fatalf("admin leaked %q: stdout=%q stderr=%q", sensitive, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestDoctorReportsMalformedDatabaseURLWithoutLeakingIt(t *testing.T) {
+	const secret = "doctor-configuration-secret-must-not-leak"
+	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"doctor"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	if code != 2 {
+		t.Fatalf("exit code = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "configuration_invalid") {
+		t.Fatalf("doctor report = %q, want a configuration_invalid finding", stdout.String())
+	}
+	for _, diagnostic := range []string{"parse PostgreSQL pool configuration", "pool_max_conns", "[REDACTED]"} {
+		if !strings.Contains(stderr.String(), diagnostic) {
+			t.Fatalf("stderr lost configuration diagnostic %q: %q", diagnostic, stderr.String())
+		}
+	}
+	for _, sensitive := range []string{databaseURL, secret} {
+		if strings.Contains(stdout.String(), sensitive) || strings.Contains(stderr.String(), sensitive) {
+			t.Fatalf("doctor leaked %q: stdout=%q stderr=%q", sensitive, stdout.String(), stderr.String())
 		}
 	}
 }
