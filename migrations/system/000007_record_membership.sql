@@ -7,12 +7,15 @@ FOR UPDATE;
 
 CREATE TABLE pgbase_meta.record_membership_capability (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-    state text NOT NULL CHECK (state IN ('off', 'dual_write', 'ready')),
+    state text NOT NULL CHECK (state IN ('off', 'cutover', 'dual_write', 'ready')),
     generation bigint NOT NULL CHECK (generation >= 0),
     minimum_writer_version smallint NOT NULL CHECK (minimum_writer_version BETWEEN 0 AND 3),
     cursor_issue_version smallint NOT NULL CHECK (cursor_issue_version IN (4, 5)),
     cutover_at timestamptz,
+    cutover_collection_count bigint CHECK (cutover_collection_count >= 0),
+    cutover_record_count bigint CHECK (cutover_record_count >= 0),
     ready_at timestamptz,
+    ready_collection_count bigint CHECK (ready_collection_count >= 0),
     v5_enabled_at timestamptz,
     v4_decode_until timestamptz,
     v4_retired_at timestamptz,
@@ -23,7 +26,23 @@ CREATE TABLE pgbase_meta.record_membership_capability (
             AND minimum_writer_version = 0
             AND cursor_issue_version = 4
             AND cutover_at IS NULL
+            AND cutover_collection_count IS NULL
+            AND cutover_record_count IS NULL
             AND ready_at IS NULL
+            AND ready_collection_count IS NULL
+            AND v5_enabled_at IS NULL
+            AND v4_decode_until IS NULL
+            AND v4_retired_at IS NULL)
+        OR
+        (state = 'cutover'
+            AND generation >= 1
+            AND minimum_writer_version = 1
+            AND cursor_issue_version = 4
+            AND cutover_at IS NOT NULL
+            AND cutover_collection_count IS NULL
+            AND cutover_record_count IS NULL
+            AND ready_at IS NULL
+            AND ready_collection_count IS NULL
             AND v5_enabled_at IS NULL
             AND v4_decode_until IS NULL
             AND v4_retired_at IS NULL)
@@ -33,7 +52,10 @@ CREATE TABLE pgbase_meta.record_membership_capability (
             AND minimum_writer_version = 1
             AND cursor_issue_version = 4
             AND cutover_at IS NOT NULL
+            AND cutover_collection_count IS NOT NULL
+            AND cutover_record_count IS NOT NULL
             AND ready_at IS NULL
+            AND ready_collection_count IS NULL
             AND v5_enabled_at IS NULL
             AND v4_decode_until IS NULL
             AND v4_retired_at IS NULL)
@@ -41,7 +63,10 @@ CREATE TABLE pgbase_meta.record_membership_capability (
         (state = 'ready'
             AND generation >= 1
             AND cutover_at IS NOT NULL
+            AND cutover_collection_count IS NOT NULL
+            AND cutover_record_count IS NOT NULL
             AND ready_at IS NOT NULL
+            AND ready_collection_count IS NOT NULL
             AND ((cursor_issue_version = 4
                     AND minimum_writer_version = 1
                     AND v5_enabled_at IS NULL

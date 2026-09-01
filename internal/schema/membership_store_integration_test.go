@@ -33,7 +33,9 @@ func TestCollectionLifecycleMaintainsMembershipMetadataOutsideThePublicPlan(t *t
 	if _, err := pool.Exec(ctx, `update pgbase_meta.record_membership_capability set
 		state = 'ready', generation = 1, minimum_writer_version = $1,
 		cursor_issue_version = 4, cutover_at = current_timestamp,
-		ready_at = current_timestamp, updated_at = current_timestamp
+		cutover_collection_count = 1, cutover_record_count = 0,
+		ready_at = current_timestamp, ready_collection_count = 1,
+		updated_at = current_timestamp
 		where singleton`, int16(1)); err != nil {
 		t.Fatal(err)
 	}

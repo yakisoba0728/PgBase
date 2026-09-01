@@ -284,6 +284,19 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 					_ = app.Close(context.Background())
 					t.Fatalf("membership table after v%d startup = %v", testCase.through, membershipTable)
 				}
+				if testCase.through == 7 {
+					var leases int
+					if err := app.pool.QueryRow(context.Background(), `select count(*)
+						from pgbase_meta.runtime_writer_leases
+						where writer_version = 0 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
+						_ = app.Close(context.Background())
+						t.Fatal(err)
+					}
+					if leases != 1 {
+						_ = app.Close(context.Background())
+						t.Fatalf("A0 startup active writer leases = %d, want 1", leases)
+					}
+				}
 				if err := app.Start(context.Background()); err != nil {
 					_ = app.Close(context.Background())
 					t.Fatalf("start app with feature history: %v", err)
@@ -303,21 +316,9 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 					_ = app.Close(context.Background())
 					t.Fatal(err)
 				}
-				if testCase.through == 7 {
-					if err := app.readiness.Ready(context.Background()); err != nil {
-						_ = app.Close(context.Background())
-						t.Fatalf("readiness rejected clean v6 after v7 startup: %v", err)
-					}
-					if _, err := app.pool.Exec(context.Background(),
-						"delete from pgbase_meta.system_migrations where version = 6",
-					); err != nil {
-						_ = app.Close(context.Background())
-						t.Fatal(err)
-					}
-				}
 				if err := app.readiness.Ready(context.Background()); err == nil {
 					_ = app.Close(context.Background())
-					t.Fatalf("readiness accepted history below v6 after v%d startup", testCase.through)
+					t.Fatalf("readiness accepted history/object drift after v%d startup", testCase.through)
 				}
 				if closeErr := app.Close(context.Background()); closeErr != nil {
 					t.Fatal(closeErr)

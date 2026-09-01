@@ -13,6 +13,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
@@ -31,6 +32,7 @@ type App struct {
 	recordCleaner    backgroundRunner
 	schemaOperations backgroundRunner
 	schemaListener   backgroundRunner
+	membershipWriter backgroundRunner
 	listen           func(string, string) (net.Listener, error)
 	shutdownMu       sync.Mutex
 	shutdownStarted  bool
@@ -265,6 +267,12 @@ func newWithCatalogPreflight(
 	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
 	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
+	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterA0)
+	if err != nil {
+		return nil, fmt.Errorf("register record membership writer: %w", err)
+	}
+	readiness.dependencies = append(readiness.dependencies,
+		namedReadiness{name: "record membership writer", check: membershipRuntime})
 	authService := adminauth.NewService(
 		pool,
 		adminauth.NewArgon2idPasswords(),
@@ -302,6 +310,7 @@ func newWithCatalogPreflight(
 		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
 		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
+		membershipWriter: membershipRuntime,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -485,7 +494,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]namedBackgroundRunner, 0, 4)
+		runners := make([]namedBackgroundRunner, 0, 5)
 		if a.cleaner != nil {
 			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
 		}
@@ -497,6 +506,9 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		}
 		if a.schemaListener != nil {
 			runners = append(runners, namedBackgroundRunner{name: "schema listener", runner: a.schemaListener})
+		}
+		if a.membershipWriter != nil {
+			runners = append(runners, namedBackgroundRunner{name: "record membership writer", runner: a.membershipWriter})
 		}
 		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {

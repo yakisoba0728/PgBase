@@ -18,7 +18,7 @@ func TestRecordMembershipMigrationCreatesFeatureOffMetadata(t *testing.T) {
 	ctx, pool := newRecordMembershipSchema(t)
 
 	wantColumns := map[string]string{
-		"record_membership_capability": "singleton:boolean:NO,state:text:NO,generation:bigint:NO,minimum_writer_version:smallint:NO,cursor_issue_version:smallint:NO,cutover_at:timestamp with time zone:YES,ready_at:timestamp with time zone:YES,v5_enabled_at:timestamp with time zone:YES,v4_decode_until:timestamp with time zone:YES,v4_retired_at:timestamp with time zone:YES,updated_at:timestamp with time zone:NO",
+		"record_membership_capability": "singleton:boolean:NO,state:text:NO,generation:bigint:NO,minimum_writer_version:smallint:NO,cursor_issue_version:smallint:NO,cutover_at:timestamp with time zone:YES,cutover_collection_count:bigint:YES,cutover_record_count:bigint:YES,ready_at:timestamp with time zone:YES,ready_collection_count:bigint:YES,v5_enabled_at:timestamp with time zone:YES,v4_decode_until:timestamp with time zone:YES,v4_retired_at:timestamp with time zone:YES,updated_at:timestamp with time zone:NO",
 		"collection_creation_counters": "collection_id:uuid:NO,generation:bigint:NO,last_ordinal:bigint:NO,updated_at:timestamp with time zone:NO",
 		"record_creation_ordinals":     "collection_id:uuid:NO,record_id:uuid:NO,ordinal:bigint:NO",
 		"record_membership_backfills":  "collection_id:uuid:NO,generation:bigint:NO,state:text:NO,cutover_count:bigint:YES,cutover_last_created_at:timestamp with time zone:YES,cutover_last_record_id:uuid:YES,checkpoint_created_at:timestamp with time zone:YES,checkpoint_record_id:uuid:YES,last_assigned_ordinal:bigint:NO,validated_base_count:bigint:YES,validated_sidecar_count:bigint:YES,updated_at:timestamp with time zone:NO,completed_at:timestamp with time zone:YES",
@@ -44,7 +44,9 @@ func TestRecordMembershipMigrationCreatesFeatureOffMetadata(t *testing.T) {
 	var rolloutTimestampsClear bool
 	if err := pool.QueryRow(ctx, `SELECT state, generation, minimum_writer_version,
 		cursor_issue_version,
-		cutover_at IS NULL AND ready_at IS NULL AND v5_enabled_at IS NULL
+			cutover_at IS NULL
+				AND cutover_collection_count IS NULL AND cutover_record_count IS NULL
+				AND ready_at IS NULL AND ready_collection_count IS NULL AND v5_enabled_at IS NULL
 			AND v4_decode_until IS NULL AND v4_retired_at IS NULL
 		FROM pgbase_meta.record_membership_capability
 		WHERE singleton`).Scan(
@@ -232,15 +234,20 @@ func TestRecordMembershipMigrationEnforcesCapabilityRolloutStates(t *testing.T) 
 	requireSQLState(t, ctx, pool, `UPDATE pgbase_meta.record_membership_capability
 		SET state = 'dual_write' WHERE singleton`, "23514")
 	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.record_membership_capability SET
-		state = 'dual_write', generation = 1, minimum_writer_version = 1,
+		state = 'cutover', generation = 1, minimum_writer_version = 1,
 		cutover_at = '2026-09-02T02:00:00Z', updated_at = '2026-09-02T02:00:00Z'
+		WHERE singleton`); err != nil {
+		t.Fatalf("enable valid cutover barrier state: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.record_membership_capability SET
+		state = 'dual_write', cutover_collection_count = 0, cutover_record_count = 0
 		WHERE singleton`); err != nil {
 		t.Fatalf("enable valid dual write state: %v", err)
 	}
 	requireSQLState(t, ctx, pool, `UPDATE pgbase_meta.record_membership_capability
 		SET state = 'ready' WHERE singleton`, "23514")
 	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.record_membership_capability SET
-		state = 'ready', ready_at = '2026-09-02T02:01:00Z',
+		state = 'ready', ready_at = '2026-09-02T02:01:00Z', ready_collection_count = 0,
 		updated_at = '2026-09-02T02:01:00Z' WHERE singleton`); err != nil {
 		t.Fatalf("promote valid ready state: %v", err)
 	}
