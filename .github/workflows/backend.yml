@@ -27,19 +27,48 @@ jobs:
           prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
           check rules /rules/prometheus-alerts.yml
 
-  test:
-    name: Go / PostgreSQL ${{ matrix.postgres.version }}
+  unit:
+    name: Go unit
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify formatting
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run pinned blocking static analysis
+        run: scripts/lint-go.sh
+
+      - name: Vet unit build
+        run: go vet ./...
+
+      - name: Test unit suite with race detector and skip policy
+        shell: bash
+        run: scripts/test-go-unit.sh -race -count=1
+
+  integration:
+    name: PostgreSQL integration / ${{ matrix.postgres.version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         postgres:
           - version: "16.13"
             image: postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60
-          - version: "17"
+          - version: "17.9"
             image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
-          - version: "18"
+          - version: "18.3"
             image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
     services:
       postgres:
@@ -68,24 +97,20 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Verify formatting
-        shell: bash
-        run: test -z "$(gofmt -l .)"
+      - name: Vet integration build
+        run: go vet -tags=integration ./...
 
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test with race detector
+      - name: Test complete PostgreSQL suite with race detector and skip policy
         shell: bash
         run: |
           set -o pipefail
-          go test -race ./... 2>&1 | tee go-test.log
+          scripts/test-go-integration.sh -race -count=1 2>&1 | tee go-test.log
 
       - name: Record benchmark baseline
         shell: bash
         run: |
           set -o pipefail
-          go test ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
+          go test -tags=integration ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark baseline
         if: always()

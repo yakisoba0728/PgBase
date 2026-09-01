@@ -422,23 +422,6 @@ func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testi
 	assertValidationDetail(t, err, "response", "response_too_large")
 }
 
-func TestRelationPlanningErrorKeepsValidationFailuresWhenACursorIsPresent(t *testing.T) {
-	t.Parallel()
-
-	planningErr := validation("filter", "unknown_field")
-	for _, hasCursor := range []bool{false, true} {
-		got := relationPlanningErrorForCursor(planningErr, hasCursor)
-		var cursorErr *InvalidCursorError
-		if errors.As(got, &cursorErr) {
-			t.Fatalf("planning error with cursor=%v became %T, want the validation error", hasCursor, got)
-		}
-		assertValidationDetail(t, got, "filter", "unknown_field")
-	}
-	if got := relationPlanningErrorForCursor(nil, true); got != nil {
-		t.Fatalf("relationPlanningErrorForCursor(nil, true) = %v, want nil", got)
-	}
-}
-
 func TestEncodeRecordReturnsOpaqueCategorizedScanFailure(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,20 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - ineffassign
+    - unparam
+    - unused
+    - wastedassign
+  settings:
+    errcheck:
+      check-blank: false
+      check-type-assertions: false
+    unparam:
+      check-exported: false

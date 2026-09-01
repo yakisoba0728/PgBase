@@ -1,3 +1,5 @@
+//go:build integration
+
 package recordops
 
 import (
@@ -6,12 +8,10 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -241,23 +241,6 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 	}) {
 		t.Fatalf("relation sort pages = %v", got)
 	}
-}
-
-type relationTelemetryRecorder struct {
-	mu     sync.Mutex
-	events []observability.Event
-}
-
-func (r *relationTelemetryRecorder) Record(_ context.Context, event observability.Event) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, event)
-}
-
-func (r *relationTelemetryRecorder) snapshot() []observability.Event {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]observability.Event(nil), r.events...)
 }
 
 func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *testing.T) {
@@ -537,18 +520,6 @@ func assertRelationRecord(t *testing.T, record map[string]any, owner uuid.UUID, 
 	}
 	if !reflect.DeepEqual(record["tags"], want) {
 		t.Fatalf("tags = %#v, want %#v", record["tags"], want)
-	}
-}
-
-func assertQueryValidation(t *testing.T, err error, field, code string) {
-	t.Helper()
-	var validation *query.ValidationError
-	if !errors.As(err, &validation) {
-		t.Fatalf("error = %v, want query validation", err)
-	}
-	want := []query.ValidationDetail{{Field: field, Code: code}}
-	if !reflect.DeepEqual(validation.Details, want) {
-		t.Fatalf("validation = %#v, want %#v", validation.Details, want)
 	}
 }
 
