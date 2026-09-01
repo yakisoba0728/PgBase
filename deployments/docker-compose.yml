@@ -36,12 +36,13 @@ services:
       PGBASE_METRICS_TOKEN: ${PGBASE_METRICS_TOKEN:-}
       PGBASE_AUTO_MIGRATE: "true"
       PGBASE_SHUTDOWN_TIMEOUT: ${PGBASE_SHUTDOWN_TIMEOUT:-15s}
+      PGBASE_STOP_GRACE_PERIOD: ${PGBASE_STOP_GRACE_PERIOD:-20s}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "127.0.0.1:${PGBASE_HTTP_PORT:-8090}:8090"
-    stop_grace_period: 30s
+    stop_grace_period: ${PGBASE_STOP_GRACE_PERIOD:-20s}
     healthcheck:
       test: ["CMD", "/pgbase", "healthcheck", "--url", "http://127.0.0.1:8090/health/ready"]
       interval: 5s

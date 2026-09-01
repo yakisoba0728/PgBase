@@ -92,10 +92,23 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	if err := parseDuration(lookup, "PGBASE_SHUTDOWN_TIMEOUT", &opts.ShutdownTimeout); err != nil {
 		return pgbase.Options{}, err
 	}
+	var stopGracePeriod time.Duration
+	stopGraceConfigured := false
+	if raw, ok := value(lookup, "PGBASE_STOP_GRACE_PERIOD"); ok && raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_STOP_GRACE_PERIOD: %w", err)
+		}
+		stopGracePeriod = parsed
+		stopGraceConfigured = true
+	}
 
 	normalized, err := opts.Normalized()
 	if err != nil {
 		return pgbase.Options{}, fmt.Errorf("invalid pgBase configuration: %w", err)
+	}
+	if stopGraceConfigured && (stopGracePeriod < normalized.ShutdownTimeout || stopGracePeriod-normalized.ShutdownTimeout < 5*time.Second) {
+		return pgbase.Options{}, fmt.Errorf("PGBASE_STOP_GRACE_PERIOD: must be at least PGBASE_SHUTDOWN_TIMEOUT plus 5s")
 	}
 	return normalized, nil
 }

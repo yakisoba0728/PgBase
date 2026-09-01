@@ -42,6 +42,17 @@ jobs:
           echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
           echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
 
+      - name: Verify Compose shutdown policy
+        shell: bash
+        run: |
+          go test ./deployments ./internal/config -run 'TestComposeShutdownGraceUsesOneConfigurableDefault|TestLoadEnvRequiresComposeStopGraceMargin' -count=1
+          docker compose -f deployments/docker-compose.yml config --quiet
+          PGBASE_SHUTDOWN_TIMEOUT=40s PGBASE_STOP_GRACE_PERIOD=45s docker compose -f deployments/docker-compose.yml config --quiet
+          if PGBASE_STOP_GRACE_PERIOD=not-a-duration docker compose -f deployments/docker-compose.yml config --quiet; then
+            echo "malformed Compose stop grace unexpectedly rendered" >&2
+            exit 1
+          fi
+
       - name: Build image
         run: docker compose -f deployments/docker-compose.yml build
 

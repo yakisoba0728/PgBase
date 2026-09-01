@@ -25,7 +25,8 @@ pgbase_token_secret="$(openssl rand -base64 32 | tr -d '\n')"
     'PGBASE_PUBLIC_URL=http://127.0.0.1:8090' \
     'PGBASE_VERSION=dev' \
     'PGBASE_IMAGE=pgbase:dev' \
-    'PGBASE_SHUTDOWN_TIMEOUT=15s'
+    'PGBASE_SHUTDOWN_TIMEOUT=15s' \
+    'PGBASE_STOP_GRACE_PERIOD=20s'
 } > deployments/.env
 unset pgbase_postgres_password pgbase_setup_token pgbase_token_secret
 ```
