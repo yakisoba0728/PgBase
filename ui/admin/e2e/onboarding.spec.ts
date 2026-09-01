@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+test.describe.configure({ mode: "serial" });
+
 test("an empty backend reaches browser setup and persists the administrator session", async ({ page }) => {
   const setupToken = process.env.PGBASE_SETUP_TOKEN;
   if (!setupToken) throw new Error("PGBASE_SETUP_TOKEN is required");
