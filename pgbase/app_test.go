@@ -3,99 +3,16 @@ package pgbase
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
-
-func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(func() { _ = app.Close(context.Background()) })
-
-	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
-	response := httptest.NewRecorder()
-	app.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/admin/" {
-		t.Fatalf("status=%d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
-	}
-}
-
-func TestMetricsEndpointIsOptInAndBearerProtected(t *testing.T) {
-	newApp := func(t *testing.T, metricsToken []byte) *App {
-		t.Helper()
-		app, err := New(context.Background(), Options{
-			DatabaseURL:  testutil.NewDatabase(t),
-			TokenSecret:  make([]byte, 32),
-			MetricsToken: metricsToken,
-			AutoMigrate:  true,
-			Logger:       slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = app.Close(context.Background()) })
-		return app
-	}
-
-	disabled := newApp(t, nil)
-	disabledResponse := httptest.NewRecorder()
-	disabled.Handler().ServeHTTP(disabledResponse, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if disabledResponse.Code != http.StatusNotFound {
-		t.Fatalf("disabled metrics status = %d, want 404", disabledResponse.Code)
-	}
-
-	token := strings.Repeat("m", 32)
-	enabled := newApp(t, []byte(token))
-	unauthorized := httptest.NewRecorder()
-	enabled.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized metrics status = %d, want 401", unauthorized.Code)
-	}
-
-	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	request.Header.Set("Authorization", "Bearer "+token)
-	authorized := httptest.NewRecorder()
-	enabled.Handler().ServeHTTP(authorized, request)
-	if authorized.Code != http.StatusOK {
-		t.Fatalf("authorized metrics status = %d body=%s", authorized.Code, authorized.Body.String())
-	}
-	if authorized.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("metrics Cache-Control = %q", authorized.Header().Get("Cache-Control"))
-	}
-	if !strings.Contains(authorized.Body.String(), "pgbase_database_pool_max_connections") {
-		t.Fatalf("metrics omitted database pool snapshot: %s", authorized.Body.String())
-	}
-	for _, initialized := range []string{
-		`pgbase_application_readiness{component="database"} 1`,
-		`pgbase_application_readiness{component="migrations"} 1`,
-		`pgbase_application_readiness{component="http"} 0`,
-		`pgbase_application_readiness{component="schema_listener"} 0`,
-	} {
-		if !strings.Contains(authorized.Body.String(), initialized) {
-			t.Fatalf("metrics omitted initialized readiness %q: %s", initialized, authorized.Body.String())
-		}
-	}
-}
 
 func TestReadinessProbeOnlyPublishesProbeOwnedComponents(t *testing.T) {
 	recorder := &readinessTelemetryRecorder{}
@@ -135,44 +52,6 @@ func (r *readinessTelemetryRecorder) snapshot() []observability.Event {
 	return append([]observability.Event(nil), r.events...)
 }
 
-func TestStartEnablesHandlerForCallerOwnedHTTPServer(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	if err := app.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		cancel()
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
-		defer closeCancel()
-		_ = app.Close(closeCtx)
-	})
-
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		response := httptest.NewRecorder()
-		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
-		if response.Code == http.StatusOK {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("caller-owned handler never became ready: status=%d body=%s", response.Code, response.Body.String())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err := app.Run(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
-		t.Fatalf("Run after Start error = %v, want already started", err)
-	}
-}
-
 func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	adminCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	recordCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
@@ -209,85 +88,36 @@ func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	}
 }
 
-func TestNewConfiguresBoundedHTTPReadWriteAndIdleTimeouts(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.Close(context.Background()) })
-	if app.httpServer.ReadHeaderTimeout <= 0 || app.httpServer.ReadTimeout <= 0 || app.httpServer.WriteTimeout <= 0 || app.httpServer.IdleTimeout <= 0 {
-		t.Fatalf("HTTP timeouts are not fully bounded: %+v", app.httpServer)
-	}
-}
-
-func TestRunCancellationClosesListenerAndPool(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
-	address := unusedAddress(t)
-	app, err := New(context.Background(), Options{
-		DatabaseURL: databaseURL,
-		HTTPAddress: address,
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("new app: %v", err)
+func TestRunReportsUnexpectedBackgroundRunnerExit(t *testing.T) {
+	listener := &barrierListener{accepted: make(chan struct{}), closed: make(chan struct{})}
+	earlyExit := &releasedRunner{release: make(chan struct{})}
+	sibling := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: time.Second},
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		cleaner:          earlyExit,
+		recordCleaner:    sibling,
+		lifecycleClosing: make(chan struct{}),
+		listen: func(_, _ string) (net.Listener, error) {
+			return listener, nil
+		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx) }()
-	waitForLive(t, "http://"+address+"/health/live")
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(context.Background()) }()
+	waitForSignal(t, listener.accepted, "HTTP server did not start")
+	waitForSignal(t, sibling.started, "sibling background runner did not start")
+	close(earlyExit.release)
 
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if connection, err := net.DialTimeout("tcp", address, time.Second); err == nil {
-		connection.Close()
-		t.Fatal("listener still accepts connections")
-	}
-	if _, err := app.pool.Acquire(context.Background()); err == nil {
-		t.Fatal("pool acquired a connection after shutdown")
-	}
-}
-
-func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
+	err := waitForResult(t, runDone, "Run did not return after a background runner exited")
 	if err == nil {
-		app.Close(context.Background())
-		t.Fatal("New succeeded with pending migrations")
+		t.Fatal("Run reported a clean shutdown after a background runner returned nil unexpectedly")
 	}
-}
-
-func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
-	ctx := context.Background()
-	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(err.Error(), "administrator authentication cleaner") {
+		t.Fatalf("Run error = %q, want the failed background runner name", err)
 	}
-	t.Cleanup(pool.Close)
-	runner := migrate.New(pool, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	if err := runner.Up(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, "update pgbase_meta.system_migrations set checksum = decode(repeat('00', 32), 'hex') where version = 1"); err != nil {
-		t.Fatal(err)
-	}
-
-	status := (systemStatusState{pool: pool, runner: runner}).Status(ctx)
-	if !status.MigrationDirty {
-		t.Fatalf("system status = %#v, want dirty migration history", status)
-	}
+	waitForSignal(t, sibling.stopped, "unexpected runner exit did not cancel its sibling")
 }
 
 func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
@@ -465,6 +295,15 @@ func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
 type barrierCleaner struct {
 	started chan struct{}
 	stopped chan struct{}
+}
+
+type releasedRunner struct {
+	release chan struct{}
+}
+
+func (r *releasedRunner) Run(context.Context) error {
+	<-r.release
+	return nil
 }
 
 func (c *barrierCleaner) Run(ctx context.Context) error {

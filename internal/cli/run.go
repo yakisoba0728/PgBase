@@ -20,6 +20,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/doctor"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
@@ -291,6 +292,17 @@ func runServe(ctx context.Context, args []string, lookup func(string) (string, b
 }
 
 func runMigrate(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
+	return runMigrateWithCatalogPreflight(ctx, args, lookup, stdout, stderr, schema.PreflightCatalog)
+}
+
+func runMigrateWithCatalogPreflight(
+	ctx context.Context,
+	args []string,
+	lookup func(string) (string, bool),
+	stdout io.Writer,
+	stderr io.Writer,
+	preflight func(context.Context, *database.Pool, *schema.Cache) error,
+) error {
 	if len(args) != 1 || (args[0] != "status" && args[0] != "up") {
 		return configurationError{err: errors.New("invalid migrate usage"), message: "usage: pgbase migrate <status|up>"}
 	}
@@ -314,8 +326,15 @@ func runMigrate(ctx context.Context, args []string, lookup func(string) (string,
 
 	runner := migrate.New(pool, options.Logger)
 	if args[0] == "up" {
+		catalogCache := &schema.Cache{}
+		if err := preflight(ctx, pool, catalogCache); err != nil {
+			return migrationOperationError(options.Logger, "preflight schema catalog", err)
+		}
 		if err := runner.Up(ctx); err != nil {
 			return migrationOperationError(options.Logger, "apply system migrations", err)
+		}
+		if err := preflight(ctx, pool, catalogCache); err != nil {
+			return migrationOperationError(options.Logger, "preflight schema catalog", err)
 		}
 	}
 	status, err := runner.Status(ctx)

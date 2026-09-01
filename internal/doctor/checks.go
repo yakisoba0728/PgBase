@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 // Run inspects migration history, catalog metadata, and physical collection
@@ -35,6 +36,26 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 	}
 	if status.Current != status.Latest {
 		report.Findings = append(report.Findings, finding("migration_not_current", "System migrations are not current"))
+	}
+	if !status.Dirty && status.Current == status.Latest {
+		err := schema.PreflightCatalog(ctx, pool, nil)
+		if errors.Is(err, schema.ErrCatalogLimitExceeded) {
+			report.Findings = append(report.Findings, finding(
+				"catalog_limit_exceeded",
+				"Schema catalog exceeds 16 MiB; remove unused fields or collections during maintenance, then rerun pgbase doctor",
+			))
+			return report, nil
+		}
+		if errors.Is(err, schema.ErrCatalogInvalid) {
+			report.Findings = append(report.Findings, finding(
+				"catalog_invalid",
+				"Schema catalog metadata is invalid",
+			))
+			err = nil
+		}
+		if err != nil {
+			return report, fmt.Errorf("preflight schema catalog for doctor: %w", err)
+		}
 	}
 	if err := pool.InTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,

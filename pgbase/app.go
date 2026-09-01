@@ -181,6 +181,14 @@ func (e readinessFailure) Components() []string { return append([]string(nil), e
 // pgBase background workers or an HTTP listener; the PostgreSQL pool may run
 // its own internal maintenance goroutines. Callers must invoke Start or Run.
 func New(ctx context.Context, options Options) (*App, error) {
+	return newWithCatalogPreflight(ctx, options, schema.PreflightCatalog)
+}
+
+func newWithCatalogPreflight(
+	ctx context.Context,
+	options Options,
+	preflight func(context.Context, *database.Pool, *schema.Cache) error,
+) (*App, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -204,7 +212,11 @@ func New(ctx context.Context, options Options) (*App, error) {
 		metrics = observability.NewMetrics(pool.Stats)
 	}
 	runner := migrate.NewWithRecorder(pool, normalized.Logger, metrics)
+	schemaCache := &schema.Cache{}
 	if normalized.AutoMigrate {
+		if err := preflight(ctx, pool, schemaCache); err != nil {
+			return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
+		}
 		if err := runner.Up(ctx); err != nil {
 			return nil, fmt.Errorf("apply system migrations: %w", err)
 		}
@@ -215,6 +227,9 @@ func New(ctx context.Context, options Options) (*App, error) {
 	}
 	if status.Dirty || status.Current != status.Latest {
 		return nil, errors.New("system migrations are not current")
+	}
+	if err := preflight(ctx, pool, schemaCache); err != nil {
+		return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
 	}
 	if metrics != nil {
 		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessDatabase, true))
@@ -234,7 +249,6 @@ func New(ctx context.Context, options Options) (*App, error) {
 			return nil
 		})},
 	}}
-	schemaCache := &schema.Cache{}
 	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics)
 	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
