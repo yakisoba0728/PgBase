@@ -59,6 +59,15 @@ func companionStatus(t *testing.T, service *Service) CompanionIndexStatus {
 	return status
 }
 
+// companionCatalogVersion dereferences the capability's catalog version for a
+// failure message, so a wrong one reads as a number and a missing one as -1.
+func companionCatalogVersion(status CompanionIndexStatus) int64 {
+	if status.CatalogVersion == nil {
+		return -1
+	}
+	return *status.CatalogVersion
+}
+
 func currentCatalogVersion(t *testing.T, service *Service) int64 {
 	t.Helper()
 	catalog, err := service.Catalog(context.Background())
@@ -89,8 +98,8 @@ func TestReadyCapabilityCreatesACollectionWithItsCompanionInOneTransaction(t *te
 	if !status.Ready() {
 		t.Fatalf("capability after creating a collection = %#v", status)
 	}
-	if status.CatalogVersion == nil || *status.CatalogVersion != version {
-		t.Fatalf("capability catalog version = %v, want %d", status.CatalogVersion, version)
+	if companionCatalogVersion(status) != version {
+		t.Fatalf("capability catalog version = %d, want %d", companionCatalogVersion(status), version)
 	}
 	if status.ReadyIndexCount == nil || *status.ReadyIndexCount != 2 {
 		t.Fatalf("promoted companion count = %v, want 2", status.ReadyIndexCount)
@@ -178,8 +187,8 @@ func TestDeletingACollectionCarriesTheCompanionCapability(t *testing.T) {
 	if !status.Ready() || status.ReadyIndexCount == nil || *status.ReadyIndexCount != 1 {
 		t.Fatalf("capability after deleting a collection = %#v", status)
 	}
-	if status.CatalogVersion == nil || *status.CatalogVersion != version {
-		t.Fatalf("capability catalog version = %v, want %d", status.CatalogVersion, version)
+	if companionCatalogVersion(status) != version {
+		t.Fatalf("capability catalog version = %d, want %d", companionCatalogVersion(status), version)
 	}
 	if diagnostics := readDiagnostics(t, pool); diagnostics.Expected != 1 ||
 		diagnostics.Valid != 1 || diagnostics.Missing != 0 {
