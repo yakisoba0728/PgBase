@@ -3,6 +3,7 @@ import { stringifyJSON } from "../backend/json";
 import { httpBackend } from "../backend/http-backend";
 import type { AdminBackend, ResumedSession } from "../backend/ports";
 import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
+import type { OperationHistory, OperationReceipt } from "../backend/ports";
 
 export interface Wire { status: number; body?: string; headers?: Record<string, string> }
 
@@ -34,6 +35,7 @@ const faultWire: Record<Fault["kind"], (fault: Fault) => Wire> = {
   "invalid-credentials": () => ({ status: 401, body: errorBody("invalid_credentials") }),
   "setup-unavailable": () => ({ status: 409, body: errorBody("setup_unavailable") }),
   "invalid-input": () => ({ status: 400, body: errorBody("validation_failed") }),
+  "invalid-cursor": () => ({ status: 400, body: errorBody("invalid_cursor") }),
 };
 
 function details(fault: Fault): Record<string, string[]> {
@@ -109,6 +111,17 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
     }
     if (path === "/api/admin/collections/apply") {
       return wireResponse(await fromStep(nextStep<void>(script, "apply", { body: String(init?.body) }), () => ({ status: 200, body: "{}" })));
+    }
+    const operations = /^\/api\/admin\/schema-operations(?:\/([^/?]+))?(?:\?(.*))?$/.exec(path);
+    if (operations !== null) {
+      if (operations[1] !== undefined) {
+        const step = nextStep<OperationReceipt>(script, "operation", { operationId: decodeURIComponent(operations[1]) });
+        return wireResponse(await fromStep(step, (value) => ({ status: 200, body: stringifyJSON(value) })));
+      }
+      const query = new URLSearchParams(operations[2] ?? "");
+      const detail: Record<string, unknown> = { limit: query.get("limit") };
+      if (query.get("cursor")) detail.cursor = query.get("cursor");
+      return wireResponse(await fromStep(nextStep<OperationHistory>(script, "operations", detail), (value) => ({ status: 200, body: stringifyJSON(value) })));
     }
     if (path === "/api/admin/system") {
       return wireResponse(await fromStep(nextStep<unknown>(script, "status"), (value) => ({ status: 200, body: stringifyJSON(value) })));

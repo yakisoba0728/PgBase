@@ -46,6 +46,22 @@ describe("administration shell", () => {
     expect(harness.history.path()).toBe("/admin/system");
   });
 
+  it("reaches the schema operation history as a typed route a new tab could open", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    harness.script.catalog.push({ value: { version: 9, collections: [] } });
+    harness.script.operations.push({ value: { items: [] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await screen.findByRole("heading", { name: "Collections" });
+    const link = screen.getByRole("link", { name: "Schema operations" });
+    expect(link).toHaveAttribute("href", "/admin/schema-operations");
+    await user.click(link);
+
+    expect(await screen.findByRole("heading", { name: "Schema operations" })).toBeVisible();
+    expect(harness.history.path()).toBe("/admin/schema-operations");
+  });
+
   it("keeps a record draft the administrator refused to lose and lets it go when asked again", async () => {
     const harness = scriptedAdmin("/admin/collections/posts/records");
     for (const _ of [0, 1, 2]) harness.script.catalog.push({ value: { version: 4, collections: [posts] } });

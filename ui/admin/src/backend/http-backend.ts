@@ -12,6 +12,9 @@ import {
   type CollectionDefinition,
   type CreateAttempt,
   type ListOptions,
+  type OperationHistory,
+  type OperationReceipt,
+  type OperationStatus,
   type PlannedField,
   type LoginInput,
   type RecordData,
@@ -72,6 +75,35 @@ function strongETag(headers: Headers): string | null {
     if (code !== 0x21 && !(code >= 0x23 && code <= 0x7e) && !(code >= 0x80 && code <= 0xff)) return null;
   }
   return etag;
+}
+
+// The bounded page the ledger serves by default. The UI asks for exactly this
+// and nothing else, so no request can reach the server's 100-item ceiling.
+const historyPageSize = 20;
+const maximumHistoryPageSize = 100;
+const operationsPath = "/api/admin/schema-operations";
+
+/**
+ * Rebuilds the receipt from the fields the contract names. A response that grew
+ * a field cannot smuggle it into the UI, which is what keeps raw SQL, request
+ * hashes and secrets out of the status and history surfaces by construction
+ * rather than by trusting the server to keep redacting.
+ */
+function receipt(raw: unknown): OperationReceipt {
+  const wire = raw as Record<string, unknown>;
+  const bounded: OperationReceipt = {
+    operationId: String(wire.operationId ?? ""),
+    operation: String(wire.operation ?? ""),
+    collectionId: String(wire.collectionId ?? ""),
+    status: wire.status as OperationStatus,
+    baseVersion: Number(wire.baseVersion ?? 0),
+    createdAt: String(wire.createdAt ?? ""),
+    updatedAt: String(wire.updatedAt ?? ""),
+  };
+  if (wire.committedVersion !== undefined) bounded.committedVersion = Number(wire.committedVersion);
+  if (wire.failureCode !== undefined) bounded.failureCode = String(wire.failureCode);
+  if (wire.completedAt !== undefined) bounded.completedAt = String(wire.completedAt);
+  return bounded;
 }
 
 function recordPath(collection: string, id?: string): string {
@@ -156,6 +188,19 @@ class HTTPBackend implements AdminBackend {
         throw await this.#applyFailure(caught, plan);
       }
     },
+    operation: async (operationId: string, signal?: AbortSignal): Promise<OperationReceipt> => {
+      const path = `${operationsPath}/${encodeURIComponent(operationId)}`;
+      return receipt((await this.#schemaCall({ path, signal })).data);
+    },
+    operations: async (cursor?: string, signal?: AbortSignal): Promise<OperationHistory> => {
+      const query = new URLSearchParams({ limit: String(historyPageSize) });
+      if (cursor !== undefined && cursor !== "") query.set("cursor", cursor);
+      const page = (await this.#schemaCall({ path: `${operationsPath}?${query}`, signal })).data as OperationHistory;
+      // A page above the ledger's own ceiling is not a page this client asked
+      // for, so it is a failed read rather than an unbounded render.
+      if (page.items.length > maximumHistoryPageSize) throw new SchemaError("failed", "invalid_response_body");
+      return { items: page.items.map(receipt), ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }) };
+    },
   };
 
   readonly records = {
@@ -234,6 +279,10 @@ class HTTPBackend implements AdminBackend {
 
   #schemaReason(wire: Wire): SchemaError["reason"] {
     if (wire.code === "collection_referenced") return "referenced";
+    if (wire.code === "invalid_cursor") return "invalid-cursor";
+    // One shape answers a tampered id, a foreign owner's operation and an id
+    // that never existed, so the adapter cannot tell them apart either.
+    if (wire.status === 404) return "not-found";
     if (wire.status === 422) return "data-blocked";
     return "failed";
   }

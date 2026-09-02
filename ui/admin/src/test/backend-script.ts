@@ -1,6 +1,8 @@
 import type {
   AuthenticatedSession,
   CollectionDefinition,
+  OperationHistory,
+  OperationReceipt,
   PlannedField,
   RecordData,
   RecordPage,
@@ -25,7 +27,8 @@ export type Fault =
   | { kind: "referenced"; details?: Record<string, string[]> }
   | { kind: "invalid-credentials" }
   | { kind: "setup-unavailable" }
-  | { kind: "invalid-input" };
+  | { kind: "invalid-input" }
+  | { kind: "invalid-cursor" };
 
 export type Step<T> = { value: T } | { fault: Fault } | { pending: Promise<Step<T>> };
 
@@ -57,6 +60,8 @@ export interface BackendScript {
   catalog: Step<ScriptedCatalog>[];
   plan: Step<ScriptedPlan>[];
   apply: Step<void>[];
+  operation: Step<OperationReceipt>[];
+  operations: Step<OperationHistory>[];
   list: Step<RecordPage>[];
   read: Step<ScriptedRecord>[];
   create: Step<ScriptedRecord>[];
@@ -69,7 +74,7 @@ export interface BackendScript {
 export function backendScript(): BackendScript {
   return {
     resume: [], setup: [], login: [], logout: [],
-    catalog: [], plan: [], apply: [],
+    catalog: [], plan: [], apply: [], operation: [], operations: [],
     list: [], read: [], create: [], update: [], remove: [],
     status: [], calls: [],
   };
