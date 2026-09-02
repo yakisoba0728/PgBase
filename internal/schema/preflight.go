@@ -20,14 +20,10 @@ var ErrCatalogInvalid = errors.New("schema catalog is invalid")
 // listeners and request readers can reuse it without compiling the version a
 // second time.
 func PreflightCatalog(ctx context.Context, pool *database.Pool, cache *Cache) error {
-	return preflightCatalogWithLimit(ctx, pool, cache, maximumCatalogWireBytes)
+	return preflightCatalogWithLimit(ctx, pool, cache, maximumCatalogWireBytes, nil)
 }
 
-func preflightCatalogWithLimit(ctx context.Context, pool *database.Pool, cache *Cache, wireLimit int) error {
-	return preflightCatalogWithLimitAndHook(ctx, pool, cache, wireLimit, nil)
-}
-
-func preflightCatalogWithLimitAndHook(
+func preflightCatalogWithLimit(
 	ctx context.Context,
 	pool *database.Pool,
 	cache *Cache,

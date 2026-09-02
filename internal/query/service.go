@@ -44,15 +44,7 @@ type Service struct {
 	recorder         observability.Recorder
 }
 
-func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
-	var logger *slog.Logger
-	if len(loggers) > 0 {
-		logger = loggers[0]
-	}
-	return NewServiceWithRecorder(pool, schemas, cursorSecret, logger, nil)
-}
-
-func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
+func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
 	return &Service{
 		pool: pool, schemas: schemas, cursors: cursor.NewCodec(cursorSecret),
 		expandLimits: defaultExpandLimits, resolveTraversal: membership.ResolveTraversal, logger: logger, recorder: recorder,

@@ -29,11 +29,7 @@ type Listener struct {
 	afterInitialReload func(Catalog)
 }
 
-func NewListener(pool *database.Pool, cache *Cache) *Listener {
-	return NewListenerWithRecorder(pool, cache, nil)
-}
-
-func NewListenerWithRecorder(pool *database.Pool, cache *Cache, recorder observability.Recorder) *Listener {
+func NewListener(pool *database.Pool, cache *Cache, recorder observability.Recorder) *Listener {
 	if cache == nil {
 		cache = &Cache{}
 	}

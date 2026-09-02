@@ -35,8 +35,8 @@ func newR0QueryServiceTest(t *testing.T) (string, *database.Pool, *schema.Servic
 		t.Fatal(err)
 	}
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
-	return databaseURL, pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	return databaseURL, pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil)
 }
 
 func applyR0QueryCollection(t *testing.T, schemas *schema.Service, input schema.CreateCollectionInput) schema.Collection {

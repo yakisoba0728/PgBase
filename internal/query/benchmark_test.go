@@ -136,7 +136,7 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 		})
 	}
 	definition := schema.CreateCollectionInput{Name: collection.Name, Fields: fieldInputs}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	plan, err := schemas.PlanCreate(ctx, definition)
 	if err != nil {
 		b.Fatalf("plan benchmark collection: %v", err)
@@ -152,7 +152,7 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 	if err := pool.QueryRow(ctx, "select id from "+table+` order by created_at, id limit 1`).Scan(&seededID); err != nil {
 		b.Fatalf("read seeded benchmark record: %v", err)
 	}
-	return NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef")), input, seededID
+	return NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil), input, seededID
 }
 
 func benchmarkDatabase(b *testing.B) *database.Pool {

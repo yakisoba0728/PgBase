@@ -47,7 +47,7 @@ func TestCatalogPreflightRejectsOversizedLegacyCatalogWithoutPublishingIt(t *tes
 	}
 
 	cache := &Cache{}
-	err = preflightCatalogWithLimit(context.Background(), pool, cache, 512)
+	err = preflightCatalogWithLimit(context.Background(), pool, cache, 512, nil)
 	if !errors.Is(err, ErrCatalogLimitExceeded) {
 		t.Fatalf("preflight error = %v, want ErrCatalogLimitExceeded", err)
 	}
@@ -77,7 +77,7 @@ func TestCatalogPreflightPublishesSnapshotThatListenerReuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Release()
-	listener := NewListener(pool, cache)
+	listener := NewListener(pool, cache, nil)
 	if _, err := listener.reload(context.Background(), connection.Conn()); err != nil {
 		t.Fatalf("listener reload: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestCatalogPreflightDiscardsPreparedSnapshotWhenReadTransactionCannotCommit
 
 	cache := &Cache{}
 	ctx, cancel := context.WithCancel(context.Background())
-	err := preflightCatalogWithLimitAndHook(ctx, pool, cache, maximumCatalogWireBytes, cancel)
+	err := preflightCatalogWithLimit(ctx, pool, cache, maximumCatalogWireBytes, cancel)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("preflight error = %v, want context cancellation at commit", err)
 	}

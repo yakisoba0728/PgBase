@@ -403,12 +403,12 @@ func TestRecordServicePersistsExplicitNullByCatalogNullability(t *testing.T) {
 
 func TestRecordServiceRefreshesStaleCatalogBeforeCompiling(t *testing.T) {
 	pool, writer, _ := newRecordServiceTest(t)
-	staleSchemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	staleSchemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	if catalog, err := staleSchemas.Catalog(context.Background()); err != nil || catalog.Version != 0 {
 		t.Fatalf("prime stale catalog = %+v, %v", catalog, err)
 	}
 	applyRecordCollection(t, writer, schema.CreateCollectionInput{Name: "fresh", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}}})
-	records := NewService(pool, staleSchemas, []byte("0123456789abcdef0123456789abcdef"))
+	records := NewService(pool, staleSchemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil)
 	created, err := records.Create(context.Background(), "fresh", map[string]json.RawMessage{"title": json.RawMessage(`"current"`)})
 	if err != nil || created["title"] != "current" {
 		t.Fatalf("Create against refreshed catalog = %#v, %v", created, err)
@@ -761,8 +761,8 @@ func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Servi
 		t.Fatal(err)
 	}
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
-	return pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	return pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil)
 }
 
 func applyRecordCollection(t *testing.T, schemas *schema.Service, input schema.CreateCollectionInput) {
