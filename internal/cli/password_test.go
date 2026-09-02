@@ -13,7 +13,7 @@ import (
 
 func TestReadAdministratorPasswordBoundsStandardInputBeforeNewline(t *testing.T) {
 	reader := &countingReader{reader: strings.NewReader(strings.Repeat("x", 1<<20) + "\n")}
-	_, err := readAdministratorPassword(context.Background(), reader, io.Discard, true)
+	_, err := readAdministratorPassword(context.Background(), testIO(reader, io.Discard, io.Discard), true)
 	var configErr configurationError
 	if !errors.As(err, &configErr) || configErr.message != "password must not exceed 1024 bytes" {
 		t.Fatalf("error = %v", err)
@@ -25,7 +25,7 @@ func TestReadAdministratorPasswordBoundsStandardInputBeforeNewline(t *testing.T)
 
 func TestReadAdministratorPasswordAcceptsMaximumLengthWithCRLF(t *testing.T) {
 	password := strings.Repeat("x", maximumAdministratorPasswordBytes)
-	got, err := readAdministratorPassword(context.Background(), strings.NewReader(password+"\r\n"), io.Discard, true)
+	got, err := readAdministratorPassword(context.Background(), testIO(strings.NewReader(password+"\r\n"), io.Discard, io.Discard), true)
 	if err != nil || got != password {
 		t.Fatalf("password length=%d error=%v", len(got), err)
 	}
@@ -52,7 +52,7 @@ func TestReadAdministratorPasswordReadsDescriptorInput(t *testing.T) {
 				_ = writer.Close()
 			}()
 
-			got, err := readAdministratorPassword(context.Background(), reader, io.Discard, true)
+			got, err := readAdministratorPassword(context.Background(), testIO(reader, io.Discard, io.Discard), true)
 			if err != nil || got != tt.want {
 				t.Fatalf("password = %q, error = %v", got, err)
 			}
@@ -74,7 +74,7 @@ func TestReadAdministratorPasswordFromStdinHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := readAdministratorPassword(ctx, stdin, io.Discard, true)
+		_, err := readAdministratorPassword(ctx, testIO(stdin, io.Discard, io.Discard), true)
 		done <- err
 	}()
 	<-started
@@ -90,22 +90,17 @@ func TestReadAdministratorPasswordFromStdinHonorsCancellation(t *testing.T) {
 }
 
 func TestReadAdministratorPasswordTerminalReadHonorsCancellation(t *testing.T) {
-	originalTerminal, originalReader := terminalInput, terminalPasswordInput
-	t.Cleanup(func() {
-		terminalInput, terminalPasswordInput = originalTerminal, originalReader
-	})
-	terminalInput = func(int) bool { return true }
 	started := make(chan struct{})
-	terminalPasswordInput = func(ctx context.Context, _ int) ([]byte, error) {
+	terminal := &scriptedTerminal{interactive: true, read: func(ctx context.Context, _ int) ([]byte, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
-	}
+	}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := readAdministratorPassword(ctx, fakeTerminal{}, io.Discard, false)
+		_, err := readAdministratorPassword(ctx, terminalIO(terminal, io.Discard, io.Discard), false)
 		done <- err
 	}()
 	<-started

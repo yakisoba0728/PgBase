@@ -15,7 +15,7 @@ import (
 func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
 	const databaseURL = "postgres://pgbase:must-not-leak@127.0.0.1:1/pgbase?connect_timeout=1"
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), testIO(nil, &stdout, &stderr))
 	if code != 1 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -41,7 +41,7 @@ func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
 
 func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {
 	var stdout bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, emptyEnv, &stdout, io.Discard, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--json"}, emptyEnv, testIO(nil, &stdout, io.Discard))
 	if code != 2 {
 		t.Fatalf("exit=%d stdout=%q", code, stdout.String())
 	}
@@ -57,7 +57,7 @@ func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {
 
 func TestDoctorRejectsInvalidFlagsWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--unexpected"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--unexpected"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 || stderr.String() != "pgbase: usage: pgbase doctor [--json]\n" {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
