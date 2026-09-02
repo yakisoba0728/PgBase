@@ -524,3 +524,75 @@ exported 462   interfaces 17   constructors 25   files over 800 LOC 0
 
 - `App.Start`도 background를 `Close`에만 묶을지 — 공개 API 의미 변경이라 godoc 명시까지만 했다.
 - doctor가 "돌지 않은 rollout"(`off` + 레코드 존재)을 탐지할지 — doctor statement 실링을 올려야 한다.
+
+# 최종 재재감사 정정 (`0fdc66c → 7d9362e`)
+
+위의 “15/17 닫힘, 2건 도달 불가”와 “판단 대기”는 최종 판정이 아니다. 그 보고를 받은 뒤 원 계획, 두 차례
+감사 문서, 실제 과거 Git 객체와 PostgreSQL lock graph를 처음부터 다시 대조했다. 판단 대기 두 건은 다음처럼
+닫았다.
+
+- `App.Start` context는 임베더가 소유하는 background lifetime이라는 기존 공개 계약을 유지하고 godoc 및
+  lifecycle/race 테스트로 고정했다. `Run`만 HTTP server까지 소유하므로 signal context를 drain과 분리한다.
+- doctor는 기존 folded membership scan을 재사용해 `off` + base record를
+  `record_membership_rollout_not_started`로 보고한다. 빈 `off`와 정상 전이 중인 `cutover`/`dual_write`는
+  경고하지 않고 statement ceiling도 올리지 않았다.
+
+## 이전 마감 뒤 추가로 발견해 닫은 경계
+
+| 등급 | 발견 | 닫은 방식 |
+|---|---|---|
+| P1 | `Apply`가 lease를 잡은 뒤 capability를 갱신하고 listener heartbeat는 capability를 읽은 뒤 lease를 갱신해 실제 PG17 `40P01` 교착 | writer lease upsert를 capability admission보다 먼저 수행해 순서를 통일. 실제 listener PID가 `Lock` wait에 들어간 상태에서 장시간 Apply와 다른 writer heartbeat가 함께 진행되는 회귀 테스트 추가 |
+| P1 | exact predecessor `d3fb5eb`의 `schema-index build`가 F activation 뒤 구 checker로 물리 상태를 검사하고 `ready`를 쓸 수 있음 | migration 9의 비-pending 저장 상태를 `building_v3`/`ready_v3`로 세대화하고 CHECK를 교체. 구 scanner는 index를 만지기 전에 상태를 거부하고 구 `ready` SQL도 DB가 거부 |
+| P1 | v8/v9 capability·lease·marker·CHECK shape drift를 writer refresh가 정상으로 받아들일 수 있음 | migration history와 기대 object shape를 한 snapshot에서 함께 검사. 손상 시 listener는 unready, Apply는 `ErrSynchronizationUnavailable`로 rollback하며 catalog가 byte-for-byte 불변임을 검증 |
+| P2 | M 전에 이미 maintenance session lock에 들어간 구 `schema-index build`가 M commit 뒤까지 `DROP/CREATE INDEX CONCURRENTLY`를 계속할 수 있음 | migration 9의 첫 product lock을 maintenance → schema advisory 순서로 잡아 기존 physical phase를 drain. 단 precheck 후 lock 전에 멈춘 process에 대한 commit 후 hard fence는 아니며, full-fleet P0 배포와 pre-P0 launch freeze/process drain으로 닫는다. 이 계약을 위반하면 physical DDL은 가능하지만 v9 durable state와 구 promotion은 fail-closed로 남는 characterization test를 추가 |
+
+마지막 항목에서 schema lock을 먼저 잡으면 구 maintenance의 “maintenance phase → promotion schema lock” 순서와
+반대가 되어 교착을 만들 수 있다. 그래서 migration은 maintenance, schema, `schema_state`, lease table 순서이며,
+Apply/transition은 schema 뒤의 같은 순서를 따른다.
+
+## 실제 독립 artifact로 닫은 SPEC-1/SPEC-2
+
+“A0/A/B가 상수뿐이라 독립 artifact를 만들 수 없다”는 이전 결론도 틀렸다. milestone과 안정화 지점의 실제
+커밋을 Git history에서 골라 `git archive`한 source를 Go 1.26.7로 각각 빌드한다. writer/compiler 상수는 linker로
+바꾸지 않으며 canonical 제품 version만 주입한다.
+
+- membership: A0 `69ed27b`, A `47dc8de`, stabilized B `9377a27`, C `fb9bb3a`, operator `f7ec0ff`
+- schema compiler: predecessor `d3fb5eb`, P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`,
+  F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
+- migration 9 checksum:
+  `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`
+
+위 P0/F commit은 SQL 주석 교정 전 artifact pin이므로, 현재 checksum을 포함한
+교체 P0/F를 다시 빌드하고 manifest를 repin한 뒤 release gate를 재실행해야 한다.
+
+P0는 generation 2이고 clean v8/v9를 받되 activation을 거부한다. F는 generation 3이고 clean v9만 받으며
+activation/v2 issuance를 연다. 교정 전 둘의 migration 9 bytes는 동일했다. 그 고정점의 최종 bundle
+`/tmp/pgbase-final-artifacts.nI7j44`의 8개 실행 파일은 모두 manifest commit/version/path, 실제 SHA-256,
+`0755`, target/toolchain metadata와 일치했고, 그 bundle로 A0→M→A→B→C, B rollback,
+predecessor→P0→M→F→P0 rollback process test를 `-race`로 통과했다(30.696s).
+
+프로세스 oracle이 단순 metadata 검사가 아닌지도 변이로 확인했다. schema F를 P0로 바꾸면 “F가 v8을 계속
+서비스”해 실패했고, membership C를 B로 바꾸면 “retirement 전 C list가 503이 아니라 200”이라 실패했다.
+
+## release phase 공급망 경로
+
+`release-phase-image.yml`은 manifest의 deployable phase 하나만 선택해 과거 source의 실제 binary를 만들고,
+현재 hardened distroless runtime에 그 binary와 CA bundle만 넣어 `linux/amd64` candidate를 한 번 push한다.
+SLSA provenance, SPDX 2.3 SBOM, rollout/phase/source commit/workflow commit/version/raw-binary digest를 묶은 custom
+predicate를 게시·조회 검증한 뒤 같은 image digest를 backend/frontend/E2E/security/restore reusable gate에
+전달한다. 이 workflow에는 promotion이 없다. operator와 audit-only predecessor는 process gate에서는 빌드하지만
+deployable phase로 선택할 수 없다.
+
+## 최종 판정에서 외부에 남는 증거
+
+로컬 구현·회귀·artifact process 관점의 SPEC-1/SPEC-2 finding은 닫혔다. 아래는 code finding이 아니라 이
+worktree에서 권한 없이 대신 만들 수 없는 외부 실행 기록이다.
+
+- push 뒤 `macos-15`에서 SPEC-3 terminal job이 실제 통과한 Actions run
+- `Release phase image gate` dispatch가 만든 GHCR digest와 GitHub-hosted attestation 조회 기록
+- 배포하려는 최종 release candidate에 대한 registry gate와 명시적 promotion
+
+따라서 로컬 코드 감사 완료와 배포 승인은 구분한다. 위 외부 evidence가 없으므로 이 문서는 배포 승인을 내리지
+않고, branch를 push하거나 registry/tag를 변경하지도 않았다. PG17의 고부하 5초 statement-timeout 현상도
+원인을 특정하지 못했으므로 별도 환경 성능 관측으로 그대로 남긴다; 조용한 환경의 반복 통과로 원인이
+해결됐다고 주장하지 않는다.
