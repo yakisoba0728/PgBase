@@ -6,7 +6,6 @@ package recordops
 
 import (
 	"encoding/json"
-	"errors"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/identity"
@@ -128,9 +127,4 @@ func (e *Error) Error() string {
 		return "record operation failed"
 	}
 	return string(e.Code)
-}
-
-func IsCode(err error, code ErrorCode) bool {
-	var operationError *Error
-	return errors.As(err, &operationError) && operationError.Code == code
 }

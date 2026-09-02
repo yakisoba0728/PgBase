@@ -93,7 +93,11 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// cursor_v5_binding.go that the retired boundary makes constant. Removing
 	// the last v4 branch collapsed a three-way version switch into one check,
 	// so the arithmetic is a net -16 rather than the -25 deleted.
-	if runtimeLines > 4_894 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4894", runtimeLines)
+	//
+	// Ratcheted from 4,894 by R11: +0/-10 for the NewService forwarder, which
+	// defaulted the logger and the recorder and had no caller in the tree, not
+	// even a test. NewServiceWithRecorder took its name.
+	if runtimeLines > 4_884 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 4884", runtimeLines)
 	}
 }

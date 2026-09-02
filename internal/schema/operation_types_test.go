@@ -187,8 +187,8 @@ func TestOperationRecoveryErrorCarriesOnlyASealedRecoveryReference(t *testing.T)
 	if !errors.Is(recovery, ErrOperationOutcomeUnknown) || errors.Is(recovery, ErrOperationInProgress) {
 		t.Fatalf("unknown recovery error = %v", recovery)
 	}
-	if recovery.Ref().ID() != operationID {
-		t.Fatalf("recovery ref ID = %s", recovery.Ref().ID())
+	if recovery.ref.ID() != operationID {
+		t.Fatalf("recovery ref ID = %s", recovery.ref.ID())
 	}
 	got, ok := recovery.Receipt()
 	if !ok || got != receipt {

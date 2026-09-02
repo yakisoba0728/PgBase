@@ -147,13 +147,6 @@ func (e *OperationRecoveryError) Unwrap() error {
 	return ErrOperationOutcomeUnknown
 }
 
-func (e *OperationRecoveryError) Ref() OperationRef {
-	if e == nil {
-		return OperationRef{}
-	}
-	return e.ref
-}
-
 func (e *OperationRecoveryError) Receipt() (OperationReceipt, bool) {
 	if e == nil || !e.hasReceipt {
 		return OperationReceipt{}, false

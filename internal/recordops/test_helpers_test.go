@@ -13,6 +13,14 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
 
+// IsCode classifies a record operation failure. It lives here because no
+// runtime caller needs it: the API layer maps recordops errors by their own
+// switch, and only these tests assert on the code.
+func IsCode(err error, code ErrorCode) bool {
+	var operationError *Error
+	return errors.As(err, &operationError) && operationError.Code == code
+}
+
 // jsonStringOfSize renders a JSON string whose encoding alone is bytes long,
 // so a record built from one field is predictably above or below the bound.
 func jsonStringOfSize(bytes int) json.RawMessage {
