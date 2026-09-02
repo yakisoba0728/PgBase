@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useBackend } from "../auth/session";
+import { useBackend, useSession } from "../auth/session";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import {
   ApplyAttempt,
@@ -19,43 +19,26 @@ import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } 
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 
 interface DraftRelation {
-  targetCollection: string;
-  cardinality: RelationCardinality;
-  minSelect: string;
-  maxSelect: string;
-  onDelete: RelationDeleteAction;
+  targetCollection: string; cardinality: RelationCardinality; minSelect: string;
+  maxSelect: string; onDelete: RelationDeleteAction;
 }
 
 export interface DraftField {
-  name: string;
-  type: FieldType;
-  required: boolean;
-  unique: boolean;
-  indexed: boolean;
-  hasDefault: boolean;
-  defaultText: string;
-  relation?: DraftRelation;
-  // Whether the target was picked as "(self)". Re-deriving self-ness from
-  // `targetCollection === name` would retarget a relation the moment a
-  // half-typed name happens to equal an existing collection.
+  name: string; type: FieldType;
+  required: boolean; unique: boolean; indexed: boolean;
+  hasDefault: boolean; defaultText: string; relation?: DraftRelation;
+  // Tracks an explicit "(self)" choice; inferring it from names would retarget
+  // a relation when a half-typed name happens to equal another collection.
   selfRelation?: boolean;
 }
 
 export interface RelationTargetOption { name: string; label: string }
 
 export type DraftEdit =
-  | { set: "name"; value: string }
-  | { set: "defaultText"; value: string }
-  | { set: "target"; value: string }
-  | { set: "minSelect"; value: string }
-  | { set: "maxSelect"; value: string }
-  | { set: "required"; value: boolean }
-  | { set: "unique"; value: boolean }
-  | { set: "indexed"; value: boolean }
-  | { set: "hasDefault"; value: boolean }
+  | { set: "name" | "defaultText" | "target" | "minSelect" | "maxSelect"; value: string }
+  | { set: "required" | "unique" | "indexed" | "hasDefault"; value: boolean }
   | { set: "type"; value: FieldType }
-  | { set: "cardinality"; value: RelationCardinality }
-  | { set: "onDelete"; value: RelationDeleteAction };
+  | { set: "cardinality"; value: RelationCardinality } | { set: "onDelete"; value: RelationDeleteAction };
 
 export type DesignerMode = { kind: "create" } | { kind: "edit"; collection: string };
 
@@ -67,7 +50,6 @@ const appliedText = "The change was applied. The edits you made after sending it
 const createdText = "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.";
 
 const newRelation = (): DraftRelation => ({ targetCollection: "", cardinality: "single", minSelect: "0", maxSelect: "1", onDelete: "restrict" });
-
 const newField = (): DraftField => ({ name: "", type: "text", required: false, unique: false, indexed: false, hasDefault: false, defaultText: "" });
 
 function parseDefault(type: FieldType, value: string): unknown {
@@ -267,32 +249,40 @@ function schemaMessage(error: unknown, fallback: string, validationFallback = "C
 const draftSignature = (name: string, fields: DraftField[]): string => stringifyJSON({ name, fields });
 
 interface State {
-  identity: string;
-  create: boolean;
-  phase: "loading" | "missing" | "unavailable" | "ready";
-  name: string;
-  tableName: string;
-  definition: CollectionDefinition | null;
-  catalog: CollectionCatalog | null;
-  targetsLoading: boolean;
-  targetsFailed: boolean;
-  fields: DraftField[];
-  plan: PlannedChange | null;
-  confirmed: boolean;
-  pending: boolean;
-  error: string | null;
-  deletePlan: PlannedChange | null;
-  deleteConfirmText: string;
-  deletePending: boolean;
-  deleteError: string | null;
-  pristine: string;
-  undecided: UndecidedApply | null;
-  terminal: boolean;
+  identity: string; create: boolean; phase: "loading" | "missing" | "unavailable" | "ready";
+  name: string; tableName: string; definition: CollectionDefinition | null; catalog: CollectionCatalog | null;
+  targetsLoading: boolean; targetsFailed: boolean; fields: DraftField[];
+  plan: PlannedChange | null; confirmed: boolean; pending: boolean; error: string | null;
+  deletePlan: PlannedChange | null; deleteConfirmText: string; deletePending: boolean; deleteError: string | null;
+  pristine: string; undecided: UndecidedApply | null; terminal: boolean;
 }
-
-type UndecidedApply = { kind: "change"; operationId: string; draft: string }
-  | { kind: "drop"; operationId: string; draft: string };
-
+type UndecidedApply = { kind: "change" | "drop"; operationId: string; draft: string | null; expiresAt: number };
+// No apply can outlive the server's one-hour configuration ceiling. The margin
+// lets its transaction and reconciliation settle before an absent receipt is abandoned.
+const recoverabilityWindowMs = 65 * 60 * 1000;
+const recoverabilityText = "Unable to use browser storage safely for this operation. Restore it and reload before applying.";
+const operationIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const pendingKey = (administratorId: string, route: string) => `pgbase.schema-operation.v1.${administratorId}.${encodeURIComponent(route)}`;
+function storedPending(administratorId: string, route: string): UndecidedApply | null | false {
+  try {
+    const key = pendingKey(administratorId, route);
+    const raw = localStorage.getItem(key); if (raw === null) return null;
+    const value = parseJSON(raw) as Partial<UndecidedApply> | null;
+    if ((value?.kind !== "change" && value?.kind !== "drop") || typeof value.operationId !== "string" || !operationIDPattern.test(value.operationId) ||
+      typeof value.expiresAt !== "number" || !Number.isSafeInteger(value.expiresAt) || value.expiresAt > Date.now() + recoverabilityWindowMs) return false;
+    if (value.expiresAt <= Date.now()) { localStorage.removeItem(key); return null; }
+    return { kind: value.kind, operationId: value.operationId, expiresAt: value.expiresAt, draft: null };
+  } catch { return false; }
+}
+function rememberPending(administratorId: string, route: string, pending: UndecidedApply): boolean {
+  try { localStorage.setItem(pendingKey(administratorId, route), stringifyJSON({
+    kind: pending.kind, operationId: pending.operationId, expiresAt: pending.expiresAt,
+  })); return true; } catch { return false; }
+}
+function forgetPending(administratorId: string | null, route: string): boolean {
+  if (administratorId === null) return false;
+  try { localStorage.removeItem(pendingKey(administratorId, route)); return true; } catch { return false; }
+}
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
   const name = create ? "" : mode.collection;
@@ -338,44 +328,20 @@ function deleteTargetOf(definition: CollectionDefinition | null, plan: PlannedCh
 }
 
 export interface CollectionDesigner {
-  phase: State["phase"];
-  create: boolean;
-  name: string;
-  tableName: string;
-  fields: DraftField[];
-  relationTargets: RelationTargetOption[];
-  relationTargetsLoading: boolean;
-  relationTargetsFailed: boolean;
-  isNewField(name: string): boolean;
-  preview: PlannedChange | null;
-  removedFields: string[];
-  destructiveConfirmed: boolean;
-  applyBlocked: boolean;
-  editingBlocked: boolean;
-  pending: boolean;
-  error: string | null;
-  deleteTarget: DeleteTarget | null;
-  deleteConfirmText: string;
-  deleteConfirmed: boolean;
-  deletePending: boolean;
-  deleteError: string | null;
+  phase: State["phase"]; create: boolean; name: string; tableName: string; fields: DraftField[];
+  relationTargets: RelationTargetOption[]; relationTargetsLoading: boolean; relationTargetsFailed: boolean; isNewField(name: string): boolean;
+  preview: PlannedChange | null; removedFields: string[]; destructiveConfirmed: boolean;
+  applyBlocked: boolean; editingBlocked: boolean; pending: boolean; error: string | null;
+  deleteTarget: DeleteTarget | null; deleteConfirmText: string; deleteConfirmed: boolean;
+  deletePending: boolean; deleteError: string | null;
   // An unsettled ledger outcome is neither applied nor failed.
   recovery: OperationRecovery | null;
-  rename(name: string): void;
-  editField(index: number, edit: DraftEdit): void;
-  addField(): void;
-  removeField(index: number): void;
-  confirmDestructive(confirmed: boolean): void;
-  confirmDeleteName(typed: string): void;
-  requestPreview(): void;
-  requestApply(): void;
-  requestDeletePlan(): void;
-  cancelDelete(): void;
-  requestDelete(): void;
+  rename(name: string): void; editField(index: number, edit: DraftEdit): void; addField(): void; removeField(index: number): void;
+  confirmDestructive(confirmed: boolean): void; confirmDeleteName(typed: string): void; requestPreview(): void; requestApply(): void;
+  requestDeletePlan(): void; cancelDelete(): void; requestDelete(): void;
 }
 
-const operationFailed = (caught: unknown, fallback: string): string =>
-  operationFailureMessage(caught instanceof SchemaError ? caught.details.operation?.[0] : undefined, fallback);
+const operationFailed = (caught: unknown, fallback: string): string => operationFailureMessage(caught instanceof SchemaError ? caught.details.operation?.[0] : undefined, fallback);
 
 function applyFailure(caught: unknown, create: boolean): Partial<State> {
   const reason = caught instanceof SchemaError ? caught.reason : "failed";
@@ -421,22 +387,29 @@ function deleteFailure(caught: unknown): Partial<State> {
 
 export function useCollectionDesigner(mode: DesignerMode, navigate: (route: AdminRoute) => void): CollectionDesigner {
   const { schema } = useBackend();
+  const session = useSession().state;
+  const administratorId = session.kind === "authenticated" ? session.administrator.id : null;
   const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
   const [state, update] = useResourceState(identity, (current) => initial(mode, current));
   // Retries reuse one identity per approved plan; a fresh preview does not.
   const attempt = useRef(new ApplyAttempt());
-  const recovery = useOperationRecovery(state.undecided?.operationId ?? null);
+  const issued = useRef<string | null>(null);
+  const stored = administratorId === null || state.pending || issued.current === identity ? null : storedPending(administratorId, identity);
+  const storageBlocked = stored === false, restored = stored || null;
+  const undecided = state.undecided ?? restored;
+  const recovery = useOperationRecovery(undecided?.operationId ?? null);
   const signature = draftSignature(state.name, state.fields);
   const live = useRef(signature);
   live.current = signature;
-  const recovered = recovery?.status === "committed" ? state.undecided : null;
-  const recoveryFailed = recovery?.status === "failed" && state.undecided !== null;
-  const editingBlocked = state.terminal || (state.undecided !== null && recovery?.status !== "failed");
-  const ledgerOutran = recovered?.kind === "change" && recovered.draft !== signature;
+  const recovered = recovery?.status === "committed" ? undecided : null;
+  const recoveryFailed = recovery?.status === "failed" && undecided !== null;
+  const editingBlocked = state.terminal || storageBlocked || (undecided !== null && recovery?.status !== "failed");
+  const ledgerOutran = recovered?.kind === "change" && recovered.draft !== null && recovered.draft !== signature;
   let unsaved = signature !== state.pristine;
-  if (state.undecided?.kind === "change" && recovery !== null) {
-    if (recovery.status === "committed") unsaved = signature !== state.undecided.draft;
+  if (undecided?.kind === "change" && recovery !== null) {
+    if (undecided.draft === null) unsaved = false;
+    else if (recovery.status === "committed") unsaved = signature !== undecided.draft;
     else if (recovery.undecided) unsaved = true;
   }
   const savedDraft = useUnsavedDraft(identity, unsaved);
@@ -458,12 +431,23 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   }, [identity, schema, update, wantsCatalog]);
 
   useEffect(() => {
+    if (undecided === null || recovery?.status === "committed" || recovery?.status === "failed") return;
+    const expire = () => { if (forgetPending(administratorId, identity)) update(identity, { undecided: null, plan: null, confirmed: false, deletePlan: null, deleteConfirmText: "" }); };
+    const delay = undecided.expiresAt - Date.now();
+    if (delay <= 0) { expire(); return; }
+    const timer = window.setTimeout(expire, delay);
+    return () => window.clearTimeout(timer);
+  }, [administratorId, identity, recovery?.status, undecided, update]);
+
+  useEffect(() => {
+    if (recovery?.status === "failed") forgetPending(administratorId, identity);
     if (recovered === null) return;
-    if (signature === recovered.draft) savedDraft();
+    forgetPending(administratorId, identity);
+    if (recovered.draft !== null && signature === recovered.draft) savedDraft();
     navigate(recovered.kind === "drop" || state.create
       ? { kind: "collections" }
       : { kind: "records", collection: state.definition?.name ?? state.name });
-  }, [navigate, recovered, savedDraft, signature, state.create, state.definition?.name, state.name]);
+  }, [administratorId, identity, navigate, recovered, recovery?.status, savedDraft, signature, state.create, state.definition?.name, state.name]);
 
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
@@ -501,11 +485,18 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const requestApply = useCallback(async () => {
     if (editingBlocked || recoveryFailed || preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
     update(identity, { pending: true, error: null, undecided: null });
+    issued.current = identity;
+    const pending = { kind: "change" as const, operationId: attempt.current.identityFor(preview).operationId, draft: signature, expiresAt: Date.now() + recoverabilityWindowMs };
+    if (administratorId === null || !rememberPending(administratorId, identity, pending)) {
+      update(identity, { pending: false, error: recoverabilityText });
+      return;
+    }
     try {
       const outcome = await schema.apply(preview, attempt.current);
+      if (outcome.kind === "applied") forgetPending(administratorId, identity);
       if (!active()) return;
       // Stay until the ledger decides an ambiguous outcome.
-      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "change", operationId: outcome.operationId, draft: signature } }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: pending }); return; }
       // Rebase edit warnings on the collection produced by the sent draft.
       const outran = live.current !== signature;
       const catalog = !state.create && outcome.definition !== undefined
@@ -524,11 +515,12 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       if (!outran) savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
+      forgetPending(administratorId, identity);
       update(identity, applyFailure(caught, state.create));
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, editingBlocked, identity, navigate, preview, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
+  }, [active, administratorId, editingBlocked, identity, navigate, preview, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const deleteTarget = useMemo(() => recoveryFailed ? null : deleteTargetOf(state.definition, state.deletePlan), [recoveryFailed, state.definition, state.deletePlan]);
 
@@ -554,19 +546,27 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     if (editingBlocked || recoveryFailed || deleteTarget === null || state.deletePlan === null || state.deletePending) return;
     if (state.deleteConfirmText !== deleteTarget.collection) return;
     update(identity, { deletePending: true, undecided: null });
+    issued.current = identity;
+    const pending = { kind: "drop" as const, operationId: attempt.current.identityFor(state.deletePlan).operationId, draft: signature, expiresAt: Date.now() + recoverabilityWindowMs };
+    if (administratorId === null || !rememberPending(administratorId, identity, pending)) {
+      update(identity, { deletePending: false, deleteError: recoverabilityText });
+      return;
+    }
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
+      if (outcome.kind === "applied") forgetPending(administratorId, identity);
       if (!active()) return;
-      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "drop", operationId: outcome.operationId, draft: signature } }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: pending }); return; }
       update(identity, { terminal: true, deletePlan: null, deleteConfirmText: "" });
       if (live.current === signature) savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
+      forgetPending(administratorId, identity);
       update(identity, deleteFailure(caught));
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [active, deleteTarget, editingBlocked, identity, navigate, recoveryFailed, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
+  }, [active, administratorId, deleteTarget, editingBlocked, identity, navigate, recoveryFailed, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,
@@ -584,7 +584,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     applyBlocked: editingBlocked || recoveryFailed || (removedFields.length > 0 && !state.confirmed),
     editingBlocked,
     pending: state.pending,
-    error: state.error ?? (ledgerOutran ? (state.create ? createdText : appliedText) : null),
+    error: state.error ?? (storageBlocked ? recoverabilityText : ledgerOutran ? (state.create ? createdText : appliedText) : null),
     deleteTarget,
     deleteConfirmText: state.deleteConfirmText,
     deleteConfirmed: deleteTarget !== null && state.deleteConfirmText === deleteTarget.collection,
