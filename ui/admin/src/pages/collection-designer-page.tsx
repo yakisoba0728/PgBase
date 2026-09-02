@@ -58,13 +58,16 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
     {!designer.create && <section className="danger-zone" aria-label="Danger zone">
       <h3>Danger zone</h3>
       {designer.deleteError && <p role="alert">{designer.deleteError}</p>}
-      {designer.deletePlan === null
+      {designer.deleteTarget === null
         ? <button className="danger" disabled={designer.deletePending} onClick={designer.requestDeletePlan} type="button">{designer.deletePending ? "Preparing…" : "Delete collection"}</button>
         : <div>
           <p>This permanently drops the table and all records.</p>
+          <p>Deleting {designer.deleteTarget.collection} · physical table {designer.deleteTarget.tableName} · catalog version {designer.deleteTarget.baseVersion}</p>
           <h4>SQL</h4>
-          <pre>{designer.deletePlan.sql.join("\n\n")}</pre>
-          <button className="danger" disabled={designer.deletePending} onClick={designer.requestDelete} type="button">{designer.deletePending ? "Deleting…" : "Confirm delete"}</button>
+          <pre>{designer.deleteTarget.sql.join("\n\n")}</pre>
+          <label htmlFor="delete-confirmation">Type {designer.deleteTarget.collection} to confirm</label>
+          <input autoComplete="off" id="delete-confirmation" onChange={(event) => designer.confirmDeleteName(event.target.value)} value={designer.deleteConfirmText} />
+          <button className="danger" disabled={designer.deletePending || !designer.deleteConfirmed} onClick={designer.requestDelete} type="button">{designer.deletePending ? "Deleting…" : "Confirm delete"}</button>
           <button className="secondary" disabled={designer.deletePending} onClick={designer.cancelDelete} type="button">Cancel</button>
         </div>}
     </section>}
