@@ -18,7 +18,7 @@ func TestDoctorJSONReportsHealthyMigratedDatabase(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareDoctorDatabase(t, databaseURL)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), testIO(nil, &stdout, &stderr))
 	if code != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -56,7 +56,7 @@ func TestDoctorJSONSignalsTruncationAfterAPartialReport(t *testing.T) {
 	pool.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run(ctx, []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(ctx, []string{"doctor", "--json"}, migrationEnv(databaseURL), testIO(nil, &stdout, &stderr))
 	if code != 1 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}

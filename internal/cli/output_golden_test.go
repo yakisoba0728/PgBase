@@ -24,30 +24,35 @@ type cliGoldenCase struct {
 
 func TestCLIOutputGolden(t *testing.T) {
 	const secret = "postgres://admin:must-not-leak@database/private?sslpassword=also-secret"
+	// The two scripted commands stand in for a real database command whose
+	// output cannot be reproduced without one. Everything the golden pins is
+	// this package's own framing: the exit code, the streams a command's own
+	// output reaches, and the single redacted line an operational failure
+	// leaves behind.
 	tests := []struct {
 		name     string
 		args     []string
-		commands CommandSet
+		commands commandTable
 	}{
-		{name: "ordinary help", commands: DefaultCommands()},
-		{name: "unknown command", args: []string{"unknown"}, commands: DefaultCommands()},
-		{name: "invalid configuration", args: []string{"migrate", "status"}, commands: DefaultCommands()},
+		{name: "ordinary help", commands: productionCommands()},
+		{name: "unknown command", args: []string{"unknown"}, commands: productionCommands()},
+		{name: "invalid configuration", args: []string{"migrate", "status"}, commands: productionCommands()},
 		{
 			name: "successful command streams",
 			args: []string{"migrate", "status"},
-			commands: CommandSet{Migrate: func(_ context.Context, _ []string, _ func(string) (string, bool), stdout, stderr io.Writer) error {
-				if _, err := io.WriteString(stdout, "system migrations: current=3 latest=3 dirty=false\n"); err != nil {
+			commands: commandTable{"migrate": func(_ context.Context, _ []string, _ environment, streams IO) error {
+				if _, err := io.WriteString(streams.stdout(), "system migrations: current=3 latest=3 dirty=false\n"); err != nil {
 					return err
 				}
-				_, err := io.WriteString(stderr, "operator notice\n")
+				_, err := io.WriteString(streams.stderr(), "operator notice\n")
 				return err
 			}},
 		},
 		{
 			name: "operational failure redaction",
 			args: []string{"migrate", "status"},
-			commands: CommandSet{Migrate: func(_ context.Context, _ []string, _ func(string) (string, bool), stdout, _ io.Writer) error {
-				if _, err := io.WriteString(stdout, "partial result\n"); err != nil {
+			commands: commandTable{"migrate": func(_ context.Context, _ []string, _ environment, streams IO) error {
+				if _, err := io.WriteString(streams.stdout(), "partial result\n"); err != nil {
 					return err
 				}
 				return errors.New(secret + " SQLSTATE 42P01 select password_hash")
@@ -58,7 +63,7 @@ func TestCLIOutputGolden(t *testing.T) {
 	golden := cliGolden{Cases: make([]cliGoldenCase, 0, len(tests))}
 	for _, test := range tests {
 		var stdout, stderr bytes.Buffer
-		exit := Run(context.Background(), test.args, emptyEnv, &stdout, &stderr, test.commands)
+		exit := execute(context.Background(), test.args, emptyEnv, testIO(nil, &stdout, &stderr), test.commands)
 		golden.Cases = append(golden.Cases, cliGoldenCase{
 			Name: test.name, Exit: exit, Stdout: stdout.String(), Stderr: stderr.String(),
 		})

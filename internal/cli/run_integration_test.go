@@ -33,7 +33,7 @@ func TestMigrateUpAndStatus(t *testing.T) {
 	wantLatest := fmt.Sprintf("latest=%d", latest)
 
 	var upOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, &upOutput, io.Discard, DefaultCommands()); code != 0 {
+	if code := Execute(context.Background(), []string{"migrate", "up"}, lookup, testIO(nil, &upOutput, io.Discard)); code != 0 {
 		t.Fatalf("migrate up exit code = %d, stdout = %q", code, upOutput.String())
 	}
 	if !strings.Contains(upOutput.String(), wantCurrent) || !strings.Contains(upOutput.String(), wantLatest) {
@@ -41,7 +41,7 @@ func TestMigrateUpAndStatus(t *testing.T) {
 	}
 
 	var statusOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "status"}, lookup, &statusOutput, io.Discard, DefaultCommands()); code != 0 {
+	if code := Execute(context.Background(), []string{"migrate", "status"}, lookup, testIO(nil, &statusOutput, io.Discard)); code != 0 {
 		t.Fatalf("migrate status exit code = %d, stdout = %q", code, statusOutput.String())
 	}
 	if !strings.Contains(statusOutput.String(), wantCurrent) || !strings.Contains(statusOutput.String(), "dirty=false") {
@@ -60,7 +60,7 @@ func TestMigrateUpThroughEmitsExactMachineReadableReceipt(t *testing.T) {
 	target := migrations[len(migrations)-1]
 	before := migrations[len(migrations)-2]
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "up", "--through", fmt.Sprint(target.Version)}, lookup, &stdout, &stderr, DefaultCommands()); code != 0 {
+	if code := Execute(context.Background(), []string{"migrate", "up", "--through", fmt.Sprint(target.Version)}, lookup, testIO(nil, &stdout, &stderr)); code != 0 {
 		t.Fatalf("migrate up --through exit code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -122,7 +122,7 @@ func TestMigrateUpThroughRejectsMoreThanOnePendingMigrationWithoutDDL(t *testing
 	migrations := system.Migrations()
 	target := migrations[len(migrations)-1].Version
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "up", "--through", fmt.Sprint(target)}, lookup, &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"migrate", "up", "--through", fmt.Sprint(target)}, lookup, testIO(nil, &stdout, &stderr))
 	if code != 1 {
 		t.Fatalf("exit code = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
 	}
@@ -167,8 +167,7 @@ func TestMigrateUpThroughSuppressesReceiptWhenPostMigrationCatalogPreflightFails
 		context.Background(),
 		[]string{"up", "--through", fmt.Sprint(target)},
 		lookup,
-		&stdout,
-		&stderr,
+		testIO(nil, &stdout, &stderr),
 		func(_ context.Context, _ *database.Pool, cache *schema.Cache) error {
 			preflightCalls++
 			if preflightCalls == 1 {
@@ -215,8 +214,7 @@ func TestMigrateUpBlocksRolloutAfterUpgradingAnOlderDatabaseWhenCatalogPreflight
 		context.Background(),
 		[]string{"up"},
 		lookup,
-		&stdout,
-		&stderr,
+		testIO(nil, &stdout, &stderr),
 		func(ctx context.Context, pool *database.Pool, cache *schema.Cache) error {
 			preflightCalls++
 			var catalogTablesAvailable bool

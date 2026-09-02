@@ -19,20 +19,10 @@ import (
 func TestAdminCreateReadsConfirmedTerminalPasswordWithoutEchoingIt(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareAdminDatabase(t, databaseURL)
-	originalTerminal, originalReader, originalStdin := terminalInput, terminalPasswordInput, commandStdin
-	t.Cleanup(func() {
-		terminalInput, terminalPasswordInput, commandStdin = originalTerminal, originalReader, originalStdin
-	})
-	terminalInput = func(int) bool { return true }
-	passwords := [][]byte{[]byte("correct horse battery staple"), []byte("correct horse battery staple")}
-	terminalPasswordInput = func(context.Context, int) ([]byte, error) {
-		password := passwords[0]
-		passwords = passwords[1:]
-		return password, nil
-	}
-	commandStdin = fakeTerminal{}
+	terminal := scriptedPasswords("correct horse battery staple", "correct horse battery staple")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "create", "--email", "ADMIN@example.com"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "create", "--email", "ADMIN@example.com"},
+		migrationEnv(databaseURL), terminalIO(terminal, &stdout, &stderr))
 	if code != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -47,11 +37,9 @@ func TestAdminCreateReadsConfirmedTerminalPasswordWithoutEchoingIt(t *testing.T)
 func TestAdminCreateReadsOneNewlineTerminatedPasswordFromStandardInput(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareAdminDatabase(t, databaseURL)
-	originalStdin := commandStdin
-	commandStdin = strings.NewReader("correct horse battery staple\n")
-	t.Cleanup(func() { commandStdin = originalStdin })
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("correct horse battery staple\n"), &stdout, &stderr))
 	if code != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -63,16 +51,13 @@ func TestAdminCreateReadsOneNewlineTerminatedPasswordFromStandardInput(t *testin
 func TestAdminCreateDuplicateReturnsOperationalExitCode(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareAdminDatabase(t, databaseURL)
-	originalStdin := commandStdin
-	t.Cleanup(func() { commandStdin = originalStdin })
-
-	commandStdin = strings.NewReader("correct horse battery staple\n")
-	if code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), io.Discard, io.Discard, DefaultCommands()); code != 0 {
+	if code := Execute(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("correct horse battery staple\n"), io.Discard, io.Discard)); code != 0 {
 		t.Fatalf("first create exit=%d", code)
 	}
-	commandStdin = strings.NewReader("correct horse battery staple\n")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("correct horse battery staple\n"), &stdout, &stderr))
 	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "create administrator") {
 		t.Fatalf("duplicate create exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -93,11 +78,9 @@ func TestAdminResetPasswordUsesStandardInputAndDoesNotDiscloseIt(t *testing.T) {
 	if _, err := service.CreateAdministrator(context.Background(), "admin@example.com", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
-	originalStdin := commandStdin
-	commandStdin = strings.NewReader("new correct horse battery staple\n")
-	t.Cleanup(func() { commandStdin = originalStdin })
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "reset-password", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "reset-password", "--email", "admin@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("new correct horse battery staple\n"), &stdout, &stderr))
 	if code != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -114,11 +97,9 @@ func TestAdminResetPasswordUsesStandardInputAndDoesNotDiscloseIt(t *testing.T) {
 func TestAdminResetPasswordReturnsOperationalExitCodeForUnknownAdministrator(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	prepareAdminDatabase(t, databaseURL)
-	originalStdin := commandStdin
-	commandStdin = strings.NewReader("new correct horse battery staple\n")
-	t.Cleanup(func() { commandStdin = originalStdin })
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "reset-password", "--email", "unknown@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "reset-password", "--email", "unknown@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("new correct horse battery staple\n"), &stdout, &stderr))
 	if code != 1 || !strings.Contains(stderr.String(), "reset administrator password") || strings.Contains(stderr.String(), "create administrator") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}

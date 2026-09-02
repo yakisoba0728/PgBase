@@ -14,20 +14,10 @@ import (
 )
 
 func TestAdminCreateRejectsMismatchedTerminalPasswords(t *testing.T) {
-	originalTerminal, originalReader, originalStdin := terminalInput, terminalPasswordInput, commandStdin
-	t.Cleanup(func() {
-		terminalInput, terminalPasswordInput, commandStdin = originalTerminal, originalReader, originalStdin
-	})
-	terminalInput = func(int) bool { return true }
-	passwords := [][]byte{[]byte("correct horse battery staple"), []byte("different horse battery staple")}
-	terminalPasswordInput = func(context.Context, int) ([]byte, error) {
-		password := passwords[0]
-		passwords = passwords[1:]
-		return password, nil
-	}
-	commandStdin = fakeTerminal{}
+	terminal := scriptedPasswords("correct horse battery staple", "different horse battery staple")
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "create", "--email", "admin@example.com"}, emptyEnv,
+		terminalIO(terminal, io.Discard, &stderr))
 	if code != 2 || !strings.Contains(stderr.String(), "password confirmation") {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
@@ -35,7 +25,7 @@ func TestAdminCreateRejectsMismatchedTerminalPasswords(t *testing.T) {
 
 func TestAdminResetPasswordRejectsInvalidUsageWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "reset-password", "--password-stdin"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "reset-password", "--password-stdin"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 || !strings.Contains(stderr.String(), "usage: pgbase admin reset-password") {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
