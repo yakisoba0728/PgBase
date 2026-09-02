@@ -544,7 +544,7 @@ exported 462   interfaces 17   constructors 25   files over 800 LOC 0
 | P1 | `Apply`가 lease를 잡은 뒤 capability를 갱신하고 listener heartbeat는 capability를 읽은 뒤 lease를 갱신해 실제 PG17 `40P01` 교착 | writer lease upsert를 capability admission보다 먼저 수행해 순서를 통일. 실제 listener PID가 `Lock` wait에 들어간 상태에서 장시간 Apply와 다른 writer heartbeat가 함께 진행되는 회귀 테스트 추가 |
 | P1 | exact predecessor `d3fb5eb`의 `schema-index build`가 F activation 뒤 구 checker로 물리 상태를 검사하고 `ready`를 쓸 수 있음 | migration 9의 비-pending 저장 상태를 `building_v3`/`ready_v3`로 세대화하고 CHECK를 교체. 구 scanner는 index를 만지기 전에 상태를 거부하고 구 `ready` SQL도 DB가 거부 |
 | P1 | v8/v9 capability·lease·marker·CHECK shape drift를 writer refresh가 정상으로 받아들일 수 있음 | migration history와 기대 object shape를 한 snapshot에서 함께 검사. 손상 시 listener는 unready, Apply는 `ErrSynchronizationUnavailable`로 rollback하며 catalog가 byte-for-byte 불변임을 검증 |
-| P2 | M 직전에 maintenance session lock에 들어간 구 `schema-index build`가 M commit 뒤까지 `DROP/CREATE INDEX CONCURRENTLY`를 계속할 수 있음 | migration 9의 첫 product lock을 maintenance → schema advisory 순서로 잡아 기존 CIC와 schema writer/transition을 drain하고 commit까지 재진입을 차단. lock key 변이 시 새 테스트가 0.13초에 실패함을 확인 |
+| P2 | M 전에 이미 maintenance session lock에 들어간 구 `schema-index build`가 M commit 뒤까지 `DROP/CREATE INDEX CONCURRENTLY`를 계속할 수 있음 | migration 9의 첫 product lock을 maintenance → schema advisory 순서로 잡아 기존 physical phase를 drain. 단 precheck 후 lock 전에 멈춘 process에 대한 commit 후 hard fence는 아니며, full-fleet P0 배포와 pre-P0 launch freeze/process drain으로 닫는다. 이 계약을 위반하면 physical DDL은 가능하지만 v9 durable state와 구 promotion은 fail-closed로 남는 characterization test를 추가 |
 
 마지막 항목에서 schema lock을 먼저 잡으면 구 maintenance의 “maintenance phase → promotion schema lock” 순서와
 반대가 되어 교착을 만들 수 있다. 그래서 migration은 maintenance, schema, `schema_state`, lease table 순서이며,
@@ -560,10 +560,13 @@ Apply/transition은 schema 뒤의 같은 순서를 따른다.
 - schema compiler: predecessor `d3fb5eb`, P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`,
   F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
 - migration 9 checksum:
-  `f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918`
+  `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`
+
+위 P0/F commit은 SQL 주석 교정 전 artifact pin이므로, 현재 checksum을 포함한
+교체 P0/F를 다시 빌드하고 manifest를 repin한 뒤 release gate를 재실행해야 한다.
 
 P0는 generation 2이고 clean v8/v9를 받되 activation을 거부한다. F는 generation 3이고 clean v9만 받으며
-activation/v2 issuance를 연다. 둘의 migration 9 bytes는 동일하다. 최종 bundle
+activation/v2 issuance를 연다. 교정 전 둘의 migration 9 bytes는 동일했다. 그 고정점의 최종 bundle
 `/tmp/pgbase-final-artifacts.nI7j44`의 8개 실행 파일은 모두 manifest commit/version/path, 실제 SHA-256,
 `0755`, target/toolchain metadata와 일치했고, 그 bundle로 A0→M→A→B→C, B rollback,
 predecessor→P0→M→F→P0 rollback process test를 `-race`로 통과했다(30.696s).
