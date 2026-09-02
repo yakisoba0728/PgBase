@@ -256,7 +256,7 @@ func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *sche
 		VALUES ($1, 'recordops@example.test', 'test', true, transaction_timestamp(), transaction_timestamp())`, administratorID); err != nil {
 		t.Fatal(err)
 	}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	definition := schema.CreateCollectionInput{Name: "records", Fields: []schema.FieldInput{
 		{Name: "title", Type: schema.TypeText, Required: true, Unique: true},
 		{Name: "count", Type: schema.TypeInteger, Default: json.RawMessage(`"0"`)},

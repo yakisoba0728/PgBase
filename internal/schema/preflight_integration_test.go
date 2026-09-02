@@ -30,7 +30,7 @@ func TestCatalogPreflightIsANoOpBeforeCatalogTablesExist(t *testing.T) {
 }
 
 func TestCatalogPreflightRejectsOversizedLegacyCatalogWithoutPublishingIt(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	created := applyFreshPlan(t, service, CreateCollectionInput{
 		Name:   "legacy_catalog_limit",
 		Fields: []FieldInput{{Name: "body", Type: TypeText}},
@@ -57,7 +57,7 @@ func TestCatalogPreflightRejectsOversizedLegacyCatalogWithoutPublishingIt(t *tes
 }
 
 func TestCatalogPreflightPublishesSnapshotThatListenerReuses(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{
 		Name:   "preflight_reuse",
 		Fields: []FieldInput{{Name: "title", Type: TypeText}},
@@ -87,7 +87,7 @@ func TestCatalogPreflightPublishesSnapshotThatListenerReuses(t *testing.T) {
 }
 
 func TestCatalogPreflightDiscardsPreparedSnapshotWhenReadTransactionCannotCommit(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{
 		Name:   "preflight_rollback",
 		Fields: []FieldInput{{Name: "title", Type: TypeText}},

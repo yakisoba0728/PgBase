@@ -13,7 +13,7 @@ import (
 )
 
 func TestExpectedPhysicalSchemaMatchesPlannerCatalogObjects(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "tags"}, administratorID)
 	author := relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict)

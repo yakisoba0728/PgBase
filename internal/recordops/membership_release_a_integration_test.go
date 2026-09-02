@@ -185,7 +185,7 @@ func TestReleaseADirectConstructorConcurrentFirstUseFitsTwoConnectionPool(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(limitedPool.Close)
-	schemas := schema.NewService(limitedPool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(limitedPool, &schema.Cache{}, nil)
 	records := NewService(limitedPool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
 	start := make(chan struct{})

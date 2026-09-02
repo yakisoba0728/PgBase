@@ -13,7 +13,7 @@ import (
 )
 
 func TestCollectionLifecycleMaintainsMembershipMetadataOutsideThePublicPlan(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 
 	offPlan, err := service.PlanCreate(ctx, CreateCollectionInput{Name: "membership_off"})

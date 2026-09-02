@@ -13,7 +13,7 @@ import (
 )
 
 func TestRelationPlannerDeferredTriggersHandleInsertAndDeleteLive(t *testing.T) {
-	pool, _, _ := newSchemaServiceTest(t, Planner{})
+	pool, _, _ := newSchemaServiceTest(t)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `CREATE TABLE "app"."tags" ("id" uuid PRIMARY KEY)`); err != nil {
 		t.Fatalf("create target table: %v", err)
@@ -69,7 +69,7 @@ func TestRelationPlannerDeferredTriggersHandleInsertAndDeleteLive(t *testing.T) 
 }
 
 func TestRelationPlannerDeferredNoActionAllowsRequiredCrossTableCycleDeleteLive(t *testing.T) {
-	pool, _, _ := newSchemaServiceTest(t, Planner{})
+	pool, _, _ := newSchemaServiceTest(t)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE "app"."cycle_alpha" (

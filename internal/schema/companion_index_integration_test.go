@@ -25,7 +25,7 @@ const nullableDescendingPageOrderBy = `ORDER BY %s DESC NULLS LAST, "id" DESC NU
 
 func companionRolloutFixture(t *testing.T) (*database.Pool, *Service, uuid.UUID, Collection) {
 	t.Helper()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	collection := applyFreshPlan(t, service, CreateCollectionInput{
 		Name: "companion_posts",
 		Fields: []FieldInput{

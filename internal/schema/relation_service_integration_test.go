@@ -13,7 +13,7 @@ import (
 
 func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	users := applyFreshPlan(t, service, CreateCollectionInput{
 		Name:   "users",
 		Fields: []FieldInput{{Name: "email", Type: TypeText}},
@@ -113,7 +113,7 @@ func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testi
 
 func TestRelationServiceResolvesSelfRelationAndPublishesListenerCatalog(t *testing.T) {
 	ctx := context.Background()
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	listenerCache := &Cache{}
 	listener := NewListener(service.pool, listenerCache, nil)
 	runCtx, cancel := context.WithCancel(ctx)
@@ -164,7 +164,7 @@ func TestRelationServiceResolvesSelfRelationAndPublishesListenerCatalog(t *testi
 
 func TestRelationServiceRejectsStalePlanWithoutPartialState(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{
 		Name: "owner", Type: TypeRelation,
@@ -198,7 +198,7 @@ func TestRelationServiceRejectsStalePlanWithoutPartialState(t *testing.T) {
 
 func TestRelationServiceRollsBackDDLAndSchemaCommitWhenRelationMetadataInsertFails(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	if _, err := pool.Exec(ctx, `create function pgbase_meta.reject_relation_metadata()
 		returns trigger language plpgsql as $$
@@ -245,7 +245,7 @@ func TestRelationServiceRollsBackDDLAndSchemaCommitWhenRelationMetadataInsertFai
 
 func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	posts := applyFreshPlan(t, service, CreateCollectionInput{
 		Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}},
@@ -321,7 +321,7 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 
 func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	applyFreshPlan(t, service, CreateCollectionInput{
 		Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}},
@@ -423,7 +423,7 @@ func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) 
 
 func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *testing.T) {
 	ctx := context.Background()
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "users"}, administratorID)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{
 		Name: "owner", Type: TypeRelation,
@@ -449,7 +449,7 @@ func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *te
 	// produces the same checksum and base version the guard would have refused,
 	// so apply has to refuse it a second time on its own pinned catalog.
 	forged := Catalog{Version: catalog.Version, Collections: map[string]Collection{"users": catalog.Collections["users"]}}
-	forgedPlan, err := (Planner{}).Plan(forged, NewDeleteChange("users"))
+	forgedPlan, err := CompilePlan(forged, NewDeleteChange("users"))
 	if err != nil {
 		t.Fatalf("plan delete against a catalog without the referencing collection: %v", err)
 	}

@@ -265,7 +265,7 @@ func TestRecordOperationsMultiPoolIdempotencyAndStaleWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(secondPool.Close)
-	secondSchemas := schema.NewService(secondPool, &schema.Cache{}, schema.Planner{}, nil)
+	secondSchemas := schema.NewService(secondPool, &schema.Cache{}, nil)
 	secondService := NewService(secondPool, secondSchemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
 	request := CreateRequest{

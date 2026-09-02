@@ -470,7 +470,7 @@ func TestRecordOperationsDeleteGraphReadCommittedSeesEdgeCommittedWhileWaiting(t
 		t.Fatal(err)
 	}
 	defer writerPool.Close()
-	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, schema.Planner{}, nil)
+	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, nil)
 	writerCtx, cancelWriter := context.WithCancel(ctx)
 	defer cancelWriter()
 	writerReady := make(chan deleteWriterPreparation, 1)

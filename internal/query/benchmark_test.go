@@ -136,7 +136,7 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 		})
 	}
 	definition := schema.CreateCollectionInput{Name: collection.Name, Fields: fieldInputs}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	plan, err := schemas.PlanCreate(ctx, definition)
 	if err != nil {
 		b.Fatalf("plan benchmark collection: %v", err)

@@ -393,7 +393,7 @@ func (*securityCompilerRecords) Delete(context.Context, recordops.DeleteRequest)
 type securityPlannerService struct{}
 
 func (securityPlannerService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
-	return (schema.Planner{}).Plan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(input))
+	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(input))
 }
 
 func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
@@ -402,7 +402,7 @@ func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollecti
 
 func (securityPlannerService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
 	current := schema.Collection{Name: input.Name, TableName: input.Name}
-	return (schema.Planner{}).Plan(schema.Catalog{Collections: map[string]schema.Collection{input.Name: current}}, schema.NewUpdateChange(input))
+	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{input.Name: current}}, schema.NewUpdateChange(input))
 }
 
 func (securityPlannerService) ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {

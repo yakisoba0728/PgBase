@@ -28,7 +28,7 @@ import (
 )
 
 func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	create := CreateCollectionInput{Name: "preview_posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	previewCreate, err := service.Preview(ctx, NewCreateChange(create))
@@ -73,7 +73,7 @@ func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
 }
 
 func TestApplyIntentUsesOneKernelForCreateUpdateAndDelete(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	create := NewCreateChange(CreateCollectionInput{Name: "kernel_posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}})
 	createPlan, err := service.Preview(ctx, create)
@@ -116,7 +116,7 @@ func TestApplyIntentUsesOneKernelForCreateUpdateAndDelete(t *testing.T) {
 }
 
 func TestPreviewAndApplyRejectCatalogLimitWithoutCommittingDDL(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	service.catalogWireLimit = 64
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "catalog_limit"})
@@ -128,7 +128,7 @@ func TestPreviewAndApplyRejectCatalogLimitWithoutCommittingDDL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := (Planner{}).Plan(catalog, change)
+	plan, err := CompilePlan(catalog, change)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,9 +146,9 @@ func TestPreviewAndApplyRejectCatalogLimitWithoutCommittingDDL(t *testing.T) {
 }
 
 func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, _, administratorID := newSchemaServiceTest(t)
 	recorder := &schemaTelemetryRecorder{}
-	service := NewService(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, recorder)
 	ctx := context.Background()
 
 	createInput := CreateCollectionInput{Name: "telemetry_records", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
@@ -213,9 +213,9 @@ func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
 }
 
 func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, _, administratorID := newSchemaServiceTest(t)
 	recorder := &schemaTelemetryRecorder{}
-	service := NewService(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, recorder)
 	ctx := context.Background()
 
 	targetInput := CreateCollectionInput{Name: "telemetry_targets", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
@@ -263,9 +263,9 @@ func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
 }
 
 func TestRelationSchemaPlanRecordsValidationAndSkipsScalarPlans(t *testing.T) {
-	pool, _, _ := newSchemaServiceTest(t, Planner{})
+	pool, _, _ := newSchemaServiceTest(t)
 	recorder := &schemaTelemetryRecorder{}
-	service := NewService(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, recorder)
 	ctx := context.Background()
 
 	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
@@ -308,7 +308,7 @@ func TestRelationSchemaPlanRecordsValidationAndSkipsScalarPlans(t *testing.T) {
 }
 
 func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
@@ -379,7 +379,7 @@ func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 }
 
 func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	applyFreshPlan(t, service, input, administratorID)
 
@@ -396,7 +396,7 @@ func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T)
 
 func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 	t.Run("explicit base version mismatch", func(t *testing.T) {
-		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		pool, service, administratorID := newSchemaServiceTest(t)
 		input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 		plan, err := service.PlanCreate(context.Background(), input)
 		if err != nil {
@@ -410,7 +410,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 	})
 
 	t.Run("stale base version", func(t *testing.T) {
-		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		pool, service, administratorID := newSchemaServiceTest(t)
 		staleInput := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 		stalePlan, err := service.PlanCreate(context.Background(), staleInput)
 		if err != nil {
@@ -426,7 +426,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 	})
 
 	t.Run("wrong checksum", func(t *testing.T) {
-		pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+		pool, service, administratorID := newSchemaServiceTest(t)
 		_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "posts"}, "wrong-checksum", 0, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
@@ -436,7 +436,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 }
 
 func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{Name: "broken"}
 	plan, err := service.PlanCreate(context.Background(), input)
 	if err != nil {
@@ -478,7 +478,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 		values ($1, 'slow-schema@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(pool, &Cache{}, Planner{}, nil)
+	service := NewService(pool, &Cache{}, nil)
 	input := CreateCollectionInput{Name: "slow_table"}
 	plan, err := service.PlanCreate(ctx, input)
 	if err != nil {
@@ -498,7 +498,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 
 	// Re-read through a fresh cache as a client must after a long request whose
 	// response may have raced an outer HTTP write deadline.
-	recheck := NewService(pool, &Cache{}, Planner{}, nil)
+	recheck := NewService(pool, &Cache{}, nil)
 	catalog, err := recheck.Catalog(ctx)
 	if err != nil {
 		t.Fatalf("recheck catalog after slow DDL: %v", err)
@@ -516,7 +516,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 }
 
 func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	inputs := []CreateCollectionInput{
 		{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}},
 		{Name: "pages", Fields: []FieldInput{{Name: "body", Type: TypeText}}},
@@ -588,7 +588,7 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 }
 
 func TestApplyCreateValidatesCompleteCatalogCommittedBeforeLockedSnapshot(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	plan, err := service.PlanCreate(context.Background(), input)
 	if err != nil {
@@ -682,8 +682,8 @@ func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testi
 
 	firstCache := &Cache{}
 	secondCache := &Cache{}
-	firstService := NewService(firstPool, firstCache, Planner{}, nil)
-	secondService := NewService(secondPool, secondCache, Planner{}, nil)
+	firstService := NewService(firstPool, firstCache, nil)
+	secondService := NewService(secondPool, secondCache, nil)
 	snapshotPinned := make(chan struct{})
 	newerPublished := make(chan struct{})
 	type ensureResult struct{ err error }
@@ -729,7 +729,7 @@ func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testi
 // aborts that wait with 40001; without Catalog's retry loop the reader would
 // surface the serialization failure instead of reading the committed catalog.
 func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	plan, err := service.PlanCreate(ctx, input)
@@ -796,7 +796,7 @@ func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing
 }
 
 func TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	update := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{
@@ -882,7 +882,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	}
 
 	cache := &Cache{}
-	service := NewService(pool, cache, Planner{}, nil)
+	service := NewService(pool, cache, nil)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	plan, err := service.PlanCreate(ctx, input)
 	if err != nil {
@@ -943,7 +943,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 }
 
 func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	created := applyFreshPlan(t, service, CreateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
@@ -1029,7 +1029,7 @@ func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 }
 
 func TestApplyUpdatePreservesRetainedFieldIDsAndCreatesIDsOnlyForNewFields(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{
 		{Name: "title", Type: TypeText},
 		{Name: "views", Type: TypeBigInt},
@@ -1057,7 +1057,7 @@ func TestApplyUpdatePreservesRetainedFieldIDsAndCreatesIDsOnlyForNewFields(t *te
 }
 
 func TestApplyUpdateRejectsUnknownCollectionStaleVersionAndChecksum(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	input := UpdateCollectionInput{Name: "ghosts", Fields: nil}
@@ -1082,7 +1082,7 @@ func TestApplyUpdateRejectsUnknownCollectionStaleVersionAndChecksum(t *testing.T
 }
 
 func TestApplyUpdateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	input := UpdateCollectionInput{Name: "posts"}
 	plan, err := service.PlanUpdate(context.Background(), input)
@@ -1113,7 +1113,7 @@ func TestApplyUpdateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 }
 
 func TestApplyUpdateSerializesUnderAdvisoryLock(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
 	plan, err := service.PlanUpdate(context.Background(), input)
@@ -1157,7 +1157,7 @@ func TestApplyUpdateSerializesUnderAdvisoryLock(t *testing.T) {
 }
 
 func TestApplyDeleteRemovesCatalogTableAndAudit(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}},
@@ -1208,7 +1208,7 @@ func TestApplyDeleteRemovesCatalogTableAndAudit(t *testing.T) {
 }
 
 func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	plan, err := service.PlanDelete(ctx, "posts")
@@ -1225,7 +1225,7 @@ func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
 }
 
 func TestPlanUpdateOmitsSetDefaultForUnchangedObjectDefaults(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t, Planner{})
+	_, service, administratorID := newSchemaServiceTest(t)
 	created := applyFreshPlan(t, service, CreateCollectionInput{
 		Name: "events",
 		Fields: []FieldInput{
@@ -1252,7 +1252,7 @@ func TestPlanUpdateOmitsSetDefaultForUnchangedObjectDefaults(t *testing.T) {
 }
 
 func TestApplyUpdateCreatesEnforcesAndDropsIndexesForFieldFlags(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 
@@ -1305,7 +1305,7 @@ func TestApplyUpdateCreatesEnforcesAndDropsIndexesForFieldFlags(t *testing.T) {
 }
 
 func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, note)
@@ -1334,7 +1334,7 @@ func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
 }
 
 func TestApplyUpdateReportsExistingDuplicateValuesAsDataConstraint(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, slug) values
@@ -1356,7 +1356,7 @@ func TestApplyUpdateReportsExistingDuplicateValuesAsDataConstraint(t *testing.T)
 }
 
 func TestApplyUpdateReportsOversizedExistingBtreeValueAsDataConstraint(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `insert into app.posts (id, created_at, updated_at, slug)
@@ -1384,7 +1384,7 @@ func TestApplyUpdateReportsOversizedExistingBtreeValueAsDataConstraint(t *testin
 // one carrying the default. The unit test around normalizeStoredDefault cannot
 // catch that: it passes whether or not the catalog path actually calls it.
 func TestCatalogReadsSurviveLegacyOversizedTextDefault(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 
 	input := CreateCollectionInput{

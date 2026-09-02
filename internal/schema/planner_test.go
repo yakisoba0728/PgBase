@@ -22,19 +22,18 @@ func planTestCatalog(version int64, collections ...Collection) Catalog {
 }
 
 func planCreateAt(version int64, input CreateCollectionInput) (Plan, error) {
-	return Planner{}.Plan(planTestCatalog(version), NewCreateChange(input))
+	return CompilePlan(planTestCatalog(version), NewCreateChange(input))
 }
 
 func planUpdateAt(version int64, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return Planner{}.Plan(planTestCatalog(version, current), NewUpdateChange(input))
+	return CompilePlan(planTestCatalog(version, current), NewUpdateChange(input))
 }
 
 func planDeleteAt(version int64, current Collection) (Plan, error) {
-	return Planner{}.Plan(planTestCatalog(version, current), NewDeleteChange(current.Name))
+	return CompilePlan(planTestCatalog(version, current), NewDeleteChange(current.Name))
 }
 
 func TestPlannerPlanCopiesTheInputOutOfTheCallersReach(t *testing.T) {
-	planner := Planner{}
 	current := updateTestCollection()
 	catalog := planTestCatalog(7, current)
 	createInput := CreateCollectionInput{Name: "comments", Fields: []FieldInput{{
@@ -55,7 +54,7 @@ func TestPlannerPlanCopiesTheInputOutOfTheCallersReach(t *testing.T) {
 	}
 	want := make([]Plan, len(tests))
 	for index, test := range tests {
-		plan, err := planner.Plan(catalog, test.change)
+		plan, err := CompilePlan(catalog, test.change)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +68,7 @@ func TestPlannerPlanCopiesTheInputOutOfTheCallersReach(t *testing.T) {
 
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := planner.Plan(catalog, test.change)
+			got, err := CompilePlan(catalog, test.change)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,7 +82,7 @@ func TestPlannerPlanCopiesTheInputOutOfTheCallersReach(t *testing.T) {
 func TestPlannerPlanRejectsACatalogEntryFiledUnderAnotherName(t *testing.T) {
 	current := updateTestCollection()
 	catalog := Catalog{Version: 7, Collections: map[string]Collection{"others": current}}
-	_, err := Planner{}.Plan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "others"}))
+	_, err := CompilePlan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "others"}))
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("Plan(mis-keyed catalog) error = %v, want ErrConflict", err)
 	}
@@ -91,16 +90,16 @@ func TestPlannerPlanRejectsACatalogEntryFiledUnderAnotherName(t *testing.T) {
 
 func TestPlannerPlanRejectsAChangeForAnAbsentCollection(t *testing.T) {
 	catalog := planTestCatalog(7)
-	if _, err := (Planner{}).Plan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "posts"})); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := CompilePlan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "posts"})); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("Plan(update absent) error = %v, want ErrCollectionNotFound", err)
 	}
-	if _, err := (Planner{}).Plan(catalog, NewDeleteChange("posts")); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := CompilePlan(catalog, NewDeleteChange("posts")); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("Plan(delete absent) error = %v, want ErrCollectionNotFound", err)
 	}
 }
 
 func TestPlannerPlanRejectsUnconstructedChange(t *testing.T) {
-	_, err := (Planner{}).Plan(Catalog{Collections: map[string]Collection{}}, Change{})
+	_, err := CompilePlan(Catalog{Collections: map[string]Collection{}}, Change{})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("Plan(zero Change) error = %v, want ErrConflict", err)
 	}
