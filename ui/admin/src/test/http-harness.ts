@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import { stringifyJSON } from "../backend/json";
 import { httpBackend } from "../backend/http-backend";
 import type { AdminBackend, ResumedSession } from "../backend/ports";
-import { nextStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
+import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
 
 export interface Wire { status: number; body?: string; headers?: Record<string, string> }
 
@@ -40,7 +40,8 @@ function details(fault: Fault): Record<string, string[]> {
   return ("details" in fault ? fault.details : undefined) ?? {};
 }
 
-function fromStep<T>(step: Step<T>, ok: (value: T) => Wire): Wire {
+async function fromStep<T>(pending: Step<T>, ok: (value: T) => Wire): Promise<Wire> {
+  const step = await settledStep(pending);
   return "fault" in step ? faultWire[step.fault.kind](step.fault) : ok(step.value);
 }
 
@@ -76,7 +77,7 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
     if (init?.signal?.aborted === true) throw new DOMException("aborted", "AbortError");
 
     if (path === "/api/admin/session") {
-      const step = nextStep<ResumedSession>(script, "resume");
+      const step = await settledStep(nextStep<ResumedSession>(script, "resume"));
       if ("fault" in step) return wireResponse(faultWire[step.fault.kind](step.fault));
       const resumed = step.value;
       if (resumed.kind === "authenticated") return wireResponse({ status: 200, body: stringifyJSON({ ...resumed.session, csrfToken: "scripted-csrf" }) });
@@ -95,22 +96,22 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
     if (path === "/api/admin/setup" || path === "/api/admin/auth/login") {
       const operation = path === "/api/admin/setup" ? "setup" : "login";
       const step = nextStep<{ administrator: unknown; expiresAt: string }>(script, operation, { body: String(init?.body) });
-      return wireResponse(fromStep(step, (session) => ({ status: 200, body: stringifyJSON({ ...session, csrfToken: "scripted-csrf" }) })));
+      return wireResponse(await fromStep(step, (session) => ({ status: 200, body: stringifyJSON({ ...session, csrfToken: "scripted-csrf" }) })));
     }
     if (path === "/api/admin/auth/logout") {
-      return wireResponse(fromStep(nextStep<void>(script, "logout", { headers: init?.headers }), () => ({ status: 204 })));
+      return wireResponse(await fromStep(nextStep<void>(script, "logout", { headers: init?.headers }), () => ({ status: 204 })));
     }
     if (path === "/api/admin/collections") {
-      return wireResponse(fromStep(nextStep<ScriptedCatalog>(script, "catalog"), (value) => ({ status: 200, body: catalogBody(value) })));
+      return wireResponse(await fromStep(nextStep<ScriptedCatalog>(script, "catalog"), (value) => ({ status: 200, body: catalogBody(value) })));
     }
     if (path === "/api/admin/collections/plan") {
-      return wireResponse(fromStep(nextStep<ScriptedPlan>(script, "plan", { body: String(init?.body) }), (value) => ({ status: 200, body: planBody(value) })));
+      return wireResponse(await fromStep(nextStep<ScriptedPlan>(script, "plan", { body: String(init?.body) }), (value) => ({ status: 200, body: planBody(value) })));
     }
     if (path === "/api/admin/collections/apply") {
-      return wireResponse(fromStep(nextStep<void>(script, "apply", { body: String(init?.body) }), () => ({ status: 200, body: "{}" })));
+      return wireResponse(await fromStep(nextStep<void>(script, "apply", { body: String(init?.body) }), () => ({ status: 200, body: "{}" })));
     }
     if (path === "/api/admin/system") {
-      return wireResponse(fromStep(nextStep<unknown>(script, "status"), (value) => ({ status: 200, body: stringifyJSON(value) })));
+      return wireResponse(await fromStep(nextStep<unknown>(script, "status"), (value) => ({ status: 200, body: stringifyJSON(value) })));
     }
 
     const records = /^\/api\/v1\/collections\/([^/?]+)\/records(?:\/([^/?]+))?(?:\?(.*))?$/.exec(path);
@@ -121,20 +122,20 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
     if (method === "GET" && id === undefined) {
       const detail: Record<string, unknown> = { collection };
       for (const key of ["cursor", "filter", "sort"]) if (query.get(key)) detail[key] = query.get(key);
-      return wireResponse(fromStep(nextStep<unknown>(script, "list", detail), (value) => ({ status: 200, body: stringifyJSON(value) })));
+      return wireResponse(await fromStep(nextStep<unknown>(script, "list", detail), (value) => ({ status: 200, body: stringifyJSON(value) })));
     }
     if (method === "GET") {
-      return wireResponse(fromStep(nextStep<ScriptedRecord>(script, "read", { collection, id }), (value) => recordWire(value)));
+      return wireResponse(await fromStep(nextStep<ScriptedRecord>(script, "read", { collection, id }), (value) => recordWire(value)));
     }
     if (method === "POST") {
       const step = nextStep<ScriptedRecord>(script, "create", { collection, body: String(init?.body), headers: init?.headers });
-      return wireResponse(fromStep(step, (value) => recordWire(value, 201)));
+      return wireResponse(await fromStep(step, (value) => recordWire(value, 201)));
     }
     if (method === "PATCH") {
       const step = nextStep<ScriptedRecord>(script, "update", { collection, id, body: String(init?.body), headers: init?.headers });
-      return wireResponse(fromStep(step, (value) => recordWire(value)));
+      return wireResponse(await fromStep(step, (value) => recordWire(value)));
     }
-    return wireResponse(fromStep(nextStep<void>(script, "remove", { collection, id, headers: init?.headers }), () => ({ status: 204 })));
+    return wireResponse(await fromStep(nextStep<void>(script, "remove", { collection, id, headers: init?.headers }), () => ({ status: 204 })));
   });
 
   vi.stubGlobal("fetch", fetchMock);

@@ -17,7 +17,7 @@ import {
   type SetupInput,
   type SystemStatus,
 } from "../backend/ports";
-import { nextStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
+import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
 
 type Surface = "session" | "schema" | "record" | "system";
 
@@ -56,8 +56,8 @@ function failure(fault: Fault, surface: Surface): Error {
 export function memoryBackend(script: BackendScript): AdminBackend {
   const expired = new Set<() => void>();
 
-  function take<T>(operation: string, detail: Record<string, unknown>, surface: Surface, anonymous = false): T {
-    const step = nextStep<T>(script, operation as never, detail) as Step<T>;
+  async function take<T>(operation: string, detail: Record<string, unknown>, surface: Surface, anonymous = false): Promise<T> {
+    const step = await settledStep(nextStep<T>(script, operation as never, detail));
     if ("fault" in step) {
       if (step.fault.kind === "unauthorized" && !anonymous) for (const listener of [...expired]) listener();
       throw failure(step.fault, surface);
@@ -65,9 +65,9 @@ export function memoryBackend(script: BackendScript): AdminBackend {
     return step.value;
   }
 
-  function guard<T>(signal: AbortSignal | undefined, produce: () => T): Promise<T> {
-    if (signal?.aborted === true) return Promise.reject(signal.reason ?? new Error("aborted"));
-    try { return Promise.resolve(produce()); } catch (caught: unknown) { return Promise.reject(caught); }
+  async function guard<T>(signal: AbortSignal | undefined, produce: () => Promise<T>): Promise<T> {
+    if (signal?.aborted === true) throw signal.reason ?? new Error("aborted");
+    return produce();
   }
 
   const versioned = (collection: string, id: string, scripted: ScriptedRecord) =>
@@ -79,36 +79,37 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       setup: (input: SetupInput) => guard(undefined, () => take<AuthenticatedSession>("setup", { ...input }, "session", true)),
       login: (input: LoginInput) => guard(undefined, () => take<AuthenticatedSession>("login", { ...input }, "session", true)),
       logout: () => guard(undefined, () => take<void>("logout", {}, "session")),
+
       onExpired: (listener) => {
         expired.add(listener);
         return () => { expired.delete(listener); };
       },
     },
     schema: {
-      catalog: (signal) => guard(signal, () => {
-        const scripted = take<ScriptedCatalog>("catalog", {}, "schema");
+      catalog: (signal) => guard(signal, async () => {
+        const scripted = await take<ScriptedCatalog>("catalog", {}, "schema");
         return new CollectionCatalog(scripted.version, scripted.collections);
       }),
-      plan: (change: CollectionChange, signal) => guard(signal, () => {
-        const scripted = take<ScriptedPlan>("plan", { change }, "schema");
+      plan: (change: CollectionChange, signal) => guard(signal, async () => {
+        const scripted = await take<ScriptedPlan>("plan", { change }, "schema");
         return new PlannedChange(change, scripted.checksum, scripted.baseVersion, scripted.fields, scripted.sql);
       }),
       apply: (plan: PlannedChange) => guard(undefined, () => take<void>("apply", { request: plan.applyRequest() }, "schema")),
     },
     records: {
-      list: (collection: string, options: ListOptions, signal) => guard(signal, () => {
+      list: (collection: string, options: ListOptions, signal) => guard(signal, async () => {
         const detail: Record<string, unknown> = { collection };
         for (const key of ["cursor", "filter", "sort"] as const) if (options[key]) detail[key] = options[key];
         return take<RecordPage>("list", detail, "record");
       }),
       get: (collection: string, id: string, signal) =>
-        guard(signal, () => versioned(collection, id, take<ScriptedRecord>("read", { collection, id }, "record"))),
-      create: (attempt: CreateAttempt, input: RecordData) => guard(undefined, () => {
-        const scripted = take<ScriptedRecord>("create", { collection: attempt.collection, input, key: attempt.keyFor(input) }, "record");
+        guard(signal, async () => versioned(collection, id, await take<ScriptedRecord>("read", { collection, id }, "record"))),
+      create: (attempt: CreateAttempt, input: RecordData) => guard(undefined, async () => {
+        const scripted = await take<ScriptedRecord>("create", { collection: attempt.collection, input, key: attempt.keyFor(input) }, "record");
         return versioned(attempt.collection, String(scripted.data.id ?? ""), scripted);
       }),
-      update: (record: VersionedRecord, patch: RecordData) => guard(undefined, () => {
-        const scripted = take<ScriptedRecord>("update", { collection: record.collection, id: record.id, patch, etag: record.precondition() }, "record");
+      update: (record: VersionedRecord, patch: RecordData) => guard(undefined, async () => {
+        const scripted = await take<ScriptedRecord>("update", { collection: record.collection, id: record.id, patch, etag: record.precondition() }, "record");
         return versioned(record.collection, record.id, scripted);
       }),
       remove: (record: VersionedRecord) =>

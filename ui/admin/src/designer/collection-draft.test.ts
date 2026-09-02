@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { stringifyJSON } from "../backend/json";
-import { buildInput, type DraftField } from "./collection-field-editor";
+import { buildInput, type DraftField } from "./collection-designer";
 
 function field(name: string, type: DraftField["type"], defaultText: string): DraftField {
   return { name, type, required: false, unique: false, indexed: false, hasDefault: true, defaultText };
