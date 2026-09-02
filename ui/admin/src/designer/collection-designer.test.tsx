@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useCollectionDesigner, type CollectionDesigner, type DesignerMode } from "./collection-designer";
 import type { AdminRoute } from "../routing/admin-location";
+import { UnsavedDrafts, draftLedger } from "../routing/unsaved-draft";
 import type { CollectionDefinition, FieldDefinition, OperationReceipt } from "../backend/ports";
 import { callsTo, deferredStep, type BackendScript, type ScriptedApply } from "../test/backend-script";
 import { collection, signedInScript, sessionWrapper, textField } from "../test/harness";
@@ -16,16 +18,20 @@ function relationField(name: string, ordinal: number, targetCollectionId: string
 const posts = collection("posts", "posts-id", [textField("title", 0, { required: true })]);
 const users = collection("users", "users-id");
 
+// The designer holds its draft in the same ledger the shell mounts, so a test
+// that asks whether a draft survived can read the ledger rather than infer it.
 function open(mode: DesignerMode, collections: CollectionDefinition[] = [posts, users], version = 7) {
   const script = signedInScript();
   const navigate = vi.fn<(route: AdminRoute) => void>();
+  const ledger = draftLedger(() => true);
   script.catalog.push({ value: { version, collections } });
-  const wrapper = sessionWrapper(memoryBackend(script), memoryHistory());
+  const Session = sessionWrapper(memoryBackend(script), memoryHistory());
+  const wrapper = ({ children }: { children: ReactNode }) => <Session><UnsavedDrafts ledger={ledger}>{children}</UnsavedDrafts></Session>;
   const view = renderHook(({ current }: { current: DesignerMode }) => useCollectionDesigner(current, navigate), {
     initialProps: { current: mode },
     wrapper,
   });
-  return { script, navigate, ...view };
+  return { script, navigate, ledger, ...view };
 }
 
 async function ready(result: { current: CollectionDesigner }): Promise<void> {
@@ -369,6 +375,75 @@ describe("CollectionDesigner resource isolation", () => {
 
     expect(navigate).not.toHaveBeenCalled();
     expect(result.current.fields.map((field) => field.name)).toEqual(["title"]);
+  });
+});
+
+describe("CollectionDesigner drafting during an apply", () => {
+  it("keeps a draft edited while the apply was in flight instead of leaving as if it were saved", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    await act(async () => { application.settle({ value: undefined }); });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
+    // The newer draft is unsaved work, so the departure guard still holds it and
+    // the page says the sent change applied without claiming this one did.
+    expect(ledger.held()).toBe(true);
+    expect(result.current.error).toBe(
+      "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.",
+    );
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("leaves and releases the draft when the apply lands on the draft that was sent", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    act(() => result.current.editField(0, { set: "name", value: "headline" }));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await act(async () => { application.settle({ value: undefined }); });
+
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
+    expect(ledger.held()).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("reports a created collection without treating the edits that followed as part of it", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "create" }, [posts, users]);
+
+    plan(script, "created", ["CREATE TABLE articles"]);
+    const creation = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(creation.step);
+    act(() => result.current.rename("articles"));
+    act(() => result.current.editField(0, { set: "name", value: "title" }));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    await act(async () => { creation.settle({ value: undefined }); });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
+    expect(ledger.held()).toBe(true);
+    expect(result.current.error).toBe(
+      "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.",
+    );
   });
 });
 
