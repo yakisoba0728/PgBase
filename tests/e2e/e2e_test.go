@@ -61,7 +61,13 @@ func TestMain(m *testing.M) {
 	}
 	suite = configured
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	startupArguments := []string{"up", "-d"}
+	// --wait holds until the pgbase service reports healthy, which is the only
+	// point at which its automatic migration has finished. Tests that start a
+	// second instance run it without PGBASE_AUTO_MIGRATE, so one that reaches
+	// the database first fails closed on "system migrations are not current"
+	// and never becomes ready. Without this the suite passes only in the test
+	// orders where some other test happens to wait first.
+	startupArguments := []string{"up", "-d", "--wait"}
 	if suite.release {
 		if output, pullErr := suite.compose(startupCtx, "pull", "pgbase"); pullErr != nil {
 			startupCancel()
