@@ -1,9 +1,11 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -175,25 +177,36 @@ func (s *Service) SchemaWriterFleet(ctx context.Context) ([]SchemaWriterLease, e
 			if err != nil || !installed {
 				return err
 			}
-			rows, err := tx.Query(ctx, `select instance_id, compiler_version, lease_expires_at
-				from pgbase_meta.schema_writer_leases
-				where lease_expires_at > transaction_timestamp()
-				order by instance_id`)
-			if err != nil {
-				return fmt.Errorf("read schema writer leases: %w", err)
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var lease SchemaWriterLease
-				if err := rows.Scan(&lease.InstanceID, &lease.CompilerVersion, &lease.ExpiresAt); err != nil {
-					return fmt.Errorf("scan schema writer leases: %w", err)
-				}
-				leases = append(leases, lease)
-			}
-			return rows.Err()
+			leases, err = readSchemaWriterLeases(ctx, tx)
+			return err
 		})
 	}, nil)
 	return leases, err
+}
+
+// readSchemaWriterLeases lists the live leases in the instance_id order that
+// PostgreSQL sorts uuid by, which is the order a proof is matched against.
+func readSchemaWriterLeases(ctx context.Context, db database.DBTX) ([]SchemaWriterLease, error) {
+	rows, err := db.Query(ctx, `select instance_id, compiler_version, lease_expires_at
+		from pgbase_meta.schema_writer_leases
+		where lease_expires_at > transaction_timestamp()
+		order by instance_id`)
+	if err != nil {
+		return nil, fmt.Errorf("read schema writer leases: %w", err)
+	}
+	defer rows.Close()
+	var leases []SchemaWriterLease
+	for rows.Next() {
+		var lease SchemaWriterLease
+		if err := rows.Scan(&lease.InstanceID, &lease.CompilerVersion, &lease.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("scan schema writer leases: %w", err)
+		}
+		leases = append(leases, lease)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate schema writer leases: %w", err)
+	}
+	return leases, nil
 }
 
 func companionIndexInstalled(ctx context.Context, db database.DBTX) (bool, error) {
@@ -404,36 +417,24 @@ func lockCompanionCapability(ctx context.Context, tx pgx.Tx) (CompanionIndexStat
 }
 
 // verifySchemaWriterFleet requires the durable leases to be exactly the operator
-// proof and every one of them to be at this compiler version or newer. An empty
-// fleet is refused: activation must observe at least one writer that has proven
-// it understands the companion contract.
+// proof and every one of them to be at this compiler version or newer. Because
+// instance_id is a primary key the live leases are distinct IDs in byte order,
+// so a sorted proof that lines up with them position by position is the same
+// set, and a repeated witness leaves too few distinct values to line up at all.
+// Walking the leases rather than the proof is what makes "every live writer"
+// literal. An empty fleet is refused: it proves nothing.
 func verifySchemaWriterFleet(ctx context.Context, tx pgx.Tx, proof SchemaWriterFleetProof) error {
-	rows, err := tx.Query(ctx, `select instance_id, compiler_version
-		from pgbase_meta.schema_writer_leases
-		where lease_expires_at > transaction_timestamp()
-		order by instance_id`)
+	live, err := readSchemaWriterLeases(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("read schema writer leases: %w", err)
-	}
-	defer rows.Close()
-	live := make(map[uuid.UUID]int16)
-	for rows.Next() {
-		var instanceID uuid.UUID
-		var version int16
-		if err := rows.Scan(&instanceID, &version); err != nil {
-			return fmt.Errorf("scan schema writer leases: %w", err)
-		}
-		live[instanceID] = version
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate schema writer leases: %w", err)
+		return err
 	}
 	if len(live) == 0 || len(live) != len(proof.Instances) {
 		return ErrCompanionIndexFleet
 	}
-	for _, instanceID := range proof.Instances {
-		version, ok := live[instanceID]
-		if !ok || version < schemaCompilerVersion {
+	witnesses := slices.Clone(proof.Instances)
+	slices.SortFunc(witnesses, func(first, second uuid.UUID) int { return bytes.Compare(first[:], second[:]) })
+	for index, lease := range live {
+		if witnesses[index] != lease.InstanceID || lease.CompilerVersion < schemaCompilerVersion {
 			return ErrCompanionIndexFleet
 		}
 	}

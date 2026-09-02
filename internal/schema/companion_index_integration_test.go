@@ -520,6 +520,71 @@ func TestCompanionIndexActivationRequiresAProvenWriterFleet(t *testing.T) {
 	}
 }
 
+func addSchemaWriterLease(t *testing.T, pool *database.Pool, instanceID uuid.UUID, version int16) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.schema_writer_leases
+		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
+		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
+			transaction_timestamp() + interval '90 seconds')`, instanceID, version); err != nil {
+		t.Fatalf("insert schema writer lease: %v", err)
+	}
+}
+
+// The proof is a set, so a repeated witness must not stand in for a live writer
+// the operator never observed. On a mixed-version fleet the proof [new, new] has
+// the right length and every member resolves to the new compiler, which is
+// exactly the shape that used to activate over a live v1 schema writer.
+func TestCompanionIndexActivationRefusesADuplicateWitness(t *testing.T) {
+	ctx := context.Background()
+	pool, service, _, _ := companionRolloutFixture(t)
+	current, err := service.instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := uuid.MustParse("0199c100-0000-7000-8000-000000000003")
+	addSchemaWriterLease(t, pool, older, 1)
+	honest := []uuid.UUID{current, older}
+	if leases, err := service.SchemaWriterFleet(ctx); err != nil || len(leases) != 2 {
+		t.Fatalf("live fleet = %v, %v, want two leases", leases, err)
+	}
+
+	for name, proof := range map[string]SchemaWriterFleetProof{
+		"repeated new witness": {Instances: []uuid.UUID{current, current}},
+		"repeated old witness": {Instances: []uuid.UUID{older, older}},
+		"honest mixed version": {Instances: honest},
+		"missing member":       {Instances: []uuid.UUID{current}},
+		"extra member": {Instances: []uuid.UUID{current, older,
+			uuid.MustParse("0199c100-0000-7000-8000-000000000004")}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := service.ActivateCompanionIndexes(ctx, proof); !errors.Is(err, ErrCompanionIndexFleet) {
+				t.Fatalf("activation error = %v, want ErrCompanionIndexFleet", err)
+			}
+		})
+	}
+
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_writer_leases
+		set compiler_version = 2 where instance_id = $1`, older); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ActivateCompanionIndexes(ctx,
+		SchemaWriterFleetProof{Instances: []uuid.UUID{current, current}}); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("duplicate witness on a uniform fleet error = %v, want ErrCompanionIndexFleet", err)
+	}
+
+	// The same two-writer fleet activates once both leases are on the new
+	// compiler, which is what proves the refusals above are not a broken gate.
+	// The proof is a set, so the operator does not have to order it.
+	receipt, err := service.ActivateCompanionIndexes(ctx,
+		SchemaWriterFleetProof{Instances: []uuid.UUID{honest[1], honest[0]}})
+	if err != nil {
+		t.Fatalf("activation with an honest two-writer proof: %v", err)
+	}
+	if receipt.State != CompanionIndexBuilding || receipt.Generation != 1 {
+		t.Fatalf("activation receipt = %#v", receipt)
+	}
+}
+
 // A downgrade turns the capability off and deliberately keeps the extra objects,
 // so a forward fix does not have to rebuild them.
 func TestCompanionIndexRollbackDisablesTheGateButKeepsTheIndex(t *testing.T) {
