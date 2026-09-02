@@ -554,6 +554,11 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     // The ledger confirmed A, which says nothing about B: B is still unsaved
     // work and still holds the departure guard.
     expect(ledger.held()).toBe(true);
+    // The recovery panel reports the commit, so without this the page would
+    // read as if B had gone with it. It says what the synchronous path says.
+    expect(result.current.error).toBe(
+      "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.",
+    );
   });
 
   it("releases the guard when the ledger commits the draft that is still on screen", async () => {
@@ -575,6 +580,54 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
 
     expect(result.current.fields.map((field) => field.name)).toEqual(["headline"]);
     expect(ledger.held()).toBe(false);
+    // The commit settled this very draft, so the panel alone tells the truth.
+    expect(result.current.error).toBeNull();
+  });
+
+  it("does not tell the administrator to re-apply a draft whose collection the ledger dropped", async () => {
+    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+
+    const deletion = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(deletion.step);
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    await act(async () => { deletion.settle({ value: { status: "unknown" } }); });
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+
+    // The draft is unsaved and keeps the guard, but the collection is gone, so
+    // there is nothing to preview and apply and the page must not say there is.
+    expect(ledger.held()).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("keeps the guard on a draft edited while the delete was in flight", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+
+    const deletion = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(deletion.step);
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    await act(async () => { deletion.settle({ value: undefined }); });
+
+    // The deletion decides the guard the way an apply does, so a draft the
+    // request outran is asked about rather than dropped with the collection.
+    expect(navigate).toHaveBeenCalledWith({ kind: "collections" });
+    expect(ledger.held()).toBe(true);
   });
 });
 

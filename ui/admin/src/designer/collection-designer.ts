@@ -286,12 +286,14 @@ interface State {
   deletePending: boolean;
   deleteError: string | null;
   pristine: string;
-  // The identity of an apply whose outcome the server could not decide, and the
-  // draft it carried. The identity is the only thing left that can still be
-  // asked about, so it outlives the request that failed to answer; the draft is
-  // what says whose work the answer settles when it finally arrives.
+  // The identity of an apply whose outcome the server could not decide, the
+  // draft it carried, and whether it drops the collection instead of changing
+  // it. The identity is the only thing left that can still be asked about, so
+  // it outlives the request that failed to answer; the draft is what says whose
+  // work the answer settles, and a drop settles no draft's work at all.
   undecided: string | null;
   undecidedDraft: string;
+  undecidedDrops: boolean;
 }
 
 function initial(mode: DesignerMode, identity: string): State {
@@ -303,7 +305,7 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields), undecided: null, undecidedDraft: "",
+    pristine: draftSignature(name, fields), undecided: null, undecidedDraft: "", undecidedDrops: false,
   };
 }
 
@@ -450,6 +452,10 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   // after the request went out is work the ledger says nothing about, so a
   // committed answer to the older draft never releases the newer one's guard.
   const applied = recovery !== null && recovery.status === "committed" && state.undecidedDraft === signature;
+  // Reporting the commit alone would leave the newer draft looking saved, since
+  // nothing else on the page contradicts it. The page says what it says on the
+  // synchronous path, so the two never describe this situation differently.
+  const ledgerOutran = recovery !== null && recovery.status === "committed" && !applied && !state.undecidedDrops;
   const savedDraft = useUnsavedDraft(identity, !applied && signature !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
@@ -505,7 +511,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       if (!active()) return;
       // Leaving on an undecided outcome would present it as a success. The
       // administrator stays here until the ledger says which it was.
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature, undecidedDrops: false }); return; }
       // The server agreed with the draft it was sent, so that draft is the saved
       // one, and the collection it answers with replaces the definition an edit
       // page measures its data-loss warning against. A create measures against
@@ -553,8 +559,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
       if (!active()) return;
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature }); return; }
-      savedDraft();
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature, undecidedDrops: true }); return; }
+      if (live.current === signature) savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
       update(identity, deleteFailure(caught));
@@ -578,7 +584,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     destructiveConfirmed: state.confirmed,
     applyBlocked: removedFields.length > 0 && !state.confirmed,
     pending: state.pending,
-    error: state.error,
+    error: state.error ?? (ledgerOutran ? (state.create ? createdText : appliedText) : null),
     deleteTarget,
     deleteConfirmText: state.deleteConfirmText,
     deleteConfirmed: deleteTarget !== null && state.deleteConfirmText === deleteTarget.collection,
