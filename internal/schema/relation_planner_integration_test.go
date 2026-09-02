@@ -20,7 +20,7 @@ func TestRelationPlannerDeferredTriggersHandleInsertAndDeleteLive(t *testing.T) 
 	}
 
 	field := relationPlannerField("tags", "tags", RelationMultiple, false, 3, RelationSetNull)
-	plan, err := (Planner{}).PlanCreateWithCatalog(0, relationPlannerCatalog(), CreateCollectionInput{
+	plan, err := planCreateIn(0, relationPlannerCatalog(), CreateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{field},
 	})

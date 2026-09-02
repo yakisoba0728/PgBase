@@ -163,7 +163,7 @@ func seedQueryCountCatalog(t *testing.T, ctx context.Context, pool *database.Poo
 	for index := 0; index < collections; index++ {
 		name := fmt.Sprintf("query_count_%02d", index)
 		maximum := 5
-		plan, err := (schema.Planner{}).PlanCreateWithCatalog(0, catalog, schema.CreateCollectionInput{
+		plan, err := (schema.Planner{}).Plan(catalog, schema.NewCreateChange(schema.CreateCollectionInput{
 			Name: name,
 			Fields: []schema.FieldInput{
 				{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
@@ -183,7 +183,7 @@ func seedQueryCountCatalog(t *testing.T, ctx context.Context, pool *database.Poo
 					},
 				},
 			},
-		})
+		}))
 		if err != nil {
 			t.Fatalf("plan query-count collection %s: %v", name, err)
 		}

@@ -28,36 +28,25 @@ const (
 func (Planner) Plan(catalog Catalog, change Change) (Plan, error) {
 	switch change.kind {
 	case changeCreate:
-		return (Planner{}).planCreate(catalog.Version, catalog, change.create, true)
+		return planCreate(catalog, change.create)
 	case changeUpdate:
 		current, ok := catalog.Collections[change.update.Name]
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
-		return (Planner{}).planUpdate(catalog.Version, catalog, current, change.update, true)
+		return planUpdate(catalog, current, change.update)
 	case changeDelete:
 		current, ok := catalog.Collections[change.deleteName]
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
-		return (Planner{}).planDelete(catalog.Version, catalog, current, true)
+		return planDelete(catalog, current)
 	default:
 		return Plan{}, ErrConflict
 	}
 }
 
-// PlanCreate validates a collection definition and produces its deterministic DDL plan.
-func (Planner) PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error) {
-	return (Planner{}).planCreate(baseVersion, Catalog{}, input, false)
-}
-
-// PlanCreateWithCatalog resolves relation targets against the same immutable
-// catalog snapshot that the schema service pins for plan/apply verification.
-func (Planner) PlanCreateWithCatalog(baseVersion int64, catalog Catalog, input CreateCollectionInput) (Plan, error) {
-	return (Planner{}).planCreate(baseVersion, catalog, input, true)
-}
-
-func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollectionInput, catalogAware bool) (Plan, error) {
+func planCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -76,7 +65,7 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 			return Plan{}, validation(namePath, "duplicate_name")
 		}
 		seenNames[field.Name] = struct{}{}
-		planned, err := planInputField(catalog, input.Name, uuid.Nil, field, ordinal, true, catalogAware)
+		planned, err := planInputField(catalog, input.Name, uuid.Nil, field, ordinal, true)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -87,7 +76,7 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 	statements := makeCreateStatements(definition)
 	plan := Plan{
 		Operation:   createCollectionOperation,
-		BaseVersion: baseVersion,
+		BaseVersion: catalog.Version,
 		Definition:  definition,
 		Statements:  statements,
 	}
@@ -99,20 +88,9 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 	return plan, nil
 }
 
-// PlanUpdate diffs the desired field list against the current catalog state and
-// produces its deterministic DDL plan. Field renames are not supported: a name
-// that disappears is a drop and a name that appears is an add.
-func (Planner) PlanUpdate(baseVersion int64, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return (Planner{}).planUpdate(baseVersion, Catalog{}, current, input, false)
-}
-
-// PlanUpdateWithCatalog resolves desired and persisted relation targets against
-// a pinned catalog before comparing their semantic and physical bindings.
-func (Planner) PlanUpdateWithCatalog(baseVersion int64, catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return (Planner{}).planUpdate(baseVersion, catalog, current, input, true)
-}
-
-func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection, input UpdateCollectionInput, catalogAware bool) (Plan, error) {
+// Field renames are not supported: a name that disappears is a drop and a name
+// that appears is an add.
+func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -125,7 +103,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 
 	currentFields := make(map[string]PlannedField, len(current.Fields))
 	for _, field := range current.Fields {
-		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
+		planned, err := plannedFieldFromCatalog(catalog, field)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -161,7 +139,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 		if len(carriedDefault) != 0 {
 			field.Default = nil
 		}
-		planned, err := planInputField(catalog, current.Name, current.ID, field, ordinal, false, catalogAware)
+		planned, err := planInputField(catalog, current.Name, current.ID, field, ordinal, false)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -201,7 +179,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 			}
 			statements = append(statements, addColumnStatement(table, field))
 			// A brand-new field has no prior index state, so its flags must
-			// produce the same CREATE (UNIQUE) INDEX that PlanCreate emits.
+			// produce the same CREATE (UNIQUE) INDEX that a create plan emits.
 			statements = append(statements, indexChangeStatements(current.Name, table, PlannedField{}, field)...)
 			continue
 		}
@@ -224,7 +202,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 	definition := PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired}
 	plan := Plan{
 		Operation:   updateCollectionOperation,
-		BaseVersion: baseVersion,
+		BaseVersion: catalog.Version,
 		Definition:  definition,
 		Statements:  statements,
 	}
@@ -247,28 +225,17 @@ func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawM
 	return previous.Default
 }
 
-// PlanDelete produces the deterministic plan that removes a collection and its
-// physical table. Dependent indexes are dropped with the table.
-func (Planner) PlanDelete(baseVersion int64, current Collection) (Plan, error) {
-	return (Planner{}).planDelete(baseVersion, Catalog{}, current, false)
-}
-
-// PlanDeleteWithCatalog prevents physical deletion while another collection
-// still has a relation targeting the requested collection.
-func (Planner) PlanDeleteWithCatalog(baseVersion int64, catalog Catalog, current Collection) (Plan, error) {
-	return (Planner{}).planDelete(baseVersion, catalog, current, true)
-}
-
-func (Planner) planDelete(baseVersion int64, catalog Catalog, current Collection, catalogAware bool) (Plan, error) {
+// Dependent indexes are dropped with the table.
+func planDelete(catalog Catalog, current Collection) (Plan, error) {
 	if current.Name == "" || current.TableName != current.Name {
 		return Plan{}, ErrConflict
 	}
-	if catalogAware && collectionHasIncomingRelation(catalog, current.ID) {
+	if collectionHasIncomingRelation(catalog, current.ID) {
 		return Plan{}, validation("name", "collection_referenced")
 	}
 	fields := make([]PlannedField, 0, len(current.Fields))
 	for _, field := range current.Fields {
-		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
+		planned, err := plannedFieldFromCatalog(catalog, field)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -284,7 +251,7 @@ func (Planner) planDelete(baseVersion int64, catalog Catalog, current Collection
 	statements = append(statements, "DROP TABLE "+pgx.Identifier{"app", current.TableName}.Sanitize())
 	plan := Plan{
 		Operation:   deleteCollectionOperation,
-		BaseVersion: baseVersion,
+		BaseVersion: catalog.Version,
 		Definition:  PlannedCollection{Name: current.Name, TableName: current.TableName, Fields: fields},
 		Statements:  statements,
 	}
@@ -296,7 +263,7 @@ func (Planner) planDelete(baseVersion int64, catalog Catalog, current Collection
 	return plan, nil
 }
 
-func plannedFieldFromCatalog(catalog Catalog, field Field, catalogAware bool) (PlannedField, error) {
+func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error) {
 	planned := PlannedField{
 		Name:     field.Name,
 		Type:     field.Type,
@@ -312,7 +279,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field, catalogAware bool) (P
 		}
 		return planned, nil
 	}
-	if field.Relation == nil || !catalogAware {
+	if field.Relation == nil {
 		return PlannedField{}, ErrConflict
 	}
 	targetName, ok := collectionNameByID(catalog, field.Relation.TargetCollectionID)
@@ -331,7 +298,6 @@ func planInputField(
 	field FieldInput,
 	ordinal int,
 	creating bool,
-	catalogAware bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
 	if !isSupportedType(field.Type) {
@@ -351,7 +317,7 @@ func planInputField(
 			case !creating && targetName == sourceCollection && sourceCollectionID != uuid.Nil:
 				target := sourceCollectionID
 				targetCollectionID = &target
-			case catalogAware:
+			default:
 				if target, ok := catalog.Collections[targetName]; ok {
 					targetID := target.ID
 					targetCollectionID = &targetID
@@ -410,22 +376,11 @@ func collectionNameByID(catalog Catalog, collectionID uuid.UUID) (string, bool) 
 }
 
 func collectionHasIncomingRelation(catalog Catalog, targetCollectionID uuid.UUID) bool {
+	// validateCatalogIntegrity refuses to compile a catalog whose incoming index
+	// disagrees with its collections, so the index alone is authoritative here.
 	for _, relation := range catalog.Incoming[targetCollectionID] {
 		if relation.SourceCollectionID != targetCollectionID {
 			return true
-		}
-	}
-	// Catalogs constructed by unit tests or older adapters may not have the
-	// derived incoming map yet. Scanning the immutable field specs preserves the
-	// guard without trusting a stale cache.
-	for _, collection := range catalog.Collections {
-		if collection.ID == targetCollectionID {
-			continue
-		}
-		for _, field := range collection.Fields {
-			if field.Relation != nil && field.Relation.TargetCollectionID == targetCollectionID {
-				return true
-			}
 		}
 	}
 	return false
