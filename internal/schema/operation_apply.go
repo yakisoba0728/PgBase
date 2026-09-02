@@ -344,7 +344,7 @@ func companionCapabilityReady(ctx context.Context, db database.DBTX) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	return status.Ready() && status.ProvenCompilerVersion >= schemaCompilerVersion, nil
+	return schemaCompilerVersion >= 3 && status.Ready() && status.ProvenCompilerVersion >= schemaCompilerVersion, nil
 }
 
 // companionGapAfterChange reports whether the committed manifest names a companion the

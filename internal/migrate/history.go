@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
@@ -140,26 +141,17 @@ type historyCompatibilityPolicy struct {
 	optionalVersion int64
 }
 
-// schemaCompanionIndexPreparationPolicy is deliberately tied to the one declared
-// P0 migration boundary. A later embedded migration must choose and test its
-// own compatibility range instead of silently widening startup acceptance.
-// Returning nil here would not widen acceptance but narrow it to the exact
-// latest history, which would leave this artifact unable to serve the
-// pre-migration fleet it is supposed to prepare.
-//
-// R11 is that later migration, and it chose the narrow range by leaving this
-// guard to fail its length check: migration 9 adds a column every capability read
-// names, so this binary cannot serve a v8 database at all and a two-history window
-// would be a claim the startup gate exists to refuse. The other direction needs no
-// window either: version 9 is absent from a pre-R11 manifest, so that binary reads
-// the history as carrying an unknown version and refuses to start here.
-func schemaCompanionIndexPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
-	if len(migrations) != 8 ||
-		migrations[6].Version != 7 || migrations[6].Name != "record_membership" ||
-		migrations[7].Version != 8 || migrations[7].Name != "schema_companion_indexes" {
+// schemaCompilerGenerationPreparationPolicy is pinned to migration 9's P0
+// boundary. The preparatory artifact is the only binary allowed to serve both
+// sides of that boundary; a later feature artifact replaces this declaration
+// with an exact-latest policy instead of silently widening it.
+func schemaCompilerGenerationPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
+	if releasephase.SchemaCompilerGeneration != 2 || len(migrations) != 9 ||
+		migrations[7].Version != 8 || migrations[7].Name != "schema_companion_indexes" ||
+		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" {
 		return nil
 	}
-	return &historyCompatibilityPolicy{requiredVersion: 7, optionalVersion: 8}
+	return &historyCompatibilityPolicy{requiredVersion: 8, optionalVersion: 9}
 }
 
 func requiredHistoryPolicy(migrations []system.Migration) historyCompatibilityPolicy {

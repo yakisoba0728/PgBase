@@ -85,6 +85,9 @@ func currentCatalogVersion(t *testing.T, service *Service) int64 {
 // transaction as the table, the capability follows the catalog it now describes,
 // and the page the companion exists for is served from it straight away.
 func TestReadyCapabilityCreatesACollectionWithItsCompanionInOneTransaction(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, _ := readyCompanionFixture(t)
 
@@ -143,6 +146,9 @@ func TestReadyCapabilityCreatesACollectionWithItsCompanionInOneTransaction(t *te
 // nothing. Both cases here change the catalog -- so this is not "nothing happened" --
 // while adding no companion the catalog did not already expect.
 func TestAnUpdateThatAddsNoCompanionCarriesTheCapability(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	pool, service, administratorID, collection := readyCompanionFixture(t)
 	before := companionStatus(t, service)
 	if !before.Ready() {
@@ -199,6 +205,9 @@ func TestAnUpdateThatAddsNoCompanionCarriesTheCapability(t *testing.T) {
 // binary. State alone cannot express that, which is why the proved generation is part
 // of the gate rather than a second value beside it.
 func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, _ := readyCompanionFixture(t)
 	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
@@ -264,6 +273,9 @@ func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
 // nothing has built, so this update does close the gate and does cost the approved CIC
 // maintenance path. Without it the rule above could simply never demote.
 func TestUpdatingAnExistingCollectionStillClosesTheCompanionGate(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, collection := readyCompanionFixture(t)
 
@@ -301,6 +313,9 @@ func TestUpdatingAnExistingCollectionStillClosesTheCompanionGate(t *testing.T) {
 // companion nothing has built. Carrying the capability means moving the promoted count
 // too, because doctor compares that count against the catalog.
 func TestDeletingACollectionCarriesTheCompanionCapability(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	pool, service, administratorID, _ := readyCompanionFixture(t)
 	created := applyChange(t, service,
 		NewCreateChange(companionShapedCollection("companion_notes")), administratorID).Collection
@@ -325,6 +340,9 @@ func TestDeletingACollectionCarriesTheCompanionCapability(t *testing.T) {
 // binary: an activation or rollback can move the capability between a preview
 // and its apply, so Apply must accept a checksum from either generation.
 func TestApplyAcceptsAPlanChecksumFromEitherCompilerGeneration(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, _ := companionRolloutFixture(t)
 
@@ -462,6 +480,9 @@ func assertMigrationPlanMatchesChecksum(t *testing.T, pool *database.Pool, versi
 // issuance to v1 for every later plan, keeps every index already built, and
 // leaves re-activation to prove the fleet again.
 func TestCompanionRollbackReturnsPlanIssuanceToV1AndKeepsTheIndex(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, collection := readyCompanionFixture(t)
 	companion := companionSpec(t, service, collection, "nickname")

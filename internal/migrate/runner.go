@@ -45,7 +45,7 @@ func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observab
 		pool:          pool,
 		logger:        logger,
 		migrations:    system.Migrations(),
-		compatibility: schemaCompanionIndexPreparationPolicy(system.Migrations()),
+		compatibility: schemaCompilerGenerationPreparationPolicy(system.Migrations()),
 		recorder:      recorder,
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -67,7 +68,7 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	// the activate below is what fails loudly if it ever drifts again. R11 moved it from
 	// 2 to 3 because the pre-companion binaries also declared 2.
 	instanceID := "0199c300-0000-7000-8000-000000000001"
-	const writerGeneration = 3
+	const writerGeneration = releasephase.SchemaCompilerGeneration
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.schema_writer_leases
 		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
 		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
@@ -79,6 +80,18 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	if len(witnessed.Writers) != 1 || witnessed.Writers[0].InstanceID != instanceID ||
 		witnessed.Writers[0].CompilerVersion != writerGeneration {
 		t.Fatalf("status did not report the live writer: %#v", witnessed)
+	}
+	if releasephase.SchemaCompilerGeneration == 2 {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Execute(ctx, []string{"schema-index", "activate", "--witness", instanceID},
+			migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 1 {
+			t.Fatalf("P0 activation exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		if got := readSchemaIndexStatus(t, databaseURL); got.State != "pending" {
+			t.Fatalf("P0 activation moved the capability: %#v", got)
+		}
+		return
 	}
 
 	stdout.Reset()

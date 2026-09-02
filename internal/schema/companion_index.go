@@ -11,17 +11,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 )
 
-// schemaCompilerVersion is the plan compiler generation this binary would issue.
-// It is durable state in pgbase_meta.schema_writer_leases, so an activation can
-// prove no live schema writer predates the companion contract instead of
-// trusting an operational drain.
-//
-// It is 3, not 2: the v1-only binaries already declared 2 (see d3fb5eb), as did the one
-// issuing v2, so a lease at 2 named neither and the fleet check could not tell a mixed
-// fleet from a converged one. Migration 9 demotes every capability proved under it.
-const schemaCompilerVersion int16 = 3
+// schemaCompilerVersion is the durable generation this binary records.
+// This P0 artifact stays at generation 2 and issues v1 only. Migration 9 demotes
+// the old proof before the final generation-3 artifact can activate companions.
+const schemaCompilerVersion int16 = releasephase.SchemaCompilerGeneration
 
 // companionIndexAdvisoryKey serializes concurrent index maintenance. It is a
 // session lock rather than a transaction lock because CREATE INDEX CONCURRENTLY
@@ -44,9 +40,8 @@ const (
 )
 
 var (
-	// ErrCompanionIndexUnavailable reports that migration 8 is not applied, which
-	// is the normal state of a preparatory artifact running on clean v7.
-	ErrCompanionIndexUnavailable = errors.New("schema companion index capability is not installed")
+	// ErrCompanionIndexUnavailable reports an uninstalled or artifact-disabled capability.
+	ErrCompanionIndexUnavailable = errors.New("schema companion index capability is unavailable")
 	// ErrCompanionIndexState reports a transition the rollout does not allow.
 	ErrCompanionIndexState = errors.New("invalid schema companion index capability state")
 	// ErrCompanionIndexFleet reports a live schema writer that predates the
@@ -327,6 +322,9 @@ func demoteCompanionIndexCapability(ctx context.Context, tx pgx.Tx) error {
 func (s *Service) ActivateCompanionIndexes(ctx context.Context, proof SchemaWriterFleetProof) (CompanionIndexReceipt, error) {
 	if err := s.ready(); err != nil {
 		return CompanionIndexReceipt{}, err
+	}
+	if schemaCompilerVersion < 3 {
+		return CompanionIndexReceipt{}, ErrCompanionIndexUnavailable
 	}
 	var receipt CompanionIndexReceipt
 	err := database.Retry(ctx, func() error {

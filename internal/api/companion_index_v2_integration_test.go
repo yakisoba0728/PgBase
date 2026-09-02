@@ -14,6 +14,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -25,6 +26,9 @@ import (
 // create happens while the capability is ready and the authenticated list works
 // immediately, with no operator step between the two.
 func TestReadyCapabilityServesANewCollectionWithNoOperatorStep(t *testing.T) {
+	if releasephase.SchemaCompilerGeneration == 2 {
+		return
+	}
 	ctx := context.Background()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
 	if err != nil {

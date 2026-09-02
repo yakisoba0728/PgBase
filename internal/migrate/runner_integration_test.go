@@ -17,6 +17,7 @@ import (
 
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
@@ -313,10 +314,9 @@ func TestUpThroughClassifiesUnknownVersionAndGapWithoutApplyingTarget(t *testing
 			if statusErr != nil {
 				t.Fatal(statusErr)
 			}
-			// Compatible is false because R11 declares exactly the latest history;
-			// what this case is about is Current staying at previous, which is what
-			// says the target migration did not run.
-			if status != (Status{Current: previous.Version, Latest: target.Version}) {
+			want := Status{Current: previous.Version, Latest: target.Version,
+				Compatible: releasephase.SchemaCompilerGeneration == 2}
+			if status != want {
 				t.Fatalf("Status after history repair = %#v, target migration was not expected to run", status)
 			}
 		})
@@ -567,11 +567,10 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-// The P0 window v8 opened is closed, not widened. Migration 9 adds a column every
-// companion capability read names, so a v8 database is unservable by this binary and
-// the declared range is the exact latest history. This is the test that fails if a
-// later artifact re-opens a two-history window without choosing one deliberately.
-func TestNewRunnerAcceptsOnlyTheExactSchemaCompilerGenerationHistory(t *testing.T) {
+// The schema-compiler-generation P0 artifact is the deploy rollback target on
+// either side of migration 9. It recognizes only the two checksum-pinned
+// histories it was built to bridge; every other history remains fail-closed.
+func TestSchemaCompilerGenerationArtifactDeclaresItsV8V9Boundary(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -595,8 +594,9 @@ func TestNewRunnerAcceptsOnlyTheExactSchemaCompilerGenerationHistory(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 8, Latest: 9}) {
-		t.Fatalf("pre-migration status = %#v, want v8 reported incompatible", status)
+	want := Status{Current: 8, Latest: 9, Compatible: true}
+	if status != want {
+		t.Fatalf("pre-migration status = %#v, want %#v", status, want)
 	}
 
 	if _, err := runner.UpThrough(context.Background(), 9); err != nil {

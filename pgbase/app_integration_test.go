@@ -200,10 +200,10 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	}
 }
 
-func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
+func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T) {
 	migrations := system.Migrations()
 	if len(migrations) != 9 || migrations[8].Version != 9 {
-		t.Fatalf("record-membership release-B manifest = %#v", migrations)
+		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name        string
@@ -217,11 +217,8 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 		{name: "v5 rejected without auto-upgrade", through: 5, autoMigrate: true},
 		{name: "v6 rejected", through: 6},
 		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
-		// R11 declares exactly one history. Migration 9 adds a column every
-		// companion capability read names, so this artifact cannot serve v8: the
-		// two-history window v8 opened is closed rather than widened.
 		{name: "v7 rejected", through: 7},
-		{name: "v8 rejected", through: 8},
+		{name: "v8 accepted", through: 8, wantAccept: true},
 		{name: "v9 accepted", through: 9, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v8 rejected", through: 8, dirty: true},
@@ -270,7 +267,7 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 			})
 			if testCase.wantAccept {
 				if err != nil {
-					t.Fatalf("New rejected Release-B history: %v", err)
+					t.Fatalf("New rejected schema-compiler-generation P0 history: %v", err)
 				}
 				status, statusErr := migrate.New(app.pool, slog.New(slog.NewJSONHandler(io.Discard, nil))).Status(context.Background())
 				if statusErr != nil {
@@ -279,7 +276,7 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 				}
 				if status.Current != int64(testCase.through) || !status.Compatible {
 					_ = app.Close(context.Background())
-					t.Fatalf("startup changed accepted Release-B history: %#v", status)
+					t.Fatalf("startup changed accepted P0 history: %#v", status)
 				}
 				var membershipTable *string
 				if queryErr := app.pool.QueryRow(context.Background(),
@@ -344,7 +341,7 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 			}
 			if err == nil {
 				_ = app.Close(context.Background())
-				t.Fatal("New accepted history outside the exact v7 Release-A boundary")
+				t.Fatal("New accepted history outside the exact v8/v9 P0 boundary")
 			}
 			if testCase.autoMigrate {
 				pool, openErr := database.Open(context.Background(), databaseURL, time.Second)
@@ -357,7 +354,7 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 					t.Fatal(statusErr)
 				}
 				if status.Current != int64(testCase.through) {
-					t.Fatalf("rejected Release-A auto-migration changed history: %#v", status)
+					t.Fatalf("rejected P0 auto-migration changed history: %#v", status)
 				}
 			}
 		})

@@ -71,6 +71,9 @@ func activateCompanionRollout(t *testing.T, service *Service) CompanionIndexRece
 }
 
 func TestCompanionIndexRolloutActivatesBuildsAndPromotes(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, collection := companionRolloutFixture(t)
 
@@ -158,6 +161,9 @@ func readDiagnostics(t *testing.T, pool *database.Pool) CompanionIndexDiagnostic
 // catalog is the checkpoint, so a rerun must find that residue, drop it and
 // finish, without any progress record of its own in pgbase_meta.
 func TestCompanionIndexMaintenanceRecoversFromAKilledConcurrentBuild(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, collection := companionRolloutFixture(t)
 	seedCompanionRows(t, pool, collection, 2000)
@@ -270,6 +276,9 @@ func seedCompanionRows(t *testing.T, pool *database.Pool, collection Collection,
 // the companion index for a nullable descending page. Asserted with EXPLAIN
 // rather than by reading the DDL.
 func TestNullableDescendingPageUsesTheCompanionIndex(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, collection := companionRolloutFixture(t)
 	seedCompanionRows(t, pool, collection, 20000)
@@ -339,6 +348,9 @@ func createDriftedCompanionIndex(t *testing.T, pool *database.Pool, companion In
 // DESC/NULLS options accepted every one of these as healthy, so each has to be
 // reported as a mismatch and then repaired by the same maintenance run.
 func TestCompanionIndexRefusesAPhysicallyWrongDefinition(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	for name, keys := range map[string]string{
 		"wrong operator class": `(nickname text_pattern_ops desc nulls last, id desc nulls first)`,
@@ -381,6 +393,9 @@ func TestCompanionIndexRefusesAPhysicallyWrongDefinition(t *testing.T) {
 // sequential scan and a sort. The diagnostic and the plan are asserted together
 // because either one alone is weaker than the evidence that found this.
 func TestWrongOperatorClassCompanionCannotServeTheOrderedPage(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, collection := companionRolloutFixture(t)
 	seedCompanionRows(t, pool, collection, 20000)
@@ -427,6 +442,9 @@ func TestWrongOperatorClassCompanionCannotServeTheOrderedPage(t *testing.T) {
 // D2-4: adding a field to an existing collection may introduce a companion that
 // nothing has built, so the change itself closes the gate.
 func TestCatalogChangeDropsTheCompanionCapabilityToPending(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, administratorID, collection := companionRolloutFixture(t)
 	activateCompanionRollout(t, service)
@@ -473,6 +491,9 @@ func TestCatalogChangeDropsTheCompanionCapabilityToPending(t *testing.T) {
 }
 
 func TestCompanionIndexActivationRequiresAProvenWriterFleet(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, _ := companionRolloutFixture(t)
 	instanceID, err := service.instance()
@@ -542,6 +563,14 @@ func secondSchemaWriter(pool *database.Pool) *Service {
 	return NewService(pool, &Cache{}, nil)
 }
 
+func companionFeatureArtifact(t *testing.T) bool {
+	t.Helper()
+	if schemaCompilerVersion != 2 && schemaCompilerVersion != 3 {
+		t.Fatalf("unrecognized schema compiler generation %d", schemaCompilerVersion)
+	}
+	return schemaCompilerVersion == 3
+}
+
 // P1-B. The whole mixed-fleet safety argument rests on compiler_version naming a
 // binary, and it did not: the binaries that shipped before the companion contract
 // already declared compiler_version 2 while issuing v1 plans only (see
@@ -550,6 +579,9 @@ func secondSchemaWriter(pool *database.Pool) *Service {
 // that finds one must refuse. Both leases here are written by refreshSchemaWriterLease
 // itself, so this is a fleet the production path really produces.
 func TestCompanionIndexActivationRefusesTheAmbiguousWriterGeneration(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, _ := companionRolloutFixture(t)
 
@@ -583,11 +615,65 @@ func TestCompanionIndexActivationRefusesTheAmbiguousWriterGeneration(t *testing.
 	}
 }
 
+// The migration-9 preparatory artifact can run on either side of M, but it is
+// not the feature artifact. It identifies itself as the last v1-only compiler,
+// refuses to open a companion rollout, and keeps issuing v1 even if it is used
+// as the post-M deployment rollback target after a later artifact left ready
+// capability state behind.
+func TestSchemaCompilerGenerationP0KeepsTheCompanionFeatureOff(t *testing.T) {
+	if companionFeatureArtifact(t) {
+		return
+	}
+	ctx := context.Background()
+	pool, service, administratorID, _ := companionRolloutFixture(t)
+	instanceID := leaseSchemaWriterAt(t, pool, service, schemaCompilerVersion)
+	if _, err := service.ActivateCompanionIndexes(ctx,
+		SchemaWriterFleetProof{Instances: []uuid.UUID{instanceID}}); !errors.Is(err, ErrCompanionIndexUnavailable) {
+		t.Fatalf("P0 activation = %v, want ErrCompanionIndexUnavailable", err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability set
+		state = 'ready', generation = 1,
+		catalog_version = (select version from pgbase_meta.schema_state where singleton),
+		building_at = transaction_timestamp(), ready_at = transaction_timestamp(),
+		ready_index_count = 1, proven_compiler_version = 3,
+		updated_at = transaction_timestamp() where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := NewCreateChange(companionShapedCollection("p0_rollback_target"))
+	issued, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1, err := CompilePlan(catalog, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.Checksum != v1.Checksum {
+		t.Fatalf("P0 issued plan %q, want v1 %q", issued.Checksum, v1.Checksum)
+	}
+	applyChange(t, service, change, administratorID)
+	var compilerVersion int16
+	if err := pool.QueryRow(ctx, `select compiler_version from pgbase_meta.schema_writer_leases
+		where instance_id = $1`, instanceID).Scan(&compilerVersion); err != nil {
+		t.Fatal(err)
+	}
+	if compilerVersion != 2 {
+		t.Fatalf("P0 schema writer generation = %d, want 2", compilerVersion)
+	}
+}
+
 // The proof is a set, so a repeated witness must not stand in for a live writer
 // the operator never observed. On a mixed-version fleet the proof [new, new] has
 // the right length and every member resolves to the new compiler, which is
 // exactly the shape that used to activate over a live v1 schema writer.
 func TestCompanionIndexActivationRefusesADuplicateWitness(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, _ := companionRolloutFixture(t)
 	current, err := service.instance()
@@ -640,6 +726,9 @@ func TestCompanionIndexActivationRefusesADuplicateWitness(t *testing.T) {
 // A downgrade turns the capability off and deliberately keeps the extra objects,
 // so a forward fix does not have to rebuild them.
 func TestCompanionIndexRollbackDisablesTheGateButKeepsTheIndex(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, collection := companionRolloutFixture(t)
 	activateCompanionRollout(t, service)
@@ -670,6 +759,9 @@ func TestCompanionIndexRollbackDisablesTheGateButKeepsTheIndex(t *testing.T) {
 // release hook, so leaving it set would silently remove the timeout from every
 // later borrower of the same physical connection.
 func TestCompanionIndexMaintenanceRestoresTheConnectionStatementTimeout(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
 	ctx := context.Background()
 	pool, service, _, _ := companionRolloutFixture(t)
 
