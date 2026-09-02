@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -416,12 +417,47 @@ func openRolloutWriter(
 	t *testing.T, databaseURL string, version membership.WriterVersion,
 ) (*membership.Runtime, error) {
 	t.Helper()
-	pool, err := database.Open(context.Background(), databaseURL+"&pool_max_conns=2", 0)
+	databaseURL, err := rolloutWriterDatabaseURL(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := database.Open(context.Background(), databaseURL, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
 	return membership.RegisterWriter(context.Background(), membership.New(pool), version)
+}
+
+func rolloutWriterDatabaseURL(databaseURL string) (string, error) {
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", err
+	}
+	query := parsed.Query()
+	query.Set("pool_max_conns", "2")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func TestRolloutWriterDatabaseURLAddsPoolLimit(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{
+		"postgres://postgres:postgres@localhost/postgres",
+		"postgres://postgres:postgres@localhost/postgres?sslmode=disable",
+	} {
+		got, err := rolloutWriterDatabaseURL(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := url.Parse(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Path != "/postgres" || parsed.Query().Get("pool_max_conns") != "2" {
+			t.Fatalf("rollout writer URL = %q", got)
+		}
+	}
 }
 
 func requireRolloutWriter(
