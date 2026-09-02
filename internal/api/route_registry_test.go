@@ -22,9 +22,9 @@ func registeredPatterns(routes []route) []string {
 func declaredTestRoutes(t *testing.T) []route {
 	t.Helper()
 	return declareRoutes(completeDependencies(Dependencies{
-		Metrics:      nil,
-		MetricsToken: nil,
-		AdminUI:      http.NewServeMux(),
+		Metrics:           nil,
+		MetricsExposition: nil,
+		AdminUI:           http.NewServeMux(),
 	}), false)
 }
 

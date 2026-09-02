@@ -132,7 +132,8 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := mustRouter(t, Dependencies{Metrics: tt.metrics, MetricsToken: tt.metricsToken})
+			handler := mustRouter(t, Dependencies{Metrics: tt.metrics,
+				MetricsExposition: metricsExposition(tt.metrics, tt.metricsToken)})
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 			if response.Code != http.StatusNotFound {
@@ -153,7 +154,8 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 
 func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := mustRouter(t, Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken)})
 	tests := []struct {
 		name           string
 		authorizations []string
@@ -187,7 +189,8 @@ func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) 
 
 func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := mustRouter(t, Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken)})
 	const (
 		collectionSentinel = "raw_collection_sentinel"
 		idSentinel         = "raw_id_sentinel"
@@ -215,8 +218,8 @@ func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 func TestHTTPMetricsObserveRecoveredPanicAndBalanceInFlight(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
 	handler := mustRouter(t, Dependencies{
-		Metrics:      metrics,
-		MetricsToken: testMetricsToken,
+		Metrics:           metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken),
 		AdminUI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte("partial-sensitive-response"))
@@ -254,4 +257,14 @@ func scrapeMetrics(t *testing.T, handler http.Handler) string {
 		t.Fatalf("metrics status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
 	return response.Body.String()
+}
+
+// metricsExposition mirrors what composition does: build the authenticated
+// exposition handler outside the router so the bearer secret never becomes a
+// router dependency.
+func metricsExposition(metrics *observability.Metrics, token []byte) http.Handler {
+	if metrics == nil || len(token) == 0 {
+		return nil
+	}
+	return metrics.Handler(token)
 }

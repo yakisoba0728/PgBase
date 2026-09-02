@@ -24,7 +24,11 @@ type Dependencies struct {
 	System             SystemStatusProvider
 	AdminUI            http.Handler
 	Metrics            *observability.Metrics
-	MetricsToken       []byte
+	// MetricsExposition is the already-authenticated exposition handler. The
+	// caller builds it so the bearer secret never becomes a router
+	// dependency; the metrics module hashes it on construction and keeps only
+	// the hash.
+	MetricsExposition http.Handler
 }
 
 // declareRoutes is the single authoritative description of the HTTP surface.
@@ -83,7 +87,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		// the one route that must not be buffered by the router.
 		routes = append(routes, route{method: "GET", pattern: "/metrics", access: accessMetricsToken,
 			response: passthrough(), deadline: deadlineDefault,
-			handler: dependencies.Metrics.Handler(dependencies.MetricsToken)})
+			handler: dependencies.MetricsExposition})
 	}
 	if dependencies.AdminUI != nil {
 		// The embedded UI serves prebuilt assets of its own sizes and sets its
@@ -105,7 +109,7 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	if err := dependencies.requiredModules(); err != nil {
 		return nil, err
 	}
-	metricsEnabled := dependencies.Metrics != nil && len(dependencies.MetricsToken) > 0
+	metricsEnabled := dependencies.Metrics != nil && dependencies.MetricsExposition != nil
 	if !metricsEnabled {
 		dependencies.Metrics = nil
 	}

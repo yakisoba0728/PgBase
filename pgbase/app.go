@@ -211,8 +211,12 @@ func newWithCatalogPreflight(
 	}()
 
 	var metrics *observability.Metrics
+	var metricsExposition http.Handler
 	if len(normalized.MetricsToken) > 0 {
 		metrics = observability.NewMetrics(pool.Stats)
+		// Built here so the bearer secret stops at composition. The metrics
+		// module hashes it immediately and keeps only the hash.
+		metricsExposition = metrics.Handler(normalized.MetricsToken)
 	}
 	runner := migrate.NewWithRecorder(pool, normalized.Logger, metrics)
 	schemaCache := &schema.Cache{}
@@ -300,7 +304,7 @@ func newWithCatalogPreflight(
 		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
 		AdminUI:            adminHandler,
 		Metrics:            metrics,
-		MetricsToken:       normalized.MetricsToken,
+		MetricsExposition:  metricsExposition,
 	})
 	if err != nil {
 		return nil, err
