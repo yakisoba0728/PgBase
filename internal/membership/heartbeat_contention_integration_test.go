@@ -259,3 +259,51 @@ func leaseHeartbeat(
 		from pgbase_meta.runtime_writer_leases where instance_id = $1`, instanceID).Scan(&heartbeatAt)
 	return heartbeatAt, err
 }
+
+// The tolerance is a promise about wall-clock time, so a single blocked attempt
+// must not be able to outlive it. Options.StatementTimeout is operator-set with
+// no upper bound, and the window is only re-examined after an attempt returns:
+// an unbounded attempt would report contention after the lease had expired.
+func TestHeartbeatAttemptCannotOutliveTheLeaseTolerance(t *testing.T) {
+	fixture := newBootstrapFixture(t)
+	// A statement timeout far longer than the tolerance is the whole point:
+	// with the attempt unbounded, the loop is pinned to this number instead.
+	pool, err := database.Open(fixture.ctx, fixture.databaseURL, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	runtime, err := RegisterWriter(fixture.ctx, New(pool), WriterC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.heartbeatInterval = 100 * time.Millisecond
+	runtime.leaseTolerance = time.Second
+
+	ctx, cancel := context.WithCancel(fixture.ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	if err := waitForRenewal(fixture, pool, runtime.instanceID); err != nil {
+		t.Fatalf("running membership writer never renewed its lease: %v", err)
+	}
+
+	release := lockCapabilityExclusively(t, fixture)
+	defer release()
+	blocked := time.Now()
+	select {
+	case runErr := <-done:
+		if runErr == nil {
+			t.Fatal("membership writer reported a clean stop after its lease tolerance ran out")
+		}
+		// One interval of slack past the window: the attempt that overruns it
+		// is the one being bounded, not the tick that started it.
+		if waited := time.Since(blocked); waited > runtime.leaseTolerance+2*time.Second {
+			t.Fatalf("membership writer stopped %s after renewal blocked, tolerance %s",
+				waited, runtime.leaseTolerance)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatalf("membership writer was still inside one renewal attempt %s after its %s tolerance ran out",
+			time.Since(blocked), runtime.leaseTolerance)
+	}
+}
