@@ -108,7 +108,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed administrator: %v", err)
 	}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	input := schema.CreateCollectionInput{Name: "records"}
 	plan, err := schemas.PlanCreate(context.Background(), input)
 	if err != nil {

@@ -55,7 +55,7 @@ func (s *Service) preflightLegacyApply(ctx context.Context, intent ApplyIntent) 
 	if catalog.Version != intent.baseVersion {
 		return ErrConflict
 	}
-	plan, err := s.planner.Plan(catalog, intent.change)
+	plan, err := CompilePlan(catalog, intent.change)
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,7 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
 	}
 	catalog := currentCatalog.catalog
-	plan, err := s.planner.Plan(catalog, intent.change)
+	plan, err := CompilePlan(catalog, intent.change)
 	if err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}

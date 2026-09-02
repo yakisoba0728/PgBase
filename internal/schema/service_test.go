@@ -255,7 +255,7 @@ type schemaCounts struct {
 	migrations  int64
 }
 
-func newSchemaServiceTest(t *testing.T, planner Planner) (*database.Pool, *Service, uuid.UUID) {
+func newSchemaServiceTest(t *testing.T) (*database.Pool, *Service, uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
@@ -271,7 +271,7 @@ func newSchemaServiceTest(t *testing.T, planner Planner) (*database.Pool, *Servi
 		values ($1, 'schema-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
 		t.Fatalf("insert administrator: %v", err)
 	}
-	return pool, NewService(pool, &Cache{}, planner, nil), administratorID
+	return pool, NewService(pool, &Cache{}, nil), administratorID
 }
 
 func applyFreshPlan(t *testing.T, service *Service, input CreateCollectionInput, administratorID uuid.UUID) Collection {

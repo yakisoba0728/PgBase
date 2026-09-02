@@ -17,21 +17,21 @@ var (
 	relationPlannerTagsID  = uuid.MustParse("019b0000-0000-7000-8000-000000000003")
 )
 
-// Planner.Plan is the only planning entry point; these drive it from the
+// CompilePlan is the only planning entry point; these drive it from the
 // (version, catalog, collection) shape the fixtures below already build. The
 // incoming index is carried through unchanged so a test can pin the guard
 // against an index the collections alone would not produce.
 func planCreateIn(version int64, catalog Catalog, input CreateCollectionInput) (Plan, error) {
 	catalog.Version = version
-	return (Planner{}).Plan(catalog, NewCreateChange(input))
+	return CompilePlan(catalog, NewCreateChange(input))
 }
 
 func planUpdateIn(version int64, catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return (Planner{}).Plan(planCatalogWith(version, catalog, current), NewUpdateChange(input))
+	return CompilePlan(planCatalogWith(version, catalog, current), NewUpdateChange(input))
 }
 
 func planDeleteIn(version int64, catalog Catalog, current Collection) (Plan, error) {
-	return (Planner{}).Plan(planCatalogWith(version, catalog, current), NewDeleteChange(current.Name))
+	return CompilePlan(planCatalogWith(version, catalog, current), NewDeleteChange(current.Name))
 }
 
 func planCatalogWith(version int64, catalog Catalog, current Collection) Catalog {

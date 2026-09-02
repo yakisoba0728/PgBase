@@ -35,7 +35,7 @@ func newR0QueryServiceTest(t *testing.T) (string, *database.Pool, *schema.Servic
 		t.Fatal(err)
 	}
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	return databaseURL, pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil)
 }
 

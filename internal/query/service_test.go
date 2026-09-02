@@ -403,7 +403,7 @@ func TestRecordServicePersistsExplicitNullByCatalogNullability(t *testing.T) {
 
 func TestRecordServiceRefreshesStaleCatalogBeforeCompiling(t *testing.T) {
 	pool, writer, _ := newRecordServiceTest(t)
-	staleSchemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	staleSchemas := schema.NewService(pool, &schema.Cache{}, nil)
 	if catalog, err := staleSchemas.Catalog(context.Background()); err != nil || catalog.Version != 0 {
 		t.Fatalf("prime stale catalog = %+v, %v", catalog, err)
 	}
@@ -761,7 +761,7 @@ func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Servi
 		t.Fatal(err)
 	}
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	return pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil)
 }
 

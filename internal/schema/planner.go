@@ -23,7 +23,7 @@ const (
 	maximumCollectionFields   = 1597
 )
 
-func (Planner) Plan(catalog Catalog, change Change) (Plan, error) {
+func CompilePlan(catalog Catalog, change Change) (Plan, error) {
 	switch change.kind {
 	case changeCreate:
 		return planCreate(catalog, change.create)

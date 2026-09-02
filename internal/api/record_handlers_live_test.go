@@ -36,7 +36,7 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	definition := schema.CreateCollectionInput{Name: "nullable_api_records", Fields: []schema.FieldInput{
 		{Name: "title", Type: schema.TypeText, Required: true},
 		{Name: "active", Type: schema.TypeBoolean},
@@ -235,7 +235,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := schemas.PlanCreate(ctx, input)

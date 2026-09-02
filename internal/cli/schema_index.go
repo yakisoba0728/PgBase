@@ -86,7 +86,7 @@ func runSchemaIndex(ctx context.Context, args []string, env environment, streams
 	}
 	defer runtime.Close()
 	pool := runtime.pool
-	service := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
+	service := schema.NewService(pool, &schema.Cache{}, nil)
 
 	switch subcommand {
 	case "status":

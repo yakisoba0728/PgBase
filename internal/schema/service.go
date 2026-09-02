@@ -28,7 +28,6 @@ var ErrDataConstraint = errors.New("existing data violates the schema change")
 type Service struct {
 	pool     *database.Pool
 	cache    *Cache
-	planner  Planner
 	recorder observability.Recorder
 
 	operationCursors *schemaOperationCursorCodec
@@ -46,7 +45,7 @@ type Service struct {
 	instanceErr  error
 }
 
-func NewService(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
+func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
 	if cache == nil {
 		cache = &Cache{}
 	}
@@ -55,7 +54,7 @@ func NewService(pool *database.Pool, cache *Cache, planner Planner, recorder obs
 		operationCursorSecret = cursorSecret[0]
 	}
 	return &Service{
-		pool: pool, cache: cache, planner: planner, recorder: recorder,
+		pool: pool, cache: cache, recorder: recorder,
 		operationCursors: newSchemaOperationCursorCodec(operationCursorSecret),
 		now:              time.Now,
 		commitTx:         func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) },
@@ -71,7 +70,7 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	if err != nil {
 		return Plan{}, err
 	}
-	plan, err = s.planner.Plan(catalog, change)
+	plan, err = CompilePlan(catalog, change)
 	if err != nil {
 		return Plan{}, err
 	}

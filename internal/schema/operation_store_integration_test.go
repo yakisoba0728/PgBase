@@ -16,8 +16,8 @@ import (
 var operationStoreTestCursorSecret = []byte("0123456789abcdef0123456789abcdef")
 
 func TestClaimOperationCreatesOneGuardedRunningReceipt(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
-	service := NewService(pool, &Cache{}, Planner{}, nil, operationStoreTestCursorSecret)
+	pool, _, administratorID := newSchemaServiceTest(t)
+	service := NewService(pool, &Cache{}, nil, operationStoreTestCursorSecret)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000601")
 	intent, err := GuardedApply(
 		NewCreateChange(CreateCollectionInput{Name: "claim_posts"}),
@@ -67,8 +67,8 @@ func TestClaimOperationCreatesOneGuardedRunningReceipt(t *testing.T) {
 }
 
 func TestClaimOperationReplaysLiveClaimsWithoutBlockingAndRejectsCollisions(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
-	service := NewService(pool, &Cache{}, Planner{}, nil, operationStoreTestCursorSecret)
+	pool, _, administratorID := newSchemaServiceTest(t)
+	service := NewService(pool, &Cache{}, nil, operationStoreTestCursorSecret)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000611")
 	intent := guardedCreateIntent(t, administratorID, operationID, "replay_posts", "schema-operation-key-0611")
 	first, err := service.claimOperation(context.Background(), intent)
@@ -144,8 +144,8 @@ func TestClaimOperationReplaysLiveClaimsWithoutBlockingAndRejectsCollisions(t *t
 }
 
 func TestClaimOperationFencesExpiredRunningAndEligibleUnknownClaims(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
-	service := NewService(pool, &Cache{}, Planner{}, nil, operationStoreTestCursorSecret)
+	pool, _, administratorID := newSchemaServiceTest(t)
+	service := NewService(pool, &Cache{}, nil, operationStoreTestCursorSecret)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000621")
 	intent := guardedCreateIntent(t, administratorID, operationID, "takeover_posts", "schema-operation-key-0621")
 	first, err := service.claimOperation(context.Background(), intent)
@@ -190,7 +190,7 @@ func TestClaimOperationFencesExpiredRunningAndEligibleUnknownClaims(t *testing.T
 }
 
 func TestClaimAndTakeoverLeasesStartAfterTheirTransactionWait(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, _, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000622")
 	intent := guardedCreateIntent(t, administratorID, operationID, "lease_clock_posts", "schema-operation-key-0622")
@@ -280,8 +280,8 @@ func TestClaimAndTakeoverLeasesStartAfterTheirTransactionWait(t *testing.T) {
 }
 
 func TestOperationStatusAndHistoryAreOwnerScopedBoundedAndCursorStable(t *testing.T) {
-	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
-	service := NewService(pool, &Cache{}, Planner{}, nil, operationStoreTestCursorSecret)
+	pool, _, administratorID := newSchemaServiceTest(t)
+	service := NewService(pool, &Cache{}, nil, operationStoreTestCursorSecret)
 	otherAdministratorID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000639")
 	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.admins
 		(id, email, password_hash, active, created_at, updated_at)

@@ -122,7 +122,7 @@ func TestRunFailsClosedWhenRolloutPreflightFindsInvalidCatalog(t *testing.T) {
 			Type: schema.TypeText,
 		}},
 	}
-	plan, err := (schema.Planner{}).Plan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(input))
+	plan, err := schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}

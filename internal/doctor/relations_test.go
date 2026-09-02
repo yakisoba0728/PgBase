@@ -33,7 +33,7 @@ func newRelationDoctorFixture(t *testing.T) relationDoctorFixture {
 		tags.Name:  tags,
 	}}
 	maximum := 5
-	plan, err := (schema.Planner{}).Plan(catalog, schema.NewCreateChange(schema.CreateCollectionInput{
+	plan, err := schema.CompilePlan(catalog, schema.NewCreateChange(schema.CreateCollectionInput{
 		Name: "posts",
 		Fields: []schema.FieldInput{
 			{
@@ -82,7 +82,7 @@ func newRelationDoctorFixture(t *testing.T) relationDoctorFixture {
 
 func createEmptyDoctorCollection(t *testing.T, ctx context.Context, pool *database.Pool, store *schema.Store, name string, createdAt time.Time) schema.Collection {
 	t.Helper()
-	plan, err := (schema.Planner{}).Plan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(schema.CreateCollectionInput{Name: name}))
+	plan, err := schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(schema.CreateCollectionInput{Name: name}))
 	if err != nil {
 		t.Fatalf("plan empty target collection: %v", err)
 	}

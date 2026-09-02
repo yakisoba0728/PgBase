@@ -164,7 +164,5 @@ type Plan struct {
 	Statements  []string
 }
 
-type Planner struct{}
-
 type ValidationDetail = validationdomain.Detail
 type ValidationError = validationdomain.Error

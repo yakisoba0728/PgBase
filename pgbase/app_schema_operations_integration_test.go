@@ -85,7 +85,7 @@ func TestNewUsesTokenSecretForSchemaOperationHistoryCursors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier := schema.NewService(app.pool, &schema.Cache{}, schema.Planner{}, nil, tokenSecret)
+	verifier := schema.NewService(app.pool, &schema.Cache{}, nil, tokenSecret)
 	secondPage, err := verifier.ListOperations(ctx, continuation)
 	if err != nil {
 		t.Fatalf("configured token secret did not verify app cursor: %v", err)
@@ -94,7 +94,7 @@ func TestNewUsesTokenSecretForSchemaOperationHistoryCursors(t *testing.T) {
 		t.Fatalf("second page = %#v, want one item", secondPage)
 	}
 
-	wrongVerifier := schema.NewService(app.pool, &schema.Cache{}, schema.Planner{}, nil, bytes.Repeat([]byte{'x'}, 32))
+	wrongVerifier := schema.NewService(app.pool, &schema.Cache{}, nil, bytes.Repeat([]byte{'x'}, 32))
 	if _, err := wrongVerifier.ListOperations(ctx, continuation); !errors.Is(err, schema.ErrInvalidOperation) {
 		t.Fatalf("cursor verified with a different secret: %v", err)
 	}

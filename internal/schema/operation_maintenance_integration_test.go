@@ -16,7 +16,7 @@ import (
 )
 
 func TestSchemaOperationRunReconcilesMissingAuditAsFailed(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000701")
 	insertMaintenanceOperation(t, pool, maintenanceOperationFixture{
 		operationID: operationID,
@@ -43,7 +43,7 @@ func TestSchemaOperationRunReconcilesMissingAuditAsFailed(t *testing.T) {
 }
 
 func TestSchemaOperationRunTreatsACompetingTargetVersionAuditAsNoOwnAudit(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000703")
 	insertMaintenanceOperation(t, pool, maintenanceOperationFixture{
 		operationID: operationID,
@@ -66,7 +66,7 @@ func TestSchemaOperationRunTreatsACompetingTargetVersionAuditAsNoOwnAudit(t *tes
 }
 
 func TestSchemaOperationRunLeavesItsOwnMismatchedAuditNonterminal(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000711")
 	insertMaintenanceOperation(t, pool, maintenanceOperationFixture{
 		operationID: operationID,
@@ -103,7 +103,7 @@ func TestSchemaOperationRunLeavesItsOwnMismatchedAuditNonterminal(t *testing.T) 
 }
 
 func TestSchemaOperationRunReconcilesExactAuditAsCommitted(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	operationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000702")
 	insertMaintenanceOperation(t, pool, maintenanceOperationFixture{
 		operationID: operationID,
@@ -149,7 +149,7 @@ func TestSchemaOperationRunReconcilesExactAuditAsCommitted(t *testing.T) {
 }
 
 func TestSchemaOperationCleanupIsBoundedSkipsLocksAndRetainsRecentReceipts(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	now := time.Now().UTC()
 	lockedOperationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000705")
 	insertFailedMaintenanceReceipt(t, pool, lockedOperationID, administratorID, now.Add(-32*24*time.Hour))
@@ -212,7 +212,7 @@ func TestSchemaOperationCleanupIsBoundedSkipsLocksAndRetainsRecentReceipts(t *te
 }
 
 func TestSchemaOperationRunTreatsCanceledContextAsNormalShutdown(t *testing.T) {
-	_, service, _ := newSchemaServiceTest(t, Planner{})
+	_, service, _ := newSchemaServiceTest(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := service.Run(ctx); err != nil {
@@ -221,7 +221,7 @@ func TestSchemaOperationRunTreatsCanceledContextAsNormalShutdown(t *testing.T) {
 }
 
 func TestSchemaOperationReconcileDefersAdvisoryContentionWithoutBlockingApply(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	change := NewCreateChange(CreateCollectionInput{Name: "maintenance_lock_order"})
@@ -313,7 +313,7 @@ func TestSchemaOperationReconcileDefersAdvisoryContentionWithoutBlockingApply(t 
 }
 
 func TestSchemaOperationReconcileSkipsRowClaimedByAnotherInstance(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	createdAt := time.Now().UTC().Add(-3 * time.Minute)
 	lockedOperationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000709")
 	availableOperationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000710")
@@ -378,8 +378,8 @@ func TestSchemaOperationReconcileSkipsRowClaimedByAnotherInstance(t *testing.T) 
 }
 
 func TestSchemaOperationReconcileDrainsAcrossServiceInstances(t *testing.T) {
-	pool, first, administratorID := newSchemaServiceTest(t, Planner{})
-	second := NewService(pool, &Cache{}, Planner{}, nil)
+	pool, first, administratorID := newSchemaServiceTest(t)
+	second := NewService(pool, &Cache{}, nil)
 	createdAt := time.Now().UTC().Add(-3 * time.Minute)
 	operationIDs := []uuid.UUID{
 		uuid.MustParse("019551d0-e9c0-7000-8000-000000000711"),

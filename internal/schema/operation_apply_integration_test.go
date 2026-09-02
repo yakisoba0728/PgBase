@@ -13,7 +13,7 @@ import (
 )
 
 func TestGuardedApplyCommitsAndReplaysOneExactLedgerReceipt(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{
 		Name:   "guarded_posts",
@@ -62,7 +62,7 @@ func TestGuardedApplyCommitsAndReplaysOneExactLedgerReceipt(t *testing.T) {
 }
 
 func TestGuardedApplyRejectsTheSameIdentityForADifferentRequest(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	firstChange := NewCreateChange(CreateCollectionInput{
 		Name:   "guarded_conflict",
@@ -100,7 +100,7 @@ func TestGuardedApplyRejectsTheSameIdentityForADifferentRequest(t *testing.T) {
 }
 
 func TestGuardedApplyRejectsAnOperationIDUsedByHistoricalAudit(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	historicalChange := NewCreateChange(CreateCollectionInput{Name: "historical_operation_id"})
 	historicalPlan, err := service.Preview(ctx, historicalChange)
@@ -142,7 +142,7 @@ func TestGuardedApplyRejectsAnOperationIDUsedByHistoricalAudit(t *testing.T) {
 }
 
 func TestGuardedApplyRollbackLeavesOneRedactedFailedReceipt(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_rollback"})
 	plan, err := service.Preview(ctx, change)
@@ -193,7 +193,7 @@ func TestGuardedApplyRollbackLeavesOneRedactedFailedReceipt(t *testing.T) {
 }
 
 func TestGuardedApplyReadsCommittedReceiptAfterCommitAcknowledgementLoss(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_ack_loss"})
 	plan, err := service.Preview(ctx, change)
@@ -227,7 +227,7 @@ func TestGuardedApplyReadsCommittedReceiptAfterCommitAcknowledgementLoss(t *test
 }
 
 func TestGuardedApplyMarksUnknownWhenAnAmbiguousCommitActuallyRollsBack(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_unknown"})
 	plan, err := service.Preview(ctx, change)
@@ -269,7 +269,7 @@ func TestGuardedApplyMarksUnknownWhenAnAmbiguousCommitActuallyRollsBack(t *testi
 		WHERE operation_id = $1 AND status = 'unknown'`, operationID); err != nil {
 		t.Fatal(err)
 	}
-	restarted := NewService(pool, &Cache{}, Planner{}, nil)
+	restarted := NewService(pool, &Cache{}, nil)
 	processed, err := restarted.reconcileOneSchemaOperation(ctx)
 	if err != nil || !processed {
 		t.Fatalf("restart reconciliation = processed:%t error:%v", processed, err)
@@ -288,7 +288,7 @@ func TestGuardedApplyMarksUnknownWhenAnAmbiguousCommitActuallyRollsBack(t *testi
 }
 
 func TestGuardedApplyPersistsFailureAfterCallerCancellation(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_canceled"})
 	plan, err := service.Preview(ctx, change)
@@ -328,7 +328,7 @@ func TestGuardedApplyPersistsFailureAfterCallerCancellation(t *testing.T) {
 }
 
 func TestClaimFencePreventsAStaleSchemaWriterFromExecutingDDL(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_fenced"})
 	plan, err := service.Preview(ctx, change)
@@ -382,7 +382,7 @@ func TestClaimFencePreventsAStaleSchemaWriterFromExecutingDDL(t *testing.T) {
 }
 
 func TestClaimLockRejectsPersistedRequestHashTamperingBeforeDDL(t *testing.T) {
-	pool, service, administratorID := newSchemaServiceTest(t, Planner{})
+	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	change := NewCreateChange(CreateCollectionInput{Name: "guarded_tampered"})
 	plan, err := service.Preview(ctx, change)
