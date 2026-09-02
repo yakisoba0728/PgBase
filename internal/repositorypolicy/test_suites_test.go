@@ -67,3 +67,37 @@ func withoutEnvironment(environment []string, name string) []string {
 	}
 	return result
 }
+
+// The onboarding specs need an instance that has no administrator yet, so they
+// can never share a backend with the authenticated ones. Playwright skips the
+// authenticated project entirely when the second origin is absent, which is a
+// silent loss of coverage rather than a failure, so the wiring is pinned here.
+func TestBrowserWorkflowRunsBothProjectsAgainstIsolatedBackends(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "e2e.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(raw)
+
+	for _, required := range []string{
+		"PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090",
+		"PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091",
+		"PGBASE_AUTH_PROJECT_NAME=",
+		"Create the authenticated backend's administrator",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("e2e.yml is missing %q", required)
+		}
+	}
+
+	// Two Compose projects, or the second instance reuses the first one's
+	// volumes and arrives with an administrator already set up.
+	if strings.Count(workflow, "COMPOSE_PROJECT_NAME") < 2 {
+		t.Error("e2e.yml does not give the authenticated backend its own Compose project")
+	}
+	// Whatever the run does, both projects have to be torn down.
+	teardown := workflow[strings.LastIndex(workflow, "down --volumes"):]
+	if strings.Count(workflow, "down --volumes") < 2 {
+		t.Errorf("e2e.yml leaves a Compose project running: %q", teardown[:min(len(teardown), 120)])
+	}
+}

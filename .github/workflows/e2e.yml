@@ -71,6 +71,9 @@ jobs:
             echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)"
             echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)"
             echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
+            echo "PGBASE_AUTH_PROJECT_NAME=pgbase-ci-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "PGBASE_ADMIN_EMAIL=e2e-admin@pgbase.test"
+            echo "PGBASE_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')"
           } >> "$GITHUB_ENV"
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
@@ -104,6 +107,39 @@ jobs:
             docker compose -f deployments/docker-compose.yml up -d --wait
           fi
 
+      # The onboarding specs need an instance with no administrator, so they
+      # cannot share a backend with the authenticated ones. A second Compose
+      # project with its own volumes is the only way both can be real.
+      - name: Start the authenticated browser backend
+        shell: bash
+        env:
+          BUILD_FLAG: ${{ steps.mode.outputs.release == 'true' && '--no-build' || '' }}
+        run: |
+          set -euo pipefail
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+          PGBASE_HTTP_PORT=18091 \
+          PGBASE_POSTGRES_PORT=15433 \
+          PGBASE_PUBLIC_URL=http://127.0.0.1:18091 \
+            docker compose -f deployments/docker-compose.yml up -d --wait $BUILD_FLAG
+
+      # Setup is same-origin protected, so the bootstrap request carries the
+      # Origin the instance was configured with.
+      - name: Create the authenticated backend's administrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/setup.json --write-out '%{http_code}' \
+            --request POST http://127.0.0.1:18091/api/admin/setup \
+            --header 'Content-Type: application/json' \
+            --header 'Origin: http://127.0.0.1:18091' \
+            --data "$(printf '{"setupToken":"%s","email":"%s","password":"%s"}' \
+              "$PGBASE_SETUP_TOKEN" "$PGBASE_ADMIN_EMAIL" "$PGBASE_ADMIN_PASSWORD")")"
+          if [[ "$status" != "200" && "$status" != "201" ]]; then
+            echo "administrator setup failed with $status" >&2
+            cat /tmp/setup.json >&2
+            exit 1
+          fi
+
       - name: Install browser test dependencies
         working-directory: ui/admin
         run: npm ci --ignore-scripts
@@ -114,10 +150,11 @@ jobs:
         working-directory: ui/admin
         run: npx playwright install --with-deps chromium
 
-      - name: Verify empty-database browser onboarding
+      - name: Verify browser onboarding and authenticated workflows
         working-directory: ui/admin
         env:
-          PGBASE_BROWSER_BASE_URL: http://127.0.0.1:18090
+          PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090
+          PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091
         run: npm run test:e2e
 
       - name: Verify hardened runtime
@@ -139,7 +176,10 @@ jobs:
 
       - name: Capture service logs
         if: failure()
-        run: docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+        run: |
+          docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+            docker compose -f deployments/docker-compose.yml logs --no-color > compose-auth.log 2>&1
 
       - name: Upload failed E2E logs
         if: failure()
@@ -149,9 +189,13 @@ jobs:
           path: |
             e2e.log
             compose.log
+            compose-auth.log
           if-no-files-found: warn
           retention-days: 14
 
       - name: Remove isolated Compose resources
         if: always()
-        run: docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
+        run: |
+          docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+            docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans
