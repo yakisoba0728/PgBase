@@ -12,6 +12,53 @@
 아니다. 외부 CI·registry 실행은 권한/환경 의존 검증이지 설계 판단 대기
 항목이 아니다.
 
+## 2026-09-03 최종 보고 이후 결정 보완
+
+이 절이 현재 실행 기준이다. 기존 “15/17 닫힘”과 `2c942ea`/`7d9362e` 보고는 역사 기록이며, 그 뒤 발견된
+경계를 다음 불변식으로 고정했다. 현재 main 후보는
+`d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이다.
+
+| 결정 | 실행 기준 | 커밋 |
+|---|---|---|
+| 인증 전이 | 401 만료와 logout 완료는 session generation이 같을 때만 상태를 바꾼다. 늦은 결과는 더 새 로그인과 CSRF를 덮지 않는다. | `da6a728` |
+| moving channel | `latest`/`alpha`/`beta`/`rc`는 채널별 직렬화와 OCI version의 엄격한 단조 증가를 모두 통과한 뒤에만 움직인다. | `be01eec` |
+| schema recovery | apply identity를 POST 전에 관리자·route별 browser storage에 기록한다. reload/재로그인과 응답 유실은 같은 receipt로 복구하며 storage 불능은 fail-closed한다. | `58b45fe` |
+| browser gate | Playwright는 `retries: 0`이며 결정된 receipt와 실제 새 health sample을 기다린다. schema preview unit test도 비동기 갱신을 await한다. | `3716e6d`, `d2701c5` |
+| guarded identity | operation ID와 idempotency key는 한 쌍이다. 같은 guarded 요청의 retry가 어느 하나라도 바꾸면 conflict이고 기존 receipt는 불변이다. | `4a82832` |
+| API cache | `/api/`의 성공과 모든 오류·인증 거부·validation·catch-all 404는 중앙 `Cache-Control: no-store` 계약을 갖는다. | `d97bb109` |
+
+새 artifact 검증 입력은 A0 `e188d3e5855bdfd2d1ee42cb1e7712419b638336`, A
+`b94875efd59b88d4c8e082299b3acc83d4c3e82f`, B `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3`, C
+`5ccf2565b8232e14b3b9398c0941bb8996e7c20e`, P0 `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14`, F
+`1f00fb8c05d62ba5b3a6dde3861d86e916f490cf`이다. 이 pin은 phase별 writer/compiler 상수와 migration bytes를
+바꾸지 않는다.
+
+### migration v9 결정은 process fence를 포함한다
+
+v9 전에 pre-P0 실행 경로를 동결하고 v8의 P0 full-fleet readiness를 확인한 뒤, 이미 시작된 server, CLI,
+scheduled `schema-index`, schema transaction을 모두 drain한다. maintenance lock 전 precheck 창은 DB lock만으로
+닫히지 않으므로 이 process drain은 권고가 아니라 안전 계약이다. 지정 P0 job만 checksum
+`19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`의 v9를 적용한다. 그 뒤 F full-fleet와
+generation 3 lease를 확인하고, v9가 `pending`으로 내린 companion capability를 activate/build한다. M 뒤
+rollback 대상은 pre-P0가 아니라 검증된 P0다.
+
+### **FINAL_VALIDATION_PENDING**
+
+설계 결정은 닫혔지만 새 pin 전체의 최종 실행 evidence는 아직 기록 전이다. 이전 bundle과 실행 시간을 새
+candidate에 소급하지 않는다. 최종 main/manifest SHA, 새 8-binary bundle 경로와 SHA-256, PG16/17/18와
+PG16 race 시간, releaseartifacts race, UI full/typecheck/build/dist, Docker E2E/restore, Playwright retries=0
+반복 횟수·시간은 모두 `FINAL_VALIDATION_PENDING`이다.
+
+이 로컬 검증을 닫은 뒤에도 다음은 결정 대기가 아니라 외부 전용 evidence로 남는다.
+
+- `macos-15` terminal CI 실제 실행
+- GHCR exact candidate와 GitHub-hosted provenance/SBOM/custom attestation 및 `gh attestation verify`
+- 실제 `trivy-action` allowlist 전달과 SARIF artifact upload
+- 그 exact digest에 대한 release gate와 사람의 명시적 promotion
+
+따라서 `FINAL_VALIDATION_PENDING`을 채우기 전에는 로컬 완료를, 외부 evidence 전에는 배포 승인을 주장하지
+않는다.
+
 ---
 
 ## 결정 완료 (2026-09-02)
