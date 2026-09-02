@@ -422,8 +422,9 @@ pgbase schema-index status --json
    safe to rerun and safe to kill; rerun it until it reports `state=ready`.
 4. A schema change drops the state to `pending` exactly when the catalog it
    commits names a companion index nothing has built. In practice that is adding a
-   nullable indexed field to an **existing** collection: the field implies a
-   companion, and only the `build` path can create one concurrently. Rerun
+   nullable indexed field to an **existing** collection, or indexing a nullable
+   field that already exists: either names a companion, and only the `build` path
+   can create one concurrently. Rerun
    `activate` and `build` after such a change. This is the only schema change that
    costs an operator a rebuild.
 5. Every other change carries the capability, including an update that adds no
@@ -497,11 +498,21 @@ regression.
 
 **Order the upgrade migrate-first.** This release declares **exactly** the v9
 history: v8 is no longer a servable history, because every capability read names
-the new column. `pgbase migrate up` before deploying the new binary. The reverse
-direction is safe on its own — a pre-v9 binary running against a v9 database
-reads the capability as `pending`, issues v1, and cannot activate at all, because
-migration 9's constraint refuses a rollout that records no proved generation. So
-there is no window in which either binary issues v2 against an unproved fleet.
+the new column. Run `pgbase migrate up` before deploying the new binary.
+
+Do not then roll back to a pre-v9 binary. It does not degrade gracefully — it
+refuses to start. Version 9 is absent from its embedded manifest, so it reads the
+committed history as containing an unknown version, reports it dirty, and fails
+the compatibility gate before it ever reads the capability. This is the existing
+rule in the rollback table below, not a new one: never deploy a binary that
+treats the new migration as unknown. Forward-fix instead.
+
+Migration 9's constraint is a second, independent guard behind that one. A
+pre-v9 binary clears `state` to `pending` without clearing
+`proven_compiler_version`, which the constraint forbids — so once a v9 binary has
+activated, an old binary would fail not just `activate` but every schema change
+that touches the capability. It fails closed in each case, which is why the
+ordering above is a deployment rule rather than a race to win.
 
 ## Rollback actions are different operations
 
