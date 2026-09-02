@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -63,31 +65,30 @@ func checkRecordMembership(ctx context.Context, db pgx.Tx, status migrate.Status
 	if err != nil {
 		return err
 	}
-	// Everything above this point costs a fixed number of catalog queries. The
-	// sidecar scans below do not: proving that no sidecar is orphaned and no
-	// base row is unpaired requires visiting every row of both sides, so this
-	// loop is O(total records), and each collection costs a savepoint around
-	// one probe in dual_write or two in ready. `exists` stops at the first
-	// offender, which only helps a database that is already broken; a healthy
-	// one pays the full scan. These are also the only AccessShare locks doctor
-	// takes on app tables, so a long run holds them against concurrent DDL.
-	// The cost is accepted because a bounded probe cannot prove absence, and it
-	// is bounded in the only way that matters to a caller: at most two findings
-	// regardless of how many rows or collections are wrong.
-	scan := sidecarScan{}
+	// Everything above this point costs a fixed number of catalog queries, and
+	// so does the scan below: every collection is folded into one statement
+	// rather than one probe apiece, so doctor's statement count does not grow
+	// with the catalog. The work does. Proving that no sidecar is orphaned and
+	// no base row is unpaired requires visiting every row of both sides, so the
+	// scan is O(total records), and it takes AccessShare on every collection
+	// table for its duration, holding them against concurrent DDL. Folding the
+	// collections together also gives up the old early exit: a database that is
+	// already broken now pays the full scan instead of stopping at the first
+	// offender. A healthy database, which is the case that matters, paid it
+	// either way. The report stays bounded at two findings no matter how many
+	// rows or collections are wrong.
+	scannable := make([]membershipCollection, 0, len(collections))
 	for _, collection := range collections {
-		if !collection.baseIDValid {
-			continue
-		}
-		if err := scan.probe(ctx, db, collection, state); err != nil {
-			return err
-		}
-		if scan.orphaned && (state != "ready" || scan.missing) {
-			break
+		if collection.baseIDValid {
+			scannable = append(scannable, collection)
 		}
 	}
-	// Each kind is appended exactly once here, after the loop, so the report
-	// stays bounded no matter how many collections are wrong.
+	scan := sidecarScan{}
+	if err := scan.probe(ctx, db, scannable, state); err != nil {
+		return err
+	}
+	// Each kind is appended exactly once here, so the report stays bounded no
+	// matter how many collections are wrong.
 	if scan.orphaned {
 		report.Findings = append(report.Findings, finding(
 			"record_membership_sidecar_orphaned",
@@ -107,14 +108,21 @@ type sidecarScan struct {
 	orphaned, missing bool
 }
 
-// probe runs one collection's sidecar queries inside a savepoint.
+// concurrentDropRetries bounds how many times one scan is rebuilt after a
+// collection table disappears underneath it. Each retry drops the tables the
+// live catalog no longer has, so the loop terminates on its own; the bound only
+// stops an adversarial stream of concurrent DROPs from keeping doctor busy.
+const concurrentDropRetries = 3
+
+// probe runs every collection's sidecar checks as one statement inside a
+// savepoint.
 //
-// These queries are the only doctor statements that name a collection table as
-// a dynamic identifier, and PostgreSQL resolves an identifier against the live
+// These are the only doctor statements that name a collection table as a
+// dynamic identifier, and PostgreSQL resolves an identifier against the live
 // catalog even under this transaction's RepeatableRead snapshot: a SQL read of
 // pg_class or information_schema still reports a table that a concurrent
 // session has already dropped, so readMembershipCollections can hand out a
-// collection whose table no longer exists and the probe then raises 42P01.
+// collection whose table no longer exists and the scan then raises 42P01.
 //
 // Doctor cannot close that window by pinning the schema the way the membership
 // service does. Its transaction is READ ONLY and PostgreSQL rejects
@@ -123,70 +131,124 @@ type sidecarScan struct {
 // scan, blocking every concurrent schema apply on a diagnostic that is supposed
 // to observe rather than interfere.
 //
-// Skipping is safe because a table that is missing for any reason other than a
-// DROP committed after this snapshot is already reported: it is absent from the
-// snapshot too, which clears baseIDValid and makes checkCollections emit
-// collection_table_missing. Any other undefined relation is drift, so the
-// savepoint is rolled back and the error returned.
-func (scan *sidecarScan) probe(ctx context.Context, tx pgx.Tx, collection membershipCollection, state string) error {
-	table := pgx.Identifier{"app", collection.table}.Sanitize()
+// Dropping the vanished tables and rebuilding is safe because a table that is
+// missing for any reason other than a DROP committed after this snapshot is
+// already reported: it is absent from the snapshot too, which clears
+// baseIDValid and makes the physical comparison emit collection_table_missing.
+// Any other undefined relation is drift, so the savepoint is rolled back and
+// the error returned.
+func (scan *sidecarScan) probe(ctx context.Context, tx pgx.Tx, collections []membershipCollection, state string) error {
+	for attempt := 0; attempt < concurrentDropRetries; attempt++ {
+		if len(collections) == 0 {
+			return nil
+		}
+		orphaned, missing, scanErr := runSidecarScan(ctx, tx, collections, state)
+		if scanErr == nil {
+			scan.orphaned = orphaned
+			scan.missing = missing
+			return nil
+		}
+		var postgresError *pgconn.PgError
+		if !errors.As(scanErr, &postgresError) || postgresError.Code != "42P01" {
+			return scanErr
+		}
+		remaining, err := liveMembershipCollections(ctx, tx, collections)
+		if err != nil {
+			return scanErr
+		}
+		if len(remaining) == len(collections) {
+			return scanErr
+		}
+		collections = remaining
+	}
+	return fmt.Errorf("record membership scan could not complete: collection tables kept disappearing")
+}
+
+func runSidecarScan(ctx context.Context, tx pgx.Tx, collections []membershipCollection, state string) (bool, bool, error) {
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("open record membership scan savepoint: %w", err)
+		return false, false, fmt.Errorf("open record membership scan savepoint: %w", err)
 	}
 	defer func() { _ = savepoint.Rollback(ctx) }()
 
-	if !scan.orphaned {
-		if err := savepoint.QueryRow(ctx, `select exists (
-			select 1
-			from pgbase_meta.record_creation_ordinals as sidecar
-			where sidecar.collection_id = $1
-			  and not exists (select 1 from `+table+` as base where base.id = sidecar.record_id)
-		)`, collection.id).Scan(&scan.orphaned); err != nil {
-			return resumeAfterConcurrentDrop(ctx, tx, savepoint, table,
-				fmt.Errorf("check orphaned record membership sidecars: %w", err))
-		}
-	}
-	if state == "ready" && !scan.missing {
-		if err := savepoint.QueryRow(ctx, `select exists (
-			select 1
-			from `+table+` as base
-			where not exists (
-				select 1 from pgbase_meta.record_creation_ordinals as sidecar
-				where sidecar.collection_id = $1 and sidecar.record_id = base.id
-			)
-		)`, collection.id).Scan(&scan.missing); err != nil {
-			return resumeAfterConcurrentDrop(ctx, tx, savepoint, table,
-				fmt.Errorf("check missing record membership sidecars: %w", err))
-		}
+	query, arguments := sidecarScanStatement(collections, state)
+	var orphaned, missing bool
+	// The deferred rollback matters here: a failed statement aborts the
+	// surrounding transaction until its savepoint is unwound, so without it the
+	// recheck and retry below would fail with 25P02 instead.
+	if err := savepoint.QueryRow(ctx, query, arguments...).Scan(&orphaned, &missing); err != nil {
+		return false, false, fmt.Errorf("check record membership sidecars: %w", err)
 	}
 	if err := savepoint.Commit(ctx); err != nil {
-		return fmt.Errorf("release record membership scan savepoint: %w", err)
+		return false, false, fmt.Errorf("release record membership scan savepoint: %w", err)
 	}
-	return nil
+	return orphaned, missing, nil
 }
 
-// resumeAfterConcurrentDrop returns nil only when scanErr is an undefined-table
-// error raised because table is gone from the live catalog. The savepoint is
-// rolled back first: a failed statement aborts the surrounding transaction
-// until it is unwound, so without this the remaining collections would all fail
-// with 25P02 and the caller would lose the findings already gathered.
-func resumeAfterConcurrentDrop(ctx context.Context, tx pgx.Tx, savepoint pgx.Tx, table string, scanErr error) error {
-	var postgresError *pgconn.PgError
-	if !errors.As(scanErr, &postgresError) || postgresError.Code != "42P01" {
-		return scanErr
+func sidecarScanStatement(collections []membershipCollection, state string) (string, []any) {
+	var statement strings.Builder
+	arguments := make([]any, 0, len(collections))
+	statement.WriteString("select coalesce(bool_or(orphaned), false), coalesce(bool_or(missing), false) from (")
+	for index, collection := range collections {
+		if index > 0 {
+			statement.WriteString(" union all ")
+		}
+		arguments = append(arguments, collection.id)
+		placeholder := "$" + strconv.Itoa(len(arguments))
+		table := pgx.Identifier{"app", collection.table}.Sanitize()
+		statement.WriteString(`select exists (
+			select 1
+			from pgbase_meta.record_creation_ordinals as sidecar
+			where sidecar.collection_id = ` + placeholder + `
+			  and not exists (select 1 from ` + table + ` as base where base.id = sidecar.record_id)
+		) as orphaned, `)
+		if state == "ready" {
+			statement.WriteString(`exists (
+				select 1
+				from ` + table + ` as base
+				where not exists (
+					select 1 from pgbase_meta.record_creation_ordinals as sidecar
+					where sidecar.collection_id = ` + placeholder + ` and sidecar.record_id = base.id
+				)
+			) as missing`)
+			continue
+		}
+		statement.WriteString("false as missing")
 	}
-	if err := savepoint.Rollback(ctx); err != nil {
-		return scanErr
+	statement.WriteString(") as scans")
+	return statement.String(), arguments
+}
+
+// liveMembershipCollections returns the collections whose tables the live
+// catalog still resolves, in one statement.
+func liveMembershipCollections(ctx context.Context, tx pgx.Tx, collections []membershipCollection) ([]membershipCollection, error) {
+	qualified := make([]string, len(collections))
+	for index, collection := range collections {
+		qualified[index] = pgx.Identifier{"app", collection.table}.Sanitize()
 	}
-	var live bool
-	if err := tx.QueryRow(ctx, `select to_regclass($1) is not null`, table).Scan(&live); err != nil {
-		return scanErr
+	rows, err := tx.Query(ctx, `select entry from unnest($1::text[]) as entry where to_regclass(entry) is not null`, qualified)
+	if err != nil {
+		return nil, fmt.Errorf("recheck collection tables after a concurrent drop: %w", err)
 	}
-	if live {
-		return scanErr
+	defer rows.Close()
+	live := make(map[string]struct{}, len(collections))
+	for rows.Next() {
+		var entry string
+		if err := rows.Scan(&entry); err != nil {
+			return nil, fmt.Errorf("scan collection table recheck: %w", err)
+		}
+		live[entry] = struct{}{}
 	}
-	return nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate collection table recheck: %w", err)
+	}
+	remaining := make([]membershipCollection, 0, len(collections))
+	for index, collection := range collections {
+		if _, ok := live[qualified[index]]; ok {
+			remaining = append(remaining, collection)
+		}
+	}
+	return remaining, nil
 }
 
 func readRecordMembershipStateAndCoverage(ctx context.Context, db database.DBTX) (string, bool, error) {
