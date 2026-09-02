@@ -1,0 +1,21 @@
+# Trivy vulnerability allowlist for the pgBase production image.
+#
+# The image scan has no blanket `ignore-unfixed`. An unfixed HIGH or CRITICAL
+# vulnerability is still a vulnerability an operator ships, so suppressing one
+# is a dated, owned decision rather than a scanner setting.
+#
+# Every entry must be a single list item with exactly these keys:
+#
+#   - id:         the advisory or CVE identifier Trivy reports.
+#     statement:  owner=<team or person>; rationale=<why this image is not
+#                 exploitable, or why the risk is accepted>;
+#                 reevaluate=<the condition that ends the exception>.
+#     expired_at: YYYY-MM-DD. Trivy stops honouring the entry after this date,
+#                 so an unreviewed exception fails the gate instead of
+#                 outliving the reason it was granted.
+#
+# deployments/security_policy_test.go enforces that shape, and an empty list is
+# the expected steady state: the distroless image and the static binary
+# currently report no HIGH or CRITICAL findings at all.
+
+vulnerabilities: []

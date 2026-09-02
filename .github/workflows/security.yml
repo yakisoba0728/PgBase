@@ -94,11 +94,36 @@ jobs:
           output-file: pgbase.spdx.json
           artifact-name: pgbase-sbom
 
+      # The findings are recorded before the gate runs, so a failing scan still
+      # leaves a machine-readable report to triage rather than only console
+      # output in a red job.
+      - name: Record image findings as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.image_ref }}
+          format: sarif
+          output: pgbase-image.sarif
+          exit-code: "0"
+          severity: HIGH,CRITICAL
+          trivyignores: deployments/security/trivy-allowlist.yaml
+
+      - name: Upload image scan SARIF
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pgbase-image-scan-sarif
+          path: pgbase-image.sarif
+          if-no-files-found: warn
+          retention-days: 90
+
+      # There is no blanket exemption for unfixed findings: an unfixed HIGH or
+      # CRITICAL is still something an operator would ship, so the scan fails
+      # unless a dated, owned allowlist entry accepts that advisory by name.
       - name: Scan production image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
           format: table
           exit-code: "1"
-          ignore-unfixed: true
           severity: HIGH,CRITICAL
+          trivyignores: deployments/security/trivy-allowlist.yaml
