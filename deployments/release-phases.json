@@ -27,7 +27,7 @@
         },
         {
           "phase": "B",
-          "commit": "35fde3e26027a0ad11659d82594af6c433a1881e",
+          "commit": "8d59e0eab3049697d37a84562515e1aa374ec6ad",
           "version": "v0.0.7-beta.0",
           "writerVersion": 2,
           "issuesCursor": 5,
@@ -35,7 +35,7 @@
         },
         {
           "phase": "C",
-          "commit": "08aa51bc6385244cb57708a1404db7163bc61dae",
+          "commit": "2e426ca3edb2ae88841e11ebabfac453a6172ed1",
           "version": "v0.0.7-rc.0",
           "writerVersion": 3,
           "issuesCursor": 5,
