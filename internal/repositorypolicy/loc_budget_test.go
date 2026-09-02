@@ -189,6 +189,27 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // demote are internal, and STD-3's six deletions are what left room for them.
 // D1's 16,750 is not touched and is not touchable.
 //
+// Raised a sixth time, for the re-audit's recovery finding. STD-1 compared the
+// draft on screen against the draft that was sent, but only on the synchronous
+// answer. When an apply came back undecided and the ledger settled it later,
+// `applied` was derived from the commit status alone -- it never asked which
+// draft that operation carried -- so a draft edited during the flight lost its
+// departure guard, which is the same loss STD-1 exists to prevent. The page
+// also said "The change was applied" beside that draft with nothing
+// contradicting it, so the message had to follow the guard.
+//
+//	handwritten runtime lines      35,193 -> 35,203
+//	UI runtime lines                3,517 ->  3,527
+//	  gross-new 36 / gross-deleted 26, net +10, all in
+//	  ui/admin/src/designer/collection-designer.ts: two State fields
+//	  (undecidedDraft, undecidedDrops), the ledgerOutran derivation, and the
+//	  rationale for why a commit alone cannot say whose work it settled.
+//
+// undecidedDrops earns its line rather than padding the count: without it a
+// committed delete recovery tells the administrator to preview and apply a
+// draft whose collection is gone, which closes one wrong message by opening
+// another.
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -206,8 +227,8 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_193, "plan 22,484"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_203, "plan 22,484"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_527, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 25, "plan 16"},
