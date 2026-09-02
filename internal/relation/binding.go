@@ -146,7 +146,6 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 	return bound, nil
 }
 
-// HasMultiple reports whether Hydrate has any work for this collection.
 func (b *Bindings) HasMultiple() bool {
 	if b == nil {
 		return false

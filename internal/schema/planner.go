@@ -23,8 +23,6 @@ const (
 	maximumCollectionFields   = 1597
 )
 
-// Plan produces the deterministic DDL plan for one opaque change against one
-// validated catalog snapshot.
 func (Planner) Plan(catalog Catalog, change Change) (Plan, error) {
 	switch change.kind {
 	case changeCreate:

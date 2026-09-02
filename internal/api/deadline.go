@@ -13,9 +13,9 @@ import (
 // failure the client cannot tell from a rollback.
 const responseMargin = 5 * time.Second
 
-// applyDeadline installs the route's deadline policy. The domain context is
-// what reaches SchemaKernel and, through it, the pgx transaction, so the
-// database stops working at the same moment the caller stops waiting.
+// The domain context is what reaches the schema service and, through it, the
+// pgx transaction, so the database stops working at the same moment the caller
+// stops waiting.
 func applyDeadline(policy deadlinePolicy, schemaApplyTimeout time.Duration, next http.Handler) http.Handler {
 	if policy != deadlineSchemaApply {
 		return next

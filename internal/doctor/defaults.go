@@ -33,8 +33,6 @@ func physicalDefaultsEquivalent(dataType, expected, observed string) bool {
 	return compactSQL(expected) == compactSQL(observed)
 }
 
-// canonicalDefaultValue decodes one literal default expression into a stable
-// value string for its PostgreSQL type name.
 func canonicalDefaultValue(dataType, expression string) (string, bool) {
 	switch dataType {
 	case "boolean":

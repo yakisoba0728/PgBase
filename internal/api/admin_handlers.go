@@ -22,7 +22,6 @@ import (
 
 const adminCookieName = "pgbase_admin"
 
-// AdminAuth supplies all administrator security state transitions used by HTTP.
 type AdminAuth interface {
 	SetupRequired(context.Context) (bool, error)
 	Setup(context.Context, string, string, string, string) (adminauth.Session, error)

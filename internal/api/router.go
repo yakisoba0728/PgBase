@@ -12,7 +12,6 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
-// Dependencies supplies components used by API handlers.
 type Dependencies struct {
 	Readiness          Readiness
 	Logger             *slog.Logger

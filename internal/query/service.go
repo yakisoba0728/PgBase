@@ -114,8 +114,6 @@ func recordSortValues(keys []SortKey, record map[string]any) ([]json.RawMessage,
 	return values, nil
 }
 
-// parseFilterRequest turns an empty parameter into no filter and otherwise
-// parses the expression into a validation-checked node.
 func parseFilterRequest(filterText string) (filterNode, error) {
 	if filterText == "" {
 		return nil, nil

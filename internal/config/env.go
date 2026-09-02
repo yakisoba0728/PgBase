@@ -13,7 +13,6 @@ import (
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
-// LoadEnv reads pgBase configuration from lookup and validates it.
 func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	databaseURL, ok := value(lookup, "PGBASE_DATABASE_URL")
 	if !ok || databaseURL == "" {

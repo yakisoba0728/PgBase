@@ -6,7 +6,6 @@ import (
 	_ "embed"
 )
 
-// Migration is one ordered, embedded system schema change.
 type Migration struct {
 	Version int64
 	Name    string

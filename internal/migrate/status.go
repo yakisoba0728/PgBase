@@ -9,7 +9,6 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
-// Status describes the embedded system schema migration state.
 type Status struct {
 	Current    int64
 	Latest     int64

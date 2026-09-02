@@ -369,11 +369,7 @@ func (c *physicalComparison) compareFunctions(required []schema.FunctionSpec) {
 	}
 }
 
-// reportOrphans classifies every observed object PgBase owns but no longer
-// requires. Ownership comes from the manifest, so an unrelated user index on a
-// collection table is not drift while a leftover relation object is.
-// reportOrphans classifies every observed object that PgBase no longer
-// requires. Tables and their columns are judged by namespace rather than by
+// Tables and their columns are judged by namespace rather than by
 // manifest ownership: both managed namespaces exist for PgBase alone, so an
 // uncatalogued table there is drift even though the manifest's Owns rule
 // deliberately tolerates an unrelated user index on a collection table.
@@ -410,7 +406,6 @@ func (c *physicalComparison) reportOrphans() {
 	}
 }
 
-// relationNamespace is the schema the planner reserves for relation storage.
 const relationNamespace = "pgbase_relation"
 
 func indexSpecEqual(want, got schema.IndexSpec) bool {

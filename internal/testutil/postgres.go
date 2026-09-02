@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// NewDatabase creates an isolated PostgreSQL database and drops it when t ends.
 func NewDatabase(t testing.TB) string {
 	t.Helper()
 

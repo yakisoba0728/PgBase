@@ -146,41 +146,30 @@ func componentForOperation(operation Operation) Component {
 	}
 }
 
-// TransactionRetryEvent constructs a transaction retry event.
 func TransactionRetryEvent(cause RetryCause, exhausted bool) Event {
 	return Event{kind: EventKindTransactionRetry, retryCause: cause, exhausted: exhausted}
 }
 
-// ReadinessEvent constructs a readiness state observation.
 func ReadinessEvent(component ReadinessComponent, ready bool) Event {
 	return Event{kind: EventKindReadiness, readinessComponent: component, ready: ready}
 }
 
-// Kind returns the event's closed shape discriminator.
 func (e Event) Kind() EventKind { return e.kind }
 
-// Component returns the operation component, or the zero value for other event kinds.
 func (e Event) Component() Component { return e.component }
 
-// Operation returns the operation name, or the zero value for other event kinds.
 func (e Event) Operation() Operation { return e.operation }
 
-// Outcome returns the operation outcome, or the zero value for other event kinds.
 func (e Event) Outcome() Outcome { return e.outcome }
 
-// Duration returns the operation duration, or zero for other event kinds.
 func (e Event) Duration() time.Duration { return e.duration }
 
-// RetryCause returns the retry cause, or the zero value for other event kinds.
 func (e Event) RetryCause() RetryCause { return e.retryCause }
 
-// Exhausted reports whether a retry event exhausted its retry budget.
 func (e Event) Exhausted() bool { return e.exhausted }
 
-// ReadinessComponent returns the readiness dependency, or the zero value for other event kinds.
 func (e Event) ReadinessComponent() ReadinessComponent { return e.readinessComponent }
 
-// Ready returns the readiness state carried by a readiness event.
 func (e Event) Ready() bool { return e.ready }
 
 // Metrics owns an application-private Prometheus registry. No collector is

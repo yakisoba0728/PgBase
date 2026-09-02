@@ -24,10 +24,8 @@ const (
 // Argon2idPasswords uses the fixed Production Kernel password parameters.
 type Argon2idPasswords struct{}
 
-// NewArgon2idPasswords creates a password hasher.
 func NewArgon2idPasswords() *Argon2idPasswords { return &Argon2idPasswords{} }
 
-// Hash validates and hashes a password using Argon2id.
 func (*Argon2idPasswords) Hash(password string) (string, error) {
 	if err := validatePassword(password); err != nil {
 		return "", err
@@ -42,7 +40,6 @@ func (*Argon2idPasswords) Hash(password string) (string, error) {
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
-// Verify compares a candidate password with an encoded Argon2id hash.
 func (*Argon2idPasswords) Verify(encodedHash, password string) error {
 	if validatePassword(password) != nil {
 		return ErrInvalidCredentials
@@ -84,7 +81,6 @@ func parsePasswordHash(encoded string) ([]byte, []byte, bool) {
 	return salt, key, true
 }
 
-// NormalizeEmail canonicalizes and validates an administrator email address.
 func NormalizeEmail(email string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(email))
 	if normalized == "" || len(normalized) > 254 {

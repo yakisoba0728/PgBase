@@ -51,9 +51,9 @@ func (p *membershipWriterProvider) writer(ctx context.Context) (membership.Write
 		var err error
 		runtime, err = membership.RegisterWriter(ctx, membership.New(p.pool), membership.WriterC)
 		if err != nil {
-			// Registration failures are deliberately not cached. A direct service
-			// constructed before migration M can succeed once the exact v7
-			// installation becomes available.
+			// Registration failures are deliberately not cached. A service built
+			// before the lease migration is applied can succeed once the
+			// installation the policy requires becomes available.
 			p.mu.Unlock()
 			return membership.Writer{}, err
 		}

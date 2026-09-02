@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Pool is the reusable PostgreSQL connection pool for a pgBase project.
 type Pool struct {
 	inner     *pgxpool.Pool
 	closeOnce sync.Once
@@ -38,7 +37,6 @@ type PoolStats struct {
 	TotalConns              int32
 }
 
-// Open creates a PostgreSQL pool whose connections use pgBase session settings.
 func Open(ctx context.Context, databaseURL string, statementTimeout time.Duration) (*Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -86,7 +84,6 @@ func postgresDuration(duration time.Duration) string {
 	return strconv.FormatInt(int64(milliseconds), 10)
 }
 
-// Ping verifies that the pool can reach PostgreSQL.
 func (p *Pool) Ping(ctx context.Context) error {
 	return p.inner.Ping(ctx)
 }
@@ -128,22 +125,18 @@ func (p *Pool) startClose() {
 	})
 }
 
-// Acquire reserves a connection from the pool until the caller releases it.
 func (p *Pool) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	return p.inner.Acquire(ctx)
 }
 
-// Exec runs a statement through the pool.
 func (p *Pool) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 	return p.inner.Exec(ctx, sql, arguments...)
 }
 
-// Query runs a query through the pool.
 func (p *Pool) Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error) {
 	return p.inner.Query(ctx, sql, arguments...)
 }
 
-// QueryRow runs a query expected to return at most one row through the pool.
 func (p *Pool) QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row {
 	return p.inner.QueryRow(ctx, sql, arguments...)
 }

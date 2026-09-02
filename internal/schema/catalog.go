@@ -13,7 +13,6 @@ const maximumCatalogWireBytes = 16 << 20
 
 var ErrCatalogLimitExceeded = errors.New("catalog exceeds the serialized size limit")
 
-// Catalog is the authoritative collection metadata published to request readers.
 type Catalog struct {
 	Version     int64                       `json:"version"`
 	Collections map[string]Collection       `json:"collections"`

@@ -59,7 +59,6 @@ type PhysicalObjectRef struct {
 	Name      string
 }
 
-// TableSpec describes the stable properties of a planner-created table.
 type TableSpec struct {
 	Namespace   string
 	Name        string
@@ -196,8 +195,6 @@ type TriggerSpec struct {
 	NewTransitionTable    string
 }
 
-// RequiredPhysicalObjects is a deterministic, table-oriented projection of
-// every object the current schema planner requires for one catalog snapshot.
 type RequiredPhysicalObjects struct {
 	Namespaces  []string
 	Tables      []TableSpec

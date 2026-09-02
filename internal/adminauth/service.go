@@ -72,7 +72,6 @@ func traceLogin(ctx context.Context, stage loginTraceStage) {
 	}
 }
 
-// Setup creates the only first administrator and its initial session.
 func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, password, subject string) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
@@ -224,7 +223,6 @@ func (s *Service) ResetAdministratorPassword(ctx context.Context, email, passwor
 	return administrator, nil
 }
 
-// SetupRequired reports whether the database has no configured administrator.
 func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	if err := s.ready(); err != nil {
 		return false, err
@@ -236,7 +234,6 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	return count == 0, nil
 }
 
-// Login verifies an administrator password and issues a new session.
 func (s *Service) Login(ctx context.Context, email, password, subject string) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
