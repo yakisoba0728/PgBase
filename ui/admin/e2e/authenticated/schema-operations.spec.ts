@@ -40,7 +40,13 @@ test("recovers an operation status by id after a reload and a fresh sign-in", as
   await createCollection(page, name, [{ name: "title" }]);
 
   await page.goto("/admin/schema-operations");
-  const first = page.locator("ol.operation-list > li").first();
+  // Other workers can put a still-running receipt ahead of ours. Its status is
+  // expected to change, so capture a terminal row whose verdict is immutable
+  // rather than turning that normal transition into a reload flake.
+  const terminalStatus = page.locator(
+    '.operation-status[data-status="committed"], .operation-status[data-status="failed"]',
+  );
+  const first = page.locator("ol.operation-list > li").filter({ has: terminalStatus }).first();
   await expect(first).toBeVisible();
   // Other workers apply against the same administrator and one collection has
   // several operations, so the row is followed by the operation's own identity

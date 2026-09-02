@@ -6,7 +6,7 @@ import type { AdminRoute } from "../routing/admin-location";
 import { UnsavedDrafts, draftLedger } from "../routing/unsaved-draft";
 import type { CollectionDefinition, FieldDefinition, OperationReceipt } from "../backend/ports";
 import { callsTo, deferredStep, type BackendScript, type ScriptedApply } from "../test/backend-script";
-import { collection, signedInScript, sessionWrapper, textField } from "../test/harness";
+import { activeSessionExpiresAt, administrator, collection, signedInScript, sessionWrapper, textField } from "../test/harness";
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
 
@@ -23,8 +23,7 @@ const articles = collection("articles", "articles-id", [textField("title", 0)]);
 
 // The designer holds its draft in the same ledger the shell mounts, so a test
 // that asks whether a draft survived can read the ledger rather than infer it.
-function open(mode: DesignerMode, collections: CollectionDefinition[] = [posts, users], version = 7) {
-  const script = signedInScript();
+function open(mode: DesignerMode, collections: CollectionDefinition[] = [posts, users], version = 7, script = signedInScript()) {
   const navigate = vi.fn<(route: AdminRoute) => void>();
   const ledger = draftLedger(() => true);
   script.catalog.push({ value: { version, collections } });
@@ -810,17 +809,17 @@ describe("CollectionDesigner operation recovery", () => {
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.recovery).toBeNull());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    expect(result.current.recovery).toBeNull();
     expect(result.current.preview).toBeNull();
-    expect(result.current.deleteTarget).not.toBeNull();
     act(() => result.current.requestApply());
     expect(callsTo(script, "apply")).toHaveLength(1);
 
     plan(script);
     script.apply.push({ value: undefined });
     act(() => result.current.requestPreview());
-    await waitFor(() => expect(result.current.recovery).toBeNull());
-    expect(result.current.preview).not.toBeNull();
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    expect(result.current.recovery).toBeNull();
     act(() => result.current.requestApply());
     await waitFor(() => expect(callsTo(script, "apply")).toHaveLength(2));
 
@@ -938,5 +937,128 @@ describe("CollectionDesigner operation recovery", () => {
 
     await waitFor(() => expect(result.current.recovery).not.toBeNull());
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("recovers an undecided operation after the designer is reloaded", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+
+    plan(first.script);
+    first.script.apply.push({ value: { status: "unknown" } });
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(first.result.current.recovery?.undecided).toBe(true));
+    first.unmount();
+
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    reloaded.script.operation.push({ value: operationReceipt("running") });
+    await ready(reloaded.result);
+    await waitFor(() => expect(reloaded.result.current.recovery?.undecided).toBe(true));
+    expect(reloaded.result.current.editingBlocked).toBe(true);
+  });
+
+  it("remembers the operation before an in-flight apply loses the document", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    plan(first.script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    first.script.apply.push(application.step);
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(callsTo(first.script, "apply")).toHaveLength(1));
+    const sent = callsTo(first.script, "apply")[0].detail;
+    const stored = localStorage.getItem(localStorage.key(0) ?? "") ?? "";
+    expect(stored).toContain(String(sent.operationId));
+    expect(stored).not.toContain(String(sent.idempotencyKey));
+    expect(stored).not.toContain("title");
+    first.unmount();
+
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    reloaded.script.operation.push({ value: operationReceipt("running") });
+    await ready(reloaded.result);
+    await waitFor(() => expect(reloaded.result.current.recovery?.operationId)
+      .toBe(callsTo(first.script, "apply")[0].detail.operationId));
+    expect(reloaded.result.current.editingBlocked).toBe(true);
+    await act(async () => application.settle({ value: { status: "unknown" } }));
+  });
+
+  it("abandons a receipt only after the maximum server apply window has passed", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    plan(first.script);
+    first.script.apply.push({ value: { status: "unknown" } });
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(first.result.current.recovery?.undecided).toBe(true));
+    first.unmount();
+
+    const later = Date.now() + 66 * 60 * 1000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    await ready(reloaded.result);
+    expect(reloaded.result.current.recovery).toBeNull();
+    expect(reloaded.result.current.editingBlocked).toBe(false);
+    expect(callsTo(reloaded.script, "operation")).toHaveLength(0);
+  });
+
+  it("fails closed when a pending-operation receipt is malformed", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    plan(first.script);
+    first.script.apply.push({ value: { status: "unknown" } });
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(first.result.current.recovery?.undecided).toBe(true));
+    first.unmount();
+    localStorage.setItem(localStorage.key(0) ?? "", "{}");
+
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    await ready(reloaded.result);
+    expect(reloaded.result.current.recovery).toBeNull();
+    expect(reloaded.result.current.editingBlocked).toBe(true);
+    expect(reloaded.result.current.error).toContain("browser storage");
+    expect(callsTo(reloaded.script, "operation")).toHaveLength(0);
+  });
+
+  it("never recovers another administrator's pending operation", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    plan(first.script);
+    first.script.apply.push({ value: { status: "unknown" } });
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(first.result.current.recovery?.undecided).toBe(true));
+    first.unmount();
+
+    const other = signedInScript();
+    other.resume[0] = { value: { kind: "authenticated", session: {
+      administrator: { ...administrator, id: "9a2e0000-0000-4000-8000-000000000002" }, expiresAt: activeSessionExpiresAt(),
+    } } };
+    const second = open({ kind: "edit", collection: "posts" }, [posts, users], 7, other);
+    await ready(second.result);
+    expect(second.result.current.recovery).toBeNull();
+    expect(second.result.current.editingBlocked).toBe(false);
+    expect(callsTo(second.script, "operation")).toHaveLength(0);
+  });
+
+  it("does not send an apply when browser storage cannot retain its identity", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+    plan(script);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("denied"); });
+    act(() => result.current.requestApply());
+    await waitFor(() => expect(result.current.error).toContain("browser storage"));
+    expect(callsTo(script, "apply")).toHaveLength(0);
   });
 });
