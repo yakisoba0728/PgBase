@@ -405,11 +405,16 @@ func requireMigrateUp(t *testing.T, databaseURL string) {
 // its own pool, which is what a deployed instance of that artifact does at
 // startup. The release is a parameter of registration, so one test process can
 // hold the mixed fleet the fence exists for without a historical binary.
+//
+// The pool is held at its two-connection minimum on purpose. These runtimes
+// register and then wait out a lease, and a default-sized pool for each of them
+// would hold a large share of the server's connections for the whole of a drain
+// while the rest of the suite runs against the same server.
 func openRolloutWriter(
 	t *testing.T, databaseURL string, version membership.WriterVersion,
 ) (*membership.Runtime, error) {
 	t.Helper()
-	pool, err := database.Open(context.Background(), databaseURL, 0)
+	pool, err := database.Open(context.Background(), databaseURL+"&pool_max_conns=2", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
