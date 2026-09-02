@@ -85,3 +85,22 @@ func readFile(t *testing.T, name string) string {
 	}
 	return string(raw)
 }
+
+// The bundled profile's statement timeout is the value an operator runs
+// without an environment file, and it is the one the Go options layer
+// defaults to. The end-to-end suite deliberately raises it so a drain test can
+// hold a query open past the shutdown window, so nothing there exercises the
+// shipped default any more; this keeps the two in step cheaply.
+func TestComposeStatementTimeoutDefaultMatchesTheApplicationDefault(t *testing.T) {
+	const applicationDefault = 5 * time.Second
+
+	compose := readFile(t, "docker-compose.yml")
+	if got := interpolationDefault(t, compose, "PGBASE_STATEMENT_TIMEOUT"); got != applicationDefault {
+		t.Errorf("docker-compose.yml statement timeout default = %s, want the application default %s",
+			got, applicationDefault)
+	}
+	example := readFile(t, ".env.example")
+	if want := "PGBASE_STATEMENT_TIMEOUT=" + applicationDefault.String(); !strings.Contains(example, want) {
+		t.Errorf(".env.example is missing %q", want)
+	}
+}

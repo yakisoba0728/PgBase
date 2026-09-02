@@ -165,3 +165,36 @@ func joinFolded(existing, addition string) string {
 	}
 	return existing + " " + addition
 }
+
+// The gate judges HIGH and CRITICAL, and that is deliberate: those are the
+// findings that should stop a release. A full-severity SARIF is kept alongside
+// it so a MEDIUM drifting upward between releases is visible in the record
+// rather than first noticed on the day it breaks the build.
+func TestSecurityWorkflowRecordsEverySeverityBesideTheGatedScan(t *testing.T) {
+	workflow := readFile(t, "../.github/workflows/security.yml")
+
+	for _, required := range []string{
+		"output: pgbase-image.sarif",
+		"output: pgbase-image-all-severities.sarif",
+		"severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("security.yml is missing %q", required)
+		}
+	}
+
+	// Both reports have to survive the job, not just be produced by it.
+	upload := workflow[strings.Index(workflow, "name: pgbase-image-scan-sarif"):]
+	for _, artifact := range []string{"pgbase-image.sarif", "pgbase-image-all-severities.sarif"} {
+		if !strings.Contains(upload[:min(len(upload), 400)], artifact) {
+			t.Errorf("the scan SARIF artifact does not carry %q", artifact)
+		}
+	}
+
+	// The failing scan itself stays narrow; widening it would turn every
+	// unfixed LOW into a release blocker.
+	gate := workflow[strings.Index(workflow, "name: Scan production image"):]
+	if !strings.Contains(gate[:min(len(gate), 400)], "severity: HIGH,CRITICAL") {
+		t.Error("the production image gate no longer scans exactly HIGH,CRITICAL")
+	}
+}

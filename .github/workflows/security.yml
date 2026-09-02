@@ -107,12 +107,27 @@ jobs:
           severity: HIGH,CRITICAL
           trivyignores: deployments/security/trivy-allowlist.yaml
 
+      # The gate only judges HIGH and CRITICAL, but a full-severity record is
+      # what lets someone see a MEDIUM becoming a HIGH between releases rather
+      # than discovering it the day it breaks the build.
+      - name: Record every severity as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.image_ref }}
+          format: sarif
+          output: pgbase-image-all-severities.sarif
+          exit-code: "0"
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          trivyignores: deployments/security/trivy-allowlist.yaml
+
       - name: Upload image scan SARIF
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pgbase-image-scan-sarif
-          path: pgbase-image.sarif
+          path: |
+            pgbase-image.sarif
+            pgbase-image-all-severities.sarif
           if-no-files-found: warn
           retention-days: 90
 
