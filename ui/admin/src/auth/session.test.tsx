@@ -1,18 +1,26 @@
-import { screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { backendScript } from "../test/backend-script";
 import { administrator, renderAdmin, scriptedAdmin } from "../test/harness";
 
+afterEach(() => vi.useRealTimers());
+
 describe("session lifecycle", () => {
   it("clears the authenticated shell when the server session expires", async () => {
+    // The expiry timer is the behaviour under test, so it runs on a clock the
+    // test owns rather than on a real deadline the machine could miss.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const script = backendScript();
-    script.resume.push({ value: { kind: "authenticated", session: { administrator, expiresAt: new Date(Date.now() + 250).toISOString() } } });
+    script.resume.push({ value: { kind: "authenticated", session: { administrator, expiresAt: new Date(Date.now() + 60_000).toISOString() } } });
     script.catalog.push({ value: { version: 0, collections: [] } });
     const harness = scriptedAdmin("/admin/collections", script);
     renderAdmin(harness);
 
     expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
-    expect(await screen.findByRole("heading", { name: "Sign in to pgBase" }, { timeout: 2000 })).toBeVisible();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
+
+    expect(screen.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
     expect(harness.history.path()).toBe("/admin/login");
   });
 
