@@ -79,6 +79,26 @@ type ColumnSpec struct {
 	DefaultSQL string
 }
 
+// IndexPurpose separates indexes the catalog requires the moment a collection
+// exists from companion indexes whose requirement is gated on a rollout
+// capability. Doctor must not demand a companion before that gate is ready.
+type IndexPurpose uint8
+
+const (
+	// IndexPurposeCore is an index the planner creates with its collection and
+	// which is therefore required immediately.
+	IndexPurposeCore IndexPurpose = iota
+	// IndexPurposeNullableDesc backs a descending page over a nullable column.
+	// The public API orders those NULLS LAST, which PostgreSQL's default btree
+	// cannot serve in either scan direction, so the ordering needs its own index.
+	IndexPurposeNullableDesc
+)
+
+// nullableDescIndexSuffix keys the companion index name. Field names are
+// validated identifiers and cannot contain ":", so this cannot collide with the
+// core index of a differently named field.
+const nullableDescIndexSuffix = ":desc_nulls_last"
+
 // IndexKeySpec describes one btree key. False direction flags are PostgreSQL's
 // ASC NULLS LAST defaults. An empty OperatorClass means the type's default.
 type IndexKeySpec struct {
@@ -109,6 +129,7 @@ type IndexSpec struct {
 	Valid            bool
 	Ready            bool
 	Live             bool
+	Purpose          IndexPurpose
 }
 
 // ConstraintSpec describes a standalone table constraint. PostgreSQL 18 also
@@ -217,12 +238,22 @@ type physicalObjectKey struct {
 // centralizes orphan classification so schema planning and doctor cannot drift.
 type ExpectedPhysicalSchema struct {
 	required  RequiredPhysicalObjects
+	companion []IndexSpec
 	ownership physicalOwnership
 }
 
-// Required returns a deep copy of the required object specifications.
+// Required returns a deep copy of the required object specifications. It holds
+// only what a collection needs the instant it exists, so a binary that predates
+// the companion rollout compiles the same required set as one that follows it.
 func (manifest ExpectedPhysicalSchema) Required() RequiredPhysicalObjects {
 	return cloneRequiredPhysicalObjects(manifest.required)
+}
+
+// CompanionIndexes returns a deep copy of the purpose-tagged companion indexes
+// derived from this catalog. They are always owned, but a caller may treat them
+// as a required physical contract only once the rollout capability is ready.
+func (manifest ExpectedPhysicalSchema) CompanionIndexes() []IndexSpec {
+	return cloneIndexSpecs(manifest.companion)
 }
 
 // ManagedNamespaces returns the namespaces a physical snapshot must inspect.
@@ -302,13 +333,14 @@ func compileExpectedPhysicalSchema(catalog Catalog) (ExpectedPhysicalSchema, err
 	}
 	builder.sort()
 
-	manifest := ExpectedPhysicalSchema{required: builder.required}
-	manifest.ownership = buildPhysicalOwnership(manifest.required)
+	manifest := ExpectedPhysicalSchema{required: builder.required, companion: builder.companion}
+	manifest.ownership = buildPhysicalOwnership(manifest.required, manifest.companion)
 	return manifest, nil
 }
 
 type physicalManifestBuilder struct {
-	required RequiredPhysicalObjects
+	required  RequiredPhysicalObjects
+	companion []IndexSpec
 }
 
 func (builder *physicalManifestBuilder) addCollection(collection Collection, tableByCollectionID map[uuid.UUID]string) error {
@@ -358,6 +390,7 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 			if field.Unique || field.Indexed {
 				builder.addIndex(applicationPhysicalNamespace, collection.TableName, indexName(collection.Name, field.Name), []string{field.ColumnName}, field.Unique, false, "")
 			}
+			builder.addNullableDescCompanion(collection, field)
 			continue
 		}
 
@@ -383,6 +416,7 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 				applicationPhysicalNamespace, targetTable, []string{"id"}, physicalReferentialNoAction, true, true,
 			)
 			builder.addIndex(applicationPhysicalNamespace, collection.TableName, names.SingleReverseIndex, []string{field.ColumnName}, field.Unique, false, "")
+			builder.addNullableDescCompanion(collection, field)
 		case RelationMultiple:
 			if err := builder.addMultiRelation(collection.TableName, targetTable, field, names); err != nil {
 				return err
@@ -392,6 +426,53 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 		}
 	}
 	return nil
+}
+
+// addNullableDescCompanion applies the exact predicate the read path uses to
+// accept a sort key, so the companion set is a deterministic function of the
+// catalog and never of a separate mutable row. A page over such a field orders
+// by "<column> DESC NULLS LAST, id DESC". PostgreSQL's default btree on the
+// column is ASC NULLS LAST, whose backward scan is DESC NULLS FIRST, so neither
+// scan direction serves the ordering the public contract promises.
+func (builder *physicalManifestBuilder) addNullableDescCompanion(collection Collection, field Field) {
+	if !nullableDescSortable(field) {
+		return
+	}
+	builder.companion = append(builder.companion, IndexSpec{
+		Namespace: applicationPhysicalNamespace,
+		Table:     collection.TableName,
+		Name:      NullableDescCompanionIndexName(collection.Name, field.Name),
+		Method:    "btree",
+		Keys: []IndexKeySpec{
+			{Column: field.ColumnName, Descending: true, NullsFirst: false},
+			{Column: "id", Descending: true, NullsFirst: true},
+		},
+		Valid:   true,
+		Ready:   true,
+		Live:    true,
+		Purpose: IndexPurposeNullableDesc,
+	})
+}
+
+// nullableDescSortable reports whether a descending page over this field can
+// observe a NULL. JSONB and multiple relations are rejected as sort keys, an
+// unindexed field is rejected as unindexed, and a required column has no NULL
+// to place, so none of those need a companion.
+func nullableDescSortable(field Field) bool {
+	if field.Required || field.Type == TypeJSONB {
+		return false
+	}
+	if field.Type == TypeRelation && (field.Relation == nil || field.Relation.Cardinality != RelationSingle) {
+		return false
+	}
+	return field.Indexed || field.Unique
+}
+
+// NullableDescCompanionIndexName is the deterministic companion index name for
+// one catalog field. It shares the planner's owned "idx_" prefix so a binary
+// that predates the rollout still classifies the object as PgBase-owned.
+func NullableDescCompanionIndexName(collection, field string) string {
+	return indexName(collection, field+nullableDescIndexSuffix)
 }
 
 func (builder *physicalManifestBuilder) addMultiRelation(sourceTable, targetTable string, field Field, names RelationPhysicalNames) error {
@@ -541,6 +622,10 @@ func (builder *physicalManifestBuilder) sort() {
 		left, right := builder.required.Indexes[i], builder.required.Indexes[j]
 		return physicalLess(left.Namespace, left.Table, left.Name, right.Namespace, right.Table, right.Name)
 	})
+	sort.Slice(builder.companion, func(i, j int) bool {
+		left, right := builder.companion[i], builder.companion[j]
+		return physicalLess(left.Namespace, left.Table, left.Name, right.Namespace, right.Table, right.Name)
+	})
 	sort.Slice(builder.required.Constraints, func(i, j int) bool {
 		left, right := builder.required.Constraints[i], builder.required.Constraints[j]
 		return physicalLess(left.Namespace, left.Table, left.Name, right.Namespace, right.Table, right.Name)
@@ -637,7 +722,11 @@ func (builder *physicalManifestBuilder) addConstraintTrigger(namespace, table, n
 		newConstraintTriggerSpec(namespace, table, name, functionName, typeMask))
 }
 
-func buildPhysicalOwnership(required RequiredPhysicalObjects) physicalOwnership {
+// buildPhysicalOwnership computes ownership over the union of required and
+// companion objects. A companion is owned from the moment the catalog implies
+// it, well before any capability promotes it to a required contract, so a
+// rollback binary cannot read it as an orphan.
+func buildPhysicalOwnership(required RequiredPhysicalObjects, companion []IndexSpec) physicalOwnership {
 	ownership := physicalOwnership{
 		exact:          make(map[physicalObjectKey]struct{}),
 		requiredTables: make(map[physicalTableKey]struct{}, len(required.Tables)),
@@ -684,6 +773,9 @@ func buildPhysicalOwnership(required RequiredPhysicalObjects) physicalOwnership 
 	for _, function := range required.Functions {
 		ownership.addExact(PhysicalObjectRef{Kind: PhysicalObjectFunction, Namespace: function.Namespace, Name: function.Name})
 	}
+	for _, index := range companion {
+		ownership.addExact(PhysicalObjectRef{Kind: PhysicalObjectIndex, Namespace: index.Namespace, Table: index.Table, Name: index.Name})
+	}
 	return ownership
 }
 
@@ -707,17 +799,22 @@ func validPhysicalObjectRef(ref PhysicalObjectRef) bool {
 	}
 }
 
+func cloneIndexSpecs(source []IndexSpec) []IndexSpec {
+	clone := append([]IndexSpec(nil), source...)
+	for index := range clone {
+		clone[index].CompatibleNames = append([]string(nil), source[index].CompatibleNames...)
+		clone[index].Keys = append([]IndexKeySpec(nil), source[index].Keys...)
+		clone[index].IncludedColumns = append([]string(nil), source[index].IncludedColumns...)
+	}
+	return clone
+}
+
 func cloneRequiredPhysicalObjects(source RequiredPhysicalObjects) RequiredPhysicalObjects {
 	clone := source
 	clone.Namespaces = append([]string(nil), source.Namespaces...)
 	clone.Tables = append([]TableSpec(nil), source.Tables...)
 	clone.Columns = append([]ColumnSpec(nil), source.Columns...)
-	clone.Indexes = append([]IndexSpec(nil), source.Indexes...)
-	for index := range clone.Indexes {
-		clone.Indexes[index].CompatibleNames = append([]string(nil), source.Indexes[index].CompatibleNames...)
-		clone.Indexes[index].Keys = append([]IndexKeySpec(nil), source.Indexes[index].Keys...)
-		clone.Indexes[index].IncludedColumns = append([]string(nil), source.Indexes[index].IncludedColumns...)
-	}
+	clone.Indexes = cloneIndexSpecs(source.Indexes)
 	clone.Constraints = append([]ConstraintSpec(nil), source.Constraints...)
 	for index := range clone.Constraints {
 		clone.Constraints[index].Columns = append([]string(nil), source.Constraints[index].Columns...)
