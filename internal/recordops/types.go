@@ -112,6 +112,7 @@ const (
 	CodeIdempotencyInProgress ErrorCode = "idempotency_in_progress"
 	CodeInvalidPrecondition   ErrorCode = "invalid_precondition"
 	CodePreconditionFailed    ErrorCode = "precondition_failed"
+	CodeUnavailable           ErrorCode = "record_unavailable"
 )
 
 // Error exposes a stable, non-sensitive failure code. CurrentETag is populated
@@ -119,6 +120,7 @@ const (
 type Error struct {
 	Code        ErrorCode
 	CurrentETag string
+	canceled    bool
 }
 
 func (e *Error) Error() string {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
@@ -198,10 +199,10 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	}
 }
 
-func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testing.T) {
+func TestReleaseANewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 	migrations := system.Migrations()
 	if len(migrations) != 7 {
-		t.Fatalf("record-membership preparatory manifest = %#v", migrations)
+		t.Fatalf("record-membership release-A manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name        string
@@ -213,8 +214,8 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 	}{
 		{name: "v5 rejected", through: 5},
 		{name: "v5 rejected without auto-upgrade", through: 5, autoMigrate: true},
-		{name: "v6 accepted", through: 6, wantAccept: true},
-		{name: "populated v6 accepted without auto-upgrade", through: 6, autoMigrate: true, populate: true, wantAccept: true},
+		{name: "v6 rejected", through: 6},
+		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
 		{name: "v7 accepted", through: 7, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v7 rejected", through: 7, dirty: true},
@@ -262,7 +263,7 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 			})
 			if testCase.wantAccept {
 				if err != nil {
-					t.Fatalf("New rejected P0 history: %v", err)
+					t.Fatalf("New rejected Release-A history: %v", err)
 				}
 				status, statusErr := migrate.New(app.pool, slog.New(slog.NewJSONHandler(io.Discard, nil))).Status(context.Background())
 				if statusErr != nil {
@@ -271,7 +272,7 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 				}
 				if status.Current != int64(testCase.through) || !status.Compatible {
 					_ = app.Close(context.Background())
-					t.Fatalf("startup changed accepted P0 history: %#v", status)
+					t.Fatalf("startup changed accepted Release-A history: %#v", status)
 				}
 				var membershipTable *string
 				if queryErr := app.pool.QueryRow(context.Background(),
@@ -288,13 +289,18 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 					var leases int
 					if err := app.pool.QueryRow(context.Background(), `select count(*)
 						from pgbase_meta.runtime_writer_leases
-						where writer_version = 0 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
+						where writer_version = 1 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
 						_ = app.Close(context.Background())
 						t.Fatal(err)
 					}
 					if leases != 1 {
 						_ = app.Close(context.Background())
-						t.Fatalf("A0 startup active writer leases = %d, want 1", leases)
+						t.Fatalf("Release-A startup active writer leases = %d, want 1", leases)
+					}
+					runtime, ok := app.membershipWriter.(*membership.Runtime)
+					if !ok || runtime.WriterVersion() != membership.WriterA {
+						_ = app.Close(context.Background())
+						t.Fatalf("membership writer = %T/%v, want Release A", app.membershipWriter, runtime)
 					}
 				}
 				if err := app.Start(context.Background()); err != nil {
@@ -327,7 +333,7 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 			}
 			if err == nil {
 				_ = app.Close(context.Background())
-				t.Fatal("New accepted history outside the v6/v7 P0 boundary")
+				t.Fatal("New accepted history outside the exact v7 Release-A boundary")
 			}
 			if testCase.autoMigrate {
 				pool, openErr := database.Open(context.Background(), databaseURL, time.Second)
@@ -339,8 +345,8 @@ func TestNewAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testin
 				if statusErr != nil {
 					t.Fatal(statusErr)
 				}
-				if status.Current != int64(testCase.through) || status.Compatible {
-					t.Fatalf("rejected P0 auto-migration changed history: %#v", status)
+				if status.Current != int64(testCase.through) {
+					t.Fatalf("rejected Release-A auto-migration changed history: %#v", status)
 				}
 			}
 		})

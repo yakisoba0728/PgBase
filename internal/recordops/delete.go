@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
@@ -55,6 +56,7 @@ func (s *Service) deleteGraphInTransaction(
 	identityCache *deleteArtifactIdentityCache,
 	inputHash [32]byte,
 	compatibility Compatibility,
+	writeFence membership.WriteFence,
 ) (MutationResult, error) {
 	graph, err := relation.BindDeleteGraph(catalog)
 	if err != nil {
@@ -120,6 +122,27 @@ func (s *Service) deleteGraphInTransaction(
 		}
 	}
 
+	removedMembership := make([]membership.Record, len(deletes))
+	for index, deleted := range deletes {
+		snapshot, ok := snapshots[deleted]
+		if !ok {
+			return MutationResult{}, schema.ErrConflict
+		}
+		if err := deleteBaseRecord(ctx, tx, snapshot); err != nil {
+			return MutationResult{}, err
+		}
+		removedMembership[index] = membership.Record{
+			CollectionID: deleted.CollectionID,
+			RecordID:     deleted.RecordID,
+		}
+	}
+	// Membership rows are removed only after every base record in the closure
+	// is gone. WriteFence.Delete verifies that ordering again against the base
+	// tables before deleting any sidecar.
+	if err := writeFence.Delete(ctx, removedMembership); err != nil {
+		return MutationResult{}, transactionalMembership(err)
+	}
+
 	for _, deleted := range deletes {
 		snapshot, ok := snapshots[deleted]
 		if !ok {
@@ -133,7 +156,7 @@ func (s *Service) deleteGraphInTransaction(
 		if deleted == root {
 			deleteCompatibility = compatibility
 		}
-		if err := applyDeleteGraphDelete(ctx, tx, request, snapshot, identity.eventID, inputHash, deleteCompatibility); err != nil {
+		if err := applyDeleteGraphArtifacts(ctx, tx, request, snapshot, identity.eventID, inputHash, deleteCompatibility); err != nil {
 			return MutationResult{}, err
 		}
 	}
@@ -393,15 +416,7 @@ func readDeleteGraphRecords(
 	return result, nil
 }
 
-func applyDeleteGraphDelete(
-	ctx context.Context,
-	tx pgx.Tx,
-	request DeleteRequest,
-	snapshot deleteRecordSnapshot,
-	eventID uuid.UUID,
-	inputHash [32]byte,
-	compatibility Compatibility,
-) error {
+func deleteBaseRecord(ctx context.Context, tx pgx.Tx, snapshot deleteRecordSnapshot) error {
 	statement := query.CompileDelete(snapshot.collection, snapshot.ref.RecordID)
 	tag, err := tx.Exec(ctx, statement.SQL, statement.Args...)
 	if err != nil {
@@ -410,6 +425,18 @@ func applyDeleteGraphDelete(
 	if tag.RowsAffected() != 1 {
 		return schema.ErrConflict
 	}
+	return nil
+}
+
+func applyDeleteGraphArtifacts(
+	ctx context.Context,
+	tx pgx.Tx,
+	request DeleteRequest,
+	snapshot deleteRecordSnapshot,
+	eventID uuid.UUID,
+	inputHash [32]byte,
+	compatibility Compatibility,
+) error {
 	newVersion := snapshot.previousVersion + 1
 	previousVersion := snapshot.previousVersion
 	if err := writeAudit(ctx, tx, auditWrite{

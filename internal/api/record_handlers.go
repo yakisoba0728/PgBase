@@ -399,6 +399,9 @@ func writeRecordOperationError(w http.ResponseWriter, r *http.Request, err error
 		if operationError.CurrentETag != "" {
 			w.Header().Set("ETag", operationError.CurrentETag)
 		}
+	case recordops.CodeUnavailable:
+		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "record_unavailable", Message: "Record service is unavailable"}
+		w.Header().Set("Retry-After", "1")
 	default:
 		writeAPIError(w, r, apiError)
 		return true

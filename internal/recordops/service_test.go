@@ -58,6 +58,8 @@ func TestRelationOperationOutcomeIsBounded(t *testing.T) {
 		{name: "budget", err: &query.ValidationError{Details: []query.ValidationDetail{{Field: "expand", Code: "expand_budget_exceeded"}}}, want: observability.OutcomeBudget},
 		{name: "response budget", err: &query.ValidationError{Details: []query.ValidationDetail{{Field: "response", Code: "response_too_large"}}}, want: observability.OutcomeBudget},
 		{name: "conflict", err: &Error{Code: CodePreconditionFailed, CurrentETag: "secret-etag"}, want: observability.OutcomeConflict},
+		{name: "membership unavailable", err: &Error{Code: CodeUnavailable}, want: observability.OutcomeUnavailable},
+		{name: "membership canceled", err: unavailableMembership(context.Canceled), want: observability.OutcomeCanceled},
 		{name: "catalog conflict", err: schema.ErrConflict, want: observability.OutcomeConflict},
 		{name: "canceled", err: context.Canceled, want: observability.OutcomeCanceled},
 		{name: "failure", err: errors.New("secret failure"), want: observability.OutcomeFailure},

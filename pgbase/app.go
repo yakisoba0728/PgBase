@@ -227,9 +227,9 @@ func newWithCatalogPreflight(
 		if before.Current != 0 && !before.Compatible {
 			return nil, errors.New("system migrations are not current")
 		}
-		// P0 accepts the checksum-pinned v6 and v7 histories, but only a
-		// designated exact-target job may cross the v6 -> v7 boundary.
-		// Auto-migration remains available for a fresh database bootstrap.
+		// Release A accepts only the checksum-pinned v7 history. A designated
+		// exact-target job must cross the v6 -> v7 boundary; auto-migration
+		// remains available only for a fresh database bootstrap.
 		if before.Current == 0 {
 			if err := runner.Up(ctx); err != nil {
 				return nil, fmt.Errorf("apply system migrations: %w", err)
@@ -267,7 +267,7 @@ func newWithCatalogPreflight(
 	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
 	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
-	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterA0)
+	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterA)
 	if err != nil {
 		return nil, fmt.Errorf("register record membership writer: %w", err)
 	}
@@ -281,7 +281,9 @@ func newWithCatalogPreflight(
 		normalized.AdminSessionTTL,
 		nil,
 	)
-	recordService := recordops.NewServiceWithRecorder(pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics)
+	recordService := recordops.NewServiceWithMembershipRuntime(
+		pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics, membershipRuntime,
+	)
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)

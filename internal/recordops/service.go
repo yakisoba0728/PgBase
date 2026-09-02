@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
@@ -49,6 +50,7 @@ type Service struct {
 	logger   *slog.Logger
 	recorder observability.Recorder
 	random   io.Reader
+	members  *membershipWriterProvider
 }
 
 func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
@@ -60,10 +62,37 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 }
 
 func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
+	return newService(pool, schemas, cursorSecret, logger, recorder, nil)
+}
+
+// NewServiceWithMembershipRuntime uses the process-wide membership runtime
+// that the application registered and heartbeats. The older constructors keep
+// their signatures and lazily register a Release-A writer for direct package
+// users such as integration tests.
+func NewServiceWithMembershipRuntime(
+	pool *database.Pool,
+	schemas *schema.Service,
+	cursorSecret []byte,
+	logger *slog.Logger,
+	recorder observability.Recorder,
+	runtime *membership.Runtime,
+) *Service {
+	return newService(pool, schemas, cursorSecret, logger, recorder, runtime)
+}
+
+func newService(
+	pool *database.Pool,
+	schemas *schema.Service,
+	cursorSecret []byte,
+	logger *slog.Logger,
+	recorder observability.Recorder,
+	runtime *membership.Runtime,
+) *Service {
 	return &Service{
 		pool: pool, schemas: schemas,
 		reader: query.NewServiceWithRecorder(pool, schemas, cursorSecret, logger, recorder),
 		logger: logger, recorder: recorder, random: rand.Reader,
+		members: newMembershipWriterProvider(pool, runtime),
 	}
 }
 
@@ -143,7 +172,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, err
 	}
-
+	membershipWriter, err := s.members.writer(ctx)
+	if err != nil {
+		return MutationResult{}, unavailableMembership(err)
+	}
 	var idempotencyLock *int64
 	if len(keyHash) > 0 {
 		lock := advisoryLockKey(request.Principal, []byte(request.Collection), keyHash)
@@ -151,6 +183,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	}
 	err = s.inTxWithAdvisory(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = inputTouchesRelationField(collection, request.Input)
+		createFence, err := membershipWriter.LockCreate(ctx, tx, collection.ID)
+		if err != nil {
+			return transactionalMembership(err)
+		}
 		if len(keyHash) > 0 {
 			replayed, found, err := findIdempotentCreate(ctx, tx, request.Principal, collection.ID, keyHash, requestHash[:])
 			if err != nil {
@@ -160,6 +196,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				result = replayed
 				return nil
 			}
+		}
+		if err := createFence.Reserve(ctx); err != nil {
+			return transactionalMembership(err)
 		}
 
 		relations, err := prepareRelationMutation(catalog, collection, relation.CreateInput, request.Input)
@@ -176,6 +215,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		data, err := query.EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 		if err != nil {
 			return query.NormalizeRecordError(err)
+		}
+		if err := createFence.RecordCreated(ctx, recordID); err != nil {
+			return transactionalMembership(err)
 		}
 		if err := relations.replaceMulti(ctx, tx, recordID); err != nil {
 			return err
@@ -220,7 +262,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		return nil
 	})
 	if err != nil {
-		return MutationResult{}, err
+		return MutationResult{}, membershipBoundaryError(err)
 	}
 	return result, nil
 }
@@ -248,6 +290,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, err
 	}
+	membershipWriter, err := s.members.writer(ctx)
+	if err != nil {
+		return MutationResult{}, unavailableMembership(err)
+	}
 	compatibility := CompatibilityNone
 	if !request.IfMatch.Present {
 		compatibility = CompatibilityLastWriteWins
@@ -255,6 +301,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 
 	err = s.inTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = inputTouchesRelationField(collection, request.Input)
+		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
+			return transactionalMembership(err)
+		}
 		relations, err := prepareRelationMutation(catalog, collection, relation.PatchInput, request.Input)
 		if err != nil {
 			return err
@@ -329,7 +378,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		return nil
 	})
 	if err != nil {
-		return MutationResult{}, err
+		return MutationResult{}, membershipBoundaryError(err)
 	}
 	return result, nil
 }
@@ -354,17 +403,25 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 		compatibility = CompatibilityLastWriteWins
 	}
 	identityCache := newDeleteArtifactIdentityCache(eventID)
+	membershipWriter, err := s.members.writer(ctx)
+	if err != nil {
+		return MutationResult{}, unavailableMembership(err)
+	}
 
 	err = s.inReadCommittedTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = collectionParticipatesInRelations(catalog, collection)
+		writeFence, err := membershipWriter.Begin(ctx, tx)
+		if err != nil {
+			return transactionalMembership(err)
+		}
 		var operationErr error
 		result, operationErr = s.deleteGraphInTransaction(
-			ctx, tx, catalog, collection, request, identityCache, inputHash, compatibility,
+			ctx, tx, catalog, collection, request, identityCache, inputHash, compatibility, writeFence,
 		)
 		return operationErr
 	})
 	if err != nil {
-		return MutationResult{}, err
+		return MutationResult{}, membershipBoundaryError(err)
 	}
 	return result, nil
 }
@@ -490,7 +547,12 @@ func (s *Service) inReadCommittedTx(ctx context.Context, collectionName string, 
 // performs the first snapshot-bearing catalog query. Consequently, a completed
 // creator is either still holding the lock (409 in progress) or committed
 // before this Repeatable Read snapshot and therefore visible for replay.
-func (s *Service) inTxWithAdvisory(ctx context.Context, collectionName string, advisoryKey *int64, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
+func (s *Service) inTxWithAdvisory(
+	ctx context.Context,
+	collectionName string,
+	advisoryKey *int64,
+	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
+) error {
 	isolation := pgx.RepeatableRead
 	if advisoryKey != nil {
 		// PostgreSQL establishes a snapshot before evaluating a SELECT-list
@@ -731,6 +793,11 @@ func relationOperationOutcome(err error) observability.Outcome {
 		switch operationError.Code {
 		case CodeIdempotencyConflict, CodeIdempotencyInProgress, CodePreconditionFailed:
 			return observability.OutcomeConflict
+		case CodeUnavailable:
+			if operationError.canceled {
+				return observability.OutcomeCanceled
+			}
+			return observability.OutcomeUnavailable
 		default:
 			return observability.OutcomeValidation
 		}

@@ -157,6 +157,14 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	membershipWriter, err := records.members.writer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFence, err := membershipWriter.Begin(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	trace.reset()
 	eventID, err := uuid.NewV7()
 	if err != nil {
@@ -168,7 +176,7 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	result, err := records.deleteGraphInTransaction(
 		ctx, tx, catalog, catalog.Collections[collection.Name], request,
-		newDeleteArtifactIdentityCache(eventID), inputHash, CompatibilityLastWriteWins,
+		newDeleteArtifactIdentityCache(eventID), inputHash, CompatibilityLastWriteWins, writeFence,
 	)
 	if err != nil {
 		t.Fatalf("deleteGraphInTransaction(): %v", err)

@@ -457,12 +457,14 @@ func TestRecordRoutesMapStableRecordOperationErrors(t *testing.T) {
 		wantStatus int
 		wantCode   string
 		wantETag   string
+		wantRetry  string
 	}{
 		{name: "invalid key", err: &recordops.Error{Code: recordops.CodeInvalidIdempotencyKey}, wantStatus: 400, wantCode: "invalid_idempotency_key"},
 		{name: "different payload", err: &recordops.Error{Code: recordops.CodeIdempotencyConflict}, wantStatus: 409, wantCode: "idempotency_conflict"},
 		{name: "in progress", err: &recordops.Error{Code: recordops.CodeIdempotencyInProgress}, wantStatus: 409, wantCode: "idempotency_in_progress"},
 		{name: "invalid precondition", err: &recordops.Error{Code: recordops.CodeInvalidPrecondition}, wantStatus: 400, wantCode: "invalid_precondition"},
 		{name: "stale precondition", err: &recordops.Error{Code: recordops.CodePreconditionFailed, CurrentETag: `"pgb1.current"`}, wantStatus: 412, wantCode: "precondition_failed", wantETag: `"pgb1.current"`},
+		{name: "membership unavailable", err: &recordops.Error{Code: recordops.CodeUnavailable}, wantStatus: 503, wantCode: "record_unavailable", wantRetry: "1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -470,10 +472,51 @@ func TestRecordRoutesMapStableRecordOperationErrors(t *testing.T) {
 			request := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{}`, true)
 			request.Header.Set("If-Match", `"pgb1.stale"`)
 			response := serveRecordRequest(t, records, &fakeAdminAuth{authenticateAdmin: validSession().Administrator}, request)
-			if response.Code != test.wantStatus || response.Header().Get("ETag") != test.wantETag {
-				t.Fatalf("status=%d ETag=%q body=%s", response.Code, response.Header().Get("ETag"), response.Body.String())
+			if response.Code != test.wantStatus || response.Header().Get("ETag") != test.wantETag ||
+				response.Header().Get("Retry-After") != test.wantRetry {
+				t.Fatalf("status=%d ETag=%q Retry-After=%q body=%s", response.Code,
+					response.Header().Get("ETag"), response.Header().Get("Retry-After"), response.Body.String())
+			}
+			if response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
 			}
 			assertErrorCode(t, response.Body.Bytes(), test.wantCode)
+		})
+	}
+}
+
+func TestRecordMutationRoutesMapMembershipAvailability(t *testing.T) {
+	availability := &recordops.Error{Code: recordops.CodeUnavailable}
+	id := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		records *fakeRecordService
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/v1/collections/posts/records", body: `{}`,
+			records: &fakeRecordService{createErr: availability}},
+		{name: "update", method: http.MethodPatch, path: "/api/v1/collections/posts/records/" + id, body: `{}`,
+			records: &fakeRecordService{updateErr: availability}},
+		{name: "delete", method: http.MethodDelete, path: "/api/v1/collections/posts/records/" + id,
+			records: &fakeRecordService{deleteErr: availability}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := serveRecordRequest(t, test.records,
+				&fakeAdminAuth{authenticateAdmin: validSession().Administrator},
+				authenticatedRecordRequest(test.method, test.path, test.body, true))
+			if response.Code != http.StatusServiceUnavailable ||
+				response.Header().Get("Retry-After") != "1" ||
+				response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d Retry-After=%q Cache-Control=%q body=%s", response.Code,
+					response.Header().Get("Retry-After"), response.Header().Get("Cache-Control"), response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "record_unavailable")
+			if strings.Contains(response.Body.String(), "membership") || strings.Contains(response.Body.String(), "writer") {
+				t.Fatalf("membership state leaked through API: %s", response.Body.String())
+			}
 		})
 	}
 }

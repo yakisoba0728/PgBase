@@ -10,14 +10,23 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/membership"
 )
 
 // BenchmarkHotCollectionCreate is the fixed-concurrency comparison point for
 // the Release-A creation fence. Run it with a fixed GOMAXPROCS/-cpu value and
 // compare the same benchmark at the baseline and feature commits.
 func BenchmarkHotCollectionCreate(b *testing.B) {
-	_, _, _, records, principal := newRecordOperationsTestWithURL(b)
+	_, pool, schemas, _, principal := newRecordOperationsTestWithURL(b)
 	ctx := context.Background()
+	runtime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterA)
+	if err != nil {
+		b.Fatal(err)
+	}
+	records := NewServiceWithMembershipRuntime(
+		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
+	)
 	latencies := make([]int64, b.N)
 	var sequence atomic.Uint64
 
