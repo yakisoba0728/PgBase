@@ -44,33 +44,6 @@ func ReadRevision(ctx context.Context, tx pgx.Tx, collectionID, recordID uuid.UU
 	return version, validator, true, nil
 }
 
-func WriteRevision(
-	ctx context.Context,
-	tx pgx.Tx,
-	collectionID, recordID uuid.UUID,
-	previousVersion, newVersion int64,
-	validator []byte,
-	eventID uuid.UUID,
-) error {
-	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_revisions
-		(collection_id, record_id, version, validator, last_event_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5, transaction_timestamp())
-		ON CONFLICT (collection_id, record_id) DO UPDATE SET
-			version = EXCLUDED.version,
-			validator = EXCLUDED.validator,
-			last_event_id = EXCLUDED.last_event_id,
-			updated_at = EXCLUDED.updated_at
-		WHERE pgbase_meta.record_revisions.version = $6`,
-		collectionID, recordID, newVersion, validator, eventID, previousVersion)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return errors.New("record revision changed outside the transaction kernel")
-	}
-	return nil
-}
-
 func SchemaDigest(collection schema.Collection) ([32]byte, error) {
 	type digestRelation struct {
 		TargetCollectionID uuid.UUID                   `json:"targetCollectionId"`

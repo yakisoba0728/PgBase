@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -216,12 +217,20 @@ func (b *Bindings) replayHydrationStatement(fields []fieldBinding) string {
 }
 
 func (b *Bindings) replayRootColumns(alias string) []string {
+	return recordColumns(alias, b.sourceFields)
+}
+
+// recordColumns renders the base-record projection the record codec decodes.
+// Numeric columns are read as text because pgx's binary Numeric decoder drops
+// PostgreSQL's display scale for zero, which the lossless numeric string
+// contract must preserve.
+func recordColumns(alias string, fields []schema.Field) []string {
 	columns := []string{
 		relationQualified(alias, "id"),
 		relationQualified(alias, "created_at"),
 		relationQualified(alias, "updated_at"),
 	}
-	for _, field := range b.sourceFields {
+	for _, field := range fields {
 		if field.Type == schema.TypeRelation && field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple {
 			continue
 		}
@@ -232,6 +241,58 @@ func (b *Bindings) replayRootColumns(alias string) []string {
 		columns = append(columns, column)
 	}
 	return columns
+}
+
+// ReadRecords reads a bounded set of base rows for one collection in a single
+// ordered query. decode must consume the record projection above and return
+// the record it encodes; records come back in ascending id order, which is
+// stable regardless of how the caller ordered ids.
+func ReadRecords(
+	ctx context.Context,
+	querier RowsQuerier,
+	collection schema.Collection,
+	ids []uuid.UUID,
+	decode func(pgx.Row) (map[string]any, error),
+) ([]map[string]any, error) {
+	if querier == nil || decode == nil {
+		return nil, ErrInvalidBinding
+	}
+	unique := uniqueSortedUUIDs(ids)
+	if len(unique) != len(ids) {
+		return nil, ErrInvalidBinding
+	}
+	if len(unique) == 0 {
+		return nil, nil
+	}
+	fields := append([]schema.Field(nil), collection.Fields...)
+	sort.Slice(fields, func(left, right int) bool {
+		if fields[left].Ordinal != fields[right].Ordinal {
+			return fields[left].Ordinal < fields[right].Ordinal
+		}
+		return fields[left].Name < fields[right].Name
+	})
+	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
+	statement := "select " + strings.Join(recordColumns(collection.TableName, fields), ", ") +
+		" from " + table + " as " + pgx.Identifier{collection.TableName}.Sanitize() +
+		" where " + relationQualified(collection.TableName, "id") +
+		" = any($1::uuid[]) order by " + relationQualified(collection.TableName, "id")
+	rows, err := querier.Query(ctx, statement, unique)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	records := make([]map[string]any, 0, len(unique))
+	for rows.Next() {
+		record, decodeErr := decode(rows)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func relationQualified(alias, column string) string {

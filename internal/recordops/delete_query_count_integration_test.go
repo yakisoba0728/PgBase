@@ -5,6 +5,8 @@ package recordops
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -15,102 +17,157 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-const r0CascadeRecordCount = 64
-
 const (
-	r0DeleteIsolation      = "isolation"
-	r0DeleteAdvisory       = "advisory_lock"
-	r0DeleteReverseRead    = "reverse_read"
-	r0DeleteAffectedLock   = "affected_lock"
-	r0DeleteBaseRead       = "base_read"
-	r0DeleteRevisionRead   = "revision_read"
-	r0DeleteStorageUpdate  = "storage_update"
-	r0DeleteBaseDelete     = "base_delete"
-	r0DeleteAuditInsert    = "audit_insert"
-	r0DeleteRevisionDelete = "revision_delete"
-	r0DeleteOutboxInsert   = "outbox_insert"
+	cascadeDeleteIsolation      = "isolation"
+	cascadeDeleteAdvisory       = "advisory_lock"
+	cascadeDeleteReverseRead    = "reverse_read"
+	cascadeDeleteAffectedLock   = "affected_lock"
+	cascadeDeleteBaseRead       = "base_read"
+	cascadeDeleteRevisionRead   = "revision_read"
+	cascadeDeleteStorageUpdate  = "storage_update"
+	cascadeDeleteBaseDelete     = "base_delete"
+	cascadeDeleteAuditInsert    = "audit_insert"
+	cascadeDeleteRevisionDelete = "revision_delete"
+	cascadeDeleteOutboxInsert   = "outbox_insert"
 )
 
-type r0DeleteTraceContextKey struct{}
+type cascadeDeleteTraceContextKey struct{}
 
-type r0DeleteTraceMeasurement struct {
+type cascadeDeleteMeasurement struct {
 	statements map[string]int
 	rows       map[string]int64
 	total      int
 	unknown    []string
 }
 
-type r0DeleteTrace struct {
+type cascadeDeleteTrace struct {
 	enabled bool
-	r0DeleteTraceMeasurement
+	cascadeDeleteMeasurement
 }
 
-func (t *r0DeleteTrace) reset() {
+func (t *cascadeDeleteTrace) reset() {
 	t.enabled = true
-	t.r0DeleteTraceMeasurement = r0DeleteTraceMeasurement{
+	t.cascadeDeleteMeasurement = cascadeDeleteMeasurement{
 		statements: make(map[string]int),
 		rows:       make(map[string]int64),
 	}
 }
 
-func (t *r0DeleteTrace) stop() r0DeleteTraceMeasurement {
+func (t *cascadeDeleteTrace) stop() cascadeDeleteMeasurement {
 	t.enabled = false
-	return t.r0DeleteTraceMeasurement
+	return t.cascadeDeleteMeasurement
 }
 
-func (t *r0DeleteTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+func (t *cascadeDeleteTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if !t.enabled {
 		return ctx
 	}
 	statement := strings.Join(strings.Fields(strings.ToLower(data.SQL)), " ")
-	category := r0DeleteStatementCategory(statement)
+	category := cascadeDeleteStatementCategory(statement)
 	t.total++
 	if category == "" {
 		t.unknown = append(t.unknown, statement)
 		return ctx
 	}
 	t.statements[category]++
-	return context.WithValue(ctx, r0DeleteTraceContextKey{}, category)
+	return context.WithValue(ctx, cascadeDeleteTraceContextKey{}, category)
 }
 
-func (t *r0DeleteTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
-	category, _ := ctx.Value(r0DeleteTraceContextKey{}).(string)
+func (t *cascadeDeleteTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
+	category, _ := ctx.Value(cascadeDeleteTraceContextKey{}).(string)
 	if category != "" {
 		t.rows[category] += data.CommandTag.RowsAffected()
 	}
 }
 
-func r0DeleteStatementCategory(statement string) string {
+func cascadeDeleteStatementCategory(statement string) string {
 	switch {
 	case statement == "show transaction_isolation":
-		return r0DeleteIsolation
+		return cascadeDeleteIsolation
 	case strings.HasPrefix(statement, "select pg_advisory_xact_lock("):
-		return r0DeleteAdvisory
+		return cascadeDeleteAdvisory
 	case strings.HasPrefix(statement, `select id, "parent" from "app"."r0_cascade_scale" where "parent" = any`):
-		return r0DeleteReverseRead
+		return cascadeDeleteReverseRead
 	case strings.HasPrefix(statement, `select id from "app"."r0_cascade_scale" where id = any`) && strings.HasSuffix(statement, "for update"):
-		return r0DeleteAffectedLock
-	case strings.HasPrefix(statement, `select "id", "created_at", "updated_at", "name", "parent" from "app"."r0_cascade_scale" where "id" = $1`):
-		return r0DeleteBaseRead
-	case strings.HasPrefix(statement, "select version, validator from pgbase_meta.record_revisions"):
-		return r0DeleteRevisionRead
+		return cascadeDeleteAffectedLock
+	case strings.HasPrefix(statement, `select "r0_cascade_scale"."id", `) && strings.Contains(statement, `from "app"."r0_cascade_scale"`):
+		return cascadeDeleteBaseRead
+	case strings.HasPrefix(statement, "select record_id, version, validator from pgbase_meta.record_revisions"):
+		return cascadeDeleteRevisionRead
 	case strings.HasPrefix(statement, `update "app"."r0_cascade_scale" set "parent" = null where id = any`):
-		return r0DeleteStorageUpdate
-	case strings.HasPrefix(statement, `delete from "app"."r0_cascade_scale" where "id" = $1`):
-		return r0DeleteBaseDelete
+		return cascadeDeleteStorageUpdate
+	case strings.HasPrefix(statement, `delete from "app"."r0_cascade_scale" where id = any`):
+		return cascadeDeleteBaseDelete
 	case strings.HasPrefix(statement, "insert into pgbase_meta.record_audit_events"):
-		return r0DeleteAuditInsert
+		return cascadeDeleteAuditInsert
 	case strings.HasPrefix(statement, "delete from pgbase_meta.record_revisions"):
-		return r0DeleteRevisionDelete
+		return cascadeDeleteRevisionDelete
 	case strings.HasPrefix(statement, "insert into pgbase_meta.record_outbox"):
-		return r0DeleteOutboxInsert
+		return cascadeDeleteOutboxInsert
 	default:
 		return ""
 	}
 }
 
-func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *testing.T) {
-	databaseURL, _, schemas, records, principal := newRecordOperationsTestWithURL(t)
+// TestCascadeDeleteStatementCountIsBoundedByTheClosureShape pins the R6
+// contract: every read and write of a cascade closure is set-based per
+// collection, so the statement count is identical for a small and a large
+// closure while the affected-row counts still equal the record count the
+// per-record path reported.
+func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
+	small := measureCascadeDelete(t, 8)
+	large := measureCascadeDelete(t, 64)
+
+	wantStatements := map[string]int{
+		cascadeDeleteIsolation:      1,
+		cascadeDeleteAdvisory:       1,
+		cascadeDeleteReverseRead:    2,
+		cascadeDeleteAffectedLock:   1,
+		cascadeDeleteBaseRead:       1,
+		cascadeDeleteRevisionRead:   1,
+		cascadeDeleteStorageUpdate:  1,
+		cascadeDeleteBaseDelete:     1,
+		cascadeDeleteAuditInsert:    1,
+		cascadeDeleteRevisionDelete: 1,
+		cascadeDeleteOutboxInsert:   1,
+	}
+	wantTotal := 0
+	for _, count := range wantStatements {
+		wantTotal += count
+	}
+	for _, measured := range []struct {
+		name        string
+		recordCount int
+		measurement cascadeDeleteMeasurement
+	}{
+		{name: "8 records", recordCount: 8, measurement: small},
+		{name: "64 records", recordCount: 64, measurement: large},
+	} {
+		if !reflect.DeepEqual(measured.measurement.statements, wantStatements) {
+			t.Errorf("%s statements = %#v, want %#v", measured.name, measured.measurement.statements, wantStatements)
+		}
+		if measured.measurement.total != wantTotal {
+			t.Errorf("%s total statements = %d, want %d", measured.name, measured.measurement.total, wantTotal)
+		}
+		// The affected-row contract the per-record path published: one base
+		// row, one revision, one audit event and one outbox event per record.
+		for _, category := range []string{
+			cascadeDeleteBaseRead, cascadeDeleteRevisionRead, cascadeDeleteBaseDelete,
+			cascadeDeleteAuditInsert, cascadeDeleteRevisionDelete, cascadeDeleteOutboxInsert,
+		} {
+			if got := measured.measurement.rows[category]; got != int64(measured.recordCount) {
+				t.Errorf("%s %s rows = %d, want %d", measured.name, category, got, measured.recordCount)
+			}
+		}
+	}
+	if small.total != large.total {
+		t.Fatalf("statement count grew with record count: 8 records = %d, 64 records = %d", small.total, large.total)
+	}
+}
+
+func measureCascadeDelete(t *testing.T, recordCount int) cascadeDeleteMeasurement {
+	t.Helper()
+	databaseURL, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
 	ctx := context.Background()
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "r0_cascade_scale",
@@ -126,14 +183,14 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 		"name": json.RawMessage(`"root"`),
 	})
 	rootID := recordResultID(t, root)
-	for index := 1; index < r0CascadeRecordCount; index++ {
+	for index := 1; index < recordCount; index++ {
 		createDeleteRecord(t, ctx, records, principal, collection.Name, "r0-cascade-child-"+uuid.NewString(), map[string]json.RawMessage{
 			"name":   json.RawMessage(`"child"`),
 			"parent": relationUUIDJSON(rootID),
 		})
 	}
 
-	trace := &r0DeleteTrace{}
+	trace := &cascadeDeleteTrace{}
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -170,8 +227,9 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	requestID := fmt.Sprintf("r0-cascade-%06d", recordCount)
 	request := DeleteRequest{
-		Principal: principal, RequestID: "r0-cascade-delete", Collection: collection.Name, ID: rootID,
+		Principal: principal, RequestID: requestID, Collection: collection.Name, ID: rootID,
 	}
 	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	result, err := records.deleteGraphInTransaction(
@@ -188,34 +246,21 @@ func TestCascadeDeleteCurrentlyExecutesSixStatementsPerRecordPlusSixFixed(t *tes
 	if result.EventID != eventID || result.Compatibility != CompatibilityLastWriteWins {
 		t.Fatalf("delete result = %#v, want event %s and missing-if-match compatibility", result, eventID)
 	}
-
 	if len(measurement.unknown) != 0 {
 		sort.Strings(measurement.unknown)
 		t.Fatalf("unclassified delete statements (%d):\n%s", len(measurement.unknown), strings.Join(measurement.unknown, "\n"))
 	}
-	wantTotal := 6*r0CascadeRecordCount + 6
-	if measurement.total != wantTotal {
-		t.Fatalf("delete statements = %d, want 6N+6 = %d", measurement.total, wantTotal)
+
+	// The root event must stay first in the audit sequence and every derived
+	// event must follow it exactly once, as the per-record path guaranteed.
+	events := readDeleteRequestArtifacts(t, ctx, pool, requestID)
+	if len(events) != recordCount {
+		t.Fatalf("audit events = %d, want %d", len(events), recordCount)
 	}
-	for _, category := range []string{
-		r0DeleteBaseRead, r0DeleteRevisionRead, r0DeleteBaseDelete,
-		r0DeleteAuditInsert, r0DeleteRevisionDelete, r0DeleteOutboxInsert,
-	} {
-		if measurement.statements[category] != r0CascadeRecordCount || measurement.rows[category] != r0CascadeRecordCount {
-			t.Errorf("%s statements/rows = %d/%d, want %d/%d",
-				category, measurement.statements[category], measurement.rows[category], r0CascadeRecordCount, r0CascadeRecordCount)
+	for index, event := range events {
+		if event.operation != "delete" || event.newVersion != event.previousVersion+1 {
+			t.Fatalf("audit event %d = %#v", index, event)
 		}
 	}
-	wantFixed := map[string]int{
-		r0DeleteIsolation:     1,
-		r0DeleteAdvisory:      1,
-		r0DeleteReverseRead:   2,
-		r0DeleteAffectedLock:  1,
-		r0DeleteStorageUpdate: 1,
-	}
-	for category, count := range wantFixed {
-		if measurement.statements[category] != count {
-			t.Errorf("fixed %s statements = %d, want %d", category, measurement.statements[category], count)
-		}
-	}
+	return measurement
 }
