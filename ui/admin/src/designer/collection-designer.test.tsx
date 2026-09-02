@@ -985,6 +985,89 @@ describe("CollectionDesigner operation recovery", () => {
     await act(async () => application.settle({ value: { status: "unknown" } }));
   });
 
+  it("does not let one tab erase a later operation pending on the same route", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    const second = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    await ready(second.result);
+
+    plan(first.script, "first");
+    plan(second.script, "second");
+    const firstApplication = deferredStep<ScriptedApply | undefined>();
+    const secondApplication = deferredStep<ScriptedApply | undefined>();
+    first.script.apply.push(firstApplication.step);
+    second.script.apply.push(secondApplication.step);
+
+    act(() => first.result.current.requestPreview());
+    act(() => second.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    await waitFor(() => expect(second.result.current.preview).not.toBeNull());
+
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(callsTo(first.script, "apply")).toHaveLength(1));
+    act(() => second.result.current.requestApply());
+    await waitFor(() => expect(callsTo(second.script, "apply")).toHaveLength(1));
+    const firstOperation = String(callsTo(first.script, "apply")[0].detail.operationId);
+    const secondOperation = String(callsTo(second.script, "apply")[0].detail.operationId);
+    const stored = () => Array.from({ length: localStorage.length }, (_, index) =>
+      localStorage.getItem(localStorage.key(index) ?? "") ?? "").join("\n");
+    expect(localStorage).toHaveLength(2);
+    expect(stored()).toContain(firstOperation);
+    expect(stored()).toContain(secondOperation);
+
+    await act(async () => firstApplication.settle({ value: undefined }));
+
+    expect(localStorage).toHaveLength(1);
+    expect(stored()).not.toContain(firstOperation);
+    expect(stored()).toContain(secondOperation);
+    await act(async () => secondApplication.settle({ value: { status: "unknown" } }));
+
+    first.unmount();
+    second.unmount();
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    reloaded.script.operation.push({ value: operationReceipt("running") });
+    await ready(reloaded.result);
+    await waitFor(() => expect(reloaded.result.current.recovery?.operationId).toBe(secondOperation));
+    expect(reloaded.result.current.editingBlocked).toBe(true);
+  });
+
+  it("advances from a restored failed operation to the next pending tab", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    const second = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    await ready(second.result);
+    plan(first.script, "first");
+    plan(second.script, "second");
+    const firstApplication = deferredStep<ScriptedApply | undefined>();
+    const secondApplication = deferredStep<ScriptedApply | undefined>();
+    first.script.apply.push(firstApplication.step);
+    second.script.apply.push(secondApplication.step);
+    act(() => first.result.current.requestPreview());
+    act(() => second.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    await waitFor(() => expect(second.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    act(() => second.result.current.requestApply());
+    await waitFor(() => expect(localStorage).toHaveLength(2));
+
+    const pending = Array.from({ length: localStorage.length }, (_, index) =>
+      JSON.parse(localStorage.getItem(localStorage.key(index) ?? "") ?? "{}") as { operationId: string; expiresAt: number })
+      .sort((left, right) => left.expiresAt - right.expiresAt || left.operationId.localeCompare(right.operationId));
+    first.unmount();
+    second.unmount();
+
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    reloaded.script.operation.push({ value: operationReceipt("failed") }, { value: operationReceipt("running") });
+    await ready(reloaded.result);
+    await waitFor(() => expect(reloaded.result.current.recovery?.operationId).toBe(pending[1].operationId));
+    expect(reloaded.result.current.recovery?.undecided).toBe(true);
+    expect(reloaded.result.current.editingBlocked).toBe(true);
+    expect(localStorage).toHaveLength(1);
+
+    await act(async () => firstApplication.settle({ value: { status: "unknown" } }));
+    await act(async () => secondApplication.settle({ value: { status: "unknown" } }));
+  });
+
   it("abandons a receipt only after the maximum server apply window has passed", async () => {
     const first = open({ kind: "edit", collection: "posts" });
     await ready(first.result);

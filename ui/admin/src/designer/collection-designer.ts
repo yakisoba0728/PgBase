@@ -27,8 +27,7 @@ export interface DraftField {
   name: string; type: FieldType;
   required: boolean; unique: boolean; indexed: boolean;
   hasDefault: boolean; defaultText: string; relation?: DraftRelation;
-  // Tracks an explicit "(self)" choice; inferring it from names would retarget
-  // a relation when a half-typed name happens to equal another collection.
+  // Keeps an explicit self choice from being inferred from a half-typed name.
   selfRelation?: boolean;
 }
 
@@ -244,8 +243,7 @@ function schemaMessage(error: unknown, fallback: string, validationFallback = "C
   return fallback;
 }
 
-// The draft as it stood when the server last agreed with it. Comparing the
-// whole draft is what makes an untouched form leave without a question.
+// The whole last-agreed draft distinguishes an untouched form.
 const draftSignature = (name: string, fields: DraftField[]): string => stringifyJSON({ name, fields });
 
 interface State {
@@ -257,31 +255,37 @@ interface State {
   pristine: string; undecided: UndecidedApply | null; terminal: boolean;
 }
 type UndecidedApply = { kind: "change" | "drop"; operationId: string; draft: string | null; expiresAt: number };
-// No apply can outlive the server's one-hour configuration ceiling. The margin
-// lets its transaction and reconciliation settle before an absent receipt is abandoned.
+// A server apply can run for one hour; five extra minutes allow transaction/reconciliation settlement.
 const recoverabilityWindowMs = 65 * 60 * 1000;
 const recoverabilityText = "Unable to use browser storage safely for this operation. Restore it and reload before applying.";
 const operationIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const pendingKey = (administratorId: string, route: string) => `pgbase.schema-operation.v1.${administratorId}.${encodeURIComponent(route)}`;
+const legacyPendingKey = (administratorId: string, route: string) => `pgbase.schema-operation.v1.${administratorId}.${encodeURIComponent(route)}`;
+const pendingPrefix = (administratorId: string, route: string) => `pgbase.schema-operation.v2.${administratorId}.${encodeURIComponent(route)}.`;
+const pendingKey = (administratorId: string, route: string, operationId: string) => `${pendingPrefix(administratorId, route)}${operationId}`;
 function storedPending(administratorId: string, route: string): UndecidedApply | null | false {
   try {
-    const key = pendingKey(administratorId, route);
-    const raw = localStorage.getItem(key); if (raw === null) return null;
-    const value = parseJSON(raw) as Partial<UndecidedApply> | null;
-    if ((value?.kind !== "change" && value?.kind !== "drop") || typeof value.operationId !== "string" || !operationIDPattern.test(value.operationId) ||
-      typeof value.expiresAt !== "number" || !Number.isSafeInteger(value.expiresAt) || value.expiresAt > Date.now() + recoverabilityWindowMs) return false;
-    if (value.expiresAt <= Date.now()) { localStorage.removeItem(key); return null; }
-    return { kind: value.kind, operationId: value.operationId, expiresAt: value.expiresAt, draft: null };
+    const prefix = pendingPrefix(administratorId, route), legacyKey = legacyPendingKey(administratorId, route);
+    const keys = [legacyKey, ...Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter((key): key is string => key?.startsWith(prefix) === true)];
+    const candidates: UndecidedApply[] = [], now = Date.now();
+    for (const key of new Set(keys)) {
+      const raw = localStorage.getItem(key); if (raw === null) continue; const value = parseJSON(raw) as Partial<UndecidedApply> | null;
+      if ((value?.kind !== "change" && value?.kind !== "drop") || typeof value.operationId !== "string" || !operationIDPattern.test(value.operationId) ||
+        typeof value.expiresAt !== "number" || !Number.isSafeInteger(value.expiresAt) || value.expiresAt > now + recoverabilityWindowMs ||
+        (key !== legacyKey && key !== pendingKey(administratorId, route, value.operationId))) return false;
+      if (value.expiresAt <= now) localStorage.removeItem(key); else candidates.push({ kind: value.kind, operationId: value.operationId, expiresAt: value.expiresAt, draft: null });
+    }
+    candidates.sort((left, right) => left.expiresAt - right.expiresAt || left.operationId.localeCompare(right.operationId)); return candidates[0] ?? null;
   } catch { return false; }
 }
 function rememberPending(administratorId: string, route: string, pending: UndecidedApply): boolean {
-  try { localStorage.setItem(pendingKey(administratorId, route), stringifyJSON({
-    kind: pending.kind, operationId: pending.operationId, expiresAt: pending.expiresAt,
-  })); return true; } catch { return false; }
+  try { const key = pendingKey(administratorId, route, pending.operationId), value = stringifyJSON({ kind: pending.kind, operationId: pending.operationId, expiresAt: pending.expiresAt });
+    localStorage.setItem(key, value); return localStorage.getItem(key) === value; } catch { return false; }
 }
-function forgetPending(administratorId: string | null, route: string): boolean {
+function forgetPending(administratorId: string | null, route: string, operationId: string): boolean {
   if (administratorId === null) return false;
-  try { localStorage.removeItem(pendingKey(administratorId, route)); return true; } catch { return false; }
+  try { localStorage.removeItem(pendingKey(administratorId, route, operationId)); const legacyKey = legacyPendingKey(administratorId, route), legacy = localStorage.getItem(legacyKey);
+    if (legacy !== null && (parseJSON(legacy) as Partial<UndecidedApply> | null)?.operationId === operationId) localStorage.removeItem(legacyKey);
+    return true; } catch { return false; }
 }
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
@@ -334,7 +338,6 @@ export interface CollectionDesigner {
   applyBlocked: boolean; editingBlocked: boolean; pending: boolean; error: string | null;
   deleteTarget: DeleteTarget | null; deleteConfirmText: string; deleteConfirmed: boolean;
   deletePending: boolean; deleteError: string | null;
-  // An unsettled ledger outcome is neither applied nor failed.
   recovery: OperationRecovery | null;
   rename(name: string): void; editField(index: number, edit: DraftEdit): void; addField(): void; removeField(index: number): void;
   confirmDestructive(confirmed: boolean): void; confirmDeleteName(typed: string): void; requestPreview(): void; requestApply(): void;
@@ -432,7 +435,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   useEffect(() => {
     if (undecided === null || recovery?.status === "committed" || recovery?.status === "failed") return;
-    const expire = () => { if (forgetPending(administratorId, identity)) update(identity, { undecided: null, plan: null, confirmed: false, deletePlan: null, deleteConfirmText: "" }); };
+    const expire = () => { if (forgetPending(administratorId, identity, undecided.operationId)) update(identity, { undecided: null, plan: null, confirmed: false, deletePlan: null, deleteConfirmText: "" }); };
     const delay = undecided.expiresAt - Date.now();
     if (delay <= 0) { expire(); return; }
     const timer = window.setTimeout(expire, delay);
@@ -440,14 +443,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   }, [administratorId, identity, recovery?.status, undecided, update]);
 
   useEffect(() => {
-    if (recovery?.status === "failed") forgetPending(administratorId, identity);
+    if (recovery?.status === "failed" && undecided !== null && forgetPending(administratorId, identity, undecided.operationId) && state.undecided === null) update(identity, { undecided: null });
     if (recovered === null) return;
-    forgetPending(administratorId, identity);
+    forgetPending(administratorId, identity, recovered.operationId);
     if (recovered.draft !== null && signature === recovered.draft) savedDraft();
     navigate(recovered.kind === "drop" || state.create
       ? { kind: "collections" }
       : { kind: "records", collection: state.definition?.name ?? state.name });
-  }, [administratorId, identity, navigate, recovered, recovery?.status, savedDraft, signature, state.create, state.definition?.name, state.name]);
+  }, [administratorId, identity, navigate, recovered, recovery?.status, savedDraft, signature, state.create, state.definition?.name, state.name, state.undecided, update]);
 
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
@@ -493,11 +496,9 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     }
     try {
       const outcome = await schema.apply(preview, attempt.current);
-      if (outcome.kind === "applied") forgetPending(administratorId, identity);
+      if (outcome.kind === "applied") forgetPending(administratorId, identity, pending.operationId);
       if (!active()) return;
-      // Stay until the ledger decides an ambiguous outcome.
       if (outcome.kind === "undecided") { update(identity, { undecided: pending }); return; }
-      // Rebase edit warnings on the collection produced by the sent draft.
       const outran = live.current !== signature;
       const catalog = !state.create && outcome.definition !== undefined
         ? new CollectionCatalog(preview.baseVersion + 1, state.catalog?.all().map((collection) => collection.name === state.definition?.name ? outcome.definition! : collection) ?? [outcome.definition])
@@ -509,13 +510,12 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
         terminal: state.create || outcome.definition === undefined,
         error: outran ? (state.create ? createdText : appliedText) : null,
       });
-      // Keep an outrunning draft only when the response supplies its new baseline;
-      // otherwise navigate through the departure guard rather than edit stale data.
+      // Only a response-supplied baseline can keep an outrunning edit draft.
       if (outran && !state.create && outcome.definition !== undefined) return;
       if (!outran) savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
-      forgetPending(administratorId, identity);
+      forgetPending(administratorId, identity, pending.operationId);
       update(identity, applyFailure(caught, state.create));
     } finally {
       update(identity, { pending: false });
@@ -554,14 +554,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     }
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
-      if (outcome.kind === "applied") forgetPending(administratorId, identity);
+      if (outcome.kind === "applied") forgetPending(administratorId, identity, pending.operationId);
       if (!active()) return;
       if (outcome.kind === "undecided") { update(identity, { undecided: pending }); return; }
       update(identity, { terminal: true, deletePlan: null, deleteConfirmText: "" });
       if (live.current === signature) savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
-      forgetPending(administratorId, identity);
+      forgetPending(administratorId, identity, pending.operationId);
       update(identity, deleteFailure(caught));
     } finally {
       update(identity, { deletePending: false });
