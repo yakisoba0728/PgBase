@@ -17,6 +17,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestSecuritySetupCannotBeReused(t *testing.T) {
@@ -116,6 +117,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create records collection: %v", err)
 	}
+	testutil.RetireRecordMembershipV4(t, context.Background(), pool)
 	records := recordops.NewService(pool, schemas, testTokenSecret)
 	codec := cursor.NewCodec(testTokenSecret)
 	valid, err := codec.Encode(cursor.Page{

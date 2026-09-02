@@ -213,6 +213,7 @@ func TestRelationSortBudgetCoversDottedPathsOnlyAt100001(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		syncMembershipOrdinals(t, ctx, pool)
 	}
 	insertRange(1, maximumRelationSortRootRows)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}

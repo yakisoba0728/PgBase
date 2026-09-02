@@ -22,6 +22,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestRecordOperationsLegacyPromotionPreconditionsAndAtomicArtifacts(t *testing.T) {
@@ -507,6 +508,7 @@ func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 
 	recorder := &relationTelemetryRecorder{}
 	records := NewServiceWithRecorder(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, recorder)
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	for _, test := range []struct {
 		sort      string
 		wantError bool
@@ -579,6 +581,7 @@ func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T)
 		want = append(want, recordResultID(t, result).String())
 	}
 	sort.Strings(want)
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 
 	// sort=owner drives the relation list kernel; adding expand drives the
 	// expansion reader. Both must trim the same way.

@@ -14,7 +14,10 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-func TestCursorLifetimeUsesPostgresTimeAcrossV5Drain(t *testing.T) {
+// A cursor's absolute lifetime is measured against the PostgreSQL clock the
+// issuing transaction saw, never against this process's own clock, so a fleet
+// whose nodes disagree about the time cannot lengthen or shorten a traversal.
+func TestCursorLifetimeUsesPostgresTime(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
@@ -34,18 +37,15 @@ func TestCursorLifetimeUsesPostgresTimeAcrossV5Drain(t *testing.T) {
 		}
 		ids = append(ids, uuid.MustParse(record["id"].(string)))
 	}
+	if len(ids) != 2 {
+		t.Fatalf("fixture records = %d, want 2", len(ids))
+	}
 	catalog, err := schemas.Catalog(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_database_clock_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
-	if _, err := pool.Exec(ctx, `update pgbase_meta.record_membership_capability set
-		cutover_at = clock_timestamp() - interval '2 minutes',
-		ready_at = clock_timestamp() - interval '1 minute',
-		updated_at = clock_timestamp() where singleton`); err != nil {
-		t.Fatal(err)
-	}
+	syncMembershipOrdinals(t, ctx, pool)
 
 	var beforeIssue time.Time
 	if err := pool.QueryRow(ctx, `select clock_timestamp()`).Scan(&beforeIssue); err != nil {
@@ -60,40 +60,28 @@ func TestCursorLifetimeUsesPostgresTimeAcrossV5Drain(t *testing.T) {
 	if first.NextCursor == "" {
 		t.Fatal("first page did not issue a cursor")
 	}
-
-	controller := membership.New(pool)
-	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
-	if err != nil {
-		t.Fatalf("RegisterWriter(B): %v", err)
-	}
-	activation, err := controller.EnableV5(ctx, membership.FleetProof{
-		Members: []membership.FleetMember{runtimeB.FleetMember()},
-	})
-	if err != nil {
-		t.Fatalf("EnableV5: %v", err)
+	var afterIssue time.Time
+	if err := pool.QueryRow(ctx, `select clock_timestamp()`).Scan(&afterIssue); err != nil {
+		t.Fatal(err)
 	}
 
-	issued, err := records.cursors.Decode(first.NextCursor, collection.ID, activation.EnabledAt)
+	issued, err := records.cursors.Decode(first.NextCursor, collection.ID, beforeIssue)
 	if err != nil {
-		t.Fatalf("Decode(pre-activation v4 cursor): %v", err)
+		t.Fatalf("Decode(issued cursor): %v", err)
 	}
-	if issued.Version != cursor.Version4 {
-		t.Fatalf("pre-activation cursor version = %d, want 4", issued.Version)
+	if issued.Version != cursor.Version5 {
+		t.Fatalf("issued cursor version = %d, want 5", issued.Version)
 	}
 	issuedAt := issued.ExpiresAt.Add(-membership.CursorTTL)
-	if issuedAt.Before(beforeIssue.UTC()) || issuedAt.After(activation.EnabledAt) {
+	if issuedAt.Before(beforeIssue.UTC()) || issuedAt.After(afterIssue.UTC()) {
 		t.Fatalf("cursor issue time = %s, want PostgreSQL time in [%s, %s]",
-			issuedAt, beforeIssue.UTC(), activation.EnabledAt)
-	}
-	if issued.ExpiresAt.After(activation.DecodeV4Until) {
-		t.Fatalf("v4 cursor expiry = %s, beyond absolute drain deadline %s",
-			issued.ExpiresAt, activation.DecodeV4Until)
+			issuedAt, beforeIssue.UTC(), afterIssue.UTC())
 	}
 
-	issued.ExpiresAt = activation.EnabledAt.Add(-time.Microsecond)
+	issued.ExpiresAt = beforeIssue.UTC().Add(-time.Microsecond)
 	expired, err := records.cursors.Encode(issued)
 	if err != nil {
-		t.Fatalf("Encode(expired v4 cursor fixture): %v", err)
+		t.Fatalf("Encode(expired cursor fixture): %v", err)
 	}
 	if _, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Cursor: expired, Limit: 1, Sort: "title",

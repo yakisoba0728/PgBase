@@ -67,6 +67,7 @@ func TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount(t *testing.T
 	seedQueryCountScalarFixture(t, ctx, pool, schemas, 64)
 	seedQueryCountMultiFixture(t, ctx, pool, schemas, 64)
 	createExpandGraph(t, ctx, pool, schemas, records, 40)
+	syncMembershipOrdinals(t, ctx, pool)
 
 	t.Run("plain scalar stays at one root query plus traversal resolution", func(t *testing.T) {
 		one := measureUnifiedListQueries(t, databaseURL, schemas, records, ListRequest{

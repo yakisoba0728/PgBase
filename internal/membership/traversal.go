@@ -90,6 +90,13 @@ from collection_state`
 // a query transaction. The schema pin, installation/history validation,
 // capability read, collection high-water, and PostgreSQL transaction time are
 // deliberately acquired by one dependency-ordered statement.
+//
+// It also fails closed on a database that has not retired cursor v4, the same
+// way Release B fails closed on a history it was not built for. This binary
+// neither issues nor decodes v4, and only retirement makes issuance version 5
+// permanent: while v4_retired_at is null the capability can still be rolled
+// back to issuing v4, and there would then be no cursor this binary could mint
+// for a page that has more results.
 func ResolveTraversal(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -141,7 +148,7 @@ func ResolveTraversal(
 	if present != 5 || historyCount < 7 || historyCount > int64(len(versions)) || !historyMatches ||
 		transactionTime.IsZero() || !validTraversalStatus(status) ||
 		counterGeneration != status.Generation || lastOrdinal < 0 ||
-		(status.State == StateOff && lastOrdinal != 0) || status.State == StateCutover {
+		status.V4RetiredAt == nil || status.State != StateReady || status.CursorIssueVersion != 5 {
 		return Traversal{}, traversalUnavailable(ErrInvalidState)
 	}
 	return Traversal{
@@ -149,8 +156,8 @@ func ResolveTraversal(
 		Generation:      status.Generation,
 		HighWater:       lastOrdinal,
 		IssueVersion:    status.CursorIssueVersion,
-		V4Retired:       status.V4RetiredAt != nil,
-		ready:           status.State == StateReady,
+		V4Retired:       true,
+		ready:           true,
 		state:           status.State,
 	}, nil
 }

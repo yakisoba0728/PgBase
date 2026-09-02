@@ -17,8 +17,11 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
-func TestResolveTraversalReturnsOffStateFromOneStatement(t *testing.T) {
+func TestResolveTraversalReadsTheRetiredBoundaryFromOneStatement(t *testing.T) {
 	fixture := newTraversalFixture(t)
+	fixture.enterDualWrite(t, 5)
+	fixture.enterReady(t)
+	fixture.enterRetired(t)
 	trace := &writerValidationTrace{}
 	config, err := pgx.ParseConfig(fixture.databaseURL)
 	if err != nil {
@@ -66,9 +69,9 @@ func TestResolveTraversalReturnsOffStateFromOneStatement(t *testing.T) {
 			t.Fatalf("single traversal statement unexpectedly locks membership rows with %q: %s", forbidden, statement)
 		}
 	}
-	if traversal.state != StateOff || traversal.Generation != 0 || traversal.HighWater != 0 ||
-		traversal.IssueVersion != 4 || traversal.V4Retired || traversal.ready {
-		t.Fatalf("off traversal = %#v", traversal)
+	if traversal.state != StateReady || traversal.Generation != 1 || traversal.HighWater != 5 ||
+		traversal.IssueVersion != 5 || !traversal.V4Retired || !traversal.ready {
+		t.Fatalf("retired traversal = %#v", traversal)
 	}
 	if traversal.TransactionTime.IsZero() || traversal.TransactionTime.Location() != time.UTC {
 		t.Fatalf("transaction time = %#v, want non-zero UTC", traversal.TransactionTime)
@@ -83,33 +86,24 @@ func TestResolveTraversalReturnsOffStateFromOneStatement(t *testing.T) {
 	}
 }
 
-func TestResolveTraversalTracksRolloutAndKeepsV5ContinuationAfterDisable(t *testing.T) {
+// This binary can neither issue nor decode a v4 cursor, so every rollout state
+// short of the retired terminal one is a database it cannot page at all. It
+// fails those closed rather than serving a first page it could not continue.
+func TestResolveTraversalAdmitsOnlyTheRetiredBoundary(t *testing.T) {
 	fixture := newTraversalFixture(t)
-	fixture.enterDualWrite(t, 5)
+	_, err := fixture.resolve(t)
+	assertTraversalUnavailable(t, err)
 
-	dual, err := fixture.resolve(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dual.state != StateDualWrite || dual.IssueVersion != 4 || dual.Generation != 1 ||
-		dual.HighWater != 5 || dual.ready || dual.V4Retired {
-		t.Fatalf("dual-write traversal = %#v", dual)
-	}
-	if err := dual.ValidateV5(1, 5); !errors.Is(err, ErrTraversalInvalid) {
-		t.Fatalf("dual-write ValidateV5() = %v, want ErrTraversalInvalid", err)
-	}
+	fixture.enterDualWrite(t, 5)
+	_, err = fixture.resolve(t)
+	assertTraversalUnavailable(t, err)
 
 	fixture.enterReady(t)
-	readyV4, err := fixture.resolve(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if readyV4.state != StateReady || readyV4.IssueVersion != 4 || !readyV4.ready {
-		t.Fatalf("ready v4 traversal = %#v", readyV4)
-	}
+	_, err = fixture.resolve(t)
+	assertTraversalUnavailable(t, err)
 
 	service := New(fixture.pool)
-	runtime, err := RegisterWriter(fixture.ctx, service, WriterB)
+	runtime, err := RegisterWriter(fixture.ctx, service, WriterC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,40 +111,11 @@ func TestResolveTraversalTracksRolloutAndKeepsV5ContinuationAfterDisable(t *test
 	if _, err := service.EnableV5(fixture.ctx, proof); err != nil {
 		t.Fatal(err)
 	}
-	readyV5, err := fixture.resolve(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if readyV5.state != StateReady || readyV5.IssueVersion != 5 || !readyV5.ready ||
-		readyV5.Generation != 1 || readyV5.HighWater != 5 || readyV5.V4Retired {
-		t.Fatalf("ready v5 traversal = %#v", readyV5)
-	}
-	if err := readyV5.ValidateV5(1, 5); err != nil {
-		t.Fatalf("ready v5 continuation: %v", err)
-	}
+	// v5 issuance alone is not enough: DisableV5 can still take it back to 4,
+	// so the boundary is not yet one this binary can commit to.
+	_, err = fixture.resolve(t)
+	assertTraversalUnavailable(t, err)
 
-	if _, err := fixture.pool.Exec(fixture.ctx, `update pgbase_meta.collection_creation_counters
-		set last_ordinal = 7, updated_at = clock_timestamp() where collection_id = $1`,
-		fixture.collectionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.DisableV5(fixture.ctx); err != nil {
-		t.Fatal(err)
-	}
-	disabled, err := fixture.resolve(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if disabled.IssueVersion != 4 || disabled.HighWater != 7 || !disabled.ready {
-		t.Fatalf("disabled traversal = %#v", disabled)
-	}
-	if err := disabled.ValidateV5(1, 5); err != nil {
-		t.Fatalf("v5 continuation after DisableV5: %v", err)
-	}
-
-	if _, err := service.EnableV5(fixture.ctx, proof); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := fixture.pool.Exec(fixture.ctx, `update pgbase_meta.record_membership_capability set
 		cutover_at = clock_timestamp() - interval '4 minutes',
 		ready_at = clock_timestamp() - interval '3 minutes',
@@ -164,13 +129,17 @@ func TestResolveTraversalTracksRolloutAndKeepsV5ContinuationAfterDisable(t *test
 	}
 	retired, err := fixture.resolve(t)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("retired traversal rejected: %v", err)
 	}
-	if retired.IssueVersion != 5 || !retired.V4Retired || !retired.ready {
+	if retired.IssueVersion != 5 || !retired.V4Retired || !retired.ready ||
+		retired.Generation != 1 || retired.HighWater != 5 {
 		t.Fatalf("retired traversal = %#v", retired)
 	}
 	if err := retired.ValidateV5(1, 5); err != nil {
 		t.Fatalf("v5 continuation after v4 retirement: %v", err)
+	}
+	if _, err := service.DisableV5(fixture.ctx); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("DisableV5 after retirement = %v, want an invalid state", err)
 	}
 }
 
@@ -408,6 +377,9 @@ func TestResolveTraversalMapsDatabaseErrorsToUnavailable(t *testing.T) {
 
 func TestResolveTraversalPinsSchemaWithoutLockingCapabilityOrCounterRows(t *testing.T) {
 	fixture := newTraversalFixture(t)
+	fixture.enterDualWrite(t, 5)
+	fixture.enterReady(t)
+	fixture.enterRetired(t)
 	connection, err := fixture.pool.Acquire(fixture.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -594,6 +566,11 @@ func (f traversalFixture) enterReady(t *testing.T) {
 	}
 }
 
+func (f traversalFixture) enterRetired(t *testing.T) {
+	t.Helper()
+	testutil.RetireRecordMembershipCapability(t, f.ctx, f.pool)
+}
+
 func assertTraversalUnavailable(t *testing.T, err error) {
 	t.Helper()
 	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrTraversalInvalid) {
@@ -641,6 +618,7 @@ func TestResolveTraversalAcceptsCollectionAddedDuringBackfillWindow(t *testing.T
 			cutoverCount, readyCount)
 	}
 
+	testutil.RetireRecordMembershipCapability(t, fixture.ctx, fixture.pool)
 	for _, collectionID := range []uuid.UUID{fixture.collectionID, addedID} {
 		var traversal Traversal
 		if err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -650,9 +628,9 @@ func TestResolveTraversalAcceptsCollectionAddedDuringBackfillWindow(t *testing.T
 		}); err != nil {
 			t.Fatalf("ResolveTraversal(%s) error = %v, want a usable ready traversal", collectionID, err)
 		}
-		if traversal.IssueVersion != 4 {
-			t.Fatalf("ResolveTraversal(%s) issue version = %d, want 4 before v5 is enabled",
-				collectionID, traversal.IssueVersion)
+		if traversal.IssueVersion != 5 || !traversal.V4Retired {
+			t.Fatalf("ResolveTraversal(%s) traversal = %#v, want the retired boundary",
+				collectionID, traversal)
 		}
 	}
 }
