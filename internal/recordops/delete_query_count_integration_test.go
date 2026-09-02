@@ -29,6 +29,9 @@ const (
 	cascadeDeleteAuditInsert    = "audit_insert"
 	cascadeDeleteRevisionDelete = "revision_delete"
 	cascadeDeleteOutboxInsert   = "outbox_insert"
+	cascadeDeleteMemberTables   = "membership_tables"
+	cascadeDeleteMemberBaseRead = "membership_base_read"
+	cascadeDeleteMemberDelete   = "membership_ordinal_delete"
 )
 
 type cascadeDeleteTraceContextKey struct{}
@@ -104,6 +107,12 @@ func cascadeDeleteStatementCategory(statement string) string {
 		return cascadeDeleteRevisionDelete
 	case strings.HasPrefix(statement, "insert into pgbase_meta.record_outbox"):
 		return cascadeDeleteOutboxInsert
+	case strings.HasPrefix(statement, "select id, table_name from pgbase_meta.collections"):
+		return cascadeDeleteMemberTables
+	case strings.HasPrefix(statement, `select exists ( select 1 from "app"."r0_cascade_scale"`):
+		return cascadeDeleteMemberBaseRead
+	case strings.HasPrefix(statement, "delete from pgbase_meta.record_creation_ordinals"):
+		return cascadeDeleteMemberDelete
 	default:
 		return ""
 	}
@@ -130,6 +139,12 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 		cascadeDeleteAuditInsert:    1,
 		cascadeDeleteRevisionDelete: 1,
 		cascadeDeleteOutboxInsert:   1,
+		// A fresh install starts with membership already retired, so the
+		// sidecar removal is part of every cascade. It is set-based per
+		// collection like the rest of the closure.
+		cascadeDeleteMemberTables:   1,
+		cascadeDeleteMemberBaseRead: 1,
+		cascadeDeleteMemberDelete:   1,
 	}
 	wantTotal := 0
 	for _, count := range wantStatements {
@@ -154,6 +169,7 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 		for _, category := range []string{
 			cascadeDeleteBaseRead, cascadeDeleteRevisionRead, cascadeDeleteBaseDelete,
 			cascadeDeleteAuditInsert, cascadeDeleteRevisionDelete, cascadeDeleteOutboxInsert,
+			cascadeDeleteMemberDelete,
 		} {
 			if got := measured.measurement.rows[category]; got != int64(measured.recordCount) {
 				t.Errorf("%s %s rows = %d, want %d", measured.name, category, got, measured.recordCount)
