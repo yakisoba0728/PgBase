@@ -23,6 +23,7 @@ type Dependencies struct {
 	PublicURL          *url.URL
 	TrustedProxies     []netip.Prefix
 	System             SystemStatusProvider
+	SchemaHealth       SchemaHealthProvider
 	AdminUI            http.Handler
 	Metrics            *observability.Metrics
 	// MetricsExposition is the already-authenticated exposition handler. The
@@ -83,6 +84,12 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
 		{method: "GET", pattern: "/api/admin/system", access: accessAdminBearer,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: systemStatus(dependencies.System)},
+		// The diagnostic report describes the operator's own schema, so it is
+		// the one read that refuses a cross-origin caller outright instead of
+		// relying on the deployment having configured no CORS allowance.
+		{method: "GET", pattern: "/api/admin/system/health", access: accessAdminSameOriginRead,
+			response: atomicJSON(maximumSchemaHealthResponseBytes), deadline: deadlineDefault,
+			handler: schemaHealth(dependencies.SchemaHealth)},
 		{method: "GET", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
 		{method: "POST", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSession,

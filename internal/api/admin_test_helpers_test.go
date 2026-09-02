@@ -145,6 +145,9 @@ func completeDependencies(dependencies Dependencies) Dependencies {
 	if dependencies.System == nil {
 		dependencies.System = fakeSystemStatus{}
 	}
+	if dependencies.SchemaHealth == nil {
+		dependencies.SchemaHealth = fakeSchemaHealth{}
+	}
 	return dependencies
 }
 

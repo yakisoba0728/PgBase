@@ -34,6 +34,7 @@ type App struct {
 	schemaListener   backgroundRunner
 	membershipWriter backgroundRunner
 	systemStatus     *systemStatusSampler
+	schemaHealth     *schemaHealthSampler
 	listen           func(string, string) (net.Listener, error)
 	shutdownMu       sync.Mutex
 	shutdownStarted  bool
@@ -266,6 +267,7 @@ func newWithCatalogPreflight(
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
+	schemaHealth := newSchemaHealthSampler(pool, runner)
 	handler, err := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
@@ -276,6 +278,7 @@ func newWithCatalogPreflight(
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
 		System:             systemStatus,
+		SchemaHealth:       schemaHealth,
 		AdminUI:            adminHandler,
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
@@ -295,6 +298,7 @@ func newWithCatalogPreflight(
 		schemaListener:   schemaListener,
 		membershipWriter: membershipRuntime,
 		systemStatus:     systemStatus,
+		schemaHealth:     schemaHealth,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -478,7 +482,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]namedBackgroundRunner, 0, 6)
+		runners := make([]namedBackgroundRunner, 0, 7)
 		if a.cleaner != nil {
 			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
 		}
@@ -496,6 +500,9 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		}
 		if a.systemStatus != nil {
 			runners = append(runners, namedBackgroundRunner{name: "system status sampler", runner: a.systemStatus})
+		}
+		if a.schemaHealth != nil {
+			runners = append(runners, namedBackgroundRunner{name: "schema health sampler", runner: a.schemaHealth})
 		}
 		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {

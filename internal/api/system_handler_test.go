@@ -76,6 +76,7 @@ func TestRouterRefusesToBuildWithoutEverySystemModule(t *testing.T) {
 		{name: "Schema", want: "Schema"},
 		{name: "Records", want: "Records"},
 		{name: "System", want: "System"},
+		{name: "SchemaHealth", want: "SchemaHealth"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			dependencies := completeDependencies(Dependencies{})
@@ -90,6 +91,8 @@ func TestRouterRefusesToBuildWithoutEverySystemModule(t *testing.T) {
 				dependencies.Records = nil
 			case "System":
 				dependencies.System = nil
+			case "SchemaHealth":
+				dependencies.SchemaHealth = nil
 			}
 			handler, err := NewRouter(dependencies)
 			if err == nil || handler != nil {
