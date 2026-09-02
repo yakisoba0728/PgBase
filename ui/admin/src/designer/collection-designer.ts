@@ -410,9 +410,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const editingBlocked = state.terminal || storageBlocked || (undecided !== null && recovery?.status !== "failed");
   const ledgerOutran = recovered?.kind === "change" && recovered.draft !== null && recovered.draft !== signature;
   let unsaved = signature !== state.pristine;
-  if (undecided?.kind === "change" && recovery !== null) {
-    if (undecided.draft === null) unsaved = false;
-    else if (recovery.status === "committed") unsaved = signature !== undecided.draft;
+  if (undecided?.kind === "change" && recovery !== null && undecided.draft !== null) {
+    if (recovery.status === "committed") unsaved = signature !== undecided.draft;
     else if (recovery.undecided) unsaved = true;
   }
   const savedDraft = useUnsavedDraft(identity, unsaved);
