@@ -23,28 +23,64 @@ const (
 	maximumCollectionFields   = 1597
 )
 
+// CompilePlan compiles one change in the pre-companion v1 format, for callers
+// holding a catalog and no database. Production issuance goes through
+// compilePlan: D2-2 makes the capability row the only source of that format.
 func CompilePlan(catalog Catalog, change Change) (Plan, error) {
+	return compilePlan(catalog, change, false)
+}
+
+// compilePlan stamps the generation once, here, so no plan is built in one
+// format and labelled the other. Only a create's statements differ; every
+// plan's checksum does.
+func compilePlan(catalog Catalog, change Change, companions bool) (Plan, error) {
+	var plan Plan
+	var err error
 	switch change.kind {
 	case changeCreate:
-		return planCreate(catalog, change.create)
+		plan, err = planCreate(catalog, change.create, companions)
 	case changeUpdate:
 		current, ok := catalog.Collections[change.update.Name]
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
-		return planUpdate(catalog, current, change.update)
+		plan, err = planUpdate(catalog, current, change.update)
 	case changeDelete:
 		current, ok := catalog.Collections[change.deleteName]
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
-		return planDelete(catalog, current)
+		plan, err = planDelete(catalog, current)
 	default:
 		return Plan{}, ErrConflict
 	}
+	if err != nil {
+		return Plan{}, err
+	}
+	compilerVersion := schemaPlanCompilerV1
+	if companions {
+		compilerVersion = schemaPlanCompilerV2
+	}
+	plan.Checksum, err = planChecksumWithCompilerVersion(plan, compilerVersion)
+	return plan, err
 }
 
-func planCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
+// compileMixedFleetPlan compiles the plan this binary will execute and, beside it,
+// the checksum the other live generation produces for the same change. R5 requires
+// dual validation across the mixed-fleet window: a preview from a writer at the other
+// generation, or from this one before an activation moved the capability, must still
+// apply. Both plans carry the same definition, operation and base version, so either
+// admits nothing new, and the second compile cannot fail where the first did not.
+func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Plan, string, error) {
+	issued, err := compilePlan(catalog, change, companions)
+	if err != nil {
+		return Plan{}, "", err
+	}
+	alternate, err := compilePlan(catalog, change, !companions)
+	return issued, alternate.Checksum, err
+}
+
+func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (Plan, error) {
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -71,19 +107,12 @@ func planCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
 	}
 
 	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields}
-	statements := makeCreateStatements(definition)
-	plan := Plan{
+	return Plan{
 		Operation:   createCollectionOperation,
 		BaseVersion: catalog.Version,
 		Definition:  definition,
-		Statements:  statements,
-	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
-	}
-	plan.Checksum = checksum
-	return plan, nil
+		Statements:  makeCreateStatements(definition, companions),
+	}, nil
 }
 
 // Field renames are not supported: a name that disappears is a drop and a name
@@ -197,19 +226,12 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		statements = append(statements, indexChangeStatements(current.Name, table, previous, field)...)
 	}
 
-	definition := PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired}
-	plan := Plan{
+	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  definition,
+		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired},
 		Statements:  statements,
-	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
-	}
-	plan.Checksum = checksum
-	return plan, nil
+	}, nil
 }
 
 func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawMessage {
@@ -247,18 +269,12 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 		statements = append(statements, dropMultiRelationStatements(current.TableName, field.Name)...)
 	}
 	statements = append(statements, "DROP TABLE "+pgx.Identifier{"app", current.TableName}.Sanitize())
-	plan := Plan{
+	return Plan{
 		Operation:   deleteCollectionOperation,
 		BaseVersion: catalog.Version,
 		Definition:  PlannedCollection{Name: current.Name, TableName: current.TableName, Fields: fields},
 		Statements:  statements,
-	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
-	}
-	plan.Checksum = checksum
-	return plan, nil
+	}, nil
 }
 
 func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error) {
@@ -491,7 +507,7 @@ func isSupportedType(typ FieldType) bool {
 	}
 }
 
-func makeCreateStatements(definition PlannedCollection) []string {
+func makeCreateStatements(definition PlannedCollection, companions bool) []string {
 	table := pgx.Identifier{"app", definition.TableName}.Sanitize()
 	columns := []string{
 		`"id" uuid primary key`,
@@ -545,6 +561,19 @@ func makeCreateStatements(definition PlannedCollection) []string {
 		}
 		statements = append(statements, createRelationStatements(definition.TableName, field, false)...)
 	}
+	// D2-4: a collection created while the capability is ready gets its companions here,
+	// in the apply transaction that creates the table, so the capability it was created
+	// under still describes the whole catalog and no operator step stands between the
+	// create and a nullable descending page. CONCURRENTLY is illegal in a transaction
+	// block and needless: the table is empty and unreadable until this commits.
+	for _, field := range definition.Fields {
+		if !companions || !nullableDescSortable(field.Required, field.Indexed || field.Unique,
+			field.Relation != nil && field.Relation.Cardinality == RelationSingle, field.Type) {
+			continue
+		}
+		statements = append(statements, createCompanionIndexStatement(
+			nullableDescCompanionSpec(definition.Name, definition.TableName, field.Name, field.Name), false))
+	}
 	return statements
 }
 
@@ -557,11 +586,15 @@ func indexName(collection, field string) string {
 	return name
 }
 
-const schemaPlanCompilerVersion = "schema-plan-v1"
-
-func planChecksum(plan Plan) (string, error) {
-	return planChecksumWithCompilerVersion(plan, schemaPlanCompilerVersion)
-}
+// The two plan formats a live fleet can hold. v2 differs from v1 in exactly one
+// way — a create plan builds its companion indexes in the same transaction as
+// the table — and the label is part of the digest, so the two never collide.
+// Which one this binary issues is not a constant: migration 8 puts that in the
+// capability row, where only 'ready' means v2.
+const (
+	schemaPlanCompilerV1 = "schema-plan-v1"
+	schemaPlanCompilerV2 = "schema-plan-v2"
+)
 
 func planChecksumWithCompilerVersion(plan Plan, compilerVersion string) (string, error) {
 	if compilerVersion == "" {

@@ -70,7 +70,14 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	if err != nil {
 		return Plan{}, err
 	}
-	plan, err = CompilePlan(catalog, change)
+	// A preview must show the plan this binary would really apply, so it reads the
+	// capability row D2-2 makes authoritative instead of assuming a format. Apply accepts
+	// both generations, so a capability that moves in between costs the caller nothing.
+	companions, err := companionCapabilityReady(ctx, s.pool)
+	if err != nil {
+		return Plan{}, err
+	}
+	plan, err = compilePlan(catalog, change, companions)
 	if err != nil {
 		return Plan{}, err
 	}

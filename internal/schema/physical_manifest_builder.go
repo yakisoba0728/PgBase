@@ -106,37 +106,48 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 // column is ASC NULLS LAST, whose backward scan is DESC NULLS FIRST, so neither
 // scan direction serves the ordering the public contract promises.
 func (builder *physicalManifestBuilder) addNullableDescCompanion(collection Collection, field Field) {
-	if !nullableDescSortable(field) {
+	if !nullableDescSortable(field.Required, field.Indexed || field.Unique,
+		field.Relation != nil && field.Relation.Cardinality == RelationSingle, field.Type) {
 		return
 	}
-	builder.companion = append(builder.companion, IndexSpec{
+	builder.companion = append(builder.companion,
+		nullableDescCompanionSpec(collection.Name, collection.TableName, field.Name, field.ColumnName))
+}
+
+// nullableDescCompanionSpec is the single written-down shape of a companion
+// index. The manifest compiles it from a catalog field and the create planner
+// from a planned field, so the index a v2 create builds in its own apply
+// transaction and the manifest that later verifies it cannot disagree.
+func nullableDescCompanionSpec(collection, table, field, column string) IndexSpec {
+	return IndexSpec{
 		Namespace: applicationPhysicalNamespace,
-		Table:     collection.TableName,
-		Name:      NullableDescCompanionIndexName(collection.Name, field.Name),
+		Table:     table,
+		Name:      NullableDescCompanionIndexName(collection, field),
 		Method:    "btree",
 		Keys: []IndexKeySpec{
-			{Column: field.ColumnName, Descending: true, NullsFirst: false},
+			{Column: column, Descending: true, NullsFirst: false},
 			{Column: "id", Descending: true, NullsFirst: true},
 		},
 		Valid:   true,
 		Ready:   true,
 		Live:    true,
 		Purpose: IndexPurposeNullableDesc,
-	})
+	}
 }
 
-// nullableDescSortable reports whether a descending page over this field can
-// observe a NULL. JSONB and multiple relations are rejected as sort keys, an
-// unindexed field is rejected as unindexed, and a required column has no NULL
-// to place, so none of those need a companion.
-func nullableDescSortable(field Field) bool {
-	if field.Required || field.Type == TypeJSONB {
+// nullableDescSortable reports whether a descending page over a field of this shape
+// can observe a NULL. JSONB and multiple relations are rejected as sort keys, an
+// unindexed field is rejected as unindexed, and a required column has no NULL to place,
+// so none of those need a companion. It takes the shape rather than a Field because the
+// create planner holds a PlannedField, and this rule may have exactly one owner.
+func nullableDescSortable(required, indexed, singleRelation bool, fieldType FieldType) bool {
+	if required || fieldType == TypeJSONB {
 		return false
 	}
-	if field.Type == TypeRelation && (field.Relation == nil || field.Relation.Cardinality != RelationSingle) {
+	if fieldType == TypeRelation && !singleRelation {
 		return false
 	}
-	return field.Indexed || field.Unique
+	return indexed
 }
 
 // NullableDescCompanionIndexName is the deterministic companion index name for
