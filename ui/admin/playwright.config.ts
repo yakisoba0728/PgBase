@@ -1,4 +1,4 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type Project } from "@playwright/test";
 
 const onboardingBaseURL = process.env.PGBASE_ONBOARDING_BROWSER_BASE_URL ??
   process.env.PGBASE_BROWSER_BASE_URL ?? "http://127.0.0.1:8090";
@@ -10,7 +10,7 @@ if (authenticatedBaseURL !== undefined && new URL(authenticatedBaseURL).origin =
   throw new Error("onboarding and authenticated Playwright projects require isolated backend origins");
 }
 
-const projects = [
+const projects: Project[] = [
   {
     name: "onboarding-chromium",
     testDir: "./e2e/onboarding",
@@ -21,6 +21,10 @@ if (authenticatedBaseURL !== undefined) {
   projects.push({
     name: "authenticated-chromium",
     testDir: "./e2e/authenticated",
+    // Every authenticated spec mutates one catalog-versioned backend. Distinct
+    // rows do not make schema plans independent, so parallel files only create
+    // expected stale-plan failures instead of exercising their workflow.
+    workers: 1,
     use: { ...devices["Desktop Chrome"], baseURL: authenticatedBaseURL },
   });
 }
@@ -29,9 +33,6 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   retries: 0,
-  // Every authenticated spec owns collections named after its worker and retry,
-  // so files may run in parallel; the shared backend is the only resource and
-  // no two attempts address the same rows.
   fullyParallel: false,
   use: {
     trace: "retain-on-failure",
