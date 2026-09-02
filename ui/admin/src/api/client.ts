@@ -59,6 +59,8 @@ async function errorResponseBody(response: Response): Promise<unknown> {
 }
 
 export class APIClient {
+  #authGeneration = 0;
+
   constructor(private readonly onUnauthorized?: () => void) {}
 
   async getAdminStatus(signal?: AbortSignal): Promise<AdminStatusResponse> {
@@ -66,28 +68,30 @@ export class APIClient {
   }
 
   async getSession(signal?: AbortSignal): Promise<SessionResponse> {
-    return this.request<SessionResponse>("/api/admin/session", { signal }, { notifyUnauthorized: false });
+    return this.#adopt(await this.request<SessionResponse>("/api/admin/session", { signal }, { notifyUnauthorized: false }));
   }
 
   async setup(input: SetupInput): Promise<SessionResponse> {
-    return this.request<SessionResponse>("/api/admin/setup", {
+    return this.#adopt(await this.request<SessionResponse>("/api/admin/setup", {
       method: "POST",
       body: stringifyJSON(input),
-    }, { notifyUnauthorized: false });
+    }, { notifyUnauthorized: false }));
   }
 
   async login(input: LoginInput): Promise<SessionResponse> {
-    return this.request<SessionResponse>("/api/admin/auth/login", {
+    return this.#adopt(await this.request<SessionResponse>("/api/admin/auth/login", {
       method: "POST",
       body: stringifyJSON(input),
-    }, { notifyUnauthorized: false });
+    }, { notifyUnauthorized: false }));
   }
 
   async logout(csrfToken: string): Promise<void> {
+    const authGeneration = this.#authGeneration;
     await this.request<void>("/api/admin/auth/logout", {
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken, "X-PgBase-CSRF": csrfToken },
     });
+    if (authGeneration === this.#authGeneration) this.#authGeneration += 1;
   }
 
   async request<T>(path: string, init: RequestInit = {}, behavior: RequestBehavior = {}): Promise<T> {
@@ -95,6 +99,7 @@ export class APIClient {
   }
 
   async requestWithResponse<T>(path: string, init: RequestInit = {}, behavior: RequestBehavior = {}): Promise<APIResponse<T>> {
+    const authGeneration = this.#authGeneration;
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
@@ -110,10 +115,15 @@ export class APIClient {
     }
 
     const body = await errorResponseBody(response);
-    if (response.status === 401 && behavior.notifyUnauthorized !== false) this.onUnauthorized?.();
+    if (response.status === 401 && behavior.notifyUnauthorized !== false && authGeneration === this.#authGeneration) this.onUnauthorized?.();
     if (isErrorEnvelope(body)) {
       throw new APIClientError(response.status, body.error.code, body.error.details ?? {}, body.error.message, new Headers(response.headers));
     }
     throw new APIClientError(response.status, "request_failed", {}, "Request failed", new Headers(response.headers));
+  }
+
+  #adopt(session: SessionResponse): SessionResponse {
+    this.#authGeneration += 1;
+    return session;
   }
 }
