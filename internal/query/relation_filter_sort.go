@@ -81,6 +81,13 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 	case filterComparison:
 		field, ok := filterField(root, value.field)
 		if ok && field.Type != schema.TypeRelation && !strings.Contains(value.field, ".") {
+			// Reject here rather than only at statement compilation: the cursor
+			// v5 query fingerprint also walks the planned filter, and a field
+			// this plan cannot compile must not reach two decoders that
+			// disagree about which validation detail the caller gets.
+			if field.Type == schema.TypeJSONB {
+				return nil, 0, validation("filter", "unsupported_type")
+			}
 			copy := field
 			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, rootField: &copy}}, 0, nil
 		}
@@ -271,7 +278,7 @@ func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (St
 	if membership := after.membershipBoundary(); membership != nil {
 		conditions = append(conditions, rootMembershipPredicate(p.order.root, relationRootAlias, membership, builder))
 	}
-	if after != nil {
+	if after != nil && len(after.Values) != 0 {
 		keyset, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err

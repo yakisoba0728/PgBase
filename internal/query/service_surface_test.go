@@ -71,7 +71,18 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	if strings.Join(methods, ",") != "Get,List" {
 		t.Fatalf("query.Service exported methods = %v, want [Get List]", methods)
 	}
-	if runtimeLines > 4_850 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4850", runtimeLines)
+	// A per-package ratchet, not a plan target. The plan budgets this group
+	// (database+query+recordops+relation+schema) as a whole at 12,750, and R11
+	// owns bringing it there; nothing here may drift upward on its own.
+	//
+	// Re-based from 4,850 by the Release B correctness stack, which plan
+	// section 11 allows to be LOC-positive as long as the category is stated:
+	// +93/-26 for cursor v5 membership binding plus two audit fixes — keeping a
+	// filter validation error from being reported as an invalid cursor, and
+	// rejecting a jsonb root filter at plan time so the statement compiler and
+	// the cursor fingerprint cannot disagree about which detail the caller gets.
+	// Leave no slack: raise this only alongside the deletion that pays for it.
+	if runtimeLines > 4_917 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 4917", runtimeLines)
 	}
 }

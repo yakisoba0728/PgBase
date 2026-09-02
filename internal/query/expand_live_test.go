@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -375,7 +376,9 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 4)
 	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
-	records.transactionTimeSQL = `select '2026-08-31 06:00:00+00'::timestamptz`
+	records.resolveTraversal = func(context.Context, pgx.Tx, uuid.UUID) (membership.Traversal, error) {
+		return membership.Traversal{TransactionTime: fixedTransactionTime, IssueVersion: cursor.Version4}, nil
+	}
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
 		Collection: "expand_posts", Limit: 3, Expand: "owner,reviewers",

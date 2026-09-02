@@ -1,26 +1,68 @@
 package query
 
 import (
-	"context"
+	"errors"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 )
 
-func (s *Service) bindCursorV5(ctx context.Context, tx pgx.Tx, page cursor.Page, plan rootPlan) (*int64, error) {
+func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Traversal) (*cursor.V5Descriptor, error) {
+	if plan.catalogVersion < 1 || !plan.principal.Valid() || traversal.IssueVersion != cursor.Version5 ||
+		traversal.Generation < 1 || traversal.HighWater < 0 {
+		return nil, invalidCursor()
+	}
+	queryHash, err := cursorV5QueryFingerprint(s.cursors, plan.relation.filter)
+	if err != nil {
+		return nil, cursorV5RequestError(err)
+	}
+	order, err := plan.order().cursorV5Order()
+	if err != nil {
+		return nil, cursorV5RequestError(err)
+	}
+	return &cursor.V5Descriptor{
+		CatalogVersion:       plan.catalogVersion,
+		MembershipGeneration: traversal.Generation,
+		QueryHash:            queryHash,
+		ScopeHash:            s.cursorV5ScopeFingerprint(plan.principal),
+		Order:                order,
+		HighWater:            traversal.HighWater,
+	}, nil
+}
+
+func (s *Service) bindCursorV5(page cursor.Page, plan rootPlan, traversal membership.Traversal) (*int64, error) {
 	if plan.catalogVersion < 1 || !plan.principal.Valid() || page.Version != cursor.Version5 || page.V5 == nil {
 		return nil, invalidCursor()
 	}
-	expectedQuery, queryErr := cursorV5QueryFingerprint(s.cursors, plan.relation.filter)
-	expectedScope := s.cursors.ScopeFingerprint([]byte(`{"kind":"administrator","id":"` + plan.principal.ID.String() + `","policy":"administrator-all-v1"}`))
-	expectedOrder, orderErr := plan.order().cursorV5Order()
-	if queryErr != nil || orderErr != nil ||
-		!page.V5.Matches(plan.catalogVersion, expectedQuery, expectedScope, expectedOrder) {
+	expectedQuery, err := cursorV5QueryFingerprint(s.cursors, plan.relation.filter)
+	if err != nil {
+		return nil, cursorV5RequestError(err)
+	}
+	expectedOrder, err := plan.order().cursorV5Order()
+	if err != nil {
+		return nil, cursorV5RequestError(err)
+	}
+	if !page.V5.Matches(plan.catalogVersion, expectedQuery, s.cursorV5ScopeFingerprint(plan.principal), expectedOrder) {
 		return nil, invalidCursor()
 	}
-	if membership.ValidateTraversal(ctx, tx, plan.order().root.ID, page.V5.MembershipGeneration, page.V5.HighWater) != nil {
+	if traversal.ValidateV5(page.V5.MembershipGeneration, page.V5.HighWater) != nil {
 		return nil, invalidCursor()
 	}
 	return &page.V5.HighWater, nil
+}
+
+func (s *Service) cursorV5ScopeFingerprint(principal Principal) []byte {
+	return s.cursors.ScopeFingerprint([]byte(`{"kind":"administrator","id":"` + principal.ID.String() + `","policy":"administrator-all-v1"}`))
+}
+
+// A v5 descriptor is derived from the request's own filter and order, so a
+// failure building one usually means the request is malformed, not that a
+// cursor is bad. Reporting it as an invalid cursor would change the answer a
+// cursorless request already had the moment v5 issuance is enabled.
+func cursorV5RequestError(err error) error {
+	var validationError *ValidationError
+	if errors.As(err, &validationError) {
+		return err
+	}
+	return invalidCursor()
 }

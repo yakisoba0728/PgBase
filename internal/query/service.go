@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
@@ -34,13 +35,13 @@ type RecordPage struct {
 type Record = recordartifact.Record
 
 type Service struct {
-	pool               *database.Pool
-	schemas            *schema.Service
-	cursors            *cursor.Codec
-	expandLimits       expandLimits
-	transactionTimeSQL string
-	logger             *slog.Logger
-	recorder           observability.Recorder
+	pool             *database.Pool
+	schemas          *schema.Service
+	cursors          *cursor.Codec
+	expandLimits     expandLimits
+	resolveTraversal func(context.Context, pgx.Tx, uuid.UUID) (membership.Traversal, error)
+	logger           *slog.Logger
+	recorder         observability.Recorder
 }
 
 func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
@@ -54,7 +55,7 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
 	return &Service{
 		pool: pool, schemas: schemas, cursors: cursor.NewCodec(cursorSecret),
-		expandLimits: defaultExpandLimits, transactionTimeSQL: `select transaction_timestamp()`, logger: logger, recorder: recorder,
+		expandLimits: defaultExpandLimits, resolveTraversal: membership.ResolveTraversal, logger: logger, recorder: recorder,
 	}
 }
 
@@ -99,7 +100,7 @@ func (s *Service) record(ctx context.Context, event observability.Event) {
 }
 
 func (s *Service) ready() error {
-	if s == nil || s.pool == nil || s.schemas == nil || s.cursors == nil || s.transactionTimeSQL == "" {
+	if s == nil || s.pool == nil || s.schemas == nil || s.cursors == nil || s.resolveTraversal == nil {
 		return errors.New("record service is unavailable")
 	}
 	return nil

@@ -109,7 +109,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		}
 		return RecordPage{}, err
 	}
-	return s.reader.List(ctx, query.ListRequest{
+	page, err = s.reader.List(ctx, query.ListRequest{
 		Principal:  request.Principal,
 		Collection: request.Collection,
 		Cursor:     request.Cursor,
@@ -118,6 +118,10 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		Sort:       request.Sort,
 		Expand:     request.Expand,
 	})
+	if errors.Is(err, membership.ErrUnavailable) {
+		return RecordPage{}, unavailableMembership(err)
+	}
+	return page, err
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {

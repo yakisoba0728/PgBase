@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 )
 
 type rootPageReadRequest struct {
@@ -18,6 +19,7 @@ type rootPageReadRequest struct {
 	cursorToken   string
 	limit         int
 	operationTime time.Time
+	traversal     membership.Traversal
 
 	charge   func(int) error
 	hydrate  func([]map[string]any) error
@@ -68,14 +70,15 @@ func (s *Service) readRootPageInTx(
 		var membership *int64
 		switch decoded.Version {
 		case cursor.Version4:
-			if !slices.Equal(decoded.Sort, order.sortKeys()) || (order.private() && !decoded.PrivateValues) {
+			if request.traversal.V4Retired || !slices.Equal(decoded.Sort, order.sortKeys()) ||
+				(order.private() && !decoded.PrivateValues) {
 				return rootPageReadResult{}, invalidCursor()
 			}
 		case cursor.Version5:
 			if order.private() && !decoded.PrivateValues {
 				return rootPageReadResult{}, invalidCursor()
 			}
-			membership, err = s.bindCursorV5(ctx, tx, decoded, plan)
+			membership, err = s.bindCursorV5(decoded, plan, request.traversal)
 			if err != nil {
 				return rootPageReadResult{}, err
 			}
@@ -102,6 +105,13 @@ func (s *Service) readRootPageInTx(
 			decoded.Values = values
 		}
 		after = &pageBoundary{Values: decoded.Values, membership: membership}
+	} else if request.traversal.IssueVersion == cursor.Version5 {
+		descriptor, err := s.newCursorV5Descriptor(plan, request.traversal)
+		if err != nil {
+			return rootPageReadResult{}, err
+		}
+		result.cursorV5 = descriptor
+		after = &pageBoundary{membership: &descriptor.HighWater}
 	}
 	assembler := pageAssembler{
 		cursors: s.cursors, order: order, expiresAt: result.expiresAt, maximumBytes: maximumRecordPageBytes,

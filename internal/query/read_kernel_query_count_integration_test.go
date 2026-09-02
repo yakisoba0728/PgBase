@@ -68,7 +68,7 @@ func TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount(t *testing.T
 	seedQueryCountMultiFixture(t, ctx, pool, schemas, 64)
 	createExpandGraph(t, ctx, pool, schemas, records, 40)
 
-	t.Run("plain scalar stays at one root query plus transaction time", func(t *testing.T) {
+	t.Run("plain scalar stays at one root query plus traversal resolution", func(t *testing.T) {
 		one := measureUnifiedListQueries(t, databaseURL, schemas, records, ListRequest{
 			Principal: principal, Collection: "query_count_scalar", Limit: 1,
 		})
@@ -223,15 +223,16 @@ func assertQueryCountCeiling(t *testing.T, name string, measured measuredUnified
 		t.Fatalf("%s query count = %d, want 1..%d\n%s",
 			name, count, ceiling, formatQueryTrace(measured.statements))
 	}
-	timestampQueries := 0
+	resolverQueries := 0
 	for _, statement := range measured.statements {
-		if statement == "select transaction_timestamp()" {
-			timestampQueries++
+		if strings.HasPrefix(statement, "with pinned_schema as materialized") &&
+			strings.Contains(statement, "transaction_timestamp()") {
+			resolverQueries++
 		}
 	}
-	if timestampQueries != 1 {
-		t.Fatalf("%s transaction-time query count = %d, want exactly 1\n%s",
-			name, timestampQueries, formatQueryTrace(measured.statements))
+	if resolverQueries != 1 {
+		t.Fatalf("%s traversal-resolution query count = %d, want exactly 1\n%s",
+			name, resolverQueries, formatQueryTrace(measured.statements))
 	}
 }
 

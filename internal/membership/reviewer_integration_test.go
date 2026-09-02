@@ -388,7 +388,7 @@ func TestCutoverExclusiveSchemaBarrierWaitsForLegacyTransaction(t *testing.T) {
 	}
 }
 
-func TestValidateTraversalOwnsReadyGenerationAndHighWaterChecks(t *testing.T) {
+func TestResolvedTraversalOwnsReadyGenerationAndHighWaterChecks(t *testing.T) {
 	recordID := uuid.MustParse("0199b400-0000-7000-8000-000000000081")
 	fixture := newMembershipConcurrencyFixture(
 		t,
@@ -404,62 +404,71 @@ func TestValidateTraversalOwnsReadyGenerationAndHighWaterChecks(t *testing.T) {
 	}
 
 	if err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := ValidateTraversal(fixture.ctx, tx, fixture.collectionID, 1, 0); err != nil {
+		traversal, err := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
+		if err != nil {
 			return err
 		}
-		return ValidateTraversal(fixture.ctx, tx, fixture.collectionID, 1, 1)
+		if err := traversal.ValidateV5(1, 0); err != nil {
+			return err
+		}
+		return traversal.ValidateV5(1, 1)
 	}); err != nil {
 		t.Fatalf("valid traversal rejected: %v", err)
 	}
 
 	invalid := []struct {
-		name         string
-		collectionID uuid.UUID
-		generation   int64
-		highWater    int64
+		name       string
+		generation int64
+		highWater  int64
 	}{
-		{name: "missing collection", collectionID: uuid.MustParse("0199b400-0000-7000-8000-000000000082"), generation: 1, highWater: 0},
-		{name: "zero generation", collectionID: fixture.collectionID, generation: 0, highWater: 0},
-		{name: "wrong generation", collectionID: fixture.collectionID, generation: 2, highWater: 1},
-		{name: "negative high water", collectionID: fixture.collectionID, generation: 1, highWater: -1},
-		{name: "future high water", collectionID: fixture.collectionID, generation: 1, highWater: 2},
+		{name: "zero generation", generation: 0, highWater: 0},
+		{name: "wrong generation", generation: 2, highWater: 1},
+		{name: "negative high water", generation: 1, highWater: -1},
+		{name: "future high water", generation: 1, highWater: 2},
 	}
 	for _, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {
 			err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-				return ValidateTraversal(
-					fixture.ctx,
-					tx,
-					test.collectionID,
-					test.generation,
-					test.highWater,
-				)
+				traversal, resolveErr := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				return traversal.ValidateV5(test.generation, test.highWater)
 			})
 			if !errors.Is(err, ErrTraversalInvalid) {
-				t.Fatalf("ValidateTraversal error = %v, want ErrTraversalInvalid", err)
+				t.Fatalf("ValidateV5 error = %v, want ErrTraversalInvalid", err)
 			}
 		})
 	}
 }
 
-func TestValidateTraversalFailsClosedBeforeReadyAndOnPartialInstallation(t *testing.T) {
+func TestResolveTraversalFailsClosedBeforeReadyAndOnPartialInstallation(t *testing.T) {
 	fixture := newMembershipConcurrencyFixture(t, "membership_traversal_fail_closed", nil)
 	fixture.cutover(t)
-	assertTraversalInvalid := func(t *testing.T) {
+	if err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		traversal, resolveErr := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		return traversal.ValidateV5(1, 0)
+	}); !errors.Is(err, ErrTraversalInvalid) {
+		t.Fatalf("dual-write ValidateV5 error = %v, want ErrTraversalInvalid", err)
+	}
+	assertTraversalUnavailable := func(t *testing.T) {
 		t.Helper()
 		err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-			return ValidateTraversal(fixture.ctx, tx, fixture.collectionID, 1, 0)
+			_, resolveErr := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
+			return resolveErr
 		})
-		if !errors.Is(err, ErrTraversalInvalid) {
-			t.Fatalf("ValidateTraversal error = %v, want ErrTraversalInvalid", err)
+		if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrTraversalInvalid) {
+			t.Fatalf("ResolveTraversal error = %v, want ErrUnavailable", err)
 		}
 	}
-	assertTraversalInvalid(t)
 	if _, err := fixture.pool.Exec(fixture.ctx,
 		`drop table pgbase_meta.record_creation_ordinals cascade`); err != nil {
 		t.Fatal(err)
 	}
-	assertTraversalInvalid(t)
+	assertTraversalUnavailable(t)
 }
 
 func insertPostTransitionMembershipCollection(

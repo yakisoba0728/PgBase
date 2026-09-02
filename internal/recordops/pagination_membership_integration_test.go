@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
@@ -21,10 +22,18 @@ type r0CreateResult struct {
 	err    error
 }
 
-func TestCurrentKeysetTraversalMixesLaterCommitAfterAnchorAndOmitsBeforeAnchor(t *testing.T) {
+func TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage(t *testing.T) {
 	_, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records = NewServiceWithMembershipRuntime(
+		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtimeB,
+	)
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "r0_page_membership",
 		Fields: []schema.FieldInput{
@@ -53,6 +62,25 @@ func TestCurrentKeysetTraversalMixesLaterCommitAfterAnchorAndOmitsBeforeAnchor(t
 			fixture.createdAt, recordResultID(t, created)); err != nil {
 			t.Fatalf("timestamp baseline %s: %v", fixture.name, err)
 		}
+	}
+	proof := membership.FleetProof{Members: []membership.FleetMember{runtimeB.FleetMember()}}
+	if _, err := controller.Cutover(ctx, proof); err != nil {
+		t.Fatalf("Cutover: %v", err)
+	}
+	for {
+		progress, err := controller.Backfill(ctx)
+		if err != nil {
+			t.Fatalf("Backfill: %v", err)
+		}
+		if progress.Done {
+			break
+		}
+	}
+	if _, err := controller.PromoteReady(ctx); err != nil {
+		t.Fatalf("PromoteReady: %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, proof); err != nil {
+		t.Fatalf("EnableV5: %v", err)
 	}
 
 	if _, err := pool.Exec(ctx, `CREATE SEQUENCE pgbase_meta.r0_delayed_create_ready`); err != nil {
@@ -157,8 +185,8 @@ func TestCurrentKeysetTraversalMixesLaterCommitAfterAnchorAndOmitsBeforeAnchor(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := r0PageNames(t, continued.Items); !reflect.DeepEqual(got, []string{"015", "020", "030"}) {
-		t.Fatalf("continued page = %v, want current mixed membership [015 020 030]", got)
+	if got := r0PageNames(t, continued.Items); !reflect.DeepEqual(got, []string{"020", "030"}) {
+		t.Fatalf("continued page = %v, want first-page membership [020 030]", got)
 	}
 
 	fresh, err := records.List(ctx, ListRequest{

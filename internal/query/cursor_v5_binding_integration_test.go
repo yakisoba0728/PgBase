@@ -5,6 +5,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -84,6 +86,16 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 	}
 	collection := catalog.Collections["cursor_v5_chain_records"]
 	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
 	firstPage, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
 	})
@@ -91,15 +103,33 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 		t.Fatalf("List(cursorless first page): %v", err)
 	}
 	firstCursor, err := records.cursors.Decode(firstPage.NextCursor, collection.ID, time.Time{})
-	if err != nil || firstCursor.Version != cursor.Version4 {
-		t.Fatalf("cursorless first page issued %#v, %v; want explicit v4", firstCursor, err)
+	if err != nil || firstCursor.Version != cursor.Version5 || firstCursor.V5 == nil ||
+		firstCursor.V5.MembershipGeneration != 1 || firstCursor.V5.HighWater != 4 {
+		t.Fatalf("cursorless first page issued %#v, %v; want bound v5", firstCursor, err)
 	}
-	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 4)
+	token := firstPage.NextCursor
 	initial, err := records.cursors.Decode(token, collection.ID, time.Time{})
 	if err != nil {
 		t.Fatalf("Decode(initial v5 cursor): %v", err)
 	}
 	wantExpiry := initial.ExpiresAt
+	late, err := records.Create(ctx, collection.Name, map[string]json.RawMessage{
+		"title": json.RawMessage(`"delta"`),
+	})
+	if err != nil {
+		t.Fatalf("Create(late record): %v", err)
+	}
+	lateID := uuid.MustParse(late["id"].(string))
+	if _, err := pool.Exec(ctx, `with bumped as (
+		update pgbase_meta.collection_creation_counters
+		set last_ordinal = 5, updated_at = transaction_timestamp()
+		where collection_id = $1 and generation = 1 and last_ordinal = 4
+		returning collection_id
+	)
+	insert into pgbase_meta.record_creation_ordinals (collection_id, record_id, ordinal)
+	select collection_id, $2, 5 from bumped`, collection.ID, lateID); err != nil {
+		t.Fatalf("commit late membership: %v", err)
+	}
 
 	for pageNumber, wantID := range ids[1:] {
 		page, err := records.List(ctx, ListRequest{
@@ -126,6 +156,17 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 			t.Fatalf("v5 page %d continuation = %#v", pageNumber+2, decoded)
 		}
 		token = page.NextCursor
+	}
+	fresh, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 10, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(fresh traversal): %v", err)
+	}
+	if got, want := recordIDs(fresh.Items), []string{
+		ids[0].String(), ids[1].String(), lateID.String(), ids[2].String(), ids[3].String(),
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("fresh traversal ids = %v, want %v", got, want)
 	}
 }
 
@@ -210,8 +251,80 @@ func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
 	}
 	if _, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Cursor: valid, Limit: 1, Sort: "title",
-	}); !IsInvalidCursor(err) {
-		t.Fatalf("List(with unavailable durable capability) error = %v, want invalid cursor", err)
+	}); !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+		t.Fatalf("List(with unavailable durable capability) error = %v, want membership unavailable", err)
+	}
+}
+
+func TestListKeepsExistingV5TraversalAfterIssuanceRollsBackToV4(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_rollback_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 3)
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		record, err := records.Create(ctx, "cursor_v5_rollback_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_rollback_records"]
+	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("List(v5 first page) = %#v, %v", first, err)
+	}
+	issued, err := records.cursors.Decode(first.NextCursor, collection.ID, time.Time{})
+	if err != nil || issued.Version != cursor.Version5 {
+		t.Fatalf("first cursor = %#v, %v; want v5", issued, err)
+	}
+
+	if _, err := controller.DisableV5(ctx); err != nil {
+		t.Fatalf("DisableV5: %v", err)
+	}
+	continued, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name,
+		Cursor: first.NextCursor, Limit: 10, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(existing v5 after rollback): %v", err)
+	}
+	if got, want := recordIDs(continued.Items), []string{ids[1].String(), ids[2].String()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("continued ids = %v, want %v", got, want)
+	}
+
+	fresh, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(fresh after rollback): %v", err)
+	}
+	rolledBack, err := records.cursors.Decode(fresh.NextCursor, collection.ID, time.Time{})
+	if err != nil || rolledBack.Version != cursor.Version4 {
+		t.Fatalf("fresh cursor = %#v, %v; want v4", rolledBack, err)
 	}
 }
 
@@ -287,6 +400,57 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 	}
 	if len(bounded.Items) != 0 || bounded.NextCursor != "" {
 		t.Fatalf("relation high-water page = %#v, want terminal empty page", bounded)
+	}
+}
+
+func TestListIssuesTheSameV5MembershipForRelationAndExpandedRoots(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := catalog.Collections["relation_query_posts"]
+	installReadyMembershipFixture(t, ctx, pool, posts, []uuid.UUID{fixture.postAda, fixture.postBob})
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := ListRequest{
+		Principal: testReadPrincipal, Collection: posts.Name, Limit: 1, Sort: "owner.name",
+	}
+	relationPage, err := records.List(ctx, request)
+	if err != nil {
+		t.Fatalf("List(relation root): %v", err)
+	}
+	request.Expand = "owner"
+	expandedPage, err := records.List(ctx, request)
+	if err != nil {
+		t.Fatalf("List(expanded root): %v", err)
+	}
+	if got, want := recordIDs(relationPage.Items), recordIDs(expandedPage.Items); !reflect.DeepEqual(got, want) {
+		t.Fatalf("relation/expanded root ids = %v/%v", got, want)
+	}
+	relationCursor, err := records.cursors.Decode(relationPage.NextCursor, posts.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(relation cursor): %v", err)
+	}
+	expandedCursor, err := records.cursors.Decode(expandedPage.NextCursor, posts.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(expanded cursor): %v", err)
+	}
+	if relationCursor.Version != cursor.Version5 || expandedCursor.Version != cursor.Version5 ||
+		relationCursor.V5 == nil || !reflect.DeepEqual(relationCursor.V5, expandedCursor.V5) ||
+		relationCursor.V5.HighWater != 2 || relationCursor.V5.MembershipGeneration != 1 {
+		t.Fatalf("relation/expanded v5 bindings = %#v/%#v", relationCursor.V5, expandedCursor.V5)
 	}
 }
 
@@ -417,7 +581,12 @@ func installReadyMembershipFixture(
 			where id = any($1::uuid[]) order by created_at desc, id desc limit 1`, recordIDs).Scan(&lastCreatedAt, &lastRecordID); err != nil {
 			return err
 		}
-		now := time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC)
+		var now time.Time
+		if err := tx.QueryRow(ctx, `select transaction_timestamp()`).Scan(&now); err != nil {
+			return err
+		}
+		cutoverAt := now.Add(-2 * time.Minute)
+		readyAt := now.Add(-time.Minute)
 		if _, err := tx.Exec(ctx, `update pgbase_meta.collection_creation_counters
 			set generation = 1, last_ordinal = $2, updated_at = $3 where collection_id = $1`,
 			collection.ID, len(recordIDs), now); err != nil {
@@ -441,12 +610,106 @@ func installReadyMembershipFixture(
 		}
 		_, err := tx.Exec(ctx, `update pgbase_meta.record_membership_capability set
 			state = 'ready', generation = 1, minimum_writer_version = 1,
-			cursor_issue_version = 4, cutover_at = $1, ready_at = $1,
-			cutover_collection_count = 1, cutover_record_count = $2,
-			ready_collection_count = 1, updated_at = $1 where singleton`, now, len(recordIDs))
+			cursor_issue_version = 4, cutover_at = $1, ready_at = $2,
+			cutover_collection_count = 1, cutover_record_count = $4,
+			ready_collection_count = 1, updated_at = $3 where singleton`, cutoverAt, readyAt, now, len(recordIDs))
 		return err
 	})
 	if err != nil {
 		t.Fatalf("install ready membership fixture: %v", err)
 	}
+}
+
+// Minting a v5 descriptor needs the query and order fingerprints, and those can
+// fail on request shape rather than on anything to do with a cursor. Collapsing
+// that into invalidCursor() changed a cursorless request's public answer from
+// 422 validation_failed to 400 invalid_cursor the moment v5 issuance was turned
+// on, which plan section 4 fixes as an unchangeable contract.
+func TestListKeepsFilterValidationErrorsWhenIssuingV5(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_validation_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "rank", Type: schema.TypeInteger, Indexed: true},
+			{Name: "payload", Type: schema.TypeJSONB},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 2)
+	for _, title := range []string{"alpha", "beta"} {
+		record, err := records.Create(ctx, "cursor_v5_validation_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_validation_records"]
+	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+
+	cases := []struct {
+		name   string
+		filter string
+		detail string
+	}{
+		{name: "literal type mismatch", filter: `rank = 'not a number'`, detail: "type_mismatch"},
+		{name: "root jsonb filter", filter: `payload = 'x'`, detail: "unsupported_type"},
+	}
+	listRequest := func(filter string) ListRequest {
+		return ListRequest{
+			Principal: testReadPrincipal, Collection: collection.Name, Limit: 10,
+			Sort: "title", Filter: filter,
+		}
+	}
+
+	// v5 issuance is a capability singleton, so pin every v4 answer before
+	// turning it on rather than toggling inside the loop.
+	for _, test := range cases {
+		_, err := records.List(ctx, listRequest(test.filter))
+		assertListValidationDetail(t, err, "filter", test.detail)
+	}
+
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// The request carries no cursor and never reaches cursor issuance,
+			// so enabling v5 must not change its answer.
+			_, err := records.List(ctx, listRequest(test.filter))
+			if IsInvalidCursor(err) {
+				t.Fatalf("List(%s) under v5 issuance = %v, want the validation error the same "+
+					"cursorless request returns under v4", test.filter, err)
+			}
+			assertListValidationDetail(t, err, "filter", test.detail)
+		})
+	}
+}
+
+func assertListValidationDetail(t *testing.T, err error, field, detail string) {
+	t.Helper()
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("error = %v (%T), want a validation error", err, err)
+	}
+	for _, got := range invalid.Details {
+		if got.Field == field && got.Code == detail {
+			return
+		}
+	}
+	t.Fatalf("validation details = %#v, want %s/%s", invalid.Details, field, detail)
 }

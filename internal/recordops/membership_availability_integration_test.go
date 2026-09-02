@@ -12,6 +12,19 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 )
 
+func TestReleaseBTraversalControlFailureIsStablyUnavailable(t *testing.T) {
+	pool, _, records, principal := newRecordOperationsTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := pool.Exec(ctx, `delete from pgbase_meta.record_membership_capability where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := records.List(ctx, ListRequest{
+		Principal: principal, RequestID: "availability-traversal-list", Collection: "records", Limit: 1,
+	})
+	assertStableMembershipUnavailable(t, err)
+}
+
 func TestReleaseACutoverMakesEveryMutationStablyUnavailable(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

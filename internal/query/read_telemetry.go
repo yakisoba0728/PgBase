@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -95,6 +96,9 @@ func readOperationOutcome(err error) observability.Outcome {
 	}
 	if errors.Is(err, schema.ErrConflict) {
 		return observability.OutcomeConflict
+	}
+	if errors.Is(err, membership.ErrUnavailable) {
+		return observability.OutcomeUnavailable
 	}
 	if errors.Is(err, ErrCollectionNotFound) || errors.Is(err, ErrRecordNotFound) || IsInvalidCursor(err) {
 		return observability.OutcomeValidation
