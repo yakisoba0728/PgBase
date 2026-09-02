@@ -22,7 +22,7 @@ func TestSchemaIndexRejectsInvalidUsage(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := Run(context.Background(), args, emptyEnv, io.Discard, &stderr, DefaultCommands())
+			code := Execute(context.Background(), args, emptyEnv, IO{Stdout: io.Discard, Stderr: &stderr})
 			if code != 2 {
 				t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 			}
@@ -34,12 +34,11 @@ func TestSchemaIndexRejectsInvalidUsage(t *testing.T) {
 }
 
 func TestSchemaIndexIsDispatchedAsItsOwnCommand(t *testing.T) {
-	commands := DefaultCommands()
-	if commands.SchemaIndex == nil {
-		t.Fatal("schema-index has no default handler")
+	if _, dispatched := productionCommands()["schema-index"]; !dispatched {
+		t.Fatal("schema-index has no production handler")
 	}
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"schema-index", "status"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"schema-index", "status"}, emptyEnv, IO{Stdout: io.Discard, Stderr: &stderr})
 	// An empty environment fails configuration, which proves dispatch reached the
 	// handler rather than falling through to the unknown-command path.
 	if code != 2 || strings.Contains(stderr.String(), "unknown command") {

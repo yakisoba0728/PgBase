@@ -106,7 +106,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor, schema-index> [arguments]")
 	return err
 }
 

@@ -11,10 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/webisnoteasy/PgBase/internal/config"
 	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -60,7 +57,7 @@ type schemaIndexWriter struct {
 // It is deliberately an operator command: the capability row is the single
 // source of truth, and nothing on the HTTP surface, no environment variable and
 // no public option may move it.
-func runSchemaIndex(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
+func runSchemaIndex(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) == 0 {
 		return configurationError{err: errors.New("missing schema-index subcommand"), message: schemaIndexUsage}
 	}
@@ -82,19 +79,13 @@ func runSchemaIndex(ctx context.Context, args []string, lookup func(string) (str
 		return configurationError{err: errors.New("witness is only valid for activate"), message: schemaIndexUsage}
 	}
 
-	options, err := config.LoadEnv(lookup)
+	stdout := streams.stdout()
+	runtime, err := openDatabase(ctx, env, streams)
 	if err != nil {
-		return configurationError{err: err}
+		return err
 	}
-	options.Logger = observability.NewJSONLogger(stderr)
-	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		return configurationError{err: migrationOperationError(options.Logger, "parse PostgreSQL pool configuration", err)}
-	}
-	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
-	if err != nil {
-		return migrationOperationError(options.Logger, "open PostgreSQL pool", err)
-	}
-	defer pool.Close()
+	defer runtime.Close()
+	pool := runtime.pool
 	service := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
 
 	switch subcommand {
@@ -103,19 +94,19 @@ func runSchemaIndex(ctx context.Context, args []string, lookup func(string) (str
 	case "activate":
 		receipt, err := service.ActivateCompanionIndexes(ctx, schema.SchemaWriterFleetProof{Instances: witnesses})
 		if err != nil {
-			return migrationOperationError(options.Logger, "activate companion index rollout", err)
+			return operationError(runtime.logger, "activate companion index rollout", err)
 		}
 		return writeSchemaIndexReceipt(stdout, receipt)
 	case "build":
 		receipt, err := service.MaintainCompanionIndexes(ctx)
 		if err != nil {
-			return migrationOperationError(options.Logger, "build companion indexes", err)
+			return operationError(runtime.logger, "build companion indexes", err)
 		}
 		return writeSchemaIndexReceipt(stdout, receipt)
 	default:
 		receipt, err := service.RollbackCompanionIndexes(ctx)
 		if err != nil {
-			return migrationOperationError(options.Logger, "roll back companion index rollout", err)
+			return operationError(runtime.logger, "roll back companion index rollout", err)
 		}
 		return writeSchemaIndexReceipt(stdout, receipt)
 	}

@@ -17,8 +17,8 @@ import (
 func readSchemaIndexStatus(t *testing.T, databaseURL string) schemaIndexReport {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"schema-index", "status", "--json"},
-		migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"schema-index", "status", "--json"},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr})
 	if code != 0 {
 		t.Fatalf("status exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -51,8 +51,8 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	// No instance has proven its compiler version, so there is no fleet to
 	// activate against and the command must refuse rather than open the gate.
 	var stdout, stderr bytes.Buffer
-	if code := Run(ctx, []string{"schema-index", "activate"},
-		migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands()); code != 1 {
+	if code := Execute(ctx, []string{"schema-index", "activate"},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 1 {
 		t.Fatalf("unproven activation exit=%d stdout=%q", code, stdout.String())
 	}
 	if got := readSchemaIndexStatus(t, databaseURL); got.State != "pending" {
@@ -76,8 +76,8 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(ctx, []string{"schema-index", "activate", "--witness", instanceID},
-		migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands()); code != 0 {
+	if code := Execute(ctx, []string{"schema-index", "activate", "--witness", instanceID},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 0 {
 		t.Fatalf("activate exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "state=building") {
@@ -85,8 +85,8 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if code := Run(ctx, []string{"schema-index", "build"},
-		migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands()); code != 0 {
+	if code := Execute(ctx, []string{"schema-index", "build"},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 0 {
 		t.Fatalf("build exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "state=ready") || !strings.Contains(stdout.String(), "indexes=1") {
@@ -98,8 +98,8 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if code := Run(ctx, []string{"schema-index", "rollback"},
-		migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands()); code != 0 {
+	if code := Execute(ctx, []string{"schema-index", "rollback"},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 0 {
 		t.Fatalf("rollback exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	rolledBack := readSchemaIndexStatus(t, databaseURL)
