@@ -21,7 +21,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
           ]
         },
         {
@@ -128,7 +128,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
           ]
         },
         {
@@ -209,7 +209,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
           ]
         },
         {

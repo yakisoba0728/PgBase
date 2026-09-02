@@ -772,6 +772,20 @@ type fakeSchemaService struct {
 	applyDeleteName      string
 	deletedName          string
 	applyDeleted         bool
+
+	guardedApplyResult schema.ApplyResult
+	guardedApplyErr    error
+	guardedApplyHook   func(context.Context) (schema.ApplyResult, error)
+	guardedApplyCalls  int
+	guardedIntent      schema.ApplyIntent
+	statusReceipt      schema.OperationReceipt
+	statusErr          error
+	statusCalls        int
+	statusRef          schema.OperationRef
+	listPage           schema.OperationPage
+	listErr            error
+	listCalls          int
+	listQuery          schema.OperationQuery
 }
 
 func (f *fakeSchemaService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
@@ -824,6 +838,27 @@ func (f *fakeSchemaService) ApplyDelete(_ context.Context, name string, checksum
 func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {
 	f.catalogCalls++
 	return f.catalog, f.catalogErr
+}
+
+func (f *fakeSchemaService) Apply(ctx context.Context, intent schema.ApplyIntent) (schema.ApplyResult, error) {
+	f.guardedApplyCalls++
+	f.guardedIntent = intent
+	if f.guardedApplyHook != nil {
+		return f.guardedApplyHook(ctx)
+	}
+	return f.guardedApplyResult, f.guardedApplyErr
+}
+
+func (f *fakeSchemaService) OperationStatus(_ context.Context, ref schema.OperationRef) (schema.OperationReceipt, error) {
+	f.statusCalls++
+	f.statusRef = ref
+	return f.statusReceipt, f.statusErr
+}
+
+func (f *fakeSchemaService) ListOperations(_ context.Context, query schema.OperationQuery) (schema.OperationPage, error) {
+	f.listCalls++
+	f.listQuery = query
+	return f.listPage, f.listErr
 }
 
 func schemaTestDependencies(auth AdminAuth, schemas SchemaService) Dependencies {
