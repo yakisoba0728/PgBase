@@ -35,7 +35,24 @@ import (
 // key renderer feeding both the DDL and the comparison). A zero-slack ratchet
 // tracks the measurement in both directions; only raising it needs the
 // accounting recorded below.
-const dataGroupRuntimeLimit = 16_594
+//
+// Raised for audit finding SPEC-2. The plan compiler was the constant
+// "schema-plan-v1": no production v2 issuance, no dual validation, and no
+// companion index in a create plan, so every schema mutation dropped the
+// capability to pending and a collection created after activation demanded a
+// manual activate/build. Tying the issued format to the capability row is new
+// state machine, which plan section 11 allows a correctness and migration stack
+// to be LOC-positive for. D1's 16,750 hard ceiling is untouched and this lands
+// 55 under it.
+//
+//	data group runtime lines   16,594 -> 16,695
+//	  gross-new 171 / gross-deleted 70, net +101, all in internal/schema
+//	  internal/schema/planner.go                    +71 / -38
+//	  internal/schema/operation_apply.go            +57 / -13
+//	  internal/schema/physical_manifest_builder.go  +25 / -14
+//	  internal/schema/companion_index.go            +10 / -4
+//	  internal/schema/service.go                     +8 / -1
+const dataGroupRuntimeLimit = 16_695
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -176,6 +193,21 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // integration test that lists a record depends on it, and replacing it with the
 // real rollout would make those suites drive six transitions each. That is a
 // trade to make deliberately in its own stack, not inside a P1 fix.
+// Raised again for SPEC-2, by the same +101 the data group budget above accounts
+// for file by file; every line of it is in internal/schema. It buys v1/v2 plan
+// issuance driven by the capability row, mixed-fleet dual validation, the
+// in-transaction companion build for a create, and the narrowed demote.
+//
+//	handwritten runtime lines      35,092 -> 35,193
+//	  gross-new 171 / gross-deleted 70, net +101
+//
+// The exported-declaration count does not move: the compiler generation is an
+// unexported constant pair, the activation and rollback surface D2-2 reserves
+// for the operator CLI already existed, and the capability read is unexported.
+//
+// Nothing paid for the lines, and that is recorded rather than disguised.
+// `unused` reports zero findings, so there is no dead runtime code to delete,
+// and STD-3's wrapper deletion has already been spent lowering these limits.
 type structuralLimit struct {
 	name    string
 	value   func(repositoryMetrics) int
@@ -184,7 +216,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_092, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_193, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
