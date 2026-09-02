@@ -6,6 +6,43 @@
 
 원 계획: [`2026-09-01-whole-codebase-refactor.md`](./2026-09-01-whole-codebase-refactor.md)
 
+## 0. 진행 현황 (재개 세션)
+
+브랜치 `refactor/whole-codebase`. 이 세션에서 30건 넘게 커밋했고 작업 트리는 깨끗하다.
+
+| 단계 | 상태 |
+|---|---|
+| R4 Release B | 완료·커밋 (감사 blocker 2건 수정 포함) |
+| R4 App WriterB | 완료·커밋 — Release B가 배포 가능한 산출물이 됨 |
+| doctor membership | 완료·커밋 (감사 blocker D1 포함 3건 + 후속 6건) |
+| R6 RecordKernel/RelationKernel | 완료·통합 — cascade N+1 제거 (6N+6 → 상수 12) |
+| R7 | 4/5 묶음 완료. 잔여: AtomicJSON 런타임 강제, ledger HTTP recovery 계약 |
+| R10b | 완료·통합 — 완료 기준 12개 전부 충족 |
+| R8 / R9a / R5(§9.2) / R7 잔여 | 진행 중 |
+| R4 Release C / R5(§9.3) / R11 / F0~F3 / R12 | 미착수 |
+
+### 이 세션에서 발견해 고친 실제 결함
+
+계획 문서를 근거로 감사하지 않았으면 나오지 않았을 것들이다.
+
+- **doctor D1** — `pg_get_expr`이 `IntervalStyle`에 따라 다르게 역파싱되어, `ALTER DATABASE ... SET intervalstyle` 한 줄이면 정상 DB가 "설치 불완전"으로 오진되고 이후 membership 검사가 전부 건너뛰어졌다. 트랜잭션 레벨에서 `intervalstyle`/`datestyle`을 고정해 기존 `relations.go`의 `pg_get_expr` 2곳까지 함께 보호했다.
+- **Release B B1** — `ready_collection_count == cutover_collection_count`를 traversal 전제조건으로 요구했다. 두 값은 서로 다른 시점의 receipt이고 DB CHECK에도 없으며, backfill 창에서 collection이 하나 생기면 PromoteReady 성공 후 **모든 collection의 모든 list가 영구 503**이 되고 복구 경로가 없었다. write와 `Get`은 계속 성공해 장애가 비대칭이었다.
+- **Release B B2** — v5 발급을 켜는 순간 cursor 없는 요청의 응답이 422 `validation_failed`에서 400 `invalid_cursor`로 바뀌었다. 수정 중 오류 클래스만 복원하면 v5가 v4와 다른 detail code를 낸다는 두 번째 층을 발견해, JSONB 거부를 plan 단계로 올려 단일 정책으로 수렴시켰다.
+- **App이 Release A로 lease를 잡고 있었음** — 바이너리가 Release B 읽기 경로를 갖고도 WriterA로 등록해, `EnableV5`가 자기 fleet proof를 거부했다. 운영자가 자기 바이너리를 활성화할 수 없는 상태였다.
+- **ResponseWriter 래퍼가 unwrap 불가** — `recoveryMiddleware`가 모든 응답을 버퍼링하는데 그 writer가 실제 연결을 참조하지 않아, `http.ResponseController`가 체인 어디에서도 write deadline을 찾지 못했다. 테스트뿐 아니라 프로덕션에서도 그랬다.
+- **종료 순서가 계획과 반대** — `Close`가 HTTP drain 이전에 background를 취소해, 처리 중이던 요청이 의존하던 cleaner/listener/lease를 잃을 수 있었다.
+- **restore drill flake** — `pg_isready`가 postgres entrypoint의 socket-only 초기화 중 ready를 보고하는데 TCP는 EOF를 반환해, PG17/18에서 약 50% 확률로 실패하고 있었다.
+
+### 확정된 최대 리스크: 그룹 예산 초과
+
+```
+database+query+recordops+relation+schema = 15,854
+계획 §3:  checkpoint 11,900 / 예상 12,150~12,650 / hard 12,750
+  database 396 / query 4,917 / recordops 2,157 / relation 2,008 / schema 6,376
+```
+
+약 3,100줄 초과이고 R6는 이를 줄이지 못했다(N+1 제거 배치가 순 +86). `internal/schema` 6,376줄이 단일 최대 기여자인데 전용 단계가 없다. R11은 다른 단계가 놓친 것을 쓸어담는 단계이지 혼자 3,100줄을 찾는 단계가 아니다. 아래 R11 항목에 선택지를 기록했다.
+
 ## 0. 남은 작업 TODO
 
 우선순위 순이다. `[ ]`는 미완, `[x]`는 이 세션에서 완료.
