@@ -265,12 +265,7 @@ func findOperationClaim(ctx context.Context, tx pgx.Tx, identity operationClaimI
 		return nil, ErrOperationConflict
 	}
 	match := found[0]
-	if match.requestedIDMatch {
-		if match.row.operationID != identity.operationID || !operationIdentityWithoutIDMatches(match.row, identity) {
-			return nil, ErrOperationConflict
-		}
-	} else if identity.mode != operationModeGuarded ||
-		match.row.operationID == identity.operationID ||
+	if !match.requestedIDMatch || match.row.operationID != identity.operationID ||
 		!operationIdentityWithoutIDMatches(match.row, identity) {
 		return nil, ErrOperationConflict
 	}

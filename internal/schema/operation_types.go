@@ -156,6 +156,8 @@ func (e *OperationRecoveryError) Receipt() (OperationReceipt, bool) {
 
 // GuardedApply binds a client-known operation and bounded idempotency identity
 // to one canonical typed request. Callers cannot supply any persisted hash.
+// Retries must reuse both the operation ID and idempotency key; changing either
+// is a conflict.
 func GuardedApply(change Change, expectedPlan Plan, actor, clientOperationID uuid.UUID, idempotencyKey string) (ApplyIntent, error) {
 	if actor == uuid.Nil || clientOperationID == uuid.Nil || expectedPlan.BaseVersion < 0 || !validOperationIdempotencyKey(idempotencyKey) {
 		return ApplyIntent{}, ErrInvalidOperation
