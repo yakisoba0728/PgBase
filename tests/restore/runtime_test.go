@@ -350,9 +350,14 @@ func startPostgres(t *testing.T, ctx context.Context, drill *candidate, image po
 			t.Errorf("remove PostgreSQL %s: %v\n%s", image.major, err, output)
 		}
 	})
+	// The entrypoint runs a temporary initialization server that listens on the
+	// Unix socket only, so a socket probe reports ready while every TCP client
+	// still gets EOF. The drill connects over TCP, so it waits for TCP.
 	deadline := time.Now().Add(2 * time.Minute)
 	for time.Now().Before(deadline) {
-		if _, err := instance.exec(ctx, "pg_isready", "--username", databaseUser, "--dbname", sourceDatabase); err == nil {
+		if _, err := instance.exec(ctx, "psql", "--host", "127.0.0.1", "--port", "5432",
+			"--username", databaseUser, "--dbname", sourceDatabase,
+			"--no-psqlrc", "--tuples-only", "--no-align", "--command", "select 1"); err == nil {
 			return instance
 		}
 		time.Sleep(250 * time.Millisecond)
