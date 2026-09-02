@@ -713,3 +713,80 @@ func assertListValidationDetail(t *testing.T, err error, field, detail string) {
 	}
 	t.Fatalf("validation details = %#v, want %s/%s", invalid.Details, field, detail)
 }
+
+// Minting has to prove the traversal is durably ready itself. Until it did, the
+// only thing standing between an unready generation and a signed v5 cursor was
+// membership's own rule that v5 issuance implies the ready state — an invariant
+// owned by another package, which a v5 rollout change there could relax without
+// anything in this package noticing.
+func TestListRefusesToMintV5FromAnUnreadyTraversal(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_unready_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 2)
+	for _, title := range []string{"alpha", "beta"} {
+		record, err := records.Create(ctx, "cursor_v5_unready_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_unready_records"]
+	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	request := ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 10, Sort: "title",
+	}
+
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		if err != nil {
+			return traversal, err
+		}
+		// Everything the resolver would report for a ready v5 collection except
+		// the durable ready state, which is unexported and so cannot be copied.
+		return membership.Traversal{
+			TransactionTime: traversal.TransactionTime, Generation: 1,
+			HighWater: int64(len(ids)), IssueVersion: cursor.Version5,
+		}, nil
+	}
+	if _, err := records.List(ctx, request); !IsInvalidCursor(err) {
+		t.Fatalf("List(unready v5 traversal) = %v, want an invalid cursor", err)
+	}
+
+	// The same request against the resolver's own ready traversal mints, so the
+	// refusal above is readiness and nothing else about the descriptor inputs.
+	records.resolveTraversal = resolved
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
+	ready, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(ready v5 traversal): %v", err)
+	}
+	decoded, err := records.cursors.Decode(ready.NextCursor, collection.ID, time.Time{})
+	if err != nil || decoded.Version != cursor.Version5 || decoded.V5 == nil ||
+		decoded.V5.MembershipGeneration != 1 || decoded.V5.HighWater != int64(len(ids)) {
+		t.Fatalf("ready traversal issued %#v, %v; want a bound v5 cursor", decoded, err)
+	}
+}
