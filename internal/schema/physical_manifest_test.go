@@ -11,6 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// compileCatalog is the default-limit shorthand these tests use. The runtime
+// compiler always carries the service's own limit.
+func compileCatalog(source Catalog) (*compiledCatalog, error) {
+	return compileCatalogWithLimit(source, maximumCatalogWireBytes)
+}
+
 func TestExpectedPhysicalSchemaForCatalogValidatesInput(t *testing.T) {
 	catalog := physicalManifestCatalog(false)
 	manifest, err := ExpectedPhysicalSchemaForCatalog(catalog)
