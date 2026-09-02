@@ -2,8 +2,7 @@ import { useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
 import type { AdminBackend } from "./backend/ports";
-import { CollectionCreatePage } from "./pages/collection-create-page";
-import { CollectionEditPage } from "./pages/collection-edit-page";
+import { CollectionDesignerPage } from "./pages/collection-designer-page";
 import { CollectionsPage } from "./pages/collections-page";
 import { RecordEditPage } from "./pages/record-edit-page";
 import { RecordsPage } from "./pages/records-page";
@@ -16,9 +15,9 @@ type Navigate = (route: AdminRoute) => void;
 // The route identity keys the outlet, so leaving a resource drops its page
 // state before the next one renders instead of each page unwinding it.
 function outlet(route: AdminRoute, key: string, navigate: Navigate) {
-  if (route.kind === "collection-create") return <CollectionCreatePage key={key} navigate={navigate} />;
+  if (route.kind === "collection-create") return <CollectionDesignerPage key={key} mode={{ kind: "create" }} navigate={navigate} />;
   if (route.kind === "system") return <SystemPage key={key} />;
-  if (route.kind === "collection-edit") return <CollectionEditPage collectionName={route.collection} key={key} navigate={navigate} />;
+  if (route.kind === "collection-edit") return <CollectionDesignerPage key={key} mode={{ kind: "edit", collection: route.collection }} navigate={navigate} />;
   if (route.kind === "records") return <RecordsPage collectionName={route.collection} key={key} navigate={navigate} />;
   if (route.kind === "record") return <RecordEditPage collectionName={route.collection} id={route.id} key={key} navigate={navigate} />;
   return <CollectionsPage key={key} navigate={navigate} />;

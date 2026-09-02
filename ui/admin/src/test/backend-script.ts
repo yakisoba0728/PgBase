@@ -27,7 +27,21 @@ export type Fault =
   | { kind: "setup-unavailable" }
   | { kind: "invalid-input" };
 
-export type Step<T> = { value: T } | { fault: Fault };
+export type Step<T> = { value: T } | { fault: Fault } | { pending: Promise<Step<T>> };
+
+/** A step that stays in flight until the test settles it, so a late result can
+ * be delivered after the caller has already moved to another resource. */
+export function deferredStep<T>(): { step: Step<T>; settle(next: Step<T>): void } {
+  let resolve: (next: Step<T>) => void = () => {};
+  const pending = new Promise<Step<T>>((accept) => { resolve = accept; });
+  return { step: { pending }, settle: (next) => resolve(next) };
+}
+
+export async function settledStep<T>(step: Step<T>): Promise<{ value: T } | { fault: Fault }> {
+  let current = step;
+  while ("pending" in current) current = await current.pending;
+  return current;
+}
 
 export interface ScriptedCatalog { version: number; collections: CollectionDefinition[] }
 export interface ScriptedPlan { baseVersion: number; checksum: string; fields: PlannedField[]; sql: string[] }
