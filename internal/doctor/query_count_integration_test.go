@@ -68,7 +68,7 @@ func (t *doctorQueryTracer) stop() []string {
 }
 
 func TestSnapshotQueryCountIsIndependentOfCatalogSize(t *testing.T) {
-	for _, state := range []string{"dual_write", "ready"} {
+	for _, state := range []string{"off", "dual_write", "ready"} {
 		t.Run(state, func(t *testing.T) {
 			small := measureDoctorSnapshotQueries(t, 2, state)
 			large := measureDoctorSnapshotQueries(t, 20, state)
@@ -80,6 +80,17 @@ func TestSnapshotQueryCountIsIndependentOfCatalogSize(t *testing.T) {
 			if len(large.statements) > doctorSnapshotQueryCeiling {
 				t.Fatalf("doctor snapshot issued %d statements, ceiling is %d\n%s",
 					len(large.statements), doctorSnapshotQueryCeiling, formatDoctorQueryTrace(large.statements))
+			}
+			if state == "off" {
+				want := finding(
+					"record_membership_rollout_not_started",
+					"Record membership rollout has not started for a database that contains records; follow the membership rollout runbook",
+				)
+				if small.report.OK || large.report.OK || len(small.report.Findings) != 1 ||
+					len(large.report.Findings) != 1 || small.report.Findings[0] != want || large.report.Findings[0] != want {
+					t.Fatalf("query-count off fixture did not report the rollout: small=%#v large=%#v", small.report, large.report)
+				}
+				return
 			}
 			if !small.report.OK || !large.report.OK {
 				t.Fatalf("query-count fixture is not healthy: small=%#v large=%#v", small.report, large.report)
@@ -231,6 +242,10 @@ func seedQueryCountMembershipCollection(
 	if state == "ready" && recordID != nil {
 		lastOrdinal = 1
 	}
+	generation := 1
+	if state == "off" {
+		generation = 0
+	}
 	// Creating a collection already installs generation-0 counter and backfill
 	// rows, and the backfill references the counter, so the child row is removed
 	// before the counter generation moves and reinserted afterwards.
@@ -238,11 +253,18 @@ func seedQueryCountMembershipCollection(
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.collection_creation_counters
-		(collection_id, generation, last_ordinal, updated_at) values ($1, 1, $2, $3)
+		(collection_id, generation, last_ordinal, updated_at) values ($1, $2, $3, $4)
 		on conflict (collection_id) do update
 		set generation = excluded.generation, last_ordinal = excluded.last_ordinal, updated_at = excluded.updated_at`,
-		collectionID, lastOrdinal, now); err != nil {
+		collectionID, generation, lastOrdinal, now); err != nil {
 		t.Fatal(err)
+	}
+	if state == "off" {
+		if _, err := pool.Exec(ctx, `insert into pgbase_meta.record_membership_backfills
+			(collection_id, generation, state, updated_at) values ($1, 0, 'off', $2)`, collectionID, now); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
 	if state == "ready" {
 		if _, err := pool.Exec(ctx, `insert into pgbase_meta.record_membership_backfills
@@ -278,6 +300,9 @@ func seedQueryCountMembershipCollection(
 
 func seedQueryCountCapability(t *testing.T, ctx context.Context, pool *database.Pool, collections int, state string, now time.Time) {
 	t.Helper()
+	if state == "off" {
+		return
+	}
 	capability := `update pgbase_meta.record_membership_capability set
 		state = 'dual_write', generation = 1, minimum_writer_version = 1,
 		cutover_at = $1, cutover_collection_count = $2, cutover_record_count = 0,

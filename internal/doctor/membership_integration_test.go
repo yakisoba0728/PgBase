@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,6 @@ func TestRunReportsMissingMembershipSidecarsOnlyWhenReady(t *testing.T) {
 		state       string
 		wantFinding bool
 	}{
-		{state: "off"},
 		{state: "dual_write"},
 		{state: "ready", wantFinding: true},
 	} {
@@ -91,6 +91,52 @@ func TestRunReportsMissingMembershipSidecarsOnlyWhenReady(t *testing.T) {
 				t.Fatalf("finding = %#v", got)
 			}
 			assertBoundedMembershipReport(t, report, append(baseIDs, fixture.collectionID)...)
+		})
+	}
+}
+
+func TestRunAcceptsAnEmptyDatabaseBeforeMembershipRolloutStarts(t *testing.T) {
+	fixture := newMembershipDoctorFixture(t, "off")
+	if report := runDoctor(t, fixture.pool); !report.OK || len(report.Findings) != 0 {
+		t.Fatalf("report = %#v, want empty off database to be healthy", report)
+	}
+}
+
+func TestRunReportsAnUnstartedMembershipRolloutForExistingRecords(t *testing.T) {
+	for _, sidecar := range []bool{false, true} {
+		t.Run("sidecar="+strconv.FormatBool(sidecar), func(t *testing.T) {
+			fixture := newMembershipDoctorFixture(t, "off")
+			recordID := uuid.MustParse("0199c000-0000-7000-8000-000000000013")
+			if _, err := fixture.pool.Exec(context.Background(), `insert into app."order"
+				(id, created_at, updated_at) values ($1, $2, $2)`, recordID, fixture.createdAt); err != nil {
+				t.Fatal(err)
+			}
+			if sidecar {
+				if _, err := fixture.pool.Exec(context.Background(), `update pgbase_meta.collection_creation_counters
+					set last_ordinal = 1 where collection_id = $1`, fixture.collectionID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := fixture.pool.Exec(context.Background(), `insert into pgbase_meta.record_creation_ordinals
+					(collection_id, record_id, ordinal) values ($1, $2, 1)`, fixture.collectionID, recordID); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			want := finding(
+				"record_membership_rollout_not_started",
+				"Record membership rollout has not started for a database that contains records; follow the membership rollout runbook",
+			)
+			if sidecar {
+				want = finding("record_membership_installation_invalid", "Record membership schema installation is incomplete")
+			}
+			report := runDoctor(t, fixture.pool)
+			if report.OK || len(report.Findings) != 1 {
+				t.Fatalf("report = %#v, want one actionable rollout finding", report)
+			}
+			if got := report.Findings[0]; got != want {
+				t.Fatalf("finding = %#v", got)
+			}
+			assertBoundedMembershipReport(t, report, recordID, fixture.collectionID)
 		})
 	}
 }
@@ -447,6 +493,7 @@ func newMembershipDoctorFixture(t *testing.T, state string) membershipDoctorFixt
 var pinnedDoctorMessages = map[string]string{
 	"schema_state_stale":                     "Schema state does not match schema migration history",
 	"record_membership_installation_invalid": "Record membership schema installation is incomplete",
+	"record_membership_rollout_not_started":  "Record membership rollout has not started for a database that contains records; follow the membership rollout runbook",
 	"record_membership_sidecar_orphaned":     "A record membership sidecar is missing its base record",
 	"record_membership_sidecar_missing":      "A base record is missing its required membership sidecar",
 }
