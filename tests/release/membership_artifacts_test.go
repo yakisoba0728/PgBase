@@ -60,10 +60,10 @@ func TestMembershipRolloutManifestPinsFourRealReleaseArtifacts(t *testing.T) {
 		t.Fatalf("record membership operator = %#v, want %#v", membership.Operator, wantOperator)
 	}
 	want := []releaseArtifact{
-		{Phase: "A0", Commit: "181a115e3522a982e378e04fd65df7b93ef97e75", Version: "v0.0.7-alpha.0", WriterVersion: integer(0), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
-		{Phase: "A", Commit: "03c6ebcc14c177cea0e231780830bf6471e16950", Version: "v0.0.7-alpha.1", WriterVersion: integer(1), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
-		{Phase: "B", Commit: "bafc95a1fdd56433f1350a9cb57b1e6b0d16b191", Version: "v0.0.7-beta.0", WriterVersion: integer(2), IssuesCursor: integer(5), DecodesCursors: []int{4, 5}},
-		{Phase: "C", Commit: "36fea6e5c0f0adc8e0d3072bd8620747bac20928", Version: "v0.0.7-rc.0", WriterVersion: integer(3), IssuesCursor: integer(5), DecodesCursors: []int{5}},
+		{Phase: "A0", Commit: "e188d3e5855bdfd2d1ee42cb1e7712419b638336", Version: "v0.0.7-alpha.0", WriterVersion: integer(0), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
+		{Phase: "A", Commit: "b94875efd59b88d4c8e082299b3acc83d4c3e82f", Version: "v0.0.7-alpha.1", WriterVersion: integer(1), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
+		{Phase: "B", Commit: "1b0227c53ca2754d1b9b142f964e33adc1a2d6b3", Version: "v0.0.7-beta.0", WriterVersion: integer(2), IssuesCursor: integer(5), DecodesCursors: []int{4, 5}},
+		{Phase: "C", Commit: "5ccf2565b8232e14b3b9398c0941bb8996e7c20e", Version: "v0.0.7-rc.0", WriterVersion: integer(3), IssuesCursor: integer(5), DecodesCursors: []int{5}},
 	}
 	if !reflect.DeepEqual(membership.Artifacts, want) {
 		t.Fatalf("record membership artifacts = %#v, want %#v", membership.Artifacts, want)

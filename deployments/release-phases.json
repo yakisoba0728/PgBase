@@ -11,7 +11,7 @@
       "artifacts": [
         {
           "phase": "A0",
-          "commit": "181a115e3522a982e378e04fd65df7b93ef97e75",
+          "commit": "e188d3e5855bdfd2d1ee42cb1e7712419b638336",
           "version": "v0.0.7-alpha.0",
           "writerVersion": 0,
           "issuesCursor": 4,
@@ -19,7 +19,7 @@
         },
         {
           "phase": "A",
-          "commit": "03c6ebcc14c177cea0e231780830bf6471e16950",
+          "commit": "b94875efd59b88d4c8e082299b3acc83d4c3e82f",
           "version": "v0.0.7-alpha.1",
           "writerVersion": 1,
           "issuesCursor": 4,
@@ -27,7 +27,7 @@
         },
         {
           "phase": "B",
-          "commit": "bafc95a1fdd56433f1350a9cb57b1e6b0d16b191",
+          "commit": "1b0227c53ca2754d1b9b142f964e33adc1a2d6b3",
           "version": "v0.0.7-beta.0",
           "writerVersion": 2,
           "issuesCursor": 5,
@@ -35,7 +35,7 @@
         },
         {
           "phase": "C",
-          "commit": "36fea6e5c0f0adc8e0d3072bd8620747bac20928",
+          "commit": "5ccf2565b8232e14b3b9398c0941bb8996e7c20e",
           "version": "v0.0.7-rc.0",
           "writerVersion": 3,
           "issuesCursor": 5,
@@ -53,7 +53,7 @@
       "artifacts": [
         {
           "phase": "P0",
-          "commit": "cdcd2f1409575f6d0bd4c57eba193a6e1b532e45",
+          "commit": "b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14",
           "version": "v0.0.9-alpha.0",
           "schemaCompilerGeneration": 2,
           "acceptedMigrations": [8, 9],
@@ -61,7 +61,7 @@
         },
         {
           "phase": "F",
-          "commit": "3b1042daf41c8aeccc45f6edc92c9198cd740006",
+          "commit": "1f00fb8c05d62ba5b3a6dde3861d86e916f490cf",
           "version": "v0.0.9-rc.0",
           "schemaCompilerGeneration": 3,
           "acceptedMigrations": [9],
