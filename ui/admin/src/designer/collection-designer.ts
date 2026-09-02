@@ -3,8 +3,8 @@ import { useBackend } from "../auth/session";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import {
   ApplyAttempt,
+  CollectionCatalog,
   SchemaError,
-  type CollectionCatalog,
   type CollectionChange,
   type CollectionDefinition,
   type FieldInput,
@@ -62,8 +62,8 @@ export type DesignerMode = { kind: "create" } | { kind: "edit"; collection: stri
 class DraftError extends Error {}
 
 const dataBlockedText = "Existing data blocks this change (for example missing or duplicate values).";
-const catalogMovedText = "The catalog changed. Preview the collection again before applying.";
-const appliedText = "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.";
+const catalogMovedText = "The catalog changed. Reload this page before making another schema change.";
+const appliedText = "The change was applied. The edits you made after sending it are not saved yet — leave and reopen the collection before applying them.";
 const createdText = "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.";
 
 const newRelation = (): DraftRelation => ({ targetCollection: "", cardinality: "single", minSelect: "0", maxSelect: "1", onDelete: "restrict" });
@@ -287,13 +287,11 @@ interface State {
   deleteError: string | null;
   pristine: string;
   undecided: UndecidedApply | null;
+  terminal: boolean;
 }
 
-// The identity is the only thing left that can still be asked about, so it
-// outlives the request that failed to answer. A change also carries the draft
-// whose work the answer settles; a drop settles no draft's work at all.
 type UndecidedApply = { kind: "change"; operationId: string; draft: string }
-  | { kind: "drop"; operationId: string };
+  | { kind: "drop"; operationId: string; draft: string };
 
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
@@ -304,16 +302,11 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields), undecided: null,
+    pristine: draftSignature(name, fields), undecided: null, terminal: false,
   };
 }
 
-// Editing the draft always drops the approved plan: a preview only describes
-// the input it was produced from.
-// Editing also leaves the last operation behind: the draft on screen is no
-// longer the one that operation carried, so its outcome must stop standing in
-// for this draft's — including for whether the draft is unsaved.
-const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false, undecided: null });
+const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false });
 
 function loadedState(current: State, catalog: CollectionCatalog): Partial<State> {
   const base = { catalog, targetsLoading: false, targetsFailed: false };
@@ -329,17 +322,13 @@ function loadedState(current: State, catalog: CollectionCatalog): Partial<State>
 
 function renamed(current: State, name: string): Partial<State> {
   return {
-    name, plan: null, confirmed: false, undecided: null,
+    name, plan: null, confirmed: false,
     fields: current.fields.map((field) => field.selfRelation === true && field.relation !== undefined
       ? { ...field, relation: { ...field.relation, targetCollection: name } }
       : field),
   };
 }
 
-// The identity the confirmation shows is the identity the request carries. A
-// plan that no longer names the collection now loaded is not a target at all,
-// so neither a stale plan nor a collection that moved under the dialog can be
-// dropped by accident.
 interface DeleteTarget { collection: string; tableName: string; baseVersion: number; sql: readonly string[] }
 
 function deleteTargetOf(definition: CollectionDefinition | null, plan: PlannedChange | null): DeleteTarget | null {
@@ -362,6 +351,7 @@ export interface CollectionDesigner {
   removedFields: string[];
   destructiveConfirmed: boolean;
   applyBlocked: boolean;
+  editingBlocked: boolean;
   pending: boolean;
   error: string | null;
   deleteTarget: DeleteTarget | null;
@@ -369,9 +359,7 @@ export interface CollectionDesigner {
   deleteConfirmed: boolean;
   deletePending: boolean;
   deleteError: string | null;
-  // Present only while an apply's outcome is still being recovered from the
-  // ledger. A view must report it as neither applied nor failed until the
-  // recovery settles.
+  // An unsettled ledger outcome is neither applied nor failed.
   recovery: OperationRecovery | null;
   rename(name: string): void;
   editField(index: number, edit: DraftEdit): void;
@@ -426,7 +414,7 @@ function deleteFailure(caught: unknown): Partial<State> {
     deletePlan: null,
     deleteConfirmText: "",
     deleteError: reason === "referenced" ? schemaMessage(caught, "Unable to delete the collection.", "Collection is referenced.")
-      : reason === "catalog-moved" ? "The catalog changed. Preview the deletion again before applying."
+      : reason === "catalog-moved" ? catalogMovedText
         : schemaMessage(caught, "Unable to delete the collection."),
   };
 }
@@ -436,27 +424,22 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
   const [state, update] = useResourceState(identity, (current) => initial(mode, current));
-  // One identity per approved plan. Retrying the same plan after a dropped
-  // connection replays the first attempt instead of starting a second one, and
-  // a re-previewed plan gets a fresh identity rather than colliding with it.
+  // Retries reuse one identity per approved plan; a fresh preview does not.
   const attempt = useRef(new ApplyAttempt());
   const recovery = useOperationRecovery(state.undecided?.operationId ?? null);
-  // The draft as it stands now, readable from a response handler that closed
-  // over the draft it sent: the two differ exactly when editing continued.
   const signature = draftSignature(state.name, state.fields);
   const live = useRef(signature);
   live.current = signature;
-  // A change the ledger confirmed is saved work, whatever the request that
-  // carried it did — but only the draft that change carried. A draft edited
-  // after the request went out is work the ledger says nothing about, so a
-  // committed answer to the older draft never releases the newer one's guard.
-  const applied = recovery !== null && recovery.status === "committed" &&
-    state.undecided?.kind === "change" && state.undecided.draft === signature;
-  // Reporting the commit alone would leave the newer draft looking saved, since
-  // nothing else on the page contradicts it. The page says what it says on the
-  // synchronous path, so the two never describe this situation differently.
-  const ledgerOutran = recovery !== null && recovery.status === "committed" && !applied && state.undecided?.kind === "change";
-  const savedDraft = useUnsavedDraft(identity, !applied && signature !== state.pristine);
+  const recovered = recovery?.status === "committed" ? state.undecided : null;
+  const recoveryFailed = recovery?.status === "failed" && state.undecided !== null;
+  const editingBlocked = state.terminal || (state.undecided !== null && recovery?.status !== "failed");
+  const ledgerOutran = recovered?.kind === "change" && recovered.draft !== signature;
+  let unsaved = signature !== state.pristine;
+  if (state.undecided?.kind === "change" && recovery !== null) {
+    if (recovery.status === "committed") unsaved = signature !== state.undecided.draft;
+    else if (recovery.undecided) unsaved = true;
+  }
+  const savedDraft = useUnsavedDraft(identity, unsaved);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
     (!state.create || state.fields.some((field) => field.type === "relation"));
@@ -474,6 +457,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     return () => controller.abort();
   }, [identity, schema, update, wantsCatalog]);
 
+  useEffect(() => {
+    if (recovered === null) return;
+    if (signature === recovered.draft) savedDraft();
+    navigate(recovered.kind === "drop" || state.create
+      ? { kind: "collections" }
+      : { kind: "records", collection: state.definition?.name ?? state.name });
+  }, [navigate, recovered, savedDraft, signature, state.create, state.definition?.name, state.name]);
+
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
     try { return buildInput(state.create ? "create" : "update", state.name, state.fields); } catch { return null; }
@@ -487,48 +478,49 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const existing = useMemo(() => new Set(state.definition?.fields.map((field) => field.name) ?? []), [state.definition]);
 
   const requestPreview = useCallback(async () => {
-    if (state.pending || (!state.create && state.definition === null)) return;
+    if (editingBlocked || state.pending || (!state.create && state.definition === null)) return;
     let change: CollectionChange;
     try { change = buildInput(state.create ? "create" : "update", state.name, state.fields); }
     catch (caught: unknown) { update(identity, { error: draftMessage(caught, "Collection input is invalid.") }); return; }
     update(identity, { error: null, pending: true });
     try {
       const planned = await schema.plan(change);
-      update(identity, { plan: planned, confirmed: false });
+      if (!state.create && planned.baseVersion !== state.catalog?.version) {
+        update(identity, { error: catalogMovedText, plan: null, confirmed: false });
+        return;
+      }
+      update(identity, { plan: planned, confirmed: false, deletePlan: null, deleteConfirmText: "", ...(recoveryFailed ? { undecided: null } : {}) });
     } catch (caught: unknown) {
       const fallback = state.create ? "Unable to preview the collection." : "Unable to preview the collection change.";
       update(identity, { error: schemaMessage(caught, fallback), plan: null, confirmed: false });
     } finally {
       update(identity, { pending: false });
     }
-  }, [identity, schema, state.create, state.definition, state.fields, state.name, state.pending, update]);
+  }, [editingBlocked, identity, recoveryFailed, schema, state.create, state.definition, state.fields, state.name, state.pending, update]);
 
   const requestApply = useCallback(async () => {
-    if (preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
+    if (editingBlocked || recoveryFailed || preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
     update(identity, { pending: true, error: null, undecided: null });
     try {
       const outcome = await schema.apply(preview, attempt.current);
       if (!active()) return;
-      // Leaving on an undecided outcome would present it as a success. The
-      // administrator stays here until the ledger says which it was.
+      // Stay until the ledger decides an ambiguous outcome.
       if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "change", operationId: outcome.operationId, draft: signature } }); return; }
-      // The server agreed with the draft it was sent, so that draft is the saved
-      // one, and the collection it answers with replaces the definition an edit
-      // page measures its data-loss warning against. A create measures against
-      // none, so it keeps the null it started with rather than adopting the
-      // collection it just made.
+      // Rebase edit warnings on the collection produced by the sent draft.
       const outran = live.current !== signature;
+      const catalog = !state.create && outcome.definition !== undefined
+        ? new CollectionCatalog(preview.baseVersion + 1, state.catalog?.all().map((collection) => collection.name === state.definition?.name ? outcome.definition! : collection) ?? [outcome.definition])
+        : state.catalog;
       update(identity, {
         pristine: signature,
+        catalog,
         definition: state.create ? null : outcome.definition ?? state.definition,
+        terminal: state.create || outcome.definition === undefined,
         error: outran ? (state.create ? createdText : appliedText) : null,
       });
-      // A draft edited since is unsaved work of its own, so it keeps this page
-      // instead of leaving as if it went too. A replay answers with a receipt
-      // and no collection, leaving an edit page nothing to re-measure against,
-      // so there the draft keeps the departure guard and is asked about rather
-      // than kept on a page whose warning would still read the old collection.
-      if (outran && (state.create || outcome.definition !== undefined)) return;
+      // Keep an outrunning draft only when the response supplies its new baseline;
+      // otherwise navigate through the departure guard rather than edit stale data.
+      if (outran && !state.create && outcome.definition !== undefined) return;
       if (!outran) savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
@@ -536,30 +528,37 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, identity, navigate, preview, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
+  }, [active, editingBlocked, identity, navigate, preview, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
-  const deleteTarget = useMemo(() => deleteTargetOf(state.definition, state.deletePlan), [state.definition, state.deletePlan]);
+  const deleteTarget = useMemo(() => recoveryFailed ? null : deleteTargetOf(state.definition, state.deletePlan), [recoveryFailed, state.definition, state.deletePlan]);
 
   const requestDeletePlan = useCallback(async () => {
-    if (state.definition === null || state.deletePending) return;
+    if (editingBlocked || state.definition === null || state.deletePending) return;
     update(identity, { deletePending: true, deletePlan: null, deleteConfirmText: "", deleteError: null });
     try {
-      update(identity, { deletePlan: await schema.plan({ operation: "delete", name: state.definition.name }) });
+      const planned = await schema.plan({ operation: "delete", name: state.definition.name });
+      if (planned.baseVersion !== state.catalog?.version) { update(identity, { deleteError: catalogMovedText }); return; }
+      update(identity, {
+        deletePlan: planned,
+        plan: null, confirmed: false,
+        ...(recoveryFailed ? { undecided: null } : {}),
+      });
     } catch (caught: unknown) {
       update(identity, { deletePlan: null, deleteError: schemaMessage(caught, "Unable to preview the collection deletion.") });
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [identity, schema, state.definition, state.deletePending, update]);
+  }, [editingBlocked, identity, recoveryFailed, schema, state.definition, state.deletePending, update]);
 
   const requestDelete = useCallback(async () => {
-    if (deleteTarget === null || state.deletePlan === null || state.deletePending) return;
+    if (editingBlocked || recoveryFailed || deleteTarget === null || state.deletePlan === null || state.deletePending) return;
     if (state.deleteConfirmText !== deleteTarget.collection) return;
     update(identity, { deletePending: true, undecided: null });
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
       if (!active()) return;
-      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "drop", operationId: outcome.operationId } }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "drop", operationId: outcome.operationId, draft: signature } }); return; }
+      update(identity, { terminal: true, deletePlan: null, deleteConfirmText: "" });
       if (live.current === signature) savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
@@ -567,7 +566,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [active, deleteTarget, identity, navigate, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
+  }, [active, deleteTarget, editingBlocked, identity, navigate, recoveryFailed, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,
@@ -582,7 +581,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     preview,
     removedFields,
     destructiveConfirmed: state.confirmed,
-    applyBlocked: removedFields.length > 0 && !state.confirmed,
+    applyBlocked: editingBlocked || recoveryFailed || (removedFields.length > 0 && !state.confirmed),
+    editingBlocked,
     pending: state.pending,
     error: state.error ?? (ledgerOutran ? (state.create ? createdText : appliedText) : null),
     deleteTarget,
@@ -591,10 +591,10 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     deletePending: state.deletePending,
     deleteError: state.deleteError,
     recovery,
-    rename: (name) => update(identity, (current) => renamed(current, name)),
-    editField: (index, edit) => update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))),
-    addField: () => update(identity, (current) => redrafted([...current.fields, newField()])),
-    removeField: (index) => update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))),
+    rename: (name) => { if (!editingBlocked) update(identity, (current) => renamed(current, name)); },
+    editField: (index, edit) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))); },
+    addField: () => { if (!editingBlocked) update(identity, (current) => redrafted([...current.fields, newField()])); },
+    removeField: (index) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))); },
     confirmDestructive: (confirmed) => update(identity, { confirmed }),
     confirmDeleteName: (deleteConfirmText) => update(identity, { deleteConfirmText }),
     requestPreview: () => void requestPreview(),
