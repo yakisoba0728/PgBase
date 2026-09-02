@@ -119,11 +119,17 @@ R12는 게이트를 새로 만드는 단계가 아니라 R10a/R10b가 만든 정
 - stable/alpha/beta/rc 승격과 exact tag의 absent/same/different 3-way, malformed·unsupported 입력의 registry 접근 0회를 실제 registry API로 전부 실행했다.
 - candidate image의 admin-ui 단계가 만든 `ui/admin/dist`가 커밋된 dist와 파일 집합·sha256까지 동일하다.
 
-CI에서만 확인할 수 있는 것은 이 문서 마지막 절과 open-decisions의 같은 목록에 남겼다. 특히 `gh attestation verify`는 로컬 커버리지가 **0**이다 — buildx가 index에 넣는 in-toto attestation manifest는 `actions/attest-*`가 GitHub에 올리는 attestation과 다른 물건이다.
+CI에서만 확인할 수 있는 것은 open-decisions의 같은 목록에 남겼다. 특히 `gh attestation verify`는 로컬 커버리지가 **0**이다 — buildx가 index에 넣는 in-toto attestation manifest는 `actions/attest-*`가 GitHub에 올리는 attestation과 다른 물건이다.
+
+닫히지 않았고 R12가 고치지 않기로 한 것:
+
+- **Playwright browser suite가 `retries: 1`에 기대고 있다.** 같은 코드로 3회 실행해 1회에서 flaky pass가 났다. `schema-operations.spec.ts:38`은 `ol.operation-list > li`의 `.first()`에서 status 문자열을 읽고 reload/재로그인 뒤 그 값이 그대로일 것을 요구하는데, worker가 병렬이라 그 첫 행은 다른 worker가 방금 낸 `running` receipt일 수 있다(`commitOperation`이 DDL과 같은 transaction이므로 자기 apply일 수는 없다). `system.spec.ts:24`는 5분 주기 `schemaHealthSampler`의 첫 sample을 5초 안에 기다린다. 각각 "decided 상태인 행만 고른다", "sample이 실제로 도착할 때까지 기다린다"로 고칠 수 있지만, 최종 gate 단계에서 결정적 재현 없이 gate test를 바꾸는 대신 소견으로 남긴다.
+- **`tests/r0-postgres-skip-baseline.tsv`(27 KB)를 참조하는 코드·workflow·문서가 없다.** R0 characterization 산출물이 그대로 남았다.
+- **`tests/README.md`의 "R0 point-read compatibility decision"이 낡았다.** 4,682,047바이트 fixture는 저장소에 더 이상 없고, 그 절이 지키라고 한 "`Get`은 4 MiB 초과 레코드를 허용한다"는 계약은 MEDIUM-5 수정(`recordops.maximumRecordBytes = 2 << 20`)이 새 write에 대해 도달 불가로 만들었다.
 
 R12가 찾아 고친 것:
 
-- **Go E2E suite가 Compose를 `up -d`로 띄우고 health를 기다리지 않았다.** `TestGracefulShutdownRejectsNewRequestsAndDrainsInflight`는 `PGBASE_AUTO_MIGRATE` 없이 두 번째 instance를 띄우므로, 이 테스트가 먼저 도는 순서에서는 compose 서비스의 자동 migration보다 앞서 붙어 `system migrations are not current`로 fail-closed하고 90초 뒤 실패한다. `-shuffle=1788335022190278000 -count=2`로 재현했다. workflow는 `go test` 전에 별도 step에서 `up -d --wait`를 실행하므로 CI가 이 결함을 가리고 있었다. suite 자신이 `--wait`하도록 고쳤다.
+- **Go E2E suite가 Compose를 `up -d`로 띄우고 health를 기다리지 않았다.** `TestGracefulShutdownRejectsNewRequestsAndDrainsInflight`는 `PGBASE_AUTO_MIGRATE` 없이 두 번째 instance를 띄우므로, 이 테스트가 먼저 도는 순서에서는 compose 서비스의 자동 migration보다 앞서 붙어 `system migrations are not current`로 fail-closed하고 90초 뒤 실패한다. `-shuffle=1788335022190278000 -count=2`로 재현했고, CI가 도는 형태가 정확히 그것이다. `e2e.yml`이 `go test` 전에 실행하는 `up -d --wait`는 **다른 project**(`pgbase-ci-…`, 포트 18090)를 띄우고 suite는 `--project-name pgbasee2e<pid><nonce>`로 자기 stack을 새로 만들기 때문에 이 race를 막아주지 않는다. CI가 초록이었던 것은 native amd64에서 migration이 수십 ms에 끝나 대개 먼저 이겼기 때문이고, 이 환경의 emulation이 그 창을 벌렸을 뿐이다. suite 자신이 `--wait`하도록 고쳤다. (커밋 `d94df82`의 메시지 마지막 문장은 이 정정 이전에 쓰여 workflow가 결함을 가렸다고 적고 있다.)
 - **release mode에서 gate가 자기 image를 build하지 못하게 하는 실행 가능한 정책이 없었다.** `security.yml`의 `docker build`와 `e2e.yml`의 `docker compose build`는 `release == 'false'` 조건을 달고 있지만 그 조건을 지키는 테스트가 없어, 지워도 트리가 초록이었다. `tests/release.TestImageGatesNeverBuildTheirOwnArtifactInReleaseMode`로 고정했다(조건 제거 변이로 실패 확인).
 
 ## 0. 남은 작업 TODO
