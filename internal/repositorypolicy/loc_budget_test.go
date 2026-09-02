@@ -27,7 +27,11 @@ import (
 //
 // Raising this number is allowed only in the same stack as the deletion that
 // pays for it, with the gross-new/gross-deleted accounting written here.
-const dataGroupRuntimeLimit = 16_653
+// Lowered from 16,653 by audit finding STD-2, which paid for the per-version
+// delete graph by deleting Cache.Replace and the duplication around it. A
+// zero-slack ratchet tracks the measurement in both directions; only raising
+// it needs the accounting recorded below.
+const dataGroupRuntimeLimit = 16_645
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -115,6 +119,28 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 //	  after RUN-1 and RUN-4 landed, which paid two lines more than they spent.
 //	  internal/membership/runtime.go     +7 (3 code, 4 rationale)
 //
+// Raised once more, for audit finding STD-1: a draft edited while its apply or
+// save was in flight was discarded by the success handler, which released the
+// unsaved-draft hold and navigated away against the draft it had sent rather
+// than the one on screen. Keeping the newer draft means the page stays, which
+// in turn means the data-loss warning has to be re-measured against the
+// collection the apply returned -- the server already sends it and the adapter
+// was discarding it -- or a column another client can still write to would be
+// dropped with no warning shown.
+//
+//	handwritten runtime lines      35,114 -> 35,150
+//	UI runtime lines                3,473 ->  3,517
+//	  gross-new 44 / gross-deleted 0 in the UI, less 8 paid in Go by STD-2
+//	  ui/admin/src/designer/collection-designer.ts  +24
+//	  ui/admin/src/workspace/record-workspace.ts    +10
+//	  ui/admin/src/backend/ports.ts                  +5
+//	  ui/admin/src/backend/http-backend.ts           +5
+//
+// No new UI runtime export pays for it (119, unchanged), and the four messages
+// the fix has to show are string constants, not surface. Refusing the edit
+// instead of preserving it would have been cheaper in lines and is what plan
+// section 12 would have bought; F0's criteria and the finding both ask for the
+// edit to survive, so this is the direction the budget yields to.
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -132,8 +158,8 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_114, "plan 22,484"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_473, "plan 2,050"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_150, "plan 22,484"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 468, "plan 285"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 25, "plan 16"},
