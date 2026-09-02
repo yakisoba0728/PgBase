@@ -809,17 +809,17 @@ describe("CollectionDesigner operation recovery", () => {
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.recovery).toBeNull());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    expect(result.current.recovery).toBeNull();
     expect(result.current.preview).toBeNull();
-    expect(result.current.deleteTarget).not.toBeNull();
     act(() => result.current.requestApply());
     expect(callsTo(script, "apply")).toHaveLength(1);
 
     plan(script);
     script.apply.push({ value: undefined });
     act(() => result.current.requestPreview());
-    await waitFor(() => expect(result.current.recovery).toBeNull());
-    expect(result.current.preview).not.toBeNull();
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    expect(result.current.recovery).toBeNull();
     act(() => result.current.requestApply());
     await waitFor(() => expect(callsTo(script, "apply")).toHaveLength(2));
 
