@@ -118,13 +118,16 @@ func TestClaimOperationReplaysLiveClaimsWithoutBlockingAndRejectsCollisions(t *t
 	differentOperation := guardedCreateIntent(t, administratorID,
 		uuid.MustParse("019551d0-e9c0-7000-8000-000000000612"),
 		"replay_posts", "schema-operation-key-0611")
-	idempotentReplay, err := service.claimOperation(context.Background(), differentOperation)
-	if err != nil {
-		t.Fatalf("same idempotency identity with another operation ID: %v", err)
+	if _, err := service.Apply(context.Background(), differentOperation); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("same idempotency key and request with another operation ID error = %v, want ErrOperationConflict", err)
 	}
-	if !idempotentReplay.replayed || idempotentReplay.acquired ||
-		idempotentReplay.row.operationID != operationID || idempotentReplay.row.resourceID != first.row.resourceID {
-		t.Fatalf("idempotency replay = %#v, first = %#v", idempotentReplay, first)
+	ref, err := NewOperationRef(administratorID, operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := service.OperationStatus(context.Background(), ref)
+	if err != nil || receipt.OperationID != operationID || receipt.Status != OperationRunning {
+		t.Fatalf("original running receipt after alternate ID = %+v, error = %v", receipt, err)
 	}
 	differentIdentityRequest, err := GuardedApply(
 		NewCreateChange(CreateCollectionInput{

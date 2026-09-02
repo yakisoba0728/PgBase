@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -242,9 +243,9 @@ func TestLiveOperationRecoveryIsScopedToItsOwner(t *testing.T) {
 	assertErrorCode(t, reused.Body.Bytes(), "invalid_cursor")
 }
 
-// The same identity carrying the same request replays the receipt it already
-// has; carrying a different request is a conflict. Neither answer may be
-// produced from anything but the durable ledger row.
+// The same operation ID and idempotency key replay the receipt they already
+// own; changing either identity member or the request is a conflict. Neither
+// answer may be produced from anything but the durable ledger row.
 func TestLiveGuardedApplyReplaysAndRefusesADifferentRequest(t *testing.T) {
 	administrator := validSession().Administrator
 	fixture := newLiveOperationFixture(t, administrator)
@@ -274,6 +275,26 @@ func TestLiveGuardedApplyReplaysAndRefusesADifferentRequest(t *testing.T) {
 	outcome := decodeOperationOutcome(t, replay.Body.Bytes())
 	if outcome.Status != schema.OperationCommitted || outcome.OperationID != operationID {
 		t.Fatalf("replay outcome = %+v", outcome)
+	}
+
+	alternateID := uuid.New()
+	alternate := fixture.guardedApply(t, administrator.ID, alternateID, key, body)
+	if alternate.Code != http.StatusConflict {
+		t.Fatalf("alternate operation ID status = %d body = %s", alternate.Code, alternate.Body.String())
+	}
+	assertErrorCode(t, alternate.Body.Bytes(), "schema_operation_conflict")
+	original := httptest.NewRecorder()
+	fixture.handlers[administrator.ID].ServeHTTP(original,
+		operationRequest(http.MethodGet, "/api/admin/schema-operations/"+operationID.String()))
+	var originalReceipt schema.OperationReceipt
+	if original.Code != http.StatusOK {
+		t.Fatalf("original receipt status = %d body = %s", original.Code, original.Body.String())
+	}
+	if err := json.Unmarshal(original.Body.Bytes(), &originalReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Receipt == nil || !reflect.DeepEqual(originalReceipt, *outcome.Receipt) {
+		t.Fatalf("receipt after alternate ID = %+v, want original %+v", originalReceipt, outcome.Receipt)
 	}
 
 	otherPlan, err := fixture.schemas.PlanCreate(context.Background(), schema.CreateCollectionInput{
