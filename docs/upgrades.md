@@ -86,6 +86,7 @@ Run the `P0 -> M -> F` sequence above with A0 as the preparatory artifact and `-
 2. **Cutover** is not a lease check. Drain every A0 instance and confirm zero in-flight pre-A transactions before enabling dual-write; the cutover snapshot and counters are initialized under the creation fence.
 3. **Backfill** runs outside the migration transaction, is resumable, and records per-collection checkpoints. Promote to ready only after every catalog collection has a validated backfill row, including any collection created during the backfill window.
 4. **Release B** enables v5 cursor issuance and the high-water read. Deploy it to every instance before enabling the capability, then drain the 15-minute cursor TTL before Release C.
+5. **Retirement** is the point of no return. Confirm every active writer lease is at Release B or later, confirm the cursor TTL has drained, then retire cursor v4. Only after that is it safe to deploy Release C, which no longer carries a v4 cursor at all.
 
 #### Release B requires the exact v7 history on every instance
 
@@ -97,6 +98,58 @@ Unlike earlier releases, Release B validates the installation on **every list re
 This is deliberate. The binary cannot verify checksums for a migration it does not embed, and a later migration may alter the membership objects the resolver depends on. The `P0 -> M -> F` sequence is the supported mitigation: the preparatory artifact for the *next* migration goes to the whole fleet before that migration is applied, so a Release B instance never meets a database ahead of it.
 
 Never apply a migration while any instance predates the artifact that recognizes it. Writes and single-record reads keep working in this state, so the fleet does not look broken — only lists fail — and the operator-facing error is intentionally redacted. `pgbase migrate status` and `pgbase doctor --json` are the tools that name the actual history problem.
+
+#### Release C requires a database that has retired cursor v4
+
+Release C removes the v4 cursor entirely: it neither decodes one nor issues
+one. That makes retirement its prerequisite rather than its consequence, and
+the two have to happen in this order.
+
+Retire first, with the fleet still on Release B:
+
+1. Require every active row in `pgbase_meta.runtime_writer_leases` to be at
+   Release B or later, and require the fleet proof you send to match that
+   active lease set exactly. Retirement re-reads the lease set under its own
+   locks and refuses a proof that does not match.
+2. Require `v4_decode_until` to have elapsed. Retirement returns a drain-pending
+   failure while any v4 cursor could still be live, and that deadline is
+   15 minutes after v5 issuance was enabled.
+3. Retire cursor v4. This is irreversible. It stamps `v4_retired_at`, and from
+   that moment the rollback to v4 issuance is refused permanently, so
+   `cursor_issue_version` can never leave 5 again.
+
+Only then deploy Release C.
+
+The order matters because the rollback to v4 issuance is still available until
+retirement stamps the row. If Release C were deployed first, invoking that
+documented rollback would set `cursor_issue_version` back to 4 under a fleet
+with no v4 encoder, and no instance could issue a continuation for any page
+that has more results. Retiring first closes that window before the binary
+that depends on it arrives.
+
+Retirement does **not** raise the minimum writer version, which stays at
+Release B. That is deliberate and is what keeps Release B a valid rollback
+target afterwards: a Release B instance can still take a writer lease against a
+retired database, and it honours the retirement by refusing a v4 cursor even
+though it still carries the decoder.
+
+A Release C instance fails every list closed with `record_unavailable`
+(HTTP 503) against a database that has not retired v4 — including a fresh
+install, whose capability is seeded off and issuing v4. This is the same
+fail-closed shape Release B uses for the wrong history, and for the same
+reason: there is no cursor the binary could mint for a page that has more
+results, and serving a truncated first page with no continuation is the silent
+omission this whole rollout exists to remove. Writes and single-record reads
+keep working, so the fleet does not look broken; only lists fail.
+
+A v4 cursor replayed against Release C returns the same `invalid_cursor`
+(HTTP 400) a caller already handles for a tampered or expired token. There is
+no distinct code for a retired format, and there is deliberately no way for a
+caller to tell the two apart.
+
+After Release C the rollback target is the exact verified Release B artifact
+with the capability left retired. Do not deploy Release A0 or Release A on a
+retired database, and do not attempt to clear `v4_retired_at`.
 
 #### A base record without its membership sidecar disappears from lists
 
