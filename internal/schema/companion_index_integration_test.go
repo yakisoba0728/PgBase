@@ -447,3 +447,37 @@ func TestCompanionIndexRollbackDisablesTheGateButKeepsTheIndex(t *testing.T) {
 	}
 	assertCompanionIndexShape(t, pool, companion)
 }
+
+// Maintenance disables the statement timeout so a long build is not killed
+// mid-index. That is session state on a pooled connection and the pool has no
+// release hook, so leaving it set would silently remove the timeout from every
+// later borrower of the same physical connection.
+func TestCompanionIndexMaintenanceRestoresTheConnectionStatementTimeout(t *testing.T) {
+	ctx := context.Background()
+	pool, service, _, _ := companionRolloutFixture(t)
+
+	var configured string
+	if err := pool.QueryRow(ctx, "show statement_timeout").Scan(&configured); err != nil {
+		t.Fatal(err)
+	}
+	if configured == "0" {
+		t.Skip("pool has no statement timeout configured to restore")
+	}
+
+	activateCompanionRollout(t, service)
+	if _, err := service.MaintainCompanionIndexes(ctx); err != nil {
+		t.Fatalf("maintain companion indexes: %v", err)
+	}
+
+	// Drain more connections than the build used, so a leaked GUC is observed on
+	// whichever physical connection carried it.
+	for attempt := 0; attempt < 8; attempt++ {
+		var current string
+		if err := pool.QueryRow(ctx, "show statement_timeout").Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		if current != configured {
+			t.Fatalf("pooled connection kept statement_timeout=%q, want %q", current, configured)
+		}
+	}
+}
