@@ -435,7 +435,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   useEffect(() => {
     if (undecided === null || recovery?.status === "committed" || recovery?.status === "failed") return;
-    const expire = () => { if (forgetPending(administratorId, identity, undecided.operationId)) update(identity, { undecided: null, plan: null, confirmed: false, deletePlan: null, deleteConfirmText: "" }); };
+    const expire = () => { if (forgetPending(administratorId, identity, undecided.operationId)) { issued.current = null; const next = administratorId === null ? null : storedPending(administratorId, identity); update(identity, { undecided: next || null, plan: null, confirmed: false, deletePlan: null, deleteConfirmText: "" }); } };
     const delay = undecided.expiresAt - Date.now();
     if (delay <= 0) { expire(); return; }
     const timer = window.setTimeout(expire, delay);
@@ -443,7 +443,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   }, [administratorId, identity, recovery?.status, undecided, update]);
 
   useEffect(() => {
-    if (recovery?.status === "failed" && undecided !== null && forgetPending(administratorId, identity, undecided.operationId) && state.undecided === null) update(identity, { undecided: null });
+    if (recovery?.status === "failed" && undecided !== null && forgetPending(administratorId, identity, undecided.operationId)) { issued.current = null; const next = administratorId === null ? null : storedPending(administratorId, identity); if (next !== null) update(identity, { undecided: next || null }); else if (state.undecided === null) update(identity, { undecided }); }
     if (recovered === null) return;
     forgetPending(administratorId, identity, recovered.operationId);
     if (recovered.draft !== null && signature === recovered.draft) savedDraft();
@@ -491,7 +491,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     issued.current = identity;
     const pending = { kind: "change" as const, operationId: attempt.current.identityFor(preview).operationId, draft: signature, expiresAt: Date.now() + recoverabilityWindowMs };
     if (administratorId === null || !rememberPending(administratorId, identity, pending)) {
-      update(identity, { pending: false, error: recoverabilityText });
+      issued.current = null; update(identity, { pending: false, error: recoverabilityText });
       return;
     }
     try {
@@ -517,9 +517,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } catch (caught: unknown) {
       forgetPending(administratorId, identity, pending.operationId);
       update(identity, applyFailure(caught, state.create));
-    } finally {
-      update(identity, { pending: false });
-    }
+    } finally { issued.current = null; update(identity, { pending: false }); }
   }, [active, administratorId, editingBlocked, identity, navigate, preview, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const deleteTarget = useMemo(() => recoveryFailed ? null : deleteTargetOf(state.definition, state.deletePlan), [recoveryFailed, state.definition, state.deletePlan]);
@@ -549,7 +547,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     issued.current = identity;
     const pending = { kind: "drop" as const, operationId: attempt.current.identityFor(state.deletePlan).operationId, draft: signature, expiresAt: Date.now() + recoverabilityWindowMs };
     if (administratorId === null || !rememberPending(administratorId, identity, pending)) {
-      update(identity, { deletePending: false, deleteError: recoverabilityText });
+      issued.current = null; update(identity, { deletePending: false, deleteError: recoverabilityText });
       return;
     }
     try {
@@ -563,9 +561,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } catch (caught: unknown) {
       forgetPending(administratorId, identity, pending.operationId);
       update(identity, deleteFailure(caught));
-    } finally {
-      update(identity, { deletePending: false });
-    }
+    } finally { issued.current = null; update(identity, { deletePending: false }); }
   }, [active, administratorId, deleteTarget, editingBlocked, identity, navigate, recoveryFailed, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
