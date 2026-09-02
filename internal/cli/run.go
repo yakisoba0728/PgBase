@@ -47,11 +47,12 @@ type commandTable map[string]command
 
 func productionCommands() commandTable {
 	return commandTable{
-		"serve":       runServe,
-		"migrate":     runMigrate,
-		"admin":       runAdmin,
-		"doctor":      runDoctor,
-		"healthcheck": runHealthcheck,
+		"serve":        runServe,
+		"migrate":      runMigrate,
+		"admin":        runAdmin,
+		"doctor":       runDoctor,
+		"schema-index": runSchemaIndex,
+		"healthcheck":  runHealthcheck,
 	}
 }
 
