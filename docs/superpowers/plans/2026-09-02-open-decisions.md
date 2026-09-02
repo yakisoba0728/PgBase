@@ -11,6 +11,60 @@
 
 ---
 
+## 결정 완료 (2026-09-02)
+
+아래가 확정된 답이다. 각 절의 배경 설명은 근거로 남겨두되, 실행 기준은 이 절이다.
+
+### D1 — (a) 재예측 채택
+
+- R11 data-group 예상 **16,100~16,500**, hard limit **16,750**.
+- **R5 완료 직후** 실제 gross-new/gross-deleted를 반영해 한 번 고정하고, 이후에는 올리지 않는다.
+- 기존 12,750을 맞추려고 검증된 correctness 코드를 줄이지 않는다.
+- 전체 runtime hard target도 R11에서 함께 재산정한다.
+- **package별 zero-slack ratchet과 gross-new/deleted 회계는 그대로 유지한다.** 숫자만 현실화하는 것이지 강제력을 푸는 것이 아니다.
+
+### D2-1 — 별도 durable schema-writer lease
+
+record writer lease를 재사용하지 않는다. v8에 schema compiler/writer version용 lease와 capability를 별도로 둔다. 외부 drain만으로 안전성을 증명하지 않는다.
+
+### D2-2 — activation surface
+
+DB capability row가 유일한 source of truth다. `internal/schema.Service`가 좁은 activate/rollback transition을 소유한다. operator CLI에서만 호출하고 HTTP, 환경변수, public `pgbase.Options` 어디에도 노출하지 않는다.
+
+### D2-3 — manifest API
+
+`Required()`는 현재 즉시 필수인 core object만 유지한다. `CompanionIndexes()` 같은 별도 immutable accessor를 두고 `IndexPurposeNullableDesc`로 구분한다. ownership은 required와 companion의 합집합으로 계산한다. doctor는 capability가 ready일 때만 companion을 필수 physical contract로 판정한다.
+
+### D2-4 — 향후 schema mutation
+
+새 collection은 v2에서 companion index를 **생성 transaction 안에서** 만든다. 기존 collection에 field/index를 추가하는 경우 companion만 **CIC maintenance**로 만든다. 이때 capability를 pending으로 내리고, maintenance가 current catalog를 검증한 뒤 ready로 복귀시킨다.
+
+### D2-5 — migration 번호
+
+현재 embedded migration은 v1~v7뿐이므로 다음은 **v8 확정**. 실제 파일 생성 직전에 다시 확인하고 checksum을 고정한다.
+
+### D3-1 — 승인
+
+Compose의 `PGBASE_STATEMENT_TIMEOUT` passthrough 유지.
+
+### D3-2 — E2E 60초 유지 + 기본 5초 별도 검증
+
+E2E의 60초 timeout은 유지하되, 기본 5초는 별도의 가벼운 Compose/config policy test로 검증한다.
+
+### SARIF
+
+gate는 HIGH/CRITICAL로 유지하고, 가능하면 전체 severity SARIF를 별도 artifact로 보존한다.
+
+### D4 — 4.1~4.5 전부 현재 결정 유지
+
+advisory key 미통합, Release C 후순위, exact-v7 강제 유지, sidecar runbook + R8 metric, `internal/query` ratchet 재기준화 모두 그대로.
+
+### D5 — 승인
+
+R10b의 `internal/repositorypolicy/release_workflow_test.go` 수정은 workflow 정책 테스트를 green으로 유지하기 위한 정당한 예외로 승인.
+
+---
+
 ## D1 — 그룹 LOC 예산 3,100줄 초과 (블로커, R11)
 
 ### 측정값
