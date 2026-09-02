@@ -29,8 +29,8 @@
 
 ### 0.2 Release B 감사가 남긴 결정 사항 (merge 전 판단 필요)
 
-- [ ] **read path가 정확한 v7 설치를 무조건 요구하는 것을 유지할지.** `query.NewServiceWithRecorder`가 `membership.ResolveTraversal`을 조건 없이 연결하고, resolver는 다섯 객체 전부와 `historyCount >= 7`, checksum 일치를 요구한다. rolling deploy 중 peer가 v8을 적용했거나 v6 DB에 붙으면 **모든 list가 503**이 된다. 기준선은 `select transaction_timestamp()` 하나였다. `membership.Runtime.refresh`에는 A0용 `installationPreMigration` 분기가 있지만 resolver에는 없다. 계획 R4 8단계는 "feature flag로" 활성화한다고 되어 있으나 실제로는 durable capability state가 유일한 gate다. 결정하고 runbook에 적는다.
-- [ ] **sidecar 없는 base row의 노출 방식.** `rootMembershipPredicate`가 `EXISTS ... ordinal <= $n`이라 sidecar 없는 record는 **오류 없이 list에서 사라지고** `GET /records/{id}`로는 그대로 나온다. 정상 ready 상태에서는 발생 불가(base+sidecar 동일 transaction, PromoteReady 검증, doctor bounded finding)지만 실패 양상이 "조용함"이고, 이는 R4가 없애려던 바로 그 부류다. 최소한 telemetry counter나 doctor 연계 runbook 항목이 필요하다.
+- [x] **read path가 정확한 v7 설치를 무조건 요구하는 것 — 유지하기로 결정.** resolver SQL의 `limit $4 = len(versions)+1`은 의도적 설계다. 바이너리가 아는 것보다 migration이 하나 더 있으면 `historyCount`가 초과하고 `historyMatches`도 false가 되어 두 신호가 동시에 뜬다. 즉 "DB가 나보다 앞서면 fail-closed"가 명시적 의도이며, 계획 §11이 요구한 fail-closed와 일치한다. 완화하면 임베드하지 않은 migration의 checksum을 검증할 수 없는 상태에서 membership 객체를 신뢰하게 된다. 대응책은 계획의 `P0 → M → F` 순서 자체다 — migration 적용 전에 그것을 인식하는 아티팩트를 전 fleet에 먼저 배포한다. `docs/upgrades.md`의 "Record membership v7 feature release"에 명시했다.
+- [x] **sidecar 없는 base row의 노출 방식 — runbook으로 확정, metric은 R8로 이관.** 읽기 경로 counter는 구현 불가로 판단했다. 제외된 row를 세려면 "반환되지 않은 base row"를 알아야 하고, 그것은 doctor가 수행하는 것과 같은 O(전체 레코드) anti-join이라 list 경로에 올릴 수 없다. doctor의 `record_membership_sidecar_missing`이 유일한 탐지 수단이며, 이를 background sampler로 metric화하는 것은 R8 소관으로 옮겼다. 수동 대응 절차는 `docs/upgrades.md`에 적었다.
 - [ ] **rollback 상태에서 v5 cursor가 user error로 표면화되는 것.** control-plane rollback 상태에서 v5 cursor가 `invalid_cursor`가 된다. 명세("현재 durable generation/counter에 대해 검증")와는 일치하나 의식적 승인이 필요하다.
 
 ### 0.3 Release B 감사 minor 항목

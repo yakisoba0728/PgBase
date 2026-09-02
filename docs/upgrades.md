@@ -73,6 +73,40 @@ Use this exact v5-to-v6 sequence:
 
 Do not deploy the feature artifact before v6 commits: unlike P0, it intentionally treats v5 as incompatible. After v6 commits, do not deploy a pre-P0 binary or reverse the migration; disable the feature and redeploy the exact verified P0 artifact if a deployment rollback is required, then forward-fix.
 
+### Record membership v7 feature release
+
+Record membership adds a per-collection creation ordinal so list pagination cannot silently omit a record. It ships as four artifacts — A0, A, B and C — and only A0 recognizes both histories.
+
+- previous version `6`, checksum `6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a`;
+- optional target version `7`, checksum `8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e`.
+
+Run the `P0 -> M -> F` sequence above with A0 as the preparatory artifact and `--through 7`, then continue with the release-specific hold points:
+
+1. **Release A** admits only the post-migration history. Every record create takes the collection creation fence regardless of request headers or capability state, but the capability stays off and cursors stay v4.
+2. **Cutover** is not a lease check. Drain every A0 instance and confirm zero in-flight pre-A transactions before enabling dual-write; the cutover snapshot and counters are initialized under the creation fence.
+3. **Backfill** runs outside the migration transaction, is resumable, and records per-collection checkpoints. Promote to ready only after every catalog collection has a validated backfill row, including any collection created during the backfill window.
+4. **Release B** enables v5 cursor issuance and the high-water read. Deploy it to every instance before enabling the capability, then drain the 15-minute cursor TTL before Release C.
+
+#### Release B requires the exact v7 history on every instance
+
+Unlike earlier releases, Release B validates the installation on **every list request**, not only at startup. A list fails closed with `record_unavailable` (HTTP 503) when the database is not on the exact history this binary was built for:
+
+- **behind** — a clean v6 or older database. Release B is not compatible with it in either direction; use A0 for the migration window.
+- **ahead** — the database carries a migration this binary does not know, which happens if a newer peer migrates first during a rolling deploy.
+
+This is deliberate. The binary cannot verify checksums for a migration it does not embed, and a later migration may alter the membership objects the resolver depends on. The `P0 -> M -> F` sequence is the supported mitigation: the preparatory artifact for the *next* migration goes to the whole fleet before that migration is applied, so a Release B instance never meets a database ahead of it.
+
+Never apply a migration while any instance predates the artifact that recognizes it. Writes and single-record reads keep working in this state, so the fleet does not look broken — only lists fail — and the operator-facing error is intentionally redacted. `pgbase migrate status` and `pgbase doctor --json` are the tools that name the actual history problem.
+
+#### A base record without its membership sidecar disappears from lists
+
+Once the capability is ready, a list applies the membership boundary, so a base record with no `record_creation_ordinals` row is not returned and **no error is raised**. The same record is still returned by `GET /api/v1/collections/{collection}/records/{id}`. A caller cannot tell the two cases apart.
+
+A healthy deployment cannot reach this state: the base row and its sidecar are written in one transaction, delete and cascade hold the same order, and promotion validates the counts. Treat any report of a record that is visible by id but missing from its list as a membership drift symptom and run `pgbase doctor --json` first. Doctor reports the condition as `record_membership_sidecar_missing`, and reports the mirror case, a sidecar whose base record is gone, as `record_membership_sidecar_orphaned`. Both are bounded findings that name no identifiers.
+
+Do not enable the capability on a database whose doctor report is not clean.
+
+
 ## Rollback actions are different operations
 
 | Action | Before M commits | After M commits |
