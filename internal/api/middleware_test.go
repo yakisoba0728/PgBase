@@ -14,7 +14,7 @@ import (
 func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	handler := NewRouter(Dependencies{Logger: logger})
+	handler := mustRouter(t, Dependencies{Logger: logger})
 	const (
 		collectionSentinel = "private_collection_sentinel"
 		recordSentinel     = "019551d0-e9c0-7000-8000-private404"
@@ -56,7 +56,7 @@ func TestRecoveryDiscardsPartialResponseBeforeWriting500(t *testing.T) {
 }
 
 func TestCORSRejectsWildcardConfiguration(t *testing.T) {
-	handler := NewRouter(Dependencies{CORSAllowedOrigins: []string{"*"}})
+	handler := mustRouter(t, Dependencies{CORSAllowedOrigins: []string{"*"}})
 	request := httptest.NewRequest(http.MethodOptions, "/health/live", nil)
 	request.Header.Set("Origin", "https://app.example")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -71,7 +71,7 @@ func TestCORSRejectsWildcardConfiguration(t *testing.T) {
 }
 
 func TestCORSRejectsUnlistedOrigin(t *testing.T) {
-	handler := NewRouter(Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
+	handler := mustRouter(t, Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
 	request := httptest.NewRequest(http.MethodOptions, "/health/live", nil)
 	request.Header.Set("Origin", "https://other.example")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -86,7 +86,7 @@ func TestCORSRejectsUnlistedOrigin(t *testing.T) {
 }
 
 func TestCORSAnswersListedOriginPreflight(t *testing.T) {
-	handler := NewRouter(Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
+	handler := mustRouter(t, Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
 	request := httptest.NewRequest(http.MethodOptions, "/health/live", nil)
 	request.Header.Set("Origin", "https://admin.example")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -117,7 +117,7 @@ func TestCORSAllowlistDoesNotGrantCrossOriginMutationAuthority(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
 	dependencies := testDependencies(auth, mustURL("https://api.example"))
 	dependencies.CORSAllowedOrigins = []string{"https://admin.example"}
-	handler := NewRouter(dependencies)
+	handler := mustRouter(t, dependencies)
 
 	preflight := httptest.NewRequest(http.MethodOptions, "/api/admin/auth/logout", nil)
 	preflight.Header.Set("Origin", "https://admin.example")
@@ -145,7 +145,7 @@ func TestCORSAllowlistDoesNotGrantCrossOriginMutationAuthority(t *testing.T) {
 }
 
 func TestCORSResponseVaryIsCacheSafe(t *testing.T) {
-	handler := NewRouter(Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
+	handler := mustRouter(t, Dependencies{CORSAllowedOrigins: []string{"https://admin.example"}})
 	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)
 	request.Header.Set("Origin", "https://admin.example")
 	response := httptest.NewRecorder()

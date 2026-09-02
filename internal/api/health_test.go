@@ -14,7 +14,7 @@ type failingReadiness struct{}
 func (failingReadiness) Ready(context.Context) error { return errors.New("db down") }
 
 func TestReadyFailsWhenDependencyFails(t *testing.T) {
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Readiness: failingReadiness{},
 	})
 	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
@@ -32,7 +32,7 @@ func TestReadyFailsWhenDependencyFails(t *testing.T) {
 }
 
 func TestLiveReportsProcessHealth(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -42,7 +42,7 @@ func TestLiveReportsProcessHealth(t *testing.T) {
 }
 
 func TestReadySucceedsWithoutDependencies(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

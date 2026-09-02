@@ -23,10 +23,6 @@ type SystemStatusProvider interface {
 
 func systemStatus(provider SystemStatusProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if provider == nil {
-			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
-			return
-		}
 		status := provider.Status(r.Context())
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, status)

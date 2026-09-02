@@ -2,12 +2,8 @@ package repositorypolicy
 
 import (
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,43 +75,6 @@ func TestOperationalTelemetryArtifactsAndLinks(t *testing.T) {
 	}
 }
 
-func TestHTTPMetricRouteCardinalityBudget(t *testing.T) {
-	routerPath := filepath.Join("..", "api", "router.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), routerPath, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registeredRoutes := 0
-	methodAgnosticRoutes := 0
-	ast.Inspect(parsed, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || len(call.Args) == 0 {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || !strings.HasPrefix(selector.Sel.Name, "Handle") {
-			return true
-		}
-		receiver, ok := selector.X.(*ast.Ident)
-		literal, literalOK := call.Args[0].(*ast.BasicLit)
-		if !ok || receiver.Name != "mux" || !literalOK || literal.Kind != token.STRING {
-			return true
-		}
-		pattern, err := strconv.Unquote(literal.Value)
-		if err != nil {
-			t.Errorf("decode route pattern %s: %v", literal.Value, err)
-			return true
-		}
-		registeredRoutes++
-		if !strings.Contains(pattern, " ") {
-			methodAgnosticRoutes++
-		}
-		return true
-	})
-	if registeredRoutes == 0 {
-		t.Fatal("route cardinality policy found no direct mux registrations")
-	}
-	if registeredRoutes > 32 || methodAgnosticRoutes > 3 {
-		t.Fatalf("HTTP metric route budget exceeded: routes=%d/32 method-agnostic=%d/3; update the telemetry design and series budget before expanding", registeredRoutes, methodAgnosticRoutes)
-	}
-}
+// The HTTP metric series budget moved into the route registry itself, where
+// internal/api's TestRouteRegistryIsCompleteUniqueAndWithinTheMetricBudget
+// checks the declared routes rather than the shape of registration calls.

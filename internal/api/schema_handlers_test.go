@@ -28,7 +28,7 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testi
 		},
 		Statements: []string{`CREATE TABLE "app"."posts" (...)`},
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 		"operation":"create","name":"posts","fields":[{"name":"title","type":"text","required":true}]
 	}`))
@@ -63,7 +63,7 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 	t.Run("complete relation request reaches schema service", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{plan: schema.Plan{Definition: schema.PlannedCollection{Name: "posts", TableName: "posts"}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 			"operation":"create",
 			"name":"posts",
@@ -108,7 +108,7 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 	t.Run("unknown nested member is rejected before schema service", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 			"operation":"create",
 			"name":"posts",
@@ -162,7 +162,7 @@ func TestSchemaPlanRouteReturnsNormalizedRelationDTOs(t *testing.T) {
 			},
 		},
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"nodes","fields":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	protectSchemaMutationRequest(request)
@@ -239,7 +239,7 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 			schemas := &fakeSchemaService{}
-			handler := NewRouter(schemaTestDependencies(auth, schemas))
+			handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 			request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts","fields":[]}`))
 			request.Host = "admin.example.com"
 			request.Header.Set("Content-Type", "application/json")
@@ -266,7 +266,7 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 func TestSchemaPlanRejectsDuplicateDefaultAfterLargeNumberBeforeServiceCall(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	schemas := &fakeSchemaService{}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(
 		`{"operation":"create","name":"posts","fields":[{"name":"metadata","type":"jsonb","default":1e400,"default":"last"}]}`,
 	))
@@ -291,7 +291,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	schemas := &fakeSchemaService{applied: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	body := `{"operation":"create","name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
 
 	missingCSRF := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(body))
@@ -351,7 +351,7 @@ func TestSchemaCatalogRouteReturnsVersionAndDefinitions(t *testing.T) {
 	schemas := &fakeSchemaService{catalog: schema.Catalog{Version: 3, Collections: map[string]schema.Collection{
 		"posts": {Name: "posts", TableName: "posts", Fields: []schema.Field{{Name: "title", ColumnName: "title", Type: schema.TypeText}}},
 	}}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -395,7 +395,7 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 			},
 		},
 	}}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -443,7 +443,7 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 func TestSchemaCatalogRouteMapsCatalogLimitToStableUnprocessableError(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	schemas := &fakeSchemaService{catalogErr: schema.ErrCatalogLimitExceeded}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -461,7 +461,7 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 		t.Helper()
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: planErr}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"`+operation+`","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -528,7 +528,7 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 
 func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("all routes require authentication", func(t *testing.T) {
-		handler := NewRouter(schemaTestDependencies(&fakeAdminAuth{}, &fakeSchemaService{}))
+		handler := mustRouter(t, schemaTestDependencies(&fakeAdminAuth{}, &fakeSchemaService{}))
 		for _, test := range []struct {
 			method string
 			path   string
@@ -555,7 +555,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("validation details are safe", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.default", Code: "invalid_default"}}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -584,7 +584,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("conflicts are stable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrConflict}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"create","name":"posts","checksum":"x","baseVersion":0}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
@@ -602,7 +602,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("retryable database errors are service unavailable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{catalogErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
@@ -621,7 +621,7 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 	schemas := &fakeSchemaService{applied: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token")
 	authenticated := func(method, path, body string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -703,7 +703,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("unsupported schema change is unprocessable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.type", Code: "unsupported_schema_change"}}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -719,7 +719,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("data constraints are unprocessable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrDataConstraint}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"update","name":"posts","fields":[],"checksum":"x","baseVersion":3}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
@@ -737,7 +737,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("unknown collections are not found", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: schema.ErrCollectionNotFound}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"delete","name":"ghosts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)

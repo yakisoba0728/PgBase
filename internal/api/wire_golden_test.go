@@ -102,7 +102,7 @@ func TestHTTPWireGolden(t *testing.T) {
 		dependencies.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 		response := httptest.NewRecorder()
 		request := test.make()
-		NewRouter(dependencies).ServeHTTP(response, request)
+		mustRouter(t, dependencies).ServeHTTP(response, request)
 		golden.Exchanges = append(golden.Exchanges, captureWireExchange(t, test.name, request.Method, response, logs.Bytes()))
 	}
 

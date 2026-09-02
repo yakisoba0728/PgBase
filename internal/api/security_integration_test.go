@@ -25,7 +25,7 @@ func TestSecuritySetupCannotBeReused(t *testing.T) {
 	const secondPassword = "security-second-password-7f31"
 	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, setupToken, time.Hour, nil)
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&logs),
 		AdminAuth:   auth,
 		PublicURL:   mustURL("http://pgbase.test"),
@@ -51,7 +51,7 @@ func TestSecuritySetupCannotBeReused(t *testing.T) {
 func TestSecuritySetupIsUnavailableWithoutConfiguredTokenAndCreatesNoState(t *testing.T) {
 	pool := newSecurityDatabase(t)
 	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "", time.Hour, nil)
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		AdminAuth:   auth,
 		PublicURL:   mustURL("http://pgbase.test"),
 		TokenSecret: testTokenSecret,
@@ -86,7 +86,7 @@ func TestSecurityMalformedPasswordHashReturnsGenericCredentialsError(t *testing.
 		t.Fatalf("replace password hash: %v", err)
 	}
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&logs),
 		AdminAuth:   auth,
 		PublicURL:   mustURL("http://pgbase.test"),
@@ -136,7 +136,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	}
 	tampered := valid[:5] + differentSecurityCharacter(valid[5]) + valid[6:]
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&logs),
 		AdminAuth:   auth,
 		Records:     records,

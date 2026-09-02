@@ -14,7 +14,7 @@ import (
 )
 
 func TestSetupRouteRejectsMalformedJSON(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/setup", strings.NewReader("{"))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://example.com")
@@ -27,7 +27,7 @@ func TestSetupRouteRejectsMalformedJSON(t *testing.T) {
 }
 
 func TestLoginRouteRejectsMalformedJSON(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login", strings.NewReader("{"))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://example.com")
@@ -55,7 +55,7 @@ func TestRejectDuplicateJSONKeysDoesNotFailOpenOnLargeNumbers(t *testing.T) {
 }
 
 func TestSessionRouteRequiresAuthentication(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -67,7 +67,7 @@ func TestSessionRouteRequiresAuthentication(t *testing.T) {
 
 func TestAdminStatusReportsFirstRunWithoutAuthentication(t *testing.T) {
 	auth := &fakeAdminAuth{setupRequired: true}
-	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/status", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -86,7 +86,7 @@ func TestAdminStatusReportsFirstRunWithoutAuthentication(t *testing.T) {
 }
 
 func TestLogoutRouteRequiresAuthentication(t *testing.T) {
-	handler := NewRouter(Dependencies{})
+	handler := mustRouter(t, Dependencies{})
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "http://example.com")
 	response := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestLogoutRouteRequiresAuthentication(t *testing.T) {
 
 func TestSetupSetsSecureAdminCookie(t *testing.T) {
 	auth := &fakeAdminAuth{setupSession: validSession()}
-	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/setup",
 		strings.NewReader("{\"setupToken\":\"secret\",\"email\":\"admin@example.com\",\"password\":\"correct horse battery staple\"}"))
 	request.Header.Set("Content-Type", "application/json")
@@ -127,7 +127,7 @@ func TestSetupSetsSecureAdminCookie(t *testing.T) {
 
 func TestLoginReturnsAdministratorSession(t *testing.T) {
 	auth := &fakeAdminAuth{loginSession: validSession()}
-	handler := NewRouter(testDependencies(auth, mustURL("http://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("http://pgbase.example")))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login",
 		strings.NewReader("{\"email\":\"admin@example.com\",\"password\":\"correct horse battery staple\"}"))
 	request.Header.Set("Content-Type", "application/json")
@@ -150,7 +150,7 @@ func TestLoginReturnsAdministratorSession(t *testing.T) {
 func TestSessionAuthenticatesCookieAndReturnsCSRFToken(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt}
-	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
 	request.AddCookie(&http.Cookie{Name: "pgbase_admin", Value: session.RawToken})
 	response := httptest.NewRecorder()
@@ -167,7 +167,7 @@ func TestSessionAuthenticatesCookieAndReturnsCSRFToken(t *testing.T) {
 func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt}
-	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "https://pgbase.example")
 	request.Header.Set("X-PgBase-CSRF", "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo")
@@ -200,7 +200,7 @@ func TestSetupAndLoginRejectUnknownAndTrailingJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{setupSession: validSession(), loginSession: validSession()}
-			handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+			handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 			request := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "https://pgbase.example")
@@ -235,7 +235,7 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{loginErr: tt.err}
-			handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+			handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 			request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login", strings.NewReader(`{"email":"admin@example.com","password":"secret-password"}`))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "https://pgbase.example")

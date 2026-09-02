@@ -52,7 +52,7 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 	}
 
 	records := recordops.NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
 	create := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/nullable_api_records/records",
 		`{"title":"kept","active":false,"note":"","metadata":null}`, true)
 	createdResponse := httptest.NewRecorder()
@@ -295,7 +295,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		articleIDs = append(articleIDs, created.Record.Data["id"].(string))
 	}
 
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
 	serve := func(path string) *httptest.ResponseRecorder {
 		t.Helper()
 		response := httptest.NewRecorder()

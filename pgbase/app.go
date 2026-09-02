@@ -288,7 +288,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
-	handler := api.NewRouter(api.Dependencies{
+	handler, err := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
@@ -303,6 +303,9 @@ func newWithCatalogPreflight(
 		Metrics:            metrics,
 		MetricsToken:       normalized.MetricsToken,
 	})
+	if err != nil {
+		return nil, err
+	}
 	app := &App{
 		options:          normalized,
 		pool:             pool,

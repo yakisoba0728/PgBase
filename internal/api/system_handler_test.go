@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ type fakeSystemStatus struct{ status SystemStatus }
 func (f fakeSystemStatus) Status(context.Context) SystemStatus { return f.status }
 
 func TestSystemStatusRequiresAdministratorSession(t *testing.T) {
-	handler := NewRouter(Dependencies{System: fakeSystemStatus{status: SystemStatus{Version: "v1"}}})
+	handler := mustRouter(t, Dependencies{System: fakeSystemStatus{status: SystemStatus{Version: "v1"}}})
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/system", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -29,7 +30,7 @@ func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	dependencies := testDependencies(auth, nil)
 	dependencies.System = fakeSystemStatus{status: status}
-	handler := NewRouter(dependencies)
+	handler := mustRouter(t, dependencies)
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/system", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -52,15 +53,41 @@ func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
 	}
 }
 
-func TestSystemStatusUsesCommonErrorEnvelopeWhenUnavailable(t *testing.T) {
-	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
-	handler := NewRouter(testDependencies(auth, nil))
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/system", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
+func TestRouterRefusesToBuildWithoutEverySystemModule(t *testing.T) {
+	// A missing module used to reach the handler and answer an internal error
+	// on every request. Wiring is decided once, so it fails once, at
+	// construction, and names what the caller forgot.
+	for _, testCase := range []struct {
+		name string
+		want string
+	}{
+		{name: "Readiness", want: "Readiness"},
+		{name: "AdminAuth", want: "AdminAuth"},
+		{name: "Schema", want: "Schema"},
+		{name: "Records", want: "Records"},
+		{name: "System", want: "System"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			dependencies := completeDependencies(Dependencies{})
+			switch testCase.name {
+			case "Readiness":
+				dependencies.Readiness = nil
+			case "AdminAuth":
+				dependencies.AdminAuth = nil
+			case "Schema":
+				dependencies.Schema = nil
+			case "Records":
+				dependencies.Records = nil
+			case "System":
+				dependencies.System = nil
+			}
+			handler, err := NewRouter(dependencies)
+			if err == nil || handler != nil {
+				t.Fatalf("NewRouter without %s = %v, %v, want a construction error", testCase.name, handler, err)
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("construction error = %q, want it to name %s", err, testCase.want)
+			}
+		})
 	}
-	assertErrorCode(t, response.Body.Bytes(), "internal_error")
 }

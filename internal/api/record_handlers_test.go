@@ -19,7 +19,7 @@ import (
 
 func TestRecordRoutesRequireAdministratorAndCSRF(t *testing.T) {
 	records := &fakeRecordService{}
-	unauthenticated := NewRouter(recordTestDependencies(&fakeAdminAuth{}, records))
+	unauthenticated := mustRouter(t, recordTestDependencies(&fakeAdminAuth{}, records))
 	for _, route := range []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/collections/posts/records"},
 		{http.MethodPost, "/api/v1/collections/posts/records"},
@@ -39,7 +39,7 @@ func TestRecordRoutesRequireAdministratorAndCSRF(t *testing.T) {
 		}
 	}
 
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	for _, route := range []struct{ method, path, body string }{
 		{http.MethodPost, "/api/v1/collections/posts/records", `{}`},
 		{http.MethodPatch, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{}`},
@@ -61,7 +61,7 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 		page:   query.RecordPage{Items: []map[string]any{recordData}, NextCursor: "next"},
 		record: recordops.Record{Data: recordData, ETag: `"pgb1.current"`, Version: 1},
 	}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 
 	tests := []struct {
 		method, path, body string
@@ -100,7 +100,7 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 }
 
 func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{}))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{}))
 	for _, test := range []struct {
 		name, method, path, body, contentType string
 	}{
@@ -126,7 +126,7 @@ func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
 func TestRecordRoutesRejectDuplicateKeysAfterLargeNumberBeforeServiceCall(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPatch} {
 		records := &fakeRecordService{}
-		handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 		path := "/api/v1/collections/posts/records"
 		if method == http.MethodPatch {
 			path += "/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
@@ -146,7 +146,7 @@ func TestRecordRoutesRejectDuplicateKeysAfterLargeNumberBeforeServiceCall(t *tes
 
 func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodGet,
 		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+
 			"&sort="+url.QueryEscape("-rank,created_at")+"&expand="+url.QueryEscape("owner,reviewers"), "", true)
@@ -176,7 +176,7 @@ func TestRecordGetForwardsStrictlyParsedExpandParam(t *testing.T) {
 	records := &fakeRecordService{record: recordops.Record{
 		Data: map[string]any{"id": id.String()}, ETag: `"pgb1.current"`, Version: 1,
 	}}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 
 	request := authenticatedRecordRequest(http.MethodGet,
 		"/api/v1/collections/posts/records/"+id.String()+"?expand="+url.QueryEscape("owner,reviewers"), "", true)
@@ -209,7 +209,7 @@ func TestRecordListRejectsMalformedQueryEncodingBeforeServiceCall(t *testing.T) 
 	} {
 		t.Run(rawQuery, func(t *testing.T) {
 			records := &fakeRecordService{}
-			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 			request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records", "", true)
 			request.URL.RawQuery = rawQuery
 			response := httptest.NewRecorder()
@@ -240,7 +240,7 @@ func TestRecordCreateRejectsMalformedOrDuplicateIdempotencyKeyBeforeServiceCall(
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			records := &fakeRecordService{}
-			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 			request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records", `{}`, true)
 			for _, value := range test.values {
 				request.Header.Add("Idempotency-Key", value)
@@ -274,7 +274,7 @@ func TestRecordMutationsParseBoundedIfMatch(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			records := &fakeRecordService{record: newRecord}
-			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 			request := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/posts/records/"+id, `{"title":"next"}`, true)
 			if test.header != "" {
 				request.Header.Set("If-Match", test.header)
@@ -319,7 +319,7 @@ func TestRecordMutationsRejectMalformedOrDuplicateIfMatch(t *testing.T) {
 				} else {
 					records.deleteErr = &recordops.Error{Code: recordops.CodeInvalidPrecondition}
 				}
-				handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+				handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 				body := ""
 				if method == http.MethodPatch {
 					body = `{}`
@@ -359,7 +359,7 @@ func TestRecordMutationsRejectMalformedOrDuplicateIfMatch(t *testing.T) {
 
 func TestRecordPatchRejectsMalformedBodyBeforeMalformedIfMatch(t *testing.T) {
 	records := &fakeRecordService{}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodPatch,
 		"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{`, true)
 	request.Header.Set("If-Match", "not-an-entity-tag")
@@ -378,7 +378,7 @@ func TestRecordPatchRejectsTypeMismatchBeforeMalformedIfMatch(t *testing.T) {
 	records := &fakeRecordService{updateErr: &query.ValidationError{Details: []query.ValidationDetail{{
 		Field: "title", Code: "type_mismatch",
 	}}}}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodPatch,
 		"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", `{"title":123}`, true)
 	request.Header.Set("If-Match", "not-an-entity-tag")
@@ -561,7 +561,7 @@ func TestRecordRoutesMapSafeProductErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			records := &fakeRecordService{getErr: test.err}
-			handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 			request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "", true)
 			request.Header.Set("X-Request-ID", "fixed_request_id")
 			response := httptest.NewRecorder()
@@ -579,7 +579,7 @@ func TestRecordRoutesMapSafeProductErrors(t *testing.T) {
 
 func TestRecordRoutesExposeRetryPolicyForTransientDatabaseFailure(t *testing.T) {
 	records := &fakeRecordService{getErr: &pgconn.PgError{Code: "40001", Message: "serialization failure"}}
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "", true)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -643,7 +643,7 @@ func recordTestDependencies(auth AdminAuth, records RecordService) Dependencies 
 func serveRecordRequest(t *testing.T, records RecordService, auth AdminAuth, request *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
 	response := httptest.NewRecorder()
-	NewRouter(recordTestDependencies(auth, records)).ServeHTTP(response, request)
+	mustRouter(t, recordTestDependencies(auth, records)).ServeHTTP(response, request)
 	return response
 }
 

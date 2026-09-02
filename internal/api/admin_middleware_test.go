@@ -22,7 +22,7 @@ func TestAdminMutationsRejectAbsentOrMismatchedOrigin(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{setupSession: validSession()}
-			handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+			handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 			request := httptest.NewRequest(http.MethodPost, "/api/admin/setup",
 				strings.NewReader(`{"setupToken":"secret","email":"admin@example.com","password":"correct horse battery staple"}`))
 			request.Header.Set("Content-Type", "application/json")
@@ -45,7 +45,7 @@ func TestAdminMutationsRejectAbsentOrMismatchedOrigin(t *testing.T) {
 func TestAuthenticatedMutationRejectsMissingCSRF(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
-	handler := NewRouter(testDependencies(auth, mustURL("https://pgbase.example")))
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "https://pgbase.example")
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
@@ -137,7 +137,7 @@ func TestForwardedProtoControlsOriginAndCookieOnlyFromTrustedDirectProxy(t *test
 			auth := &fakeAdminAuth{setupSession: validSession()}
 			dependencies := testDependencies(auth, nil)
 			dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
-			handler := NewRouter(dependencies)
+			handler := mustRouter(t, dependencies)
 			request := httptest.NewRequest(http.MethodPost, "http://pgbase.internal/api/admin/setup",
 				strings.NewReader(`{"setupToken":"secret","email":"admin@example.com","password":"correct horse battery staple"}`))
 			request.RemoteAddr = tt.remoteAddr

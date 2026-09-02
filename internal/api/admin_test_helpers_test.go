@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"net/url"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,4 +104,42 @@ func testDependencies(auth AdminAuth, publicURL *url.URL) Dependencies {
 		PublicURL:   publicURL,
 		TokenSecret: testTokenSecret,
 	}
+}
+
+// stubReadiness satisfies the readiness dependency for router construction in
+// handler tests that do not exercise the health routes.
+type stubReadiness struct{}
+
+func (stubReadiness) Ready(context.Context) error { return nil }
+
+// completeDependencies fills every module the route registry requires, leaving
+// the caller's choices intact. Construction now rejects a partially wired
+// router, so a handler test states the modules it cares about and inherits
+// inert stubs for the rest instead of relying on request-time nil checks.
+func completeDependencies(dependencies Dependencies) Dependencies {
+	if dependencies.Readiness == nil {
+		dependencies.Readiness = stubReadiness{}
+	}
+	if dependencies.AdminAuth == nil {
+		dependencies.AdminAuth = &fakeAdminAuth{}
+	}
+	if dependencies.Schema == nil {
+		dependencies.Schema = &fakeSchemaService{}
+	}
+	if dependencies.Records == nil {
+		dependencies.Records = &fakeRecordService{}
+	}
+	if dependencies.System == nil {
+		dependencies.System = fakeSystemStatus{}
+	}
+	return dependencies
+}
+
+func mustRouter(tb testing.TB, dependencies Dependencies) http.Handler {
+	tb.Helper()
+	handler, err := NewRouter(completeDependencies(dependencies))
+	if err != nil {
+		tb.Fatalf("construct router: %v", err)
+	}
+	return handler
 }

@@ -132,7 +132,7 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewRouter(Dependencies{Metrics: tt.metrics, MetricsToken: tt.metricsToken})
+			handler := mustRouter(t, Dependencies{Metrics: tt.metrics, MetricsToken: tt.metricsToken})
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 			if response.Code != http.StatusNotFound {
@@ -153,7 +153,7 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 
 func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
 	tests := []struct {
 		name           string
 		authorizations []string
@@ -187,7 +187,7 @@ func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) 
 
 func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
 	const (
 		collectionSentinel = "raw_collection_sentinel"
 		idSentinel         = "raw_id_sentinel"
@@ -214,7 +214,7 @@ func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 
 func TestHTTPMetricsObserveRecoveredPanicAndBalanceInFlight(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Metrics:      metrics,
 		MetricsToken: testMetricsToken,
 		AdminUI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

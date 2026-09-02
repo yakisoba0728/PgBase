@@ -42,7 +42,7 @@ func TestSecuritySQLValuesRemainParametersAndErrorsStaySecretFree(t *testing.T) 
 	}
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&logs),
 		AdminAuth:   auth,
 		Records:     records,
@@ -73,7 +73,7 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 	const attack = `records"; DROP TABLE pgbase_meta.admins; --`
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&logs),
 		AdminAuth:   auth,
 		Schema:      securityPlannerService{},
@@ -121,7 +121,7 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
 			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", test.body)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -159,7 +159,7 @@ func TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling(t *testing.T
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
 			request := securityRequestWithContentType(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", body, test.contentType)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{loginSession: validSession()}
-			handler := NewRouter(Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
 			request := httptest.NewRequest(http.MethodPost, "http://pgbase.test/api/admin/auth/login", bytes.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "http://pgbase.test")
@@ -243,7 +243,7 @@ func TestSecurityAdminSessionOriginAndCSRFBypassesAreRejected(t *testing.T) {
 				dependencies.PublicURL = nil
 				dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 			}
-			handler := NewRouter(dependencies)
+			handler := mustRouter(t, dependencies)
 			request := httptest.NewRequest(test.method, "http://pgbase.test"+test.path, nil)
 			if test.remoteAddress != "" {
 				request.RemoteAddr = test.remoteAddress
@@ -307,7 +307,7 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 			t.Parallel()
 			auth := &fakeAdminAuth{loginErr: adminauth.ErrInvalidCredentials}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{
+			handler := mustRouter(t, Dependencies{
 				Logger:         observability.NewJSONLogger(&logs),
 				AdminAuth:      auth,
 				PublicURL:      mustURL("http://pgbase.test"),
@@ -343,7 +343,7 @@ func TestSecurityJSONErrorsAndStructuredLogsRedactSecrets(t *testing.T) {
 	hostile := errors.New(databaseURL + " " + authorization + " " + sqlText)
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var requestLogs bytes.Buffer
-	handler := NewRouter(Dependencies{
+	handler := mustRouter(t, Dependencies{
 		Logger:      observability.NewJSONLogger(&requestLogs),
 		AdminAuth:   auth,
 		Records:     securityErrorRecords{err: hostile},
