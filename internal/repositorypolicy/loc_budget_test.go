@@ -28,10 +28,14 @@ import (
 // Raising this number is allowed only in the same stack as the deletion that
 // pays for it, with the gross-new/gross-deleted accounting written here.
 // Lowered from 16,653 by audit finding STD-2, which paid for the per-version
-// delete graph by deleting Cache.Replace and the duplication around it. A
-// zero-slack ratchet tracks the measurement in both directions; only raising
-// it needs the accounting recorded below.
-const dataGroupRuntimeLimit = 16_645
+// delete graph by deleting Cache.Replace and the duplication around it, and
+// again by RUN-2 and RUN-3, which paid for the companion index's operator-class
+// comparison and its set-equality fleet proof out of the same file (the shared
+// lease reader, the bulk companion read replacing the per-index probe, and one
+// key renderer feeding both the DDL and the comparison). A zero-slack ratchet
+// tracks the measurement in both directions; only raising it needs the
+// accounting recorded below.
+const dataGroupRuntimeLimit = 16_639
 
 var dataGroupPackages = []string{
 	"internal/database",
