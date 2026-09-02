@@ -27,8 +27,6 @@ type AdminPrincipal struct {
 	CSRFToken string
 }
 
-// AdminPrincipalFromContext returns the authenticated principal installed by
-// the administrator-session middleware.
 func AdminPrincipalFromContext(ctx context.Context) (AdminPrincipal, bool) {
 	principal, ok := ctx.Value(adminPrincipalKey{}).(AdminPrincipal)
 	return principal, ok

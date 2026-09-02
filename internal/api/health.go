@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Readiness reports whether a required application component is ready.
 type Readiness interface {
 	Ready(context.Context) error
 }

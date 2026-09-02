@@ -19,12 +19,10 @@ func GenerateToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// HashSessionToken derives the value persisted for a raw session token.
 func HashSessionToken(secret []byte, rawToken string) []byte {
 	return tokenHMAC(secret, "session\x00", rawToken)
 }
 
-// DeriveCSRFToken derives the URL-safe CSRF token bound to a raw session token.
 func DeriveCSRFToken(secret []byte, rawToken string) string {
 	return base64.RawURLEncoding.EncodeToString(tokenHMAC(secret, "csrf\x00", rawToken))
 }

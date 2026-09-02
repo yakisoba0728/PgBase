@@ -19,7 +19,6 @@ const (
 	cleanerRetryMax              = time.Minute
 )
 
-// Cleaner periodically removes stale administrator rate-limit rows.
 type Cleaner struct {
 	pool     *database.Pool
 	clock    Clock
@@ -30,7 +29,6 @@ type Cleaner struct {
 	logger   *slog.Logger
 }
 
-// NewCleaner constructs an administrator authentication state cleaner.
 func NewCleaner(pool *database.Pool, clock Clock, loggers ...*slog.Logger) *Cleaner {
 	cleaner := &Cleaner{
 		pool: pool, clock: normalizedClock(clock),

@@ -21,7 +21,6 @@ import (
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 )
 
-// App owns the pgBase HTTP server and its required process resources.
 type App struct {
 	options          Options
 	pool             *database.Pool
@@ -205,9 +204,10 @@ func newWithCatalogPreflight(
 		if before.Current != 0 && !before.Compatible {
 			return nil, errors.New("system migrations are not current")
 		}
-		// Release A accepts only the checksum-pinned v7 history. A designated
-		// exact-target job must cross the v6 -> v7 boundary; auto-migration
-		// remains available only for a fresh database bootstrap.
+		// An existing database is accepted only on the checksum-pinned history
+		// the compatibility policy declares. A designated exact-target job must
+		// cross the boundary to the next version; auto-migration remains
+		// available only for a fresh database bootstrap.
 		if before.Current == 0 {
 			if err := runner.Up(ctx); err != nil {
 				return nil, fmt.Errorf("apply system migrations: %w", err)

@@ -21,7 +21,6 @@ var errRevisionChanged = errors.New("record revision changed outside the transac
 
 var errArtifactCountMismatch = errors.New("record artifact batch wrote an unexpected row count")
 
-// artifactRow is one record's committed change inside a mutation.
 type artifactRow struct {
 	eventID            uuid.UUID
 	recordID           uuid.UUID

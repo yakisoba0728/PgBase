@@ -104,7 +104,6 @@ func Canonical(raw []byte) ([]byte, error) {
 	return canonical, nil
 }
 
-// String decodes exactly one strict JSON string.
 func String(raw []byte) (string, error) {
 	if err := ValidateUnicode(raw); err != nil || len(raw) < 2 || raw[0] != '"' {
 		return "", ErrInvalid

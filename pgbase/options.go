@@ -29,7 +29,6 @@ const (
 	maximumSchemaApplyTimeout = time.Hour
 )
 
-// Options configures a pgBase application.
 type Options struct {
 	DatabaseURL string
 	HTTPAddress string
@@ -54,7 +53,6 @@ type Options struct {
 	Logger             *slog.Logger
 }
 
-// Normalized applies default values and validates option values.
 func (o Options) Normalized() (Options, error) {
 	if o.HTTPAddress == "" {
 		o.HTTPAddress = ":8090"

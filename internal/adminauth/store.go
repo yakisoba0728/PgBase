@@ -11,15 +11,12 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
-// Store persists administrator authentication state through the shared database boundary.
 type Store struct {
 	db database.DBTX
 }
 
-// NewStore creates an authentication store over a pool or transaction.
 func NewStore(db database.DBTX) *Store { return &Store{db: db} }
 
-// AdministratorCount returns the number of configured administrators.
 func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	var count int
 	if err := s.db.QueryRow(ctx, "select count(*) from pgbase_meta.admins").Scan(&count); err != nil {
@@ -28,7 +25,6 @@ func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// CreateAdministrator persists an administrator and its password hash.
 func (s *Store) CreateAdministrator(ctx context.Context, administrator Administrator, passwordHash string) (Administrator, error) {
 	normalizedEmail, err := NormalizeEmail(administrator.Email)
 	if err != nil {
@@ -229,7 +225,6 @@ func (s *Store) LockRateLimits(ctx context.Context, keys []int64) error {
 	return nil
 }
 
-// RateLimitBlocked reports whether a subject is currently blocked.
 func (s *Store) RateLimitBlocked(ctx context.Context, subjectHash []byte, now time.Time) (bool, error) {
 	var blocked bool
 	err := s.db.QueryRow(ctx, `
@@ -278,7 +273,6 @@ func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, 
 	return blocked, nil
 }
 
-// ClearRateLimit removes a subject's failure history after successful authentication.
 func (s *Store) ClearRateLimit(ctx context.Context, subjectHash []byte) error {
 	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_rate_limits where subject_hash = $1", subjectHash); err != nil {
 		return fmt.Errorf("clear administrator rate limit: %w", err)

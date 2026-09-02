@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS pgbase_meta.system_migrations (
     execution_ms bigint NOT NULL CHECK (execution_ms >= 0)
 );`
 
-// Runner applies the system schema migrations using the shared database pool.
 type Runner struct {
 	pool          *database.Pool
 	logger        *slog.Logger
@@ -34,12 +33,10 @@ type Runner struct {
 	recorder      observability.Recorder
 }
 
-// New creates a system migration runner.
 func New(pool *database.Pool, logger *slog.Logger) *Runner {
 	return NewWithRecorder(pool, logger, nil)
 }
 
-// NewWithRecorder creates a system migration runner with bounded telemetry.
 func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observability.Recorder) *Runner {
 	if logger == nil {
 		logger = slog.Default()

@@ -21,10 +21,11 @@ import (
 // Invalid residue is reported in every state and is deliberately a separate
 // code: an interrupted CREATE INDEX CONCURRENTLY is recovered by rerunning
 // maintenance, not by repairing the catalog by hand.
-// checkCompanionIndexes reuses the manifest the physical comparison already
-// compiled. Doctor runs in one repeatable-read snapshot, so a second catalog
-// read could not observe anything different and would only cost statements
-// against the fixed query bound.
+//
+// The manifest is the one the physical comparison already compiled. Doctor runs
+// in one repeatable-read snapshot, so a second catalog read could not observe
+// anything different and would only cost statements against the fixed query
+// bound.
 func checkCompanionIndexes(
 	ctx context.Context,
 	db database.DBTX,

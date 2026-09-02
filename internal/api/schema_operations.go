@@ -29,9 +29,9 @@ const (
 	// the token is the one the record routes already use for the same missing
 	// header so operators read one vocabulary.
 	schemaApplyUnguardedCompatibility = "missing-idempotency-key"
-	// maximumOperationHistoryLimit mirrors the bound SchemaKernel enforces on
-	// OperationQuery, so a rejected limit is rejected identically whether it
-	// arrives over HTTP or in process.
+	// Mirrors the bound the schema service enforces on OperationQuery, so a
+	// rejected limit is rejected identically whether it arrives over HTTP or in
+	// process.
 	maximumOperationHistoryLimit = 100
 	// operationRecoveryReadTimeout bounds the ledger read that answers an
 	// apply whose own context has already expired. It stays well inside the

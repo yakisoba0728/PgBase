@@ -25,7 +25,6 @@ import (
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
-// environment reads one process environment variable.
 type environment = func(string) (string, bool)
 
 // command handles one pgbase subcommand. Returning a configurationError makes

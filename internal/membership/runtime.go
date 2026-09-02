@@ -84,7 +84,6 @@ func (r *Runtime) refresh(ctx context.Context) error {
 	}
 }
 
-// Writer returns a transaction fence bound to this registered process.
 func (r *Runtime) Writer() (Writer, error) {
 	if r == nil || r.service == nil || r.instanceID == uuid.Nil ||
 		r.version < WriterA0 || r.version > WriterC {

@@ -44,7 +44,6 @@ const (
 	SchemaOperationCollectionDelete SchemaOperation = "collection_delete"
 )
 
-// OperationStatus is the durable state of one schema operation.
 type OperationStatus string
 
 const (

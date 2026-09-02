@@ -56,9 +56,9 @@ type route struct {
 	handler  http.Handler
 }
 
-// pattern returns the ServeMux pattern. A route with no method is matched for
-// every method, which the registry counts separately because each one costs a
-// metric series per method the internet sends.
+// A route with no method is matched for every method, which the registry
+// counts separately because each one costs a metric series per method the
+// internet sends.
 func (r route) muxPattern() string {
 	if r.method == "" {
 		return r.pattern
