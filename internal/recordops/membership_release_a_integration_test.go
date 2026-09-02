@@ -132,12 +132,17 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.record_creation_ordinals;
+	// Rewind to exactly v6. Both later migrations have to go: leaving v8's row
+	// behind would make the history a gap rather than the clean pre-membership
+	// history this test is about.
+	if _, err := pool.Exec(ctx, `drop table pgbase_meta.schema_writer_leases;
+		drop table pgbase_meta.schema_companion_index_capability;
+		drop table pgbase_meta.record_creation_ordinals;
 		drop table pgbase_meta.record_membership_backfills;
 		drop table pgbase_meta.collection_creation_counters;
 		drop table pgbase_meta.runtime_writer_leases;
 		drop table pgbase_meta.record_membership_capability;
-		delete from pgbase_meta.system_migrations where version = 7`); err != nil {
+		delete from pgbase_meta.system_migrations where version in (7, 8)`); err != nil {
 		t.Fatal(err)
 	}
 	request := CreateRequest{
@@ -148,7 +153,11 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	if _, err := records.Create(ctx, request); !IsCode(err, CodeUnavailable) || errors.Is(err, membership.ErrUnavailable) {
 		t.Fatalf("Release-A Create on exact v6 error = %v, want stable availability", err)
 	}
-	if _, err := migrate.New(pool, nil).UpThrough(ctx, 7); err != nil {
+	// Apply every pending migration rather than targeting 7: the exact-target
+	// command refuses a version that leaves a later embedded migration pending,
+	// which is the guard that keeps a rollout from crossing two at once. What
+	// this test needs is simply that membership exists afterwards.
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
 	created, err := records.Create(ctx, request)

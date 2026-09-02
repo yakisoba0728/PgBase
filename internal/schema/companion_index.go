@@ -157,7 +157,7 @@ func (s *Service) CompanionIndexStatus(ctx context.Context) (CompanionIndexStatu
 	err := database.Retry(ctx, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 			var readErr error
-			status, readErr = readCompanionIndexStatus(ctx, tx)
+			status, readErr = ReadCompanionIndexStatus(ctx, tx)
 			return readErr
 		})
 	}, nil)
@@ -215,7 +215,9 @@ const companionCapabilitySelect = `select state, generation, catalog_version,
 	building_at, ready_at, ready_index_count, updated_at
 	from pgbase_meta.schema_companion_index_capability where singleton`
 
-func readCompanionIndexStatus(ctx context.Context, db database.DBTX) (CompanionIndexStatus, error) {
+// ReadCompanionIndexStatus reads the rollout capability alone. A caller that
+// already holds a manifest pairs it with CompanionIndexDiagnosticsForManifest.
+func ReadCompanionIndexStatus(ctx context.Context, db database.DBTX) (CompanionIndexStatus, error) {
 	installed, err := companionIndexInstalled(ctx, db)
 	if err != nil {
 		return CompanionIndexStatus{}, err
@@ -708,7 +710,7 @@ func (s *Service) promoteCompanionIndexes(ctx context.Context) (CompanionIndexRe
 // transitional-state report and its physical report cannot describe different
 // instants.
 func ReadCompanionIndexDiagnostics(ctx context.Context, db database.DBTX) (CompanionIndexDiagnostics, error) {
-	status, err := readCompanionIndexStatus(ctx, db)
+	status, err := ReadCompanionIndexStatus(ctx, db)
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
 	}
@@ -731,7 +733,6 @@ func ReadCompanionIndexDiagnostics(ctx context.Context, db database.DBTX) (Compa
 func companionIndexDiagnostics(
 	ctx context.Context, db database.DBTX, status CompanionIndexStatus, version int64,
 ) (CompanionIndexDiagnostics, error) {
-	diagnostics := CompanionIndexDiagnostics{Status: status, CatalogVersion: version, CatalogReadable: true}
 	catalog, err := NewStore(db).ReadCatalog(ctx, version)
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
@@ -740,6 +741,21 @@ func companionIndexDiagnostics(
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
 	}
+	return CompanionIndexDiagnosticsForManifest(ctx, db, status, version, manifest)
+}
+
+// CompanionIndexDiagnosticsForManifest reports the rollout against a manifest
+// the caller has already compiled. Doctor holds one for its whole run, and
+// compiling a second one would read the catalog twice inside a snapshot where
+// it cannot have changed.
+func CompanionIndexDiagnosticsForManifest(
+	ctx context.Context,
+	db database.DBTX,
+	status CompanionIndexStatus,
+	version int64,
+	manifest ExpectedPhysicalSchema,
+) (CompanionIndexDiagnostics, error) {
+	diagnostics := CompanionIndexDiagnostics{Status: status, CatalogVersion: version, CatalogReadable: true}
 	companions := manifest.CompanionIndexes()
 	diagnostics.Expected = len(companions)
 	observed, err := loadCompanionIndexes(ctx, db, companions)

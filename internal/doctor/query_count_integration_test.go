@@ -24,7 +24,13 @@ import (
 // count must be identical for a two-collection project and a twenty-collection
 // one. The sidecar scans below it stay O(total records) by design, but they
 // are a fixed number of statements.
-const doctorSnapshotQueryCeiling = 28
+//
+// Raised from 28 to 31 by the companion index rollout, which adds exactly three
+// fixed reads: whether the capability is installed, the capability row, and the
+// observed shape of every companion in one statement. The manifest itself is
+// reused from the physical comparison rather than recompiled. Raise this only
+// alongside statements that are likewise independent of catalog size.
+const doctorSnapshotQueryCeiling = 31
 
 type doctorQueryTracer struct {
 	mu         sync.Mutex

@@ -201,7 +201,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 7 {
+	if len(migrations) != 8 {
 		t.Fatalf("record-membership release-B manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -216,9 +216,13 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 		{name: "v5 rejected without auto-upgrade", through: 5, autoMigrate: true},
 		{name: "v6 rejected", through: 6},
 		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
+		// v7 and v8 are the two histories this artifact declares: it must serve
+		// the fleet both before and after the companion index migration.
 		{name: "v7 accepted", through: 7, wantAccept: true},
+		{name: "v8 accepted", through: 8, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v7 rejected", through: 7, dirty: true},
+		{name: "dirty v8 rejected", through: 8, dirty: true},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -281,11 +285,11 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 					_ = app.Close(context.Background())
 					t.Fatal(queryErr)
 				}
-				if (membershipTable != nil) != (testCase.through == 7) {
+				if (membershipTable != nil) != (testCase.through >= 7) {
 					_ = app.Close(context.Background())
 					t.Fatalf("membership table after v%d startup = %v", testCase.through, membershipTable)
 				}
-				if testCase.through == 7 {
+				if testCase.through >= 7 {
 					var leases int
 					if err := app.pool.QueryRow(context.Background(), `select count(*)
 						from pgbase_meta.runtime_writer_leases
@@ -315,16 +319,20 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 					}
 					time.Sleep(10 * time.Millisecond)
 				}
+				// Remove the required history, not the top one: at v8 the top row
+				// is the optional migration, and dropping it leaves the clean v7
+				// this artifact is supposed to keep serving. Removing v7 leaves
+				// either a history below the range or a gap, both of which are
+				// drift under any policy.
 				if _, err := app.pool.Exec(context.Background(),
-					"delete from pgbase_meta.system_migrations where version = $1",
-					testCase.through,
+					"delete from pgbase_meta.system_migrations where version = 7",
 				); err != nil {
 					_ = app.Close(context.Background())
 					t.Fatal(err)
 				}
 				if err := app.readiness.Ready(context.Background()); err == nil {
 					_ = app.Close(context.Background())
-					t.Fatalf("readiness accepted history/object drift after v%d startup", testCase.through)
+					t.Fatalf("readiness accepted history drift after v%d startup", testCase.through)
 				}
 				if closeErr := app.Close(context.Background()); closeErr != nil {
 					t.Fatal(closeErr)

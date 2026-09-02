@@ -21,8 +21,25 @@ import (
 // Invalid residue is reported in every state and is deliberately a separate
 // code: an interrupted CREATE INDEX CONCURRENTLY is recovered by rerunning
 // maintenance, not by repairing the catalog by hand.
-func checkCompanionIndexes(ctx context.Context, db database.DBTX, report *Report) error {
-	diagnostics, err := schema.ReadCompanionIndexDiagnostics(ctx, db)
+// checkCompanionIndexes reuses the manifest the physical comparison already
+// compiled. Doctor runs in one repeatable-read snapshot, so a second catalog
+// read could not observe anything different and would only cost statements
+// against the fixed query bound.
+func checkCompanionIndexes(
+	ctx context.Context,
+	db database.DBTX,
+	schemaVersion int64,
+	manifest schema.ExpectedPhysicalSchema,
+	report *Report,
+) error {
+	status, err := schema.ReadCompanionIndexStatus(ctx, db)
+	if err != nil {
+		return err
+	}
+	if !status.Installed {
+		return nil
+	}
+	diagnostics, err := schema.CompanionIndexDiagnosticsForManifest(ctx, db, status, schemaVersion, manifest)
 	if err != nil {
 		return err
 	}

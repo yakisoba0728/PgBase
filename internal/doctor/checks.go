@@ -81,9 +81,6 @@ func inspectSnapshot(ctx context.Context, tx pgx.Tx, status migrate.Status, repo
 	if err := checkPhysicalSchema(ctx, tx, schemaVersion, report); err != nil {
 		return err
 	}
-	if err := checkCompanionIndexes(ctx, tx, report); err != nil {
-		return err
-	}
 	return checkRecordMembership(ctx, tx, status, report)
 }
 
@@ -181,7 +178,7 @@ func checkPhysicalSchema(ctx context.Context, db database.DBTX, schemaVersion in
 		return err
 	}
 	comparePhysicalSchema(manifest, snapshot, relations, report)
-	return nil
+	return checkCompanionIndexes(ctx, db, schemaVersion, manifest, report)
 }
 
 // expectedPhysicalSchema compiles the manifest inside doctor's own snapshot. A
