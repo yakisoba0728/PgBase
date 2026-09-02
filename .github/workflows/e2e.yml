@@ -77,13 +77,8 @@ jobs:
       - name: Verify Compose shutdown policy
         shell: bash
         run: |
-          go test ./deployments ./internal/config -run 'TestComposeShutdownGraceUsesOneConfigurableDefault|TestLoadEnvRequiresComposeStopGraceMargin' -count=1
-          docker compose -f deployments/docker-compose.yml config --quiet
-          PGBASE_SHUTDOWN_TIMEOUT=40s PGBASE_STOP_GRACE_PERIOD=45s docker compose -f deployments/docker-compose.yml config --quiet
-          if PGBASE_STOP_GRACE_PERIOD=not-a-duration docker compose -f deployments/docker-compose.yml config --quiet; then
-            echo "malformed Compose stop grace unexpectedly rendered" >&2
-            exit 1
-          fi
+          go test ./deployments ./internal/config -run 'ComposeShutdownGrace|ComposeInterpolationDefaults|ComposeStopGraceMargin' -count=1
+          go test -tags=compose ./tests/compose -count=1
 
       - name: Authenticate and pull release candidate
         if: steps.mode.outputs.release == 'true'

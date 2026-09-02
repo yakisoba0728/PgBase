@@ -767,6 +767,11 @@ func configureSuite() (e2eSuite, error) {
 		"PGBASE_PUBLIC_URL="+baseURL,
 		"PGBASE_IMAGE="+image,
 		"PGBASE_VERSION="+version,
+		// The Compose drain test must observe a full graceful shutdown inside
+		// the suite budget, so the project keeps the shipped five-second grace
+		// margin at a shorter absolute timeout.
+		"PGBASE_SHUTDOWN_TIMEOUT="+composeShutdownTimeout.String(),
+		"PGBASE_STOP_GRACE_PERIOD="+composeStopGracePeriod.String(),
 	)
 	return e2eSuite{
 		repoRoot: repoRoot, composeFile: filepath.Join(repoRoot, "deployments", "docker-compose.yml"),
