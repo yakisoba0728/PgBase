@@ -16,7 +16,7 @@ func TestCollectionLifecycleMaintainsMembershipMetadataOutsideThePublicPlan(t *t
 	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 
-	offPlan, err := service.PlanCreate(ctx, CreateCollectionInput{Name: "membership_off"})
+	offPlan, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{Name: "membership_off"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,11 +42,11 @@ func TestCollectionLifecycleMaintainsMembershipMetadataOutsideThePublicPlan(t *t
 	ready := applyFreshPlan(t, service, CreateCollectionInput{Name: "membership_ready"}, administratorID)
 	assertMembershipCollectionState(t, pool, ready.ID, 1, "ready", true)
 
-	plan, err := service.PlanDelete(ctx, ready.Name)
+	plan, err := service.Preview(ctx, NewDeleteChange(ready.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ApplyDelete(ctx, ready.Name, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if err := applyDelete(ctx, service, ready.Name, plan, administratorID); err != nil {
 		t.Fatal(err)
 	}
 	var counters, backfills int

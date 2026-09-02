@@ -439,11 +439,11 @@ func TestCatalogChangeDropsTheCompanionCapabilityToPending(t *testing.T) {
 		{Name: "nickname", Type: TypeText, Indexed: true},
 		{Name: "handle", Type: TypeText, Indexed: true},
 	}}
-	plan, err := service.PlanUpdate(ctx, update)
+	plan, err := service.Preview(ctx, NewUpdateChange(update))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := applyUpdate(ctx, service, update, plan, administratorID); err != nil {
 		t.Fatal(err)
 	}
 
