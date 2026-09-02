@@ -119,21 +119,30 @@ func (r *Runner) UpThrough(ctx context.Context, target int64) (receipt UpThrough
 	if err != nil {
 		return receipt, fmt.Errorf("read back system migration history: %w", err)
 	}
-	if !present {
-		return receipt, fmt.Errorf("verify system migration target %d: committed history table is missing", target)
-	}
 	inspection := inspectHistory(r.migrations, applied)
 	receipt.After = inspection.state
+	return receipt, verifyExactTargetReadback(inspection, present, target, targetMigration.SHA256)
+}
+
+// verifyExactTargetReadback rejects a committed history that does not match the
+// approved target. A rollout job treats this error as a release blocker: the
+// migration transaction reported success, so anything the freshly committed
+// history disagrees about means the database is not the one the release was
+// approved against.
+func verifyExactTargetReadback(inspection historyInspection, present bool, target int64, want [32]byte) error {
+	if !present {
+		return fmt.Errorf("verify system migration target %d: committed history table is missing", target)
+	}
 	if inspection.err != nil {
-		return receipt, fmt.Errorf("verify system migration target %d: %w", target, inspection.err)
+		return fmt.Errorf("verify system migration target %d: %w", target, inspection.err)
 	}
 	if inspection.issue != nil {
-		return receipt, fmt.Errorf("verify system migration target %d: %w", target, inspection.issue)
+		return fmt.Errorf("verify system migration target %d: %w", target, inspection.issue)
 	}
-	if receipt.After.Version != target || receipt.After.Checksum != targetMigration.SHA256 {
-		return receipt, fmt.Errorf("verify system migration target %d: committed history does not match target", target)
+	if inspection.state.Version != target || inspection.state.Checksum != want {
+		return fmt.Errorf("verify system migration target %d: committed history does not match target", target)
 	}
-	return receipt, nil
+	return nil
 }
 
 func exactTargetPrecondition(inspection historyInspection, target, previousVersion int64) error {
