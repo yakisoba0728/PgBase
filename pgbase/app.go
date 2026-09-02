@@ -596,9 +596,11 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	backgroundCancel := a.backgroundCancel
 	backgroundDone := a.backgroundDone
 	a.closeMu.Unlock()
-	if backgroundCancel != nil {
-		backgroundCancel()
-	}
+
+	// Drain HTTP before cancelling background work. Readiness is already
+	// false, so no new request arrives, but the requests still in flight may
+	// depend on a cleaner, the schema listener or the membership writer lease.
+	// Cancelling those first would fail requests that were about to succeed.
 	if a.httpServer != nil {
 		shutdownErr := a.httpServer.Shutdown(ctx)
 		if errors.Is(shutdownErr, http.ErrServerClosed) {
@@ -610,6 +612,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 				closeErr = errors.Join(closeErr, forceErr)
 			}
 		}
+	}
+	if backgroundCancel != nil {
+		backgroundCancel()
 	}
 	if err := waitForDone(ctx, backgroundDone, "background components"); err != nil {
 		closeErr = errors.Join(closeErr, err)

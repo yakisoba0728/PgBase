@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -434,4 +435,101 @@ func waitForLive(t *testing.T, url string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("live endpoint did not become available")
+}
+
+// orderRecorder captures the sequence of shutdown milestones so the ordering
+// contract can be asserted rather than inferred from timing.
+type orderRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *orderRecorder) record(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *orderRecorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+// orderedRunner reports when its context is cancelled, which is the moment the
+// app stops background work.
+type orderedRunner struct {
+	recorder *orderRecorder
+	started  chan struct{}
+}
+
+func (r *orderedRunner) Run(ctx context.Context) error {
+	close(r.started)
+	<-ctx.Done()
+	r.recorder.record("background cancelled")
+	return nil
+}
+
+// An in-flight request may still depend on a cleaner, the schema listener or
+// the membership writer lease. Readiness goes false first so nothing new
+// arrives, then HTTP drains, and only then is background work cancelled;
+// cancelling first would fail requests that were about to succeed.
+func TestCloseDrainsHTTPBeforeCancellingBackgroundWork(t *testing.T) {
+	recorder := &orderRecorder{}
+	runner := &orderedRunner{recorder: recorder, started: make(chan struct{})}
+	inflight := make(chan struct{})
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-inflight
+		recorder.record("request served")
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = server.Serve(listener) }()
+
+	readiness := &readinessState{}
+	app := &App{
+		httpServer:       server,
+		readiness:        readiness,
+		cleaner:          runner,
+		lifecycleClosing: make(chan struct{}),
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignal(t, runner.started, "background runner did not start")
+
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		response, err := http.Get("http://" + listener.Addr().String() + "/")
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	// Give the request time to reach the handler and block there.
+	time.Sleep(50 * time.Millisecond)
+
+	closed := make(chan error, 1)
+	go func() { closed <- app.Close(context.Background()) }()
+	// Close must now be waiting on the drain, not cancelling background work.
+	time.Sleep(50 * time.Millisecond)
+	if got := recorder.snapshot(); len(got) != 0 {
+		t.Fatalf("shutdown progressed while a request was in flight: %v", got)
+	}
+	if readiness.Ready(context.Background()) == nil {
+		t.Fatal("readiness stayed true after Close began")
+	}
+
+	close(inflight)
+	<-requestDone
+	if err := <-closed; err != nil {
+		t.Fatalf("Close() = %v", err)
+	}
+	want := []string{"request served", "background cancelled"}
+	if got := recorder.snapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("shutdown order = %v, want %v", got, want)
+	}
 }
