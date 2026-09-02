@@ -88,6 +88,70 @@ Run the `P0 -> M -> F` sequence above with A0 as the preparatory artifact and `-
 4. **Release B** enables v5 cursor issuance and the high-water read. Deploy it to every instance before enabling the capability, then drain the 15-minute cursor TTL before Release C.
 5. **Retirement** is the point of no return. Confirm every active writer lease is at Release B or later, confirm the cursor TTL has drained, then retire cursor v4. Only after that is it safe to deploy Release C, which no longer carries a v4 cursor at all.
 
+#### Driving the rollout from the operator CLI
+
+Each step above is an operator command, not a deploy and not a configuration
+value. The capability row is the only source of truth, so no environment
+variable, HTTP route, or `pgbase.Options` field can move it:
+
+```console
+pgbase membership status --json
+pgbase membership cutover --witness INSTANCE_ID:WRITER_VERSION [--witness ...]
+pgbase membership backfill
+pgbase membership promote-ready
+pgbase membership enable-v5 --witness INSTANCE_ID:WRITER_VERSION [--witness ...]
+pgbase membership retire-v4 --witness INSTANCE_ID:WRITER_VERSION [--witness ...]
+```
+
+Run every command as one designated job against the upgraded database, with the
+fleet already deployed and serving: the transitions require live writer leases,
+and only a running instance holds one.
+
+1. `status` reports the capability state, generation, writer floor, cursor issue
+   version, every rollout timestamp, and every live record writer in the exact
+   `--witness INSTANCE_ID:WRITER_VERSION` spelling the next transition expects
+   back. The writer version is the release generation — `0` for A0, `1` for A,
+   `2` for B, `3` for C; a fleet of the current artifact reports `:3` for every
+   instance. `status` never moves the capability; run it before and after every
+   step and keep the JSON with the deployment record.
+2. `cutover` starts the barrier and initializes the counters and per-collection
+   backfill rows under the creation fence. It requires the durable lease set to
+   be exactly the witnesses you name, each at Release A or later. You name the
+   release as well as the instance; the command does not fill it in from the
+   rows the transition is about to re-read, because a proof assembled that way
+   would prove nothing about what you confirmed.
+3. `backfill` runs the resumable backfill to completion, printing one line per
+   pass and committing a checkpoint each time. It is safe to kill and safe to
+   rerun; rerun it until it reports `done=true`. It validates each collection's
+   base and sidecar counts before marking it ready, and it stops with a failure
+   rather than looping if a pass can make no progress.
+4. `promote-ready` refuses until every catalogued collection — including one
+   created during the backfill window — has a validated, completed backfill row
+   at the current generation.
+5. `enable-v5` turns on v5 cursor issuance and the high-water read, raises the
+   writer floor to Release B, and stamps the 15-minute v4 decode deadline. It
+   takes the same fleet proof, and requires every witness to be at Release B or
+   later.
+6. `retire-v4` is irreversible. It refuses with a drain-pending failure until
+   `v4_decode_until` has elapsed, and it re-verifies the fleet proof under its
+   own locks. Do not attempt to shorten that window.
+
+`pgbase membership disable-v5` is the rollback for step 5: it returns issuance
+to v4 and the writer floor to Release A. It is available only while
+`v4_retired_at` is null, so the window closes permanently at retirement. There
+is no rollback for cutover or for promotion; both are forward-only, and both
+are safe to rerun.
+
+Every step reports the receipt it already stamped if it has already run, so a
+retried job is not a second transition. A failed step exits 1 with a redacted
+diagnostic on stderr and leaves the capability unchanged; an invocation the
+command itself rejects exits 2 without connecting to the database.
+
+Do not move the capability with SQL. The transitions take the schema pin, the
+creation counters and the capability row in a fixed order and validate counts
+before each promotion; an `UPDATE` that sets the row to `ready` skips all of it
+and can leave records with no membership sidecar, which lists then silently omit.
+
 #### Release B requires the exact v7 history on every instance
 
 Unlike earlier releases, Release B validates the installation on **every list request**, not only at startup. A list fails closed with `record_unavailable` (HTTP 503) when the database is not on the exact history this binary was built for:
@@ -145,6 +209,35 @@ A v4 cursor replayed against Release C returns the same `invalid_cursor`
 (HTTP 400) a caller already handles for a tampered or expired token. There is
 no distinct code for a retired format, and there is deliberately no way for a
 caller to tell the two apart.
+
+##### `GET /health/ready` stays 200 during the rollout
+
+An instance whose lists all fail with `record_unavailable` still reports ready.
+That is deliberate, and it is not a gap in the check.
+
+Readiness answers whether this instance should be admitted to the load
+balancer, and the honest answer during the rollout window is yes. Writes,
+single-record reads, the administrator API and every schema route serve
+normally; only list is fenced. Every instance in the fleet is in the same
+state, so failing readiness would not route traffic to a healthy peer — it
+would take the whole deployment out of service and replace "lists fail" with
+"nothing answers".
+
+It would also deadlock the rollout it is supposed to warn about. `cutover`,
+`enable-v5` and `retire-v4` require a live writer lease from each instance, and
+an orchestrator that refuses to admit an instance that never reports ready will
+stall or roll back the very deploy that has to be in place before the
+transitions can run. A deployment that is proceeding correctly through a
+legitimate mid-rollout window must not be reported as failing.
+
+The rollout state is therefore surfaced where an operator looks for it rather
+than through readiness. `pgbase membership status --json` is that place, and it
+is the only one: it names the capability state, the cursor issue version, every
+rollout timestamp and the live fleet. `pgbase doctor --json` does **not** cover
+this — it reports membership drift and an invalid membership installation, but a
+database whose rollout simply has not been run is a clean doctor report. Treat a
+fleet that is ready but cannot list as an unfinished rollout, and run `pgbase
+membership status`.
 
 After Release C the rollback target is the exact verified Release B artifact
 with the capability left retired. Do not deploy Release A0 or Release A on a
