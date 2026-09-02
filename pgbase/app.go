@@ -348,6 +348,13 @@ func (a *App) Handler() http.Handler { return a.handler }
 // Start starts pgBase background components for a caller-owned HTTP server.
 // A started application cannot subsequently be passed to Run; call Close when
 // the caller-owned server has stopped.
+//
+// The context cancels background work directly, and pgBase cannot order that
+// against a server it does not own. A context tied to SIGTERM therefore stops
+// the listener and the membership heartbeat while the caller's requests are
+// still draining; Run escapes this only because it owns the server and drains
+// first. Pass a context that outlives the server and shut down through Close,
+// which drains before it cancels.
 func (a *App) Start(ctx context.Context) error {
 	if a == nil || a.httpServer == nil {
 		return errors.New("pgbase app is not initialized")

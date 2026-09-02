@@ -11,15 +11,15 @@
 
 | 항목 | 등급 | 상태 | 커밋 |
 |---|---|---|---|
-| STD-1 draft 유실 | P2 | 닫힘 | `4a86ee0`…`eed8837` |
-| STD-2 DELETE graph 비용 | P2 | 닫힘 | `52eb31d` (지불: `f6b3ec8`) |
+| STD-1 draft 유실 | P2 | 닫힘 | `4fc6891`…`eed8837` |
+| STD-2 DELETE graph 비용 | P2 | 닫힘 | `52eb31d` (지불: `03f07ec`) |
 | STD-3 forwarding wrapper | P3 | 진행 중 | — |
 | SPEC-1 운영 진입점 부재 | **P1** | 닫힘 | `2e87742`, `672391d` |
 | SPEC-2 compiler v2 미배선 | P2 | 진행 중 | — |
 | SPEC-3 macOS terminal CI | P2 | 닫힘 | `00423d1` |
 | RUN-1 장시간 DDL이 앱을 종료 | **P1** | 닫힘 | `514df60` (+ 잔여 `560a5cc`) |
-| RUN-2 witness 중복 우회 | **P1** | 진행 중 | — |
-| RUN-3 opclass 오판정 | P2 | 진행 중 | — |
+| RUN-2 witness 중복 우회 | **P1** | 닫힘 | `7c51094` |
+| RUN-3 opclass 오판정 | P2 | 닫힘 | `be3ccd8`, `8269ed3` |
 | RUN-4 SIGTERM 순서 | P2 | 닫힘 | `294db6c` |
 
 ## 닫힌 항목
@@ -198,3 +198,55 @@ RUN-1/RUN-4는 스스로 지불했고(−2), SPEC-1(+297)과 STD-1(+44)은 지�
   일어나며 push를 요구한다.
 
 두 가지 모두 브랜치가 병합된 뒤 운영자가 실행해야 한다.
+
+## 통합 tip에서 재실행한 gate
+
+감사가 요구한 순서 — 발견별 회귀 테스트가 먼저 green, 그다음 기존 matrix 재실행 — 를 따랐다. 아래는 8건이
+들어간 `ed165cf`에서 다시 돌린 결과다.
+
+| gate | 결과 |
+|---|---|
+| `gofmt -l` / `go vet ./...` / `go vet -tags=integration ./...` | clean |
+| `./scripts/lint-go.sh` | 0 issues |
+| `go test ./... -count=1` | 전체 통과 |
+| integration PG16 (57626) / PG17 (57674) / PG18 (57627) | 각각 통과 |
+| `-race` integration PG16 | 통과 |
+| UI vitest | 24 files / **354** tests 통과 |
+| `npm run typecheck`, `npm run build`, dist drift | 통과, dist 동기 |
+| Docker E2E `-count=2 -shuffle=on` | 14개 시나리오 통과 (52.98s) |
+| 복원 훈련 `-tags=restore` | `TestRestoreDrill` 포함 3건 통과 (12.17s) |
+| Playwright (onboarding + authenticated) | **8/8 통과** |
+
+Playwright는 CI와 같은 구성으로 돌렸다 — 이 worktree에서 빌드한 이미지, 격리된 Compose project 2개
+(18090/15432, 18091/15433). onboarding spec은 관리자가 없는 인스턴스를 요구하므로 authenticated와 backend를
+공유할 수 없고, 그래서 두 project가 필요하다. 두 스택 모두 볼륨과 함께 정리했다.
+
+세 PostgreSQL 컨테이너(57626/57674/57627)는 전 과정에서 건드리지 않았고, 실행 전후로 확인했다. E2E와 복원
+훈련은 자기 포트를 동적으로 잡고 자기 볼륨과 함께 정리한다.
+
+감사가 지적한 대로 이 Playwright 결과는 **1회 실행**이며 flake가 영구 제거됐다는 보장이 아니다. Docker E2E는
+CI 조건대로 `-count=2 -shuffle=on`으로 2회 셔플 실행했다.
+
+## 감사 범위 밖에서 새로 확인한 것
+
+### `App.Start`의 context 계약이 exported godoc에 없다
+
+RUN-4를 고치면서 `Run`은 background를 `context.WithoutCancel`로 떼어냈지만, `Start`는 caller의 context를
+그대로 runner에 넘긴다. 이것은 실수가 아니라 결정이며 `app.go`의 주석에 "Start keeps its caller-owned
+contract"로 적혀 있다.
+
+문제는 **그 계약이 exported godoc에는 없다는 것**이다. `Start`의 godoc은 "caller-owned HTTP server를 위해
+background를 시작한다. caller의 server가 멈추면 Close를 호출하라"까지만 말한다. context가 background를
+직접 취소한다는 말이 없다.
+
+그래서 라이브러리 임베더가 가장 자연스러운 것 — `signal.NotifyContext`를 `Start`에 넘기고, SIGTERM에서
+자기 server를 `Shutdown`한 다음 `Close`를 부르는 것 — 을 하면 **RUN-4와 같은 결과**가 된다: 자기 drain이
+끝나기 전에 listener와 membership heartbeat가 먼저 죽는다. `Run` 경로는 고쳐졌지만 `Start` 경로는 임베더가
+계약을 알 수 없어 같은 실수를 반복하게 된다.
+
+이것은 P1이 아니다. 임베더가 계약을 알면 피할 수 있고, 우리 바이너리는 `Run`만 쓴다. 다만 **감사가 지적한
+RUN-4의 대칭 사례**이며, 신규 설치만 고치고 populated DB를 놓쳤던 SPEC-1과 같은 종류의 누락이다.
+exported godoc에 계약을 명시하는 것으로 닫는다 — 동작 변경이 아니다.
+
+동작 자체를 `Run`과 맞출지(즉 `Start`도 `WithoutCancel`로 떼고 background 수명을 `Close`에만 묶을지)는
+공개 API 의미 변경이라 이 세션에서 임의로 하지 않는다. 판단이 필요하면 별도 결정 항목이다.

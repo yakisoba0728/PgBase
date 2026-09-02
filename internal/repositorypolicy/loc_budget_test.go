@@ -145,6 +145,18 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // instead of preserving it would have been cheaper in lines and is what plan
 // section 12 would have bought; F0's criteria and the finding both ask for the
 // edit to survive, so this is the direction the budget yields to.
+//
+// Raised a fourth time, for the symmetric case RUN-4 left: Run detaches
+// background work from its parent context, but Start hands the caller's
+// context straight to the runners. That asymmetry is deliberate -- pgBase
+// cannot order a drain against a server it does not own -- yet it was recorded
+// only in an internal comment, so an embedder passing signal.NotifyContext to
+// Start reproduced RUN-4 against their own server with no way to know. Stating
+// the contract on the exported method is the whole change; no behaviour moved.
+//
+//	handwritten runtime lines      35,150 -> 35,157
+//	  gross-new 7 / gross-deleted 0, all of it godoc on pgbase.(*App).Start
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -162,7 +174,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_150, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_157, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 468, "plan 285"},
