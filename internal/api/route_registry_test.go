@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 // registeredPatterns lists the registry in a stable order.
@@ -181,6 +182,23 @@ func TestBufferedCapsMatchTheKernelBudgetsTheyMirror(t *testing.T) {
 		if got := caps[pattern]; got != 4<<20+responseFraming {
 			t.Fatalf("%s cap = %d, want the 4 MiB record page budget plus framing", pattern, got)
 		}
+	}
+	if got := caps["GET /api/admin/schema-operations"]; got != 256<<10+responseFraming {
+		t.Fatalf("operation history cap = %d, want the 256 KiB ledger page bound plus framing", got)
+	}
+}
+
+// The history route rejects a limit before the kernel would, so the two bounds
+// have to be the same set. If the route's number drifted upward the kernel
+// would answer the rejection instead, in the wrong error shape; downward and a
+// legal page would become unreachable.
+func TestOperationHistoryLimitMatchesTheKernelBound(t *testing.T) {
+	administrator := validSession().Administrator.ID
+	if _, err := schema.NewOperationQuery(administrator, maximumOperationHistoryLimit, ""); err != nil {
+		t.Fatalf("kernel rejected the largest limit the route accepts: %v", err)
+	}
+	if _, err := schema.NewOperationQuery(administrator, maximumOperationHistoryLimit+1, ""); err == nil {
+		t.Fatal("kernel accepted a limit above the one the route accepts")
 	}
 }
 
