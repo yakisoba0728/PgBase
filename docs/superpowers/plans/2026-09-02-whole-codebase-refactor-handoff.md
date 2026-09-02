@@ -134,9 +134,41 @@ R12가 찾아 고친 것:
 
 ## 0. 남은 작업 TODO
 
+### 0.0 2026-09-02 독립 감사 대응 (최우선)
+
+독립 감사가 10건(P1 3, P2 6, P3 1)을 제기했고 **"아직 완료·배포 승인 판정은 어렵습니다"**로 결론냈다.
+발견 내용은 [감사 문서](2026-09-02-whole-codebase-audit.md), 대응·증거·잔여는
+[대응 기록](2026-09-02-audit-response.md)에 있다. 아래 목록은 상태만 든다.
+
+- [x] **RUN-1 (P1)** 정상적인 장시간 DDL이 heartbeat를 죽이고 앱을 내림 — heartbeat의 schema 핀 제거 + lease
+  tolerance. 잔여였던 "블록된 시도가 tolerance를 넘김"도 닫았다.
+- [x] **RUN-2 (P1)** 중복 witness가 activation fleet 증명을 우회 — 길이 비교를 집합 동등으로.
+- [x] **SPEC-1 (P1)** populated DB를 올릴 운영 진입점 부재 — `pgbase membership` 7개 명령 + runbook.
+- [x] **STD-1 (P2)** 저장 중 편집한 draft 유실 — 여기에 딸린 stale definition 위험까지 닫음.
+- [x] **STD-2 (P2)** DELETE마다 delete graph 재바인딩 — 500 collection에서 755,064 → 0 allocs.
+- [x] **SPEC-3 (P2)** macOS terminal CI 부재 — macos-15 job + 이름 표류를 잡는 정책 테스트.
+- [x] **RUN-3 (P2)** 잘못된 opclass를 정상으로 판정 — EXPLAIN으로 Seq Scan → Index Only Scan 확인.
+- [x] **RUN-4 (P2)** SIGTERM이 drain보다 먼저 background를 취소 — **이전에 "고쳤다"고 잘못 보고했던 항목**.
+- [x] **STD-3 (P3)** compatibility forwarding surface 제거 — 순감 65줄, wire golden 무변경.
+- [ ] **SPEC-2 (P2)** v2 plan compiler와 신규 collection의 transactional companion 생성 미배선. **진행 중.**
+
+감사 밖에서 추가로 확인한 것:
+
+- [x] `App.Start`의 context 계약이 exported godoc에 없어, 임베더가 `signal.NotifyContext`를 넘기면 RUN-4를
+  자기 서버에 대해 재현하게 된다. godoc에 명시했다(동작 무변경).
+- [ ] **판단 필요:** `Start`도 background를 `WithoutCancel`로 떼고 수명을 `Close`에만 묶을지. 공개 API 의미
+  변경이라 임의로 하지 않았다.
+- [ ] **판단 필요:** doctor가 "돌지 않은 rollout"(`off` + 레코드 존재)을 탐지하게 할지. 비용과 근거는 대응
+  기록에 적었다.
+
+이 세션이 수행할 수 없는 마감 두 가지 — 실제 candidate digest에 대한 외부 release gate와 macOS CI의 실제
+실행 — 는 외부 변경이므로 병합 후 운영자 작업이다.
+
+### 0.1 이전 세션의 TODO
+
 우선순위 순이다. `[ ]`는 미완, `[x]`는 이 세션에서 완료.
 
-### 0.1 Release B를 커밋 가능하게 만들기 (현재 차단 상태)
+#### Release B를 커밋 가능하게 만들기 (당시 차단 상태)
 
 - [x] **B1 blocker — ready 상태 collection count 등식 제거.** `traversal.go`가 `ready_collection_count == cutover_collection_count`를 traversal 전제조건으로 요구했다. 두 값은 cutover 시점과 promote 시점에 각각 찍히는 receipt이고, `schema.Store.insertMembershipMetadata`는 dual_write/ready 중 collection 생성을 정식 지원한다. backfill 창에서 collection이 하나 생기면 PromoteReady가 성공한 뒤 **모든 collection의 모든 list가 영구히 503**이 되고 어떤 transition으로도 복구되지 않았다. write와 `Get`은 계속 성공해 장애가 비대칭이었다. DB CHECK에는 이 등식이 없다. 수정 후 제품 경로(cutover → collection 생성 → backfill → PromoteReady → resolve) 회귀 테스트로 고정했다.
 - [x] **B2 blocker — descriptor 발급 실패를 `invalid_cursor`로 뭉개는 문제.** `root_page.go`의 v5 발급 분기와 `cursor_v5_binding.go`가 `queryErr`/`orderErr`를 전부 `invalidCursor()`로 접었다. v5 발급이 켜진 뒤 **cursor 없는 첫 요청**의 응답이 422 `validation_failed`에서 400 `invalid_cursor`로 바뀌었다(계획 §4 위반). v4/v5 동일 요청을 비교하는 회귀 테스트로 재현한 뒤 수정했다.
