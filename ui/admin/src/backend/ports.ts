@@ -112,9 +112,41 @@ export interface OperationReceipt {
 
 export interface OperationHistory { items: OperationReceipt[]; nextCursor?: string }
 
+/**
+ * An apply either committed or is not decidable yet. The identity travels with
+ * the undecided answer because that is the only case where the outcome still
+ * has to be asked for; a caller that gets one must not read it as either a
+ * success or a failure.
+ */
+export type ApplyOutcome = { kind: "applied" } | { kind: "undecided"; operationId: string };
+
+export interface OperationIdentity { operationId: string; idempotencyKey: string }
+
+/**
+ * One operation identity per approved plan, minted before the request it can no
+ * longer observe. Retrying the same plan replays the first attempt server-side;
+ * a re-previewed plan gets a new identity, because the same identity bound to a
+ * different request is a conflict rather than a replay.
+ */
+export class ApplyAttempt {
+  #request: string | null = null;
+  #identity: OperationIdentity | null = null;
+
+  constructor(private readonly generateID: () => string = () => crypto.randomUUID()) {}
+
+  identityFor(plan: PlannedChange): OperationIdentity {
+    const request = stringifyJSON(plan.applyRequest());
+    if (this.#request !== request || this.#identity === null) {
+      this.#request = request;
+      this.#identity = { operationId: this.generateID(), idempotencyKey: this.generateID() };
+    }
+    return this.#identity;
+  }
+}
+
 type SchemaFailure =
   | "same-version-conflict" | "catalog-moved" | "data-blocked" | "referenced"
-  | "invalid-cursor" | "not-found" | "failed";
+  | "operation-conflict" | "operation-failed" | "invalid-cursor" | "not-found" | "failed";
 
 export class SchemaError extends Error {
   constructor(readonly reason: SchemaFailure, readonly code: string, readonly details: Record<string, string[]> = {}) { super(reason); this.name = "SchemaError"; }
@@ -179,7 +211,7 @@ export interface SessionPort {
 export interface SchemaPort {
   catalog(signal?: AbortSignal): Promise<CollectionCatalog>;
   plan(change: CollectionChange, signal?: AbortSignal): Promise<PlannedChange>;
-  apply(plan: PlannedChange): Promise<void>;
+  apply(plan: PlannedChange, attempt: ApplyAttempt): Promise<ApplyOutcome>;
   operation(operationId: string, signal?: AbortSignal): Promise<OperationReceipt>;
   // History is read one bounded page at a time. There is deliberately no limit
   // to pass: a caller that cannot ask for a larger page cannot be handed one.

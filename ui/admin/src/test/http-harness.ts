@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import { stringifyJSON } from "../backend/json";
 import { httpBackend } from "../backend/http-backend";
 import type { AdminBackend, ResumedSession } from "../backend/ports";
-import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
+import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedApply, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord, type Step } from "./backend-script";
 import type { OperationHistory, OperationReceipt } from "../backend/ports";
 
 export interface Wire { status: number; body?: string; headers?: Record<string, string> }
@@ -35,6 +35,8 @@ const faultWire: Record<Fault["kind"], (fault: Fault) => Wire> = {
   "invalid-credentials": () => ({ status: 401, body: errorBody("invalid_credentials") }),
   "setup-unavailable": () => ({ status: 409, body: errorBody("setup_unavailable") }),
   "invalid-input": () => ({ status: 400, body: errorBody("validation_failed") }),
+  "operation-conflict": () => ({ status: 409, body: errorBody("schema_operation_conflict") }),
+  "operation-failed": (fault) => ({ status: 409, body: errorBody("schema_operation_failed", details(fault)) }),
   "invalid-cursor": () => ({ status: 400, body: errorBody("invalid_cursor") }),
 };
 
@@ -65,6 +67,20 @@ function planBody(scripted: ScriptedPlan): string {
 
 function recordWire(scripted: ScriptedRecord, status = 200): Wire {
   return { status, body: stringifyJSON(scripted.data), headers: { ETag: scripted.etag } };
+}
+
+/**
+ * The four 2xx shapes a guarded apply can take on the real API: the collection
+ * body, a replay, a committed outcome recovered after the request deadline, and
+ * the 202 that says the outcome is not decidable yet.
+ */
+function applyWire(scripted: ScriptedApply | undefined, operationId: string): Wire {
+  if (scripted === undefined) return { status: 200, body: "{}", headers: { "Idempotency-Replayed": "false" } };
+  const statusUrl = `/api/admin/schema-operations/${operationId}`;
+  const body = stringifyJSON({ operationId, status: scripted.status, statusUrl });
+  if (scripted.replayed === true) return { status: 200, body, headers: { "Idempotency-Replayed": "true" } };
+  if (scripted.status === "committed") return { status: 200, body };
+  return { status: 202, body, headers: { Location: statusUrl, "Retry-After": "1" } };
 }
 
 /**
@@ -110,7 +126,11 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
       return wireResponse(await fromStep(nextStep<ScriptedPlan>(script, "plan", { body: String(init?.body) }), (value) => ({ status: 200, body: planBody(value) })));
     }
     if (path === "/api/admin/collections/apply") {
-      return wireResponse(await fromStep(nextStep<void>(script, "apply", { body: String(init?.body) }), () => ({ status: 200, body: "{}" })));
+      const headers = new Headers(init?.headers);
+      const operationId = headers.get("PgBase-Operation-ID") ?? "";
+      const detail = { body: String(init?.body), operationId, idempotencyKey: headers.get("Idempotency-Key") ?? "" };
+      const step = nextStep<ScriptedApply | undefined>(script, "apply", detail);
+      return wireResponse(await fromStep(step, (value) => applyWire(value, operationId)));
     }
     const operations = /^\/api\/admin\/schema-operations(?:\/([^/?]+))?(?:\?(.*))?$/.exec(path);
     if (operations !== null) {

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useBackend } from "../auth/session";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import {
+  ApplyAttempt,
   SchemaError,
   type CollectionCatalog,
   type CollectionChange,
@@ -13,6 +14,7 @@ import {
   type RelationCardinality,
   type RelationDeleteAction,
 } from "../backend/ports";
+import { operationFailureMessage, useOperationRecovery, type OperationRecovery } from "../operations/operation-recovery";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 
@@ -282,6 +284,10 @@ interface State {
   deletePending: boolean;
   deleteError: string | null;
   pristine: string;
+  // The identity of an apply whose outcome the server could not decide. It is
+  // the only thing left that can still be asked about, so it outlives the
+  // request that failed to answer.
+  undecided: string | null;
 }
 
 function initial(mode: DesignerMode, identity: string): State {
@@ -293,13 +299,16 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields),
+    pristine: draftSignature(name, fields), undecided: null,
   };
 }
 
 // Editing the draft always drops the approved plan: a preview only describes
 // the input it was produced from.
-const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false });
+// Editing also leaves the last operation behind: the draft on screen is no
+// longer the one that operation carried, so its outcome must stop standing in
+// for this draft's — including for whether the draft is unsaved.
+const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false, undecided: null });
 
 function loadedState(current: State, catalog: CollectionCatalog): Partial<State> {
   const base = { catalog, targetsLoading: false, targetsFailed: false };
@@ -315,7 +324,7 @@ function loadedState(current: State, catalog: CollectionCatalog): Partial<State>
 
 function renamed(current: State, name: string): Partial<State> {
   return {
-    name, plan: null, confirmed: false,
+    name, plan: null, confirmed: false, undecided: null,
     fields: current.fields.map((field) => field.selfRelation === true && field.relation !== undefined
       ? { ...field, relation: { ...field.relation, targetCollection: name } }
       : field),
@@ -355,6 +364,10 @@ export interface CollectionDesigner {
   deleteConfirmed: boolean;
   deletePending: boolean;
   deleteError: string | null;
+  // Present only while an apply's outcome is still being recovered from the
+  // ledger. A view must report it as neither applied nor failed until the
+  // recovery settles.
+  recovery: OperationRecovery | null;
   rename(name: string): void;
   editField(index: number, edit: DraftEdit): void;
   addField(): void;
@@ -368,8 +381,20 @@ export interface CollectionDesigner {
   requestDelete(): void;
 }
 
+const operationFailed = (caught: unknown, fallback: string): string =>
+  operationFailureMessage(caught instanceof SchemaError ? caught.details.operation?.[0] : undefined, fallback);
+
 function applyFailure(caught: unknown, create: boolean): Partial<State> {
   const reason = caught instanceof SchemaError ? caught.reason : "failed";
+  if (reason === "operation-conflict") {
+    return {
+      error: "This change was already sent under a different plan. Preview the change again before applying.",
+      plan: null, confirmed: false,
+    };
+  }
+  if (reason === "operation-failed") {
+    return { error: operationFailed(caught, "The schema operation did not apply."), plan: null, confirmed: false };
+  }
   if (reason === "same-version-conflict") {
     return {
       error: create
@@ -386,6 +411,12 @@ function applyFailure(caught: unknown, create: boolean): Partial<State> {
 
 function deleteFailure(caught: unknown): Partial<State> {
   const reason = caught instanceof SchemaError ? caught.reason : "failed";
+  if (reason === "operation-conflict") {
+    return { deletePlan: null, deleteConfirmText: "", deleteError: "This deletion was already sent under a different plan. Preview the deletion again." };
+  }
+  if (reason === "operation-failed") {
+    return { deletePlan: null, deleteConfirmText: "", deleteError: operationFailed(caught, "The schema operation did not apply.") };
+  }
   return {
     deletePlan: null,
     deleteConfirmText: "",
@@ -400,7 +431,15 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
   const [state, update] = useResourceState(identity, (current) => initial(mode, current));
-  const savedDraft = useUnsavedDraft(identity, draftSignature(state.name, state.fields) !== state.pristine);
+  // One identity per approved plan. Retrying the same plan after a dropped
+  // connection replays the first attempt instead of starting a second one, and
+  // a re-previewed plan gets a fresh identity rather than colliding with it.
+  const attempt = useRef(new ApplyAttempt());
+  const recovery = useOperationRecovery(state.undecided);
+  // A change the ledger confirmed is saved work, whatever the request that
+  // carried it did, so it no longer holds the departure guard.
+  const applied = recovery !== null && recovery.status === "committed";
+  const savedDraft = useUnsavedDraft(identity, !applied && draftSignature(state.name, state.fields) !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
     (!state.create || state.fields.some((field) => field.type === "relation"));
@@ -449,10 +488,13 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   const requestApply = useCallback(async () => {
     if (preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
-    update(identity, { pending: true, error: null });
+    update(identity, { pending: true, error: null, undecided: null });
     try {
-      await schema.apply(preview);
+      const outcome = await schema.apply(preview, attempt.current);
       if (!active()) return;
+      // Leaving on an undecided outcome would present it as a success. The
+      // administrator stays here until the ledger says which it was.
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
       savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
@@ -479,10 +521,11 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const requestDelete = useCallback(async () => {
     if (deleteTarget === null || state.deletePlan === null || state.deletePending) return;
     if (state.deleteConfirmText !== deleteTarget.collection) return;
-    update(identity, { deletePending: true });
+    update(identity, { deletePending: true, undecided: null });
     try {
-      await schema.apply(state.deletePlan);
+      const outcome = await schema.apply(state.deletePlan, attempt.current);
       if (!active()) return;
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
       savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
@@ -513,6 +556,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     deleteConfirmed: deleteTarget !== null && state.deleteConfirmText === deleteTarget.collection,
     deletePending: state.deletePending,
     deleteError: state.deleteError,
+    recovery,
     rename: (name) => update(identity, (current) => renamed(current, name)),
     editField: (index, edit) => update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))),
     addField: () => update(identity, (current) => redrafted([...current.fields, newField()])),
