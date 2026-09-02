@@ -165,6 +165,31 @@ func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *tes
 	}
 }
 
+func TestSecurityWorkflowLimitsTheGatedSARIFReportToHighSeverityFindings(t *testing.T) {
+	contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "security.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(contents)
+	start := strings.Index(workflow, "      - name: Record image findings as SARIF\n")
+	if start < 0 {
+		t.Fatal("security workflow has no gated SARIF report step")
+	}
+	end := strings.Index(workflow[start+1:], "\n      - name:")
+	if end < 0 {
+		t.Fatal("security workflow has no step after the gated SARIF report")
+	}
+	step := workflow[start : start+1+end]
+	for _, marker := range []string{
+		"severity: HIGH,CRITICAL",
+		"limit-severities-for-sarif: true",
+	} {
+		if !strings.Contains(step, marker) {
+			t.Fatalf("gated SARIF report is missing %q", marker)
+		}
+	}
+}
+
 func TestBackupRestoreDrillCoversAppRelationDataDiagnosticsAndToolCompatibility(t *testing.T) {
 	workflowPath := filepath.Join("..", "..", ".github", "workflows", "backup-restore.yml")
 	contents, err := os.ReadFile(workflowPath)

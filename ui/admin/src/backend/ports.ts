@@ -134,15 +134,15 @@ export interface OperationIdentity { operationId: string; idempotencyKey: string
  * different request is a conflict rather than a replay.
  */
 export class ApplyAttempt {
-  #request: string | null = null;
+  #plan: PlannedChange | null = null;
   #identity: OperationIdentity | null = null;
 
   constructor(private readonly generateID: () => string = () => crypto.randomUUID()) {}
 
   identityFor(plan: PlannedChange): OperationIdentity {
-    const request = stringifyJSON(plan.applyRequest());
-    if (this.#request !== request || this.#identity === null) {
-      this.#request = request;
+    // A new preview is a new approval; only retrying its same object reuses keys.
+    if (this.#plan !== plan || this.#identity === null) {
+      this.#plan = plan;
       this.#identity = { operationId: this.generateID(), idempotencyKey: this.generateID() };
     }
     return this.#identity;
