@@ -601,6 +601,53 @@ func seedUpgradedDeploymentRecord(t *testing.T, databaseURL string) {
 	}
 }
 
+// An operator who installs pgBase today has nothing to roll out, so startup
+// has to leave the database in the state Release C can actually serve. The
+// capability is not a migration, so how the schema arrived is irrelevant: the
+// bootstrap runs where the writer registers, which is after startup has
+// already required a compatible history on both paths.
+func TestNewBootstrapsAFreshInstallToTheRetiredTerminalStateOnEitherMigrationPath(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		autoMigrate bool
+		preMigrated bool
+	}{
+		{name: "auto-migrated by the application", autoMigrate: true},
+		{name: "migrated by hand with auto-migration off", preMigrated: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			databaseURL := testutil.NewDatabase(t)
+			if test.preMigrated {
+				testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+			}
+			ctx := context.Background()
+			app, err := New(ctx, Options{
+				DatabaseURL: databaseURL,
+				TokenSecret: make([]byte, 32),
+				AutoMigrate: test.autoMigrate,
+				Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(func() {
+				if closeErr := app.Close(context.Background()); closeErr != nil {
+					t.Errorf("close app: %v", closeErr)
+				}
+			})
+			status, err := membership.New(app.pool).Status(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.State != membership.StateReady || status.CursorIssueVersion != 5 ||
+				status.V4RetiredAt == nil || status.Generation != 1 ||
+				status.MinimumWriterVersion != membership.WriterB {
+				t.Fatalf("fresh install capability = %#v, want the retired terminal state", status)
+			}
+		})
+	}
+}
+
 // Backdating the whole timeline is the only way to observe the drained TTL
 // without waiting for it; the v7 timeline CHECK keeps the order intact.
 func drainCursorTTL(t *testing.T, ctx context.Context, app *App) {
