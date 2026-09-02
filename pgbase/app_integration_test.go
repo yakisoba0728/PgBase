@@ -293,18 +293,18 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 					var leases int
 					if err := app.pool.QueryRow(context.Background(), `select count(*)
 						from pgbase_meta.runtime_writer_leases
-						where writer_version = 2 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
+						where writer_version = 3 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
 						_ = app.Close(context.Background())
 						t.Fatal(err)
 					}
 					if leases != 1 {
 						_ = app.Close(context.Background())
-						t.Fatalf("Release-B startup active writer leases = %d, want 1", leases)
+						t.Fatalf("Release-C startup active writer leases = %d, want 1", leases)
 					}
 					runtime, ok := app.membershipWriter.(*membership.Runtime)
-					if !ok || runtime.WriterVersion() != membership.WriterB {
+					if !ok || runtime.WriterVersion() != membership.WriterC {
 						_ = app.Close(context.Background())
-						t.Fatalf("membership writer = %T/%v, want Release B", app.membershipWriter, runtime)
+						t.Fatalf("membership writer = %T/%v, want Release C", app.membershipWriter, runtime)
 					}
 				}
 				if err := app.Start(context.Background()); err != nil {
@@ -459,11 +459,14 @@ func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
 	}
 }
 
-// Release B is only a deployable artifact if the writer the app registers is
-// the one EnableV5 demands. The activation fleet proof must match the active
-// lease set exactly and every member must be at least WriterB, so an app still
-// registering Release A cannot be activated no matter what the operator sends.
-func TestReleaseBAppRuntimeSatisfiesTheV5ActivationFleetProof(t *testing.T) {
+// Release C is only a deployable artifact if the writer the app registers
+// carries every rollout transition it has to reach. Both proofs match the
+// active lease set exactly and demand at least WriterB, so this also pins the
+// floor: retirement does not raise it to WriterC, and migration 7 could not
+// store that if it did, because the ready/v5 state fixes
+// minimum_writer_version at 2. Release B therefore stays a lease-able rollback
+// target after the point of no return.
+func TestReleaseCAppRuntimeRetiresCursorV4WithoutRaisingTheWriterFloor(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
 	ctx := context.Background()
@@ -481,8 +484,8 @@ func TestReleaseBAppRuntimeSatisfiesTheV5ActivationFleetProof(t *testing.T) {
 		}
 	})
 	runtime, ok := app.membershipWriter.(*membership.Runtime)
-	if !ok {
-		t.Fatalf("membership writer = %T, want a registered runtime", app.membershipWriter)
+	if !ok || runtime.WriterVersion() != membership.WriterC {
+		t.Fatalf("membership writer = %T/%v, want Release C", app.membershipWriter, runtime)
 	}
 	proof := membership.FleetProof{Members: []membership.FleetMember{runtime.FleetMember()}}
 
@@ -514,5 +517,43 @@ func TestReleaseBAppRuntimeSatisfiesTheV5ActivationFleetProof(t *testing.T) {
 	}
 	if issueVersion != 5 {
 		t.Fatalf("cursor issue version after activation = %d, want 5", issueVersion)
+	}
+
+	if _, err := membership.New(app.pool).RetireV4(ctx, proof); !errors.Is(err, membership.ErrCursorDrainPending) {
+		t.Fatalf("retirement before the cursor TTL drained = %v", err)
+	}
+	drainCursorTTL(t, ctx, app)
+	retirement, err := membership.New(app.pool).RetireV4(ctx, proof)
+	if err != nil {
+		t.Fatalf("RetireV4 with the app's own fleet proof: %v", err)
+	}
+	if retirement.RetiredAt.IsZero() {
+		t.Fatalf("retirement receipt = %#v", retirement)
+	}
+
+	status, err := membership.New(app.pool).Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.MinimumWriterVersion != membership.WriterB {
+		t.Fatalf("minimum writer version after retirement = %v, want Release B",
+			status.MinimumWriterVersion)
+	}
+	if _, err := membership.RegisterWriter(ctx, membership.New(app.pool), membership.WriterB); err != nil {
+		t.Fatalf("register the Release B rollback target after retirement: %v", err)
+	}
+}
+
+// Backdating the whole timeline is the only way to observe the drained TTL
+// without waiting for it; the v7 timeline CHECK keeps the order intact.
+func drainCursorTTL(t *testing.T, ctx context.Context, app *App) {
+	t.Helper()
+	if _, err := app.pool.Exec(ctx, `update pgbase_meta.record_membership_capability set
+		cutover_at = transaction_timestamp() - interval '20 minutes',
+		ready_at = transaction_timestamp() - interval '19 minutes',
+		v5_enabled_at = transaction_timestamp() - interval '16 minutes',
+		v4_decode_until = transaction_timestamp() - interval '1 minute',
+		updated_at = transaction_timestamp() where singleton`); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -278,3 +278,41 @@ func assertStableMembershipUnavailable(t *testing.T, err error) {
 		}
 	}
 }
+
+// A service built by the direct constructor registers its own runtime on the
+// first write. That lazily obtained lease has to carry the same release
+// generation the application registers, because the durable lease set is what
+// every rollout proof reads: a service that under-declares itself would let a
+// transition be proved against a fleet it does not describe.
+func TestDirectConstructorRegistersTheSameWriterReleaseAsTheApplication(t *testing.T) {
+	pool, schemas, _, principal := newRecordOperationsTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	if _, err := records.Create(ctx, CreateRequest{
+		Principal: principal, RequestID: "direct-constructor-writer-release", Collection: "records",
+		Input: map[string]json.RawMessage{"title": json.RawMessage(`"lazy-runtime"`)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var versions []int16
+	rows, err := pool.Query(ctx, `select writer_version from pgbase_meta.runtime_writer_leases
+		where lease_expires_at > clock_timestamp() order by writer_version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version int16
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 || membership.WriterVersion(versions[0]) != membership.WriterC {
+		t.Fatalf("active writer leases = %v, want exactly one at Release C", versions)
+	}
+}
