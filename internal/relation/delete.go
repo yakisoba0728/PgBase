@@ -116,7 +116,8 @@ type deleteRelationKey struct {
 }
 
 // DeleteGraph is a catalog-pinned relation delete planner and storage
-// executor. Construct a new value whenever the schema catalog version changes.
+// executor. One value belongs to one catalog version and is read-only once
+// bound, so every request pinned to that version shares it.
 type DeleteGraph struct {
 	catalogVersion int64
 	collections    map[uuid.UUID]deleteCollection
@@ -124,9 +125,25 @@ type DeleteGraph struct {
 	limits         deleteLimits
 }
 
-// BindDeleteGraph validates the catalog's precomputed Incoming index against
-// every outgoing relation field and binds all physical identifiers.
+// BindDeleteGraph returns the graph this catalog version compiled. Binding
+// walks the whole catalog once per collection, so binding per delete charged
+// every attempt for the entire schema; a pinned version cannot change under
+// its readers, so one snapshot binds one graph and hands it to all of them.
 func BindDeleteGraph(catalog schema.Catalog) (*DeleteGraph, error) {
+	compiled, err := catalog.DeleteGraph(func(pinned schema.Catalog) (any, error) { return bindDeleteGraph(pinned) })
+	if err != nil {
+		return nil, err
+	}
+	graph, ok := compiled.(*DeleteGraph)
+	if !ok {
+		return nil, ErrInvalidBinding
+	}
+	return graph, nil
+}
+
+// bindDeleteGraph validates the catalog's precomputed Incoming index against
+// every outgoing relation field and binds all physical identifiers.
+func bindDeleteGraph(catalog schema.Catalog) (*DeleteGraph, error) {
 	graph := &DeleteGraph{
 		catalogVersion: catalog.Version,
 		collections:    make(map[uuid.UUID]deleteCollection, len(catalog.Collections)),
