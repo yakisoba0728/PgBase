@@ -106,7 +106,7 @@ func TestReleaseWorkflowGatesEveryPromotionBehindPreflightAndOneCandidate(t *tes
 func TestReleasePromotionSerializesAndLabelsEachMovingChannel(t *testing.T) {
 	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
 	for _, contract := range []string{
-		"concurrency:\ngroup: release-promotion-${{ needs.preflight.outputs.channel }}\ncancel-in-progress: false",
+		"concurrency:\ngroup: release-promotion-${{ needs.preflight.outputs.channel }}\ncancel-in-progress: false\nqueue: max",
 		"CHANNEL_VERSION_OVERRIDE: ${{ vars.PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION }}",
 		`"$image" "$GITHUB_REF_NAME" "$CANDIDATE_IMAGE" "$EXPECTED_VERSION" "$CHANNEL_VERSION_OVERRIDE"`,
 	} {

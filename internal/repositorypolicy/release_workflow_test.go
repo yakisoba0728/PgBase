@@ -64,7 +64,7 @@ func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *tes
 		"candidate_image: ${{ needs.candidate.outputs.candidate_image }}",
 		"expected_version: ${{ needs.candidate.outputs.expected_version }}",
 		"promotion:\n    needs: [preflight, candidate, gate]",
-		"group: release-promotion-${{ needs.preflight.outputs.channel }}\n      cancel-in-progress: false",
+		"group: release-promotion-${{ needs.preflight.outputs.channel }}\n      cancel-in-progress: false\n      queue: max",
 		"CHANNEL_VERSION_OVERRIDE: ${{ vars.PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION }}",
 		"scripts/support/promote-release-image.sh",
 	} {
