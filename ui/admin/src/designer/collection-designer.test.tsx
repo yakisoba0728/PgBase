@@ -48,10 +48,10 @@ function operationReceipt(status: OperationReceipt["status"]): OperationReceipt 
   };
 }
 
-function plan(script: BackendScript, checksum = "approved", sql = ["ALTER TABLE posts"], fields: { name: string; type: "text" }[] = [{ name: "title", type: "text" }]) {
+function plan(script: BackendScript, checksum = "approved", sql = ["ALTER TABLE posts"], fields: { name: string; type: "text" }[] = [{ name: "title", type: "text" }], baseVersion = 7) {
   script.plan.push({
     value: {
-      baseVersion: 7,
+      baseVersion,
       checksum,
       sql,
       fields: fields.map((field) => ({ ...field, required: false, unique: false, indexed: false })),
@@ -171,9 +171,9 @@ describe("CollectionDesigner previewing", () => {
 
   it.each([
     ["create" as const, "same-version-conflict" as const, "A collection with this name likely already exists."],
-    ["create" as const, "catalog-moved" as const, "The catalog changed. Preview the collection again before applying."],
+    ["create" as const, "catalog-moved" as const, "The catalog changed. Reload this page before making another schema change."],
     ["edit" as const, "same-version-conflict" as const, "The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it."],
-    ["edit" as const, "catalog-moved" as const, "The catalog changed. Preview the collection again before applying."],
+    ["edit" as const, "catalog-moved" as const, "The catalog changed. Reload this page before making another schema change."],
   ])("names a %s %s conflict and clears the stale preview", async (kind, reason, message) => {
     const mode: DesignerMode = kind === "create" ? { kind: "create" } : { kind: "edit", collection: "posts" };
     const { result, script } = open(mode);
@@ -293,11 +293,27 @@ describe("CollectionDesigner deletion", () => {
     act(() => result.current.confirmDeleteName("posts"));
     act(() => result.current.requestDelete());
 
-    await waitFor(() => expect(result.current.deleteError).toBe("The catalog changed. Preview the deletion again before applying."));
+    await waitFor(() => expect(result.current.deleteError).toBe("The catalog changed. Reload this page before making another schema change."));
     expect(result.current.deleteTarget).toBeNull();
     expect(result.current.deleteConfirmText).toBe("");
     act(() => result.current.requestDelete());
     expect(callsTo(script, "apply")).toHaveLength(1);
+  });
+
+  it("rejects a deletion plan based on a catalog newer than its loaded target", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 8, checksum: "drop-new-posts", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+
+    await waitFor(() => expect(result.current.deleteError).toBe(
+      "The catalog changed. Reload this page before making another schema change.",
+    ));
+    expect(result.current.deleteTarget).toBeNull();
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+    expect(callsTo(script, "apply")).toHaveLength(0);
   });
 
   it("explains a collection another collection still references", async () => {
@@ -402,7 +418,7 @@ describe("CollectionDesigner drafting during an apply", () => {
     // the page says the sent change applied without claiming this one did.
     expect(ledger.held()).toBe(true);
     expect(result.current.error).toBe(
-      "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.",
+      "The change was applied. The edits you made after sending it are not saved yet — leave and reopen the collection before applying them.",
     );
     expect(result.current.pending).toBe(false);
   });
@@ -438,15 +454,20 @@ describe("CollectionDesigner drafting during an apply", () => {
     await waitFor(() => expect(result.current.preview).not.toBeNull());
     act(() => result.current.requestApply());
 
+    act(() => result.current.rename("comments"));
     act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
     await act(async () => { creation.settle({ value: { collection: articles } }); });
 
-    expect(navigate).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith({ kind: "collections" });
+    expect(result.current.name).toBe("comments");
     expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
     expect(ledger.held()).toBe(true);
+    expect(result.current.editingBlocked).toBe(true);
     expect(result.current.error).toBe(
       "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.",
     );
+    act(() => result.current.requestPreview());
+    expect(callsTo(script, "plan")).toHaveLength(1);
   });
 });
 
@@ -470,7 +491,7 @@ describe("CollectionDesigner data-loss warning after an apply the draft outran",
     act(() => result.current.removeField(1));
     await act(async () => { application.settle({ value: { collection: withExtra } }); });
 
-    plan(script, "approved", ["ALTER TABLE posts DROP COLUMN extra"], [{ name: "title", type: "text" }]);
+    plan(script, "approved", ["ALTER TABLE posts DROP COLUMN extra"], [{ name: "title", type: "text" }], 8);
     act(() => result.current.requestPreview());
     await waitFor(() => expect(result.current.preview).not.toBeNull());
 
@@ -498,7 +519,7 @@ describe("CollectionDesigner data-loss warning after an apply the draft outran",
     act(() => result.current.editField(1, { set: "name", value: "note" }));
     await act(async () => { application.settle({ value: { collection: posts } }); });
 
-    plan(script, "approved", ["ALTER TABLE posts ADD COLUMN note"], [{ name: "title", type: "text" }, { name: "note", type: "text" }]);
+    plan(script, "approved", ["ALTER TABLE posts ADD COLUMN note"], [{ name: "title", type: "text" }, { name: "note", type: "text" }], 8);
     act(() => result.current.requestPreview());
     await waitFor(() => expect(result.current.preview).not.toBeNull());
 
@@ -528,12 +549,109 @@ describe("CollectionDesigner data-loss warning after an apply the draft outran",
     // trust.
     expect(ledger.held()).toBe(true);
     expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
+    expect(result.current.editingBlocked).toBe(true);
+    act(() => result.current.requestPreview());
+    expect(callsTo(script, "plan")).toHaveLength(1);
   });
 });
 
 describe("CollectionDesigner drafting during an undecided apply", () => {
+  it("does not let an undecided create be edited or sent a second time", async () => {
+    const { result, script } = open({ kind: "create" });
+    act(() => result.current.rename("articles"));
+    act(() => result.current.editField(0, { set: "name", value: "title" }));
+
+    plan(script, "create-articles", ["CREATE TABLE articles"]);
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("running") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+    await waitFor(() => expect(result.current.recovery?.undecided).toBe(true));
+
+    expect(result.current.editingBlocked).toBe(true);
+    act(() => result.current.rename("other_articles"));
+    expect(result.current.name).toBe("articles");
+    act(() => result.current.requestApply());
+    expect(callsTo(script, "apply")).toHaveLength(1);
+  });
+
+  it("leaves a newer draft before a recovered commit can use a stale definition", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    // A adds `extra`, but its HTTP response cannot say whether it committed.
+    plan(script, "add-extra", ["ALTER TABLE posts ADD COLUMN extra"], [
+      { name: "title", type: "text" },
+      { name: "extra", type: "text" },
+    ]);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.addField());
+    act(() => result.current.editField(1, { set: "name", value: "extra" }));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    // B removes it while A is in flight. Although B happens to equal the old
+    // baseline, it is unsaved work once the ledger says A committed.
+    act(() => result.current.removeField(1));
+    await act(async () => { application.settle({ value: { status: "unknown" } }); });
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
+    expect(ledger.held()).toBe(true);
+    expect(result.current.editingBlocked).toBe(true);
+    plan(script, "must-not-be-used");
+    act(() => result.current.requestPreview());
+    expect(callsTo(script, "plan")).toHaveLength(1);
+  });
+
+  it("rejects an edit plan based on a catalog newer than its loaded baseline", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({
+      value: {
+        baseVersion: 8,
+        checksum: "concurrent-drop",
+        fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true }],
+        sql: ["ALTER TABLE posts DROP COLUMN extra"],
+      },
+    });
+    act(() => result.current.requestPreview());
+
+    await waitFor(() => expect(result.current.error).toBe(
+      "The catalog changed. Reload this page before making another schema change.",
+    ));
+    expect(result.current.preview).toBeNull();
+    act(() => result.current.requestApply());
+    expect(callsTo(script, "apply")).toHaveLength(0);
+  });
+
+  it("leaves a recovered create instead of exposing it for a second create", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "create" });
+    act(() => result.current.rename("articles"));
+    act(() => result.current.editField(0, { set: "name", value: "title" }));
+
+    plan(script, "create-articles", ["CREATE TABLE articles"]);
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ kind: "collections" }));
+    expect(result.current.editingBlocked).toBe(true);
+    expect(ledger.held()).toBe(false);
+
+    plan(script, "must-not-be-used");
+    act(() => result.current.requestPreview());
+    expect(callsTo(script, "plan")).toHaveLength(1);
+  });
+
   it("keeps the guard on a draft edited while the apply the ledger later commits was in flight", async () => {
-    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
     plan(script);
@@ -549,6 +667,7 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
     await act(async () => { application.settle({ value: { status: "unknown" } }); });
     await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
 
     expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
     // The ledger confirmed A, which says nothing about B: B is still unsaved
@@ -557,12 +676,12 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     // The recovery panel reports the commit, so without this the page would
     // read as if B had gone with it. It says what the synchronous path says.
     expect(result.current.error).toBe(
-      "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.",
+      "The change was applied. The edits you made after sending it are not saved yet — leave and reopen the collection before applying them.",
     );
   });
 
   it("releases the guard when the ledger commits the draft that is still on screen", async () => {
-    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
     plan(script);
@@ -575,17 +694,18 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     act(() => result.current.requestApply());
 
     await act(async () => { application.settle({ value: { status: "unknown" } }); });
-    expect(ledger.held()).toBe(true);
     await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
 
     expect(result.current.fields.map((field) => field.name)).toEqual(["headline"]);
     expect(ledger.held()).toBe(false);
+    expect(result.current.editingBlocked).toBe(true);
     // The commit settled this very draft, so the panel alone tells the truth.
     expect(result.current.error).toBeNull();
   });
 
-  it("does not tell the administrator to re-apply a draft whose collection the ledger dropped", async () => {
-    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+  it("leaves a recovered drop instead of exposing its deleted collection for another change", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
@@ -606,6 +726,8 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     // there is nothing to preview and apply and the page must not say there is.
     expect(ledger.held()).toBe(true);
     expect(result.current.error).toBeNull();
+    expect(result.current.editingBlocked).toBe(true);
+    expect(navigate).toHaveBeenCalledWith({ kind: "collections" });
   });
 
   it("keeps the guard on a draft edited while the delete was in flight", async () => {
@@ -628,6 +750,9 @@ describe("CollectionDesigner drafting during an undecided apply", () => {
     // request outran is asked about rather than dropped with the collection.
     expect(navigate).toHaveBeenCalledWith({ kind: "collections" });
     expect(ledger.held()).toBe(true);
+    expect(result.current.editingBlocked).toBe(true);
+    act(() => result.current.requestPreview());
+    expect(callsTo(script, "plan")).toHaveLength(1);
   });
 });
 
@@ -652,7 +777,7 @@ describe("CollectionDesigner operation recovery", () => {
   });
 
   it("recovers a committed outcome the apply itself could not report", async () => {
-    const { result, script } = open({ kind: "edit", collection: "posts" });
+    const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
     plan(script);
@@ -663,7 +788,88 @@ describe("CollectionDesigner operation recovery", () => {
     act(() => result.current.requestApply());
 
     await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
     expect(result.current.recovery?.undecided).toBe(false);
+  });
+
+  it("requires a fresh preview and identity after the ledger reports a terminal failure", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("failed") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+    await waitFor(() => expect(result.current.recovery?.status).toBe("failed"));
+    expect(result.current.preview).not.toBeNull();
+    expect(result.current.editingBlocked).toBe(false);
+    act(() => result.current.requestApply());
+    expect(callsTo(script, "apply")).toHaveLength(1);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.recovery).toBeNull());
+    expect(result.current.preview).toBeNull();
+    expect(result.current.deleteTarget).not.toBeNull();
+    act(() => result.current.requestApply());
+    expect(callsTo(script, "apply")).toHaveLength(1);
+
+    plan(script);
+    script.apply.push({ value: undefined });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.recovery).toBeNull());
+    expect(result.current.preview).not.toBeNull();
+    act(() => result.current.requestApply());
+    await waitFor(() => expect(callsTo(script, "apply")).toHaveLength(2));
+
+    const first = callsTo(script, "apply")[0].detail;
+    const second = callsTo(script, "apply")[1].detail;
+    expect(second.operationId).not.toBe(first.operationId);
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
+  });
+
+  it("requires a fresh deletion preview and identity after a terminal failure", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("failed") });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+    await waitFor(() => expect(result.current.recovery?.status).toBe("failed"));
+
+    expect(result.current.deleteTarget).toBeNull();
+    act(() => result.current.editField(0, { set: "name", value: "headline" }));
+    expect(result.current.recovery?.status).toBe("failed");
+    act(() => result.current.requestDelete());
+    expect(callsTo(script, "apply")).toHaveLength(1);
+
+    plan(script);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.recovery).toBeNull());
+    expect(result.current.preview).not.toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
+    act(() => result.current.requestDelete());
+    expect(callsTo(script, "apply")).toHaveLength(1);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    script.apply.push({ value: undefined });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.preview).toBeNull());
+    expect(result.current.deleteTarget).not.toBeNull();
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+    await waitFor(() => expect(callsTo(script, "apply")).toHaveLength(2));
+
+    const first = callsTo(script, "apply")[0].detail;
+    const second = callsTo(script, "apply")[1].detail;
+    expect(second.operationId).not.toBe(first.operationId);
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
   });
 
   it("names the ledger's bounded failure classification when an apply is refused", async () => {
@@ -698,8 +904,8 @@ describe("CollectionDesigner operation recovery", () => {
     expect(result.current.preview).toBeNull();
   });
 
-  it("drops a recovered outcome as soon as the draft moves on from it", async () => {
-    const { result, script } = open({ kind: "edit", collection: "posts" });
+  it("blocks a recovered terminal outcome from being edited in place", async () => {
+    const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
     plan(script);
@@ -709,12 +915,12 @@ describe("CollectionDesigner operation recovery", () => {
     await waitFor(() => expect(result.current.preview).not.toBeNull());
     act(() => result.current.requestApply());
     await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
 
-    // A committed operation stops the draft counting as unsaved. Editing after
-    // it makes the draft unsaved again, so that outcome must not keep standing
-    // in for work it no longer describes.
     act(() => result.current.editField(0, { set: "name", value: "headline" }));
-    expect(result.current.recovery).toBeNull();
+    expect(result.current.fields.map((field) => field.name)).toEqual(["title"]);
+    expect(result.current.editingBlocked).toBe(true);
+    expect(result.current.recovery?.status).toBe("committed");
   });
 
   it("reports an undecided deletion rather than returning to the list as if it were dropped", async () => {

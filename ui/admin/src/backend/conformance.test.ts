@@ -190,7 +190,9 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
   it("sends one operation identity for a plan and a new one only when the plan changes", async () => {
     const script = backendScript();
     script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
-    script.plan.push({ value: { baseVersion: 8, checksum: "reapproved", fields: [], sql: [] } });
+    // A fresh preview is a new approval even when the catalog and resulting
+    // request happen to be byte-identical to the previous one.
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
     script.apply.push({ value: undefined }, { value: undefined }, { value: undefined });
     const backend = open(script);
     const attempt = new ApplyAttempt(mintedIdentity(operationID, "key-one", secondOperationID, "key-two"));
