@@ -132,9 +132,10 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Rewind to exactly v6. Both later migrations have to go: leaving v8's row
-	// behind would make the history a gap rather than the clean pre-membership
-	// history this test is about.
+	// Rewind to exactly v6. Every later migration has to go: leaving v8's or v9's
+	// row behind would make the history a gap rather than the clean pre-membership
+	// history this test is about. Migration 9 only alters v8's table, which the
+	// drop below removes, so it leaves nothing else to undo.
 	if _, err := pool.Exec(ctx, `drop table pgbase_meta.schema_writer_leases;
 		drop table pgbase_meta.schema_companion_index_capability;
 		drop table pgbase_meta.record_creation_ordinals;
@@ -142,7 +143,7 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 		drop table pgbase_meta.collection_creation_counters;
 		drop table pgbase_meta.runtime_writer_leases;
 		drop table pgbase_meta.record_membership_capability;
-		delete from pgbase_meta.system_migrations where version in (7, 8)`); err != nil {
+		delete from pgbase_meta.system_migrations where version in (7, 8, 9)`); err != nil {
 		t.Fatal(err)
 	}
 	request := CreateRequest{

@@ -37,6 +37,9 @@ var recordMembershipSQL string
 //go:embed 000008_schema_companion_indexes.sql
 var schemaCompanionIndexesSQL string
 
+//go:embed 000009_schema_compiler_generation.sql
+var schemaCompilerGenerationSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -85,6 +88,12 @@ var migrations = []Migration{
 		Name:    "schema_companion_indexes",
 		SQL:     schemaCompanionIndexesSQL,
 		SHA256:  sha256.Sum256([]byte(schemaCompanionIndexesSQL)),
+	},
+	{
+		Version: 9,
+		Name:    "schema_compiler_generation",
+		SQL:     schemaCompilerGenerationSQL,
+		SHA256:  sha256.Sum256([]byte(schemaCompilerGenerationSQL)),
 	},
 }
 

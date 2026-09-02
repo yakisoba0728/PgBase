@@ -420,22 +420,26 @@ pgbase schema-index status --json
    index an interrupted run leaves behind, and promotes `building` to `ready`
    only after revalidating every companion against the current catalog. It is
    safe to rerun and safe to kill; rerun it until it reports `state=ready`.
-4. Adding a field or index to an existing collection drops the capability back to
-   `pending` in the same transaction as the catalog change, because the new field
-   may imply a companion nothing has built. Rerun `activate` and `build` after
-   such a change. This is the only schema change that costs an operator a
-   rebuild.
-5. Creating or deleting a collection does **not** drop the capability. While the
-   state is `ready` the writer issues the v2 plan format, whose create plan builds
-   the new collection's companion indexes in the same transaction as its table; a
-   delete drops its table with every index on it. Neither can leave a companion
-   unbuilt, so both carry the capability onto the catalog they commit. A new
-   collection is therefore servable the moment it exists, with no operator step.
-6. The capability row is the only thing that decides which plan format is issued.
-   Across an activation or a rollback the fleet is briefly mixed, so `apply`
-   accepts a plan checksum from either format: a preview taken just before the
-   transition still applies, and the writer executes its own plan. Operators need
-   do nothing about this window.
+4. A schema change drops the state to `pending` exactly when the catalog it
+   commits names a companion index nothing has built. In practice that is adding a
+   nullable indexed field to an **existing** collection: the field implies a
+   companion, and only the `build` path can create one concurrently. Rerun
+   `activate` and `build` after such a change. This is the only schema change that
+   costs an operator a rebuild.
+5. Every other change carries the capability, including an update that adds no
+   companion — a re-apply, or adding an unindexed column. Creating a collection
+   while `ready` builds its companions in the same transaction as its table, so it
+   opens no gap; deleting one drops its table with every index on it, so it removes
+   manifest entries and cannot open a gap either. A new collection is servable the
+   moment it exists, with no operator step.
+6. The capability row is the only thing that decides which plan format this binary
+   would issue. Across an activation or a rollback the fleet is briefly mixed, so
+   `apply` accepts a plan checksum from either format — and executes the plan that
+   checksum names, not the one this binary would have issued. A caller therefore
+   gets exactly the statement list it approved. If that plan is a v1 create taken
+   before an activation, it builds no companion, so the capability drops to
+   `pending` and the run costs one `activate` and `build`. Operators need do
+   nothing else about this window.
 
 `pgbase schema-index rollback` turns the capability off from any state. It does
 not drop the indexes: the rollout rules keep new physical objects in place after
@@ -452,6 +456,52 @@ a downgrade so a forward fix does not have to rebuild them.
 
 `schema_companion_index_invalid` is recoverable and never requires editing the
 PostgreSQL catalog by hand.
+
+### Schema compiler generation v9 — every `ready` fleet must re-activate
+
+Migration 9 **demotes the companion index capability to `pending`** on every
+database that had reached `building` or `ready`. This is not a precaution. It is
+the only honest outcome, and the operational cost below is real.
+
+The activation proof that produced those `ready` rows verified that every live
+schema writer declared `compiler_version >= 2`. That check could not do what it
+claimed. The binaries that shipped *before* the companion contract already
+declared `compiler_version = 2` while issuing v1 plans only, and the binary that
+issues v2 declared the same 2. A lease at 2 named neither of them, so a genuinely
+mixed fleet passed the proof. Nothing about a `ready` reached under that check
+stands, and there is no value to backfill, because the proof never observed one.
+
+Migration 9 therefore advances the writer generation to **3**, records the
+generation each rollout was proved at in a new
+`schema_companion_index_capability.proven_compiler_version` column, and clears
+every rollout that predates it. A `ready` row is honoured only when its proved
+generation is at least this binary's.
+
+**What this costs you.** Every fleet that had companion indexes enabled loses
+them as a required contract at migrate time and must run the operator sequence
+again:
+
+```
+pgbase schema-index status --json
+pgbase schema-index activate --witness INSTANCE_ID [--witness INSTANCE_ID ...]
+pgbase schema-index build
+```
+
+The indexes themselves are **not dropped**. `build` re-validates the existing
+ones and promotes without rebuilding, so the cost is one operator round and not
+an index rebuild. Between migrating and completing that round, every binary —
+old and new — issues the v1 plan format and no consumer requires a companion.
+Descending pages over nullable columns fall back to their pre-companion plans in
+that window. That fallback is the safety property the demotion buys, not a
+regression.
+
+**Order the upgrade migrate-first.** This release declares **exactly** the v9
+history: v8 is no longer a servable history, because every capability read names
+the new column. `pgbase migrate up` before deploying the new binary. The reverse
+direction is safe on its own — a pre-v9 binary running against a v9 database
+reads the capability as `pending`, issues v1, and cannot activate at all, because
+migration 9's constraint refuses a rollout that records no proved generation. So
+there is no window in which either binary issues v2 against an unproved fleet.
 
 ## Rollback actions are different operations
 

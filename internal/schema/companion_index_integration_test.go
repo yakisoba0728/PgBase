@@ -496,10 +496,7 @@ func TestCompanionIndexActivationRequiresAProvenWriterFleet(t *testing.T) {
 
 	// A live writer that predates the companion contract blocks activation even
 	// when the operator names it, which is what the separate lease exists for.
-	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_writer_leases
-		set compiler_version = 1 where instance_id = $1`, instanceID); err != nil {
-		t.Fatal(err)
-	}
+	leaseSchemaWriterAt(t, pool, service, 2)
 	if _, err := service.ActivateCompanionIndexes(ctx,
 		SchemaWriterFleetProof{Instances: []uuid.UUID{instanceID}}); !errors.Is(err, ErrCompanionIndexFleet) {
 		t.Fatalf("activation with an old schema writer error = %v, want ErrCompanionIndexFleet", err)
@@ -507,7 +504,7 @@ func TestCompanionIndexActivationRequiresAProvenWriterFleet(t *testing.T) {
 
 	// An expired lease is not a live writer, but it is also not a witness.
 	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_writer_leases
-		set compiler_version = 2,
+		set compiler_version = 3,
 			started_at = transaction_timestamp() - interval '10 minutes',
 			heartbeat_at = transaction_timestamp() - interval '10 minutes',
 			lease_expires_at = transaction_timestamp() - interval '9 minutes'
@@ -520,13 +517,69 @@ func TestCompanionIndexActivationRequiresAProvenWriterFleet(t *testing.T) {
 	}
 }
 
-func addSchemaWriterLease(t *testing.T, pool *database.Pool, instanceID uuid.UUID, version int16) {
+// leaseSchemaWriterAt records one live schema writer through refreshSchemaWriterLease,
+// the same statement a schema apply runs, so the fleet under test is one the production
+// path really produces. Hand-writing the lease row is what let the old fleet test pass
+// on a compiler_version no shipped binary ever wrote.
+func leaseSchemaWriterAt(t *testing.T, pool *database.Pool, writer *Service, version int16) uuid.UUID {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.schema_writer_leases
-		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
-		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
-			transaction_timestamp() + interval '90 seconds')`, instanceID, version); err != nil {
-		t.Fatalf("insert schema writer lease: %v", err)
+	ctx := context.Background()
+	instanceID, err := writer.instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return writer.refreshSchemaWriterLease(ctx, tx, version)
+	}); err != nil {
+		t.Fatalf("record schema writer lease at generation %d: %v", version, err)
+	}
+	return instanceID
+}
+
+// A second process against the same database: NewService mints its own instance id,
+// so this is a distinct schema writer rather than a relabelling of the first.
+func secondSchemaWriter(pool *database.Pool) *Service {
+	return NewService(pool, &Cache{}, nil)
+}
+
+// P1-B. The whole mixed-fleet safety argument rests on compiler_version naming a
+// binary, and it did not: the binaries that shipped before the companion contract
+// already declared compiler_version 2 while issuing v1 plans only (see
+// internal/schema/companion_index.go at revision d3fb5eb), and so did the binary that
+// issues v2. A lease at 2 is therefore ambiguous and proves nothing, so an activation
+// that finds one must refuse. Both leases here are written by refreshSchemaWriterLease
+// itself, so this is a fleet the production path really produces.
+func TestCompanionIndexActivationRefusesTheAmbiguousWriterGeneration(t *testing.T) {
+	ctx := context.Background()
+	pool, service, _, _ := companionRolloutFixture(t)
+
+	current := leaseSchemaWriterAt(t, pool, service, schemaCompilerVersion)
+	olderWriter := secondSchemaWriter(pool)
+	older := leaseSchemaWriterAt(t, pool, olderWriter, 2)
+
+	honest := SchemaWriterFleetProof{Instances: []uuid.UUID{current, older}}
+	if _, err := service.ActivateCompanionIndexes(ctx, honest); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("activation over a generation 2 writer = %v, want ErrCompanionIndexFleet", err)
+	}
+	if status := companionStatus(t, service); status.State != CompanionIndexPending {
+		t.Fatalf("refused activation still moved the capability = %#v", status)
+	}
+
+	// And it is the generation that refuses it, not the proof's shape: the same
+	// operator proof activates once that writer is really on this generation.
+	leaseSchemaWriterAt(t, pool, olderWriter, schemaCompilerVersion)
+	receipt, err := service.ActivateCompanionIndexes(ctx, honest)
+	if err != nil {
+		t.Fatalf("activation over a converged fleet: %v", err)
+	}
+	if receipt.State != CompanionIndexBuilding {
+		t.Fatalf("converged fleet receipt = %#v", receipt)
+	}
+	// The proof is what the rollout records, so the row names the generation it was
+	// proved at rather than leaving a later reader to assume one.
+	if status := companionStatus(t, service); status.ProvenCompilerVersion != schemaCompilerVersion {
+		t.Fatalf("opened rollout proved generation %d, want %d",
+			status.ProvenCompilerVersion, schemaCompilerVersion)
 	}
 }
 
@@ -541,8 +594,10 @@ func TestCompanionIndexActivationRefusesADuplicateWitness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	older := uuid.MustParse("0199c100-0000-7000-8000-000000000003")
-	addSchemaWriterLease(t, pool, older, 1)
+	// Generation 2 is what the pre-companion binaries declared, so this is the
+	// mixed fleet the proof exists to catch, not an invented value.
+	olderWriter := secondSchemaWriter(pool)
+	older := leaseSchemaWriterAt(t, pool, olderWriter, 2)
 	honest := []uuid.UUID{current, older}
 	if leases, err := service.SchemaWriterFleet(ctx); err != nil || len(leases) != 2 {
 		t.Fatalf("live fleet = %v, %v, want two leases", leases, err)
@@ -563,10 +618,7 @@ func TestCompanionIndexActivationRefusesADuplicateWitness(t *testing.T) {
 		})
 	}
 
-	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_writer_leases
-		set compiler_version = 2 where instance_id = $1`, older); err != nil {
-		t.Fatal(err)
-	}
+	leaseSchemaWriterAt(t, pool, olderWriter, schemaCompilerVersion)
 	if _, err := service.ActivateCompanionIndexes(ctx,
 		SchemaWriterFleetProof{Instances: []uuid.UUID{current, current}}); !errors.Is(err, ErrCompanionIndexFleet) {
 		t.Fatalf("duplicate witness on a uniform fleet error = %v, want ErrCompanionIndexFleet", err)

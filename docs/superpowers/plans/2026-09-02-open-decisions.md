@@ -41,7 +41,7 @@ DB capability row가 유일한 source of truth다. `internal/schema.Service`가 
 
 ### D2-5 — migration 번호
 
-결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다.
+결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다 — **이행 완료**: R11의 v9 `schema_compiler_generation`이 checksum `5093ee8431e8851c51524f06a1bf15235ead5d21091759a2d931086af6451aee`로 들어갔고 같은 자리에 고정됐다. 그 다음은 v10이다.
 
 ### D3-1 — 승인
 
@@ -264,15 +264,18 @@ R10b에서 이 환경으로는 검증 불가한 것들이다. R12가 127.0.0.1�
 
 ## 확인 필요 (통합 담당자 판단, 승인 전)
 
-### D2-4의 delete 취급
+### D2-4의 delete 취급 — **해소됨 (R11)**
 
-D2-4는 **create와 update만** 명명한다. SPEC-2 구현은 여기에 **delete는 capability를 유지한다**를 더했다.
-근거는 감사의 완료 조건 문구 — "기존 collection의 field/index 추가**만** 승인된 CIC maintenance 경로로
-보낸다" — 이고, 물리적으로도 delete는 자기 테이블을 그 위의 모든 index와 함께 떨어뜨리므로 남은 collection의
-companion에 빈틈을 만들지 않는다. `ready_index_count`는 커밋될 catalog에서 다시 계산되므로 함께 줄어든다.
+확인이 필요했던 이유는 판정이 change의 *kind*를 키로 삼았기 때문이다. kind로 나누면 create/update/delete
+각각을 정책으로 하나씩 지명해야 하고, D2-4가 명명하지 않은 delete는 정책 확장이 된다.
 
-즉 `operation_apply.go:306`의 판정은 `companions && kind != changeUpdate`다. 되돌리려면
-`&& kind != changeDelete`를 더하면 되고 다른 것은 바뀌지 않는다.
+R11은 판정을 kind가 아니라 **companion manifest의 delta**로 바꿨다. capability가 지키는 불변식은
+"커밋되는 catalog가 아무도 만들지 않은 companion을 요구하지 않는다" 하나뿐이므로, 그것만 게이트를 닫는다.
+이 규칙 아래에서 delete는 manifest 항목을 제거하기만 하므로 빈틈을 만들 수 없고, 따라서 **정책 확장이 아니라
+규칙의 결과로** capability를 유지한다. 같은 규칙이 D2-4가 명명한 두 경우도 그대로 재현한다: companion을
+새로 부르는 update는 닫고, v2 create는 자기 테이블의 companion을 같은 트랜잭션에서 만들므로 유지한다.
 
-**이것을 D2-4의 일부로 확정할지 확인이 필요하다.** 구현은 감사 문구를 따랐지만, 결정 문서를 통합 담당자가
-사후에 넓히는 것은 옳지 않다고 판단해 여기에 분리해 둔다.
+부수적으로 no-op update(재적용, unindexed 컬럼 추가)도 유지하게 됐다. kind 판정에서는 아무 index도 건드리지
+않는 update가 capability를 pending으로 떨어뜨려 전체 재롤아웃을 요구했다(P2-C).
+
+따라서 이 항목은 더 이상 통합 담당자의 승인을 기다리지 않는다.

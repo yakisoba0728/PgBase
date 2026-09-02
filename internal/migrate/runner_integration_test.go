@@ -313,7 +313,10 @@ func TestUpThroughClassifiesUnknownVersionAndGapWithoutApplyingTarget(t *testing
 			if statusErr != nil {
 				t.Fatal(statusErr)
 			}
-			if status != (Status{Current: previous.Version, Latest: target.Version, Compatible: true}) {
+			// Compatible is false because R11 declares exactly the latest history;
+			// what this case is about is Current staying at previous, which is what
+			// says the target migration did not run.
+			if status != (Status{Current: previous.Version, Latest: target.Version}) {
 				t.Fatalf("Status after history repair = %#v, target migration was not expected to run", status)
 			}
 		})
@@ -564,15 +567,20 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-func TestNewRunnerAcceptsOnlyCleanSchemaCompanionIndexPreAndPostMigrationHistory(t *testing.T) {
+// The P0 window v8 opened is closed, not widened. Migration 9 adds a column every
+// companion capability read names, so a v8 database is unservable by this binary and
+// the declared range is the exact latest history. This is the test that fails if a
+// later artifact re-opens a two-history window without choosing one deliberately.
+func TestNewRunnerAcceptsOnlyTheExactSchemaCompilerGenerationHistory(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
 	migrations := system.Migrations()
-	if len(migrations) != 8 || migrations[len(migrations)-2].Version != 7 || migrations[len(migrations)-1].Version != 8 {
-		t.Fatalf("schema companion index preparatory manifest = %#v", migrations)
+	if len(migrations) != 9 || migrations[len(migrations)-2].Version != 8 ||
+		migrations[len(migrations)-1].Version != 9 {
+		t.Fatalf("schema compiler generation manifest = %#v", migrations)
 	}
 
 	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -587,19 +595,19 @@ func TestNewRunnerAcceptsOnlyCleanSchemaCompanionIndexPreAndPostMigrationHistory
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 7, Latest: 8, Compatible: true}) {
-		t.Fatalf("pre-migration P0 status = %#v", status)
+	if status != (Status{Current: 8, Latest: 9}) {
+		t.Fatalf("pre-migration status = %#v, want v8 reported incompatible", status)
 	}
 
-	if _, err := runner.UpThrough(context.Background(), 8); err != nil {
+	if _, err := runner.UpThrough(context.Background(), 9); err != nil {
 		t.Fatal(err)
 	}
 	status, err = runner.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 8, Latest: 8, Compatible: true}) {
-		t.Fatalf("post-migration P0 status = %#v", status)
+	if status != (Status{Current: 9, Latest: 9, Compatible: true}) {
+		t.Fatalf("post-migration status = %#v", status)
 	}
 }
 

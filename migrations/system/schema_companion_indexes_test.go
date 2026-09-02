@@ -330,3 +330,130 @@ func TestSchemaCompanionIndexMigrationWaitsForConcurrentCollectionCreateFence(t 
 		t.Fatal("v8 did not continue after the collection creation fence committed")
 	}
 }
+
+// Migration 9. A capability left 'ready' by the previous binary rests on an
+// activation proof that proved nothing: that binary declared compiler_version 2 while
+// issuing v1 plans only, and so did the binary that issues v2, so the fleet check
+// could not tell them apart. There is no honest generation to backfill, because the
+// proof never observed one -- so the row is demoted and the fleet re-proved.
+func TestSchemaCompilerGenerationMigrationDemotesAnUnprovableRollout(t *testing.T) {
+	for _, state := range []string{"ready", "building"} {
+		t.Run(state, func(t *testing.T) {
+			ctx, pool := newSchemaCompanionIndexSchema(t)
+			seedCompanionRolloutAtV8(t, ctx, pool, state)
+
+			if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+				t.Fatalf("apply migration 9: %v", err)
+			}
+
+			var got, generation int64
+			var demoted string
+			var clear bool
+			if err := pool.QueryRow(ctx, `SELECT state, generation,
+				catalog_version IS NULL AND building_at IS NULL AND ready_at IS NULL
+					AND ready_index_count IS NULL AND proven_compiler_version IS NULL,
+				(SELECT count(*) FROM pgbase_meta.schema_companion_index_capability)
+				FROM pgbase_meta.schema_companion_index_capability WHERE singleton`).
+				Scan(&demoted, &generation, &clear, &got); err != nil {
+				t.Fatal(err)
+			}
+			if demoted != "pending" || !clear || got != 1 {
+				t.Fatalf("capability after migration 9 state=%q clear=%t rows=%d", demoted, clear, got)
+			}
+			// The generation counter is a rollout count, not a proof, so the next
+			// activation is the next generation rather than a repeat of this one.
+			if generation != 1 {
+				t.Fatalf("rollout generation after migration 9 = %d, want 1", generation)
+			}
+
+			// The indexes the demoted rollout built are deliberately kept: they are
+			// correct objects, and only the claim that the fleet converged is void.
+			var indexes int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes
+				WHERE schemaname = 'app' AND indexname = 'companion_probe_idx'`).Scan(&indexes); err != nil {
+				t.Fatal(err)
+			}
+			if indexes != 1 {
+				t.Fatalf("migration 9 dropped a built companion index (found %d)", indexes)
+			}
+		})
+	}
+}
+
+// Migration 9 is additive for a database that never opened a rollout, which is the
+// state a freshly migrated one is in.
+func TestSchemaCompilerGenerationMigrationLeavesAPendingCapabilityAlone(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	var before time.Time
+	if err := pool.QueryRow(ctx, `SELECT updated_at
+		FROM pgbase_meta.schema_companion_index_capability WHERE singleton`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+		t.Fatalf("apply migration 9: %v", err)
+	}
+	var after time.Time
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state, updated_at
+		FROM pgbase_meta.schema_companion_index_capability WHERE singleton`).Scan(&state, &after); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" || !after.Equal(before) {
+		t.Fatalf("pending capability state=%q updated_at moved=%t", state, !after.Equal(before))
+	}
+}
+
+// The constraint migration 9 adds is the thing that keeps the proved generation from
+// disagreeing with state: a non-pending row must name one, and a pending row must not.
+func TestSchemaCompilerGenerationConstraintTiesTheProofToTheState(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+		t.Fatalf("apply migration 9: %v", err)
+	}
+	for name, statement := range map[string]string{
+		"building without a proved generation": `UPDATE pgbase_meta.schema_companion_index_capability
+			SET state = 'building', generation = 1, catalog_version = 0,
+				building_at = transaction_timestamp(), updated_at = transaction_timestamp()
+			WHERE singleton`,
+		"pending naming a proved generation": `UPDATE pgbase_meta.schema_companion_index_capability
+			SET proven_compiler_version = 3 WHERE singleton`,
+		"proved generation below one": `UPDATE pgbase_meta.schema_companion_index_capability
+			SET state = 'building', generation = 1, catalog_version = 0,
+				proven_compiler_version = 0, building_at = transaction_timestamp(),
+				updated_at = transaction_timestamp()
+			WHERE singleton`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			requireSQLState(t, ctx, pool, statement, "23514")
+		})
+	}
+}
+
+// seedCompanionRolloutAtV8 puts the capability in the state the previous binary could
+// leave it in, using the columns migration 8 shipped and nothing later. The index
+// stands in for a companion that rollout built.
+func seedCompanionRolloutAtV8(t *testing.T, ctx context.Context, pool *database.Pool, state string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`CREATE TABLE app.companion_probe (id uuid PRIMARY KEY, nickname text)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE INDEX companion_probe_idx
+		ON app.companion_probe (nickname DESC NULLS LAST, id DESC)`); err != nil {
+		t.Fatal(err)
+	}
+	statement := `UPDATE pgbase_meta.schema_companion_index_capability
+		SET state = 'building', generation = 1, catalog_version = 0,
+			building_at = transaction_timestamp(), updated_at = transaction_timestamp()
+		WHERE singleton`
+	if state == "ready" {
+		statement = `UPDATE pgbase_meta.schema_companion_index_capability
+			SET state = 'ready', generation = 1, catalog_version = 0,
+				building_at = transaction_timestamp(), ready_at = transaction_timestamp(),
+				ready_index_count = 1, updated_at = transaction_timestamp()
+			WHERE singleton`
+	}
+	if _, err := pool.Exec(ctx, statement); err != nil {
+		t.Fatalf("seed a %s rollout at v8: %v", state, err)
+	}
+}
