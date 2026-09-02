@@ -260,3 +260,19 @@ R10b에서 이 환경으로는 검증 불가한 것들이다. R12가 127.0.0.1�
 - `trivy-action`의 `trivyignores` 입력이 allowlist YAML을 실제로 소비하는지, SARIF 아티팩트 업로드가 되는지 — **여전히 미검증.** R12가 trivy 0.74.0에 `--ignorefile deployments/security/trivy-allowlist.yaml`을 직접 넘겨 파일이 파싱되고 candidate digest 스캔이 HIGH/CRITICAL 0으로 통과하는 것까지는 확인했다. action이 그 입력을 `--ignorefile`로 넘기는지는 확인하지 못했다.
 - drill과 E2E의 release mode **happy path** — **닫힘.** 실제 `image@sha256`를 대상으로 PG 16/17/18 drill과 Docker Go E2E가 통과했고, 두 gate 모두 candidate가 보고한 version이 `expected_version`과 같은지 확인한다.
 - `--platform linux/amd64` × `--provenance`/`--sbom` index 출력 × `--prefer-index=false` retag — **닫힘.** candidate digest는 index digest이고 index는 platform manifest 1 + attestation manifest 1을 담는다. `imagetools create --prefer-index=false`로 exact tag와 channel tag를 만든 뒤 read-back한 digest가 candidate index digest와 같았다. absent/same/different 3-way와 stable/alpha/beta/rc 승격, malformed 입력의 registry 접근 0회도 같은 registry에서 실행했다.
+
+
+## 확인 필요 (통합 담당자 판단, 승인 전)
+
+### D2-4의 delete 취급
+
+D2-4는 **create와 update만** 명명한다. SPEC-2 구현은 여기에 **delete는 capability를 유지한다**를 더했다.
+근거는 감사의 완료 조건 문구 — "기존 collection의 field/index 추가**만** 승인된 CIC maintenance 경로로
+보낸다" — 이고, 물리적으로도 delete는 자기 테이블을 그 위의 모든 index와 함께 떨어뜨리므로 남은 collection의
+companion에 빈틈을 만들지 않는다. `ready_index_count`는 커밋될 catalog에서 다시 계산되므로 함께 줄어든다.
+
+즉 `operation_apply.go:306`의 판정은 `companions && kind != changeUpdate`다. 되돌리려면
+`&& kind != changeDelete`를 더하면 되고 다른 것은 바뀌지 않는다.
+
+**이것을 D2-4의 일부로 확정할지 확인이 필요하다.** 구현은 감사 문구를 따랐지만, 결정 문서를 통합 담당자가
+사후에 넓히는 것은 옳지 않다고 판단해 여기에 분리해 둔다.

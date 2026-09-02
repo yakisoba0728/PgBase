@@ -35,7 +35,7 @@ import (
 // key renderer feeding both the DDL and the comparison). A zero-slack ratchet
 // tracks the measurement in both directions; only raising it needs the
 // accounting recorded below.
-const dataGroupRuntimeLimit = 16_594
+const dataGroupRuntimeLimit = 16_695
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -167,6 +167,28 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 //	production exported declarations   468 ->   462  (-6, the six methods)
 //	data group runtime              16,639 -> 16,594 (-45, all internal/schema)
 //
+// Raised a fifth time, for audit finding SPEC-2: the checksum compiler was the
+// constant schema-plan-v1 with no production v2 issuance and no dual
+// validation, create DDL built no companion, and every mutation dropped the
+// capability to pending -- so a collection created after the rollout finished
+// demanded a manual activation and build again. Issuance now comes from the
+// capability row (D2-2), a ready create builds its companions inside the DDL
+// transaction (D2-4), and only an update -- the one change that can leave a
+// companion unbuilt -- still closes the gate.
+//
+//	handwritten runtime lines      35,092 -> 35,193
+//	data group runtime             16,594 -> 16,695  (55 under D1's 16,750)
+//	  gross-new 171 / gross-deleted 70, net +101, all in internal/schema
+//	  internal/schema/planner.go                +71 / -38
+//	  internal/schema/operation_apply.go        +57 / -13
+//	  internal/schema/physical_manifest_builder.go  +25 / -14
+//	  internal/schema/companion_index.go        +10 /  -4
+//	  internal/schema/service.go                 +8 /  -1
+//
+// Exported declarations did not move (462): the v2 issuance and the narrowed
+// demote are internal, and STD-3's six deletions are what left room for them.
+// D1's 16,750 is not touched and is not touchable.
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -184,7 +206,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_092, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_193, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
