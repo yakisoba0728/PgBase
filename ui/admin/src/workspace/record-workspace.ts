@@ -309,7 +309,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   };
 }
 
-export interface RelationPicker {
+interface RelationPicker {
   query: string;
   results: RelationTargetOption[] | null;
   status: string | null;

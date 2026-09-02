@@ -1,7 +1,7 @@
 import type { LosslessNumber } from "lossless-json";
 import { stringifyJSON } from "./json";
 
-export interface Administrator { id: string; email: string; createdAt: string }
+interface Administrator { id: string; email: string; createdAt: string }
 export interface AuthenticatedSession { administrator: Administrator; expiresAt: string }
 export interface SetupInput { setupToken: string; email: string; password: string }
 export interface LoginInput { email: string; password: string }
@@ -24,10 +24,7 @@ export type ResumedSession =
 export type SessionFailure = "invalid-credentials" | "setup-unavailable" | "invalid-input" | "failed";
 
 export class SessionError extends Error {
-  constructor(readonly reason: SessionFailure) {
-    super(reason);
-    this.name = "SessionError";
-  }
+  constructor(readonly reason: SessionFailure) { super(reason); this.name = "SessionError"; }
 }
 
 export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "timestamptz", "uuid", "jsonb", "relation"] as const;
@@ -37,25 +34,10 @@ export type FieldType = typeof fieldTypes[number];
 export type RelationCardinality = typeof relationCardinalities[number];
 export type RelationDeleteAction = typeof relationDeleteActions[number];
 
-export interface RelationInput {
-  targetCollection: string;
-  cardinality: RelationCardinality;
-  minSelect: number;
-  maxSelect: number;
-  onDelete: RelationDeleteAction;
-}
+interface RelationInput { targetCollection: string; cardinality: RelationCardinality; minSelect: number; maxSelect: number; onDelete: RelationDeleteAction }
+interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
-export interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
-
-export interface FieldInput {
-  name: string;
-  type: FieldType;
-  required: boolean;
-  unique: boolean;
-  indexed: boolean;
-  default?: unknown;
-  relation?: RelationInput;
-}
+export interface FieldInput { name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
@@ -71,18 +53,14 @@ export class CollectionCatalog {
     this.#byName = new Map(collections.map((collection) => [collection.name, collection]));
   }
 
-  get(name: string): CollectionDefinition | undefined {
-    return this.#byName.get(name);
-  }
+  get(name: string): CollectionDefinition | undefined { return this.#byName.get(name); }
 
   byID(id: string): CollectionDefinition | undefined {
     for (const collection of this.#byName.values()) if (collection.id === id) return collection;
     return undefined;
   }
 
-  all(): CollectionDefinition[] {
-    return [...this.#byName.values()].sort((left, right) => left.name.localeCompare(right.name));
-  }
+  all(): CollectionDefinition[] { return [...this.#byName.values()].sort((left, right) => left.name.localeCompare(right.name)); }
 }
 
 // The checksum never leaves the plan it was issued for, so no caller can apply
@@ -106,23 +84,14 @@ export class PlannedChange {
 
   get operation(): CollectionChange["operation"] { return this.#change.operation; }
   get collection(): string { return this.#change.name; }
-
-  matches(change: CollectionChange): boolean {
-    return stringifyJSON(change) === this.#signature;
-  }
-
-  applyRequest(): Record<string, unknown> {
-    return { ...this.#change, checksum: this.#checksum, baseVersion: this.baseVersion };
-  }
+  matches(change: CollectionChange): boolean { return stringifyJSON(change) === this.#signature; }
+  applyRequest(): Record<string, unknown> { return { ...this.#change, checksum: this.#checksum, baseVersion: this.baseVersion }; }
 }
 
-export type SchemaFailure = "same-version-conflict" | "catalog-moved" | "data-blocked" | "referenced" | "failed";
+type SchemaFailure = "same-version-conflict" | "catalog-moved" | "data-blocked" | "referenced" | "failed";
 
 export class SchemaError extends Error {
-  constructor(readonly reason: SchemaFailure, readonly code: string, readonly details: Record<string, string[]> = {}) {
-    super(reason);
-    this.name = "SchemaError";
-  }
+  constructor(readonly reason: SchemaFailure, readonly code: string, readonly details: Record<string, string[]> = {}) { super(reason); this.name = "SchemaError"; }
 }
 
 export type RecordValue = boolean | number | string | null | LosslessNumber | Record<string, unknown> | unknown[];
@@ -159,29 +128,18 @@ export class CreateAttempt {
     return this.#key;
   }
 
-  reset(): void {
-    this.#body = null;
-    this.#key = null;
-  }
+  reset(): void { this.#body = null; this.#key = null; }
 }
 
-export type RecordFailure = "not-found" | "stale" | "rejected" | "failed";
+type RecordFailure = "not-found" | "stale" | "rejected" | "failed";
 
 export class RecordError extends Error {
-  constructor(readonly reason: RecordFailure, readonly details: Record<string, string[]> = {}) {
-    super(reason);
-    this.name = "RecordError";
-  }
+  constructor(readonly reason: RecordFailure, readonly details: Record<string, string[]> = {}) { super(reason); this.name = "RecordError"; }
 }
 
 export interface SystemStatus {
-  version: string;
-  databaseReachable: boolean;
-  migrationCurrent: number;
-  migrationLatest: number;
-  migrationDirty: boolean;
-  catalogVersion: number;
-  listenerReady: boolean;
+  version: string; databaseReachable: boolean; migrationCurrent: number; migrationLatest: number;
+  migrationDirty: boolean; catalogVersion: number; listenerReady: boolean;
 }
 
 export interface SessionPort {
