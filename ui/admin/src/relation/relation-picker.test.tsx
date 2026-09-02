@@ -161,6 +161,25 @@ describe("relation picker", () => {
     expect(result.current.status).toBe("Selected Hopper.");
   });
 
+  it("labels a new selection from the result row it was chosen from", async () => {
+    const script = signedInScript();
+    script.list.push({ value: { items: [{ id: targetID, name: "Ada" }] } });
+    const view = renderHook(
+      ({ draft }: { draft: string }) => useRelationPicker(users, relationField("tags", "multiple"), draft, () => undefined),
+      { initialProps: { draft: "" }, wrapper: wrap(script) },
+    );
+
+    act(() => view.result.current.search());
+    await waitFor(() => expect(view.result.current.results).toHaveLength(1));
+    act(() => view.result.current.select(targetID));
+    view.rerender({ draft: targetID });
+
+    await waitFor(() => expect(view.result.current.selections).toEqual([{ id: targetID, label: "Ada", available: true }]));
+    await act(async () => { await new Promise((settle) => setTimeout(settle, 0)); });
+    // The chosen row already carried the label, so no hydration follows it.
+    expect(callsTo(script, "list")).toHaveLength(1);
+  });
+
   it("removes one selection and keeps the order of the rest", async () => {
     const script = signedInScript();
     script.list.push({ value: { items: [] } });

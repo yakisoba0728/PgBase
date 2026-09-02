@@ -75,7 +75,7 @@ describe("relation draft selection", () => {
   });
 
   it("drops one selection without reordering the rest", () => {
-    expect(deselectRelationTarget(`${first}\n${second}\n${third}`, second)).toBe(`${first}\n${third}`);
+    expect(deselectRelationTarget(`${third}\n${second}\n${first}`, second)).toBe(`${third}\n${first}`);
     expect(deselectRelationTarget(first, first)).toBe("");
     expect(deselectRelationTarget(`${first}\n${second}`, third)).toBe(`${first}\n${second}`);
   });
