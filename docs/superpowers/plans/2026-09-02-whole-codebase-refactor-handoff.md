@@ -1,29 +1,139 @@
 # PgBase 전면 리팩터링 중단·인수인계
 
-작성일: 2026-09-02
+작성일: 2026-09-02 (최종 갱신: 2026-09-02, 재개 세션)
 
-중단 사유: 사용자가 현재까지의 결과를 보존하고 전체 구현을 중단한 뒤, 완료 범위·진행 방식·잔여 작업을 문서로 남기도록 요청했다.
+중단 사유: 사용자가 현재까지의 결과를 보존하고 전체 구현을 중단한 뒤, 완료 범위·진행 방식·잔여 작업을 문서로 남기도록 요청했다. 이후 같은 날 재개해 doctor 묶음을 감사·수정·커밋했고 Release B 감사를 마쳤다.
 
 원 계획: [`2026-09-01-whole-codebase-refactor.md`](./2026-09-01-whole-codebase-refactor.md)
 
+## 0. 남은 작업 TODO
+
+우선순위 순이다. `[ ]`는 미완, `[x]`는 이 세션에서 완료.
+
+### 0.1 Release B를 커밋 가능하게 만들기 (현재 차단 상태)
+
+- [x] **B1 blocker — ready 상태 collection count 등식 제거.** `traversal.go`가 `ready_collection_count == cutover_collection_count`를 traversal 전제조건으로 요구했다. 두 값은 cutover 시점과 promote 시점에 각각 찍히는 receipt이고, `schema.Store.insertMembershipMetadata`는 dual_write/ready 중 collection 생성을 정식 지원한다. backfill 창에서 collection이 하나 생기면 PromoteReady가 성공한 뒤 **모든 collection의 모든 list가 영구히 503**이 되고 어떤 transition으로도 복구되지 않았다. write와 `Get`은 계속 성공해 장애가 비대칭이었다. DB CHECK에는 이 등식이 없다. 수정 후 제품 경로(cutover → collection 생성 → backfill → PromoteReady → resolve) 회귀 테스트로 고정했다.
+- [x] **B2 blocker — descriptor 발급 실패를 `invalid_cursor`로 뭉개는 문제.** `root_page.go`의 v5 발급 분기와 `cursor_v5_binding.go`가 `queryErr`/`orderErr`를 전부 `invalidCursor()`로 접었다. v5 발급이 켜진 뒤 **cursor 없는 첫 요청**의 응답이 422 `validation_failed`에서 400 `invalid_cursor`로 바뀌었다(계획 §4 위반). v4/v5 동일 요청을 비교하는 회귀 테스트로 재현한 뒤 수정했다.
+  - 수정 중 **감사가 보지 못한 두 번째 층**을 발견했다. 오류 클래스를 전파하도록 고치자 v5가 여전히 v4와 다른 detail code를 냈다(`type_mismatch` vs `unsupported_type`). `compileComparison`은 JSONB를 `unsupported_type`으로 먼저 막는데 fingerprint 경로는 그 guard 없이 `decodeFilterValue`를 직접 호출해 `default:` 분기로 떨어지기 때문이다. status만 고쳤으면 envelope 불일치가 남아 §4 위반이 그대로였다. JSONB 거부를 plan 단계(`planRelationFilter`)로 올려 두 경로가 단일 정책을 공유하게 했다 — 계획 §5가 지목한 "정책이 여러 module에 재구현된" 중복의 실제 사례다.
+  - 테스트 자체의 결함도 하나 고쳤다. `EnableV5`는 capability singleton이라 전역인데 루프 안에서 켜면 두 번째 하위 테스트의 "before"가 이미 after다. v4 답변을 전부 먼저 고정한 뒤 한 번만 켜도록 구조를 바꿨다.
+- [x] **B3 — `internal/query` LOC 부채.** blocker 2건 수정이 순증해 38 → 67줄이 됐다. 정직한 삭제 경로가 전부 막혀 있음을 확인한 뒤(아래 §0.5) 사용자 승인으로 **선택지 (B)**를 택했다: `service_surface_test.go`의 per-package ratchet을 4,850 → 4,917로 **여유 0으로** 재기준화하고 계획 §11대로 correctness category와 회계를 주석에 명기했다.
+
+  ```text
+  internal/query runtime  gross new 93 / gross deleted 26 / net +67  → 4,917
+  group(database+query+recordops+relation+schema) 15,768  (hard 12,750, R11 소관)
+  ```
+
+  ratchet은 없어진 것이 아니라 재기준화된 것이다. 이 값을 다시 올리려면 그것을 상쇄하는 삭제와 함께여야 한다.
+- [ ] **B4 — Release B 커밋.** resolver와 query/recordops는 **한 커밋이어야 한다.** membership WIP가 free function `ValidateTraversal`을 제거하고 method `Traversal.ValidateV5`로 대체하는데 HEAD의 `internal/query/cursor_v5_binding.go:22`가 그것을 쓴다. 격리 worktree에서 확인함: resolver만 얹으면 `undefined: membership.ValidateTraversal`로 빌드 실패. 계획 §11이 같은 stack 안의 compatibility wrapper를 권하지 않으므로 shim을 두지 말고 한 커밋으로 묶는다.
+- [ ] **B5 — 커밋 전 최소 live gate.** 아래 §11의 PG16 race + PG17/PG18 integration 3종을 다시 실행하고, candidate commit을 임시 detached worktree에서 exact snapshot으로 재검증한다.
+
+### 0.2 Release B 감사가 남긴 결정 사항 (merge 전 판단 필요)
+
+- [ ] **read path가 정확한 v7 설치를 무조건 요구하는 것을 유지할지.** `query.NewServiceWithRecorder`가 `membership.ResolveTraversal`을 조건 없이 연결하고, resolver는 다섯 객체 전부와 `historyCount >= 7`, checksum 일치를 요구한다. rolling deploy 중 peer가 v8을 적용했거나 v6 DB에 붙으면 **모든 list가 503**이 된다. 기준선은 `select transaction_timestamp()` 하나였다. `membership.Runtime.refresh`에는 A0용 `installationPreMigration` 분기가 있지만 resolver에는 없다. 계획 R4 8단계는 "feature flag로" 활성화한다고 되어 있으나 실제로는 durable capability state가 유일한 gate다. 결정하고 runbook에 적는다.
+- [ ] **sidecar 없는 base row의 노출 방식.** `rootMembershipPredicate`가 `EXISTS ... ordinal <= $n`이라 sidecar 없는 record는 **오류 없이 list에서 사라지고** `GET /records/{id}`로는 그대로 나온다. 정상 ready 상태에서는 발생 불가(base+sidecar 동일 transaction, PromoteReady 검증, doctor bounded finding)지만 실패 양상이 "조용함"이고, 이는 R4가 없애려던 바로 그 부류다. 최소한 telemetry counter나 doctor 연계 runbook 항목이 필요하다.
+- [ ] **rollback 상태에서 v5 cursor가 user error로 표면화되는 것.** control-plane rollback 상태에서 v5 cursor가 `invalid_cursor`가 된다. 명세("현재 durable generation/counter에 대해 검증")와는 일치하나 의식적 승인이 필요하다.
+
+### 0.3 Release B 감사 minor 항목
+
+- [ ] `compiler.go` / `relation_filter_sort.go`의 `if after != nil && len(after.Values) != 0`. 새 value-less first-page boundary에 필요한 guard지만, 향후 zero-value boundary가 생기면 hard error가 아니라 **1페이지로 조용히 재시작**한다. 현재 도달 경로는 없다(제거된 안전망).
+- [ ] `cursor_v5_binding.go`의 `newCursorV5Descriptor`가 `IssueVersion`만 보고 unexported `traversal.ready`를 확인하지 않는다. `validTraversalStatus` 덕분에 현재만 안전하다. `bindCursorV5`는 `ValidateV5`로 확인하므로 발급 경로도 맞추는 것이 좋다.
+- [ ] `TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage`가 continuation 1회만 검사하고 high-water 실제 값을 단언하지 않는다. 3페이지 이상 carry 케이스 추가.
+- [ ] `expand_live_test.go`가 `IssueVersion: cursor.Version4`로 stub해서 그 고정 시간 경로는 v5를 전혀 타지 않는다.
+
+### 0.4 doctor 후속 항목 (커밋됨, blocker 아님)
+
+- [x] **D1 blocker — `IntervalStyle` 의존 CHECK 해시.** 아래 §5 참고. 수정·커밋 완료.
+- [x] **D2 — O(전체 레코드) scan에 대한 §5 rationale 주석.**
+- [x] **D5/D6 — 누락 픽스처 2건.** 변이 검증까지 완료.
+- [ ] **D3 — 동적 identifier + schema pin 부재.** doctor는 `pinSchemaShared`를 호출하지 않아 DDL이 동시에 돈다. `readMembershipCollections`와 collection별 probe 사이에 `app."order"`가 drop되면 raw `42P01`이 뜬다. doctor가 identifier를 SQL에 보간하는 첫 사례다. fail-closed이고 stderr 진단은 프로젝트 설계이므로 오탐 경보지 redaction 결함은 아니다.
+- [ ] **D4 — 다섯 membership table에 trigger/rule/RLS 검사 없음.** `relations.go`는 relation table의 trigger와 function body까지 고정하는데 membership은 column/제약/index만 본다. `BEFORE INSERT ... RETURN NULL` trigger나 RLS가 coverage query와 sidecar scan을 조용히 무력화할 수 있다. 해시 고정의 목적("같은 이름의 약화된 대체물은 통과하면 안 된다")과 위협 모델이 불일치한다.
+- [ ] **D7 — `cutover` 상태 테스트 없음.** 코드는 맞다(`transitions.go`가 `finishCutover` 전까지 counter를 0으로 두고 `writer.go`가 모든 write에 `ErrUnavailable`). 하지만 `cutover` 분기를 `dual_write` 규칙으로 뒤집어도 아무 테스트도 깨지지 않는다.
+- [ ] **D8 — `assertBoundedMembershipReport`는 거의 tautology.** 모든 finding message가 문자열 상수라 byte 경계가 구조적으로 깨질 수 없다. report byte는 bound하지만 **scan 작업량은 bound하지 않는다**(D2와 별개).
+- [ ] **D10 — `appendFindingOnce`가 `relations.go`의 `appendRelationFinding`과 byte 단위 중복.** §12 위반은 아니고 중복 지표 항목. 변이 검증 중 확인한 사실: membership 경로에서 이 dedup은 **도달 불가능**하다. 루프 뒤 단일 `if orphanedFound` 분기가 이미 1회를 보장한다.
+- [ ] **D11 — `cli/run.go`가 `len(report.Findings) == 0`일 때만 `diagnostic_failed`를 붙인다.** finding을 붙인 뒤 오류가 나면 운영자는 진단이 잘렸다는 신호 없이 부분 report를 본다. 기존 문제지만 D3이 도달 빈도를 높인다.
+- [ ] **doctor 전체 query-count hard assertion.** 아직 없음(확인함: `internal/doctor`·`internal/testutil` 어디에도 `pgx.QueryTracer`를 쓰는 코드가 없다). `internal/query`의 `readKernelQueryTracer` 패턴을 쓰면 된다. **주의: 현재 코드는 이 assertion을 통과하지 못한다** — membership 경로가 ready에서 `6 + 2N`(N = collection 수)이고, 기준선의 `checkCollections`도 이미 table/field당 query를 낸다. 즉 doctor 전체 query-count gate는 이 WIP가 만든 문제가 아니라 **기존 실패**이며, 이 WIP는 여기에 데이터 비례 축을 하나 더 얹었다. R8에서 정리한다.
+
+### 0.5 `internal/query` 38줄 LOC 부채 — 조사 결과
+
+hard gate는 `service_surface_test.go`의 `internal/query` runtime <= 4,850이다. `ac90b4f` 시점 값이 **정확히 4,850**이고 Release B WIP가 **정확히 +38**(62 삽입 / 24 삭제)이라 여유가 0이다.
+
+정직한 삭제 경로를 전부 조사했고 **모두 막혀 있다**:
+
+- **죽은 코드 없음.** `.golangci.yml`에 `unused`, `unparam`, `ineffassign`, `wastedassign`이 켜져 있고 `scripts/lint-go.sh`가 0 issues다.
+- **계획 §5의 query 삭제 인벤토리 소진.** `expandRecords`, `isExpandBudgetError`, `retryableTransactionError`, `strconvItoa`, `relationPlanningErrorForCursor`는 전부 R3에서 이미 제거됐다(grep으로 부재 확인).
+- **주석은 대부분 §5 "유지" 대상.** `internal/query` runtime 주석 108줄 중 `filter.go`의 index/null ordering 근거, `codec.go`의 btree 한계·보안 근거 등이 §5가 명시적으로 보존을 요구한 항목이다. 정직한 "what" 주석은 1~6줄뿐이다.
+- **R5 §9.2 항목 1은 부채를 갚지 못한다 — 오히려 +9줄이다.** 격리 worktree에서 실제 구현해 측정했다(4,850 → 4,859). dotted path가 `renderRelationSortJoins`/budget/`terminalIsRelation`을 계속 쓰므로 삭제되는 코드가 없다. 핸드오프 이전 판의 "38줄을 갚을 가능성이 높다"는 추정은 **틀렸다**.
+- **`cursor_v5_binding.go`의 +34줄은 중복이 아니다.** Release B 감사가 확인: `cursor_v5_fingerprint.go`를 중복하지 않고 호출한다.
+- **`root_page.go`의 두 대형 함수는 통합 대상이 아니다.** 배치 순차 하이드레이션과 단발 읽기로 실제 다른 알고리즘이다.
+
+계획 §3의 구속력 있는 목표는 per-package가 아니라 **그룹 단위**다.
+
+```text
+database/query/recordops/relation/schema  →  checkpoint 11,900 이하 / hard 12,750
+실측(2026-09-02): 15,739
+  database 396 / query 4,888 / recordops 2,074 / relation 2,005 / schema 6,376
+```
+
+즉 그룹이 약 3,000줄 초과 상태이고, 그 삭제는 **R6(RecordKernel/RelationKernel deepening)과 R11(old adapter/path 삭제)**이 갚기로 되어 있다. 4,850은 계획이 정한 값이 아니라 구현자가 R3 완료 시점 값으로 건 per-package ratchet이다.
+
+계획 §11은 "LOC 감소는 개별 commit이 아니라 stack 전체에서 측정한다. characterization, **correctness**, security, migration, doctor 강화, 기능 stack은 **양수일 수 있으며** category를 별도 표기한다"고 한다. Release B는 pagination silent omission을 고치는 correctness stack이다.
+
+결정 대기 중인 선택지:
+
+- (A) R6/R11의 삭제를 앞당겨 38줄을 먼저 확보한다. 계획의 단계 순서를 뒤집고 correctness 수정을 지연시킨다.
+- (B) ratchet을 Release B stack의 일부로 재기준화하고 §11대로 correctness category로 명기한다. 그룹 12,750을 실질 가드로 두고 R11을 강제 지점으로 삼는다. **권고안.**
+- (C) `internal/query`에서 추가 통합을 계속 찾는다. 위 조사 기준으로 남은 여지는 크지 않다.
+
+### 0.6 이후 원 계획 단계
+
+- [ ] **R4 Release C** — WriterC admission, v4 decoder 제거, 최종 rollout gate.
+- [ ] **R5** — §9.2 query correctness(항목 1은 격리 worktree에 구현·검증됨, 아래 참고), §9.3 nullable-DESC companion index rollout.
+- [ ] **R6** — RecordKernel/RelationKernel deepening, cascade read/write N+1 제거.
+- [ ] **R7** — auth constructor, HTTP route registry, deadline/atomic response, app lifecycle.
+- [ ] **R8** — migration/doctor/CLI/observability/system sampler 완성. doctor query-count gate와 old doctor path 삭제를 여기서 끝낸다.
+- [ ] **R9a** — AdminBackend, CollectionDesigner, RecordWorkspace, UI state/export/hook 감축.
+- [ ] **R10b** — Compose stop, restore drill, release tag/security/dashboard gate.
+- [ ] **R11** — old adapter/path 삭제와 LOC/interface/export/comment hard guardrail.
+- [ ] **F0~F3** — UI navigation/delete/draft/cursor back-stack, schema operation recovery/history UX, searchable relation picker, System schema health.
+- [ ] **R12** — 동일 digest의 final release-equivalent PG16/17/18/E2E/security/restore gate.
+
+### 0.7 R5 §9.2 항목 1 — 이미 검증된 설계
+
+격리 worktree에서 구현하고 동작을 확인했다. 커밋하지 않았고 스크래치패드에만 있다.
+
+정확성 근거:
+
+- `internal/schema/planner.go`가 single relation에 `FOREIGN KEY (col) REFERENCES target(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`를 건다. 커밋된 스냅샷에서는 항상 성립하므로 `LEFT JOIN target ON target.id = root.col`의 `target.id`는 `root.col`과 정확히 같다(둘 다 NULL이거나 둘 다 같은 값).
+- 같은 파일이 `SingleReverseIndex`를 root 컬럼에 항상 만든다. inline 정렬이 root 인덱스를 탄다.
+- `internal/schema/relation_types.go`가 relation 필드를 무조건 `Indexed = true`로 정규화하므로 `indexedOrderHint(field, orderIndexRoot)`가 성립한다.
+
+변경: `planRelationSort`에서 dot 없는 `RelationSingle` 필드를 relationPath term이 아니라 **root orderTerm**으로 낸다. cursorField는 `ID`/`ColumnName`은 보존하고 `Type`만 `TypeUUID`로 합성한다(`cursorV5Path`가 field id를 인코딩하고, v5 descriptor가 `relation`이 아니라 `uuid`로 인코딩되며, `renderRelation`이 `qualified(rootAlias, cursorField.ColumnName)`으로 렌더링하기 때문). multi-cardinality는 `relation_sort_unsupported`를 유지한다.
+
+동작 확인 결과: `sort=owner`는 private/join 해제, `sort=tags`(multi)는 에러 유지, `sort=owner.name`(dotted)은 join+private 유지.
+
+뒤집어야 할 R0 characterization 테스트 3건:
+
+- `internal/query/relation_filter_sort_test.go` `TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor`
+- `internal/query/relation_filter_sort_live_test.go` `TestRelationSortCurrentBudgetIncludesBareRelationSortAt100001`
+- `internal/query/relation_explain_integration_test.go` `TestCurrentRelationFilterRootDescendingSortUsesFullSortInsteadOfPageIndex`
+
 ## 1. 재개할 때 가장 먼저 할 일
 
-이 작업 트리는 안전한 커밋과 미완성 WIP가 함께 있다. 다음 순서로 재개한다.
-
 1. `git status -sb`와 이 문서를 읽는다.
-2. `HEAD`의 커밋된 Release A와 미커밋 doctor/Release B 변경을 섞지 않는다.
-3. 기존 변경을 reset, checkout, clean, stash 하지 않는다. 현재 WIP는 의도적으로 보존되어 있다.
-4. doctor와 Release B를 각각 독립 재감사한다.
-5. `internal/query` runtime 4,850줄 제한을 실제 삭제로 다시 만족시킨 뒤에만 Release B를 커밋한다.
-6. 파일 묶음별로 stage하고 아래 검증 명령을 다시 실행한다.
+2. 기존 변경을 reset, checkout, clean, stash 하지 않는다. 현재 WIP는 의도적으로 보존되어 있다.
+3. 위 §0.1 순서대로 Release B를 닫는다.
+4. 파일 묶음별로 stage하고 §11 검증 명령을 다시 실행한다.
 
-현재 checkout은 detached HEAD다. 아래 hash는 문서 커밋 직전의 마지막 implementation checkpoint다.
+이 작업은 더 이상 detached HEAD가 아니다. 재개 세션에서 43개 커밋을 브랜치로 고정했다.
 
 ```text
 worktree: /Users/yakisoba0728/.codex/worktrees/0f44/PgBase
-code:     96f96403f866d642644f2c918340c6340e7d5f73
-branch:   HEAD (no branch)
+branch:   refactor/whole-codebase
+code:     a50a2c0  (doctor membership validation, 재개 세션에서 커밋)
+base:     ac90b4f  (이전 세션의 문서 checkpoint)
 ```
+
+`refactor/whole-codebase`는 아직 push하지 않았다.
 
 ## 2. 현재 단계 판정
 
