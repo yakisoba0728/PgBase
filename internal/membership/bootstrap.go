@@ -151,6 +151,9 @@ func bootstrapFreshInstall(ctx context.Context, tx pgx.Tx) (bool, error) {
 		}
 		return false, err
 	}
+	// The re-read under the row lock is what makes skipping on the unlocked
+	// probe safe, not a duplicate of it: another starter may have promoted
+	// between the two, and only this read is ordered against that commit.
 	if err := tx.QueryRow(ctx, seededOffCapabilityLock).Scan(&seeded); err != nil {
 		return false, fmt.Errorf("lock record membership capability: %w", err)
 	}
