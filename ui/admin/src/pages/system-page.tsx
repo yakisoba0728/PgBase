@@ -78,7 +78,7 @@ export function SystemPage() {
       <p className="health-state" data-state={view.health.state}>{healthSummary[view.health.state]}</p>
       <dl className="system-status">
         <div><dt>Last successful diagnosis</dt><dd><Instant value={view.health.lastSuccessAt} /></dd></div>
-        <div><dt>Retries since</dt><dd>{view.health.retries}</dd></div>
+        <div><dt>Retries since the last diagnosis</dt><dd>{view.health.retries}</dd></div>
       </dl>
       {view.health.findings.length === 0
         ? <p>No findings reported.</p>

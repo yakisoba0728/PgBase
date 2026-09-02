@@ -157,6 +157,7 @@ Physical target FK는 `ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`인 com
 | `POST /api/admin/collections/plan` | 컬렉션 create/update/delete 계획 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `POST /api/admin/collections/apply` | 검토한 계획 적용 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/system` | 버전, DB, migration, catalog/listener 상태 | 관리자 인증 |
+| `GET /api/admin/system/health` | 배경 doctor 실행의 redacted finding code와 healthy/drift/unavailable 상태 | 관리자 인증 + same-origin read |
 | `GET /api/v1/collections/{collection}/records` | 레코드 목록, bounded scalar/relation-path `filter`, root/single-relation indexed scalar `sort`, `expand`, cursor 페이지네이션 | 관리자 세션 |
 | `POST /api/v1/collections/{collection}/records` | typed 레코드 생성 | 관리자 세션 + mutation 보호 |
 | `GET /api/v1/collections/{collection}/records/{id}` | raw relation ID와 optional bounded `expand`를 포함한 단일 레코드 조회 | 관리자 세션 |
