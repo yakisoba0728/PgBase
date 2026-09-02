@@ -382,6 +382,114 @@ func TestSchemaCompilerGenerationMigrationDemotesAnUnprovableRollout(t *testing.
 	}
 }
 
+// A predecessor build can read v8's "building" state and enter its
+// session-scoped CREATE INDEX CONCURRENTLY phase just before M. Migration 9
+// must drain that exact lock before it changes the durable state labels; the
+// database constraints prevent old promotion, but without this drain the old
+// process could still change physical indexes after M committed.
+func TestSchemaCompilerGenerationMigrationDrainsPreP0CompanionMaintenance(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	seedCompanionRolloutAtV8(t, ctx, pool, "building")
+	// Must match internal/schema.companionIndexAdvisoryKey. The SQL migration
+	// embeds its decimal value because a migration cannot import a Go constant.
+	const companionMaintenanceLock int64 = 0x7067626173650008
+	assertMigrationWaitsForAdvisoryDrain(t, ctx, pool, companionMaintenanceLock,
+		"live predecessor maintenance")
+	var state string
+	var indexValid bool
+	if err := pool.QueryRow(ctx, `SELECT capability.state,
+		indexes.indisvalid AND indexes.indisready AND indexes.indislive
+		FROM pgbase_meta.schema_companion_index_capability AS capability
+		JOIN pg_class AS index_table ON index_table.relname = 'companion_probe_idx'
+		JOIN pg_index AS indexes ON indexes.indexrelid = index_table.oid
+		WHERE capability.singleton`).Scan(&state, &indexValid); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" || !indexValid {
+		t.Fatalf("post-drain migration state=%q index_valid=%t", state, indexValid)
+	}
+}
+
+// Apply and rollout transitions take the schema advisory lock before either
+// the schema-state row or the writer-lease table. M must join that order before
+// it locks both objects, otherwise an in-flight writer can form a row/table lock
+// cycle with the migration.
+func TestSchemaCompilerGenerationMigrationDrainsSchemaWritersBeforeCatalogLocks(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	// Must match internal/schema.schemaAdvisoryLockKey.
+	const schemaLock int64 = 0x7067626173650002
+	assertMigrationWaitsForAdvisoryDrain(t, ctx, pool, schemaLock, "live schema writer")
+}
+
+func assertMigrationWaitsForAdvisoryDrain(
+	t *testing.T, ctx context.Context, pool *database.Pool, lockKey int64, blockedBoundary string,
+) {
+	t.Helper()
+	blocker, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Release()
+	migrationConnection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrationConnection.Release()
+	if _, err := blocker.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+		t.Fatal(err)
+	}
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			_, _ = blocker.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
+		}
+	}()
+
+	var migrationPID int
+	if err := migrationConnection.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&migrationPID); err != nil {
+		t.Fatal(err)
+	}
+	migration := migrationSQL(t, 9)
+	done := make(chan error, 1)
+	go func() {
+		_, execErr := migrationConnection.Exec(ctx, migration)
+		done <- execErr
+	}()
+
+	waitContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("migration 9 crossed %s: %v", blockedBoundary, err)
+		default:
+		}
+		var waiting bool
+		err := pool.QueryRow(waitContext, `SELECT coalesce((SELECT
+			wait_event_type = 'Lock' AND wait_event = 'advisory'
+			FROM pg_stat_activity WHERE pid = $1), false)`, migrationPID).Scan(&waiting)
+		if err != nil {
+			t.Fatalf("observe migration drain of %s: %v", blockedBoundary, err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := blocker.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey); err != nil {
+		t.Fatal(err)
+	}
+	unlocked = true
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("migration 9 after draining %s: %v", blockedBoundary, err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("migration 9 did not continue after draining %s", blockedBoundary)
+	}
+}
+
 // Migration 9 is additive for a database that never opened a rollout, which is the
 // state a freshly migrated one is in.
 func TestSchemaCompilerGenerationMigrationLeavesAPendingCapabilityAlone(t *testing.T) {

@@ -515,7 +515,7 @@ feature contracts:
 - **P0** accepts exactly clean v8 checksum
   `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`
   and clean v9 checksum
-  `d88dee3d52b98e2c9da75039151077339dea66ae1be8c7832e5f766dfe0310ea`.
+  `f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918`.
   It records compiler generation 2, issues only v1 plans, and refuses companion
   activation.
 - **F** accepts exactly the clean v9 checksum, records generation 3, and is the
@@ -564,16 +564,20 @@ pre-P0 binary, because it treats v9 as an unknown history. If F has activated,
 run `schema-index rollback` while F is still available before redeploying P0;
 the indexes stay in place and P0 resumes v1 issuance. Forward-fix from P0.
 
-Migration 9 has two database guards behind that procedure. Under an exclusive
-lease-table lock it preserves existing leases, adds `writer_protocol`, backfills
-the only supported token `1`, then makes the column `NOT NULL`, constrained to
-`1`, with no default. A still-running pre-P0 process omits that column. PostgreSQL
-checks its proposed INSERT before taking the `ON CONFLICT` update path, so even
-the same instance ID receives SQLSTATE `23502` and its schema transaction aborts
-before DDL or catalog metadata can commit. Separately, the capability constraint
-forbids a non-pending state without a proved generation. These are hard fences;
-the P0 → M → F ordering is still required to make the deployment controlled
-rather than merely fail-safe.
+Migration 9 has three database guards behind that procedure. It first takes the
+predecessor's companion-maintenance advisory lock and the schema advisory lock,
+in that order. This drains an already-running old `CREATE INDEX CONCURRENTLY`
+phase and every schema writer/rollout transition before M changes their durable
+protocol, while excluding a new old maintenance command until M commits. Under
+an exclusive lease-table lock it then preserves existing leases, adds
+`writer_protocol`, backfills the only supported token `1`, and makes the column
+`NOT NULL`, constrained to `1`, with no default. A still-running pre-P0 process
+omits that column. PostgreSQL checks its proposed INSERT before taking the
+`ON CONFLICT` update path, so even the same instance ID receives SQLSTATE `23502`
+and its schema transaction aborts before DDL or catalog metadata can commit.
+Separately, the capability constraint forbids a non-pending state without a
+proved generation. These are hard fences; the P0 → M → F ordering is still
+required to make the deployment controlled rather than merely fail-safe.
 
 ## Rollback actions are different operations
 

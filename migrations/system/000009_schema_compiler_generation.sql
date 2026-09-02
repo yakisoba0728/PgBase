@@ -1,6 +1,21 @@
--- Serialize with collection DDL, as migration 8 does. Nothing here inspects or
--- changes a dynamic record table; the companion indexes themselves are untouched
--- and stay exactly where the previous rollout left them.
+-- Drain any pre-P0 CREATE INDEX CONCURRENTLY maintenance before changing its
+-- durable protocol. The old command takes this as a session lock before it
+-- inspects or changes a companion index. Taking the transaction-scoped form of
+-- the same lock makes migration 9 wait for that work to finish and prevents a
+-- new old-generation build from entering until this transaction commits. This
+-- must be the first product lock: old maintenance releases this lock before its
+-- later promotion takes the schema lock, so the ordering cannot form a cycle.
+SELECT pg_advisory_xact_lock(8099550625536475144);
+
+-- Drain any schema writer or rollout transition that entered before M. Taking
+-- the same advisory lock used by Apply and capability transitions before the
+-- schema-state row and lease-table locks preserves their lock order and avoids
+-- a schema-state/lease cycle with an in-flight writer.
+SELECT pg_advisory_xact_lock(8099550625536475138);
+
+-- Serialize with collection DDL, as migration 8 does. Once both drains above
+-- have completed, nothing here inspects or changes a dynamic record table; the
+-- companion indexes stay exactly where the previous rollout left them.
 SELECT version
 FROM pgbase_meta.schema_state
 WHERE singleton
