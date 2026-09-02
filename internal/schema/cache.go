@@ -84,30 +84,6 @@ func (c *Cache) discardPrepared(compiled *compiledCatalog) {
 	}
 }
 
-// Replace atomically publishes a caller-independent catalog snapshot.
-func (c *Cache) Replace(catalog Catalog) error {
-	if c == nil {
-		return nil
-	}
-	c.compileMu.Lock()
-	defer c.compileMu.Unlock()
-	current := c.current.Load()
-	if current != nil && current.catalog.Version >= catalog.Version {
-		return nil
-	}
-	compiled := c.prepared[catalog.Version]
-	if compiled == nil {
-		var err error
-		compiled, err = compileCatalog(catalog)
-		if err != nil {
-			return err
-		}
-	}
-	c.current.Store(compiled)
-	c.removePreparedThrough(compiled.catalog.Version)
-	return nil
-}
-
 func (c *Cache) publish(compiled *compiledCatalog) {
 	if c == nil || compiled == nil {
 		return
