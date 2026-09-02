@@ -286,10 +286,12 @@ interface State {
   deletePending: boolean;
   deleteError: string | null;
   pristine: string;
-  // The identity of an apply whose outcome the server could not decide. It is
-  // the only thing left that can still be asked about, so it outlives the
-  // request that failed to answer.
+  // The identity of an apply whose outcome the server could not decide, and the
+  // draft it carried. The identity is the only thing left that can still be
+  // asked about, so it outlives the request that failed to answer; the draft is
+  // what says whose work the answer settles when it finally arrives.
   undecided: string | null;
+  undecidedDraft: string;
 }
 
 function initial(mode: DesignerMode, identity: string): State {
@@ -301,7 +303,7 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields), undecided: null,
+    pristine: draftSignature(name, fields), undecided: null, undecidedDraft: "",
   };
 }
 
@@ -438,14 +440,16 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   // a re-previewed plan gets a fresh identity rather than colliding with it.
   const attempt = useRef(new ApplyAttempt());
   const recovery = useOperationRecovery(state.undecided);
-  // A change the ledger confirmed is saved work, whatever the request that
-  // carried it did, so it no longer holds the departure guard.
-  const applied = recovery !== null && recovery.status === "committed";
   // The draft as it stands now, readable from a response handler that closed
   // over the draft it sent: the two differ exactly when editing continued.
   const signature = draftSignature(state.name, state.fields);
   const live = useRef(signature);
   live.current = signature;
+  // A change the ledger confirmed is saved work, whatever the request that
+  // carried it did — but only the draft that change carried. A draft edited
+  // after the request went out is work the ledger says nothing about, so a
+  // committed answer to the older draft never releases the newer one's guard.
+  const applied = recovery !== null && recovery.status === "committed" && state.undecidedDraft === signature;
   const savedDraft = useUnsavedDraft(identity, !applied && signature !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
@@ -501,7 +505,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       if (!active()) return;
       // Leaving on an undecided outcome would present it as a success. The
       // administrator stays here until the ledger says which it was.
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature }); return; }
       // The server agreed with the draft it was sent, so that draft is the saved
       // one, and the collection it answers with replaces the definition an edit
       // page measures its data-loss warning against. A create measures against
@@ -549,7 +553,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
       if (!active()) return;
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature }); return; }
       savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
@@ -557,7 +561,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [active, deleteTarget, identity, navigate, savedDraft, schema, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
+  }, [active, deleteTarget, identity, navigate, savedDraft, schema, signature, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,
