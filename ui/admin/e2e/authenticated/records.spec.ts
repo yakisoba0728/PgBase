@@ -17,10 +17,15 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
     await page.getByLabel("title state").selectOption("value");
     await page.getByLabel("title", { exact: true }).fill("second post");
     await page.getByLabel("owner state").selectOption("value");
+    // The textbox drives the listbox: Enter searches, the arrow key activates
+    // the first result and a second Enter chooses it, all without leaving it.
     await page.getByLabel("owner target label").fill("alpha");
-    await page.getByRole("button", { name: "Search owner targets" }).click();
-    await page.getByRole("button", { name: /^Select alpha/ }).click();
+    await page.getByLabel("owner target label").press("Enter");
+    await expect(page.getByRole("option", { name: /^alpha/ })).toBeVisible();
+    await page.getByLabel("owner target label").press("ArrowDown");
+    await page.getByLabel("owner target label").press("Enter");
     await expect(page.getByLabel("owner", { exact: true })).toHaveValue(targetID);
+    await expect(page.getByRole("button", { name: new RegExp(`^Remove alpha`) })).toBeVisible();
     await page.getByRole("button", { name: "Create record" }).click();
     await expect(page.getByRole("heading", { name: `${posts} records` })).toBeVisible();
 
