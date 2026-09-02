@@ -21,7 +21,68 @@
 | R7 | 4/5 묶음 완료. 잔여: AtomicJSON 런타임 강제, ledger HTTP recovery 계약 |
 | R10b | 완료·통합 — 완료 기준 12개 전부 충족 |
 | R8 / R9a / R5(§9.2) / R7 잔여 | 진행 중 |
-| R4 Release C / R5(§9.3) / R11 / F0~F3 / R12 | 미착수 |
+| R4 Release C / R5(§9.3) / F0~F3 | 완료·통합 |
+| R11 | 완료 — compatibility path 삭제와 정량 게이트 확정 (§0.0) |
+| R12 | 미착수 |
+
+## 0.0 R11 — compatibility path 삭제와 정량 마감 (완료)
+
+R0~R10, F0~F3, membership Release A/B/C가 모두 착지한 뒤의 최종 consolidation이다. 시작 커밋은 `fb9bb3a`.
+
+### 삭제한 것과 근거
+
+| 삭제 | 근거 |
+|---|---|
+| `Planner.PlanCreate/PlanUpdate/PlanDelete`와 `*WithCatalog` 6개 | production caller 0. `Plan(catalog, Change)`만 `Service.Preview`, `preflightLegacyApply`, durable apply에서 쓰인다. |
+| `catalogAware bool` 파라미터와 3개 분기 | 남은 caller가 전부 `true`. `PlanX(v, in)` ≡ `PlanXWithCatalog(v, Catalog{}, in)`이 이미 동치라 catalog-blind 경로는 scalar collection만 계획할 수 있었다. |
+| `collectionHasIncomingRelation`의 fallback scan | `validateCatalogIntegrity`가 incoming index와 collections의 불일치를 compile 단계에서 거부한다. planner에 도달하는 모든 catalog는 compile을 통과한 것이므로 index가 유일한 근거다. PG16 integration으로 실증. |
+| `query.NewService` | 트리 전체에 caller 0 (테스트 포함). |
+| `schema.NewService` → `NewServiceWithRecorder` forwarder | recorder를 nil로 기본값 처리. CLI schema-index만 recorder 없는 쪽을 쓰고 있었다. |
+| `schema.NewListener` → `NewListenerWithRecorder` forwarder | production caller 0. |
+| `schema.preflightCatalogWithLimit` 중간 hop | hook을 nil로 기본값 처리하는 3단 chain의 가운데. |
+| `recordops.NewService` / `NewServiceWithRecorder` | runtime을 nil로 기본값 처리. application은 `NewServiceWithMembershipRuntime`만 쓴다. 세 개가 하나가 됐다. |
+| `schema.Planner` 타입 자체 | 필드 없는 빈 struct에 method 1개. 모든 생성 지점이 `Planner{}` 리터럴을 썼고 `NewService`가 바꿀 수 없는 파라미터로 받았다. 계획 §12의 "production adapter 하나만 있는 가상 seam". `CompilePlan` package function이 됐다. |
+| `schema.OperationRecoveryError.Ref` | production caller 0. in-package 테스트 2곳이 감싼 필드를 직접 읽는다. |
+| `recordops.IsCode` → test helper 이동 | production caller 0. API 계층은 자체 switch로 recordops 오류를 매핑한다. 삭제가 아니라 category 정정(runtime −4 / test +4). |
+| 주석 81줄 | 선언 이름을 그대로 반복하는 문장. §5 유지 대상은 건드리지 않았다. |
+
+### 유지하기로 한 것과 근거
+
+- **`membershipWriterProvider`의 lazy registration.** production은 항상 runtime을 주입하지만, 이것은 교체된 구현의 옛 절반이 아니라 지원되는 생성 모드다. `TestDirectConstructorRegistersTheSameWriterReleaseAsTheApplication`이 직접 생성한 service도 application과 같은 durable lease generation을 주장한다는 것을 고정한다. 지우면 중복이 아니라 동작이 사라진다.
+- **`membership`의 rollout transition 6개.** production caller 0이고 `DisableV5`는 테스트 caller도 0이지만 `docs/upgrades.md`가 기술한 운영 rollout 절차 자체다. `DisableV5`는 `EnableV5`의 롤백 경로이므로, 진행 중인 rollout의 롤백을 지우는 것은 운영 능력의 제거다.
+- **`schema.LegacyApply`와 `operationModeLegacy`.** HTTP `POST /api/admin/collections/apply`가 도달하며 `PgBase-Compatibility: missing-idempotency-key`를 내보내는 공개 wire 계약이다. R11 완료 기준이 "승인된 공개 wire compatibility path는 유지"라고 명시한다.
+- **`recordartifact.ETag`의 legacy 분기와 `IndexSpec.CompatibleNames`.** 각각 이전 빌드가 쓴 데이터와 이전 이름의 index를 drift로 오판하지 않게 하는 호환 경로다.
+- **`planUpdate`의 `input.Name != current.Name` guard.** compiled catalog는 key == Name을 강제하므로 production에서는 상시 false지만, apply가 신뢰하는 전제에 대한 fail-closed 방어다. mis-keyed catalog를 만드는 테스트로 커버리지를 유지했다.
+- **중복 helper 다수** (`validation(field, code)` 3곳, `*OperationOutcome` 5곳, recorder nil-guard 4곳, `jsonString` 3곳 등). 계획 §3이 "production에 기본 `dupl` 임계값을 넘는 동일 코드 조각은 0건이다. 파일을 합치거나 generic helper를 늘릴 근거가 없다"고 명시하고, §5가 6줄 중복을 위해 새 package를 만들지 말라고 한다. 목록은 이 문서 아래 "R11이 확인한 잔여 중복"에 남긴다.
+
+### 파일 분할
+
+800줄 초과 3개를 locality 기준으로 나눴다. 선언 이동만 있고 함수 사이로 옮긴 로직은 없다.
+
+- `schema/planner.go` 900 → 597 + `relation_ddl.go` 311
+- `schema/physical_manifest.go` 831 → 443 + `physical_manifest_builder.go` 398
+- `recordops/service.go` 889 → 654 + `relation_telemetry.go` 163 + `idempotency.go` 81
+
+600~800줄 파일 6개의 module depth 근거는 open-decisions의 "R11 재산정 결과"에 적었다.
+
+### 게이트
+
+`internal/repositorypolicy/loc_budget_test.go`가 data group을 16,653으로, 구조 지표 8개를 실측값으로 고정한다. 구조 지표는 `tools/repostats`를 실행해 읽으므로 정의가 보고서와 어긋날 수 없다. 임계값 9개 전부 1 낮춰 실패를 확인한 뒤 되돌리는 mutation check를 거쳤다. `internal/query`의 per-package ratchet은 4,894 → 4,884로 조였다.
+
+Go runtime 주석 줄만 게이트에서 뺐다. 근거는 open-decisions에 있다.
+
+### R11이 확인한 잔여 중복 (합치지 않기로 한 것)
+
+다음 단계가 다시 발견하고 다시 판단하지 않도록 남긴다.
+
+- `validation(field, code string) error` — `query/types.go`, `relation/types.go`, `schema/names.go`. 세 `ValidationError`가 모두 `internal/validation`의 같은 타입 alias라 기술적으로는 합칠 수 있다. 3줄짜리 body 3개다.
+- 오류 → outcome 분류기 5개 — `migrate/runner.go`, `schema/listener.go`, `schema/service.go`, `query/read_telemetry.go`, `recordops/relation_telemetry.go`. 앞 둘은 byte 단위로 같고 나머지 셋은 자기 패키지의 sentinel arm이 추가된다.
+- recorder nil-guard `record(ctx, event)` 4개.
+- `jsonString`/`parseJSONString` 3개, `quotedTable`/`quotedRecordCollection` 2개, `qualified`/`relationQualified` 2개.
+- word-byte 분류기 3개 — `query/filter.go`, `query/read_telemetry.go`, `recordops/relation_telemetry.go`.
+- constant-time 비교 2개 — `adminauth/service.go`, `observability/metrics.go`. 한쪽은 expected가 이미 해시돼 있다.
+- `api`의 401 preamble 4곳 — `admin_handlers.go` 2곳, `schema_operations.go` 2곳. helper 하나가 정당해 보이는 유일한 항목이다.
+- advisory key 파생 2개는 D4-4.1이 이미 통합하지 않기로 결정했다(lock key 바이트가 바뀌면 rolling deploy 중 상호배제를 잃는다).
 
 ### 이 세션에서 발견해 고친 실제 결함
 

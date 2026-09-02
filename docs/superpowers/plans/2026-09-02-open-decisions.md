@@ -109,6 +109,47 @@ R9a 담당 에이전트의 보고를 그대로 옮기면: "AdminLocation(137), p
 - UI 2,050의 새 값
 - 어느 지표를 zero-slack ratchet으로 강제하고 어느 것을 보고 전용으로 둘지
 
+### R11 재산정 결과 (확정)
+
+R11이 위 네 항목에 답했고, 답한 숫자는 전부 `internal/repositorypolicy/loc_budget_test.go`의 실행 가능한 게이트로 고정했다. 각 임계값은 1 낮춰서 실패하는 것을 확인한 뒤 되돌리는 mutation check를 거쳤다.
+
+| 지표 | R11 시작 | R11 종료 | 계획 target | 판정 |
+|---|---:|---:|---:|---|
+| data group | 16,734 | **16,653** | 12,750 (D1 상한 16,750) | hard gate |
+| handwritten runtime | 34,956 | **34,812** | 22,484 | hard gate |
+| ‌  Go runtime | 31,483 | 31,339 | — | (구성) |
+| ‌  UI runtime | 3,473 | 3,473 | 2,050 | hard gate |
+| interface 선언 | 17 | 17 | 12 | hard gate |
+| exported 선언 | 481 | **467** | 285 | hard gate |
+| New* constructor | 30 | **25** | 16 | hard gate |
+| Go runtime 주석 줄 | 1,832 | **1,739** | 600 | 보고 전용 지표 |
+| UI page 직접 hook | 19 | 19 | 30 | hard gate (달성) |
+| UI runtime export | 119 | 119 | 65 | hard gate |
+| 800줄 초과 production 파일 | 3 | **0** | 0 | hard gate (달성) |
+
+R11 stack 회계 (`go run ./tools/repostats --compare fb9bb3a`): runtime gross-new 1,036 / gross-deleted 1,179 / net **−143**, test +199, support −1, generated·docs·config 0. 파일 분할은 이동한 줄을 삭제 1 + 추가 1로 세므로 gross 양쪽이 그만큼 부풀어 있다.
+
+**전체 runtime hard target = 34,812.** 계획의 22,484는 baseline guardrail이었고 현재는 55% 초과다. 초과분은 계획 본문이 뒤에 요구한 표면이다 — R2b operation ledger, R4 membership sidecar/rollout/lease, R5 companion index capability, R7 route registry와 ledger recovery 계약, R9a port/location 계층. 계획 §11이 correctness·migration stack의 LOC 양수를 명시적으로 허용하므로 이들을 줄여 22,484로 되돌리는 것은 §12가 금지하는 방향이다. 또한 이 숫자에는 repostats 정의상 `internal/testutil` 247, `tests/` 66, `migrations/system` 95가 포함된다. 측정 정의를 바꿔 숫자를 낮추지 않았다.
+
+**data group = 16,653.** D1이 준 예상 대역 16,100~16,500보다 153줄 높고 상한 16,750보다 97줄 낮다. R11이 이 그룹에서 실제로 삭제한 것은 planner 진입점 6개와 catalogAware 분기, incoming fallback, 세 개의 forwarding constructor, 죽은 accessor다. 그 이상은 검증된 correctness 코드를 줄이는 일이라 하지 않았다. 파일 분할이 +40을 되돌려 놓은 것도 이 숫자에 들어 있다.
+
+**exported 선언 467 / New* constructor 25 / interface 17 — hard gate로 유지.** 285·16·12에는 못 미치지만 zero-slack ratchet은 유지한다. export를 하나 늘리려면 그것을 상쇄하는 삭제와 같은 stack이어야 한다는 강제력은 숫자와 무관하게 작동한다. interface 17은 줄이지 않았다: 남은 것 중 `api.SchemaService`/`RecordService`/`AdminAuth`는 HTTP 계층이 도메인 패키지를 import하지 않게 하는 경계이고, `database.DBTX`·`api.Readiness`·`pgbase.backgroundRunner`·`cli.Terminal`은 production 구현이 둘 이상이다.
+
+**UI 3,473 — hard gate로 유지, 2,050은 폐기.** R9a 담당 에이전트가 이미 정직한 감축을 소진했고(아무도 import하지 않는 export 7개 제거, −42줄), `AdminLocation`·ports 계층·`useResourceState`는 R9a 항목 1~2가 요구한 표면이라 2,050 baseline에 존재하지 않았다. UI export 119도 같은 이유로 65 대신 현재값에 고정한다.
+
+**주석 600 — 도달 불가. 보고 전용 지표로 강등.** 전수 감사 결과 확신 있는 삭제 대상은 89줄이었고 R11이 그중 81줄을 지웠다(나머지는 seam 삭제로 함께 사라짐). 정직한 바닥은 **약 1,670~1,730**이다. 1,739에서 600까지의 1,139줄은 advisory lock 순서와 snapshot 시점, `DESC NULLS LAST` companion index, Read Committed/RepeatableRead 선택, fail-closed redaction, 응답·hydration·cascade budget, rollout/rollback 조건 — 계획 §5가 명시적으로 **유지**를 요구한 항목이다. 이 지표만 ratchet을 걸면 §12의 "주석 수치를 맞추기 위한 보안·동시성 rationale 삭제" 쪽으로 압력이 생긴다. 다른 모든 지표의 압력은 코드 삭제 방향이라 ratchet이 안전하다. 따라서 주석만 게이트에서 뺐고, repostats가 매 실행 보고한다.
+
+**600줄 초과 파일의 module depth 근거** (계획 §13 요구). 800줄 초과는 0이 됐고, 남은 여섯은 각각 하나의 개념이다.
+
+- `internal/schema/companion_index.go` 779 — nullable-DESC companion index rollout 전체(capability 전이, schema-writer lease, CIC maintenance, 상태 조회). D2-1~D2-4가 이 넷을 한 상태 기계로 결정했으므로 나누면 전이 규칙이 파일 경계를 가로지른다.
+- `pgbase/app.go` 686 — 프로세스 조립과 종료 순서. 종료 순서 자체가 계약이라(HTTP drain이 background 취소보다 먼저) 조립과 분리하면 그 순서를 읽을 곳이 없어진다.
+- `internal/schema/operation_store.go` 679 — schema operation ledger의 durable 표현 하나. row 스캔·claim·완료·조회가 같은 열 집합을 공유한다.
+- `internal/recordops/service.go` 654 — List/Get/Create/Update/Delete 다섯 진입점과 그 트랜잭션 정책. relation telemetry와 idempotency는 R11에서 분리했다.
+- `internal/schema/service.go` 641 — catalog 캐시 pin, plan preview, apply 진입점, catalog 무결성 검증. 무결성 규칙은 apply가 신뢰하는 전제라서 함께 읽혀야 한다.
+- `internal/observability/metrics.go` 611 — metric 이름·label 집합 하나. 계획 §12가 metric rename/label 의미 변경을 금지하므로 이 파일은 그 계약의 단일 지점이다.
+
+**R11이 닫지 못한 것.** `internal/membership`의 rollout transition(`Cutover`/`Backfill`/`PromoteReady`/`EnableV5`/`DisableV5`/`RetireV4`)은 production caller가 0이고 `DisableV5`는 테스트 caller도 0이다. 삭제하지 않았다 — 이들은 `docs/upgrades.md`가 기술한 운영 rollout 절차 자체이고, `DisableV5`는 `EnableV5`의 롤백 경로다. 진행 중인 rollout의 롤백을 지우는 것은 삭제가 아니라 운영 능력의 제거다. D2-2가 결정한 "operator CLI에서만 호출"이 아직 배선되지 않은 상태이며, 그 배선은 R11의 sweep 범위가 아니다.
+
 ---
 
 ## D1 — 그룹 LOC 예산 3,100줄 초과 (블로커, R11)
