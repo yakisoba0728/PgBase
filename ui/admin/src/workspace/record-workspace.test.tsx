@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRecordEditor, useRecordList, type RecordEditor } from "./record-workspace";
 import type { AdminRoute } from "../routing/admin-location";
+import { UnsavedDrafts, draftLedger } from "../routing/unsaved-draft";
 import type { CollectionDefinition, FieldDefinition, RecordPage } from "../backend/ports";
 import { callsTo, deferredStep, type BackendScript } from "../test/backend-script";
 import { collection, sessionWrapper, signedInScript, textField } from "../test/harness";
@@ -34,15 +36,22 @@ function openList(collections: CollectionDefinition[] = [posts], first: RecordPa
   return { script, ...view };
 }
 
+// The editor holds its draft in the same ledger the shell mounts, so a test that
+// asks whether a draft survived can read the ledger rather than infer it.
 function openEditor(id: string | undefined, collections: CollectionDefinition[] = [posts]) {
   const script = signedInScript();
   const navigate = vi.fn<(route: AdminRoute) => void>();
+  const ledger = draftLedger(() => true);
   script.catalog.push({ value: { version: 4, collections } });
+  const Session = wrap(script);
   const view = renderHook(
     ({ current }: { current: { collection: string; id?: string } }) => useRecordEditor(current.collection, current.id, navigate),
-    { initialProps: { current: { collection: "posts", id } }, wrapper: wrap(script) },
+    {
+      initialProps: { current: { collection: "posts", id } },
+      wrapper: ({ children }: { children: ReactNode }) => <Session><UnsavedDrafts ledger={ledger}>{children}</UnsavedDrafts></Session>,
+    },
   );
-  return { script, navigate, ...view };
+  return { script, navigate, ledger, ...view };
 }
 
 async function loaded(result: { current: RecordEditor }): Promise<void> {
@@ -364,5 +373,60 @@ describe("RecordEditor resource isolation", () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(result.current.stateOf(result.current.fields[0])).toEqual({ kind: "value", value: "second" });
     expect(result.current.pending).toBe(false);
+  });
+});
+
+describe("RecordEditor drafting during a save", () => {
+  it("keeps a draft edited while the save was in flight instead of leaving as if it were saved", async () => {
+    const { result, script, navigate, ledger } = openEditor(recordID);
+    script.read.push({ value: { data: { id: recordID, title: "first" }, etag: '"pgb1.one"' } });
+    await loaded(result);
+
+    const saving = deferredStep<{ data: Record<string, string>; etag: string }>();
+    script.update.push(saving.step);
+    act(() => result.current.setValue(result.current.fields[0], "first draft"));
+    act(() => result.current.save());
+
+    act(() => result.current.setValue(result.current.fields[0], "new_unsaved_title"));
+    await act(async () => { saving.settle({ value: { data: { id: recordID, title: "first draft" }, etag: '"pgb1.two"' } }); });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result.current.stateOf(result.current.fields[0])).toEqual({ kind: "value", value: "new_unsaved_title" });
+    // The newer draft is unsaved work, so the departure guard still holds it and
+    // the page says the sent save landed without claiming this one did.
+    expect(ledger.held()).toBe(true);
+    expect(result.current.message).toBe(
+      "The record was saved. The edits you made after sending it are not saved yet — save again to store them, or leave this page to discard them.",
+    );
+    expect(result.current.pending).toBe(false);
+
+    // The save that landed produced a new version, so the next one must carry it
+    // rather than the version this editor loaded.
+    script.update.push({ value: { data: { id: recordID, title: "new_unsaved_title" }, etag: '"pgb1.three"' } });
+    await act(async () => { result.current.save(); });
+    expect(callsTo(script, "update").at(-1)?.detail).toMatchObject({ etag: '"pgb1.two"', patch: { title: "new_unsaved_title" } });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" }));
+    expect(ledger.held()).toBe(false);
+  });
+
+  it("reports a created record without treating the edits that followed as part of it", async () => {
+    const { result, script, navigate, ledger } = openEditor(undefined);
+    await loaded(result);
+
+    const creating = deferredStep<{ data: Record<string, string>; etag: string }>();
+    script.create.push(creating.step);
+    act(() => result.current.setKind(result.current.fields[0], "value"));
+    act(() => result.current.setValue(result.current.fields[0], "First"));
+    act(() => result.current.save());
+
+    act(() => result.current.setValue(result.current.fields[0], "new_unsaved_title"));
+    await act(async () => { creating.settle({ value: { data: { id: recordID, title: "First" }, etag: '"pgb1.new"' } }); });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result.current.stateOf(result.current.fields[0])).toEqual({ kind: "value", value: "new_unsaved_title" });
+    expect(ledger.held()).toBe(true);
+    expect(result.current.message).toBe(
+      "The record was created. The edits you made after sending it are not part of it — saving again creates another record.",
+    );
   });
 });
