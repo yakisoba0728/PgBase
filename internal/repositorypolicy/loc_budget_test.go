@@ -35,7 +35,7 @@ import (
 // key renderer feeding both the DDL and the comparison). A zero-slack ratchet
 // tracks the measurement in both directions; only raising it needs the
 // accounting recorded below.
-const dataGroupRuntimeLimit = 16_695
+const dataGroupRuntimeLimit = 16_747
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -210,6 +210,27 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // draft whose collection is gone, which closes one wrong message by opening
 // another.
 //
+// Raised a seventh time, for the re-audit's two P1s in internal/schema. The
+// apply accepted a checksum from either compiler generation and then executed
+// the capability's plan regardless, so DDL nobody approved could run and the
+// migration row's checksum column permanently disagreed with its own plan JSON.
+// And the generation constant was never advanced: the pre-SPEC-2 binary at
+// d3fb5eb declares the same 2 while issuing v1 only, so the activation proof
+// could not tell the two apart and a genuinely mixed fleet passed it. Migration
+// v9 adds the proven generation to the capability and demotes every rollout
+// proved under the ambiguous 2, because that proof stands on nothing.
+//
+//	handwritten runtime lines      35,203 -> 35,271
+//	data group runtime             16,695 -> 16,747
+//
+// The data group is now 3 lines under D1's 16,750, which is fixed and never
+// raised. That is a real constraint on the next change in these five packages,
+// not a rounding error: it has to pay for itself out of a deletion in the same
+// stack. Exported declarations, interfaces, constructors and the zero
+// files-over-800 rule all held (462 / 17 / 25 / 0) -- companion_index.go
+// reached 801 lines during the work and was trimmed back rather than the rule
+// being bent.
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -227,7 +248,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_203, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_271, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_527, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
