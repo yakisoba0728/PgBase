@@ -324,6 +324,106 @@ func explain(t *testing.T, pool *database.Pool, statement string) string {
 	return plan.String()
 }
 
+func createDriftedCompanionIndex(t *testing.T, pool *database.Pool, companion IndexSpec, keys string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), "create index "+
+		pgx.Identifier{companion.Name}.Sanitize()+" on "+
+		pgx.Identifier{companion.Namespace, companion.Table}.Sanitize()+" "+keys); err != nil {
+		t.Fatalf("create drifted companion index %s: %v", companion.Name, err)
+	}
+}
+
+// An index that carries the companion's name and column order but a different
+// operator class, collation, direction or attribute list cannot answer the
+// ordering the companion exists for. Observing only the key columns and their
+// DESC/NULLS options accepted every one of these as healthy, so each has to be
+// reported as a mismatch and then repaired by the same maintenance run.
+func TestCompanionIndexRefusesAPhysicallyWrongDefinition(t *testing.T) {
+	ctx := context.Background()
+	for name, keys := range map[string]string{
+		"wrong operator class": `(nickname text_pattern_ops desc nulls last, id desc nulls first)`,
+		"wrong collation":      `(nickname collate "C" desc nulls last, id desc nulls first)`,
+		"wrong null placement": `(nickname desc nulls first, id desc nulls first)`,
+		"extra included column": `(nickname desc nulls last, id desc nulls first)
+			include (title)`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			pool, service, _, collection := companionRolloutFixture(t)
+			companion := companionSpec(t, service, collection, "nickname")
+			createDriftedCompanionIndex(t, pool, companion, keys)
+			activateCompanionRollout(t, service)
+
+			drifted := readDiagnostics(t, pool)
+			if drifted.Expected != 1 || drifted.Mismatched != 1 || drifted.Valid != 0 {
+				t.Fatalf("diagnostics over a drifted companion = %#v", drifted)
+			}
+			// Recoverable without an operator: the build drops what occupies the
+			// name and rebuilds it, exactly as it does for invalid residue.
+			ready, err := service.MaintainCompanionIndexes(ctx)
+			if err != nil {
+				t.Fatalf("maintain companion indexes: %v", err)
+			}
+			if ready.State != CompanionIndexReady || ready.IndexCount != 1 {
+				t.Fatalf("promotion receipt = %#v", ready)
+			}
+			repaired := readDiagnostics(t, pool)
+			if repaired.Valid != 1 || repaired.Mismatched != 0 {
+				t.Fatalf("diagnostics after repair = %#v", repaired)
+			}
+			assertCompanionIndexShape(t, pool, companion)
+		})
+	}
+}
+
+// The audit's own reproduction: a text_pattern_ops index under the companion's
+// deterministic name over a large fixture reported ready with Expected 1 /
+// Valid 1 / Mismatched 0 while the page it was promoted for was still a
+// sequential scan and a sort. The diagnostic and the plan are asserted together
+// because either one alone is weaker than the evidence that found this.
+func TestWrongOperatorClassCompanionCannotServeTheOrderedPage(t *testing.T) {
+	ctx := context.Background()
+	pool, service, _, collection := companionRolloutFixture(t)
+	seedCompanionRows(t, pool, collection, 20000)
+	companion := companionSpec(t, service, collection, "nickname")
+	createDriftedCompanionIndex(t, pool, companion,
+		`(nickname text_pattern_ops desc nulls last, id desc nulls first)`)
+	if _, err := pool.Exec(ctx,
+		"analyze "+pgx.Identifier{"app", collection.TableName}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+
+	column := pgx.Identifier{"nickname"}.Sanitize()
+	page := "select id from " + pgx.Identifier{"app", collection.TableName}.Sanitize() +
+		" " + fmt.Sprintf(nullableDescendingPageOrderBy, column) + " limit 51"
+	before := explain(t, pool, page)
+	t.Logf("plan with only the text_pattern_ops index:\n%s", before)
+	if strings.Contains(before, companion.Name) || !strings.Contains(before, "Sort") {
+		t.Fatalf("wrong-opclass index served the ordered page:\n%s", before)
+	}
+
+	activateCompanionRollout(t, service)
+	drifted := readDiagnostics(t, pool)
+	if drifted.Mismatched != 1 || drifted.Valid != 0 {
+		t.Fatalf("diagnostics over the wrong operator class = %#v", drifted)
+	}
+	if _, err := service.MaintainCompanionIndexes(ctx); err != nil {
+		t.Fatalf("maintain companion indexes: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		"analyze "+pgx.Identifier{"app", collection.TableName}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+
+	after := explain(t, pool, page)
+	t.Logf("plan after the companion was rebuilt:\n%s", after)
+	if !strings.Contains(after, companion.Name) {
+		t.Fatalf("rebuilt companion %s is not used:\n%s", companion.Name, after)
+	}
+	if strings.Contains(after, "Sort Method") || strings.Contains(after, "Sort Key") {
+		t.Fatalf("ordered page still sorts:\n%s", after)
+	}
+}
+
 // D2-4: adding a field to an existing collection may introduce a companion that
 // nothing has built, so the change itself closes the gate.
 func TestCatalogChangeDropsTheCompanionCapabilityToPending(t *testing.T) {
