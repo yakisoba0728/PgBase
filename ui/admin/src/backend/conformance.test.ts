@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ApplyAttempt,
   CreateAttempt,
   RecordError,
   SchemaError,
@@ -9,7 +10,7 @@ import {
   type CollectionDefinition,
   type OperationReceipt,
 } from "./ports";
-import { backendScript, callsTo, type BackendScript } from "../test/backend-script";
+import { backendScript, callsTo, type BackendScript, type Call } from "../test/backend-script";
 import { httpHarness } from "../test/http-harness";
 import { memoryBackend } from "../test/memory-backend";
 
@@ -19,6 +20,19 @@ const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
 const operationID = "33333333-3333-4333-8333-333333333333";
 const secondOperationID = "55555555-5555-4555-8555-555555555555";
+
+// Deterministic identities, so a vector can name the operation an adapter must
+// have sent rather than only observing that it sent one.
+function mintedIdentity(...ids: string[]): () => string {
+  const minted = ids.length > 0 ? [...ids] : [operationID, "44444444-4444-4444-8444-444444444444"];
+  return () => minted.shift() ?? "exhausted";
+}
+
+// Both adapters record the identity they sent: the HTTP harness reads it back
+// off the request headers, the scripted adapter off the call itself.
+function identityOf(call: Call): Record<string, unknown> {
+  return { operationId: call.detail.operationId, idempotencyKey: call.detail.idempotencyKey };
+}
 
 function scriptedReceipt(patch: Partial<OperationReceipt> = {}): OperationReceipt {
   return {
@@ -139,7 +153,7 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
     script.apply.push({ value: undefined });
     const backend = open(script);
 
-    await backend.schema.apply(await backend.schema.plan({ operation: "update", name: "posts", fields: [] }));
+    await backend.schema.apply(await backend.schema.plan({ operation: "update", name: "posts", fields: [] }), new ApplyAttempt(mintedIdentity()));
 
     const [applied] = callsTo(script, "apply");
     const request = "request" in applied.detail ? applied.detail.request : JSON.parse(String(applied.detail.body));
@@ -155,7 +169,7 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
     const backend = open(script);
 
     const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
-    await expect(backend.schema.apply(plan)).rejects.toMatchObject({ reason: kind });
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity()))).rejects.toMatchObject({ reason: kind });
   });
 
   it("reports a deletion the backend refuses because the collection is referenced", async () => {
@@ -165,10 +179,83 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
     const backend = open(script);
 
     const plan = await backend.schema.plan({ operation: "delete", name: "posts" });
-    await expect(backend.schema.apply(plan)).rejects.toMatchObject({
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity()))).rejects.toMatchObject({
       reason: "referenced",
       code: "collection_referenced",
       details: { name: ["collection_referenced"] },
+    });
+    expect(callsTo(script, "catalog")).toHaveLength(0);
+  });
+
+  it("sends one operation identity for a plan and a new one only when the plan changes", async () => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.plan.push({ value: { baseVersion: 8, checksum: "reapproved", fields: [], sql: [] } });
+    script.apply.push({ value: undefined }, { value: undefined }, { value: undefined });
+    const backend = open(script);
+    const attempt = new ApplyAttempt(mintedIdentity(operationID, "key-one", secondOperationID, "key-two"));
+
+    const first = await backend.schema.plan({ operation: "update", name: "posts", fields: [] });
+    await backend.schema.apply(first, attempt);
+    // The same approved plan retried after a lost answer must replay rather
+    // than start a second operation.
+    await backend.schema.apply(first, attempt);
+    await backend.schema.apply(await backend.schema.plan({ operation: "update", name: "posts", fields: [] }), attempt);
+
+    const sent = callsTo(script, "apply").map((call) => identityOf(call));
+    expect(sent[0]).toEqual({ operationId: operationID, idempotencyKey: "key-one" });
+    expect(sent[1]).toEqual(sent[0]);
+    expect(sent[2]).toEqual({ operationId: secondOperationID, idempotencyKey: "key-two" });
+  });
+
+  it.each(["running", "unknown"] as const)("reports an apply the server left %s as undecided rather than applied", async (status) => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ value: { status } });
+    const backend = open(script);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity())))
+      .resolves.toEqual({ kind: "undecided", operationId: operationID });
+  });
+
+  it("reads a replayed apply as applied only when the stored receipt committed", async () => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ value: { status: "committed", replayed: true } });
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ value: { status: "running", replayed: true } });
+    const backend = open(script);
+
+    const first = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(first, new ApplyAttempt(mintedIdentity()))).resolves.toEqual({ kind: "applied" });
+    const second = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(second, new ApplyAttempt(mintedIdentity()))).resolves.toMatchObject({ kind: "undecided" });
+  });
+
+  it("rejects an identity already bound to a different request without re-reading the catalog", async () => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ fault: { kind: "operation-conflict" } });
+    const backend = open(script);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity())))
+      .rejects.toMatchObject({ reason: "operation-conflict", code: "schema_operation_conflict" });
+    expect(callsTo(script, "catalog")).toHaveLength(0);
+  });
+
+  it("reports a terminal operation failure with the bounded classification it carried", async () => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ fault: { kind: "operation-failed", details: { operation: ["apply_failed"] } } });
+    const backend = open(script);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity()))).rejects.toMatchObject({
+      reason: "operation-failed",
+      code: "schema_operation_failed",
+      details: { operation: ["apply_failed"] },
     });
     expect(callsTo(script, "catalog")).toHaveLength(0);
   });

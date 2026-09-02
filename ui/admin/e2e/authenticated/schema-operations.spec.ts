@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { createCollection, deleteCollection, expect, signIn, test, uniqueName } from "./fixtures";
 
 test("records a guarded apply in the redacted operation history", async ({ page }, info) => {
@@ -41,12 +42,17 @@ test("recovers an operation status by id after a reload and a fresh sign-in", as
   await page.goto("/admin/schema-operations");
   const first = page.locator("ol.operation-list > li").first();
   await expect(first).toBeVisible();
-  const before = await first.innerText();
+  // Other workers apply against the same administrator and one collection has
+  // several operations, so the row is followed by the operation's own identity
+  // rather than by its position or its collection.
+  const operationID = (await first.locator(".operation-id").innerText()).trim();
+  const status = (await first.locator(".operation-status").innerText()).trim();
+  const row = (target: Page) => target.locator("ol.operation-list > li").filter({ hasText: operationID });
 
   // A reload keeps nothing client-side: the status is read back from the
   // owner-scoped ledger, so it survives the page and the session alike.
   await page.reload();
-  await expect(page.locator("ol.operation-list > li").first()).toHaveText(before);
+  await expect(row(page).locator(".operation-status")).toHaveText(status);
 
   const email = process.env.PGBASE_ADMIN_EMAIL ?? "";
   const password = process.env.PGBASE_ADMIN_PASSWORD ?? "";
@@ -55,7 +61,7 @@ test("recovers an operation status by id after a reload and a fresh sign-in", as
   try {
     await signIn(fresh, new URL("/admin/", baseURL).href, email, password);
     await fresh.goto("/admin/schema-operations");
-    await expect(fresh.locator("ol.operation-list > li").first()).toHaveText(before);
+    await expect(row(fresh).locator(".operation-status")).toHaveText(status);
   } finally {
     await fresh.close();
   }

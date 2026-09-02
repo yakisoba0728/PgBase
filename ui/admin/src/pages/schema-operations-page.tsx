@@ -24,6 +24,9 @@ function OperationRow({ receipt }: { receipt: OperationReceipt }) {
     <span className="operation-status" data-status={receipt.status}>{statusText[receipt.status] ?? receipt.status}</span>
     <span className="operation-kind">{operationText[receipt.operation] ?? receipt.operation}</span>
     <span className="operation-collection">{receipt.collectionId}</span>
+    {/* The identity the apply was sent under, and the only handle an
+        administrator has when asking about one particular operation. */}
+    <span className="operation-id">{receipt.operationId}</span>
     <span className="operation-version">
       {receipt.committedVersion === undefined ? `from version ${receipt.baseVersion}` : `version ${receipt.baseVersion} → ${receipt.committedVersion}`}
     </span>

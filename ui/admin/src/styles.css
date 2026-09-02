@@ -44,6 +44,7 @@ th, td { border-bottom: 1px solid #e4e9f1; padding: .75rem; text-align: left; ve
 .operation-list { display: grid; list-style: none; padding: 0; }
 .operation-list li { border-top: 1px solid #e4e9f1; display: grid; gap: .25rem; grid-template-columns: 9rem 11rem 1fr auto; padding: 1rem 0; }
 .operation-status { font-weight: 600; }
+.operation-id { color: #64748b; font-family: ui-monospace, monospace; font-size: .85em; grid-column: 1 / -1; }
 .operation-status[data-status="failed"] { color: #b42318; }
 .operation-status[data-status="running"], .operation-status[data-status="unknown"] { color: #92400e; }
 .operation-failure, .operation-list time { grid-column: 1 / -1; }

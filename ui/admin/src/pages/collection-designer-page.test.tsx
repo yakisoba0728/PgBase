@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { callsTo } from "../test/backend-script";
@@ -125,5 +125,54 @@ describe("collection designer page", () => {
     renderAdmin(harness);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Collection not found.");
+  });
+
+  it("tells the administrator an apply is not decided yet and offers the ledger instead of a verdict", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true }], sql: ["ALTER TABLE posts"] } });
+    harness.script.apply.push({ value: { status: "unknown" } });
+    harness.script.operation.push({
+      value: {
+        operationId: "op-1", operation: "collection_update", collectionId: "posts-id", status: "running",
+        baseVersion: 7, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:01Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+
+    const recovery = await screen.findByRole("status", { name: "Schema operation recovery" });
+    expect(recovery).toHaveTextContent("its outcome is not known yet");
+    // Neither verdict may be shown while the ledger has not given one.
+    expect(recovery).not.toHaveTextContent("The change was applied");
+    expect(recovery).not.toHaveTextContent("did not apply");
+    expect(within(recovery).getByRole("link", { name: "View schema operations" }))
+      .toHaveAttribute("href", "/admin/schema-operations");
+    expect(screen.getByRole("heading", { name: "Edit collection" })).toBeVisible();
+  });
+
+  it("reports the committed outcome once the ledger confirms an apply it could not answer", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true }], sql: ["ALTER TABLE posts"] } });
+    harness.script.apply.push({ value: { status: "running" } });
+    harness.script.operation.push({
+      value: {
+        operationId: "op-1", operation: "collection_update", collectionId: "posts-id", status: "committed",
+        baseVersion: 7, committedVersion: 8, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:31Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+
+    expect(await screen.findByText(/The change was applied\./)).toBeVisible();
   });
 });

@@ -2,8 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useCollectionDesigner, type CollectionDesigner, type DesignerMode } from "./collection-designer";
 import type { AdminRoute } from "../routing/admin-location";
-import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
-import { callsTo, deferredStep, type BackendScript } from "../test/backend-script";
+import type { CollectionDefinition, FieldDefinition, OperationReceipt } from "../backend/ports";
+import { callsTo, deferredStep, type BackendScript, type ScriptedApply } from "../test/backend-script";
 import { collection, signedInScript, sessionWrapper, textField } from "../test/harness";
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
@@ -30,6 +30,13 @@ function open(mode: DesignerMode, collections: CollectionDefinition[] = [posts, 
 
 async function ready(result: { current: CollectionDesigner }): Promise<void> {
   await waitFor(() => expect(result.current.phase).toBe("ready"));
+}
+
+function operationReceipt(status: OperationReceipt["status"]): OperationReceipt {
+  return {
+    operationId: "33333333-3333-4333-8333-333333333333", operation: "collection_update", collectionId: "posts-id",
+    status, baseVersion: 7, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:01Z",
+  };
 }
 
 function plan(script: BackendScript, checksum = "approved", sql = ["ALTER TABLE posts"], fields: { name: string; type: "text" }[] = [{ name: "title", type: "text" }]) {
@@ -326,7 +333,7 @@ describe("CollectionDesigner resource isolation", () => {
     act(() => result.current.requestDeletePlan());
     await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
 
-    const deletion = deferredStep<void>();
+    const deletion = deferredStep<ScriptedApply | undefined>();
     script.apply.push(deletion.step);
     act(() => result.current.confirmDeleteName("posts"));
     act(() => result.current.requestDelete());
@@ -346,7 +353,7 @@ describe("CollectionDesigner resource isolation", () => {
     const { result, script, rerender, navigate } = open({ kind: "create" }, [posts, users]);
 
     plan(script, "created", ["CREATE TABLE articles"]);
-    const creation = deferredStep<void>();
+    const creation = deferredStep<ScriptedApply | undefined>();
     script.apply.push(creation.step);
     act(() => result.current.rename("articles"));
     act(() => result.current.editField(0, { set: "name", value: "title" }));
@@ -362,5 +369,109 @@ describe("CollectionDesigner resource isolation", () => {
 
     expect(navigate).not.toHaveBeenCalled();
     expect(result.current.fields.map((field) => field.name)).toEqual(["title"]);
+  });
+});
+
+describe("CollectionDesigner operation recovery", () => {
+  it("stays on the page and reports an undecided apply instead of leaving as if it succeeded", async () => {
+    const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("running") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await waitFor(() => expect(result.current.recovery).not.toBeNull());
+    // Leaving the designer is how an apply reports success here, so an
+    // undecided outcome must not navigate.
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+    await waitFor(() => expect(result.current.recovery?.undecided).toBe(true));
+  });
+
+  it("recovers a committed outcome the apply itself could not report", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ value: { status: "running" } });
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+    expect(result.current.recovery?.undecided).toBe(false);
+  });
+
+  it("names the ledger's bounded failure classification when an apply is refused", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ fault: { kind: "operation-failed", details: { operation: ["lease_lost"] } } });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await waitFor(() => expect(result.current.error).toBe(
+      "The operation was interrupted before it finished. Check schema operations before trying again.",
+    ));
+    expect(result.current.preview).toBeNull();
+  });
+
+  it("asks for a fresh preview when the identity is already bound to another request", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ fault: { kind: "operation-conflict" } });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await waitFor(() => expect(result.current.error).toBe(
+      "This change was already sent under a different plan. Preview the change again before applying.",
+    ));
+    expect(result.current.preview).toBeNull();
+  });
+
+  it("drops a recovered outcome as soon as the draft moves on from it", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    script.apply.push({ value: { status: "running" } });
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+
+    // A committed operation stops the draft counting as unsaved. Editing after
+    // it makes the draft unsaved again, so that outcome must not keep standing
+    // in for work it no longer describes.
+    act(() => result.current.editField(0, { set: "name", value: "headline" }));
+    expect(result.current.recovery).toBeNull();
+  });
+
+  it("reports an undecided deletion rather than returning to the list as if it were dropped", async () => {
+    const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+
+    script.apply.push({ value: { status: "unknown" } });
+    script.operation.push({ value: operationReceipt("running") });
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+
+    await waitFor(() => expect(result.current.recovery).not.toBeNull());
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

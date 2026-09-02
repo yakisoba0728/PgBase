@@ -8,6 +8,8 @@ import {
   type AdminBackend,
   type AuthenticatedSession,
   type CollectionChange,
+  type ApplyAttempt,
+  type ApplyOutcome,
   type CreateAttempt,
   type ListOptions,
   type LoginInput,
@@ -19,7 +21,7 @@ import {
   type SetupInput,
   type SystemStatus,
 } from "../backend/ports";
-import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
+import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedApply, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
 
 type Surface = "session" | "schema" | "record" | "system";
 
@@ -28,13 +30,17 @@ const schemaCodes: Partial<Record<Fault["kind"], string>> = {
   "catalog-moved": "schema_conflict",
   "data-blocked": "validation_failed",
   referenced: "collection_referenced",
+  "operation-conflict": "schema_operation_conflict",
+  "operation-failed": "schema_operation_failed",
   "invalid-cursor": "invalid_cursor",
   "not-found": "not_found",
   unauthorized: "authentication_required",
   unreachable: "internal_error",
 };
 
-const schemaReasons: Partial<Record<Fault["kind"], "invalid-cursor" | "not-found">> = {
+const schemaReasons: Partial<Record<Fault["kind"], "operation-conflict" | "operation-failed" | "invalid-cursor" | "not-found">> = {
+  "operation-conflict": "operation-conflict",
+  "operation-failed": "operation-failed",
   "invalid-cursor": "invalid-cursor",
   "not-found": "not-found",
 };
@@ -109,7 +115,12 @@ export function memoryBackend(script: BackendScript): AdminBackend {
         const scripted = await take<ScriptedPlan>("plan", { change }, "schema");
         return new PlannedChange(change, scripted.checksum, scripted.baseVersion, scripted.fields, scripted.sql);
       }),
-      apply: (plan: PlannedChange) => guard(undefined, () => take<void>("apply", { request: plan.applyRequest() }, "schema")),
+      apply: (plan: PlannedChange, attempt: ApplyAttempt) => guard(undefined, async (): Promise<ApplyOutcome> => {
+        const identity = attempt.identityFor(plan);
+        const scripted = await take<ScriptedApply | undefined>("apply", { request: plan.applyRequest(), ...identity }, "schema");
+        if (scripted === undefined || scripted.status === "committed") return { kind: "applied" };
+        return { kind: "undecided", operationId: identity.operationId };
+      }),
       operation: (operationId: string, signal) => guard(signal, () => take<OperationReceipt>("operation", { operationId }, "schema")),
       operations: (cursor: string | undefined, signal) => guard(signal, () =>
         take<OperationHistory>("operations", cursor === undefined ? {} : { cursor }, "schema")),

@@ -3,6 +3,7 @@ import type {
   CollectionDefinition,
   OperationHistory,
   OperationReceipt,
+  OperationStatus,
   PlannedField,
   RecordData,
   RecordPage,
@@ -28,6 +29,8 @@ export type Fault =
   | { kind: "invalid-credentials" }
   | { kind: "setup-unavailable" }
   | { kind: "invalid-input" }
+  | { kind: "operation-conflict" }
+  | { kind: "operation-failed"; details?: Record<string, string[]> }
   | { kind: "invalid-cursor" };
 
 export type Step<T> = { value: T } | { fault: Fault } | { pending: Promise<Step<T>> };
@@ -50,6 +53,13 @@ export interface ScriptedCatalog { version: number; collections: CollectionDefin
 export interface ScriptedPlan { baseVersion: number; checksum: string; fields: PlannedField[]; sql: string[] }
 export interface ScriptedRecord { data: RecordData; etag: string }
 
+/**
+ * The ledger outcome an apply answers with instead of a collection body. A
+ * scripted `undefined` is the ordinary apply that returned the collection, so
+ * the two answers stay distinguishable in every vector.
+ */
+export interface ScriptedApply { status: OperationStatus; replayed?: boolean }
+
 export interface Call { operation: string; detail: Record<string, unknown> }
 
 export interface BackendScript {
@@ -59,7 +69,7 @@ export interface BackendScript {
   logout: Step<void>[];
   catalog: Step<ScriptedCatalog>[];
   plan: Step<ScriptedPlan>[];
-  apply: Step<void>[];
+  apply: Step<ScriptedApply | undefined>[];
   operation: Step<OperationReceipt>[];
   operations: Step<OperationHistory>[];
   list: Step<RecordPage>[];

@@ -1,7 +1,7 @@
 import { LosslessNumber } from "lossless-json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { httpBackend } from "./http-backend";
-import { CreateAttempt, RecordError, SchemaError } from "./ports";
+import { ApplyAttempt, CreateAttempt, RecordError, SchemaError } from "./ports";
 
 const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const firstTag = "11111111-1111-4111-8111-111111111111";
@@ -17,6 +17,14 @@ function respond(status: number, body = "", headers?: HeadersInit): Response {
 }
 
 const operationID = "33333333-3333-4333-8333-333333333333";
+const idempotencyKey = "44444444-4444-4444-8444-444444444444";
+
+/** A guarded apply identity with fixed values, so the headers a request must
+ * carry can be asserted rather than merely observed to exist. */
+function guarded(...ids: string[]): ApplyAttempt {
+  const minted = ids.length > 0 ? [...ids] : [operationID, idempotencyKey];
+  return new ApplyAttempt(() => minted.shift() ?? "exhausted");
+}
 
 function envelope(code: string, details: Record<string, string[]> = {}): string {
   return JSON.stringify({ error: { code, message: "message", details } });
@@ -221,7 +229,7 @@ describe("HTTP adapter wire contract", () => {
     const backend = await authenticated(mock);
 
     const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
-    await backend.schema.apply(plan);
+    await backend.schema.apply(plan, guarded());
 
     expect(mock.mock.calls[1][0]).toBe("/api/admin/collections/plan");
     expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
@@ -241,7 +249,7 @@ describe("HTTP adapter wire contract", () => {
     const backend = await authenticated(mock);
 
     const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
-    await expect(backend.schema.apply(plan)).rejects.toMatchObject({ reason: "catalog-moved" });
+    await expect(backend.schema.apply(plan, guarded())).rejects.toMatchObject({ reason: "catalog-moved" });
     expect(mock.mock.calls[3][0]).toBe("/api/admin/collections");
   });
 
@@ -254,8 +262,74 @@ describe("HTTP adapter wire contract", () => {
     const backend = await authenticated(mock);
 
     const plan = await backend.schema.plan({ operation: "delete", name: "posts" });
-    await expect(backend.schema.apply(plan)).rejects.toMatchObject({ reason: "referenced" });
+    await expect(backend.schema.apply(plan, guarded())).rejects.toMatchObject({ reason: "referenced" });
     expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("sends the operation identity as both headers together", async () => {
+    const mock = stub(
+      session(),
+      respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":[]}`),
+      respond(201, "{}"),
+    );
+    const backend = await authenticated(mock);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await backend.schema.apply(plan, guarded());
+
+    // Half an identity is refused before the ledger is touched, so the two
+    // headers are only ever sent as a pair.
+    expect(headerOf(mock, 2, "PgBase-Operation-ID")).toBe(operationID);
+    expect(headerOf(mock, 2, "Idempotency-Key")).toBe(idempotencyKey);
+  });
+
+  it("leaves an apply whose connection dropped undecided rather than reporting a failure", async () => {
+    const mock = stub(session(), respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":[]}`));
+    mock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const backend = await authenticated(mock);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    // The transaction may well have committed. The identity was minted before
+    // the request precisely so this can be asked about instead of guessed.
+    await expect(backend.schema.apply(plan, guarded())).resolves.toEqual({ kind: "undecided", operationId: operationID });
+  });
+
+  it("leaves an apply whose accepted response cannot be read undecided rather than failed", async () => {
+    const mock = stub(
+      session(),
+      respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":[]}`),
+      respond(201, "<html><body>502 Bad Gateway</body></html>"),
+    );
+    const backend = await authenticated(mock);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    // The server accepted the apply; only the answer was lost. Reporting that
+    // as a failure would assert an outcome the ledger has not given.
+    await expect(backend.schema.apply(plan, guarded())).resolves.toEqual({ kind: "undecided", operationId: operationID });
+  });
+
+  it("reads a committed outcome recovered after the request deadline as applied", async () => {
+    const mock = stub(
+      session(),
+      respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":[]}`),
+      respond(200, `{"operationId":"${operationID}","status":"committed","statusUrl":"/api/admin/schema-operations/${operationID}"}`),
+    );
+    const backend = await authenticated(mock);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(plan, guarded())).resolves.toEqual({ kind: "applied" });
+  });
+
+  it("treats the 202 that carries no verdict as undecided", async () => {
+    const mock = stub(
+      session(),
+      respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":[]}`),
+      respond(202, `{"operationId":"${operationID}","status":"unknown","statusUrl":"/x"}`, { Location: "/x", "Retry-After": "1" }),
+    );
+    const backend = await authenticated(mock);
+
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    await expect(backend.schema.apply(plan, guarded())).resolves.toEqual({ kind: "undecided", operationId: operationID });
   });
 
   it("asks for the bounded history page and never a larger limit", async () => {

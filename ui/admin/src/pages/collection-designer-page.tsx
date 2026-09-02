@@ -1,6 +1,26 @@
 import { previewField, useCollectionDesigner, type DesignerMode } from "../designer/collection-designer";
+import { operationFailureMessage, type OperationRecovery } from "../operations/operation-recovery";
+import { AdminLink } from "../routing/admin-link";
 import type { AdminRoute } from "../routing/admin-location";
 import { CollectionFieldEditor } from "./collection-field-editor";
+
+/**
+ * The outcome of an apply the server could not decide within the request. It
+ * reports "not yet known" for as long as that is the truth: the administrator
+ * is never shown a success or a failure the ledger has not confirmed.
+ */
+function ApplyRecovery({ navigate, recovery }: { navigate(route: AdminRoute): void; recovery: OperationRecovery }) {
+  return <div aria-label="Schema operation recovery" className="operation-recovery" role="status">
+    {recovery.status === "committed" && <p>The change was applied. Operation {recovery.operationId} committed.</p>}
+    {recovery.status === "failed" && <p>{operationFailureMessage(recovery.failureCode, "The schema operation did not apply.")}</p>}
+    {recovery.undecided && <p>
+      The change was sent but its outcome is not known yet. It may still be applying — do not send it again until this says
+      whether it was applied. Operation {recovery.operationId}.
+    </p>}
+    {recovery.undecided && !recovery.checking && <button onClick={recovery.recheck} type="button">Check operation status</button>}
+    <AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>View schema operations</AdminLink>
+  </div>;
+}
 
 export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode; navigate(route: AdminRoute): void }) {
   const designer = useCollectionDesigner(mode, navigate);
@@ -16,6 +36,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
       ? <p>Preview the server-generated schema plan before applying it.</p>
       : <p>{designer.name} · physical table {designer.tableName}</p>}
     {designer.error && <p role="alert">{designer.error}</p>}
+    {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
     {designer.relationTargetsFailed && <p role="alert">Unable to load relation targets. Reload this page before adding a relation field.</p>}
     <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
       {designer.create && <>

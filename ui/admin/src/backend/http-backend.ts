@@ -7,6 +7,8 @@ import {
   SessionError,
   VersionedRecord,
   type AdminBackend,
+  type ApplyAttempt,
+  type ApplyOutcome,
   type AuthenticatedSession,
   type CollectionChange,
   type CollectionDefinition,
@@ -106,6 +108,15 @@ function receipt(raw: unknown): OperationReceipt {
   return bounded;
 }
 
+// A guarded apply that answers with a collection body committed. Every other
+// 2xx is the ledger speaking, and only a committed receipt is a success: a
+// replayed, recovered or still-running operation stays undecided.
+function applyOutcome(data: unknown, operationId: string): ApplyOutcome {
+  const status = (data as { status?: unknown } | undefined)?.status;
+  if (typeof status !== "string") return { kind: "applied" };
+  return status === "committed" ? { kind: "applied" } : { kind: "undecided", operationId };
+}
+
 function recordPath(collection: string, id?: string): string {
   const base = `/api/v1/collections/${encodeURIComponent(collection)}/records`;
   return id === undefined ? base : `${base}/${encodeURIComponent(id)}`;
@@ -181,10 +192,26 @@ class HTTPBackend implements AdminBackend {
       const plan = reply.data as { baseVersion: number; checksum: string; definition: { fields: PlannedField[] }; sql: string[] };
       return new PlannedChange(change, plan.checksum, plan.baseVersion, plan.definition.fields, plan.sql);
     },
-    apply: async (plan: PlannedChange): Promise<void> => {
+    apply: async (plan: PlannedChange, attempt: ApplyAttempt): Promise<ApplyOutcome> => {
+      const identity = attempt.identityFor(plan);
       try {
-        await this.#send({ path: "/api/admin/collections/apply", method: "POST", body: plan.applyRequest(), csrf: true });
+        const reply = await this.#send({
+          path: "/api/admin/collections/apply",
+          method: "POST",
+          body: plan.applyRequest(),
+          csrf: true,
+          headers: { "PgBase-Operation-ID": identity.operationId, "Idempotency-Key": identity.idempotencyKey },
+        });
+        return applyOutcome(reply.data, identity.operationId);
       } catch (caught: unknown) {
+        // A request that never reached an answer says nothing about the
+        // transaction: it races the commit rather than reporting on it. A 2xx
+        // whose body could not be read is the same case — the server accepted
+        // the apply and only the answer was lost. The identity was minted
+        // before the request precisely so both can be asked about.
+        if (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body") {
+          return { kind: "undecided", operationId: identity.operationId };
+        }
         throw await this.#applyFailure(caught, plan);
       }
     },
@@ -300,6 +327,11 @@ class HTTPBackend implements AdminBackend {
   async #applyFailure(caught: unknown, plan: PlannedChange): Promise<unknown> {
     if (!(caught instanceof WireError)) return caught;
     const { status, code, details } = caught.wire;
+    // The ledger's own verdicts are already decided, so they never take the
+    // catalog re-read below: a rejected identity and a failed operation are
+    // not a plan that went stale.
+    if (code === "schema_operation_conflict") return new SchemaError("operation-conflict", code, details);
+    if (code === "schema_operation_failed") return new SchemaError("operation-failed", code, details);
     if (plan.operation === "delete") {
       if (code === "collection_referenced") return new SchemaError("referenced", code, details);
       return new SchemaError(status === 409 ? "catalog-moved" : this.#schemaReason(caught.wire), code, details);

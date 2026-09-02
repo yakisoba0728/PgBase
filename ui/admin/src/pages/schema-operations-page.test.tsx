@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { OperationReceipt } from "../backend/ports";
@@ -11,20 +11,23 @@ function receipt(operationId: string, patch: Partial<OperationReceipt> = {}): Op
   };
 }
 
-const rowOrder = () => screen.getAllByRole("listitem").map((row) => within(row).getByText(/^op-/).textContent);
+const rowOrder = () => screen.getAllByRole("listitem").map((row) => row.querySelector(".operation-id")?.textContent);
 
 describe("schema operations page", () => {
   it("renders one bounded page of redacted receipts", async () => {
     const harness = scriptedAdmin("/admin/schema-operations");
     harness.script.operations.push({
       value: {
-        items: [receipt("op-1", { collectionId: "op-1", status: "failed", failureCode: "apply_failed" })],
+        items: [receipt("op-1", { status: "failed", failureCode: "apply_failed" })],
       },
     });
     renderAdmin(harness);
 
     expect(await screen.findByText("Not applied")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Schema operations" })).toBeVisible();
+    // One collection has many operations, so the operation's own identity is
+    // what names a row — and what an administrator quotes when asking about it.
+    expect(rowOrder()).toEqual(["op-1"]);
     expect(screen.getByText("The change did not apply and nothing was left behind.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
   });
@@ -33,8 +36,8 @@ describe("schema operations page", () => {
     const harness = scriptedAdmin("/admin/schema-operations");
     // One shared creation instant, so only the ledger's own tie-break orders
     // these rows: any client-side sort would reshuffle them.
-    harness.script.operations.push({ value: { items: [receipt("op-d", { collectionId: "op-d" }), receipt("op-b", { collectionId: "op-b" })], nextCursor: "page-2" } });
-    harness.script.operations.push({ value: { items: [receipt("op-c", { collectionId: "op-c" }), receipt("op-a", { collectionId: "op-a" })] } });
+    harness.script.operations.push({ value: { items: [receipt("op-d"), receipt("op-b")], nextCursor: "page-2" } });
+    harness.script.operations.push({ value: { items: [receipt("op-c"), receipt("op-a")] } });
     renderAdmin(harness);
 
     expect(await screen.findByText("op-d")).toBeVisible();
@@ -46,7 +49,7 @@ describe("schema operations page", () => {
 
   it("reports a cursor another owner cannot reuse without discarding the history already read", async () => {
     const harness = scriptedAdmin("/admin/schema-operations");
-    harness.script.operations.push({ value: { items: [receipt("op-1", { collectionId: "op-1" })], nextCursor: "another-owners-cursor" } });
+    harness.script.operations.push({ value: { items: [receipt("op-1")], nextCursor: "another-owners-cursor" } });
     harness.script.operations.push({ fault: { kind: "invalid-cursor" } });
     renderAdmin(harness);
 
