@@ -150,9 +150,9 @@ type historyCompatibilityPolicy struct {
 // R11 is that later migration, and it chose the narrow range by leaving this
 // guard to fail its length check: migration 9 adds a column every capability read
 // names, so this binary cannot serve a v8 database at all and a two-history window
-// would be a claim the startup gate exists to refuse. The reverse stays safe -- a
-// pre-R11 binary on a v9 database reads pending and issues v1, and cannot activate
-// because migration 9's constraint refuses a rollout that proves no generation.
+// would be a claim the startup gate exists to refuse. The other direction needs no
+// window either: version 9 is absent from a pre-R11 manifest, so that binary reads
+// the history as carrying an unknown version and refuses to start here.
 func schemaCompanionIndexPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
 	if len(migrations) != 8 ||
 		migrations[6].Version != 7 || migrations[6].Name != "record_membership" ||
