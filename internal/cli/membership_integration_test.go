@@ -239,9 +239,11 @@ func TestMembershipCutoverRefusesUntilTheOlderReleaseDrains(t *testing.T) {
 	requireMembershipRefusal(t, databaseURL, "cutover",
 		"--witness", staleWitness, "--witness", headWitness)
 	// The proof an operator produces by overlooking the instance they forgot to
-	// drain. The transition rereads the lease set under its own locks and
-	// requires the whole of it back, so naming only the current release is what
-	// stops the fence from being stepped around.
+	// drain. The transition rereads the lease set under its own locks, so
+	// leaving a member out cannot open the barrier — and here the version floor
+	// would refuse this proof on its own too, which is why the set half of the
+	// proof is probed separately, over a fleet nothing in is too old, in
+	// TestMembershipEnableV5RefusesAMixedFleetAndTheRollbackReopensItToReleaseA.
 	requireMembershipRefusal(t, databaseURL, "cutover", "--witness", headWitness)
 	if held := readMembershipReport(t, databaseURL); held.State != "off" || held.Generation != 0 {
 		t.Fatalf("a refused cutover moved the capability: %#v", held)
