@@ -123,8 +123,9 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       // which is stable and true, rather than an error the draft cannot act on.
       .catch(() => undefined)
       .finally(() => hydrationFlights.current.delete(controller));
-    // `pendingKey` is the identity of `pending`; both change together.
-  }, [displayField, pendingKey, records, target.name]); // eslint-disable-line react-hooks/exhaustive-deps
+    // `pendingKey` is the identity of `pending`; both change together, and
+    // depending on the array itself would re-run this on every render.
+  }, [displayField, pendingKey, records, target.name]);
 
   const openPage = useCallback(async (plan: RelationTargetPlan, cursor: string | undefined, existing: RelationCandidate[]) => {
     pageFlight.current?.abort();
