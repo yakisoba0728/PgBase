@@ -71,6 +71,37 @@ jobs:
         shell: bash
         run: scripts/test-go-unit.sh -race -count=1
 
+  # The terminal adapter's cancellation and echo-restoration behaviour is
+  # implemented per platform and its tests are darwin-only, so the Ubuntu unit
+  # job never compiles them. Without a macOS runner a regression in the path
+  # that restores a terminal after an interrupted password prompt would ship
+  # unnoticed.
+  darwin-terminal:
+    name: macOS terminal
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Vet the darwin build
+        run: go vet ./internal/cli/...
+
+      # Named explicitly rather than run as the whole package: this job exists
+      # for the tests the Linux job cannot compile, and naming them makes it
+      # fail loudly if the darwin file is renamed or its build tag drifts.
+      - name: Test the darwin terminal adapter with the race detector
+        run: |
+          go test -race -count=1 -v ./internal/cli \
+            -run 'TestReadTerminalPasswordContextCancellationRestoresPTY'
+
   integration:
     name: PostgreSQL integration / ${{ matrix.postgres.version }}
     runs-on: ubuntu-24.04

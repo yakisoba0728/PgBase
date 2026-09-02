@@ -101,3 +101,54 @@ func TestBrowserWorkflowRunsBothProjectsAgainstIsolatedBackends(t *testing.T) {
 		t.Errorf("e2e.yml leaves a Compose project running: %q", teardown[:min(len(teardown), 120)])
 	}
 }
+
+// The terminal adapter is implemented per platform and its cancellation and
+// echo-restoration tests carry a darwin build tag, so the Ubuntu unit job does
+// not compile them at all. A green CI without this job would say nothing about
+// the code path that restores a terminal after an interrupted password prompt.
+func TestBackendWorkflowRunsTheDarwinTerminalTestsOnMacOS(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "backend.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(raw)
+
+	if !strings.Contains(workflow, "runs-on: macos-") {
+		t.Error("backend.yml has no macOS runner, so the darwin terminal tests never run in CI")
+	}
+
+	// Every darwin-tagged test function must be named by the job, so renaming
+	// one or letting its build tag drift fails here instead of silently
+	// dropping the only coverage it has.
+	entries, err := os.ReadDir(filepath.Join("..", "cli"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	darwinTests := 0
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(filepath.Join("..", "cli", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(source), "//go:build darwin") {
+			continue
+		}
+		for _, line := range strings.Split(string(source), "\n") {
+			name, found := strings.CutPrefix(line, "func Test")
+			if !found {
+				continue
+			}
+			name = "Test" + name[:strings.Index(name, "(")]
+			darwinTests++
+			if !strings.Contains(workflow, name) {
+				t.Errorf("backend.yml does not run the darwin-only test %s", name)
+			}
+		}
+	}
+	if darwinTests == 0 {
+		t.Error("found no darwin-tagged tests in internal/cli; this gate is watching nothing")
+	}
+}
