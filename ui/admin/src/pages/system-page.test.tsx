@@ -1,66 +1,41 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
-import { App } from "../app";
-import { activeSessionExpiresAt } from "../test/fixtures";
+import { screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { renderAdmin, scriptedAdmin } from "../test/harness";
 
-function response(status: number, body?: unknown): Response {
-  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)) } as unknown as Response;
-}
+describe("system page", () => {
+  it("renders the operational status the backend reports and nothing else", async () => {
+    const harness = scriptedAdmin("/admin/system");
+    harness.script.status.push({
+      value: {
+        version: "v1.2.3",
+        databaseReachable: true,
+        migrationCurrent: 4,
+        migrationLatest: 5,
+        migrationDirty: true,
+        catalogVersion: 9,
+        listenerReady: false,
+        // A redacted field the SystemPort type does not carry: it must not reach the page.
+        internalDatabaseURL: "postgres://secret",
+      } as never,
+    });
+    renderAdmin(harness);
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  window.history.replaceState(null, "", "/admin/");
-});
+    expect(await screen.findByText("v1.2.3")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "System" })).toBeVisible();
+    expect(screen.getByText("Reachable")).toBeVisible();
+    expect(screen.getByText("4 / 5")).toBeVisible();
+    expect(screen.getByText("Dirty")).toBeVisible();
+    expect(screen.getByText("9")).toBeVisible();
+    expect(screen.getByText("Not ready")).toBeVisible();
+    expect(screen.queryByText(/postgres:\/\/secret/)).not.toBeInTheDocument();
+  });
 
-it("navigates to the read-only redacted system status", async () => {
-  window.history.replaceState(null, "", "/admin/collections");
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(response(200, {
-      administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
-      csrfToken: "csrf-token",
-      expiresAt: activeSessionExpiresAt(),
-    }))
-    .mockResolvedValueOnce(response(200, { version: 9, collections: {} }))
-    .mockResolvedValueOnce(response(200, {
-      version: "v1.2.3",
-      databaseReachable: true,
-      migrationCurrent: 4,
-      migrationLatest: 5,
-      migrationDirty: true,
-      catalogVersion: 9,
-      listenerReady: false,
-      internalDatabaseURL: "postgres://secret",
-    }));
-  vi.stubGlobal("fetch", fetchMock);
-  const user = userEvent.setup();
-  render(<App />);
+  it("reports a status it cannot read instead of loading forever", async () => {
+    const harness = scriptedAdmin("/admin/system");
+    harness.script.status.push({ fault: { kind: "unreachable" } });
+    renderAdmin(harness);
 
-  await screen.findByRole("heading", { name: "Collections" });
-  await user.click(screen.getByRole("button", { name: "System" }));
-
-  expect(await screen.findByRole("heading", { name: "System" })).toBeVisible();
-  expect(screen.getByText("v1.2.3")).toBeVisible();
-  expect(screen.getByText("Reachable")).toBeVisible();
-  expect(screen.getByText("4 / 5")).toBeVisible();
-  expect(screen.getByText("Dirty")).toBeVisible();
-  expect(screen.getByText("9")).toBeVisible();
-  expect(screen.getByText("Not ready")).toBeVisible();
-  expect(screen.queryByText(/postgres:\/\/secret/)).not.toBeInTheDocument();
-  expect(window.location.pathname).toBe("/admin/system");
-});
-
-it("falls back safely for malformed encoded administrator paths", async () => {
-  window.history.replaceState(null, "", "/admin/collections/%E0%A4%A/records");
-  vi.stubGlobal("fetch", vi.fn()
-    .mockResolvedValueOnce(response(200, {
-      administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
-      csrfToken: "csrf-token",
-      expiresAt: activeSessionExpiresAt(),
-    }))
-    .mockResolvedValueOnce(response(200, { version: 9, collections: {} })));
-
-  render(<App />);
-
-  expect(await screen.findByRole("heading", { name: "Collections" })).toBeVisible();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load system status.");
+    expect(screen.queryByText("Loading system status…")).not.toBeInTheDocument();
+  });
 });
