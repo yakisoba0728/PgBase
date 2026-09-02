@@ -9,7 +9,7 @@ import (
 
 func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Traversal) (*cursor.V5Descriptor, error) {
 	if plan.catalogVersion < 1 || !plan.principal.Valid() || traversal.IssueVersion != cursor.Version5 ||
-		traversal.Generation < 1 || traversal.HighWater < 0 {
+		traversal.ValidateV5(traversal.Generation, traversal.HighWater) != nil {
 		return nil, invalidCursor()
 	}
 	queryHash, err := cursorV5QueryFingerprint(s.cursors, plan.relation.filter)
