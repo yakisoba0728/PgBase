@@ -25,7 +25,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ui/admin
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         working-directory: ui/admin
@@ -35,9 +35,22 @@ jobs:
         working-directory: ui/admin
         run: npm test
 
-      - name: Build embedded administrator UI
+      # Building over the committed output would hide a file that the current
+      # source no longer produces, so the gate compares against a clean build.
+      - name: Rebuild the embedded administrator UI from an empty directory
         working-directory: ui/admin
-        run: npm run build
+        run: |
+          rm -rf dist
+          npm run build
 
-      - name: Verify embedded output is current
-        run: git diff --exit-code -- ui/admin/dist
+      - name: Verify the committed embedded output reproduces exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          divergence="$(git status --porcelain --untracked-files=all -- ui/admin/dist)"
+          if [[ -n "$divergence" ]]; then
+            echo "committed ui/admin/dist does not match a clean build:" >&2
+            printf '%s\n' "$divergence" >&2
+            git diff -- ui/admin/dist >&2 || true
+            exit 1
+          fi
