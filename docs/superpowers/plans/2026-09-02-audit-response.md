@@ -203,6 +203,25 @@ stops warning about a field the applied change had already dropped
   AssertionError: expected [ 'extra' ] to deeply equal []      ← 거짓 경보
 ```
 
+## 통합 담당자가 직접 재실행한 변이 검증
+
+에이전트 보고를 그대로 옮기지 않고, 아래 네 건은 통합 후 브랜치에서 직접 변이를 넣어 다시 확인했다.
+P1 세 건과, 이전에 잘못 보고했던 항목을 골랐다.
+
+| 항목 | 넣은 변이 | 관측 |
+|---|---|---|
+| RUN-1 (P1) | `refreshWriter`에 `pinSchemaShared` 복원 | `5.23s`에 `pin schema for record membership: ... (SQLSTATE 57014)` — 감사의 ~5.18s와 같은 지점. 앱 레벨에서는 `readiness during the schema DDL = 503, components:["record membership writer"]` |
+| RUN-2 (P1) | lease를 map으로 색인하고 **proof를 순회**하도록(감사가 서술한 그 모양) | `repeated_new_witness` 하위 테스트가 `activation error = <nil>, want ErrCompanionIndexFleet` — 우회가 그대로 재현 |
+| RUN-4 (P2) | `activate(context.WithoutCancel(ctx), ...)` → `activate(ctx, ...)` | `background runner was cancelled while HTTP request was still in flight` |
+| STD-1 (P2) | `definition:` 병합 한 줄 삭제 | `expected [] to deeply equal [ 'extra' ]`(조용한 컬럼 삭제)와 `expected [ 'extra' ] to deeply equal []`(거짓 경보) |
+
+RUN-2에서 처음 넣은 변이는 **실패하지 않았다.** lease를 순회하되 witness를 map으로 찾는 모양이었는데, 그것은
+길이 검사와 합쳐지면 여전히 중복을 잡는다. 감사가 지적한 것은 방향이 반대인 경우 — proof를 순회하는 것 —
+이며, 그 모양으로 다시 넣었을 때 비로소 우회가 재현됐다. **변이가 통과했다는 것은 수정이 불필요하다는 뜻이
+아니라 변이를 잘못 골랐다는 뜻일 수 있다**는 사례로 남긴다.
+
+SPEC-1, RUN-3, STD-2, STD-3, SPEC-3의 변이 증거는 각 담당 보고에 있으며 여기에는 요약만 옮겼다.
+
 ## 정량 예산
 
 D1의 회계를 유지한다: package별 zero-slack ratchet과 gross-new/gross-deleted를 계속 기록한다.
