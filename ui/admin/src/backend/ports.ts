@@ -116,9 +116,14 @@ export interface OperationHistory { items: OperationReceipt[]; nextCursor?: stri
  * An apply either committed or is not decidable yet. The identity travels with
  * the undecided answer because that is the only case where the outcome still
  * has to be asked for; a caller that gets one must not read it as either a
- * success or a failure.
+ * success or a failure. `definition` is the collection the change produced, and
+ * is absent whenever the answer was a ledger receipt rather than a collection
+ * body: a replay stores the receipt, not the collection the first attempt
+ * returned, so there is nothing to reconstruct it from.
  */
-export type ApplyOutcome = { kind: "applied" } | { kind: "undecided"; operationId: string };
+export type ApplyOutcome =
+  | { kind: "applied"; definition?: CollectionDefinition }
+  | { kind: "undecided"; operationId: string };
 
 export interface OperationIdentity { operationId: string; idempotencyKey: string }
 

@@ -119,7 +119,11 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       apply: (plan: PlannedChange, attempt: ApplyAttempt) => guard(undefined, async (): Promise<ApplyOutcome> => {
         const identity = attempt.identityFor(plan);
         const scripted = await take<ScriptedApply | undefined>("apply", { request: plan.applyRequest(), ...identity }, "schema");
-        if (scripted === undefined || scripted.status === "committed") return { kind: "applied" };
+        if (scripted === undefined) return { kind: "applied" };
+        // A committed receipt is the ledger answering, so it carries no
+        // collection; only a collection body does.
+        if ("collection" in scripted) return { kind: "applied", definition: scripted.collection };
+        if (scripted.status === "committed") return { kind: "applied" };
         return { kind: "undecided", operationId: identity.operationId };
       }),
       operation: (operationId: string, signal) => guard(signal, () => take<OperationReceipt>("operation", { operationId }, "schema")),

@@ -55,11 +55,13 @@ export interface ScriptedPlan { baseVersion: number; checksum: string; fields: P
 export interface ScriptedRecord { data: RecordData; etag: string }
 
 /**
- * The ledger outcome an apply answers with instead of a collection body. A
- * scripted `undefined` is the ordinary apply that returned the collection, so
- * the two answers stay distinguishable in every vector.
+ * What an apply answers with: the collection the change produced, or the ledger
+ * outcome it sends instead. A scripted `undefined` is an ordinary apply whose
+ * body the vector does not inspect, so all three answers stay distinguishable.
  */
-export interface ScriptedApply { status: OperationStatus; replayed?: boolean }
+export type ScriptedApply =
+  | { status: OperationStatus; replayed?: boolean }
+  | { collection: CollectionDefinition };
 
 /**
  * A fully sampled system. A test that cares about one component patches that

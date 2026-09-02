@@ -76,6 +76,9 @@ function recordWire(scripted: ScriptedRecord, status = 200): Wire {
  */
 function applyWire(scripted: ScriptedApply | undefined, operationId: string): Wire {
   if (scripted === undefined) return { status: 200, body: "{}", headers: { "Idempotency-Replayed": "false" } };
+  if ("collection" in scripted) {
+    return { status: 200, body: stringifyJSON(scripted.collection), headers: { "Idempotency-Replayed": "false" } };
+  }
   const statusUrl = `/api/admin/schema-operations/${operationId}`;
   const body = stringifyJSON({ operationId, status: scripted.status, statusUrl });
   if (scripted.replayed === true) return { status: 200, body, headers: { "Idempotency-Replayed": "true" } };
