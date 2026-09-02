@@ -29,7 +29,7 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
     await expect(page.getByText("second post")).toBeVisible();
 
     // Only the id column is a link, so the row is what identifies the record.
-    await page.getByRole("row").filter({ hasText: "first post" }).getByRole("button").first().click();
+    await page.getByRole("row").filter({ hasText: "first post" }).getByRole("link").first().click();
     await expect(page.getByRole("heading", { name: `Edit ${posts} record` })).toBeVisible();
     await page.getByLabel("title", { exact: true }).fill("edited post");
     await page.getByRole("button", { name: "Save changes" }).click();
@@ -63,7 +63,7 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
 
 async function ownerID(page: import("@playwright/test").Page, collection: string): Promise<string> {
   await page.goto(`/admin/collections/${collection}/records`);
-  const id = await page.locator("tbody tr td:first-child button").first().innerText();
+  const id = await page.locator("tbody tr td:first-child a").first().innerText();
   expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   return id;
 }

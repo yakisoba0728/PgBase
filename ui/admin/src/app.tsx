@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
+import { AdminLink } from "./routing/admin-link";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
 import type { AdminBackend } from "./backend/ports";
 import { CollectionDesignerPage } from "./pages/collection-designer-page";
@@ -49,7 +50,7 @@ function AuthenticatedShell({ history }: { history?: AdminHistory }) {
       <button disabled={logoutPending} onClick={() => void signOut()} type="button">{logoutPending ? "Signing out…" : "Sign out"}</button>
     </header>
     {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-    <nav aria-label="Administration"><button className="text-button" onClick={() => navigate({ kind: "collections" })} type="button">Collections</button><button className="text-button" onClick={() => navigate({ kind: "system" })} type="button">System</button></nav>
+    <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
     {outlet(route, identity, navigate)}
   </main>;
 }

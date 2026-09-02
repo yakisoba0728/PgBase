@@ -6,7 +6,7 @@ test("recovers a second tab from the precondition the first tab invalidated", as
   try {
     await createCollection(page, notes, [{ name: "body", indexed: true }]);
     await createRecord(page, notes, { body: "original" });
-    await page.getByRole("button", { name: /^[0-9a-f-]{36}$/ }).click();
+    await page.getByRole("link", { name: /^[0-9a-f-]{36}$/ }).click();
     await expect(page.getByRole("heading", { name: `Edit ${notes} record` })).toBeVisible();
     const recordURL = page.url();
 

@@ -29,7 +29,7 @@ describe("collections page", () => {
     expect(screen.getByText("1 fields")).toBeVisible();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent?.slice(0, 5))).toEqual(["posts", "users"]);
 
-    await user.click(screen.getByRole("button", { name: "posts" }));
+    await user.click(screen.getByRole("link", { name: "posts" }));
     expect(harness.history.path()).toBe("/admin/collections/posts/records");
   });
 
