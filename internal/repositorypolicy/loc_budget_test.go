@@ -17,7 +17,7 @@ import (
 // R11 fixed the budget from the measurement, as decision D1 directs: expected
 // 16,100-16,500 with a hard limit of 16,750, set once from the real
 // gross-new/gross-deleted totals and never raised again. The measured value at
-// the end of R11 is the limit below, 97 lines under that ceiling.
+// the current HEAD is the limit below, 3 lines under that ceiling.
 //
 // The plan's original 12,750 predates surfaces the plan itself then required:
 // the R2b operation ledger, the R4 membership sidecar and rollout, the R5
@@ -201,11 +201,11 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 //	handwritten runtime lines      35,193 -> 35,203
 //	UI runtime lines                3,517 ->  3,527
 //	  gross-new 36 / gross-deleted 26, net +10, all in
-//	  ui/admin/src/designer/collection-designer.ts: two State fields
-//	  (undecidedDraft, undecidedDrops), the ledgerOutran derivation, and the
+//	  ui/admin/src/designer/collection-designer.ts: the UndecidedApply state,
+//	  the ledgerOutran derivation, and the
 //	  rationale for why a commit alone cannot say whose work it settled.
 //
-// undecidedDrops earns its line rather than padding the count: without it a
+// The drop variant earns its line rather than padding the count: without it a
 // committed delete recovery tells the administrator to preview and apply a
 // draft whose collection is gone, which closes one wrong message by opening
 // another.

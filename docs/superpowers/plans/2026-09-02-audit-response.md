@@ -388,12 +388,12 @@ case "off", "cutover":
 
 | 항목 | 등급 | 상태 | 커밋 |
 |---|---|---|---|
-| 복구 경로에서 draft guard 해제 | P2 | 닫힘 | `d3c5e3c`…`73725b5` |
+| 복구 경로에서 draft guard 해제 | P2 | 닫힘 | `b83fb3c`…`73725b5` |
 | 우발 파일 `&1` | P3 | 닫힘 | `6f7d853` |
 | 구/신 compiler를 fleet proof가 구별 못 함 | **P1** | 닫힘 | `477e487` (migration v9) |
 | 승인 checksum과 다른 DDL 실행 | **P1** | 닫힘 | `477e487` |
 | 모든 update가 capability를 pending으로 | P2 | 닫힘 | `477e487` |
-| SPEC-1 rollout 검증이 완료 조건 미충족 | **P1** | 부분 — 아래 | `1546c91`…`d949d3b` |
+| SPEC-1 rollout 검증이 완료 조건 미충족 | **P1** | 부분 — 아래 | `d88163e`…`d949d3b` |
 | SPEC-3 미검증 | P2 | **도달 불가** | — |
 
 ## 내가 만든 것: `&1`
