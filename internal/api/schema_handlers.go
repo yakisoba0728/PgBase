@@ -14,17 +14,13 @@ import (
 )
 
 type SchemaService interface {
-	PlanCreate(context.Context, schema.CreateCollectionInput) (schema.Plan, error)
-	ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error)
-	PlanUpdate(context.Context, schema.UpdateCollectionInput) (schema.Plan, error)
-	ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error)
-	PlanDelete(context.Context, string) (schema.Plan, error)
-	ApplyDelete(context.Context, string, string, int64, uuid.UUID) error
+	Preview(context.Context, schema.Change) (schema.Plan, error)
 	Catalog(context.Context) (schema.Catalog, error)
-	// Apply, OperationStatus and ListOperations are the guarded surface. The
-	// legacy Apply* methods stay because their observable ordering and bodies
-	// are a public contract; a guarded client uses these instead and gets a
-	// durable receipt it can read back after a dropped response.
+	// One Apply serves both wire shapes, because the difference between them is
+	// the intent, not the operation. A guarded client sends an operation
+	// identity and gets a durable receipt it can read back after a dropped
+	// response; a headerless one sends schema.LegacyApply, whose preflight is
+	// what keeps the error ordering and bodies that wire has always had.
 	Apply(context.Context, schema.ApplyIntent) (schema.ApplyResult, error)
 	OperationStatus(context.Context, schema.OperationRef) (schema.OperationReceipt, error)
 	ListOperations(context.Context, schema.OperationQuery) (schema.OperationPage, error)
@@ -130,23 +126,12 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
-	var plan schema.Plan
-	var err error
-	switch request.Operation {
-	case "create":
-		plan, err = e.service.PlanCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()})
-	case "update":
-		if request.Fields == nil {
-			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
-			return
-		}
-		plan, err = e.service.PlanUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.fieldInputs()})
-	case "delete":
-		plan, err = e.service.PlanDelete(r.Context(), request.Name)
-	default:
+	change, ok := request.change()
+	if !ok {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
+	plan, err := e.service.Preview(r.Context(), change)
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return
@@ -197,39 +182,34 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 	// operation identity a dropped response leaves no way to learn the
 	// outcome.
 	w.Header().Set("PgBase-Compatibility", schemaApplyUnguardedCompatibility)
+	change, ok := request.change()
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	result, err := e.service.Apply(r.Context(), schema.LegacyApply(
+		change, schema.Plan{Checksum: request.Checksum, BaseVersion: *request.BaseVersion},
+		principal.Administrator.ID,
+	))
+	if err != nil {
+		writeSchemaError(w, r, err)
+		return
+	}
+	// The status is a property of what the client asked for, not of what the
+	// kernel reports back, so this reads the request the way it always did.
 	switch request.Operation {
 	case "create":
-		collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
-		if err != nil {
-			writeSchemaError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, collectionDTO(collection))
-	case "update":
-		if request.Fields == nil {
-			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
-			return
-		}
-		collection, err := e.service.ApplyUpdate(r.Context(), schema.UpdateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
-		if err != nil {
-			writeSchemaError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, collectionDTO(collection))
+		writeJSON(w, http.StatusCreated, collectionDTO(result.Collection))
 	case "delete":
-		if err := e.service.ApplyDelete(r.Context(), request.Name, request.Checksum, *request.BaseVersion, principal.Administrator.ID); err != nil {
-			writeSchemaError(w, r, err)
-			return
-		}
 		writeJSON(w, http.StatusOK, collectionDeleteResponse{Name: request.Name, Deleted: true})
 	default:
-		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		writeJSON(w, http.StatusOK, collectionDTO(result.Collection))
 	}
 }
 
 // change maps the request onto the sealed schema intent. An update with no
-// fields key is rejected here for the same reason the legacy path rejects it:
-// an omitted key would otherwise read as "drop every column".
+// fields key is rejected here, before either apply path runs, because an
+// omitted key would otherwise read as "drop every column".
 func (c collectionChangeRequest) change() (schema.Change, bool) {
 	switch c.Operation {
 	case "create":

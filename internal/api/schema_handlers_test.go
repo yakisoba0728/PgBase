@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -54,8 +55,11 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testi
 	if body.BaseVersion != 7 || body.Checksum != "fixed-checksum" || body.Definition.Name != "posts" || len(body.SQL) != 1 {
 		t.Fatalf("plan response = %+v", body)
 	}
-	if schemas.planCalls != 1 || schemas.planInput.Name != "posts" || auth.authenticateCalls != 1 {
-		t.Fatalf("plan calls=%d input=%+v auth calls=%d", schemas.planCalls, schemas.planInput, auth.authenticateCalls)
+	wantChange := schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Required: true},
+	}})
+	if schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, wantChange) || auth.authenticateCalls != 1 {
+		t.Fatalf("plan calls=%d change=%+v auth calls=%d", schemas.planCalls, schemas.planChange, auth.authenticateCalls)
 	}
 }
 
@@ -90,18 +94,16 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
-		if schemas.planCalls != 1 || len(schemas.planInput.Fields) != 1 {
-			t.Fatalf("plan calls=%d input=%+v", schemas.planCalls, schemas.planInput)
-		}
-		field := schemas.planInput.Fields[0]
-		if field.Type != schema.TypeRelation || !field.Required || field.Relation == nil {
-			t.Fatalf("relation field input=%+v", field)
-		}
-		if field.Relation.TargetCollection != "tags" || field.Relation.Cardinality != schema.RelationMultiple ||
-			field.Relation.MinSelect == nil || *field.Relation.MinSelect != 1 ||
-			field.Relation.MaxSelect == nil || *field.Relation.MaxSelect != 20 ||
-			field.Relation.OnDelete != schema.RelationCascade {
-			t.Fatalf("relation input=%+v", field.Relation)
+		minSelect, maxSelect := 1, 20
+		wantChange := schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{{
+			Name: "tags", Type: schema.TypeRelation, Required: true,
+			Relation: &schema.RelationInput{
+				TargetCollection: "tags", Cardinality: schema.RelationMultiple,
+				MinSelect: &minSelect, MaxSelect: &maxSelect, OnDelete: schema.RelationCascade,
+			},
+		}}})
+		if schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, wantChange) {
+			t.Fatalf("plan calls=%d change=%+v", schemas.planCalls, schemas.planChange)
 		}
 	})
 
@@ -288,9 +290,9 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	administrator := validSession().Administrator
 	auth := &fakeAdminAuth{authenticateAdmin: administrator}
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{applied: schema.Collection{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
-	}}
+	}}}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	body := `{"operation":"create","name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
 
@@ -331,8 +333,15 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
 	}
-	if schemas.applyCalls != 1 || schemas.applyInput.Name != "posts" || schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 7 || schemas.applyAdministratorID != administrator.ID {
-		t.Fatalf("apply call input=%+v checksum=%q baseVersion=%d administrator=%s", schemas.applyInput, schemas.applyChecksum, schemas.applyBaseVersion, schemas.applyAdministratorID)
+	wantIntent := schema.LegacyApply(
+		schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText},
+		}}),
+		schema.Plan{Checksum: "fixed-checksum", BaseVersion: 7},
+		administrator.ID,
+	)
+	if schemas.applyCalls != 1 || !reflect.DeepEqual(schemas.applyIntent, wantIntent) {
+		t.Fatalf("apply calls=%d intent=%+v, want %+v", schemas.applyCalls, schemas.applyIntent, wantIntent)
 	}
 	var responseBody struct {
 		ID   uuid.UUID `json:"id"`
@@ -341,7 +350,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	if err := json.Unmarshal(response.Body.Bytes(), &responseBody); err != nil {
 		t.Fatal(err)
 	}
-	if responseBody.ID != schemas.applied.ID || responseBody.Name != "posts" {
+	if responseBody.ID != schemas.applyResult.Collection.ID || responseBody.Name != "posts" {
 		t.Fatalf("apply response = %+v", responseBody)
 	}
 }
@@ -618,9 +627,9 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 	administrator := validSession().Administrator
 	auth := &fakeAdminAuth{authenticateAdmin: administrator}
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{applied: schema.Collection{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
-	}}
+	}}}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token")
 	authenticated := func(method, path, body string) *httptest.ResponseRecorder {
@@ -637,26 +646,32 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 		return response
 	}
 
+	updateChange := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+		{Name: "views", Type: schema.TypeNumeric},
+	}})
+	deleteChange := schema.NewDeleteChange("posts")
+	approved := schema.Plan{Checksum: "fixed-checksum", BaseVersion: 3}
+
 	response := authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}]}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 1 || schemas.planUpdateInput.Name != "posts" ||
-		len(schemas.planUpdateInput.Fields) != 1 || schemas.planUpdateInput.Fields[0].Type != schema.TypeNumeric {
-		t.Fatalf("update plan status=%d calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, updateChange) {
+		t.Fatalf("update plan status=%d calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}],"checksum":"fixed-checksum","baseVersion":3}`)
-	if response.Code != http.StatusOK || schemas.applyCalls != 1 || schemas.applyUpdateInput.Name != "posts" ||
-		schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 3 || schemas.applyAdministratorID != administrator.ID {
-		t.Fatalf("update apply status=%d calls=%d input=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.applyCalls != 1 ||
+		!reflect.DeepEqual(schemas.applyIntent, schema.LegacyApply(updateChange, approved, administrator.ID)) {
+		t.Fatalf("update apply status=%d calls=%d intent=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyIntent, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"delete","name":"posts"}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 2 || schemas.planDeleteName != "posts" {
-		t.Fatalf("delete plan status=%d calls=%d name=%q body=%s", response.Code, schemas.planCalls, schemas.planDeleteName, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 2 || !reflect.DeepEqual(schemas.planChange, deleteChange) {
+		t.Fatalf("delete plan status=%d calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"delete","name":"posts","checksum":"fixed-checksum","baseVersion":3}`)
-	if response.Code != http.StatusOK || schemas.applyCalls != 2 || schemas.deletedName != "posts" {
-		t.Fatalf("delete apply status=%d calls=%d name=%q body=%s", response.Code, schemas.applyCalls, schemas.deletedName, response.Body.String())
+	if response.Code != http.StatusOK || schemas.applyCalls != 2 ||
+		!reflect.DeepEqual(schemas.applyIntent, schema.LegacyApply(deleteChange, approved, administrator.ID)) {
+		t.Fatalf("delete apply status=%d calls=%d intent=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyIntent, response.Body.String())
 	}
 	var deleted struct {
 		Name    string `json:"name"`
@@ -693,9 +708,13 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 	}
 	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 
+	// An explicit empty fields array is not the same intent as an omitted key:
+	// it asks for a collection with no fields, so it has to reach the kernel as
+	// an empty, non-nil slice.
+	emptyFields := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "posts", Fields: []schema.FieldInput{}})
 	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[]}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 3 || len(schemas.planUpdateInput.Fields) != 0 {
-		t.Fatalf("explicit empty fields status=%d plan calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 3 || !reflect.DeepEqual(schemas.planChange, emptyFields) {
+		t.Fatalf("explicit empty fields status=%d plan calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 }
 
@@ -752,101 +771,53 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 }
 
 type fakeSchemaService struct {
-	plan                 schema.Plan
-	planErr              error
-	applied              schema.Collection
-	applyErr             error
-	catalog              schema.Catalog
-	catalogErr           error
-	planCalls            int
-	applyCalls           int
-	catalogCalls         int
-	planInput            schema.CreateCollectionInput
-	applyInput           schema.CreateCollectionInput
-	applyChecksum        string
-	applyBaseVersion     int64
-	applyAdministratorID uuid.UUID
-	planUpdateInput      schema.UpdateCollectionInput
-	applyUpdateInput     schema.UpdateCollectionInput
-	planDeleteName       string
-	applyDeleteName      string
-	deletedName          string
-	applyDeleted         bool
+	plan       schema.Plan
+	planErr    error
+	catalog    schema.Catalog
+	catalogErr error
 
-	guardedApplyResult schema.ApplyResult
-	guardedApplyErr    error
-	guardedApplyHook   func(context.Context) (schema.ApplyResult, error)
-	guardedApplyCalls  int
-	guardedIntent      schema.ApplyIntent
-	statusReceipt      schema.OperationReceipt
-	statusErr          error
-	statusCalls        int
-	statusRef          schema.OperationRef
-	listPage           schema.OperationPage
-	listErr            error
-	listCalls          int
-	listQuery          schema.OperationQuery
+	planCalls    int
+	planChange   schema.Change
+	catalogCalls int
+
+	// One Apply records both wire shapes, because the handler picks between
+	// them by intent and not by method. A test tells the paths apart by
+	// comparing applyIntent against LegacyApply or GuardedApply of the same
+	// change, which pins the payload in the same assertion.
+	applyResult schema.ApplyResult
+	applyErr    error
+	applyHook   func(context.Context) (schema.ApplyResult, error)
+	applyCalls  int
+	applyIntent schema.ApplyIntent
+
+	statusReceipt schema.OperationReceipt
+	statusErr     error
+	statusCalls   int
+	statusRef     schema.OperationRef
+	listPage      schema.OperationPage
+	listErr       error
+	listCalls     int
+	listQuery     schema.OperationQuery
 }
 
-func (f *fakeSchemaService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
+func (f *fakeSchemaService) Preview(_ context.Context, change schema.Change) (schema.Plan, error) {
 	f.planCalls++
-	f.planInput = input
+	f.planChange = change
 	return f.plan, f.planErr
 }
 
-func (f *fakeSchemaService) ApplyCreate(_ context.Context, input schema.CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
+func (f *fakeSchemaService) Apply(ctx context.Context, intent schema.ApplyIntent) (schema.ApplyResult, error) {
 	f.applyCalls++
-	f.applyInput = input
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	return f.applied, f.applyErr
-}
-
-func (f *fakeSchemaService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
-	f.planCalls++
-	f.planUpdateInput = input
-	return f.plan, f.planErr
-}
-
-func (f *fakeSchemaService) ApplyUpdate(_ context.Context, input schema.UpdateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
-	f.applyCalls++
-	f.applyUpdateInput = input
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	return f.applied, f.applyErr
-}
-
-func (f *fakeSchemaService) PlanDelete(_ context.Context, name string) (schema.Plan, error) {
-	f.planCalls++
-	f.planDeleteName = name
-	return f.plan, f.planErr
-}
-
-func (f *fakeSchemaService) ApplyDelete(_ context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) error {
-	f.applyCalls++
-	f.applyDeleteName = name
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	f.deletedName = name
-	f.applyDeleted = true
-	return f.applyErr
+	f.applyIntent = intent
+	if f.applyHook != nil {
+		return f.applyHook(ctx)
+	}
+	return f.applyResult, f.applyErr
 }
 
 func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {
 	f.catalogCalls++
 	return f.catalog, f.catalogErr
-}
-
-func (f *fakeSchemaService) Apply(ctx context.Context, intent schema.ApplyIntent) (schema.ApplyResult, error) {
-	f.guardedApplyCalls++
-	f.guardedIntent = intent
-	if f.guardedApplyHook != nil {
-		return f.guardedApplyHook(ctx)
-	}
-	return f.guardedApplyResult, f.guardedApplyErr
 }
 
 func (f *fakeSchemaService) OperationStatus(_ context.Context, ref schema.OperationRef) (schema.OperationReceipt, error) {

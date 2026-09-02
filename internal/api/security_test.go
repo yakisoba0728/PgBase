@@ -392,29 +392,8 @@ func (*securityCompilerRecords) Delete(context.Context, recordops.DeleteRequest)
 
 type securityPlannerService struct{}
 
-func (securityPlannerService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
-	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, schema.NewCreateChange(input))
-}
-
-func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
-	panic("unexpected ApplyCreate call")
-}
-
-func (securityPlannerService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
-	current := schema.Collection{Name: input.Name, TableName: input.Name}
-	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{input.Name: current}}, schema.NewUpdateChange(input))
-}
-
-func (securityPlannerService) ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
-	panic("unexpected ApplyUpdate call")
-}
-
-func (securityPlannerService) PlanDelete(context.Context, string) (schema.Plan, error) {
-	panic("unexpected PlanDelete call")
-}
-
-func (securityPlannerService) ApplyDelete(context.Context, string, string, int64, uuid.UUID) error {
-	panic("unexpected ApplyDelete call")
+func (securityPlannerService) Preview(_ context.Context, change schema.Change) (schema.Plan, error) {
+	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, change)
 }
 
 func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
