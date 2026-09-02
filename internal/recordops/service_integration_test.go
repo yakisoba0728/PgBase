@@ -493,12 +493,14 @@ func TestIdempotencyCleanerUsesBoundedPasses(t *testing.T) {
 	}
 }
 
-// TestRelationReadTelemetryRecordsBareRelationFieldSort covers what the request
-// text alone cannot answer. `sort=owner` names a root relation field and joins
-// to its target, so it has to leave a relation_read sample, while a scalar sort
-// on the same collection leaves none. A bare relation sort the planner rejects
-// counts too, because that rejection is the relation work being measured.
-func TestRelationReadTelemetryRecordsBareRelationFieldSort(t *testing.T) {
+// TestRelationReadTelemetrySortSamplesFollowTheDottedPath covers what the
+// request text alone cannot answer. Only a dotted sort reads a target, so only
+// it leaves a relation_read sample -- and it leaves one whether the planner
+// accepts it or rejects it, because that rejection is the relation work being
+// measured. A bare single relation orders on the root's own foreign-key column
+// and a bare multi relation is refused from its cardinality, so neither is
+// relation-path work any more than the scalar sort beside them.
+func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
@@ -520,17 +522,25 @@ func TestRelationReadTelemetryRecordsBareRelationFieldSort(t *testing.T) {
 			t.Fatalf("List(sort=%q) error = %v, want error %t", test.sort, err, test.wantError)
 		}
 	}
-
-	events := recorder.snapshot()
-	if len(events) != 2 {
-		t.Fatalf("bare relation sort telemetry = %#v, want two relation samples", events)
+	if events := recorder.snapshot(); len(events) != 0 {
+		t.Fatalf("root-only sort telemetry = %#v, want no relation samples", events)
 	}
-	for index, want := range []observability.Outcome{observability.OutcomeSuccess, observability.OutcomeValidation} {
-		if events[index].Component() != observability.ComponentRelation ||
-			events[index].Operation() != observability.OperationRelationRead ||
-			events[index].Outcome() != want {
-			t.Fatalf("bare relation sort telemetry[%d] = %#v, want relation_read/%s", index, events[index], want)
-		}
+
+	// null_targets.name is not indexed, so the planner refuses this dotted sort
+	// after resolving the path -- the sample still has to be there.
+	if _, err := records.List(ctx, ListRequest{
+		Principal: principal, RequestID: testRequestID, Collection: "null_survivors", Sort: "owner.name",
+	}); err == nil {
+		t.Fatal("List(sort=owner.name) error = nil, want the unindexed target rejection")
+	}
+	events := recorder.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("dotted sort telemetry = %#v, want one relation sample", events)
+	}
+	if events[0].Component() != observability.ComponentRelation ||
+		events[0].Operation() != observability.OperationRelationRead ||
+		events[0].Outcome() != observability.OutcomeValidation {
+		t.Fatalf("dotted sort telemetry = %#v, want relation_read/validation", events[0])
 	}
 }
 
