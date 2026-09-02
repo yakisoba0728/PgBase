@@ -421,6 +421,18 @@ func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
 	panic("unexpected Catalog call")
 }
 
+func (securityPlannerService) Apply(context.Context, schema.ApplyIntent) (schema.ApplyResult, error) {
+	panic("unexpected Apply call")
+}
+
+func (securityPlannerService) OperationStatus(context.Context, schema.OperationRef) (schema.OperationReceipt, error) {
+	panic("unexpected OperationStatus call")
+}
+
+func (securityPlannerService) ListOperations(context.Context, schema.OperationQuery) (schema.OperationPage, error) {
+	panic("unexpected ListOperations call")
+}
+
 type securityErrorRecords struct{ err error }
 
 func (r securityErrorRecords) List(context.Context, recordops.ListRequest) (recordops.RecordPage, error) {

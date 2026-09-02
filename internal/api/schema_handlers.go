@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,13 @@ type SchemaService interface {
 	PlanDelete(context.Context, string) (schema.Plan, error)
 	ApplyDelete(context.Context, string, string, int64, uuid.UUID) error
 	Catalog(context.Context) (schema.Catalog, error)
+	// Apply, OperationStatus and ListOperations are the guarded surface. The
+	// legacy Apply* methods stay because their observable ordering and bodies
+	// are a public contract; a guarded client uses these instead and gets a
+	// durable receipt it can read back after a dropped response.
+	Apply(context.Context, schema.ApplyIntent) (schema.ApplyResult, error)
+	OperationStatus(context.Context, schema.OperationRef) (schema.OperationReceipt, error)
+	ListOperations(context.Context, schema.OperationQuery) (schema.OperationPage, error)
 }
 
 type schemaEndpoints struct {
@@ -174,7 +182,21 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
+	identity, err := applyIdentityFrom(r)
+	if err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
+	if identity.guarded {
+		e.applyGuarded(w, r, request, principal.Administrator.ID, identity)
+		return
+	}
+	// A headerless apply keeps the body and status it has always had. Only
+	// the header is new, and it says what the client gave up: without an
+	// operation identity a dropped response leaves no way to learn the
+	// outcome.
+	w.Header().Set("PgBase-Compatibility", schemaApplyUnguardedCompatibility)
 	switch request.Operation {
 	case "create":
 		collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
@@ -202,6 +224,73 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, collectionDeleteResponse{Name: request.Name, Deleted: true})
 	default:
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+	}
+}
+
+// change maps the request onto the sealed schema intent. An update with no
+// fields key is rejected here for the same reason the legacy path rejects it:
+// an omitted key would otherwise read as "drop every column".
+func (c collectionChangeRequest) change() (schema.Change, bool) {
+	switch c.Operation {
+	case "create":
+		return schema.NewCreateChange(schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs()}), true
+	case "update":
+		if c.Fields == nil {
+			return schema.Change{}, false
+		}
+		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, Fields: c.fieldInputs()}), true
+	case "delete":
+		return schema.NewDeleteChange(c.Name), true
+	default:
+		return schema.Change{}, false
+	}
+}
+
+func (e schemaEndpoints) applyGuarded(
+	w http.ResponseWriter, r *http.Request,
+	request collectionChangeRequest, actorID uuid.UUID, identity applyIdentity,
+) {
+	change, ok := request.change()
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	// The kernel derives the canonical request hash from this typed intent.
+	// A malformed identity or checksum is refused before any domain call, so
+	// a rejected request never reaches the ledger.
+	intent, err := schema.GuardedApply(
+		change, schema.Plan{Checksum: request.Checksum, BaseVersion: *request.BaseVersion},
+		actorID, identity.operationID, identity.key,
+	)
+	if err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	w.Header().Set(operationIDHeader, identity.operationID.String())
+	result, err := e.service.Apply(r.Context(), intent)
+	if err != nil {
+		e.writeGuardedApplyError(w, r, actorID, identity, err)
+		return
+	}
+	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
+	if result.Replayed {
+		// The ledger stores the receipt, not the collection the first attempt
+		// returned, so a replay answers with what it actually knows instead
+		// of a collection body reconstructed from nothing.
+		receipt := result.Receipt
+		writeJSON(w, http.StatusOK, schemaOperationOutcome{
+			OperationID: identity.operationID, Status: receipt.Status,
+			StatusURL: operationStatusURL(identity.operationID), Receipt: &receipt,
+		})
+		return
+	}
+	switch {
+	case result.Deleted:
+		writeJSON(w, http.StatusOK, collectionDeleteResponse{Name: request.Name, Deleted: true})
+	case request.Operation == "create":
+		writeJSON(w, http.StatusCreated, collectionDTO(result.Collection))
+	default:
+		writeJSON(w, http.StatusOK, collectionDTO(result.Collection))
 	}
 }
 

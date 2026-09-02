@@ -199,4 +199,8 @@ const (
 	// Record pages reuse the read budget the query package enforces, so a
 	// page that fit the kernel's contract cannot fail at the transport.
 	maximumRecordPageResponseBytes = 4<<20 + responseFraming
+	// Schema operation history reuses the 256 KiB serialized page bound the
+	// ledger enforces when it decides how many receipts fit one page, so a
+	// page the ledger was willing to build is a page the router can deliver.
+	maximumOperationPageResponseBytes = 256<<10 + responseFraming
 )

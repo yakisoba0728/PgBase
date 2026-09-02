@@ -72,6 +72,13 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		// write timeout, so it is the only holder of the schema-apply deadline.
 		{method: "POST", pattern: "/api/admin/collections/apply", access: accessAdminSession,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineSchemaApply, handler: http.HandlerFunc(schemas.apply)},
+		// The recovery surface for a guarded apply. Both routes verify the
+		// current administrator and the operation owner, so a receipt is only
+		// ever readable by the administrator who created it.
+		{method: "GET", pattern: "/api/admin/schema-operations", access: accessAdminSession,
+			response: atomicJSON(maximumOperationPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationHistory)},
+		{method: "GET", pattern: "/api/admin/schema-operations/{id}", access: accessAdminSession,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationStatus)},
 		{method: "GET", pattern: "/api/admin/collections", access: accessAdminBearer,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
 		{method: "GET", pattern: "/api/admin/system", access: accessAdminBearer,
