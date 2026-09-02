@@ -30,9 +30,9 @@ type Runtime struct {
 }
 
 // RegisterWriter creates the process identity and performs the mandatory
-// initial heartbeat before the caller can construct a writer. Release A0 is
-// allowed to start on the exact v6 history, where the lease table does not yet
-// exist; its Run loop switches to a durable lease as soon as v7 appears.
+// initial heartbeat before the caller can construct a writer. The version is a
+// parameter because the rollout's fences are per release, but both shipped
+// callers pass WriterC; the earlier versions are reached only from tests.
 func RegisterWriter(ctx context.Context, service *Service, version WriterVersion) (*Runtime, error) {
 	if service == nil || version < WriterA0 || version > WriterC {
 		return nil, ErrInvalidState
