@@ -1,18 +1,11 @@
 import { parseJSON, stringifyJSON } from "../backend/json";
-import type { CollectionDefinition, FieldDefinition, RecordData, RecordValue } from "../backend/ports";
+import type { FieldDefinition, RecordData, RecordValue } from "../backend/ports";
 
 export type FieldState = { kind: "unset" } | { kind: "null" } | { kind: "value"; value: string | boolean };
 export type Draft = Record<string, FieldState>;
 
-export interface RelationTargetOption { id: string; label: string }
-export type RelationTargetSearch =
-  | { filter: string; sort?: string; displayField?: FieldDefinition }
-  | { problem: "invalid-uuid" | "too-long" };
-
 const canonicalUUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const nilUUID = "00000000-0000-0000-0000-000000000000";
-const filterFieldPattern = /^[a-z_][a-z0-9_]*$/;
-const maximumSearchBytes = 1024;
 
 type RelationCode = "relation_invalid_value" | "duplicate_relation_value" | "relation_min_select" | "relation_max_select";
 
@@ -27,13 +20,21 @@ function relationOf(field: FieldDefinition) {
   return field.relation;
 }
 
-function canonical(value: string): string {
+/** The canonical, non-zero form of a relation id, or null when the text is not
+ * one. A relation column is a foreign key, so the all-zero UUID names no row. */
+export function canonicalRelationID(value: string): string | null {
   const normalized = value.trim().toLowerCase();
-  if (!canonicalUUID.test(normalized) || normalized === nilUUID) throw new RelationValueError("relation_invalid_value");
-  return normalized;
+  return canonicalUUID.test(normalized) && normalized !== nilUUID ? normalized : null;
 }
 
-function members(draft: string): string[] {
+function canonical(value: string): string {
+  const id = canonicalRelationID(value);
+  if (id === null) throw new RelationValueError("relation_invalid_value");
+  return id;
+}
+
+/** The ordered, non-blank ids a multiple-relation draft holds. */
+export function relationDraftMembers(draft: string): string[] {
   return draft.split(/\r?\n/).map((member) => member.trim()).filter((member) => member !== "");
 }
 
@@ -42,19 +43,19 @@ function relationDraft(field: FieldDefinition, value: RecordValue | undefined): 
   if (value === undefined || value === null) return "";
   if (relation.cardinality === "single") {
     if (typeof value !== "string") return String(value);
-    try { return canonical(value); } catch { return value; }
+    return canonicalRelationID(value) ?? value;
   }
   if (!Array.isArray(value)) return String(value);
   return value.map((member) => {
     if (typeof member !== "string") return String(member);
-    try { return canonical(member); } catch { return member; }
+    return canonicalRelationID(member) ?? member;
   }).join("\n");
 }
 
 function encodeRelation(field: FieldDefinition, draft: string): RecordValue {
   const relation = relationOf(field);
   if (relation.cardinality === "single") return canonical(draft);
-  const entries = members(draft);
+  const entries = relationDraftMembers(draft);
   if (entries.length < relation.minSelect) throw new RelationValueError("relation_min_select");
   if (entries.length > relation.maxSelect) throw new RelationValueError("relation_max_select");
   const ids = entries.map(canonical);
@@ -186,46 +187,13 @@ export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<
   return { input, errors };
 }
 
-export function relationTargetSearchField(collection: CollectionDefinition): FieldDefinition | undefined {
-  return collection.fields
-    .slice()
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .find((field) => field.type === "text" && (field.indexed || field.unique) && filterFieldPattern.test(field.name));
-}
-
-function quoted(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-/** Builds one exact, indexed lookup; the record port supplies the page bound. */
-export function relationTargetSearch(collection: CollectionDefinition, query: string): RelationTargetSearch {
-  const displayField = relationTargetSearchField(collection);
-  if (displayField === undefined) {
-    try { return { filter: `id = ${quoted(canonical(query))}` }; }
-    catch { return { problem: "invalid-uuid" }; }
-  }
-  if (query.includes("\0") || new TextEncoder().encode(query).length > maximumSearchBytes) return { problem: "too-long" };
-  return { displayField, filter: `${displayField.name} = ${quoted(query)}`, sort: displayField.name };
-}
-
-/** Ignores malformed server rows rather than putting an invalid id in a draft. */
-export function relationTargetOption(record: RecordData, displayField?: FieldDefinition): RelationTargetOption | undefined {
-  if (typeof record.id !== "string") return undefined;
-  let id: string;
-  try { id = canonical(record.id); } catch { return undefined; }
-  const display = displayField === undefined ? undefined : record[displayField.name];
-  return { id, label: typeof display === "string" && display !== "" ? display : id };
-}
-
 /** Applies a picker selection while preserving ordered-unique multi semantics. */
 export function selectRelationTarget(field: FieldDefinition, draft: string, selectedID: string): { draft: string; status: "selected" | "duplicate" | "max" } {
   const relation = relationOf(field);
   const id = canonical(selectedID);
   if (relation.cardinality === "single") return { draft: id, status: "selected" };
-  const entries = members(draft);
-  const duplicate = entries.some((member) => {
-    try { return canonical(member) === id; } catch { return false; }
-  });
+  const entries = relationDraftMembers(draft);
+  const duplicate = entries.some((member) => canonicalRelationID(member) === id);
   if (duplicate) return { draft: entries.join("\n"), status: "duplicate" };
   if (entries.length >= relation.maxSelect) return { draft: entries.join("\n"), status: "max" };
   return { draft: [...entries, id].join("\n"), status: "selected" };
