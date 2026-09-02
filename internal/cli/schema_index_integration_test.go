@@ -61,18 +61,23 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 		t.Fatalf("refused activation moved the capability: %#v", got)
 	}
 
-	// A live writer at this binary's compiler version is what an operator
-	// confirms as the witness.
+	// A live writer at this binary's compiler version is what an operator confirms as
+	// the witness. This test covers the CLI wiring, not the fleet rule, so the lease is
+	// seeded directly -- but the generation must track schema.schemaCompilerVersion, and
+	// the activate below is what fails loudly if it ever drifts again. R11 moved it from
+	// 2 to 3 because the pre-companion binaries also declared 2.
 	instanceID := "0199c300-0000-7000-8000-000000000001"
+	const writerGeneration = 3
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.schema_writer_leases
 		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
-		values ($1, 2, transaction_timestamp(), transaction_timestamp(),
-			transaction_timestamp() + interval '90 seconds')`, instanceID); err != nil {
+		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
+			transaction_timestamp() + interval '90 seconds')`,
+		instanceID, writerGeneration); err != nil {
 		t.Fatal(err)
 	}
 	witnessed := readSchemaIndexStatus(t, databaseURL)
 	if len(witnessed.Writers) != 1 || witnessed.Writers[0].InstanceID != instanceID ||
-		witnessed.Writers[0].CompilerVersion != 2 {
+		witnessed.Writers[0].CompilerVersion != writerGeneration {
 		t.Fatalf("status did not report the live writer: %#v", witnessed)
 	}
 

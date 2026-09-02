@@ -60,7 +60,7 @@ func (s *Service) preflightLegacyApply(ctx context.Context, intent ApplyIntent) 
 	if err != nil {
 		return err
 	}
-	if plan.Checksum != intent.checksum && alternate != intent.checksum {
+	if plan.Checksum != intent.checksum && alternate.Checksum != intent.checksum {
 		return ErrConflict
 	}
 	return nil
@@ -195,9 +195,18 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, err
 	}
 	claimed := hex.EncodeToString(claim.row.planChecksum[:])
-	if (plan.Checksum != claimed && alternate != claimed) ||
+	if (plan.Checksum != claimed && alternate.Checksum != claimed) ||
 		plan.BaseVersion != claim.row.baseVersion || plan.Operation != string(claim.row.operation) {
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
+	}
+	// A checksum approves one statement list, not a change in the abstract. So when the
+	// caller approved the other generation's plan, that plan is what runs: the DDL below,
+	// the recorded plan JSON beside the caller's checksum, and whether companions got
+	// built all follow it, not this binary's capability. Running the capability's plan
+	// would apply DDL nobody approved and permanently belie the row's own checksum.
+	executedCompanions := companions
+	if plan.Checksum != claimed {
+		plan, executedCompanions = alternate, !companions
 	}
 
 	var result ApplyResult
@@ -256,7 +265,7 @@ func (s *Service) executeClaimedOperation(
 	// A schema writer that never proves its version also never mutates the
 	// catalog, so an activation reading unexpired leases sees every writer that
 	// could still be holding an old plan.
-	if err := s.refreshSchemaWriterLease(ctx, tx); err != nil {
+	if err := s.refreshSchemaWriterLease(ctx, tx, schemaCompilerVersion); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}
 	started := time.Now()
@@ -298,12 +307,14 @@ func (s *Service) executeClaimedOperation(
 	if err != nil {
 		return ApplyResult{}, nil, operationRow{}, fmt.Errorf("compile committed schema catalog: %w", err)
 	}
-	// D2-4 splits catalog changes by whether they can leave a companion unbuilt. An
-	// update to an existing collection can add a nullable indexed field whose companion
-	// nothing has built, so it closes the gate and the approved CIC maintenance path
-	// reopens it. A v2 create built its own companions here and a delete drops its table
-	// with every index on it; neither leaves a gap, so both carry the capability over.
-	if err := settleCompanionIndexCapability(ctx, tx, companions && intent.change.kind != changeUpdate,
+	// D2-4 splits catalog changes by whether they can leave a companion unbuilt, which is
+	// a property of the manifest this transaction commits, not of the kind of change. The
+	// exception is self-closing: a v2 create is the only plan that builds a companion, and
+	// a create only adds its own table's, so it fills every gap it opens.
+	builtItsOwn := executedCompanions && intent.change.kind == changeCreate
+	if err := settleCompanionIndexCapability(ctx, tx, companions && (builtItsOwn ||
+		!companionGapAfterChange(currentCatalog.expectedPhysicalSchema.companion,
+			nextCatalog.expectedPhysicalSchema.companion)),
 		newVersion, int64(len(nextCatalog.expectedPhysicalSchema.companion))); err != nil {
 		return ApplyResult{}, nextCatalog, operationRow{}, err
 	}
@@ -323,14 +334,35 @@ func (s *Service) executeClaimedOperation(
 }
 
 // companionCapabilityReady reports whether this binary may issue the v2 plan format.
-// Migration 8 states it as one rule, not two: only 'ready' means the writer issues v2
-// and consumers may require a companion. A database predating it has no row, so v1.
+// A database predating migration 8 has no row, so v1.
+//
+// 'ready' alone is not enough: migration 8 made state the whole rule, but the generation
+// it trusted named two compilers, so a row could be ready on a proof that proved nothing.
+// The proved generation joins the gate; a carried capability issues v1 until re-proved.
 func companionCapabilityReady(ctx context.Context, db database.DBTX) (bool, error) {
 	status, err := ReadCompanionIndexStatus(ctx, db)
 	if err != nil {
 		return false, err
 	}
-	return status.Ready(), nil
+	return status.Ready() && status.ProvenCompilerVersion >= schemaCompilerVersion, nil
+}
+
+// companionGapAfterChange reports whether the committed manifest names a companion the
+// previous one did not. That, not the kind of the change, is what 'ready' promises
+// consumers they may require, so it alone has to close the gate. It is what lets an
+// update naming no new companion — a rename, a no-op re-apply — carry the capability
+// instead of costing a re-rollout, and it settles delete: a delete only removes entries.
+func companionGapAfterChange(current, next []IndexSpec) bool {
+	existing := make(map[string]struct{}, len(current))
+	for _, companion := range current {
+		existing[companionKey(companion)] = struct{}{}
+	}
+	for _, companion := range next {
+		if _, present := existing[companionKey(companion)]; !present {
+			return true
+		}
+	}
+	return false
 }
 
 // settleCompanionIndexCapability closes the gate, or carries a ready capability onto

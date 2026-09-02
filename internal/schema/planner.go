@@ -65,19 +65,21 @@ func compilePlan(catalog Catalog, change Change, companions bool) (Plan, error) 
 	return plan, err
 }
 
-// compileMixedFleetPlan compiles the plan this binary will execute and, beside it,
-// the checksum the other live generation produces for the same change. R5 requires
-// dual validation across the mixed-fleet window: a preview from a writer at the other
+// compileMixedFleetPlan compiles the plan this binary would issue and, beside it,
+// the plan the other live generation produces for the same change. R5 requires dual
+// validation across the mixed-fleet window: a preview from a writer at the other
 // generation, or from this one before an activation moved the capability, must still
-// apply. Both plans carry the same definition, operation and base version, so either
-// admits nothing new, and the second compile cannot fail where the first did not.
-func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Plan, string, error) {
+// apply. Both carry the same definition, operation and base version, so neither admits
+// a catalog change the other would refuse — but their statement lists differ, which is
+// the whole point of the v2 generation. So the apply must execute the plan the caller's
+// checksum names, not this binary's preference; both are returned whole so it can.
+func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Plan, Plan, error) {
 	issued, err := compilePlan(catalog, change, companions)
 	if err != nil {
-		return Plan{}, "", err
+		return Plan{}, Plan{}, err
 	}
 	alternate, err := compilePlan(catalog, change, !companions)
-	return issued, alternate.Checksum, err
+	return issued, alternate, err
 }
 
 func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (Plan, error) {

@@ -17,7 +17,11 @@ import (
 // It is durable state in pgbase_meta.schema_writer_leases, so an activation can
 // prove no live schema writer predates the companion contract instead of
 // trusting an operational drain.
-const schemaCompilerVersion int16 = 2
+//
+// It is 3, not 2: the v1-only binaries already declared 2 (see d3fb5eb), as did the one
+// issuing v2, so a lease at 2 named neither and the fleet check could not tell a mixed
+// fleet from a converged one. Migration 9 demotes every capability proved under it.
+const schemaCompilerVersion int16 = 3
 
 // companionIndexAdvisoryKey serializes concurrent index maintenance. It is a
 // session lock rather than a transaction lock because CREATE INDEX CONCURRENTLY
@@ -61,14 +65,17 @@ var (
 // pending, never an error, so the P0 artifact behaves identically on both
 // declared histories.
 type CompanionIndexStatus struct {
-	Installed       bool
-	State           CompanionIndexState
-	Generation      int64
-	CatalogVersion  *int64
-	BuildingAt      *time.Time
-	ReadyAt         *time.Time
-	ReadyIndexCount *int64
-	UpdatedAt       time.Time
+	Installed  bool
+	State      CompanionIndexState
+	Generation int64
+	// ProvenCompilerVersion is the generation the fleet was proved at when this rollout
+	// was opened, and 0 when none is. State alone cannot say which binary proved it.
+	ProvenCompilerVersion int16
+	CatalogVersion        *int64
+	BuildingAt            *time.Time
+	ReadyAt               *time.Time
+	ReadyIndexCount       *int64
+	UpdatedAt             time.Time
 }
 
 // Ready reports whether companions are a required physical contract right now.
@@ -211,16 +218,21 @@ func readSchemaWriterLeases(ctx context.Context, db database.DBTX) ([]SchemaWrit
 
 func companionIndexInstalled(ctx context.Context, db database.DBTX) (bool, error) {
 	var installed bool
-	if err := db.QueryRow(ctx, `select
-		to_regclass('pgbase_meta.schema_companion_index_capability') is not null
-		and to_regclass('pgbase_meta.schema_writer_leases') is not null`).Scan(&installed); err != nil {
+	// The column test doubles as the table test, since a missing relation makes
+	// attrelid null and matches nothing. A capability predating migration 9 has no
+	// proved generation to read, so it counts as absent and the pre-migration rule --
+	// no readable capability means v1 -- covers every older history at once.
+	if err := db.QueryRow(ctx, `select to_regclass('pgbase_meta.schema_writer_leases') is not null
+		and exists (select 1 from pg_attribute where attname = 'proven_compiler_version'
+			and attrelid = to_regclass('pgbase_meta.schema_companion_index_capability'))`).Scan(&installed); err != nil {
 		return false, fmt.Errorf("inspect schema companion index installation: %w", err)
 	}
 	return installed, nil
 }
 
-const companionCapabilitySelect = `select state, generation, catalog_version,
-	building_at, ready_at, ready_index_count, updated_at
+const companionCapabilitySelect = `select state, generation,
+	coalesce(proven_compiler_version, 0), catalog_version, ready_index_count,
+	building_at, ready_at, updated_at
 	from pgbase_meta.schema_companion_index_capability where singleton`
 
 // ReadCompanionIndexStatus reads the rollout capability alone. A caller that
@@ -239,8 +251,9 @@ func ReadCompanionIndexStatus(ctx context.Context, db database.DBTX) (CompanionI
 func scanCompanionIndexStatus(row pgx.Row) (CompanionIndexStatus, error) {
 	status := CompanionIndexStatus{Installed: true}
 	var state string
-	if err := row.Scan(&state, &status.Generation, &status.CatalogVersion,
-		&status.BuildingAt, &status.ReadyAt, &status.ReadyIndexCount, &status.UpdatedAt); err != nil {
+	if err := row.Scan(&state, &status.Generation, &status.ProvenCompilerVersion,
+		&status.CatalogVersion, &status.ReadyIndexCount,
+		&status.BuildingAt, &status.ReadyAt, &status.UpdatedAt); err != nil {
 		return CompanionIndexStatus{}, fmt.Errorf("read schema companion index capability: %w", err)
 	}
 	switch CompanionIndexState(state) {
@@ -252,11 +265,13 @@ func scanCompanionIndexStatus(row pgx.Row) (CompanionIndexStatus, error) {
 	return status, nil
 }
 
-// refreshSchemaWriterLease records this process as a live schema writer at this
-// binary's compiler version. It runs inside the caller's transaction so a schema
-// write and its version claim commit together: a writer that never proves its
-// version also never mutates the catalog.
-func (s *Service) refreshSchemaWriterLease(ctx context.Context, tx pgx.Tx) error {
+// refreshSchemaWriterLease records this process as a live schema writer at a
+// compiler version. It runs inside the caller's transaction so a schema write and
+// its version claim commit together: a writer that never proves its version also
+// never mutates the catalog. The version is a parameter with one production caller
+// passing this binary's own, so a test can stand up an older writer through this
+// statement instead of hand-writing a row no shipped binary would have produced.
+func (s *Service) refreshSchemaWriterLease(ctx context.Context, tx pgx.Tx, version int16) error {
 	installed, err := companionIndexInstalled(ctx, tx)
 	if err != nil {
 		return err
@@ -276,7 +291,7 @@ func (s *Service) refreshSchemaWriterLease(ctx context.Context, tx pgx.Tx) error
 			compiler_version = excluded.compiler_version,
 			heartbeat_at = excluded.heartbeat_at,
 			lease_expires_at = excluded.lease_expires_at`,
-		instanceID, schemaCompilerVersion, schemaWriterLeaseTTL.String())
+		instanceID, version, schemaWriterLeaseTTL.String())
 	if err != nil {
 		return fmt.Errorf("refresh schema writer lease: %w", err)
 	}
@@ -297,7 +312,7 @@ func demoteCompanionIndexCapability(ctx context.Context, tx pgx.Tx) error {
 	}
 	if _, err := tx.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
 		set state = 'pending', catalog_version = null, building_at = null,
-			ready_at = null, ready_index_count = null,
+			ready_at = null, ready_index_count = null, proven_compiler_version = null,
 			updated_at = transaction_timestamp()
 		where singleton and state <> 'pending'`); err != nil {
 		return fmt.Errorf("demote schema companion index capability: %w", err)
@@ -333,13 +348,16 @@ func (s *Service) ActivateCompanionIndexes(ctx context.Context, proof SchemaWrit
 				return err
 			}
 			generation := status.Generation + 1
+			// verifySchemaWriterFleet just proved every live writer at this binary's
+			// generation, so the row records it. Nothing else may write that column.
 			row := tx.QueryRow(ctx, `update pgbase_meta.schema_companion_index_capability
 				set state = 'building', generation = $1, catalog_version = $2,
+					proven_compiler_version = $3,
 					building_at = transaction_timestamp(), ready_at = null,
 					ready_index_count = null, updated_at = transaction_timestamp()
 				where singleton
 				returning generation, catalog_version, building_at`,
-				generation, version)
+				generation, version, schemaCompilerVersion)
 			var buildingAt time.Time
 			if err := row.Scan(&receipt.Generation, &receipt.CatalogVersion, &buildingAt); err != nil {
 				return fmt.Errorf("open schema companion index rollout: %w", err)
@@ -367,7 +385,7 @@ func (s *Service) RollbackCompanionIndexes(ctx context.Context) (CompanionIndexR
 			}
 			row := tx.QueryRow(ctx, `update pgbase_meta.schema_companion_index_capability
 				set state = 'pending', catalog_version = null, building_at = null,
-					ready_at = null, ready_index_count = null,
+					ready_at = null, ready_index_count = null, proven_compiler_version = null,
 					updated_at = transaction_timestamp()
 				where singleton
 				returning generation, updated_at`)

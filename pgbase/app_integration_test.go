@@ -202,7 +202,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 8 {
+	if len(migrations) != 9 || migrations[8].Version != 9 {
 		t.Fatalf("record-membership release-B manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -217,13 +217,15 @@ func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 		{name: "v5 rejected without auto-upgrade", through: 5, autoMigrate: true},
 		{name: "v6 rejected", through: 6},
 		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
-		// v7 and v8 are the two histories this artifact declares: it must serve
-		// the fleet both before and after the companion index migration.
-		{name: "v7 accepted", through: 7, wantAccept: true},
-		{name: "v8 accepted", through: 8, wantAccept: true},
+		// R11 declares exactly one history. Migration 9 adds a column every
+		// companion capability read names, so this artifact cannot serve v8: the
+		// two-history window v8 opened is closed rather than widened.
+		{name: "v7 rejected", through: 7},
+		{name: "v8 rejected", through: 8},
+		{name: "v9 accepted", through: 9, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
-		{name: "dirty v7 rejected", through: 7, dirty: true},
 		{name: "dirty v8 rejected", through: 8, dirty: true},
+		{name: "dirty v9 rejected", through: 9, dirty: true},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {

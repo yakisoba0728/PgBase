@@ -32,9 +32,9 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 
 func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	migrations := system.Migrations()
-	// The accepted pair follows the declared P0 compatibility range, which is the
-	// last two embedded histories.
-	if len(migrations) != 8 || migrations[6].Version != 7 || migrations[7].Version != 8 {
+	// R11 narrowed the declared range to the exact latest history: migration 9 adds
+	// a column every companion capability read names, so v8 is no longer servable.
+	if len(migrations) != 9 || migrations[8].Version != 9 {
 		t.Fatalf("preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -45,9 +45,10 @@ func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	}{
 		{name: "v5 rejected", through: 5, wantCode: "migration_not_current"},
 		{name: "v6 rejected", through: 6, wantCode: "migration_not_current"},
-		{name: "v7 accepted", through: 7},
-		{name: "v8 accepted", through: 8},
-		{name: "dirty v7 rejected", through: 7, dirty: true, wantCode: "migration_checksum_mismatch"},
+		{name: "v7 rejected", through: 7, wantCode: "migration_not_current"},
+		{name: "v8 rejected", through: 8, wantCode: "migration_not_current"},
+		{name: "v9 accepted", through: 9},
+		{name: "dirty v9 rejected", through: 9, dirty: true, wantCode: "migration_checksum_mismatch"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {

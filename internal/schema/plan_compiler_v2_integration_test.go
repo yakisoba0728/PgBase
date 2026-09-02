@@ -4,8 +4,11 @@ package schema
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,10 +137,132 @@ func TestReadyCapabilityCreatesACollectionWithItsCompanionInOneTransaction(t *te
 	}
 }
 
-// The narrowing has to stop at an update. Adding a nullable indexed field to an
-// existing collection can name a companion nothing has built, so it still closes
-// the gate and still costs the approved CIC maintenance path. This is the test
-// that fails if the demote is deleted instead of narrowed.
+// P2-C. The gate closes on what the change does to the companion manifest, not on the
+// kind of the change. Keying on the kind demoted every update, so a rename or a re-apply
+// that names no new companion still cost a full activate-and-build round for adding
+// nothing. Both cases here change the catalog -- so this is not "nothing happened" --
+// while adding no companion the catalog did not already expect.
+func TestAnUpdateThatAddsNoCompanionCarriesTheCapability(t *testing.T) {
+	pool, service, administratorID, collection := readyCompanionFixture(t)
+	before := companionStatus(t, service)
+	if !before.Ready() {
+		t.Fatalf("capability before the updates = %#v", before)
+	}
+
+	unchanged := []FieldInput{
+		{Name: "title", Type: TypeText, Required: true, Indexed: true},
+		{Name: "nickname", Type: TypeText, Indexed: true},
+	}
+	for _, testCase := range []struct {
+		name   string
+		fields []FieldInput
+	}{
+		{name: "re-applying the same fields", fields: unchanged},
+		// An unindexed column is never sortable, so it names no companion however
+		// nullable it is. This is the case that separates the manifest rule from
+		// "the catalog did not change".
+		{name: "adding an unindexed field", fields: append(append([]FieldInput(nil), unchanged...),
+			FieldInput{Name: "memo", Type: TypeText})},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			applyChange(t, service, NewUpdateChange(UpdateCollectionInput{
+				Name: collection.Name, Fields: testCase.fields,
+			}), administratorID)
+
+			status := companionStatus(t, service)
+			if !status.Ready() {
+				t.Fatalf("capability after %s = %#v", testCase.name, status)
+			}
+			// Carrying it means carrying it onto the catalog just committed, or
+			// doctor compares a promoted count against a version that moved.
+			if version := currentCatalogVersion(t, service); companionCatalogVersion(status) != version {
+				t.Fatalf("carried capability catalog version = %d, want %d",
+					companionCatalogVersion(status), version)
+			}
+			if status.ReadyIndexCount == nil || *status.ReadyIndexCount != 1 {
+				t.Fatalf("carried companion count = %v, want 1", status.ReadyIndexCount)
+			}
+			if status.Generation != before.Generation {
+				t.Fatalf("generation moved to %d without a new rollout", status.Generation)
+			}
+			if diagnostics := readDiagnostics(t, pool); diagnostics.Expected != 1 ||
+				diagnostics.Valid != 1 || diagnostics.Missing != 0 {
+				t.Fatalf("diagnostics after %s = %#v", testCase.name, diagnostics)
+			}
+		})
+	}
+}
+
+// P1-B, forward-looking. Migration 9 demotes every capability proved under the
+// ambiguous generation once, but the same shape recurs at every later generation bump:
+// a row left ready by an older compiler names a proof that says nothing about this
+// binary. State alone cannot express that, which is why the proved generation is part
+// of the gate rather than a second value beside it.
+func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
+	ctx := context.Background()
+	pool, service, administratorID, _ := readyCompanionFixture(t)
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set proven_compiler_version = $1 where singleton`, schemaCompilerVersion-1); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := NewCreateChange(companionShapedCollection("companion_stale_proof"))
+	issued, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatalf("preview under a stale proof: %v", err)
+	}
+	v1, err := compilePlan(catalog, change, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.Checksum != v1.Checksum {
+		t.Fatalf("a capability proved by an older generation issued %q, want the v1 checksum",
+			issued.Checksum)
+	}
+	// The row still reads 'ready' -- it is the proof behind it that is stale, and
+	// that is exactly what a state-only gate could not see.
+	if status := companionStatus(t, service); status.State != CompanionIndexReady {
+		t.Fatalf("state under a stale proof = %#v", status)
+	}
+	created := applyChange(t, service, change, administratorID).Collection
+	assertCompanionIndexAbsent(t, pool, companionSpec(t, service, created, "nickname"))
+	// And that v1 create closes the gate in its own transaction. This is what lets
+	// consumers keep reading Ready() as a state: a companion-less collection can never
+	// be committed under a row still claiming companions are required.
+	if status := companionStatus(t, service); status.State != CompanionIndexPending {
+		t.Fatalf("capability after a v1 create under a stale proof = %#v", status)
+	}
+
+	// Re-proving the fleet is what restores v2, and it goes through the ordinary
+	// operator path rather than a repair of the row.
+	activateCompanionRollout(t, service)
+	if _, err := service.MaintainCompanionIndexes(ctx); err != nil {
+		t.Fatalf("maintain companion indexes after re-proving: %v", err)
+	}
+	reproved, err := service.Preview(ctx, NewCreateChange(companionShapedCollection("companion_reproved")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reprovedCatalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := compilePlan(reprovedCatalog, NewCreateChange(companionShapedCollection("companion_reproved")), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reproved.Checksum != v2.Checksum {
+		t.Fatalf("re-proved capability issued %q, want the v2 checksum", reproved.Checksum)
+	}
+}
+
+// The control for the manifest rule. Adding a nullable indexed field names a companion
+// nothing has built, so this update does close the gate and does cost the approved CIC
+// maintenance path. Without it the rule above could simply never demote.
 func TestUpdatingAnExistingCollectionStillClosesTheCompanionGate(t *testing.T) {
 	ctx := context.Background()
 	pool, service, administratorID, collection := readyCompanionFixture(t)
@@ -171,10 +296,10 @@ func TestUpdatingAnExistingCollectionStillClosesTheCompanionGate(t *testing.T) {
 	assertCompanionIndexShape(t, pool, companionSpec(t, service, collection, "handle"))
 }
 
-// D2-4 names create and update. A delete is neither, and it cannot leave a
-// companion unbuilt because dropping the table drops every index on it, so it
-// carries the capability rather than closing it. Carrying it means moving the
-// promoted count too: doctor compares that count against the catalog.
+// Delete carries, and under the manifest rule it does so for a reason rather than as a
+// policy extension: a delete only removes manifest entries, so it can never name a
+// companion nothing has built. Carrying the capability means moving the promoted count
+// too, because doctor compares that count against the catalog.
 func TestDeletingACollectionCarriesTheCompanionCapability(t *testing.T) {
 	pool, service, administratorID, _ := readyCompanionFixture(t)
 	created := applyChange(t, service,
@@ -226,10 +351,16 @@ func TestApplyAcceptsAPlanChecksumFromEitherCompilerGeneration(t *testing.T) {
 	if pendingIssued.Checksum != v1.Checksum {
 		t.Fatalf("pending capability issued %q, want the v1 checksum", pendingIssued.Checksum)
 	}
-	if _, err := service.Apply(ctx, LegacyApply(change,
-		Plan{Checksum: v2.Checksum, BaseVersion: pendingCatalog.Version}, administratorID)); err != nil {
+	pendingResult, err := service.Apply(ctx, LegacyApply(change,
+		Plan{Checksum: v2.Checksum, BaseVersion: pendingCatalog.Version}, administratorID))
+	if err != nil {
 		t.Fatalf("a v1 writer refused a v2 checksum: %v", err)
 	}
+	// The mirror image, and the half that proves the selection is not simply
+	// "always run v1": a pending writer that accepted the v2 checksum must build the
+	// companion that statement list names.
+	assertCompanionIndexShape(t, pool, companionSpec(t, service, pendingResult.Collection, "nickname"))
+	assertMigrationPlanMatchesChecksum(t, pool, currentCatalogVersion(t, service), v2)
 
 	activateCompanionRollout(t, service)
 	if _, err := service.MaintainCompanionIndexes(ctx); err != nil {
@@ -264,11 +395,66 @@ func TestApplyAcceptsAPlanChecksumFromEitherCompilerGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a v2 writer refused a v1 checksum: %v", err)
 	}
-	// The writer executes its own plan, so the companion is built even though the
-	// caller only ever agreed to the v1 statement list.
-	assertCompanionIndexShape(t, pool, companionSpec(t, service, result.Collection, "nickname"))
-	if status := companionStatus(t, service); !status.Ready() {
-		t.Fatalf("capability after a dual-validated create = %#v", status)
+	// P1-A. Accepting the checksum is only half the contract: the plan that runs must
+	// be the one the caller approved. A v2 writer that ran its own plan here would
+	// build a companion index against a caller who agreed to a statement list without
+	// one, and record a migration row whose checksum and plan JSON disagree for good.
+	assertCompanionIndexAbsent(t, pool, companionSpec(t, service, result.Collection, "nickname"))
+	assertMigrationPlanMatchesChecksum(t, pool, currentCatalogVersion(t, service), readyV1)
+	// And the capability follows the plan that actually ran, not the row that issued
+	// it: a v1 create leaves its companion unbuilt, so the gate closes.
+	if status := companionStatus(t, service); status.State != CompanionIndexPending {
+		t.Fatalf("capability after executing an approved v1 create = %#v", status)
+	}
+}
+
+// assertCompanionIndexAbsent is the negative of assertCompanionIndexShape: the index
+// the manifest names must not exist at all.
+func assertCompanionIndexAbsent(t *testing.T, pool *database.Pool, companion IndexSpec) {
+	t.Helper()
+	var present bool
+	if err := pool.QueryRow(context.Background(),
+		"select to_regclass($1) is not null",
+		pgx.Identifier{companion.Namespace, companion.Name}.Sanitize()).Scan(&present); err != nil {
+		t.Fatalf("probe companion index %s: %v", companion.Name, err)
+	}
+	if present {
+		t.Fatalf("companion index %s exists, but the executed plan never built it", companion.Name)
+	}
+}
+
+// assertMigrationPlanMatchesChecksum reads back the audit row for one schema version
+// and requires its checksum and its recorded plan to describe the same plan. They are
+// written from two different values in the apply, so a row that disagrees is permanent
+// and silent; this is the only place that compares them.
+func assertMigrationPlanMatchesChecksum(t *testing.T, pool *database.Pool, version int64, want Plan) {
+	t.Helper()
+	var checksum []byte
+	var planJSON string
+	var statements []string
+	if err := pool.QueryRow(context.Background(),
+		`select checksum, plan_json::text, sql_statements
+		from pgbase_meta.schema_migrations where version = $1`, version).
+		Scan(&checksum, &planJSON, &statements); err != nil {
+		t.Fatalf("read schema migration audit row %d: %v", version, err)
+	}
+	if got := hex.EncodeToString(checksum); got != want.Checksum {
+		t.Fatalf("migration row checksum = %s, want the approved %s", got, want.Checksum)
+	}
+	var recorded Plan
+	if err := json.Unmarshal([]byte(planJSON), &recorded); err != nil {
+		t.Fatalf("decode recorded plan: %v", err)
+	}
+	if recorded.Checksum != want.Checksum {
+		t.Fatalf("recorded plan checksum = %s, but the row's own checksum column says %s",
+			recorded.Checksum, want.Checksum)
+	}
+	if !slices.Equal(statements, want.Statements) {
+		t.Fatalf("executed statements = %v, want the approved %v", statements, want.Statements)
+	}
+	if !slices.Equal(recorded.Statements, want.Statements) {
+		t.Fatalf("recorded plan statements = %v, want the approved %v",
+			recorded.Statements, want.Statements)
 	}
 }
 
