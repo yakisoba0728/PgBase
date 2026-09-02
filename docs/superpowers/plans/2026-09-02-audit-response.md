@@ -7,6 +7,13 @@
 변이 증거를 요구하는 이유는 통과하는 테스트가 무엇을 증명하는지 알 수 없기 때문이다. 수정을 되돌렸을 때
 깨지지 않는 테스트는 그 수정에 대해 아무것도 말해주지 않는다.
 
+> **현재 판정 안내 (2026-09-03 사후 보완)**
+>
+> 아래의 “15/17 닫힘, 2건 도달 불가” 보고와 `0fdc66c → 7d9362e` 정정은 감사 과정의 역사 기록이다.
+> 현재 코드 기준점은 `d97bb109`이고, 현재 phase pin과 미완 검증은 문서 끝의
+> “최종 보고 이후 사후 보완” 절이 대체한다. 당시 주장과 실행 시간을 지우지 않는 이유는 무엇이 언제
+> 재검증됐는지를 구분하기 위해서다.
+
 ## 상태 요약
 
 | 항목 | 등급 | 상태 | 커밋 |
@@ -525,7 +532,10 @@ exported 462   interfaces 17   constructors 25   files over 800 LOC 0
 - `App.Start`도 background를 `Close`에만 묶을지 — 공개 API 의미 변경이라 godoc 명시까지만 했다.
 - doctor가 "돌지 않은 rollout"(`off` + 레코드 존재)을 탐지할지 — doctor statement 실링을 올려야 한다.
 
-# 최종 재재감사 정정 (`0fdc66c → 7d9362e`)
+# [역사 기록 · superseded] 최종 재재감사 정정 (`0fdc66c → 7d9362e`)
+
+> 이 절은 `7d9362e` 시점의 정정이다. 그 뒤 착지한 안전성 수정과 새 phase pin은 문서 끝의
+> `d97bb109` 사후 보완 절을 따른다.
 
 위의 “15/17 닫힘, 2건 도달 불가”와 “판단 대기”는 최종 판정이 아니다. 그 보고를 받은 뒤 원 계획, 두 차례
 감사 문서, 실제 과거 Git 객체와 PostgreSQL lock graph를 처음부터 다시 대조했다. 판단 대기 두 건은 다음처럼
@@ -596,3 +606,80 @@ worktree에서 권한 없이 대신 만들 수 없는 외부 실행 기록이다
 않고, branch를 push하거나 registry/tag를 변경하지도 않았다. PG17의 고부하 5초 statement-timeout 현상도
 원인을 특정하지 못했으므로 별도 환경 성능 관측으로 그대로 남긴다; 조용한 환경의 반복 통과로 원인이
 해결됐다고 주장하지 않는다.
+
+# 최종 보고 이후 사후 보완 (`7d9362e` 이후 → `d97bb109`)
+
+앞 절이 “로컬 구현은 닫혔다”고 기록한 뒤에도 recovery, 인증, release promotion 경계에서 여섯 묶음의
+추가 결함을 발견했다. 따라서 `2c942ea`와 `7d9362e`를 현재 코드나 배포 phase의 기준으로 사용하지 않는다.
+현재 main 후보는 `d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이며, 다음 수정이 순서대로 포함돼 있다.
+
+| 커밋 | 닫은 경계 |
+|---|---|
+| `da6a728` | 401 만료 전이와 logout 완료를 session generation에 묶었다. 늦게 끝난 이전 전이가 새 로그인과 CSRF 상태를 덮거나 익명 화면으로 되돌리지 못한다. |
+| `be01eec` | `latest`/`alpha`/`beta`/`rc`를 채널별로 직렬화하고 OCI version의 엄격한 단조 증가를 요구한다. 늦게 끝난 구 workflow, 다른 채널 label, 같거나 낮은 version은 registry mutation 전에 거부한다. |
+| `58b45fe` | schema apply identity를 POST 전에 관리자·route별 browser storage에 기록한다. 응답 유실, reload, 재로그인 뒤 같은 operation receipt를 복구하며 storage가 안전하지 않으면 apply 자체를 fail-closed한다. |
+| `3716e6d`, `d2701c5` | Playwright retry를 `0`으로 고정하고 다른 worker의 `running` 행 대신 결정된 receipt와 실제 새 health sample을 기다린다. UI unit test도 fresh preview 비동기 경계를 정확히 기다린다. |
+| `4a82832` | guarded operation의 ID와 idempotency key를 하나의 불변 identity로 묶었다. 같은 actor/resource/request/key로 다른 operation ID를 보내면 `ErrOperationConflict`이며 원 receipt는 바뀌지 않는다. |
+| `d97bb109` | 모든 `/api/` 응답에 중앙 `Cache-Control: no-store`를 건다. 인증·validation·operation recovery·catch-all 404도 캐시될 수 없고, 성공 handler의 중복 header는 제거했다. |
+
+## 최종 검증 입력 phase pin
+
+아래 여섯 commit이 새 artifact/process 검증의 입력이다. A0/A에는 schema-operation route가 없으므로
+`d97bb109`를 그대로 이식하지 않고, 그 route의 catch-all 404가 `no-store`임을 고정했다. B/C/P0/F의
+no-store patch는 `d97bb109`와 patch-id가 같다. 각 phase의 writer/compiler 상수와 migration bytes는
+바꾸지 않았다.
+
+| phase | branch | 최종 tip |
+|---|---|---|
+| A0 | `codex/record-membership-a0-carry-forward` | `e188d3e5855bdfd2d1ee42cb1e7712419b638336` |
+| A | `codex/record-membership-a-carry-forward` | `b94875efd59b88d4c8e082299b3acc83d4c3e82f` |
+| B | `codex/record-membership-b-carry-forward` | `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3` |
+| C | `codex/record-membership-c-carry-forward` | `5ccf2565b8232e14b3b9398c0941bb8996e7c20e` |
+| P0 | `codex/schema-p0-carry-forward` | `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14` |
+| F | `codex/schema-f-carry-forward` | `1f00fb8c05d62ba5b3a6dde3861d86e916f490cf` |
+
+## migration v9 운영 경고
+
+v9는 일반적인 `migrate up` 대상이 아니다. 먼저 pre-P0 binary를 새로 시작할 수 있는 server, one-shot CLI,
+예약된 `schema-index` job을 모두 동결하고, v8에서 P0를 full fleet에 배포해 readiness를 확인한 뒤 남은
+pre-P0 process와 in-flight schema transaction을 전부 drain해야 한다. status/catalog/manifest precheck 뒤
+maintenance lock 전에서 멈춘 구 process도 drain 대상이다. migration의 advisory lock은 이미 physical phase에
+들어간 작업만 기다릴 수 있으며 이 precheck 창을 post-commit hard fence로 바꾸지 못한다.
+
+M은 auto-migration을 끈 지정 P0 job의 `pgbase migrate up --through 9`로만 수행하고 checksum
+`19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6` 영수증을 보존한다. v9는 기존
+`building`/`ready` capability를 `pending`으로 내리므로 F full-fleet와 generation 3 lease를 확인한 뒤
+`schema-index activate`와 `schema-index build`를 다시 실행해야 한다. M 뒤 rollback은 검증된 P0만 허용하며
+pre-P0를 다시 배포하거나 migration history/object를 역수정하지 않는다.
+
+## **FINAL_VALIDATION_PENDING**
+
+이 사후 보완 묶음에 대한 최종 release-equivalent 실행은 아직 이 문서에 기록하지 않았다. 앞 절의 과거
+bundle 경로, 시간, 8/8 Playwright 결과를 새 tip의 증거로 재사용하지 않는다. 다음 칸은 실행 담당자가 exact
+snapshot에서 완료한 뒤 실제 값으로 교체한다.
+
+| 증거 | 최종 기록 |
+|---|---|
+| 검증 기준 main/manifest SHA | `FINAL_VALIDATION_PENDING` |
+| 새 8-binary bundle 경로, target/toolchain, binary SHA-256 | `FINAL_VALIDATION_PENDING` |
+| phase source/tree 및 migration-byte 대조 | `FINAL_VALIDATION_PENDING` |
+| `releaseartifacts` process/race 결과와 시간 | `FINAL_VALIDATION_PENDING` |
+| PG16/17/18 integration, PG16 race 결과와 시간 | `FINAL_VALIDATION_PENDING` |
+| Go unit/vet/lint와 repository policy 결과 | `FINAL_VALIDATION_PENDING` |
+| UI full test/typecheck/build/dist drift 결과와 시간 | `FINAL_VALIDATION_PENDING` |
+| Docker E2E/restore 결과와 시간 | `FINAL_VALIDATION_PENDING` |
+| Playwright retries=0 반복 결과, 실행 횟수와 시간 | `FINAL_VALIDATION_PENDING` |
+
+## 최종 로컬 검증 뒤에도 외부에만 남는 evidence
+
+위 `FINAL_VALIDATION_PENDING`을 실제 로컬 결과로 닫더라도 다음은 GitHub/registry 권한이 있는 실행에서만
+만들 수 있다.
+
+- push된 commit의 `macos-15` terminal job 실제 통과 기록
+- `Release phase image gate`가 GHCR에 게시한 exact candidate digest와 provenance/SBOM/custom source
+  attestation, 그리고 `gh attestation verify` 조회 기록
+- `trivy-action`의 allowlist 전달과 SARIF artifact upload가 실제 Actions runner에서 성공한 기록
+- 바로 그 candidate digest에 대한 모든 release gate 통과와 사람의 명시적 promotion 기록
+
+따라서 `FINAL_VALIDATION_PENDING` 상태에서는 로컬 완료도, 배포 승인도 주장하지 않는다. 그 표를 실제 값으로
+닫은 뒤에도 위 외부 evidence가 없으면 배포 승인을 내리지 않는다.

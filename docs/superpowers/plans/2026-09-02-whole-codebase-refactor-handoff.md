@@ -9,7 +9,67 @@
 결정 기록: [`2026-09-02-open-decisions.md`](./2026-09-02-open-decisions.md) — 구현 판단은 모두 닫혔고,
 남은 외부 CI/registry evidence는 설계 결정과 분리했다.
 
-## 2026-09-03 최종 인수인계
+## 2026-09-03 사후 보완 인수인계 — 현재 기준
+
+기존 “15/17 닫힘” 보고, `2c942ea` 기준 인수인계와 감사 대응의 `0fdc66c → 7d9362e` 정정은 아래에
+역사 기록으로 보존한다.
+둘 다 현재 build 또는 phase source로 사용하지 않는다. 현재 main 후보는
+`d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이다.
+
+최종 보고 뒤 다음 순서로 경계를 더 닫았다.
+
+- `da6a728`: 늦은 401 만료와 logout 완료가 새 로그인을 덮지 않도록 session generation fence를 추가했다.
+- `be01eec`: moving release channel을 직렬화하고 OCI version의 단조 증가를 mutation 전에 검증한다.
+- `58b45fe`: schema operation identity를 POST 전에 durable browser storage에 기록해 reload/재로그인과 응답
+  유실 뒤에도 복구하고, storage 실패는 apply를 막는다.
+- `3716e6d`, `d2701c5`: Playwright retry를 0으로 고정하고 결정된 receipt, 실제 새 health sample, fresh schema
+  preview를 기다리게 했다.
+- `4a82832`: operation ID와 idempotency key를 불변 guarded identity로 묶어 어느 한쪽을 바꾼 retry를
+  `ErrOperationConflict`로 거부한다.
+- `d97bb109`: 모든 `/api/` 성공과 오류, 인증 거부, validation, catch-all 404에 중앙
+  `Cache-Control: no-store`를 건다.
+
+새 artifact/process 검증 입력은 다음 여섯 phase tip이다. phase별 writer/compiler 상수와 migration은 유지했다.
+
+| phase | 최종 tip |
+|---|---|
+| A0 | `e188d3e5855bdfd2d1ee42cb1e7712419b638336` |
+| A | `b94875efd59b88d4c8e082299b3acc83d4c3e82f` |
+| B | `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3` |
+| C | `5ccf2565b8232e14b3b9398c0941bb8996e7c20e` |
+| P0 | `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14` |
+| F | `1f00fb8c05d62ba5b3a6dde3861d86e916f490cf` |
+
+### migration v9를 실행하기 전 필수 경고
+
+pre-P0 server, one-shot CLI, 예약 `schema-index` job의 **새 시작을 먼저 동결**한다. v8에서 P0를 full fleet에
+배포해 readiness를 확인하고, 이미 시작된 pre-P0 process와 schema transaction을 모두 drain한 뒤에만 지정
+P0 job으로 `pgbase migrate up --through 9`를 실행한다. maintenance advisory lock을 아직 잡지 않은 채
+precheck 뒤에서 멈춘 구 process는 migration lock으로 차단되지 않으므로 process drain을 생략할 수 없다.
+
+v9 checksum은 `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`이다. v9가 기존
+`building`/`ready`를 `pending`으로 내리므로 F full-fleet와 generation 3 lease를 확인한 뒤 activation/build를
+다시 수행한다. M 뒤에는 pre-P0로 rollback하지 않고 검증된 P0에서 forward-fix한다.
+
+### **FINAL_VALIDATION_PENDING**
+
+이 문서가 가리키는 새 tip들에 대해 최종 PG/artifact/E2E/restore/Playwright matrix를 완료했다고 아직
+주장하지 않는다. 아래 값은 exact snapshot 재실행 뒤 채운다.
+
+- 검증 기준 main과 manifest/integration SHA: `FINAL_VALIDATION_PENDING`
+- 새 8-binary bundle 경로와 binary SHA-256: `FINAL_VALIDATION_PENDING`
+- PG16/17/18, PG16 race 및 releaseartifacts race 시간: `FINAL_VALIDATION_PENDING`
+- UI full/typecheck/build/dist와 Docker E2E/restore 시간: `FINAL_VALIDATION_PENDING`
+- Playwright retries=0 반복 횟수, 결과와 시간: `FINAL_VALIDATION_PENDING`
+
+그 로컬 표를 닫은 뒤에도 macOS Actions 실행, GHCR candidate와 GitHub-hosted provenance/SBOM/custom
+attestation 조회, 실제 `trivy-action`/SARIF upload, exact candidate gate와 명시적 promotion은 외부 evidence로
+남는다. 그것들이 없으면 배포 승인이 아니다.
+
+상세 사후 감사 기록과 증거 슬롯은
+[`2026-09-02-audit-response.md`](./2026-09-02-audit-response.md)의 마지막 절을 따른다.
+
+## [역사 기록 · superseded] 2026-09-03 최종 인수인계 (`2c942ea` 기준)
 
 기준 main은 `refactor/whole-codebase`의 `2c942ea`이며, 배포 artifact 고정은
 `codex/record-membership-carry-forward-integration`에 준비했다. 원 계획 R0~R12와 F0~F3, 최초 감사
