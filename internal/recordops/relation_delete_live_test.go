@@ -878,26 +878,26 @@ func applyDeleteCascadeGraphSchema(t *testing.T, ctx context.Context, schemas *s
 	}})
 	rootFields = append(rootFields, deleteRelationField("cycle", "graph_diamond", schema.RelationSingle, schema.RelationCascade))
 	input := schema.UpdateCollectionInput{Name: "graph_roots", Fields: rootFields}
-	plan, err := schemas.PlanUpdate(ctx, input)
+	plan, err := schemas.Preview(ctx, schema.NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan graph cycle field: %v", err)
 	}
-	if _, err := schemas.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewUpdateChange(input), plan, administratorID)); err != nil {
 		t.Fatalf("apply graph cycle field: %v", err)
 	}
 }
 
 func applyDeleteCollection(t *testing.T, ctx context.Context, schemas *schema.Service, administratorID uuid.UUID, input schema.CreateCollectionInput) schema.Collection {
 	t.Helper()
-	plan, err := schemas.PlanCreate(ctx, input)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan collection %s: %v", input.Name, err)
 	}
-	collection, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	applied, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administratorID))
 	if err != nil {
 		t.Fatalf("apply collection %s: %v", input.Name, err)
 	}
-	return collection
+	return applied.Collection
 }
 
 func deleteRelationField(name, target string, cardinality schema.RelationCardinality, action schema.RelationDeleteAction) schema.FieldInput {

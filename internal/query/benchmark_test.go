@@ -137,18 +137,18 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 	}
 	definition := schema.CreateCollectionInput{Name: collection.Name, Fields: fieldInputs}
 	schemas := schema.NewService(pool, &schema.Cache{}, nil)
-	plan, err := schemas.PlanCreate(ctx, definition)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
 		b.Fatalf("plan benchmark collection: %v", err)
 	}
-	applied, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administratorID)
+	applied, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administratorID))
 	if err != nil {
 		b.Fatalf("apply benchmark collection: %v", err)
 	}
-	seedBenchmarkRecords(b, pool, applied)
+	seedBenchmarkRecords(b, pool, applied.Collection)
 
 	var seededID uuid.UUID
-	table := pgx.Identifier{"app", applied.TableName}.Sanitize()
+	table := pgx.Identifier{"app", applied.Collection.TableName}.Sanitize()
 	if err := pool.QueryRow(ctx, "select id from "+table+` order by created_at, id limit 1`).Scan(&seededID); err != nil {
 		b.Fatalf("read seeded benchmark record: %v", err)
 	}

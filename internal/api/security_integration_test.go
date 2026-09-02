@@ -110,11 +110,11 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	}
 	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	input := schema.CreateCollectionInput{Name: "records"}
-	plan, err := schemas.PlanCreate(context.Background(), input)
+	plan, err := schemas.Preview(context.Background(), schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan records collection: %v", err)
 	}
-	collection, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, session.Administrator.ID)
+	applied, err := schemas.Apply(context.Background(), schema.LegacyApply(schema.NewCreateChange(input), plan, session.Administrator.ID))
 	if err != nil {
 		t.Fatalf("create records collection: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	codec := cursor.NewCodec(testTokenSecret)
 	valid, err := codec.Encode(cursor.Page{
 		Version:      cursor.Version5,
-		CollectionID: collection.ID,
+		CollectionID: applied.Collection.ID,
 		Values: []json.RawMessage{
 			json.RawMessage(`"2026-08-28T00:00:00Z"`),
 			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),
