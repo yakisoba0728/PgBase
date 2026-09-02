@@ -242,8 +242,8 @@ func newWithCatalogPreflight(
 			return nil
 		})},
 	}}
-	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
-	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
+	schemaService := schema.NewService(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
+	schemaListener := schema.NewListener(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
 	if err != nil {
@@ -259,7 +259,7 @@ func newWithCatalogPreflight(
 		normalized.AdminSessionTTL,
 		nil,
 	)
-	recordService := recordops.NewServiceWithMembershipRuntime(
+	recordService := recordops.NewService(
 		pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics, membershipRuntime,
 	)
 	adminHandler, err := adminui.Handler()

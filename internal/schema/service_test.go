@@ -271,7 +271,7 @@ func newSchemaServiceTest(t *testing.T, planner Planner) (*database.Pool, *Servi
 		values ($1, 'schema-test@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
 		t.Fatalf("insert administrator: %v", err)
 	}
-	return pool, NewService(pool, &Cache{}, planner), administratorID
+	return pool, NewService(pool, &Cache{}, planner, nil), administratorID
 }
 
 func applyFreshPlan(t *testing.T, service *Service, input CreateCollectionInput, administratorID uuid.UUID) Collection {

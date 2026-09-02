@@ -148,7 +148,7 @@ func TestPreviewAndApplyRejectCatalogLimitWithoutCommittingDDL(t *testing.T) {
 func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
 	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
 	recorder := &schemaTelemetryRecorder{}
-	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, Planner{}, recorder)
 	ctx := context.Background()
 
 	createInput := CreateCollectionInput{Name: "telemetry_records", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
@@ -215,7 +215,7 @@ func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
 func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
 	pool, _, administratorID := newSchemaServiceTest(t, Planner{})
 	recorder := &schemaTelemetryRecorder{}
-	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, Planner{}, recorder)
 	ctx := context.Background()
 
 	targetInput := CreateCollectionInput{Name: "telemetry_targets", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
@@ -265,7 +265,7 @@ func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
 func TestRelationSchemaPlanRecordsValidationAndSkipsScalarPlans(t *testing.T) {
 	pool, _, _ := newSchemaServiceTest(t, Planner{})
 	recorder := &schemaTelemetryRecorder{}
-	service := NewServiceWithRecorder(pool, &Cache{}, Planner{}, recorder)
+	service := NewService(pool, &Cache{}, Planner{}, recorder)
 	ctx := context.Background()
 
 	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
@@ -478,7 +478,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 		values ($1, 'slow-schema@example.com', 'test', true, current_timestamp, current_timestamp)`, administratorID); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(pool, &Cache{}, Planner{})
+	service := NewService(pool, &Cache{}, Planner{}, nil)
 	input := CreateCollectionInput{Name: "slow_table"}
 	plan, err := service.PlanCreate(ctx, input)
 	if err != nil {
@@ -498,7 +498,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 
 	// Re-read through a fresh cache as a client must after a long request whose
 	// response may have raced an outer HTTP write deadline.
-	recheck := NewService(pool, &Cache{}, Planner{})
+	recheck := NewService(pool, &Cache{}, Planner{}, nil)
 	catalog, err := recheck.Catalog(ctx)
 	if err != nil {
 		t.Fatalf("recheck catalog after slow DDL: %v", err)
@@ -682,8 +682,8 @@ func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testi
 
 	firstCache := &Cache{}
 	secondCache := &Cache{}
-	firstService := NewService(firstPool, firstCache, Planner{})
-	secondService := NewService(secondPool, secondCache, Planner{})
+	firstService := NewService(firstPool, firstCache, Planner{}, nil)
+	secondService := NewService(secondPool, secondCache, Planner{}, nil)
 	snapshotPinned := make(chan struct{})
 	newerPublished := make(chan struct{})
 	type ensureResult struct{ err error }
@@ -882,7 +882,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	}
 
 	cache := &Cache{}
-	service := NewService(pool, cache, Planner{})
+	service := NewService(pool, cache, Planner{}, nil)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	plan, err := service.PlanCreate(ctx, input)
 	if err != nil {

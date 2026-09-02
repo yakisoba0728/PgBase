@@ -470,7 +470,7 @@ func TestRecordOperationsDeleteGraphReadCommittedSeesEdgeCommittedWhileWaiting(t
 		t.Fatal(err)
 	}
 	defer writerPool.Close()
-	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, schema.Planner{})
+	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, schema.Planner{}, nil)
 	writerCtx, cancelWriter := context.WithCancel(ctx)
 	defer cancelWriter()
 	writerReady := make(chan deleteWriterPreparation, 1)
@@ -692,7 +692,7 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		})
 		return err
 	}}
-	retrying := NewServiceWithRecorder(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, betweenAttempts)
+	retrying := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, betweenAttempts, nil)
 	firstValidator := bytes.Repeat([]byte{0x31}, 32)
 	secondValidator := bytes.Repeat([]byte{0x32}, 32)
 	retrying.random = bytes.NewReader(append(append([]byte(nil), firstValidator...), secondValidator...))

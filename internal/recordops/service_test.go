@@ -256,7 +256,7 @@ func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *sche
 		VALUES ($1, 'recordops@example.test', 'test', true, transaction_timestamp(), transaction_timestamp())`, administratorID); err != nil {
 		t.Fatal(err)
 	}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	definition := schema.CreateCollectionInput{Name: "records", Fields: []schema.FieldInput{
 		{Name: "title", Type: schema.TypeText, Required: true, Unique: true},
 		{Name: "count", Type: schema.TypeInteger, Default: json.RawMessage(`"0"`)},
@@ -269,7 +269,7 @@ func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *sche
 	if _, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
 		t.Fatal(err)
 	}
-	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 	return databaseURL, pool, schemas, records, Principal{Kind: PrincipalAdministrator, ID: administratorID}
 }
 
@@ -318,7 +318,7 @@ func TestRelationReadTelemetryFollowsRequestedRelationWork(t *testing.T) {
 	// leave a relation sample even though the request carries no expand, and it
 	// must not be charged to expansion, whose budgets and alerts are separate.
 	recorder := &relationTelemetryRecorder{}
-	records := NewServiceWithRecorder(nil, nil, []byte("0123456789abcdef0123456789abcdef"), nil, recorder)
+	records := NewService(nil, nil, []byte("0123456789abcdef0123456789abcdef"), nil, recorder, nil)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse(testAdministratorID)}
 	ctx := context.Background()
 	for _, request := range []ListRequest{{Sort: "owner.name"}, {Sort: "-created_at"}, {Expand: "owner"}} {

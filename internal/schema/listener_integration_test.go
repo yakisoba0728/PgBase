@@ -17,7 +17,7 @@ import (
 func TestListenerRecordsConnectReloadAndReadinessTransitions(t *testing.T) {
 	pool, _, _ := newSchemaServiceTest(t, Planner{})
 	recorder := &schemaTelemetryRecorder{}
-	listener := NewListenerWithRecorder(pool, &Cache{}, recorder)
+	listener := NewListener(pool, &Cache{}, recorder)
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- listener.Run(runCtx) }()
@@ -103,9 +103,9 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 
 	firstCache := &Cache{}
 	secondCache := &Cache{}
-	firstService := NewService(firstPool, firstCache, Planner{})
-	firstListener := NewListener(firstPool, firstCache)
-	secondListener := NewListener(secondPool, secondCache)
+	firstService := NewService(firstPool, firstCache, Planner{}, nil)
+	firstListener := NewListener(firstPool, firstCache, nil)
+	secondListener := NewListener(secondPool, secondCache, nil)
 	secondListener.retryMin = 750 * time.Millisecond
 	secondListener.retryMax = 750 * time.Millisecond
 	reloadedBeforeReady := make(chan struct{})
@@ -181,7 +181,7 @@ func TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectRead
 
 func TestListenerReadyFailsUntilInitialCatalogSynchronization(t *testing.T) {
 	pool, _, _ := newSchemaServiceTest(t, Planner{})
-	listener := NewListener(pool, &Cache{})
+	listener := NewListener(pool, &Cache{}, nil)
 	if err := listener.Ready(context.Background()); err == nil {
 		t.Fatal("listener reported ready before Run synchronized the catalog")
 	}

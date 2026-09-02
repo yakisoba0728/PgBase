@@ -269,7 +269,7 @@ func TestGuardedApplyMarksUnknownWhenAnAmbiguousCommitActuallyRollsBack(t *testi
 		WHERE operation_id = $1 AND status = 'unknown'`, operationID); err != nil {
 		t.Fatal(err)
 	}
-	restarted := NewService(pool, &Cache{}, Planner{})
+	restarted := NewService(pool, &Cache{}, Planner{}, nil)
 	processed, err := restarted.reconcileOneSchemaOperation(ctx)
 	if err != nil || !processed {
 		t.Fatalf("restart reconciliation = processed:%t error:%v", processed, err)

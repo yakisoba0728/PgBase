@@ -44,34 +44,11 @@ type Service struct {
 	members  *membershipWriterProvider
 }
 
-func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
-	var logger *slog.Logger
-	if len(loggers) > 0 {
-		logger = loggers[0]
-	}
-	return NewServiceWithRecorder(pool, schemas, cursorSecret, logger, nil)
-}
-
-func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
-	return newService(pool, schemas, cursorSecret, logger, recorder, nil)
-}
-
-// NewServiceWithMembershipRuntime uses the process-wide membership runtime
-// that the application registered and heartbeats. The older constructors keep
-// their signatures and lazily register a Release-A writer for direct package
-// users such as integration tests.
-func NewServiceWithMembershipRuntime(
-	pool *database.Pool,
-	schemas *schema.Service,
-	cursorSecret []byte,
-	logger *slog.Logger,
-	recorder observability.Recorder,
-	runtime *membership.Runtime,
-) *Service {
-	return newService(pool, schemas, cursorSecret, logger, recorder, runtime)
-}
-
-func newService(
+// A nil runtime is not a disabled membership: the writer provider registers
+// one on the first mutation, so a service built without the application's
+// heartbeating runtime still claims a durable writer lease of the same release
+// generation before it writes.
+func NewService(
 	pool *database.Pool,
 	schemas *schema.Service,
 	cursorSecret []byte,
@@ -81,7 +58,7 @@ func newService(
 ) *Service {
 	return &Service{
 		pool: pool, schemas: schemas,
-		reader: query.NewServiceWithRecorder(pool, schemas, cursorSecret, logger, recorder),
+		reader: query.NewService(pool, schemas, cursorSecret, logger, recorder),
 		logger: logger, recorder: recorder, random: rand.Reader,
 		members: newMembershipWriterProvider(pool, runtime),
 	}

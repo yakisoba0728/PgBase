@@ -379,7 +379,7 @@ func TestSchemaOperationReconcileSkipsRowClaimedByAnotherInstance(t *testing.T) 
 
 func TestSchemaOperationReconcileDrainsAcrossServiceInstances(t *testing.T) {
 	pool, first, administratorID := newSchemaServiceTest(t, Planner{})
-	second := NewService(pool, &Cache{}, Planner{})
+	second := NewService(pool, &Cache{}, Planner{}, nil)
 	createdAt := time.Now().UTC().Add(-3 * time.Minute)
 	operationIDs := []uuid.UUID{
 		uuid.MustParse("019551d0-e9c0-7000-8000-000000000711"),

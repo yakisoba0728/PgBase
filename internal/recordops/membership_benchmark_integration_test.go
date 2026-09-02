@@ -24,7 +24,7 @@ func BenchmarkHotCollectionCreate(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	latencies := make([]int64, b.N)

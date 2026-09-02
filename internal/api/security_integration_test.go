@@ -108,7 +108,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed administrator: %v", err)
 	}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	input := schema.CreateCollectionInput{Name: "records"}
 	plan, err := schemas.PlanCreate(context.Background(), input)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 		t.Fatalf("create records collection: %v", err)
 	}
 	testutil.RetireRecordMembershipV4(t, context.Background(), pool)
-	records := recordops.NewService(pool, schemas, testTokenSecret)
+	records := recordops.NewService(pool, schemas, testTokenSecret, nil, nil, nil)
 	codec := cursor.NewCodec(testTokenSecret)
 	valid, err := codec.Encode(cursor.Page{
 		Version:      cursor.Version5,

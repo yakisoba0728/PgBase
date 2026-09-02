@@ -47,7 +47,7 @@ func newLiveOperationFixture(t *testing.T, administrators ...adminauth.Administr
 	}
 	// The production wiring passes the token secret as the cursor secret, so
 	// the fixture has to as well or history could never mint a cursor.
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, testTokenSecret)
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil, testTokenSecret)
 	fixture := liveOperationFixture{pool: pool, schemas: schemas, handlers: map[uuid.UUID]http.Handler{}}
 	for _, administrator := range administrators {
 		fixture.handlers[administrator.ID] = mustRouter(t, schemaTestDependencies(

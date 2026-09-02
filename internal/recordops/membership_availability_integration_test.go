@@ -33,7 +33,7 @@ func TestReleaseACutoverMakesEveryMutationStablyUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	created, err := records.Create(ctx, CreateRequest{
@@ -102,7 +102,7 @@ func TestReleaseARevokedAndExpiredLeasesAreStablyUnavailable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			records := NewServiceWithMembershipRuntime(
+			records := NewService(
 				pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 			)
 			created, err := records.Create(ctx, CreateRequest{
@@ -182,7 +182,7 @@ func TestReleaseAReserveAndSidecarFailuresAreStablyUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	if _, err := membership.New(pool).Cutover(ctx, membership.FleetProof{
@@ -288,7 +288,7 @@ func TestDirectConstructorRegistersTheSameWriterReleaseAsTheApplication(t *testi
 	pool, schemas, _, principal := newRecordOperationsTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 	if _, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "direct-constructor-writer-release", Collection: "records",
 		Input: map[string]json.RawMessage{"title": json.RawMessage(`"lazy-runtime"`)},

@@ -36,7 +36,7 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	definition := schema.CreateCollectionInput{Name: "nullable_api_records", Fields: []schema.FieldInput{
 		{Name: "title", Type: schema.TypeText, Required: true},
 		{Name: "active", Type: schema.TypeBoolean},
@@ -51,7 +51,7 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	records := recordops.NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	records := recordops.NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
 	create := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/nullable_api_records/records",
 		`{"title":"kept","active":false,"note":"","metadata":null}`, true)
@@ -235,7 +235,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{}, nil)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := schemas.PlanCreate(ctx, input)
@@ -262,7 +262,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 	}})
 
 	const cursorSecret = "0123456789abcdef0123456789abcdef"
-	records := recordops.NewService(pool, schemas, []byte(cursorSecret))
+	records := recordops.NewService(pool, schemas, []byte(cursorSecret), nil, nil, nil)
 	principal := recordops.Principal{Kind: recordops.PrincipalAdministrator, ID: administrator.ID}
 	createPerson := func(requestID, name string) recordops.MutationResult {
 		t.Helper()

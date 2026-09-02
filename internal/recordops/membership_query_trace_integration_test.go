@@ -90,7 +90,7 @@ func TestReleaseAInjectedRuntimeMembershipQueryOverhead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			records := NewServiceWithMembershipRuntime(
+			records := NewService(
 				pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 			)
 			controller := membership.New(pool)

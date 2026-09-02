@@ -46,11 +46,7 @@ type Service struct {
 	instanceErr  error
 }
 
-func NewService(pool *database.Pool, cache *Cache, planner Planner, cursorSecret ...[]byte) *Service {
-	return NewServiceWithRecorder(pool, cache, planner, nil, cursorSecret...)
-}
-
-func NewServiceWithRecorder(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
+func NewService(pool *database.Pool, cache *Cache, planner Planner, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
 	if cache == nil {
 		cache = &Cache{}
 	}

@@ -265,8 +265,8 @@ func TestRecordOperationsMultiPoolIdempotencyAndStaleWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(secondPool.Close)
-	secondSchemas := schema.NewService(secondPool, &schema.Cache{}, schema.Planner{})
-	secondService := NewService(secondPool, secondSchemas, []byte("0123456789abcdef0123456789abcdef"))
+	secondSchemas := schema.NewService(secondPool, &schema.Cache{}, schema.Planner{}, nil)
+	secondService := NewService(secondPool, secondSchemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
 	request := CreateRequest{
 		Principal: principal, RequestID: testRequestID, Collection: "records",
@@ -369,7 +369,7 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 
@@ -507,7 +507,7 @@ func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 
 	recorder := &relationTelemetryRecorder{}
-	records := NewServiceWithRecorder(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, recorder)
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, recorder, nil)
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	for _, test := range []struct {
 		sort      string
@@ -559,7 +559,7 @@ func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T)
 	pool, schemas, _, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
-	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
 	// query.maximumRecordPageBytes is package-private; this is the same bound
 	// the API contract advertises, and expansion reuses it as its own default.

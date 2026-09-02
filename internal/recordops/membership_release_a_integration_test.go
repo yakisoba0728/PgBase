@@ -109,7 +109,7 @@ func TestReleaseARejectsInjectedA0WriterCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	_, err = records.Create(ctx, CreateRequest{
@@ -185,8 +185,8 @@ func TestReleaseADirectConstructorConcurrentFirstUseFitsTwoConnectionPool(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(limitedPool.Close)
-	schemas := schema.NewService(limitedPool, &schema.Cache{}, schema.Planner{})
-	records := NewService(limitedPool, schemas, []byte("0123456789abcdef0123456789abcdef"))
+	schemas := schema.NewService(limitedPool, &schema.Cache{}, schema.Planner{}, nil)
+	records := NewService(limitedPool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -223,7 +223,7 @@ func TestReleaseAUpdateAndDeleteBeginWithWriterFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	created, err := records.Create(ctx, CreateRequest{
@@ -316,7 +316,7 @@ func TestReleaseACreateReservationAndSidecarRollBackTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	controller := membership.New(pool)
@@ -380,7 +380,7 @@ func TestReleaseADeleteAndSidecarRemovalRollBackTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	if _, err := membership.New(pool).Cutover(ctx, membership.FleetProof{
@@ -451,7 +451,7 @@ func TestReleaseACascadeRemovesEverySidecarAfterTheBaseClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	if _, err := membership.New(pool).Cutover(ctx, membership.FleetProof{
@@ -514,7 +514,7 @@ func TestReleaseADelayedCreateCommitsBeforeCutoverSnapshotsMembership(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := NewServiceWithMembershipRuntime(
+	records := NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
 	)
 	controller := membership.New(pool)

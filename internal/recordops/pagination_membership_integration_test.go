@@ -32,7 +32,7 @@ func TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records = NewServiceWithMembershipRuntime(
+	records = NewService(
 		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtimeB,
 	)
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
