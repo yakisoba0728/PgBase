@@ -1060,6 +1060,7 @@ describe("CollectionDesigner operation recovery", () => {
     reloaded.script.operation.push({ value: operationReceipt("failed") }, { value: operationReceipt("running") });
     await ready(reloaded.result);
     await waitFor(() => expect(reloaded.result.current.recovery?.operationId).toBe(pending[1].operationId));
+    expect(reloaded.result.current.error).toBe("The schema operation did not apply.");
     expect(reloaded.result.current.recovery?.undecided).toBe(true);
     expect(reloaded.result.current.editingBlocked).toBe(true);
     expect(localStorage).toHaveLength(1);
@@ -1089,10 +1090,11 @@ describe("CollectionDesigner operation recovery", () => {
     const secondOperation = String(callsTo(second.script, "apply")[0].detail.operationId);
     second.unmount();
 
-    first.script.operation.push({ value: operationReceipt("failed") }, { value: operationReceipt("running") });
+    first.script.operation.push({ value: { ...operationReceipt("failed"), failureCode: "apply_failed" } }, { value: operationReceipt("running") });
     await act(async () => firstApplication.settle({ value: { status: "unknown" } }));
 
     await waitFor(() => expect(first.result.current.recovery?.operationId).toBe(secondOperation));
+    expect(first.result.current.error).toBe("The change did not apply and nothing was left behind.");
     expect(first.result.current.editingBlocked).toBe(true);
     expect(localStorage).toHaveLength(1);
     await act(async () => secondApplication.settle({ value: { status: "unknown" } }));
