@@ -71,6 +71,22 @@ For PostgreSQL PITR, configure regular physical base backups plus continuous WAL
 
 Restore into a new, empty database first. Do not restore over a running project.
 
+The repository runs this same procedure as an executable drill. It seeds a project through the administrator and record APIs, dumps it, restores it into an empty database, and then checks the restored project against the list below on PostgreSQL 16, 17 and 18:
+
+```console
+go test -tags=restore ./tests/restore
+```
+
+The drill starts its own PostgreSQL containers and builds pgBase from the working tree. A release runs the same command against the published candidate, which makes it refuse any image that is not digest-pinned and removes the source-build path entirely:
+
+```console
+PGBASE_RESTORE_CANDIDATE_IMAGE=ghcr.io/webisnoteasy/pgbase@sha256:... \
+PGBASE_RESTORE_EXPECTED_VERSION=vX.Y.Z \
+  go test -tags=restore ./tests/restore
+```
+
+Use the drill as the reference for what a restore must prove; the manual steps below are the same procedure against a real backup target.
+
 1. Stop all pgBase instances that could connect to the restore target.
 2. Create an empty target database owned by the pgBase database role.
 3. Require the `pg_restore` client major to match the target server major. This prevents a newer client from replaying settings that an older server does not recognize:
@@ -114,7 +130,9 @@ Restore into a new, empty database first. Do not restore over a running project.
 
    Require the doctor JSON result to contain `"ok":true`. Relation-aware doctor checks metadata bindings and all pgBase-owned relation columns, foreign keys, edge tables, constraints, indexes, functions, and triggers; treat any missing, mismatched, or orphaned relation object as a failed restore.
 
-7. Start one pgBase instance and require `/health/ready` to return HTTP 200. Through the administrator-authenticated HTTP record API, verify representative scalar records, raw single/multiple relation UUIDs and their order, `?expand=` results, and matching ETags. Where the drill permits a disposable mutation, use `Idempotency-Key`/`If-Match` to exercise a relation PATCH and a configured delete action, then confirm the expected record state. Do not use direct SQL as the validation path because it bypasses the Record Operations contract being tested.
+7. Start one pgBase instance and require `/health/ready` to return HTTP 200. Through the administrator-authenticated HTTP record API, verify representative scalar records, raw single/multiple relation UUIDs and their order, `?expand=` results, and matching ETags. Replaying an original `Idempotency-Key` with the same body must return the original record, ETag, and `Location` rather than creating a duplicate; a restore that lost the idempotency results would create one. Where the drill permits a disposable mutation, use `Idempotency-Key`/`If-Match` to exercise a relation PATCH and a configured delete action, then confirm the expected record state. Do not use direct SQL as the validation path because it bypasses the Record Operations contract being tested.
+
+8. Confirm the restored instance closes any schema operation the lost source instance left in progress. `pgbase_meta.schema_operations` rows in `running` or `unknown` status are reconciled to `committed` or `failed` shortly after startup; a row that stays unresolved means schema-operation maintenance is not running against the restored database.
 
 For disaster recovery, promote a fully validated PITR target or restored database, update the secret-managed `PGBASE_DATABASE_URL`, and roll out all instances. Keep the damaged source isolated until the recovered project has been accepted.
 

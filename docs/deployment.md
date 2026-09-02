@@ -156,7 +156,15 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 
 Use liveness only to detect a stuck process. Use readiness for load-balancer admission and rollout gates. The container health check invokes `/pgbase healthcheck --url http://127.0.0.1:8090/health/ready` and requires no shell or curl.
 
-On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. The bundled Compose profile applies `PGBASE_STOP_GRACE_PERIOD` to the container and requires at least a five-second margin over the application timeout. Keep the equivalent margin in other orchestrators. Requests exceeding the grace period can be interrupted.
+On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. The bundled Compose profile applies `PGBASE_STOP_GRACE_PERIOD` to both the container `stop_grace_period` and the application, so one variable moves both, and requires at least a five-second margin over the application timeout. Keep the equivalent margin in other orchestrators. Requests exceeding the grace period can be interrupted.
+
+A correct shutdown ends with exit code 0. Exit code 137 means the orchestrator's grace period expired and the container was killed mid-drain; treat it as a configuration fault rather than a normal stop. Verify a rendered profile before deploying it:
+
+```console
+docker compose --env-file deployments/.env -f deployments/docker-compose.yml config
+```
+
+and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`. pgBase refuses to start when the margin is smaller, so a profile that renders is not automatically a profile that runs.
 
 ## Secret rotation
 
