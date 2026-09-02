@@ -423,7 +423,19 @@ pgbase schema-index status --json
 4. Adding a field or index to an existing collection drops the capability back to
    `pending` in the same transaction as the catalog change, because the new field
    may imply a companion nothing has built. Rerun `activate` and `build` after
-   such a change.
+   such a change. This is the only schema change that costs an operator a
+   rebuild.
+5. Creating or deleting a collection does **not** drop the capability. While the
+   state is `ready` the writer issues the v2 plan format, whose create plan builds
+   the new collection's companion indexes in the same transaction as its table; a
+   delete drops its table with every index on it. Neither can leave a companion
+   unbuilt, so both carry the capability onto the catalog they commit. A new
+   collection is therefore servable the moment it exists, with no operator step.
+6. The capability row is the only thing that decides which plan format is issued.
+   Across an activation or a rollback the fleet is briefly mixed, so `apply`
+   accepts a plan checksum from either format: a preview taken just before the
+   transition still applies, and the writer executes its own plan. Operators need
+   do nothing about this window.
 
 `pgbase schema-index rollback` turns the capability off from any state. It does
 not drop the indexes: the rollout rules keep new physical objects in place after
