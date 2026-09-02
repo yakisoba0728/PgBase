@@ -19,6 +19,9 @@ func TestSchemaIndexRejectsInvalidUsage(t *testing.T) {
 		"positional argument":      {"schema-index", "status", "extra"},
 		"malformed witness":        {"schema-index", "activate", "--witness", "not-a-uuid"},
 		"witness outside activate": {"schema-index", "build", "--witness", "0199c100-0000-7000-8000-000000000001"},
+		"repeated witness": {"schema-index", "activate",
+			"--witness", "0199c100-0000-7000-8000-000000000001",
+			"--witness", "0199c100-0000-7000-8000-000000000001"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stderr bytes.Buffer
@@ -30,6 +33,27 @@ func TestSchemaIndexRejectsInvalidUsage(t *testing.T) {
 				t.Fatalf("stderr=%q", stderr.String())
 			}
 		})
+	}
+}
+
+// A repeated witness is how a proof comes to have the right length while a live
+// schema writer nobody observed goes unwitnessed. The transition refuses it too;
+// the flag refuses it where the message can still name the flag.
+func TestSchemaIndexWitnessRepeatIsRefused(t *testing.T) {
+	var witnesses witnessList
+	for _, value := range []string{
+		"0199c100-0000-7000-8000-000000000002",
+		"0199c100-0000-7000-8000-000000000001",
+	} {
+		if err := witnesses.Set(value); err != nil {
+			t.Fatalf("set witness %s: %v", value, err)
+		}
+	}
+	if err := witnesses.Set("0199c100-0000-7000-8000-000000000002"); err == nil {
+		t.Fatal("repeated witness was accepted")
+	}
+	if len(witnesses) != 2 {
+		t.Fatalf("witnesses = %v", witnesses)
 	}
 }
 

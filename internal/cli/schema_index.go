@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,9 @@ const schemaIndexUsage = "usage: pgbase schema-index <status [--json], activate 
 
 // witnessList collects the repeated --witness flag. Activation requires the
 // operator to name the live schema writers, and the transition then requires the
-// durable leases to be exactly that set.
+// durable leases to be exactly that set, in any order. Naming one writer twice
+// is how a proof reaches the right length while a live writer nobody observed
+// goes unwitnessed; the transition refuses that too, but the flag can say so.
 type witnessList []uuid.UUID
 
 func (w *witnessList) String() string { return "" }
@@ -28,6 +31,9 @@ func (w *witnessList) Set(value string) error {
 	instanceID, err := uuid.Parse(value)
 	if err != nil {
 		return errors.New("witness must be an instance UUID")
+	}
+	if slices.Contains(*w, instanceID) {
+		return errors.New("witness must not be repeated")
 	}
 	*w = append(*w, instanceID)
 	return nil
