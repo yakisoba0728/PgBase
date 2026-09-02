@@ -17,7 +17,33 @@ var (
 	relationPlannerTagsID  = uuid.MustParse("019b0000-0000-7000-8000-000000000003")
 )
 
-func TestRelationPlanCreateWithCatalogBuildsDeterministicHybridDDL(t *testing.T) {
+// Planner.Plan is the only planning entry point; these drive it from the
+// (version, catalog, collection) shape the fixtures below already build. The
+// incoming index is carried through unchanged so a test can pin the guard
+// against an index the collections alone would not produce.
+func planCreateIn(version int64, catalog Catalog, input CreateCollectionInput) (Plan, error) {
+	catalog.Version = version
+	return (Planner{}).Plan(catalog, NewCreateChange(input))
+}
+
+func planUpdateIn(version int64, catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	return (Planner{}).Plan(planCatalogWith(version, catalog, current), NewUpdateChange(input))
+}
+
+func planDeleteIn(version int64, catalog Catalog, current Collection) (Plan, error) {
+	return (Planner{}).Plan(planCatalogWith(version, catalog, current), NewDeleteChange(current.Name))
+}
+
+func planCatalogWith(version int64, catalog Catalog, current Collection) Catalog {
+	collections := make(map[string]Collection, len(catalog.Collections)+1)
+	for name, existing := range catalog.Collections {
+		collections[name] = existing
+	}
+	collections[current.Name] = current
+	return Catalog{Version: version, Collections: collections, Incoming: catalog.Incoming}
+}
+
+func TestRelationPlanCreateBuildsDeterministicHybridDDL(t *testing.T) {
 	t.Parallel()
 
 	catalog := relationPlannerCatalog()
@@ -29,12 +55,11 @@ func TestRelationPlanCreateWithCatalogBuildsDeterministicHybridDDL(t *testing.T)
 			relationPlannerField("tags", "tags", RelationMultiple, false, 20, RelationSetNull),
 		},
 	}
-	planner := Planner{}
-	first, err := planner.PlanCreateWithCatalog(11, catalog, input)
+	first, err := planCreateIn(11, catalog, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := planner.PlanCreateWithCatalog(11, catalog, input)
+	second, err := planCreateIn(11, catalog, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +120,7 @@ func TestRelationPlanCreatePreservesSymbolicSelfTarget(t *testing.T) {
 			relationPlannerField("parent", "nodes", RelationSingle, false, 0, RelationSetNull),
 		},
 	}
-	plan, err := (Planner{}).PlanCreateWithCatalog(3, Catalog{Collections: map[string]Collection{}}, input)
+	plan, err := planCreateIn(3, Catalog{Collections: map[string]Collection{}}, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +136,7 @@ func TestRelationPlanCreatePreservesSymbolicSelfTarget(t *testing.T) {
 func TestRelationPlanCreateRejectsMissingExternalTarget(t *testing.T) {
 	t.Parallel()
 
-	_, err := (Planner{}).PlanCreateWithCatalog(0, Catalog{Collections: map[string]Collection{}}, CreateCollectionInput{
+	_, err := planCreateIn(0, Catalog{Collections: map[string]Collection{}}, CreateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
 			relationPlannerField("author", "missing_users", RelationSingle, false, 0, RelationRestrict),
@@ -178,7 +203,7 @@ func TestRelationPlanCreateReusesDomainValidation(t *testing.T) {
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := (Planner{}).PlanCreateWithCatalog(0, relationPlannerCatalog(), CreateCollectionInput{
+			_, err := planCreateIn(0, relationPlannerCatalog(), CreateCollectionInput{
 				Name:   "posts",
 				Fields: []FieldInput{test.field},
 			})
@@ -193,7 +218,7 @@ func TestRelationPlanUpdateAllowsSingleFlagsAndDeleteAction(t *testing.T) {
 	current, catalog := relationPlannerCurrentSingle()
 	field := relationPlannerField("author", "users", RelationSingle, true, 0, RelationCascade)
 	field.Unique = true
-	plan, err := (Planner{}).PlanUpdateWithCatalog(8, catalog, current, UpdateCollectionInput{
+	plan, err := planUpdateIn(8, catalog, current, UpdateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{field},
 	})
@@ -219,7 +244,7 @@ func TestRelationPlanUpdateAllowsMultiBoundsAndMetadataOnlyDeleteAction(t *testi
 
 	current, catalog := relationPlannerCurrentMulti()
 	changedBounds := relationPlannerField("tags", "tags", RelationMultiple, false, 10, RelationCascade)
-	plan, err := (Planner{}).PlanUpdateWithCatalog(9, catalog, current, UpdateCollectionInput{
+	plan, err := planUpdateIn(9, catalog, current, UpdateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{changedBounds},
 	})
@@ -235,7 +260,7 @@ func TestRelationPlanUpdateAllowsMultiBoundsAndMetadataOnlyDeleteAction(t *testi
 	}
 
 	onlyDeleteAction := relationPlannerField("tags", "tags", RelationMultiple, false, 5, RelationSetNull)
-	metadataOnly, err := (Planner{}).PlanUpdateWithCatalog(9, catalog, current, UpdateCollectionInput{
+	metadataOnly, err := planUpdateIn(9, catalog, current, UpdateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{onlyDeleteAction},
 	})
@@ -284,7 +309,7 @@ func TestRelationPlanUpdateRejectsStorageConversionsAndUnsafeAdds(t *testing.T) 
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := (Planner{}).PlanUpdateWithCatalog(8, catalog, current, test.input)
+			_, err := planUpdateIn(8, catalog, current, test.input)
 			assertRelationPlannerValidation(t, err, test.want)
 		})
 	}
@@ -293,7 +318,7 @@ func TestRelationPlanUpdateRejectsStorageConversionsAndUnsafeAdds(t *testing.T) 
 func TestRelationPlannerDefersRequiredRelationAddRowCheckToService(t *testing.T) {
 	t.Parallel()
 	current, catalog := relationPlannerCurrentSingle()
-	plan, err := (Planner{}).PlanUpdateWithCatalog(8, catalog, current, UpdateCollectionInput{
+	plan, err := planUpdateIn(8, catalog, current, UpdateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
 			relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict),
@@ -301,7 +326,7 @@ func TestRelationPlannerDefersRequiredRelationAddRowCheckToService(t *testing.T)
 		},
 	})
 	if err != nil {
-		t.Fatalf("PlanUpdateWithCatalog(required relation): %v", err)
+		t.Fatalf("update adding a required relation: %v", err)
 	}
 	want := `ALTER TABLE "app"."posts" ADD COLUMN "reviewer" uuid not null`
 	if !slices.Contains(plan.Statements, want) {
@@ -313,7 +338,7 @@ func TestRelationPlanUpdateDropsPhysicalObjectsBeforeMetadataApply(t *testing.T)
 	t.Parallel()
 
 	single, singleCatalog := relationPlannerCurrentSingle()
-	plan, err := (Planner{}).PlanUpdateWithCatalog(4, singleCatalog, single, UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}})
+	plan, err := planUpdateIn(4, singleCatalog, single, UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +353,7 @@ func TestRelationPlanUpdateDropsPhysicalObjectsBeforeMetadataApply(t *testing.T)
 	}
 
 	multi, multiCatalog := relationPlannerCurrentMulti()
-	plan, err = (Planner{}).PlanUpdateWithCatalog(4, multiCatalog, multi, UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}})
+	plan, err = planUpdateIn(4, multiCatalog, multi, UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,11 +371,11 @@ func TestRelationPlanDeleteGuardsIncomingAndCleansOutgoingMulti(t *testing.T) {
 	current, catalog := relationPlannerCurrentMulti()
 	catalog.Incoming = make(map[uuid.UUID][]RelationRef)
 	catalog.Incoming[current.ID] = []RelationRef{{SourceCollectionID: relationPlannerUsersID}}
-	_, err := (Planner{}).PlanDeleteWithCatalog(5, catalog, current)
+	_, err := planDeleteIn(5, catalog, current)
 	assertRelationPlannerValidation(t, err, ValidationDetail{Field: "name", Code: "collection_referenced"})
 
 	delete(catalog.Incoming, current.ID)
-	plan, err := (Planner{}).PlanDeleteWithCatalog(5, catalog, current)
+	plan, err := planDeleteIn(5, catalog, current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +384,7 @@ func TestRelationPlanDeleteGuardsIncomingAndCleansOutgoingMulti(t *testing.T) {
 	}
 
 	catalog.Incoming[current.ID] = []RelationRef{{SourceCollectionID: current.ID}}
-	if _, err := (Planner{}).PlanDeleteWithCatalog(5, catalog, current); err != nil {
+	if _, err := planDeleteIn(5, catalog, current); err != nil {
 		t.Fatalf("self relation incorrectly blocked collection deletion: %v", err)
 	}
 }
@@ -382,7 +407,7 @@ func TestRelationPlanSupportsCatalogCycles(t *testing.T) {
 		}},
 	}
 	catalog := Catalog{Collections: map[string]Collection{"posts": posts, "users": users}}
-	plan, err := (Planner{}).PlanUpdateWithCatalog(2, catalog, posts, UpdateCollectionInput{
+	plan, err := planUpdateIn(2, catalog, posts, UpdateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
 			relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict),
@@ -396,27 +421,29 @@ func TestRelationPlanSupportsCatalogCycles(t *testing.T) {
 	}
 }
 
-func TestRelationPlanCatalogAwareScalarPathIsCompatibleAndRejectsHostileNames(t *testing.T) {
+func TestRelationPlanScalarPathIgnoresTheCatalogAndRejectsHostileNames(t *testing.T) {
 	t.Parallel()
 
 	input := CreateCollectionInput{Name: "articles", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
-	legacy, err := (Planner{}).PlanCreate(3, input)
+	// A scalar-only definition must checksum identically whatever else the
+	// catalog holds, or every unrelated collection would rewrite its plan.
+	empty, err := planCreateIn(3, Catalog{Collections: map[string]Collection{}}, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aware, err := (Planner{}).PlanCreateWithCatalog(3, relationPlannerCatalog(), input)
+	populated, err := planCreateIn(3, relationPlannerCatalog(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(legacy, aware) {
-		t.Fatalf("catalog-aware scalar plan changed compatibility:\nlegacy: %#v\naware:  %#v", legacy, aware)
+	if !reflect.DeepEqual(empty, populated) {
+		t.Fatalf("scalar plan depends on unrelated catalog entries:\nempty:     %#v\npopulated: %#v", empty, populated)
 	}
 
 	for _, invalid := range []CreateCollectionInput{
 		{Name: `posts";drop_table`, Fields: []FieldInput{relationPlannerField("author", "users", RelationSingle, false, 0, RelationRestrict)}},
 		{Name: "posts", Fields: []FieldInput{relationPlannerField(`author";drop`, "users", RelationSingle, false, 0, RelationRestrict)}},
 	} {
-		plan, err := (Planner{}).PlanCreateWithCatalog(3, relationPlannerCatalog(), invalid)
+		plan, err := planCreateIn(3, relationPlannerCatalog(), invalid)
 		if err == nil || len(plan.Statements) != 0 {
 			t.Fatalf("hostile identifier reached DDL: plan=%#v err=%v", plan, err)
 		}

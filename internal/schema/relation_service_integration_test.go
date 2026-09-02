@@ -445,11 +445,15 @@ func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyPlan, err := (Planner{}).PlanDelete(catalog.Version, catalog.Collections["users"])
+	// Planning a delete against a catalog that hides the referencing collection
+	// produces the same checksum and base version the guard would have refused,
+	// so apply has to refuse it a second time on its own pinned catalog.
+	forged := Catalog{Version: catalog.Version, Collections: map[string]Collection{"users": catalog.Collections["users"]}}
+	forgedPlan, err := (Planner{}).Plan(forged, NewDeleteChange("users"))
 	if err != nil {
-		t.Fatalf("legacy PlanDelete(): %v", err)
+		t.Fatalf("plan delete against a catalog without the referencing collection: %v", err)
 	}
-	assertCollectionReferenced(service.ApplyDelete(ctx, "users", legacyPlan.Checksum, legacyPlan.BaseVersion, administratorID))
+	assertCollectionReferenced(service.ApplyDelete(ctx, "users", forgedPlan.Checksum, forgedPlan.BaseVersion, administratorID))
 	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 2, fields: 1, migrations: 2})
 
 	remove := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}}
