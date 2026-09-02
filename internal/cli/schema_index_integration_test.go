@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
@@ -106,6 +108,40 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	// The gate is off but the object stays, so a forward fix does not rebuild it.
 	if rolledBack.State != "pending" || rolledBack.Valid != 1 {
 		t.Fatalf("rolled back status = %#v", rolledBack)
+	}
+}
+
+// The operator-visible half of the drift finding. A same-named index whose
+// operator class cannot serve the ordering was counted as valid, so the one
+// command an operator runs before trusting the gate reported it as healthy.
+func TestSchemaIndexStatusReportsAMismatchedCompanion(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	prepareDoctorDatabase(t, databaseURL)
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	seedSortableCollection(t, pool)
+
+	companion := schema.NullableDescCompanionIndexName("sortable", "nickname")
+	if _, err := pool.Exec(ctx, "create index "+pgx.Identifier{companion}.Sanitize()+
+		" on app.sortable (nickname text_pattern_ops desc nulls last, id desc nulls first)"); err != nil {
+		t.Fatal(err)
+	}
+
+	report := readSchemaIndexStatus(t, databaseURL)
+	if report.Expected != 1 || report.Mismatched != 1 || report.Valid != 0 || report.Missing != 0 {
+		t.Fatalf("status over a wrong-operator-class companion = %#v", report)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Execute(ctx, []string{"schema-index", "status"},
+		migrationEnv(databaseURL), IO{Stdout: &stdout, Stderr: &stderr}); code != 0 {
+		t.Fatalf("status exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "mismatched=1") {
+		t.Fatalf("status output = %q", stdout.String())
 	}
 }
 
