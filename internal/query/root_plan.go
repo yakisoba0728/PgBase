@@ -16,19 +16,9 @@ type rootPlan struct {
 	principal      Principal
 }
 
-func plannedRootPlan(filter filterNode, relation relationListPlan) (rootPlan, error) {
-	if relationListPlanUsesRelation(relation) {
-		relation.order.relationAnchor = true
-		return rootPlan{filter: filter, relation: relation}, nil
-	}
-	// The scalar compiler historically places NULL first for descending
-	// non-null columns. Keep that contract when no relation SQL is required.
-	order, err := resolveOrderSpec(relation.order.root, relation.order.sortKeys())
-	if err != nil {
-		return rootPlan{}, err
-	}
-	relation.order = order
-	return rootPlan{filter: filter, relation: relation}, nil
+func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
+	relation.order.relationAnchor = relationListPlanUsesRelation(relation)
+	return rootPlan{filter: filter, relation: relation}
 }
 
 func (p rootPlan) order() orderSpec { return p.relation.order }

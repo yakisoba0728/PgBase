@@ -179,7 +179,7 @@ func TestListExpandedCombinesRelationFilterSortWithNestedAndReverseExpansion(t *
 	}
 }
 
-func TestRelationSortCurrentBudgetIncludesBareRelationSortAt100001(t *testing.T) {
+func TestRelationSortBudgetCoversDottedPathsOnlyAt100001(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
@@ -228,12 +228,23 @@ func TestRelationSortCurrentBudgetIncludesBareRelationSortAt100001(t *testing.T)
 		}
 	}
 
+	// Past the budget only the dotted path is refused. The bare sort reads the
+	// root's own indexed foreign-key column, so no collection size makes it
+	// join or sort a target.
 	insertRange(maximumRelationSortRootRows+1, maximumRelationSortRootRows+1)
-	for _, sortText := range []string{"owner.name", "owner"} {
-		_, err := records.ListRelationAware(ctx, RelationListRequest{
-			Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: sortText,
-		})
-		assertValidationDetail(t, err, "sort", "relation_sort_budget_exceeded")
+	_, err = records.ListRelationAware(ctx, RelationListRequest{
+		Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: "owner.name",
+	})
+	assertValidationDetail(t, err, "sort", "relation_sort_budget_exceeded")
+
+	page, err := records.ListRelationAware(ctx, RelationListRequest{
+		Principal: principal, Collection: "relation_sort_budget_roots", Limit: 1, Sort: "owner",
+	})
+	if err != nil {
+		t.Fatalf("bare relation sort past the dotted budget: %v", err)
+	}
+	if len(page.Items) != 1 || page.NextCursor == "" {
+		t.Fatalf("bare relation sort past the dotted budget page = %#v", page)
 	}
 }
 

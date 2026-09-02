@@ -22,8 +22,15 @@ type ListQuery struct {
 	Limit  int
 }
 
+// scalarOrderSpec resolves a root-only sort through the production planner. A
+// collection with no relation field cannot reach the catalog, so the tests that
+// exercise the scalar page compiler can pin an empty one.
+func scalarOrderSpec(collection schema.Collection, requestedSort []SortKey) (orderSpec, error) {
+	return planRelationSort(schema.Catalog{}, collection, effectiveSortKeys(requestedSort))
+}
+
 func scalarRootPlan(collection schema.Collection, filter filterNode, requestedSort []SortKey) (rootPlan, error) {
-	order, err := resolveOrderSpec(collection, effectiveSortKeys(requestedSort))
+	order, err := scalarOrderSpec(collection, requestedSort)
 	if err != nil {
 		return rootPlan{}, err
 	}
@@ -31,7 +38,7 @@ func scalarRootPlan(collection schema.Collection, filter filterNode, requestedSo
 }
 
 func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
-	order, err := resolveOrderSpec(collection, effectiveSortKeys(query.Sort))
+	order, err := scalarOrderSpec(collection, query.Sort)
 	if err != nil {
 		return Statement{}, err
 	}

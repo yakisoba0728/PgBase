@@ -137,18 +137,19 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 	terms := make([]orderTerm, 0, len(keys))
 	for _, key := range keys {
 		field, ok := filterField(root, key.Field)
-		if ok && field.Type != schema.TypeRelation && !strings.Contains(key.Field, ".") {
-			if field.Type == schema.TypeJSONB {
-				return orderSpec{}, validation("sort", "unsupported_type")
+		inline, isRoot := rootSortField(field)
+		if ok && isRoot && !strings.Contains(key.Field, ".") {
+			term, err := rootOrderTerm(key, inline)
+			if err != nil {
+				return orderSpec{}, err
 			}
-			indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
-			if !indexed {
-				return orderSpec{}, validation("sort", "unindexed_field")
-			}
-			terms = append(terms, orderTerm{
-				key: key, expression: quoted(field.ColumnName), cursorField: field, indexHint: indexHint,
-			})
+			terms = append(terms, term)
 			continue
+		}
+		if ok && isMultipleRelation(field) && !strings.Contains(key.Field, ".") {
+			// Cardinality alone decides this, and the target is never read, so
+			// the rejection must not depend on resolving it.
+			return orderSpec{}, relationSortUnsupported()
 		}
 		if !ok && !strings.Contains(key.Field, ".") {
 			return orderSpec{}, validation("sort", "unknown_field")
@@ -172,6 +173,26 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 		})
 	}
 	return orderSpec{root: root, terms: terms}, nil
+}
+
+// rootSortField reports whether a dot-free sort key orders on the root table
+// alone, and returns the field as that ordering has to describe it. A single
+// relation column holds its target's id under a deferred foreign key and always
+// carries its own index, so the LEFT JOIN that ordering by target.id used to
+// need is redundant -- the root column is the same value, NULL for NULL. The
+// term therefore has to describe the uuid the column physically is, so the
+// cursor decodes a uuid and the v5 descriptor encodes "uuid" rather than
+// "relation". A multi relation and a relation missing its catalog binding are
+// not root work; the path resolver keeps owning their errors.
+func rootSortField(field schema.Field) (schema.Field, bool) {
+	if field.Type != schema.TypeRelation {
+		return field, true
+	}
+	if field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle {
+		return field, false
+	}
+	field.Type = schema.TypeUUID
+	return field, true
 }
 
 func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, operation string) (plannedRelationPath, error) {

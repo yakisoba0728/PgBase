@@ -210,7 +210,11 @@ func TestOrderSpecV5DescriptorPreservesAcceptedExplicitIDBeforeFinalTiebreaker(t
 	}
 }
 
-func TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor(t *testing.T) {
+// A single relation column stores the target's id under a deferred foreign key,
+// so ordering by the joined target.id is ordering by the root column itself.
+// The plan therefore stays on the root table: no target join, no private
+// cursor, and none of the dotted path's target-side budget.
+func TestBareRelationSortOrdersOnTheRootForeignKeyWithoutJoiningTheTarget(t *testing.T) {
 	t.Parallel()
 
 	catalog, posts := relationFilterSortCatalog()
@@ -222,25 +226,69 @@ func TestBareRelationSortCurrentlyJoinsTargetAndRequiresPrivateCursor(t *testing
 	if err != nil {
 		t.Fatalf("compileRelationListPlan(owner) error = %v", err)
 	}
-	if !plan.order.private() || !relationListPlanUsesRelation(plan) {
-		t.Fatalf("bare relation plan private/uses-relation = %t/%t, want true/true", plan.order.private(), relationListPlanUsesRelation(plan))
+	if plan.order.private() || relationListPlanUsesRelation(plan) {
+		t.Fatalf("bare relation plan private/uses-relation = %t/%t, want false/false",
+			plan.order.private(), relationListPlanUsesRelation(plan))
 	}
-	statement, err := plan.statement(nil, 1)
+	if hint := plan.order.terms[0].indexHint; hint != orderIndexRoot {
+		t.Fatalf("bare relation sort index hint = %v, want the root index", hint)
+	}
+
+	// The route production takes: no relation SQL is required, so the scalar
+	// page compiler renders the unaliased root statement.
+	statement, err := plannedRootPlan(nil, plan).pageStatement(nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{
-		`LEFT JOIN "app"."relation_people" AS "rq_sort_1" ON "rq_sort_1"."id" = "rq_root"."owner"`,
-		`SELECT "rq_root"."id", "rq_root"."created_at", "rq_root"."updated_at", "rq_root"."owner", "rq_sort_1"."id"`,
-		`ORDER BY "rq_sort_1"."id" ASC NULLS LAST`,
-	} {
-		if !strings.Contains(statement.SQL, fragment) {
-			t.Fatalf("bare relation sort SQL = %q, want current join fragment %q", statement.SQL, fragment)
+	wantSQL := `SELECT "id", "created_at", "updated_at", "owner" FROM "app"."relation_posts" ` +
+		`ORDER BY "owner" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $1`
+	if statement.SQL != wantSQL {
+		t.Fatalf("bare relation sort SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	for _, absent := range []string{"LEFT JOIN", relationRootAlias, "rq_sort"} {
+		if strings.Contains(statement.SQL, absent) {
+			t.Fatalf("bare relation sort SQL = %q, want no %q", statement.SQL, absent)
 		}
 	}
-	if maximumRelationSortRootRows != 100_000 {
-		t.Fatalf("bare relation sort root budget = %d, want current 100000", maximumRelationSortRootRows)
+
+	// The term keeps the relation field's identity but describes the uuid the
+	// column physically is, so the cursor decodes a uuid and the v5 descriptor
+	// encodes "uuid" rather than "relation".
+	cursorField := plan.order.terms[0].cursorField
+	ownerField, _ := filterField(posts, "owner")
+	if cursorField.ID != ownerField.ID || cursorField.ColumnName != "owner" || cursorField.Type != schema.TypeUUID {
+		t.Fatalf("bare relation cursor field = %+v, want owner's id/column with uuid type", cursorField)
 	}
+	descriptor, err := plan.order.cursorV5Order()
+	if err != nil {
+		t.Fatalf("cursorV5Order(owner) error = %v", err)
+	}
+	if !reflect.DeepEqual(descriptor[0].Path, []string{ownerField.ID.String()}) ||
+		descriptor[0].Type != string(schema.TypeUUID) {
+		t.Fatalf("bare relation v5 term = %+v, want path [%s] typed uuid", descriptor[0], ownerField.ID)
+	}
+
+	// Only the dotted path reads a target, so only it carries the root budget.
+	dotted, err := parseSort("owner.name")
+	if err != nil {
+		t.Fatalf("parseSort(owner.name) error = %v", err)
+	}
+	dottedPlan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(dotted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dottedPlan.order.private() || maximumRelationSortRootRows != 100_000 {
+		t.Fatalf("dotted sort private = %t, budget = %d, want true/100000",
+			dottedPlan.order.private(), maximumRelationSortRootRows)
+	}
+
+	// Multi cardinality has no single ordering value and keeps its stable error.
+	multi, err := parseSort("reviewers")
+	if err != nil {
+		t.Fatalf("parseSort(reviewers) error = %v", err)
+	}
+	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
+	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
 }
 
 func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {

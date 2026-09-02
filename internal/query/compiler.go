@@ -151,35 +151,25 @@ func (b *statementBuilder) placeholder(value any) string {
 	return fmt.Sprintf("$%d", len(b.args))
 }
 
-// resolveOrderSpec maps logical sort keys to physical ordering terms. Cursor-driven
-// resolution reports failures as invalid cursors instead of input validation.
-func resolveOrderSpec(collection schema.Collection, keys []SortKey) (orderSpec, error) {
-	terms := make([]orderTerm, 0, len(keys))
-	for _, key := range keys {
-		field, ok := filterField(collection, key.Field)
-		if !ok || field.Type == schema.TypeJSONB {
-			if !ok {
-				return orderSpec{}, validation("sort", "unknown_field")
-			}
-			return orderSpec{}, validation("sort", "unsupported_type")
-		}
-		if isMultipleRelation(field) {
-			return orderSpec{}, validation("sort", "relation_sort_unsupported")
-		}
-		indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
-		if !indexed {
-			return orderSpec{}, validation("sort", "unindexed_field")
-		}
-		expression := quoted(field.ColumnName)
-		term := orderTerm{
-			key: key, expression: expression, cursorField: field, indexHint: indexHint,
-		}
-		if key.Desc && notNullColumn(field) {
-			term.nulls = orderNullsFirst
-		}
-		terms = append(terms, term)
+// rootOrderTerm maps one logical sort key to the ordering term for the root
+// table's own column. Every page compiler shares it, so a sort cannot get one
+// null placement when a request touches a relation and another when it does
+// not -- a cursor issued by either path anchors against the same ordering.
+func rootOrderTerm(key SortKey, field schema.Field) (orderTerm, error) {
+	if field.Type == schema.TypeJSONB {
+		return orderTerm{}, validation("sort", "unsupported_type")
 	}
-	return orderSpec{root: collection, terms: terms}, nil
+	indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
+	if !indexed {
+		return orderTerm{}, validation("sort", "unindexed_field")
+	}
+	term := orderTerm{
+		key: key, expression: quoted(field.ColumnName), cursorField: field, indexHint: indexHint,
+	}
+	if key.Desc && notNullColumn(field) {
+		term.nulls = orderNullsFirst
+	}
+	return term, nil
 }
 
 // notNullColumn reports whether the physical column can never hold NULL. The

@@ -198,10 +198,7 @@ func (s *Service) readListInTx(
 		}
 		return listResult{}, relationOperation, err
 	}
-	rootPlan, err := plannedRootPlan(filterNode, relationPlan)
-	if err != nil {
-		return listResult{}, relationOperation, err
-	}
+	rootPlan := plannedRootPlan(filterNode, relationPlan)
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
 	traversal, err := s.resolveTraversal(ctx, tx, collection.ID)
 	if err != nil {
