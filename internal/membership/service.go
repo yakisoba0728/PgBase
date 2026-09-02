@@ -141,11 +141,14 @@ func (s *Service) refreshWriter(
 	if instanceID == uuid.Nil || writerVersion < WriterA0 || writerVersion > WriterC {
 		return ErrInvalidState
 	}
+	// Deliberately no schema pin. A lease is meta state no collection DDL
+	// touches, and a schema apply holds the exclusive side of that pin for the
+	// whole of its DDL, so pinning would queue every renewal behind an ordinary
+	// large ALTER and expire the lease it exists to keep alive. The fence does
+	// not rely on it: Writer.Begin and Writer.LockCreate pin the schema
+	// themselves and re-read the lease and minimum version where they write.
 	return database.Retry(ctx, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-			if err := pinSchemaShared(ctx, tx); err != nil {
-				return err
-			}
 			if err := requireCompleteInstallation(ctx, tx); err != nil {
 				return err
 			}
@@ -172,7 +175,7 @@ func (s *Service) refreshWriter(
 						pgbase_meta.runtime_writer_leases.lease_expires_at,
 						excluded.lease_expires_at)
 				where pgbase_meta.runtime_writer_leases.writer_version = excluded.writer_version`,
-				instanceID, writerVersion, now, now.Add(time.Minute))
+				instanceID, writerVersion, now, now.Add(writerLeaseTTL))
 			if err != nil {
 				return fmt.Errorf("refresh record writer lease: %w", err)
 			}
