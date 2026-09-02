@@ -132,6 +132,12 @@
           ]
         },
         {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
           "name": "Content-Security-Policy",
           "values": [
             "default-src 'none'"

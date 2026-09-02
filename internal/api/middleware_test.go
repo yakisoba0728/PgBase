@@ -36,6 +36,19 @@ func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
 	}
 }
 
+func TestUnknownAPIResponsesAreNeverCacheable(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/schema-operations/12345678-1234-4567-8901-123456789abc", nil)
+	response := httptest.NewRecorder()
+	NewRouter(Dependencies{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
 func TestRecoveryDiscardsPartialResponseBeforeWriting500(t *testing.T) {
 	handler := recoveryMiddleware(slog.New(slog.NewJSONHandler(io.Discard, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-Partial", "must-not-leak")
