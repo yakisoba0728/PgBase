@@ -15,35 +15,26 @@ func FuzzCursorDecode(f *testing.F) {
 	codec := cursorwire.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	valid, err := codec.Encode(cursorwire.Page{
-		Version: cursorwire.Version4, CollectionID: collectionID,
-		Sort:      testCursorSort(),
-		Values:    testCursorValues(),
-		ExpiresAt: now.Add(time.Minute),
-	})
+	keyset := validV5CursorForTest()
+	keyset.ExpiresAt = now.Add(time.Minute)
+	valid, err := codec.Encode(keyset)
 	if err != nil {
 		f.Fatal(err)
 	}
-	anchorOnly, err := codec.Encode(cursorwire.Page{
-		Version: cursorwire.Version4, CollectionID: collectionID,
-		Sort:          testCursorSort(),
-		Values:        testCursorValues(),
-		AnchorID:      uuid.MustParse("99999999-9999-4999-8999-999999999999"),
-		PrivateValues: true,
-		ExpiresAt:     now.Add(time.Minute),
-	})
+	anchored := validV5CursorForTest()
+	anchored.ExpiresAt = now.Add(time.Minute)
+	anchored.AnchorID = uuid.MustParse("88888888-8888-4888-8888-888888888888")
+	anchored.PrivateValues = true
+	anchorOnly, err := codec.Encode(anchored)
 	if err != nil {
 		f.Fatal(err)
 	}
-	v5 := validV5CursorForTest()
-	v5.ExpiresAt = now.Add(time.Minute)
-	v5.AnchorID = uuid.MustParse("88888888-8888-4888-8888-888888888888")
-	v5.PrivateValues = true
-	v5AnchorOnly, err := codec.Encode(v5)
-	if err != nil {
-		f.Fatal(err)
-	}
-	for _, seed := range []string{"", "%%%", valid, anchorOnly, v5AnchorOnly, valid + "=", "eyJ2IjoyfQ"} {
+	// The retired v4 token is a seed rather than a fixture: it is correctly
+	// signed, so it exercises the path where a well-formed envelope carries a
+	// format this binary no longer knows.
+	for _, seed := range []string{
+		"", "%%%", valid, anchorOnly, retiredV4GoldenToken, valid + "=", "eyJ2IjoyfQ",
+	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, token string) {
@@ -54,17 +45,11 @@ func FuzzCursorDecode(f *testing.F) {
 			}
 			return
 		}
-		if cursor.CollectionID != collectionID ||
-			(cursor.Version != cursorwire.Version4 && cursor.Version != cursorwire.Version5) || !cursor.ExpiresAt.After(now) {
+		if cursor.CollectionID != collectionID || cursor.Version != cursorwire.Version5 ||
+			cursor.V5 == nil || !cursor.ExpiresAt.After(now) {
 			t.Fatalf("invalid decoded cursor: %#v", cursor)
 		}
-		orderLength := len(cursor.Sort)
-		if cursor.Version == cursorwire.Version5 {
-			if cursor.V5 == nil {
-				t.Fatalf("v5 cursor omitted descriptor: %#v", cursor)
-			}
-			orderLength = len(cursor.V5.Order)
-		}
+		orderLength := len(cursor.V5.Order)
 		valuesShape := len(cursor.Values) == orderLength
 		anchorOnlyShape := cursor.PrivateValues && len(cursor.Values) == 0 &&
 			cursor.AnchorID != uuid.Nil && len(cursor.AnchorHash) == sha256.Size

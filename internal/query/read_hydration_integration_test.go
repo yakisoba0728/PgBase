@@ -361,6 +361,7 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 	assembler := pageAssembler{
 		cursors: records.cursors, order: pageOrderForTest(root.ID, effectiveSortKeys(nil)),
 		expiresAt: time.Date(2026, 9, 2, 2, 0, 0, 0, time.UTC), maximumBytes: maximumRecordPageBytes,
+		cursorV5: pageDescriptorForTest(effectiveSortKeys(nil)),
 	}
 	candidates := buildCandidates()
 	firstBytes, err := candidates[0].measureWire()
@@ -438,9 +439,16 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 		if err != nil {
 			return err
 		}
+		plan.catalogVersion = catalog.Version
+		plan.principal = Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse(r0AdministratorID)}
+		traversal, err := membership.ResolveTraversal(ctx, tx, collection.ID)
+		if err != nil {
+			return err
+		}
 		kernel, err = records.readRootPageInTx(ctx, tx, rootPageReadRequest{
 			plan: plan, limit: 2,
 			operationTime: assembler.expiresAt.Add(-cursorTTL),
+			traversal:     traversal,
 			hydrator:      newRootHydrator(tx, catalog, collection),
 		})
 		return err

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Traversal) (*cursor.V5Descriptor, error) {
-	if plan.catalogVersion < 1 || !plan.principal.Valid() || traversal.IssueVersion != cursor.Version5 ||
+	if plan.catalogVersion < 1 || !plan.principal.Valid() ||
 		traversal.ValidateV5(traversal.Generation, traversal.HighWater) != nil {
 		return nil, invalidCursor()
 	}

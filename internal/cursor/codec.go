@@ -1,12 +1,10 @@
 package cursor
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,129 +16,8 @@ type Codec struct {
 	secret []byte
 }
 
-type v4SortEntry struct {
-	Field string `json:"field"`
-	Desc  bool   `json:"desc,omitempty"`
-}
-
-type v4Payload struct {
-	Version      int               `json:"v"`
-	CollectionID string            `json:"collectionId"`
-	Sort         []v4SortEntry     `json:"sort"`
-	Values       []json.RawMessage `json:"values,omitempty"`
-	AnchorID     string            `json:"anchorId,omitempty"`
-	AnchorHash   string            `json:"anchorHash,omitempty"`
-	ExpiresAt    string            `json:"expiresAt"`
-}
-
 func NewCodec(secret []byte) *Codec {
 	return &Codec{secret: append([]byte(nil), secret...)}
-}
-
-func (c *Codec) Encode(page Page) (string, error) {
-	if page.Version == Version5 {
-		return c.encodeV5(page)
-	}
-	if page.Version != Version4 || page.V5 != nil || page.CollectionID == uuid.Nil || page.ExpiresAt.IsZero() {
-		return "", invalid()
-	}
-	if len(page.Sort) == 0 || len(page.Sort) > maxOrderTerms {
-		return "", invalid()
-	}
-	hasValues := len(page.Values) == len(page.Sort)
-	if !hasValues || len(page.AnchorHash) != 0 || (page.PrivateValues && page.AnchorID == uuid.Nil) {
-		return "", invalid()
-	}
-	_, expiryOffset := page.ExpiresAt.Zone()
-	if expiryOffset != 0 {
-		return "", invalid()
-	}
-	sort := make([]v4SortEntry, 0, len(page.Sort))
-	for _, key := range page.Sort {
-		if key.Field == "" {
-			return "", invalid()
-		}
-		sort = append(sort, v4SortEntry{Field: key.Field, Desc: key.Desc})
-	}
-	values := cloneValues(page.Values)
-	for _, value := range values {
-		if len(value) == 0 {
-			return "", invalid()
-		}
-	}
-	payloadValue := v4Payload{
-		Version: Version4, CollectionID: page.CollectionID.String(), Sort: sort, Values: values,
-		ExpiresAt: page.ExpiresAt.UTC().Format(time.RFC3339Nano),
-	}
-	payload, err := json.Marshal(payloadValue)
-	if err != nil {
-		return "", invalid()
-	}
-	if page.PrivateValues || len(payload)+sha256.Size > maxDecodedSize {
-		if page.AnchorID == uuid.Nil {
-			return "", invalid()
-		}
-		digest, digestErr := c.ValuesHash(values)
-		if digestErr != nil {
-			return "", invalid()
-		}
-		payloadValue.Values = nil
-		payloadValue.AnchorID = page.AnchorID.String()
-		payloadValue.AnchorHash = base64.RawURLEncoding.EncodeToString(digest)
-		payload, err = json.Marshal(payloadValue)
-		if err != nil {
-			return "", invalid()
-		}
-	}
-	return c.signAndEncode(payload)
-}
-
-func (c *Codec) Decode(token string, collectionID uuid.UUID, now time.Time) (Page, error) {
-	payload, err := c.authenticatedPayload(token)
-	if err != nil {
-		return Page{}, err
-	}
-	if payloadVersion(payload) == Version5 {
-		return c.decodeV5(payload, collectionID, now)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	var wire v4Payload
-	if decoder.Decode(&wire) != nil {
-		return Page{}, invalid()
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
-		return Page{}, invalid()
-	}
-	canonical, err := json.Marshal(wire)
-	if err != nil || !bytes.Equal(canonical, payload) || wire.Version != Version4 || len(wire.Sort) == 0 || len(wire.Sort) > maxOrderTerms {
-		return Page{}, invalid()
-	}
-	anchorID, anchorHash, hasAnchorOnly, ok := decodeAnchor(wire.AnchorID, wire.AnchorHash, len(wire.Values) == 0, false)
-	if !ok || (len(wire.Values) != len(wire.Sort) && !hasAnchorOnly) || (len(wire.Values) == len(wire.Sort) && hasAnchorOnly) {
-		return Page{}, invalid()
-	}
-	sort := make([]SortKey, len(wire.Sort))
-	values := cloneValues(wire.Values)
-	for index, entry := range wire.Sort {
-		if entry.Field == "" || (len(values) != 0 && len(values[index]) == 0) {
-			return Page{}, invalid()
-		}
-		sort[index] = SortKey{Field: entry.Field, Desc: entry.Desc}
-	}
-	payloadCollectionID, ok := canonicalUUID(wire.CollectionID)
-	if !ok || payloadCollectionID != collectionID {
-		return Page{}, invalid()
-	}
-	expiresAt, ok := canonicalExpiry(wire.ExpiresAt, now)
-	if !ok {
-		return Page{}, invalid()
-	}
-	return Page{
-		Version: Version4, CollectionID: payloadCollectionID, Sort: sort, Values: values,
-		AnchorID: anchorID, AnchorHash: anchorHash, PrivateValues: hasAnchorOnly, ExpiresAt: expiresAt,
-	}, nil
 }
 
 func (c *Codec) ValuesHash(values []json.RawMessage) ([]byte, error) {
@@ -188,16 +65,6 @@ func (c *Codec) fingerprint(domain string, payload []byte) []byte {
 	_, _ = mac.Write([]byte(domain))
 	_, _ = mac.Write(payload)
 	return mac.Sum(nil)
-}
-
-func payloadVersion(payload []byte) int {
-	var header struct {
-		Version int `json:"v"`
-	}
-	if json.Unmarshal(payload, &header) != nil {
-		return 0
-	}
-	return header.Version
 }
 
 func decodeAnchor(rawID, rawHash string, valuesEmpty, requireNonzeroHash bool) (uuid.UUID, []byte, bool, bool) {

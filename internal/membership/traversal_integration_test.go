@@ -70,7 +70,7 @@ func TestResolveTraversalReadsTheRetiredBoundaryFromOneStatement(t *testing.T) {
 		}
 	}
 	if traversal.state != StateReady || traversal.Generation != 1 || traversal.HighWater != 5 ||
-		traversal.IssueVersion != 5 || !traversal.V4Retired || !traversal.ready {
+		!traversal.ready {
 		t.Fatalf("retired traversal = %#v", traversal)
 	}
 	if traversal.TransactionTime.IsZero() || traversal.TransactionTime.Location() != time.UTC {
@@ -131,8 +131,7 @@ func TestResolveTraversalAdmitsOnlyTheRetiredBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retired traversal rejected: %v", err)
 	}
-	if retired.IssueVersion != 5 || !retired.V4Retired || !retired.ready ||
-		retired.Generation != 1 || retired.HighWater != 5 {
+	if !retired.ready || retired.Generation != 1 || retired.HighWater != 5 {
 		t.Fatalf("retired traversal = %#v", retired)
 	}
 	if err := retired.ValidateV5(1, 5); err != nil {
@@ -628,7 +627,7 @@ func TestResolveTraversalAcceptsCollectionAddedDuringBackfillWindow(t *testing.T
 		}); err != nil {
 			t.Fatalf("ResolveTraversal(%s) error = %v, want a usable ready traversal", collectionID, err)
 		}
-		if traversal.IssueVersion != 5 || !traversal.V4Retired {
+		if !traversal.ready {
 			t.Fatalf("ResolveTraversal(%s) traversal = %#v, want the retired boundary",
 				collectionID, traversal)
 		}

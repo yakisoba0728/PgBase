@@ -2,6 +2,7 @@ package query
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"reflect"
@@ -298,10 +299,22 @@ func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {
 	anchorID := uuid.MustParse("99999999-9999-4999-8999-999999999999")
 	values := []json.RawMessage{json.RawMessage(`"Ada"`), json.RawMessage(`"` + anchorID.String() + `"`)}
 	page := cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort:   []cursor.SortKey{{Field: "owner.name"}, {Field: systemFieldID}},
+		Version: cursor.Version5, CollectionID: collectionID,
 		Values: values, AnchorID: anchorID, PrivateValues: true,
 		ExpiresAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		V5: &cursor.V5Descriptor{
+			CatalogVersion: 12, MembershipGeneration: 1,
+			QueryHash: bytes.Repeat([]byte{0x11}, sha256.Size),
+			ScopeHash: bytes.Repeat([]byte{0x22}, sha256.Size), HighWater: 9,
+			Order: []cursor.V5OrderTerm{
+				{
+					Path:  []string{"77777777-7777-4777-8777-777777777777", "66666666-6666-4666-8666-666666666666"},
+					Type:  "text",
+					Nulls: cursor.NullsLast,
+				},
+				{Path: []string{"$id"}, Type: "uuid", Nulls: cursor.NullsLast},
+			},
+		},
 	}
 	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	token, err := codec.Encode(page)

@@ -783,7 +783,7 @@ func TestListRefusesToMintV5FromAnUnreadyTraversal(t *testing.T) {
 		// the durable ready state, which is unexported and so cannot be copied.
 		return membership.Traversal{
 			TransactionTime: traversal.TransactionTime, Generation: 1,
-			HighWater: int64(len(ids)), IssueVersion: cursor.Version5,
+			HighWater: int64(len(ids)),
 		}, nil
 	}
 	if _, err := records.List(ctx, request); !IsInvalidCursor(err) {

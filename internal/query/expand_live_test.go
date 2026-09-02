@@ -381,9 +381,18 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 4)
+	// Only the transaction clock is stubbed; the durable traversal underneath is
+	// the resolver's own, because a v5 descriptor can only be minted from a ready
+	// boundary and that readiness is not something a literal can fake.
 	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
-	records.resolveTraversal = func(context.Context, pgx.Tx, uuid.UUID) (membership.Traversal, error) {
-		return membership.Traversal{TransactionTime: fixedTransactionTime, IssueVersion: cursor.Version4}, nil
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		if err != nil {
+			return traversal, err
+		}
+		traversal.TransactionTime = fixedTransactionTime
+		return traversal, nil
 	}
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
@@ -393,24 +402,15 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil || len(wide.Items) != 3 || wide.NextCursor == "" {
 		t.Fatalf("wide page items/cursor = %d/%q err=%v", len(wide.Items), wide.NextCursor, err)
 	}
-	sortKeys := effectiveSortKeys(nil)
-	anchor := wide.Items[1].Root
-	values, err := recordSortValues(sortKeys, anchor)
-	if err != nil {
-		t.Fatal(err)
+	// The cursor a two-item page issues on its own is what the byte-limited
+	// three-item page has to re-anchor to, byte for byte.
+	narrowRequest := request
+	narrowRequest.Limit = 2
+	narrow, err := records.ListExpanded(ctx, narrowRequest)
+	if err != nil || len(narrow.Items) != 2 || narrow.NextCursor == "" {
+		t.Fatalf("narrow page items/cursor = %d/%q err=%v", len(narrow.Items), narrow.NextCursor, err)
 	}
-	collectionID := mustCollectionID(t, schemas, "expand_posts")
-	expectedCursor, err := records.cursors.Encode(cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort: []cursor.SortKey{
-			{Field: sortKeys[0].Field, Desc: sortKeys[0].Desc},
-			{Field: sortKeys[1].Field, Desc: sortKeys[1].Desc},
-		}, Values: values, AnchorID: uuid.MustParse(anchor["id"].(string)),
-		ExpiresAt: fixedTransactionTime.Add(cursorTTL),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	expectedCursor := narrow.NextCursor
 	exactPage := ExpandedRecordPage{Items: wide.Items[:2], NextCursor: expectedCursor}
 	exactJSON, err := json.Marshal(exactPage)
 	if err != nil {

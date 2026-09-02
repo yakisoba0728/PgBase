@@ -1,6 +1,8 @@
 package query
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -23,6 +25,7 @@ func TestPageAssemblerMeasuresEachWireOnceAcrossGrowingPrefixes(t *testing.T) {
 		order:        pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt:    expiresAt,
 		maximumBytes: 1 << 20,
+		cursorV5:     pageDescriptorForTest([]SortKey{{Field: systemFieldID}}),
 	}
 
 	const measuredCandidates = 4
@@ -81,6 +84,7 @@ func TestPageAssemblerFitCanRecoverWhenTerminalCursorDisappears(t *testing.T) {
 		cursors:   cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef")),
 		order:     pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt: expiresAt, maximumBytes: 1 << 20,
+		cursorV5: pageDescriptorForTest([]SortKey{{Field: systemFieldID}}),
 	}
 	candidates := make([]pageCandidate, 2)
 	for index := range candidates {
@@ -129,10 +133,12 @@ func TestPageAssemblerFitCanRecoverWhenNextAnchorCursorShrinks(t *testing.T) {
 	t.Parallel()
 
 	collectionID := uuid.MustParse("cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa")
+	rankOrder := []SortKey{{Field: "rank"}, {Field: systemFieldID}}
 	assembler := pageAssembler{
 		cursors:   cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef")),
-		order:     pageOrderForTest(collectionID, []SortKey{{Field: "rank"}}),
+		order:     pageOrderForTest(collectionID, rankOrder),
 		expiresAt: time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC), maximumBytes: 1 << 20,
+		cursorV5: pageDescriptorForTest(rankOrder),
 	}
 	longValue := json.RawMessage(strconv.Quote(strings.Repeat("a", schema.MaximumTextBytes)))
 	shortValue := json.RawMessage(`"b"`)
@@ -140,12 +146,18 @@ func TestPageAssemblerFitCanRecoverWhenNextAnchorCursorShrinks(t *testing.T) {
 		{
 			id:   uuid.NewSHA1(collectionID, []byte{1}),
 			root: map[string]any{systemFieldID: uuid.NewSHA1(collectionID, []byte{1}).String()},
-			wire: json.RawMessage(strconv.Quote(strings.Repeat("x", 1024))), cursorValues: []json.RawMessage{longValue},
+			wire: json.RawMessage(strconv.Quote(strings.Repeat("x", 1024))),
+			cursorValues: []json.RawMessage{
+				longValue, json.RawMessage(strconv.Quote(uuid.NewSHA1(collectionID, []byte{1}).String())),
+			},
 		},
 		{
 			id:   uuid.NewSHA1(collectionID, []byte{2}),
 			root: map[string]any{systemFieldID: uuid.NewSHA1(collectionID, []byte{2}).String()},
-			wire: json.RawMessage(`{}`), cursorValues: []json.RawMessage{shortValue},
+			wire: json.RawMessage(`{}`),
+			cursorValues: []json.RawMessage{
+				shortValue, json.RawMessage(strconv.Quote(uuid.NewSHA1(collectionID, []byte{2}).String())),
+			},
 		},
 	}
 	firstBytes, err := candidates[0].measureWire()
@@ -189,6 +201,7 @@ func TestPageAssemblerCursorSurvivesReleasedRootRepresentation(t *testing.T) {
 	assembler := pageAssembler{
 		cursors: codec, order: pageOrderForTest(collectionID, []SortKey{{Field: systemFieldID}}),
 		expiresAt: expiresAt, maximumBytes: 1 << 20,
+		cursorV5: pageDescriptorForTest([]SortKey{{Field: systemFieldID}}),
 	}
 	assembler.order.terms[0].relationPath = &plannedRelationPath{}
 	candidate := pageCandidate{
@@ -204,11 +217,39 @@ func TestPageAssemblerCursorSurvivesReleasedRootRepresentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode released candidate cursor: %v", err)
 	}
-	if decoded.Version != cursor.Version4 || decoded.V5 != nil {
+	if decoded.Version != cursor.Version5 || decoded.V5 == nil {
 		t.Fatalf("production page assembler issued cursor version %d with v5=%#v", decoded.Version, decoded.V5)
 	}
 	if decoded.AnchorID != recordID {
 		t.Fatalf("released candidate anchor = %s, want %s", decoded.AnchorID, recordID)
+	}
+}
+
+// A page cursor only exists inside a bound v5 traversal now, so an assembler
+// under test carries the descriptor the reader would have minted for its order.
+func pageDescriptorForTest(sortKeys []SortKey) *cursor.V5Descriptor {
+	order := make([]cursor.V5OrderTerm, len(sortKeys))
+	for index, key := range sortKeys {
+		term := cursor.V5OrderTerm{
+			Path: []string{"$" + key.Field}, Type: "timestamptz", Desc: key.Desc, Nulls: cursor.NullsLast,
+		}
+		switch key.Field {
+		case systemFieldID:
+			term.Type = "uuid"
+		case systemFieldCreatedAt, systemFieldUpdatedAt:
+		default:
+			// v5 addresses a user field by its stable catalog id, never by the
+			// logical name a request used.
+			term.Path = []string{uuid.NewSHA1(uuid.Nil, []byte(key.Field)).String()}
+			term.Type = "text"
+		}
+		order[index] = term
+	}
+	return &cursor.V5Descriptor{
+		CatalogVersion: 12, MembershipGeneration: 1, HighWater: 7,
+		QueryHash: bytes.Repeat([]byte{0x11}, sha256.Size),
+		ScopeHash: bytes.Repeat([]byte{0x22}, sha256.Size),
+		Order:     order,
 	}
 }
 

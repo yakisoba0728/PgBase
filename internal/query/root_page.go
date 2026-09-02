@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -67,26 +66,15 @@ func (s *Service) readRootPageInTx(
 		if err != nil {
 			return rootPageReadResult{}, invalidCursor()
 		}
-		var membership *int64
-		switch decoded.Version {
-		case cursor.Version4:
-			if request.traversal.V4Retired || !slices.Equal(decoded.Sort, order.sortKeys()) ||
-				(order.private() && !decoded.PrivateValues) {
-				return rootPageReadResult{}, invalidCursor()
-			}
-		case cursor.Version5:
-			if order.private() && !decoded.PrivateValues {
-				return rootPageReadResult{}, invalidCursor()
-			}
-			membership, err = s.bindCursorV5(decoded, plan, request.traversal)
-			if err != nil {
-				return rootPageReadResult{}, err
-			}
-			result.expiresAt = decoded.ExpiresAt
-			result.cursorV5 = decoded.V5
-		default:
+		if decoded.Version != cursor.Version5 || (order.private() && !decoded.PrivateValues) {
 			return rootPageReadResult{}, invalidCursor()
 		}
+		membership, err := s.bindCursorV5(decoded, plan, request.traversal)
+		if err != nil {
+			return rootPageReadResult{}, err
+		}
+		result.expiresAt = decoded.ExpiresAt
+		result.cursorV5 = decoded.V5
 		if len(decoded.Values) == 0 {
 			if err := charge(1); err != nil {
 				return rootPageReadResult{}, err
@@ -105,7 +93,7 @@ func (s *Service) readRootPageInTx(
 			decoded.Values = values
 		}
 		after = &pageBoundary{Values: decoded.Values, membership: membership}
-	} else if request.traversal.IssueVersion == cursor.Version5 {
+	} else {
 		descriptor, err := s.newCursorV5Descriptor(plan, request.traversal)
 		if err != nil {
 			return rootPageReadResult{}, err
