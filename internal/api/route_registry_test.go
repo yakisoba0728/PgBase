@@ -316,8 +316,8 @@ func TestValidateRoutesRejectsExceedingTheMetricSeriesBudget(t *testing.T) {
 // The schema apply deadline has to reach two places: the handler context, so
 // it can travel into SchemaKernel and the pgx transaction, and the real
 // connection's write deadline, so a DDL that commits at the edge of its window
-// can still deliver its response. Response buffering sits in front of the
-// connection, so this also pins that the buffer stays unwrappable.
+// can still deliver its response. A wrapper always sits between the two, so
+// this also pins that a wrapping writer stays unwrappable.
 func TestSchemaApplyDeadlineReachesTheHandlerAndTheConnection(t *testing.T) {
 	const timeout = 90 * time.Second
 	var (

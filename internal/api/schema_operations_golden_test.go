@@ -116,6 +116,17 @@ func TestSchemaOperationWireGolden(t *testing.T) {
 			make:    func() *http.Request { return goldenApplyRequest(true) },
 		},
 		{
+			name: "guarded apply terminal failure",
+			schemas: &fakeSchemaService{
+				guardedApplyErr: schema.ErrOperationFailed,
+				guardedApplyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
+					OperationID: operationID, Status: schema.OperationFailed,
+					FailureCode: schema.OperationFailureApplyFailed,
+				}},
+			},
+			make: func() *http.Request { return goldenApplyRequest(true) },
+		},
+		{
 			name:    "guarded apply outcome undecided",
 			schemas: &fakeSchemaService{guardedApplyErr: &schema.OperationRecoveryError{}},
 			make:    func() *http.Request { return goldenApplyRequest(true) },

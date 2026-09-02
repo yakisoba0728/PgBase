@@ -574,6 +574,41 @@ func TestGuardedSchemaApplyReadsTheLedgerWhenItsOwnContextExpires(t *testing.T) 
 	}
 }
 
+// A terminal failure carries the ledger's bounded classification so a client
+// can tell "replan" from "escalate" without a second round trip. It must never
+// carry raw SQL, request or error text, none of which the receipt holds.
+func TestGuardedSchemaApplyReportsTheBoundedFailureCode(t *testing.T) {
+	schemas := &fakeSchemaService{
+		guardedApplyErr: schema.ErrOperationFailed,
+		guardedApplyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
+			OperationID: uuid.MustParse(testOperationID), Status: schema.OperationFailed,
+			FailureCode: schema.OperationFailurePlanConflict,
+		}},
+	}
+	request := applyRequest(t, testApplyBody)
+	request.Header.Set(operationIDHeader, testOperationID)
+	request.Header.Set(idempotencyKeyHeader, testIdempotency)
+	response := httptest.NewRecorder()
+	schemaOperationHandler(t, schemas).ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "schema_operation_failed")
+	var decoded struct {
+		Error struct {
+			Details map[string][]string `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	got := decoded.Error.Details["operation"]
+	if len(got) != 1 || got[0] != string(schema.OperationFailurePlanConflict) {
+		t.Fatalf("failure detail = %v, want the bounded plan_conflict classification", got)
+	}
+}
+
 // The identity headers are useless to a browser client unless CORS both
 // accepts them on the request and exposes the echoed one on the response.
 func TestCORSCarriesTheOperationIdentityHeaders(t *testing.T) {
