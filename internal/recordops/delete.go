@@ -87,7 +87,11 @@ func (s *Service) deleteGraphInTransaction(
 	if err := captureDeleteSnapshots(ctx, tx, catalog, groups); err != nil {
 		return MutationResult{}, err
 	}
-	rootSnapshot, ok := groups[deleteGroupIndex(groups, root.CollectionID)].snapshots[root.RecordID]
+	rootGroup, ok := findDeleteGroup(groups, root.CollectionID)
+	if !ok {
+		return MutationResult{}, schema.ErrConflict
+	}
+	rootSnapshot, ok := rootGroup.snapshots[root.RecordID]
 	if !ok {
 		return MutationResult{}, schema.ErrConflict
 	}
@@ -223,13 +227,13 @@ func groupDeleteClosure(
 	return groups, nil
 }
 
-func deleteGroupIndex(groups []deleteGroup, collectionID uuid.UUID) int {
-	for index, group := range groups {
+func findDeleteGroup(groups []deleteGroup, collectionID uuid.UUID) (deleteGroup, bool) {
+	for _, group := range groups {
 		if group.collection.ID == collectionID {
-			return index
+			return group, true
 		}
 	}
-	return -1
+	return deleteGroup{}, false
 }
 
 // captureDeleteSnapshots reads the closure's pre-images with two statements per

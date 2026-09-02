@@ -19,6 +19,8 @@ import (
 // rather than committing an artifact set that disagrees with the row.
 var errRevisionChanged = errors.New("record revision changed outside the transaction kernel")
 
+var errArtifactCountMismatch = errors.New("record artifact batch wrote an unexpected row count")
+
 // artifactRow is one record's committed change inside a mutation.
 type artifactRow struct {
 	eventID            uuid.UUID
@@ -134,7 +136,7 @@ func writeAuditBatch(
 	if err != nil {
 		return err
 	}
-	return expectRows(tag, count, errRevisionChanged)
+	return expectRows(tag, count, errArtifactCountMismatch)
 }
 
 // writeRevisionBatch keeps the per-record optimistic guard of the single-row
@@ -236,7 +238,7 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error
 	if err != nil {
 		return err
 	}
-	return expectRows(tag, count, errRevisionChanged)
+	return expectRows(tag, count, errArtifactCountMismatch)
 }
 
 // readRevisionBatch reads one collection's stored revisions in a single query.
