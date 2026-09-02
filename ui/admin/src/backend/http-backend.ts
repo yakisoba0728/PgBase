@@ -22,6 +22,7 @@ import {
   type RecordData,
   type RecordPage,
   type ResumedSession,
+  type SchemaHealth,
   type SetupInput,
   type SystemStatus,
 } from "./ports";
@@ -275,6 +276,13 @@ class HTTPBackend implements AdminBackend {
     status: async (signal?: AbortSignal): Promise<SystemStatus> => {
       try {
         return (await this.#send({ path: "/api/admin/system", signal })).data as SystemStatus;
+      } catch (caught: unknown) {
+        throw this.#systemFailure(caught);
+      }
+    },
+    health: async (signal?: AbortSignal): Promise<SchemaHealth> => {
+      try {
+        return (await this.#send({ path: "/api/admin/system/health", signal })).data as SchemaHealth;
       } catch (caught: unknown) {
         throw this.#systemFailure(caught);
       }
