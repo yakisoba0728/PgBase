@@ -383,7 +383,14 @@ func (a *App) Run(ctx context.Context) error {
 		return errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
 	}
 	serverDone := make(chan error, 1)
-	backgroundDone, activated := a.activate(ctx, listener, serverDone, startupDone)
+	// Background tasks are deliberately detached from Run's parent context. A
+	// SIGTERM cancels that parent, and cancellation reaches a direct child
+	// before Run's own select arm runs, so the listener, the membership
+	// heartbeat and the reconciler would stop under requests still in flight.
+	// The parent signal only starts shutdown here; shutdown cancels the tasks
+	// after the drain. Start keeps its caller-owned contract, where the
+	// caller's context does cancel background work directly.
+	backgroundDone, activated := a.activate(context.WithoutCancel(ctx), listener, serverDone, startupDone)
 	if !activated {
 		return errAppClosed
 	}
