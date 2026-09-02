@@ -382,12 +382,10 @@ func TestSchemaCompilerGenerationMigrationDemotesAnUnprovableRollout(t *testing.
 	}
 }
 
-// A predecessor build can read v8's "building" state and enter its
-// session-scoped CREATE INDEX CONCURRENTLY phase just before M. Migration 9
-// must drain that exact lock before it changes the durable state labels; the
-// database constraints prevent old promotion, but without this drain the old
-// process could still change physical indexes after M committed.
-func TestSchemaCompilerGenerationMigrationDrainsPreP0CompanionMaintenance(t *testing.T) {
+// Migration 9 waits for a predecessor that already holds the physical
+// maintenance lock. This is a bounded in-flight drain, not proof that every old
+// process has passed its precheck or a durable post-commit exclusion mechanism.
+func TestSchemaCompilerGenerationMigrationWaitsForPreP0PhysicalMaintenanceLock(t *testing.T) {
 	ctx, pool := newSchemaCompanionIndexSchema(t)
 	seedCompanionRolloutAtV8(t, ctx, pool, "building")
 	// Must match internal/schema.companionIndexAdvisoryKey. The SQL migration
@@ -407,6 +405,76 @@ func TestSchemaCompilerGenerationMigrationDrainsPreP0CompanionMaintenance(t *tes
 	}
 	if state != "pending" || !indexValid {
 		t.Fatalf("post-drain migration state=%q index_valid=%t", state, indexValid)
+	}
+}
+
+// This characterizes the boundary that the deployment freeze/drain must close.
+// A predecessor can cache v8's building state before taking the maintenance
+// lock, pause through M, then take the released lock and change a physical index.
+// The database cannot prevent that tokenless DDL, but its durable state remains
+// fail-closed: v9 demotes to pending and rejects the old promotion statement.
+func TestSchemaCompilerGenerationMigrationAllowsStalePrecheckPhysicalDDLButKeepsCapabilityFailClosed(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	seedCompanionRolloutAtV8(t, ctx, pool, "building")
+	if _, err := pool.Exec(ctx, "DROP INDEX app.companion_probe_idx"); err != nil {
+		t.Fatalf("make the cached physical plan require a build: %v", err)
+	}
+
+	var cachedState string
+	if err := pool.QueryRow(ctx, `SELECT state
+		FROM pgbase_meta.schema_companion_index_capability
+		WHERE singleton`).Scan(&cachedState); err != nil {
+		t.Fatalf("predecessor status precheck: %v", err)
+	}
+	if cachedState != "building" {
+		t.Fatalf("predecessor cached state = %q, want building", cachedState)
+	}
+	if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+		t.Fatalf("apply migration 9 while predecessor is before its lock: %v", err)
+	}
+
+	maintenance, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer maintenance.Release()
+	const companionMaintenanceLock int64 = 0x7067626173650008
+	if _, err := maintenance.Exec(ctx, "SELECT pg_advisory_lock($1)", companionMaintenanceLock); err != nil {
+		t.Fatalf("predecessor acquire maintenance lock after M: %v", err)
+	}
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			_, _ = maintenance.Exec(context.Background(),
+				"SELECT pg_advisory_unlock($1)", companionMaintenanceLock)
+		}
+	}()
+	if _, err := maintenance.Exec(ctx, `CREATE INDEX CONCURRENTLY companion_probe_idx
+		ON app.companion_probe (nickname DESC NULLS LAST, id DESC)`); err != nil {
+		t.Fatalf("stale predecessor physical build after M: %v", err)
+	}
+	if _, err := maintenance.Exec(ctx,
+		"SELECT pg_advisory_unlock($1)", companionMaintenanceLock); err != nil {
+		t.Fatalf("predecessor release maintenance lock: %v", err)
+	}
+	unlocked = true
+
+	requireSQLState(t, ctx, pool, `UPDATE pgbase_meta.schema_companion_index_capability
+		SET state = 'ready', ready_at = transaction_timestamp(),
+			ready_index_count = 1, updated_at = transaction_timestamp()
+		WHERE singleton`, "23514")
+	var state string
+	var indexValid bool
+	if err := pool.QueryRow(ctx, `SELECT capability.state,
+		indexes.indisvalid AND indexes.indisready AND indexes.indislive
+		FROM pgbase_meta.schema_companion_index_capability AS capability
+		JOIN pg_class AS index_table ON index_table.relname = 'companion_probe_idx'
+		JOIN pg_index AS indexes ON indexes.indexrelid = index_table.oid
+		WHERE capability.singleton`).Scan(&state, &indexValid); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" || !indexValid {
+		t.Fatalf("stale precheck boundary state=%q index_valid=%t", state, indexValid)
 	}
 }
 

@@ -44,7 +44,7 @@ DB capability row가 유일한 source of truth다. `internal/schema.Service`가 
 
 ### D2-5 — migration 번호
 
-결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다 — **이행 완료**: v9 `schema_compiler_generation`은 재감사의 pre-P0 writer/maintenance drain, protocol fence, 세대화된 maintenance 상태까지 포함한 checksum `f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918`로 고정됐다. 그 다음은 v10이다.
+결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다 — **이행 완료**: v9 `schema_compiler_generation`은 pre-P0 writer hard fence, bounded maintenance drain, 세대화된 durable 상태, 필수 process freeze/drain 계약을 포함한 checksum `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`로 고정됐다. 그 다음은 v10이다.
 
 ### D3-1 — 승인
 

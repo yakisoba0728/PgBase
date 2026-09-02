@@ -515,7 +515,7 @@ feature contracts:
 - **P0** accepts exactly clean v8 checksum
   `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`
   and clean v9 checksum
-  `f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918`.
+  `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`.
   It records compiler generation 2, issues only v1 plans, and refuses companion
   activation.
 - **F** accepts exactly the clean v9 checksum, records generation 3, and is the
@@ -547,9 +547,16 @@ regression.
 
 Use the P0 → M → F protocol; do not migrate first under a pre-P0 fleet:
 
-1. Publish and retain the verified P0 digest. Deploy P0 to every instance on
-   v8, require readiness, then drain every pre-P0 binary and in-flight schema
-   transaction. Confirm previews remain v1 and `schema-index activate` refuses.
+1. Publish and retain the verified P0 digest. First freeze every path that can
+   start the pre-P0 artifact, including servers, one-shot CLI invocations, and
+   scheduled `schema-index` jobs. Deploy P0 to every long-running instance on
+   v8 and require readiness. Then stop and drain every remaining pre-P0 process
+   and every in-flight schema transaction. The process drain includes a
+   `schema-index build` paused anywhere between its status/catalog/manifest
+   precheck, physical index maintenance, and promotion; do not proceed merely
+   because no predecessor currently holds an advisory lock. Confirm the old
+   digest cannot restart, previews remain v1, and `schema-index activate`
+   refuses.
 2. With application auto-migration off, run one designated P0 job with
    `pgbase migrate up --through 9`. Retain the JSON receipt and require before
    version/checksum = v8/the checksum above, after version/checksum = v9/the
@@ -564,20 +571,33 @@ pre-P0 binary, because it treats v9 as an unknown history. If F has activated,
 run `schema-index rollback` while F is still available before redeploying P0;
 the indexes stay in place and P0 resumes v1 issuance. Forward-fix from P0.
 
-Migration 9 has three database guards behind that procedure. It first takes the
-predecessor's companion-maintenance advisory lock and the schema advisory lock,
-in that order. This drains an already-running old `CREATE INDEX CONCURRENTLY`
-phase and every schema writer/rollout transition before M changes their durable
-protocol, while excluding a new old maintenance command until M commits. Under
-an exclusive lease-table lock it then preserves existing leases, adds
-`writer_protocol`, backfills the only supported token `1`, and makes the column
-`NOT NULL`, constrained to `1`, with no default. A still-running pre-P0 process
-omits that column. PostgreSQL checks its proposed INSERT before taking the
-`ON CONFLICT` update path, so even the same instance ID receives SQLSTATE `23502`
-and its schema transaction aborts before DDL or catalog metadata can commit.
-Separately, the capability constraint forbids a non-pending state without a
-proved generation. These are hard fences; the P0 → M → F ordering is still
-required to make the deployment controlled rather than merely fail-safe.
+Migration 9 adds bounded database drains and durable protocol fences behind
+that procedure. It first takes the predecessor's companion-maintenance advisory
+lock and the schema advisory lock, in that order. The maintenance lock waits for
+an old command that has already entered its physical-index phase and excludes
+other contenders only until M commits. It cannot detect a predecessor that
+cached the v8 status/catalog/manifest precheck but has not acquired the lock;
+such a process could acquire it after M and still run `DROP/CREATE INDEX
+CONCURRENTLY`. Freezing launches and draining every pre-P0 process in step 1 is
+therefore part of the safety contract, not an optional rollout precaution.
+
+If that process requirement is violated, migration 9 remains fail-closed at
+the durable capability boundary: the row stays `pending`, the predecessor's
+old promotion is rejected by the v3 state constraint, and F re-validates object
+shape before promotion. Physical index changes after M are nevertheless
+possible in that unsupported window, so the maintenance advisory lock is a
+partial fence rather than a hard post-commit fence.
+
+Under an exclusive lease-table lock migration 9 preserves existing leases,
+adds `writer_protocol`, backfills the only supported token `1`, and makes the
+column `NOT NULL`, constrained to `1`, with no default. A still-running pre-P0
+process omits that column. PostgreSQL checks its proposed INSERT before taking
+the `ON CONFLICT` update path, so even the same instance ID receives SQLSTATE
+`23502` and its schema transaction aborts before DDL or catalog metadata can
+commit. The distinct v3 capability labels and constraints also make old
+activation and promotion unrepresentable. These writer and durable-state checks
+are hard fences; they do not turn the maintenance drain into one. The full P0
+→ M → F ordering and process freeze/drain are required.
 
 ## Rollback actions are different operations
 
