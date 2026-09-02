@@ -35,22 +35,23 @@ func TestStartedAppSamplesSystemStatusOnceThroughTheNamedTaskRegistry(t *testing
 			t.Errorf("close app: %v", closeErr)
 		}
 	})
-	if app.systemStatus == nil {
-		t.Fatal("the app did not construct a system status sampler")
+	sampler, ok := app.systemStatus.(*systemStatusSampler)
+	if !ok {
+		t.Fatalf("system status runner = %T, want *systemStatusSampler", app.systemStatus)
 	}
-	before := app.systemStatus.Status(ctx)
+	before := sampler.Status(ctx)
 	if !probeReported(before, systemComponentDatabase) {
 		t.Fatalf("status before startup = %#v, want the database reported as unsampled", before)
 	}
 
 	go func() { _ = app.Start(ctx) }()
 	select {
-	case <-app.systemStatus.sampled:
+	case <-sampler.sampled:
 	case <-time.After(15 * time.Second):
 		t.Fatal("the started app never produced a system status sample")
 	}
 
-	status := app.systemStatus.Status(ctx)
+	status := sampler.Status(ctx)
 	if !status.DatabaseReachable {
 		t.Fatalf("sampled status = %#v, want a reachable database", status)
 	}

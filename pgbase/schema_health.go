@@ -77,20 +77,8 @@ func (s *schemaHealthSampler) Health(context.Context) api.SchemaHealth {
 	return snapshot
 }
 
-// Run diagnoses immediately and then on the configured interval until the
-// context is cancelled, which is the app's shutdown signal.
 func (s *schemaHealthSampler) Run(ctx context.Context) error {
-	s.sample(ctx)
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			s.sample(ctx)
-		}
-	}
+	return sampleLoop(ctx, s.interval, s.sample)
 }
 
 func (s *schemaHealthSampler) sample(ctx context.Context) {
@@ -98,7 +86,7 @@ func (s *schemaHealthSampler) sample(ctx context.Context) {
 	defer cancel()
 	report, err := doctor.Run(runCtx, s.pool, s.runner)
 	s.observe(report, err)
-	s.signalSampled()
+	closeGate(s.sampled)
 }
 
 // observe turns one diagnostic result into the cached payload. A run that
@@ -148,14 +136,4 @@ func (s *schemaHealthSampler) observe(report doctor.Report, runErr error) {
 	s.mu.Lock()
 	s.snapshot = next
 	s.mu.Unlock()
-}
-
-// signalSampled closes the first-diagnosis gate exactly once. Only tests wait
-// on it; a request served before it closes sees the undiagnosed snapshot.
-func (s *schemaHealthSampler) signalSampled() {
-	select {
-	case <-s.sampled:
-	default:
-		close(s.sampled)
-	}
 }
