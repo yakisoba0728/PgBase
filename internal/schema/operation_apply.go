@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -55,11 +54,13 @@ func (s *Service) preflightLegacyApply(ctx context.Context, intent ApplyIntent) 
 	if catalog.Version != intent.baseVersion {
 		return ErrConflict
 	}
-	plan, err := CompilePlan(catalog, intent.change)
+	// Which generation this preflight would issue does not matter: it executes
+	// nothing and accepts both checksums, so it need not read the capability.
+	plan, alternate, err := compileMixedFleetPlan(catalog, intent.change, false)
 	if err != nil {
 		return err
 	}
-	if plan.Checksum != intent.checksum {
+	if plan.Checksum != intent.checksum && alternate != intent.checksum {
 		return ErrConflict
 	}
 	return nil
@@ -182,13 +183,19 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
 	}
 	catalog := currentCatalog.catalog
-	plan, err := CompilePlan(catalog, intent.change)
+	// D2-2 makes the capability row the only source of truth for the plan format this
+	// binary issues. Reading it under the schema advisory lock this transaction holds
+	// keeps the plan and the DDL below on one side of an activation or rollback.
+	companions, err := companionCapabilityReady(ctx, tx)
 	if err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}
-	checksum, err := hex.DecodeString(plan.Checksum)
-	if err != nil || len(checksum) != len(claim.row.planChecksum) ||
-		!bytes.Equal(checksum, claim.row.planChecksum[:]) ||
+	plan, alternate, err := compileMixedFleetPlan(catalog, intent.change, companions)
+	if err != nil {
+		return ApplyResult{}, nil, operationRow{}, err
+	}
+	claimed := hex.EncodeToString(claim.row.planChecksum[:])
+	if (plan.Checksum != claimed && alternate != claimed) ||
 		plan.BaseVersion != claim.row.baseVersion || plan.Operation != string(claim.row.operation) {
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
 	}
@@ -252,12 +259,6 @@ func (s *Service) executeClaimedOperation(
 	if err := s.refreshSchemaWriterLease(ctx, tx); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}
-	// The change can introduce a field whose companion index does not exist yet.
-	// Closing the gate here, atomically with the catalog change, is what keeps a
-	// ready capability from ever describing a catalog it has not been built for.
-	if err := demoteCompanionIndexCapability(ctx, tx); err != nil {
-		return ApplyResult{}, nil, operationRow{}, err
-	}
 	started := time.Now()
 	if err := s.executePlan(ctx, tx, plan); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
@@ -297,6 +298,15 @@ func (s *Service) executeClaimedOperation(
 	if err != nil {
 		return ApplyResult{}, nil, operationRow{}, fmt.Errorf("compile committed schema catalog: %w", err)
 	}
+	// D2-4 splits catalog changes by whether they can leave a companion unbuilt. An
+	// update to an existing collection can add a nullable indexed field whose companion
+	// nothing has built, so it closes the gate and the approved CIC maintenance path
+	// reopens it. A v2 create built its own companions here and a delete drops its table
+	// with every index on it; neither leaves a gap, so both carry the capability over.
+	if err := settleCompanionIndexCapability(ctx, tx, companions && intent.change.kind != changeUpdate,
+		newVersion, int64(len(nextCatalog.expectedPhysicalSchema.companion))); err != nil {
+		return ApplyResult{}, nextCatalog, operationRow{}, err
+	}
 	var completedAt time.Time
 	if err := tx.QueryRow(ctx, "select clock_timestamp()").Scan(&completedAt); err != nil {
 		return ApplyResult{}, nextCatalog, operationRow{}, fmt.Errorf("read schema operation completion timestamp: %w", err)
@@ -310,6 +320,40 @@ func (s *Service) executeClaimedOperation(
 	}
 	result.Receipt = operationReceipt(committedRow)
 	return result, nextCatalog, committedRow, nil
+}
+
+// companionCapabilityReady reports whether this binary may issue the v2 plan format.
+// Migration 8 states it as one rule, not two: only 'ready' means the writer issues v2
+// and consumers may require a companion. A database predating it has no row, so v1.
+func companionCapabilityReady(ctx context.Context, db database.DBTX) (bool, error) {
+	status, err := ReadCompanionIndexStatus(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	return status.Ready(), nil
+}
+
+// settleCompanionIndexCapability closes the gate, or carries a ready capability onto
+// the catalog this transaction commits: the promoted count and catalog version are part
+// of the contract doctor checks, and a create or delete moves both. Either way it shares
+// the DDL's transaction, so no reader sees a capability disagreeing with its catalog.
+//
+// updated_at is clock_timestamp(), not transaction_timestamp(): a promotion that committed
+// while this transaction waited on the schema advisory lock wrote a ready_at later than
+// this transaction began, and the v8 timeline check demands updated_at be at or after it.
+// Demote is immune only because it nulls both timestamps on the way out.
+func settleCompanionIndexCapability(
+	ctx context.Context, tx pgx.Tx, advance bool, version, companions int64,
+) error {
+	if !advance {
+		return demoteCompanionIndexCapability(ctx, tx)
+	}
+	if _, err := tx.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set catalog_version = $1, ready_index_count = $2, updated_at = clock_timestamp()
+		where singleton and state = 'ready'`, version, companions); err != nil {
+		return fmt.Errorf("advance schema companion index capability: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) failClaimedOperation(claim operationClaim, cause error) (ApplyResult, error) {

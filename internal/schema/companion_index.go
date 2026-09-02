@@ -533,7 +533,7 @@ func (s *Service) buildCompanionIndexes(ctx context.Context, companions []IndexS
 				return fmt.Errorf("drop invalid companion index: %w", err)
 			}
 		}
-		if _, err := connection.Exec(ctx, createCompanionIndexStatement(companion)); err != nil {
+		if _, err := connection.Exec(ctx, createCompanionIndexStatement(companion, true)); err != nil {
 			return fmt.Errorf("build companion index: %w", err)
 		}
 	}
@@ -542,9 +542,15 @@ func (s *Service) buildCompanionIndexes(ctx context.Context, companions []IndexS
 
 // createCompanionIndexStatement renders the exact key order a nullable
 // descending page needs: NULLS LAST on the column, as the public contract
-// promises, and PostgreSQL's DESC default on the id tiebreaker.
-func createCompanionIndexStatement(companion IndexSpec) string {
-	statement := "create index concurrently " + pgx.Identifier{companion.Name}.Sanitize() +
+// promises, and PostgreSQL's DESC default on the id tiebreaker. Maintenance builds
+// concurrently against a live table; a v2 create plan builds the same index inside its
+// own transaction, where CONCURRENTLY is illegal and the statement before it made it.
+func createCompanionIndexStatement(companion IndexSpec, concurrently bool) string {
+	create := "create index "
+	if concurrently {
+		create += "concurrently "
+	}
+	statement := create + pgx.Identifier{companion.Name}.Sanitize() +
 		" on " + pgx.Identifier{companion.Namespace, companion.Table}.Sanitize() + " ("
 	for index, key := range companion.Keys {
 		if index > 0 {
