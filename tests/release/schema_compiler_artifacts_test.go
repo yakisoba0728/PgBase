@@ -25,12 +25,12 @@ func TestSchemaCompilerRolloutManifestPinsThePreparationAndFeatureArtifacts(t *t
 	}
 	want := []releaseArtifact{
 		{
-			Phase: "P0", Commit: "908fbfe18006a33aacf41b09188cb63843d159bf",
+			Phase: "P0", Commit: "adfa5da78b96ac3a2c341d43165cf58f048dac78",
 			Version: "v0.0.9-alpha.0", SchemaCompilerGeneration: integer(2),
 			AcceptedMigrations: []int{8, 9}, CompanionEnabled: boolean(false),
 		},
 		{
-			Phase: "F", Commit: "490559fab970ac7e0e898556789fc007a01d5525",
+			Phase: "F", Commit: "f7ec0ff54953417dd0b41331f0b9d02b023195d8",
 			Version: "v0.0.9-rc.0", SchemaCompilerGeneration: integer(3),
 			AcceptedMigrations: []int{9}, CompanionEnabled: boolean(true),
 		},

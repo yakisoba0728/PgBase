@@ -54,7 +54,7 @@ func TestMembershipRolloutManifestPinsFourRealReleaseArtifacts(t *testing.T) {
 		t.Fatalf("record membership rollout = %#v, want migration 7", membership)
 	}
 	wantOperator := &releaseOperator{
-		Commit: "490559fab970ac7e0e898556789fc007a01d5525", Version: "v0.0.7-rc.1",
+		Commit: "f7ec0ff54953417dd0b41331f0b9d02b023195d8", Version: "v0.0.7-rc.1",
 	}
 	if !reflect.DeepEqual(membership.Operator, wantOperator) {
 		t.Fatalf("record membership operator = %#v, want %#v", membership.Operator, wantOperator)
