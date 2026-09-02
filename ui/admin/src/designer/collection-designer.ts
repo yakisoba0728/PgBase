@@ -63,6 +63,8 @@ class DraftError extends Error {}
 
 const dataBlockedText = "Existing data blocks this change (for example missing or duplicate values).";
 const catalogMovedText = "The catalog changed. Preview the collection again before applying.";
+const appliedText = "The change was applied. The edits you made after sending it are not saved yet — preview and apply them, or leave this page to discard them.";
+const createdText = "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.";
 
 const newRelation = (): DraftRelation => ({ targetCollection: "", cardinality: "single", minSelect: "0", maxSelect: "1", onDelete: "restrict" });
 
@@ -439,7 +441,12 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   // A change the ledger confirmed is saved work, whatever the request that
   // carried it did, so it no longer holds the departure guard.
   const applied = recovery !== null && recovery.status === "committed";
-  const savedDraft = useUnsavedDraft(identity, !applied && draftSignature(state.name, state.fields) !== state.pristine);
+  // The draft as it stands now, readable from a response handler that closed
+  // over the draft it sent: the two differ exactly when editing continued.
+  const signature = draftSignature(state.name, state.fields);
+  const live = useRef(signature);
+  live.current = signature;
+  const savedDraft = useUnsavedDraft(identity, !applied && signature !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
     (!state.create || state.fields.some((field) => field.type === "relation"));
@@ -495,6 +502,12 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       // Leaving on an undecided outcome would present it as a success. The
       // administrator stays here until the ledger says which it was.
       if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
+      // The server agreed with the draft it was sent, so that draft is the saved
+      // one. A draft edited since is unsaved work of its own, so it keeps the
+      // departure guard and this page instead of leaving as if it went too.
+      const outran = live.current !== signature;
+      update(identity, { pristine: signature, error: outran ? (state.create ? createdText : appliedText) : null });
+      if (outran) return;
       savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
@@ -502,7 +515,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, identity, navigate, preview, removedFields.length, savedDraft, schema, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
+  }, [active, identity, navigate, preview, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const deleteTarget = useMemo(() => deleteTargetOf(state.definition, state.deletePlan), [state.definition, state.deletePlan]);
 
