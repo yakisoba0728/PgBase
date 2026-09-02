@@ -136,6 +136,21 @@ func (f bootstrapFixture) requireRetiredTerminalState(t *testing.T) {
 func TestBootstrapFreshInstallPromotesConcurrentStartersExactlyOnce(t *testing.T) {
 	fixture := newBootstrapFixture(t)
 	const starters = 8
+	// Each replica gets its own pool, connected before the barrier opens, so
+	// the promotions really do race across connections instead of queueing
+	// behind one another's connection setup.
+	services := make([]*Service, starters)
+	for index := range starters {
+		pool, err := database.Open(fixture.ctx, fixture.databaseURL, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		if err := pool.Ping(fixture.ctx); err != nil {
+			t.Fatal(err)
+		}
+		services[index] = New(pool)
+	}
 	promoted := make([]bool, starters)
 	failures := make([]error, starters)
 	var waiting sync.WaitGroup
@@ -144,16 +159,8 @@ func TestBootstrapFreshInstallPromotesConcurrentStartersExactlyOnce(t *testing.T
 		waiting.Add(1)
 		go func() {
 			defer waiting.Done()
-			// Each replica opens its own pool, so the promotions race across
-			// connections rather than inside one.
-			pool, err := database.Open(fixture.ctx, fixture.databaseURL, 5*time.Second)
-			if err != nil {
-				failures[index] = err
-				return
-			}
-			defer pool.Close()
 			<-start
-			promoted[index], failures[index] = New(pool).BootstrapFreshInstall(fixture.ctx)
+			promoted[index], failures[index] = services[index].BootstrapFreshInstall(fixture.ctx)
 		}()
 	}
 	close(start)
@@ -426,6 +433,83 @@ func TestBootstrapFreshInstallRefusesLeftoverRolloutHistory(t *testing.T) {
 				t.Fatalf("capability = %#v, want the seeded off row", status)
 			}
 		})
+	}
+}
+
+// The vacuity proof has to be taken under locks a record writer already
+// respects, or a create that is in flight when the bootstrap runs would commit
+// a base row with no sidecar into a database that has just declared every
+// record has one. A create takes the shared schema pin before it inserts, so
+// the exclusive pin is what makes the two orders exclusive.
+func TestBootstrapFreshInstallSerializesWithAnInFlightRecordCreate(t *testing.T) {
+	fixture := newBootstrapFixture(t)
+	// Release B registers no bootstrap of its own, so this holds a real
+	// creation fence against a capability that is still off.
+	runtime, err := RegisterWriter(fixture.ctx, fixture.service, WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := runtime.Writer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creating, err := fixture.pool.Acquire(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer creating.Release()
+	createTx, err := creating.Begin(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = createTx.Rollback(fixture.ctx)
+		}
+	}()
+	fence, err := writer.LockCreate(fixture.ctx, createTx, fixture.collectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.Reserve(fixture.ctx); err != nil {
+		t.Fatal(err)
+	}
+	recordID := uuid.MustParse("0199b700-0000-7000-8000-0000000000c1")
+	if _, err := createTx.Exec(fixture.ctx, `insert into app.bootstrap_records
+		(id, created_at, updated_at)
+		values ($1, transaction_timestamp(), transaction_timestamp())`, recordID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fence.RecordCreated(fixture.ctx, recordID); err != nil {
+		t.Fatal(err)
+	}
+
+	type bootstrapResult struct {
+		promoted bool
+		err      error
+	}
+	results := make(chan bootstrapResult, 1)
+	go func() {
+		promoted, err := fixture.service.BootstrapFreshInstall(fixture.ctx)
+		results <- bootstrapResult{promoted: promoted, err: err}
+	}()
+	waitForMembershipPostgresLock(t, fixture.pool, 0, "where singleton for update")
+
+	if err := createTx.Commit(fixture.ctx); err != nil {
+		t.Fatal(err)
+	}
+	committed = true
+
+	result := <-results
+	if result.err != nil {
+		t.Fatalf("BootstrapFreshInstall behind an in-flight create: %v", result.err)
+	}
+	if result.promoted {
+		t.Fatal("BootstrapFreshInstall promoted around a record that was still committing")
+	}
+	if status := fixture.status(t); status.State != StateOff {
+		t.Fatalf("capability = %#v, want the seeded off row", status)
 	}
 }
 
