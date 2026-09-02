@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,29 @@ type Catalog struct {
 	Collections map[string]Collection       `json:"collections"`
 	Incoming    map[uuid.UUID][]RelationRef `json:"-"`
 	wire        []byte
+	deleteGraph *catalogDeleteGraph
+}
+
+// catalogDeleteGraph is the delete graph one catalog version shares with every
+// request pinned to it. schema cannot import the package that owns the type, so
+// the compiled value crosses that boundary as any. A failure is cached with the
+// value because the input is immutable: a second attempt would fail identically.
+type catalogDeleteGraph struct {
+	once  sync.Once
+	value any
+	err   error
+}
+
+// DeleteGraph runs build at most once per catalog version and returns the
+// result every later caller shares. Compilation is deferred because a process
+// that never deletes never needs it. Only a compiled snapshot carries the
+// shared slot; a caller-owned copy may be mutated, so it builds its own graph.
+func (c Catalog) DeleteGraph(build func(Catalog) (any, error)) (any, error) {
+	if c.deleteGraph == nil {
+		return build(c)
+	}
+	c.deleteGraph.once.Do(func() { c.deleteGraph.value, c.deleteGraph.err = build(c) })
+	return c.deleteGraph.value, c.deleteGraph.err
 }
 
 type compiledCatalog struct {
@@ -48,6 +72,7 @@ func compileCatalogWithLimit(source Catalog, wireLimit int) (*compiledCatalog, e
 		return nil, err
 	}
 	immutable.wire = wire
+	immutable.deleteGraph = &catalogDeleteGraph{}
 	return &compiledCatalog{catalog: immutable, expectedPhysicalSchema: expectedPhysicalSchema}, nil
 }
 
