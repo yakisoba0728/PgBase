@@ -128,7 +128,11 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	for _, declared := range routes {
-		handler := applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, declared.handler)
+		// Buffering is innermost so the write deadline is installed on the
+		// real connection before any byte is held, and so a rejected request
+		// never allocates a buffer for a body it will not produce.
+		handler := applyResponseMode(declared.response, declared.handler)
+		handler = applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, handler)
 		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, handler))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

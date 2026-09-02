@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 // registeredPatterns lists the registry in a stable order.
@@ -151,23 +153,60 @@ func TestBufferedRoutesNameACapAndOnlySchemaApplyRunsLong(t *testing.T) {
 }
 
 // The catalog and record page caps are the transport side of budgets the
-// kernels already enforce. If they drift apart a response the kernel considers
-// legal fails at the transport, so they are pinned to the same numbers.
+// kernels already enforce. Now that the cap is enforced at runtime the two
+// numbers cannot simply be equal: a kernel measures the value it produced and
+// the transport writes it through json.Encoder, so the cap is the kernel bound
+// plus one fixed framing allowance. Both halves are pinned, because dropping
+// the allowance would reject a maximal legal response and inflating it would
+// give the memory bound away.
 func TestBufferedCapsMatchTheKernelBudgetsTheyMirror(t *testing.T) {
 	caps := map[string]int{}
 	for _, declared := range declaredTestRoutes(t) {
 		caps[declared.muxPattern()] = declared.response.maximumBytes
 	}
-	if got := caps["GET /api/admin/collections"]; got != 16<<20 {
-		t.Fatalf("catalog cap = %d, want the canonical 16 MiB snapshot bound", got)
+	if responseFraming != 4<<10 {
+		t.Fatalf("response framing allowance = %d, want 4 KiB", responseFraming)
+	}
+	if got := caps["GET /api/admin/collections"]; got != 16<<20+responseFraming {
+		t.Fatalf("catalog cap = %d, want the canonical 16 MiB snapshot bound plus framing", got)
 	}
 	for _, pattern := range []string{
 		"GET /api/v1/collections/{collection}/records",
 		"GET /api/v1/collections/{collection}/records/{id}",
 	} {
-		if got := caps[pattern]; got != 4<<20 {
-			t.Fatalf("%s cap = %d, want the 4 MiB record page budget", pattern, got)
+		if got := caps[pattern]; got != 4<<20+responseFraming {
+			t.Fatalf("%s cap = %d, want the 4 MiB record page budget plus framing", pattern, got)
 		}
+	}
+}
+
+// Buffering a stream would defeat both routes that declare passthrough: the
+// Prometheus exposition is not a JSON envelope and the embedded UI serves
+// prebuilt assets of its own sizes. The registry is where that decision lives,
+// so it is pinned here rather than inferred from either handler.
+func TestOnlyStreamingRoutesDeclarePassthrough(t *testing.T) {
+	streaming := map[string]bool{"GET /metrics": true, "/admin": true, "/admin/": true}
+	routes := declareRoutes(completeDependencies(Dependencies{
+		Metrics:           observability.NewMetrics(nil),
+		MetricsExposition: http.NewServeMux(),
+		AdminUI:           http.NewServeMux(),
+	}), true)
+	seen := 0
+	for _, declared := range routes {
+		key := declared.muxPattern()
+		if streaming[key] {
+			seen++
+			if declared.response.atomic {
+				t.Fatalf("route %q buffers a streaming response", key)
+			}
+			continue
+		}
+		if !declared.response.atomic {
+			t.Fatalf("route %q streams but is not one of the two streaming routes", key)
+		}
+	}
+	if seen != len(streaming) {
+		t.Fatalf("declared %d of %d streaming routes", seen, len(streaming))
 	}
 }
 
