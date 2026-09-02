@@ -127,6 +127,9 @@ func (stubReadiness) Ready(context.Context) error { return nil }
 // router, so a handler test states the modules it cares about and inherits
 // inert stubs for the rest instead of relying on request-time nil checks.
 func completeDependencies(dependencies Dependencies) Dependencies {
+	if dependencies.SchemaApplyTimeout == 0 {
+		dependencies.SchemaApplyTimeout = 10 * time.Minute
+	}
 	if dependencies.Readiness == nil {
 		dependencies.Readiness = stubReadiness{}
 	}
@@ -145,11 +148,29 @@ func completeDependencies(dependencies Dependencies) Dependencies {
 	return dependencies
 }
 
+// deadlineWriter makes a test response writer behave like the real server
+// connection, which always supports a write deadline. Without it a route
+// carrying a deadline policy would fail closed in every unit test for a
+// reason no deployed server has.
+type deadlineWriter struct {
+	http.ResponseWriter
+	writeDeadline time.Time
+}
+
+func (w *deadlineWriter) SetWriteDeadline(deadline time.Time) error {
+	w.writeDeadline = deadline
+	return nil
+}
+
+func (w *deadlineWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func mustRouter(tb testing.TB, dependencies Dependencies) http.Handler {
 	tb.Helper()
 	handler, err := NewRouter(completeDependencies(dependencies))
 	if err != nil {
 		tb.Fatalf("construct router: %v", err)
 	}
-	return handler
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(&deadlineWriter{ResponseWriter: w}, r)
+	})
 }

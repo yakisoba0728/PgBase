@@ -305,6 +305,7 @@ func newWithCatalogPreflight(
 		AdminUI:            adminHandler,
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
+		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
 	})
 	if err != nil {
 		return nil, err

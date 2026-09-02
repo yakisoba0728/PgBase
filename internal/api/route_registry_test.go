@@ -3,10 +3,12 @@ package api
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // registeredPatterns lists the registry in a stable order.
@@ -248,4 +250,79 @@ func TestValidateRoutesRejectsExceedingTheMetricSeriesBudget(t *testing.T) {
 	if err := validateRoutes(methodAgnostic); !errors.Is(err, errRouteCardinality) {
 		t.Fatalf("validateRoutes(method-agnostic) = %v, want %v", err, errRouteCardinality)
 	}
+}
+
+// The schema apply deadline has to reach two places: the handler context, so
+// it can travel into SchemaKernel and the pgx transaction, and the real
+// connection's write deadline, so a DDL that commits at the edge of its window
+// can still deliver its response. Response buffering sits in front of the
+// connection, so this also pins that the buffer stays unwrappable.
+func TestSchemaApplyDeadlineReachesTheHandlerAndTheConnection(t *testing.T) {
+	const timeout = 90 * time.Second
+	var (
+		observedDeadline time.Time
+		observedOK       bool
+	)
+	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		observedDeadline, observedOK = r.Context().Deadline()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	connection := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+
+	before := time.Now()
+	applyDeadline(deadlineSchemaApply, timeout, probe).
+		ServeHTTP(&bufferedResponseWriter{destination: connection, header: make(http.Header)},
+			httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", nil))
+	after := time.Now()
+
+	if !observedOK {
+		t.Fatal("schema apply handler ran with no context deadline")
+	}
+	if observedDeadline.Before(before.Add(timeout)) || observedDeadline.After(after.Add(timeout)) {
+		t.Fatalf("handler deadline = %s, want about %s from now", observedDeadline, timeout)
+	}
+	if want := observedDeadline.Add(responseMargin); !connection.writeDeadline.Equal(want) {
+		t.Fatalf("connection write deadline = %s, want the handler deadline plus the %s response margin (%s)",
+			connection.writeDeadline, responseMargin, want)
+	}
+}
+
+// A route without the schema-apply policy must not acquire a deadline, and
+// must not touch the connection's write deadline either.
+func TestDefaultDeadlinePolicyLeavesTheRequestAndConnectionAlone(t *testing.T) {
+	var observedOK bool
+	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, observedOK = r.Context().Deadline()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	connection := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	applyDeadline(deadlineDefault, 90*time.Second, probe).
+		ServeHTTP(connection, httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil))
+	if observedOK {
+		t.Fatal("default-deadline route received a context deadline")
+	}
+	if !connection.writeDeadline.IsZero() {
+		t.Fatalf("default-deadline route set a write deadline of %s", connection.writeDeadline)
+	}
+}
+
+// Fail closed: if the write deadline cannot be set, the response could be cut
+// off mid-body later, and for a committed DDL that is worse than refusing the
+// request. It must end before any header, body or domain call.
+func TestSchemaApplyRefusesWhenTheWriteDeadlineCannotBeSet(t *testing.T) {
+	called := false
+	probe := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+	response := httptest.NewRecorder()
+	applyDeadline(deadlineSchemaApply, 90*time.Second, probe).
+		ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", nil))
+	if called {
+		t.Fatal("schema apply reached the handler without a write deadline")
+	}
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	if got := response.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want %q", got, "1")
+	}
+	assertErrorCode(t, response.Body.Bytes(), "schema_apply_unavailable")
 }

@@ -20,6 +20,15 @@ const maximumAdminSessionTTL = 12 * time.Hour
 // the configuration being refused here with a name the operator can act on.
 const maximumStatementTimeout = 2147483647 * time.Millisecond
 
+// The schema apply window an operator may choose. The floor keeps a value that
+// could not finish a trivial DDL from being mistaken for a working
+// configuration; the ceiling keeps a stuck apply from holding a schema lock
+// for an unbounded time.
+const (
+	minimumSchemaApplyTimeout = 30 * time.Second
+	maximumSchemaApplyTimeout = time.Hour
+)
+
 // Options configures a pgBase application.
 type Options struct {
 	DatabaseURL string
@@ -37,6 +46,11 @@ type Options struct {
 	AdminSessionTTL    time.Duration
 	StatementTimeout   time.Duration
 	ShutdownTimeout    time.Duration
+	// SchemaApplyTimeout bounds one schema apply, including its DDL. It is a
+	// separate axis from StatementTimeout because index and constraint builds
+	// legitimately outlive an ordinary statement, and from the server write
+	// timeout because the response still has to be delivered afterwards.
+	SchemaApplyTimeout time.Duration
 	Logger             *slog.Logger
 }
 
@@ -53,6 +67,9 @@ func (o Options) Normalized() (Options, error) {
 	}
 	if o.ShutdownTimeout == 0 {
 		o.ShutdownTimeout = 15 * time.Second
+	}
+	if o.SchemaApplyTimeout == 0 {
+		o.SchemaApplyTimeout = 10 * time.Minute
 	}
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -117,6 +134,10 @@ func validateOptions(o Options) error {
 	}
 	if o.ShutdownTimeout <= 0 {
 		return fmt.Errorf("ShutdownTimeout: must be positive")
+	}
+	if o.SchemaApplyTimeout < minimumSchemaApplyTimeout || o.SchemaApplyTimeout > maximumSchemaApplyTimeout {
+		return fmt.Errorf("SchemaApplyTimeout: must be between %s and %s",
+			minimumSchemaApplyTimeout, maximumSchemaApplyTimeout)
 	}
 	return nil
 }

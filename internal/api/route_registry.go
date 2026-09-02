@@ -167,6 +167,9 @@ func (d Dependencies) requiredModules() error {
 	if d.System == nil {
 		missing = append(missing, "System")
 	}
+	if d.SchemaApplyTimeout <= 0 {
+		missing = append(missing, "SchemaApplyTimeout")
+	}
 	if len(missing) == 0 {
 		return nil
 	}

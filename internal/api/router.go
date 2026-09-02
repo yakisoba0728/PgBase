@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
@@ -29,6 +30,10 @@ type Dependencies struct {
 	// dependency; the metrics module hashes it on construction and keeps only
 	// the hash.
 	MetricsExposition http.Handler
+	// SchemaApplyTimeout bounds the one route whose DDL may outlive the
+	// default write timeout. Zero means the caller did not supply it and
+	// construction fails rather than silently running an apply unbounded.
+	SchemaApplyTimeout time.Duration
 }
 
 // declareRoutes is the single authoritative description of the HTTP surface.
@@ -123,7 +128,8 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	for _, declared := range routes {
-		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, declared.handler))
+		handler := applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, declared.handler)
+		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, handler))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"})

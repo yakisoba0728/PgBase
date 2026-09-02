@@ -56,7 +56,7 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 
 func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buffered := &bufferedResponseWriter{header: make(http.Header)}
+		buffered := &bufferedResponseWriter{destination: w, header: make(http.Header)}
 		defer func() {
 			if recover() != nil {
 				id := buffered.Header().Get("X-Request-ID")
@@ -82,12 +82,19 @@ func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 }
 
 type bufferedResponseWriter struct {
-	header http.Header
-	body   bytes.Buffer
-	status int
+	// destination is the writer this buffer will be committed to. It is held
+	// so http.ResponseController can still reach the real connection: a
+	// handler that needs a write deadline has to set it on the connection,
+	// not on the buffer that will later be copied to it.
+	destination http.ResponseWriter
+	header      http.Header
+	body        bytes.Buffer
+	status      int
 }
 
 func (w *bufferedResponseWriter) Header() http.Header { return w.header }
+
+func (w *bufferedResponseWriter) Unwrap() http.ResponseWriter { return w.destination }
 
 func (w *bufferedResponseWriter) WriteHeader(status int) {
 	if w.status == 0 {
@@ -120,6 +127,12 @@ type statusWriter struct {
 	http.ResponseWriter
 	status int
 }
+
+// Unwrap exposes the real connection writer so http.ResponseController can
+// still reach capabilities this wrapper does not implement, such as the write
+// deadline the schema apply route sets. Without it every wrapped route loses
+// those capabilities silently.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *statusWriter) WriteHeader(status int) {
 	w.status = status
