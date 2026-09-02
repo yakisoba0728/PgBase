@@ -49,7 +49,7 @@ func (p *membershipWriterProvider) writer(ctx context.Context) (membership.Write
 	injected := p.injected
 	if runtime == nil {
 		var err error
-		runtime, err = membership.RegisterWriter(ctx, membership.New(p.pool), membership.WriterA)
+		runtime, err = membership.RegisterWriter(ctx, membership.New(p.pool), membership.WriterB)
 		if err != nil {
 			// Registration failures are deliberately not cached. A direct service
 			// constructed before migration M can succeed once the exact v7

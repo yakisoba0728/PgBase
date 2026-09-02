@@ -199,10 +199,10 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	}
 }
 
-func TestReleaseANewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
+func TestReleaseBNewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 	migrations := system.Migrations()
 	if len(migrations) != 7 {
-		t.Fatalf("record-membership release-A manifest = %#v", migrations)
+		t.Fatalf("record-membership release-B manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name        string
@@ -263,7 +263,7 @@ func TestReleaseANewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 			})
 			if testCase.wantAccept {
 				if err != nil {
-					t.Fatalf("New rejected Release-A history: %v", err)
+					t.Fatalf("New rejected Release-B history: %v", err)
 				}
 				status, statusErr := migrate.New(app.pool, slog.New(slog.NewJSONHandler(io.Discard, nil))).Status(context.Background())
 				if statusErr != nil {
@@ -272,7 +272,7 @@ func TestReleaseANewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 				}
 				if status.Current != int64(testCase.through) || !status.Compatible {
 					_ = app.Close(context.Background())
-					t.Fatalf("startup changed accepted Release-A history: %#v", status)
+					t.Fatalf("startup changed accepted Release-B history: %#v", status)
 				}
 				var membershipTable *string
 				if queryErr := app.pool.QueryRow(context.Background(),
@@ -289,18 +289,18 @@ func TestReleaseANewAcceptsOnlyCleanPostMembershipHistory(t *testing.T) {
 					var leases int
 					if err := app.pool.QueryRow(context.Background(), `select count(*)
 						from pgbase_meta.runtime_writer_leases
-						where writer_version = 1 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
+						where writer_version = 2 and lease_expires_at > clock_timestamp()`).Scan(&leases); err != nil {
 						_ = app.Close(context.Background())
 						t.Fatal(err)
 					}
 					if leases != 1 {
 						_ = app.Close(context.Background())
-						t.Fatalf("Release-A startup active writer leases = %d, want 1", leases)
+						t.Fatalf("Release-B startup active writer leases = %d, want 1", leases)
 					}
 					runtime, ok := app.membershipWriter.(*membership.Runtime)
-					if !ok || runtime.WriterVersion() != membership.WriterA {
+					if !ok || runtime.WriterVersion() != membership.WriterB {
 						_ = app.Close(context.Background())
-						t.Fatalf("membership writer = %T/%v, want Release A", app.membershipWriter, runtime)
+						t.Fatalf("membership writer = %T/%v, want Release B", app.membershipWriter, runtime)
 					}
 				}
 				if err := app.Start(context.Background()); err != nil {
@@ -446,5 +446,63 @@ func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
 	status := (systemStatusState{pool: pool, runner: runner}).Status(ctx)
 	if !status.MigrationDirty {
 		t.Fatalf("system status = %#v, want dirty migration history", status)
+	}
+}
+
+// Release B is only a deployable artifact if the writer the app registers is
+// the one EnableV5 demands. The activation fleet proof must match the active
+// lease set exactly and every member must be at least WriterB, so an app still
+// registering Release A cannot be activated no matter what the operator sends.
+func TestReleaseBAppRuntimeSatisfiesTheV5ActivationFleetProof(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	ctx := context.Background()
+	app, err := New(ctx, Options{
+		DatabaseURL: databaseURL,
+		TokenSecret: make([]byte, 32),
+		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := app.Close(context.Background()); closeErr != nil {
+			t.Errorf("close app: %v", closeErr)
+		}
+	})
+	runtime, ok := app.membershipWriter.(*membership.Runtime)
+	if !ok {
+		t.Fatalf("membership writer = %T, want a registered runtime", app.membershipWriter)
+	}
+	proof := membership.FleetProof{Members: []membership.FleetMember{runtime.FleetMember()}}
+
+	if _, err := membership.New(app.pool).Cutover(ctx, proof); err != nil {
+		t.Fatalf("Cutover with the app's own fleet proof: %v", err)
+	}
+	progress, err := membership.New(app.pool).Backfill(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !progress.Done {
+		t.Fatalf("backfill = %#v, want done on an empty catalog", progress)
+	}
+	if _, err := membership.New(app.pool).PromoteReady(ctx); err != nil {
+		t.Fatal(err)
+	}
+	activation, err := membership.New(app.pool).EnableV5(ctx, proof)
+	if err != nil {
+		t.Fatalf("EnableV5 with the app's own fleet proof: %v", err)
+	}
+	if activation.MinimumWriterVersion != membership.WriterB {
+		t.Fatalf("activation minimum writer version = %v, want Release B", activation.MinimumWriterVersion)
+	}
+
+	var issueVersion int
+	if err := app.pool.QueryRow(ctx, `select cursor_issue_version
+		from pgbase_meta.record_membership_capability where singleton`).Scan(&issueVersion); err != nil {
+		t.Fatal(err)
+	}
+	if issueVersion != 5 {
+		t.Fatalf("cursor issue version after activation = %d, want 5", issueVersion)
 	}
 }
