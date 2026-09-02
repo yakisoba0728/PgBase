@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useBackend } from "../auth/session";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import {
@@ -13,7 +13,7 @@ import {
   type RelationCardinality,
   type RelationDeleteAction,
 } from "../backend/ports";
-import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
+import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 
 interface DraftRelation {
   targetCollection: string;
@@ -277,91 +277,34 @@ interface State {
   deleteError: string | null;
 }
 
-type Action =
-  | { type: "reset"; identity: string; mode: DesignerMode }
-  | { type: "targets-loading" }
-  | { type: "loaded"; identity: string; catalog: CollectionCatalog }
-  | { type: "load-failed"; identity: string }
-  | { type: "rename"; name: string }
-  | { type: "field"; index: number; edit: DraftEdit }
-  | { type: "add-field" }
-  | { type: "remove-field"; index: number }
-  | { type: "confirm"; confirmed: boolean }
-  | { type: "message"; message: string | null }
-  | { type: "pending"; identity: string; pending: boolean }
-  | { type: "previewed"; identity: string; plan: PlannedChange }
-  | { type: "settle"; identity: string; message: string | null; clearPlan: boolean }
-  | { type: "delete-pending"; identity: string; pending: boolean }
-  | { type: "delete-planned"; identity: string; plan: PlannedChange | null }
-  | { type: "delete-failed"; identity: string; message: string };
-
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
   return {
-    identity,
-    create,
-    phase: create ? "ready" : "loading",
-    name: create ? "" : mode.collection,
-    tableName: "",
-    definition: null,
-    catalog: null,
-    targetsLoading: false,
-    targetsFailed: false,
-    fields: create ? [newField()] : [],
-    plan: null,
-    confirmed: false,
-    pending: false,
-    error: null,
-    deletePlan: null,
-    deletePending: false,
-    deleteError: null,
+    identity, create, phase: create ? "ready" : "loading", name: create ? "" : mode.collection, tableName: "",
+    definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields: create ? [newField()] : [],
+    plan: null, confirmed: false, pending: false, error: null, deletePlan: null, deletePending: false, deleteError: null,
   };
 }
 
 // Editing the draft always drops the approved plan: a preview only describes
 // the input it was produced from.
-function redrafted(state: State, fields: DraftField[]): State {
-  return { ...state, fields, plan: null, confirmed: false };
+const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false });
+
+function loadedState(current: State, catalog: CollectionCatalog): Partial<State> {
+  const base = { catalog, targetsLoading: false, targetsFailed: false };
+  if (current.create) return base;
+  const definition = catalog.get(current.name);
+  if (definition === undefined) return { ...base, phase: "missing" };
+  return { ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields: draftFields(definition, catalog) };
 }
 
-function reduce(state: State, action: Action): State {
-  if (action.type === "reset") return initial(action.mode, action.identity);
-  // A result that arrives after this designer moved to another collection can
-  // no longer describe what is on screen.
-  if ("identity" in action && action.identity !== state.identity) return state;
-  switch (action.type) {
-    case "targets-loading": return { ...state, targetsLoading: true };
-    case "loaded": {
-      const base = { ...state, catalog: action.catalog, targetsLoading: false, targetsFailed: false };
-      if (state.create) return base;
-      const definition = action.catalog.get(state.name);
-      if (definition === undefined) return { ...base, phase: "missing" };
-      return { ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields: draftFields(definition, action.catalog) };
-    }
-    case "load-failed": return state.create
-      ? { ...state, targetsLoading: false, targetsFailed: true }
-      : { ...state, phase: "unavailable" };
-    case "rename": return {
-      ...state,
-      name: action.name,
-      plan: null,
-      confirmed: false,
-      fields: state.fields.map((field) => field.selfRelation === true && field.relation !== undefined
-        ? { ...field, relation: { ...field.relation, targetCollection: action.name } }
-        : field),
-    };
-    case "field": return redrafted(state, state.fields.map((field, index) => index === action.index ? applyEdit(field, action.edit, state.name) : field));
-    case "add-field": return redrafted(state, [...state.fields, newField()]);
-    case "remove-field": return redrafted(state, state.fields.filter((_, index) => index !== action.index));
-    case "confirm": return { ...state, confirmed: action.confirmed };
-    case "message": return { ...state, error: action.message };
-    case "pending": return { ...state, pending: action.pending };
-    case "previewed": return { ...state, plan: action.plan, confirmed: false };
-    case "settle": return { ...state, error: action.message, plan: action.clearPlan ? null : state.plan, confirmed: action.clearPlan ? false : state.confirmed };
-    case "delete-pending": return { ...state, deletePending: action.pending };
-    case "delete-planned": return { ...state, deletePlan: action.plan, deleteError: null };
-    case "delete-failed": return { ...state, deletePlan: null, deleteError: action.message };
-  }
+function renamed(current: State, name: string): Partial<State> {
+  return {
+    name, plan: null, confirmed: false,
+    fields: current.fields.map((field) => field.selfRelation === true && field.relation !== undefined
+      ? { ...field, relation: { ...field.relation, targetCollection: name } }
+      : field),
+  };
 }
 
 export interface CollectionDesigner {
@@ -395,27 +338,37 @@ export interface CollectionDesigner {
   requestDelete(): void;
 }
 
-function applyFailure(caught: unknown, create: boolean): { message: string; clearPlan: boolean } {
+function applyFailure(caught: unknown, create: boolean): Partial<State> {
   const reason = caught instanceof SchemaError ? caught.reason : "failed";
   if (reason === "same-version-conflict") {
     return {
-      message: create
+      error: create
         ? "A collection with this name likely already exists."
         : "The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.",
-      clearPlan: true,
+      plan: null,
+      confirmed: false,
     };
   }
-  if (reason === "catalog-moved") return { message: catalogMovedText, clearPlan: true };
-  if (!create && reason === "data-blocked") return { message: schemaMessage(caught, dataBlockedText, dataBlockedText), clearPlan: false };
-  return { message: schemaMessage(caught, create ? "Unable to create the collection." : "Unable to apply the collection change."), clearPlan: false };
+  if (reason === "catalog-moved") return { error: catalogMovedText, plan: null, confirmed: false };
+  if (!create && reason === "data-blocked") return { error: schemaMessage(caught, dataBlockedText, dataBlockedText) };
+  return { error: schemaMessage(caught, create ? "Unable to create the collection." : "Unable to apply the collection change.") };
+}
+
+function deleteFailure(caught: unknown): Partial<State> {
+  const reason = caught instanceof SchemaError ? caught.reason : "failed";
+  return {
+    deletePlan: null,
+    deleteError: reason === "referenced" ? schemaMessage(caught, "Unable to delete the collection.", "Collection is referenced.")
+      : reason === "catalog-moved" ? "The catalog changed. Preview the deletion again before applying."
+        : schemaMessage(caught, "Unable to delete the collection."),
+  };
 }
 
 export function useCollectionDesigner(mode: DesignerMode, navigate: (route: AdminRoute) => void): CollectionDesigner {
   const { schema } = useBackend();
   const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
-  const [state, dispatch] = useReducer(reduce, mode, (initialMode) => initial(initialMode, identity));
-  if (state.identity !== identity) dispatch({ type: "reset", identity, mode });
+  const [state, update] = useResourceState(identity, (current) => initial(mode, current));
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
     (!state.create || state.fields.some((field) => field.type === "relation"));
@@ -423,12 +376,15 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   useEffect(() => {
     if (!wantsCatalog) return;
     const controller = new AbortController();
-    dispatch({ type: "targets-loading" });
+    update(identity, { targetsLoading: true });
     void schema.catalog(controller.signal)
-      .then((catalog) => { if (!controller.signal.aborted) dispatch({ type: "loaded", identity, catalog }); })
-      .catch(() => { if (!controller.signal.aborted) dispatch({ type: "load-failed", identity }); });
+      .then((catalog) => { if (!controller.signal.aborted) update(identity, (current) => loadedState(current, catalog)); })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        update(identity, (current) => current.create ? { targetsLoading: false, targetsFailed: true } : { phase: "unavailable" });
+      });
     return () => controller.abort();
-  }, [identity, schema, wantsCatalog]);
+  }, [identity, schema, update, wantsCatalog]);
 
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
@@ -444,69 +400,60 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   const requestPreview = useCallback(async () => {
     if (state.pending || (!state.create && state.definition === null)) return;
-    dispatch({ type: "message", message: null });
     let change: CollectionChange;
     try { change = buildInput(state.create ? "create" : "update", state.name, state.fields); }
-    catch (caught: unknown) { dispatch({ type: "message", message: draftMessage(caught, "Collection input is invalid.") }); return; }
-    dispatch({ type: "pending", identity, pending: true });
+    catch (caught: unknown) { update(identity, { error: draftMessage(caught, "Collection input is invalid.") }); return; }
+    update(identity, { error: null, pending: true });
     try {
-      dispatch({ type: "previewed", identity, plan: await schema.plan(change) });
+      const planned = await schema.plan(change);
+      update(identity, { plan: planned, confirmed: false });
     } catch (caught: unknown) {
       const fallback = state.create ? "Unable to preview the collection." : "Unable to preview the collection change.";
-      dispatch({ type: "settle", identity, message: schemaMessage(caught, fallback), clearPlan: true });
+      update(identity, { error: schemaMessage(caught, fallback), plan: null, confirmed: false });
     } finally {
-      dispatch({ type: "pending", identity, pending: false });
+      update(identity, { pending: false });
     }
-  }, [identity, schema, state.create, state.definition, state.fields, state.name, state.pending]);
+  }, [identity, schema, state.create, state.definition, state.fields, state.name, state.pending, update]);
 
   const requestApply = useCallback(async () => {
     if (preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
-    dispatch({ type: "pending", identity, pending: true });
-    dispatch({ type: "message", message: null });
+    update(identity, { pending: true, error: null });
     try {
       await schema.apply(preview);
       if (!active()) return;
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
-      dispatch({ type: "settle", identity, ...applyFailure(caught, state.create) });
+      update(identity, applyFailure(caught, state.create));
     } finally {
-      dispatch({ type: "pending", identity, pending: false });
+      update(identity, { pending: false });
     }
-  }, [active, identity, navigate, preview, removedFields.length, schema, state.confirmed, state.create, state.definition, state.name, state.pending]);
+  }, [active, identity, navigate, preview, removedFields.length, schema, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const requestDeletePlan = useCallback(async () => {
     if (state.definition === null || state.deletePending) return;
-    dispatch({ type: "delete-pending", identity, pending: true });
-    dispatch({ type: "delete-planned", identity, plan: null });
+    update(identity, { deletePending: true, deletePlan: null, deleteError: null });
     try {
-      dispatch({ type: "delete-planned", identity, plan: await schema.plan({ operation: "delete", name: state.definition.name }) });
+      update(identity, { deletePlan: await schema.plan({ operation: "delete", name: state.definition.name }) });
     } catch (caught: unknown) {
-      dispatch({ type: "delete-failed", identity, message: schemaMessage(caught, "Unable to preview the collection deletion.") });
+      update(identity, { deletePlan: null, deleteError: schemaMessage(caught, "Unable to preview the collection deletion.") });
     } finally {
-      dispatch({ type: "delete-pending", identity, pending: false });
+      update(identity, { deletePending: false });
     }
-  }, [identity, schema, state.definition, state.deletePending]);
+  }, [identity, schema, state.definition, state.deletePending, update]);
 
   const requestDelete = useCallback(async () => {
     if (state.deletePlan === null || state.deletePending) return;
-    dispatch({ type: "delete-pending", identity, pending: true });
+    update(identity, { deletePending: true });
     try {
       await schema.apply(state.deletePlan);
       if (!active()) return;
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
-      const reason = caught instanceof SchemaError ? caught.reason : "failed";
-      dispatch({
-        type: "delete-failed",
-        identity,
-        message: reason === "referenced" ? schemaMessage(caught, "Unable to delete the collection.", "Collection is referenced.")
-          : reason === "catalog-moved" ? "The catalog changed. Preview the deletion again before applying."
-            : schemaMessage(caught, "Unable to delete the collection."),
-      });
+      update(identity, deleteFailure(caught));
     } finally {
-      dispatch({ type: "delete-pending", identity, pending: false });
+      update(identity, { deletePending: false });
     }
-  }, [active, identity, navigate, schema, state.deletePending, state.deletePlan]);
+  }, [active, identity, navigate, schema, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,
@@ -527,15 +474,15 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     deletePlan: state.deletePlan,
     deletePending: state.deletePending,
     deleteError: state.deleteError,
-    rename: (name) => dispatch({ type: "rename", name }),
-    editField: (index, edit) => dispatch({ type: "field", index, edit }),
-    addField: () => dispatch({ type: "add-field" }),
-    removeField: (index) => dispatch({ type: "remove-field", index }),
-    confirmDestructive: (confirmed) => dispatch({ type: "confirm", confirmed }),
+    rename: (name) => update(identity, (current) => renamed(current, name)),
+    editField: (index, edit) => update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))),
+    addField: () => update(identity, (current) => redrafted([...current.fields, newField()])),
+    removeField: (index) => update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))),
+    confirmDestructive: (confirmed) => update(identity, { confirmed }),
     requestPreview: () => void requestPreview(),
     requestApply: () => void requestApply(),
     requestDeletePlan: () => void requestDeletePlan(),
-    cancelDelete: () => dispatch({ type: "delete-planned", identity, plan: null }),
+    cancelDelete: () => update(identity, { deletePlan: null, deleteError: null }),
     requestDelete: () => void requestDelete(),
   };
 }
