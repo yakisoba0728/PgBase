@@ -121,6 +121,55 @@ func TestReleaseCandidateVerifiesItsOwnProvenanceAndSBOM(t *testing.T) {
 	}
 }
 
+// A historical phase is deployable only after the current rollout harness has
+// exercised the exact immutable bundle that supplies its raw binary. Building
+// another byte-equivalent-looking bundle in the packaging job would leave the
+// published digest disconnected from the A0/M/A/B/C and schema rollout proof.
+func TestReleasePhaseCandidatePassesCompositeOracleBeforePackagingTestedBinary(t *testing.T) {
+	candidate := strings.Join(workflowJobs(t, "release-phase-image.yml")["candidate"], "\n")
+	const (
+		membershipBuildCommand = "scripts/support/build-release-phase-artifacts.sh record-membership-v7"
+		schemaBuildCommand     = "scripts/support/build-release-phase-artifacts.sh schema-compiler-v9"
+		oracleCommand          = "go test -race -tags='integration releaseartifacts' ./tests/release -count=1"
+		digestCheck            = `test "sha256:$(sha256sum "$artifact_directory/$artifact_path" | awk '{print $1}')" = "$binary_digest"`
+		packageBinary          = `install -m 0755 "$artifact_directory/$artifact_path" "$packaging_context/pgbase"`
+		imageBuildCommand      = "docker buildx build"
+	)
+	contracts := []string{
+		"RELEASE_PHASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts",
+		membershipBuildCommand,
+		schemaBuildCommand,
+		"PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts",
+		"PGBASE_SCHEMA_COMPILER_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts",
+		oracleCommand,
+		`artifact_directory="$RELEASE_PHASE_ARTIFACT_DIRECTORY"`,
+		digestCheck,
+		packageBinary,
+		imageBuildCommand,
+	}
+	for _, contract := range contracts {
+		if !strings.Contains(candidate, contract) {
+			t.Errorf("release-phase-image.yml candidate does not enforce %q", contract)
+		}
+	}
+
+	membershipBuild := strings.Index(candidate, membershipBuildCommand)
+	schemaBuild := strings.Index(candidate, schemaBuildCommand)
+	oracle := strings.Index(candidate, oracleCommand)
+	digestVerification := strings.Index(candidate, digestCheck)
+	packaging := strings.Index(candidate, packageBinary)
+	imageBuild := strings.Index(candidate, imageBuildCommand)
+	if membershipBuild < 0 || schemaBuild < 0 || oracle < 0 || digestVerification < 0 || packaging < 0 || imageBuild < 0 {
+		return
+	}
+	if membershipBuild > oracle || schemaBuild > oracle || oracle > digestVerification || digestVerification > packaging || packaging > imageBuild {
+		t.Errorf("release phase candidate order must be both immutable builds -> composite oracle -> digest check -> raw binary packaging -> image build")
+	}
+	if count := strings.Count(candidate, imageBuildCommand); count != 1 {
+		t.Errorf("release phase candidate builds %d images, want exactly one", count)
+	}
+}
+
 // The candidate is a single-platform image on purpose: an index digest would
 // break the promotion primitive's --prefer-index=false retag. The workflow and
 // the deployment documentation have to state the same policy.

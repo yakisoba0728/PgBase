@@ -73,6 +73,20 @@ jobs:
     needs: resolve
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
     outputs:
       candidate_image: ${{ steps.candidate.outputs.candidate_image }}
       image: ${{ steps.candidate.outputs.image }}
@@ -91,20 +105,36 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Build and push the phase candidate once
+      - name: Build the immutable release phase bundle
+        env:
+          RELEASE_PHASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: |
+          scripts/support/build-release-phase-artifacts.sh record-membership-v7 \
+            "$RELEASE_PHASE_ARTIFACT_DIRECTORY"
+          scripts/support/build-release-phase-artifacts.sh schema-compiler-v9 \
+            "$RELEASE_PHASE_ARTIFACT_DIRECTORY"
+
+      - name: Run the current composite rollout oracle against the candidate bundle
+        env:
+          PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+          PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+          PGBASE_SCHEMA_COMPILER_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: go test -race -tags='integration releaseartifacts' ./tests/release -count=1
+
+      - name: Package and push the tested phase candidate once
         id: candidate
         shell: bash
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PHASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
           ROLLOUT: ${{ inputs.rollout }}
           PHASE: ${{ inputs.phase }}
           SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
           EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
         run: |
           set -euo pipefail
-          artifact_directory="$RUNNER_TEMP/release-phase-artifacts"
+          artifact_directory="$RELEASE_PHASE_ARTIFACT_DIRECTORY"
           packaging_context="$RUNNER_TEMP/release-phase-package"
-          scripts/support/build-release-phase-artifacts.sh "$ROLLOUT" "$artifact_directory"
           metadata="$artifact_directory/$ROLLOUT-artifacts.json"
           selected="$(jq --exit-status --compact-output --arg phase "$PHASE" \
             '[.artifacts[] | select(.phase == $phase)] | select(length == 1) | .[0]' "$metadata")"
