@@ -10,6 +10,7 @@ import {
   type VersionedRecord,
 } from "../backend/ports";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import {
   blankState,
   dirtyNames,
@@ -248,6 +249,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   }, [collectionName, id, identity, isCreate, records, schema, state.reloads, update]);
 
   const dirty = useMemo(() => dirtyNames(state.draft, state.initial), [state.draft, state.initial]);
+  const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
 
   const save = useCallback(async () => {
     const collection = state.collection;
@@ -265,13 +267,14 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
         await records.update(state.loaded, input);
       }
       if (!active()) return;
+      savedDraft();
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
       update(identity, saveFailure(caught, collection));
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, collectionName, dirty, identity, isCreate, navigate, records, state.collection, state.draft, state.loaded, update]);
+  }, [active, collectionName, dirty, identity, isCreate, navigate, records, savedDraft, state.collection, state.draft, state.loaded, update]);
 
   const remove = useCallback(async () => {
     const record = state.loaded;
@@ -280,13 +283,14 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     try {
       await records.remove(record);
       if (!active()) return;
+      savedDraft();
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
       update(identity, removeFailure(caught));
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, collectionName, identity, navigate, records, state.loaded, update]);
+  }, [active, collectionName, identity, navigate, records, savedDraft, state.loaded, update]);
 
   const setField = (field: FieldDefinition, next: FieldState) => update(identity, (current) => {
     const errors = { ...current.errors };
