@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CollectionCatalog } from "../backend/ports";
+import { AdminLink } from "../routing/admin-link";
 import type { AdminRoute } from "../routing/admin-location";
 import { useBackend } from "../auth/session";
 
@@ -26,7 +27,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   return <section>
     <div className="page-heading">
       <div><h2>Collections</h2>{catalog && <p>Catalog version {catalog.version}</p>}</div>
-      <button className="link-button" onClick={() => navigate({ kind: "collection-create" })} type="button">Create collection</button>
+      <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}>Create collection</AdminLink>
     </div>
     {failed && <p role="alert">Unable to load collections.</p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
@@ -35,9 +36,9 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
       {catalog.all().map((collection) => {
         const relationCount = collection.fields.filter((field) => field.type === "relation").length;
         return <li key={collection.name}>
-          <button className="text-button" onClick={() => navigate({ kind: "records", collection: collection.name })} type="button">{collection.name}</button>
+          <AdminLink className="text-button" navigate={navigate} route={{ kind: "records", collection: collection.name }}>{collection.name}</AdminLink>
           <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
-          <button className="text-button" onClick={() => navigate({ kind: "collection-edit", collection: collection.name })} type="button">Edit</button>
+          <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-edit", collection: collection.name }}>Edit</AdminLink>
         </li>;
       })}
     </ul>}

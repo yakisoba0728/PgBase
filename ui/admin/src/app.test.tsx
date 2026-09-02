@@ -37,7 +37,7 @@ describe("administration shell", () => {
     renderAdmin(harness);
 
     await screen.findByRole("heading", { name: "Collections" });
-    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(screen.getByRole("link", { name: "System" }));
 
     expect(await screen.findByRole("heading", { name: "System" })).toBeVisible();
     expect(harness.history.path()).toBe("/admin/system");
