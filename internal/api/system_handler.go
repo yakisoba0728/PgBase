@@ -28,7 +28,6 @@ func systemStatus(provider SystemStatusProvider) http.HandlerFunc {
 			return
 		}
 		status := provider.Status(r.Context())
-		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, status)
 	}
 }

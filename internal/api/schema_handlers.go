@@ -143,7 +143,6 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, schemaPlanResponse{
 		BaseVersion: plan.BaseVersion,
 		Checksum:    plan.Checksum,
@@ -174,7 +173,6 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	switch request.Operation {
 	case "create":
 		collection, err := e.service.ApplyCreate(r.Context(), schema.CreateCollectionInput{Name: request.Name, Fields: request.fieldInputs()}, request.Checksum, *request.BaseVersion, principal.Administrator.ID)
@@ -215,7 +213,6 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, catalog)
 }
 
