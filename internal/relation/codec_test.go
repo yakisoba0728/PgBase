@@ -68,13 +68,6 @@ func TestDecodePreservesOmittedClearAndCanonicalOrder(t *testing.T) {
 	if !values["labels"].Present || !values["labels"].Clear || string(values["labels"].JSON) != "[]" {
 		t.Fatalf("explicit multi clear was not preserved: %#v", values["labels"])
 	}
-
-	returned := decoded.values()
-	returned[0].IDs = append(returned[0].IDs, uuid.New())
-	returned[0].JSON = json.RawMessage(`"changed"`)
-	if reflect.DeepEqual(returned, decoded.values()) {
-		t.Fatal("Relations returned mutable internal state")
-	}
 }
 
 func TestDecodeCreateAndPatchOmissionHaveDifferentMinimumSemantics(t *testing.T) {
@@ -86,7 +79,7 @@ func TestDecodeCreateAndPatchOmissionHaveDifferentMinimumSemantics(t *testing.T)
 	if err != nil {
 		t.Fatalf("decode omitted patch: %v", err)
 	}
-	for _, value := range decoded.values() {
+	for _, value := range decoded.relations {
 		if value.Present || value.Clear {
 			t.Fatalf("patch omission changed field %q: %#v", value.FieldName, value)
 		}
@@ -289,7 +282,7 @@ func relationSpec(
 
 func relationValuesByName(input writeInput) map[string]relationValue {
 	values := make(map[string]relationValue)
-	for _, value := range input.values() {
+	for _, value := range input.relations {
 		values[value.FieldName] = value
 	}
 	return values
