@@ -88,6 +88,31 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // since the cheapest way to satisfy it is to delete the concurrency and
 // security rationale section 5 requires be kept. repostats reports it and the
 // handoff records the audited floor; it is an indicator, not a gate.
+//
+// Two limits were raised once after R11, for audit finding SPEC-1: the
+// record-membership rollout transitions had no production caller, so a database
+// that already held records could not be carried to the state Release C's read
+// path admits and failed every list closed. The fix is the `pgbase membership`
+// operator command decision D2-2 requires, which is necessarily new surface.
+//
+//	handwritten runtime lines       34,812 -> 35,109
+//	  gross-new 298 / gross-deleted 1, net +297
+//	  internal/cli/membership.go        +252
+//	  internal/membership/fleet.go       +44
+//	  internal/cli/run.go            +2 / -1
+//	production exported declarations   467 -> 468
+//	  (*membership.Service).ActiveWriterFleet, the read half of the operator
+//	  surface; the transitions themselves were already exported.
+//
+// Nothing paid for it, and that is recorded rather than disguised. `unused` is
+// enabled in .golangci.yml and reports zero findings, so there is no dead
+// runtime code in either package to delete, and plan section 11 allows a
+// correctness and migration stack to be LOC-positive. The alternative deletion
+// on the table was internal/testutil/membership.go (110 runtime lines), whose
+// SQL shortcut to the retired state exists only as a test fixture — but every
+// integration test that lists a record depends on it, and replacing it with the
+// real rollout would make those suites drive six transitions each. That is a
+// trade to make deliberately in its own stack, not inside a P1 fix.
 type structuralLimit struct {
 	name    string
 	value   func(repositoryMetrics) int
@@ -96,10 +121,10 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 34_812, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_109, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_473, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 467, "plan 285"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 468, "plan 285"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 25, "plan 16"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 19, "plan 30"},
