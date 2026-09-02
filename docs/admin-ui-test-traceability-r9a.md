@@ -17,8 +17,10 @@ they appear in the tree, so this table can be diffed against
 | Wire | `ui/admin/src/backend/http-backend.test.ts` | HTTP-adapter only: path, method, status, headers, CSRF, idempotency, precondition, duplicate JSON keys, lossless bodies |
 | Designer | `ui/admin/src/designer/collection-designer.test.tsx` | `CollectionDesigner` interface: draft, preview staleness, destructive confirmation, delete plan, per-resource isolation |
 | Draft | `ui/admin/src/designer/collection-draft.test.ts` | the pure collection default and relation input contracts |
-| Workspace | `ui/admin/src/workspace/record-workspace.test.tsx` | `RecordList`, `RecordEditor` and the relation picker |
-| Codec | `ui/admin/src/workspace/record-codec.test.ts` | pure record value contracts: tri-state draft, per-type encoding, relation values, target search |
+| Workspace | `ui/admin/src/workspace/record-workspace.test.tsx` | `RecordList` and `RecordEditor` |
+| Codec | `ui/admin/src/workspace/record-codec.test.ts` | pure record value contracts: tri-state draft, per-type encoding, relation values |
+| Picker | `ui/admin/src/relation/relation-picker.test.tsx` | the `RelationPicker` interface: search, cursor pagination, label hydration, keyboard activation, selection |
+| Relation query | `ui/admin/src/relation/relation-query.test.ts` | the pure target lookup contracts: search plan, candidate decoding, draft selection, hydration filter |
 | DOM | `ui/admin/src/app.test.tsx`, `ui/admin/src/auth/session.test.tsx`, `ui/admin/src/pages/*.test.tsx` | thin smoke: the page renders the module state and forwards actions, driven by the scripted backend and a memory history |
 | E2E | `ui/admin/e2e/onboarding/*.spec.ts`, `ui/admin/e2e/authenticated/*.spec.ts` | real backend browser workflow |
 
@@ -176,9 +178,9 @@ re-export, which plan section 12 forbids. All four titles are unchanged:
 
 | Test at 618c4ea | Behaviour pinned | Replacement |
 |---|---|---|
-| only searches targets on explicit action, escapes text literals, and selects a single result | the picker searches on demand and escapes the literal | Workspace "searches only when asked and sends one escaped, indexed lookup"; Codec "looks up the first indexed text field and escapes the literal" |
-| appends multi selections in result order without duplicates or exceeding maxSelect | ordered-unique multi selection | Codec "appends ordered unique selections up to maxSelect"; Workspace "reports a duplicate selection instead of changing the draft" |
-| falls back to an exact canonical UUID lookup when the target has no searchable text field | the uuid fallback lookup | Codec "falls back to a canonical UUID lookup when the target has no searchable text field"; Workspace "refuses a query the target cannot be looked up by" |
+| only searches targets on explicit action, escapes text literals, and selects a single result | the picker searches on demand and escapes the literal | Picker "searches only when asked and sends one escaped, indexed lookup"; Relation query "looks up the first indexed text field and escapes the literal" |
+| appends multi selections in result order without duplicates or exceeding maxSelect | ordered-unique multi selection | Codec "appends ordered unique selections up to maxSelect"; Picker "reports a duplicate selection instead of changing the draft" |
+| falls back to an exact canonical UUID lookup when the target has no searchable text field | the uuid fallback lookup | Relation query "falls back to a canonical UUID lookup when the target has no searchable text field"; Picker "refuses a query the target cannot be looked up by" |
 | creates canonical single and ordered multiple relation values while omitting untouched fields | relation create encoding | Codec "encodes a single relation and an ordered multiple relation" and "omits an unset field so the database default applies" |
 | leaves unchanged relation values out of PATCH requests | relations respect the dirty set | Codec "sends only the fields an edit actually changed"; Workspace "sends only the changed fields in a patch and maps rejected codes to safe messages" |
 | clears a single relation with null and a multiple relation with an empty ordered array | clearing semantics differ by cardinality | Codec "clears a single relation with null and a multiple relation with an empty ordered array" and "starts a multiple relation as a value because it has no NULL" |
@@ -203,3 +205,15 @@ never address the same rows.
 | `e2e/authenticated/records.spec.ts` | scalar and relation record create, edit, filter and sort |
 | `e2e/authenticated/stale-record.spec.ts` | two tabs on one record; the second recovers from the stale precondition |
 | `e2e/authenticated/system.spec.ts` | the System page renders diagnostics and redacts secrets |
+
+## F2 — searchable relation picker
+
+F2 moved the picker out of `record-workspace.ts`, `record-codec.ts` and
+`record-edit-page.tsx` into `src/relation/`. Every row above still names the
+same assertion; only the surface changed. Two rows had to be reworded because
+the behaviour they pin is now reached differently, so they are recorded here.
+
+| Assertion before F2 | Behaviour pinned | Assertion now |
+|---|---|---|
+| Workspace "reports an empty result and a truncated result differently" expected `Showing the first 50 matching target records.` | a truncated page is distinguishable from an empty one | Picker, same test title, expects `Showing 1 target record. Load more to see the rest.` and `hasMore` — the page is no longer the last one the picker can reach |
+| DOM `record-edit-page.test.tsx` clicked `button` named `Select release — <id>` | choosing a result puts its id in the draft | the same test clicks `option` named `release — <id>`; results are an ARIA listbox the textbox drives, so a result is an option rather than a button |
