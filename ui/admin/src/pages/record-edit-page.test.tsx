@@ -7,6 +7,7 @@ import { collection, renderAdmin, scriptedAdmin, textField } from "../test/harne
 
 const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const targetID = "11111111-1111-4111-8111-111111111111";
+const otherTargetID = "22222222-2222-4222-8222-222222222222";
 
 const tags: FieldDefinition = {
   name: "tags", type: "relation", required: false, unique: false, indexed: true, ordinal: 1,
@@ -59,9 +60,41 @@ describe("record editor page", () => {
 
     await user.type(await screen.findByLabelText("tags target label"), "release");
     await user.click(screen.getByRole("button", { name: "Search tags targets" }));
-    await user.click(await screen.findByRole("button", { name: `Select release — ${targetID}` }));
+    await user.click(await screen.findByRole("option", { name: `release — ${targetID}` }));
 
     await waitFor(() => expect(screen.getByLabelText("tags")).toHaveValue(targetID));
     expect(callsTo(harness.script, "list")[0].detail).toEqual({ collection: "tags", filter: "label = 'release'", sort: "label" });
+  });
+
+  it("picks a relation target with the keyboard alone", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "loaded", tags: [] }, etag: '"pgb1.one"' } });
+    harness.script.list.push({ value: { items: [{ id: targetID, label: "release" }, { id: otherTargetID, label: "beta" }] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    const search = await screen.findByLabelText("tags target label");
+    await user.click(search);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("listbox", { name: "tags target results" })).toBeVisible();
+
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(search).toHaveAttribute("aria-activedescendant", "record-tags-target-option-1");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.getByLabelText("tags")).toHaveValue(otherTargetID));
+    expect(screen.getByRole("button", { name: `Remove beta — ${otherTargetID}` })).toBeVisible();
+  });
+
+  it("keeps a selected target that the target collection no longer returns", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "loaded", tags: [targetID] }, etag: '"pgb1.one"' } });
+    harness.script.list.push({ value: { items: [] } });
+    renderAdmin(harness);
+
+    expect(await screen.findByText(`${targetID} — unavailable`)).toBeVisible();
+    expect(screen.getByLabelText("tags")).toHaveValue(targetID);
   });
 });
