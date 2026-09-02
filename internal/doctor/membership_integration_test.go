@@ -677,7 +677,7 @@ func TestRunSkipsCollectionsDroppedAfterTheDoctorSnapshot(t *testing.T) {
 	// The snapshot is taken by the first read, not by BEGIN or SET LOCAL. Drop
 	// the table before this and readMembershipCollections never returns the
 	// collection at all, so the race under test never happens.
-	if err := checkSchemaState(ctx, tx, &report); err != nil {
+	if _, err := checkSchemaState(ctx, tx, &report); err != nil {
 		t.Fatal(err)
 	}
 	// "invoice" sorts before "order", so the dropped collection is probed first
