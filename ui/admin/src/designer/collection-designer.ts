@@ -286,15 +286,14 @@ interface State {
   deletePending: boolean;
   deleteError: string | null;
   pristine: string;
-  // The identity of an apply whose outcome the server could not decide, the
-  // draft it carried, and whether it drops the collection instead of changing
-  // it. The identity is the only thing left that can still be asked about, so
-  // it outlives the request that failed to answer; the draft is what says whose
-  // work the answer settles, and a drop settles no draft's work at all.
-  undecided: string | null;
-  undecidedDraft: string;
-  undecidedDrops: boolean;
+  undecided: UndecidedApply | null;
 }
+
+// The identity is the only thing left that can still be asked about, so it
+// outlives the request that failed to answer. A change also carries the draft
+// whose work the answer settles; a drop settles no draft's work at all.
+type UndecidedApply = { kind: "change"; operationId: string; draft: string }
+  | { kind: "drop"; operationId: string };
 
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
@@ -305,7 +304,7 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields), undecided: null, undecidedDraft: "", undecidedDrops: false,
+    pristine: draftSignature(name, fields), undecided: null,
   };
 }
 
@@ -441,7 +440,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   // connection replays the first attempt instead of starting a second one, and
   // a re-previewed plan gets a fresh identity rather than colliding with it.
   const attempt = useRef(new ApplyAttempt());
-  const recovery = useOperationRecovery(state.undecided);
+  const recovery = useOperationRecovery(state.undecided?.operationId ?? null);
   // The draft as it stands now, readable from a response handler that closed
   // over the draft it sent: the two differ exactly when editing continued.
   const signature = draftSignature(state.name, state.fields);
@@ -451,11 +450,12 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   // carried it did — but only the draft that change carried. A draft edited
   // after the request went out is work the ledger says nothing about, so a
   // committed answer to the older draft never releases the newer one's guard.
-  const applied = recovery !== null && recovery.status === "committed" && state.undecidedDraft === signature;
+  const applied = recovery !== null && recovery.status === "committed" &&
+    state.undecided?.kind === "change" && state.undecided.draft === signature;
   // Reporting the commit alone would leave the newer draft looking saved, since
   // nothing else on the page contradicts it. The page says what it says on the
   // synchronous path, so the two never describe this situation differently.
-  const ledgerOutran = recovery !== null && recovery.status === "committed" && !applied && !state.undecidedDrops;
+  const ledgerOutran = recovery !== null && recovery.status === "committed" && !applied && state.undecided?.kind === "change";
   const savedDraft = useUnsavedDraft(identity, !applied && signature !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
@@ -511,7 +511,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       if (!active()) return;
       // Leaving on an undecided outcome would present it as a success. The
       // administrator stays here until the ledger says which it was.
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature, undecidedDrops: false }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "change", operationId: outcome.operationId, draft: signature } }); return; }
       // The server agreed with the draft it was sent, so that draft is the saved
       // one, and the collection it answers with replaces the definition an edit
       // page measures its data-loss warning against. A create measures against
@@ -559,7 +559,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     try {
       const outcome = await schema.apply(state.deletePlan, attempt.current);
       if (!active()) return;
-      if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId, undecidedDraft: signature, undecidedDrops: true }); return; }
+      if (outcome.kind === "undecided") { update(identity, { undecided: { kind: "drop", operationId: outcome.operationId } }); return; }
       if (live.current === signature) savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
