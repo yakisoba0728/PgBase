@@ -39,8 +39,7 @@ func TestGuardedApplyCommitsAndReplaysOneExactLedgerReceipt(t *testing.T) {
 	}
 	assertExactLedgerAuditLink(t, pool, first.Receipt)
 
-	replayOperationID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000602")
-	replayIntent, err := GuardedApply(change, plan, administratorID, replayOperationID, "guarded-schema-key-0001")
+	replayIntent, err := GuardedApply(change, plan, administratorID, firstOperationID, "guarded-schema-key-0001")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +47,16 @@ func TestGuardedApplyCommitsAndReplaysOneExactLedgerReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replayed.Replayed || !reflect.DeepEqual(replayed.Receipt, first.Receipt) || replayed.Receipt.OperationID == replayOperationID {
+	if !replayed.Replayed || !reflect.DeepEqual(replayed.Receipt, first.Receipt) {
 		t.Fatalf("replayed guarded result = %#v, first = %#v", replayed, first)
+	}
+	alternateID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000602")
+	alternate, err := GuardedApply(change, plan, administratorID, alternateID, "guarded-schema-key-0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Apply(ctx, alternate); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("same guarded request with another operation ID error = %v, want operation conflict", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 	var operations int
