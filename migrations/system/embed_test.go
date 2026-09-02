@@ -22,10 +22,11 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		5: "576df4a578efbd1259cf5dbf22da8d7669bd729e33d2ef1d1b4ed30e1d16197a",
 		6: "6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a",
 		7: "8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e",
+		8: "e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 7 || migrations[5].Version != 6 || migrations[5].Name != "schema_operations" ||
-		migrations[6].Version != 7 || migrations[6].Name != "record_membership" {
+	if len(migrations) != 8 || migrations[6].Version != 7 || migrations[6].Name != "record_membership" ||
+		migrations[7].Version != 8 || migrations[7].Name != "schema_companion_indexes" {
 		t.Fatalf("migration ordering=%+v", migrations)
 	}
 	// Every applied migration is pinned, so adding one without its checksum

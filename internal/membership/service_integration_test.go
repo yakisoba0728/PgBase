@@ -19,9 +19,11 @@ import (
 func TestMaintenanceStateMachineBackfillsCutoverSnapshotAndDrainsV4(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	migrations := system.Migrations()
-	if len(migrations) != 7 {
+	if len(migrations) < 7 || migrations[6].Version != 7 {
 		t.Fatalf("membership migration manifest = %#v", migrations)
 	}
+	// Stop at v6 so the catalog rows this test inserts below exist before the
+	// record-membership migration seeds its counters from them.
 	testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:6])
 	ctx := context.Background()
 	pool, err := database.Open(ctx, databaseURL, 5*time.Second)
@@ -54,8 +56,11 @@ func TestMaintenanceStateMachineBackfillsCutoverSnapshotAndDrainsV4(t *testing.T
 		firstRecord, secondRecord, createdAt); err != nil {
 		t.Fatal(err)
 	}
+	// Every remaining migration, not an exact target: UpThrough accepts only the
+	// latest embedded version, and this test needs the whole history above v6.
+	// internal/migrate owns the exact-target contract.
 	runner := migrate.New(pool, nil)
-	if _, err := runner.UpThrough(ctx, 7); err != nil {
+	if err := runner.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
 

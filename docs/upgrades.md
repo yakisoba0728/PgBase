@@ -107,6 +107,76 @@ A healthy deployment cannot reach this state: the base row and its sidecar are w
 Do not enable the capability on a database whose doctor report is not clean.
 
 
+### Schema companion index v8 preparatory release
+
+A descending page over a nullable column is ordered `NULLS LAST`, and no default
+btree can serve that ordering in either scan direction. Migration 8 opens the
+rollout that adds the companion indexes which can, and it adds **only** two
+pieces of bounded metadata:
+
+- `pgbase_meta.schema_companion_index_capability`, a single row seeded `pending`;
+- `pgbase_meta.schema_writer_leases`, the separate durable lease that proves
+  which plan-compiler version every live schema writer would issue.
+
+It deliberately creates **no** index on any collection table. The companion
+indexes themselves are built afterwards by resumable `CREATE INDEX CONCURRENTLY`
+maintenance, which PostgreSQL cannot run inside the migration's transaction.
+Migration 8 therefore takes no lock on a collection table and does not depend on
+collection size.
+
+The preparatory P0 artifact recognizes exactly the following two clean histories
+while the companion-index capability stays `pending`:
+
+- previous version `7`, checksum `8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e`;
+- optional target version `8`, checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`.
+
+Use this exact v7-to-v8 sequence:
+
+1. Deploy the verified P0 artifact to the **full** fleet first. This ordering is
+   not optional: a Release B instance validates the exact v7 history on every
+   list request and fails closed with `record_unavailable` against a database
+   that carries a migration it does not embed. Require every P0 instance to be
+   ready on clean v7, then drain the previous binary and every in-flight schema
+   writer.
+2. Keep application auto-migration disabled. From one designated job using that
+   same P0 artifact, run:
+
+   ```console
+   pgbase migrate up --through 8 > migration-receipt.json
+   ```
+
+3. Require the receipt to contain `receiptVersion=1`, `target.version=8`,
+   `target.checksum=e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`,
+   `before.version=7`,
+   `before.checksum=8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e`,
+   `after.version=8`,
+   `after.checksum=e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`,
+   and `after.dirty=false`. An exact retry may report version 8 in both
+   checkpoints.
+4. Rerun `pgbase migrate status` with the P0 artifact and require
+   `current=latest=8` and `dirty=false`. Retain the receipt and the P0 image
+   digest with the deployment record.
+5. Require `pgbase doctor --json` to report `"ok":true` before continuing. While
+   the capability is `pending`, doctor does not treat a companion index as a
+   required physical contract, so a clean report here does not assert that any
+   companion exists yet.
+
+The capability stays `pending` across the whole migration window. Until it
+reaches `ready`, no schema writer issues the v2 plan format and nothing treats a
+companion index as required, so committing migration 8 changes no behaviour on
+its own.
+
+An older binary redeployed on top of this history does not misread the extra
+objects: a companion index carries the planner's owned `idx_` name prefix on a
+catalogued collection table, so it is classified as PgBase-owned rather than as
+an orphan, and doctor's collection checks never require an index the catalog
+does not name.
+
+Do not apply migration 8 while any instance predates this P0 artifact. After
+version 8 commits, do not deploy a pre-P0 binary or reverse the migration;
+redeploy the exact verified P0 artifact with the capability left `pending` if a
+deployment rollback is required, then forward-fix.
+
 ## Rollback actions are different operations
 
 | Action | Before M commits | After M commits |

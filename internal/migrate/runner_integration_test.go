@@ -564,15 +564,15 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-func TestNewRunnerAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *testing.T) {
+func TestNewRunnerAcceptsOnlyCleanSchemaCompanionIndexPreAndPostMigrationHistory(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
 	migrations := system.Migrations()
-	if len(migrations) != 7 || migrations[len(migrations)-2].Version != 6 || migrations[len(migrations)-1].Version != 7 {
-		t.Fatalf("record-membership preparatory manifest = %#v", migrations)
+	if len(migrations) != 8 || migrations[len(migrations)-2].Version != 7 || migrations[len(migrations)-1].Version != 8 {
+		t.Fatalf("schema companion index preparatory manifest = %#v", migrations)
 	}
 
 	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -587,18 +587,18 @@ func TestNewRunnerAcceptsOnlyCleanRecordMembershipPreAndPostMigrationHistory(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 6, Latest: 7, Compatible: true}) {
+	if status != (Status{Current: 7, Latest: 8, Compatible: true}) {
 		t.Fatalf("pre-migration P0 status = %#v", status)
 	}
 
-	if _, err := runner.UpThrough(context.Background(), 7); err != nil {
+	if _, err := runner.UpThrough(context.Background(), 8); err != nil {
 		t.Fatal(err)
 	}
 	status, err = runner.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != (Status{Current: 7, Latest: 7, Compatible: true}) {
+	if status != (Status{Current: 8, Latest: 8, Compatible: true}) {
 		t.Fatalf("post-migration P0 status = %#v", status)
 	}
 }
@@ -711,13 +711,19 @@ func TestRecordMembershipMigrationWaitsForConcurrentCollectionCreateFence(t *tes
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	// Pinned to the v6/v7 pair by version rather than by manifest position: this
+	// asserts what the record-membership migration does, so appending a later
+	// migration must not retarget it.
 	migrations := system.Migrations()
+	if len(migrations) < 7 || migrations[5].Version != 6 || migrations[6].Version != 7 {
+		t.Fatalf("record-membership manifest = %#v", migrations)
+	}
 	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	runner.migrations = migrations[:len(migrations)-1]
+	runner.migrations = migrations[:6]
 	if err := runner.Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	runner.migrations = migrations
+	runner.migrations = migrations[:7]
 
 	connection, err := pool.Acquire(context.Background())
 	if err != nil {
