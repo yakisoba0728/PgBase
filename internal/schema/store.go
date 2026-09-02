@@ -34,6 +34,13 @@ func (s *Store) PinnedSchemaVersion(ctx context.Context) (int64, error) {
 	return s.schemaVersion(ctx, " FOR SHARE")
 }
 
+// SnapshotSchemaVersion reads the catalog version without taking a row lock, so
+// a read-only diagnostic transaction can pin the version its own snapshot
+// already froze. A writer must use PinnedSchemaVersion instead.
+func (s *Store) SnapshotSchemaVersion(ctx context.Context) (int64, error) {
+	return s.schemaVersion(ctx, "")
+}
+
 // LockedSchemaVersion takes the exclusive side of the catalog/record lock
 // order and must be acquired before executing collection DDL.
 func (s *Store) LockedSchemaVersion(ctx context.Context) (int64, error) {

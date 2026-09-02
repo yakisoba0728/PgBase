@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,13 @@ type Service struct {
 
 	beforeDDL        func(context.Context, pgx.Tx) error
 	catalogWireLimit int
+
+	// Identity for this process's durable schema-writer lease. It is minted on
+	// first use rather than at construction so a service that never writes the
+	// catalog never claims to be a live schema writer.
+	instanceOnce sync.Once
+	instanceID   uuid.UUID
+	instanceErr  error
 }
 
 func NewService(pool *database.Pool, cache *Cache, planner Planner, cursorSecret ...[]byte) *Service {
