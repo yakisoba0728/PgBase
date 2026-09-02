@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { callsTo } from "../test/backend-script";
+import { callsTo, deferredStep, type ScriptedApply } from "../test/backend-script";
 import { collection, renderAdmin, scriptedAdmin, textField } from "../test/harness";
 
 const users = collection("users", "users-id");
@@ -174,5 +174,40 @@ describe("collection designer page", () => {
     await user.click(await screen.findByRole("button", { name: "Apply change" }));
 
     expect(await screen.findByText(/The change was applied\./)).toBeVisible();
+  });
+
+  it("says the draft on screen is unsaved beside the commit the ledger reports", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [{ name: "title", type: "text", required: true, unique: false, indexed: true }], sql: ["ALTER TABLE posts"] } });
+    const application = deferredStep<ScriptedApply | undefined>();
+    harness.script.apply.push(application.step);
+    harness.script.operation.push({
+      value: {
+        operationId: "op-1", operation: "collection_update", collectionId: "posts-id", status: "committed",
+        baseVersion: 7, committedVersion: 8, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:31Z",
+      },
+    });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+    await user.click(await screen.findByRole("button", { name: "Apply change" }));
+
+    // The administrator keeps typing while the apply is still in flight.
+    await user.clear(screen.getByLabelText("Field 1 name"));
+    await user.type(screen.getByLabelText("Field 1 name"), "new_unsaved_title");
+    application.settle({ value: { status: "unknown" } });
+
+    const recovery = await screen.findByRole("status", { name: "Schema operation recovery" });
+    // The panel names the identity the client minted, so match the verdict only.
+    await waitFor(() => expect(recovery).toHaveTextContent(/committed\./));
+    // Without the alert the page reports a commit next to a draft that never
+    // went with it, which reads as if this draft were saved too.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The change was applied. The edits you made after sending it are not saved yet",
+    );
+    expect(screen.getByLabelText("Field 1 name")).toHaveValue("new_unsaved_title");
   });
 });
