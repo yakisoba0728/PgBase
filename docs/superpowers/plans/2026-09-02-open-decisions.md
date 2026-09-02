@@ -148,7 +148,9 @@ R11 stack 회계 (`go run ./tools/repostats --compare fb9bb3a`): runtime gross-n
 - `internal/schema/service.go` 641 — catalog 캐시 pin, plan preview, apply 진입점, catalog 무결성 검증. 무결성 규칙은 apply가 신뢰하는 전제라서 함께 읽혀야 한다.
 - `internal/observability/metrics.go` 611 — metric 이름·label 집합 하나. 계획 §12가 metric rename/label 의미 변경을 금지하므로 이 파일은 그 계약의 단일 지점이다.
 
-**R11이 닫지 못한 것.** `internal/membership`의 rollout transition(`Cutover`/`Backfill`/`PromoteReady`/`EnableV5`/`DisableV5`/`RetireV4`)은 production caller가 0이고 `DisableV5`는 테스트 caller도 0이다. 삭제하지 않았다 — 이들은 `docs/upgrades.md`가 기술한 운영 rollout 절차 자체이고, `DisableV5`는 `EnableV5`의 롤백 경로다. 진행 중인 rollout의 롤백을 지우는 것은 삭제가 아니라 운영 능력의 제거다. D2-2가 결정한 "operator CLI에서만 호출"이 아직 배선되지 않은 상태이며, 그 배선은 R11의 sweep 범위가 아니다.
+**R11이 닫지 못한 것.** `internal/membership`의 rollout transition(`Cutover`/`Backfill`/`PromoteReady`/`EnableV5`/`DisableV5`/`RetireV4`)은 production caller가 0이다. 삭제하지 않았다 — 이들은 `docs/upgrades.md`가 기술한 운영 rollout 절차 자체이고, `DisableV5`는 `EnableV5`의 롤백 경로다. 진행 중인 rollout의 롤백을 지우는 것은 삭제가 아니라 운영 능력의 제거다. D2-2가 결정한 "operator CLI에서만 호출"이 아직 배선되지 않은 상태이며, 그 배선은 R11의 sweep 범위가 아니다.
+
+R12 정정: "`DisableV5`는 테스트 caller도 0"은 더 이상 사실이 아니다. Release C가 `query/cursor_v5_binding_integration_test.go`, `membership/traversal_integration_test.go`, `membership/service_integration_test.go`에서 호출한다. production caller 0과 CLI 미배선은 그대로다 — `internal/cli`의 명령 집합은 `serve`/`migrate`/`admin`/`doctor`/`schema-index`/`healthcheck`뿐이다.
 
 ---
 
@@ -252,9 +254,9 @@ R10b 에이전트가 선언한 범위 밖 파일 하나를 수정했다: `intern
 
 ## 검증할 수 없어 통과로 주장하지 않은 항목 (기록용, 결정 불필요)
 
-R10b에서 이 환경으로는 검증 불가한 것들이다. 실제 CI에서만 확인된다.
+R10b에서 이 환경으로는 검증 불가한 것들이다. R12가 127.0.0.1의 일회용 `registry:2`로 셋을 닫았고, 남은 것은 실제 CI에서만 확인된다.
 
-- `gh attestation verify` — 실제 게시된 digest와 attestation, `GH_TOKEN` + registry 인증 경로가 필요하다.
-- `trivy-action`의 `trivyignores` 입력이 allowlist YAML을 실제로 소비하는지, SARIF 아티팩트 업로드가 되는지. 스캐너 결과와 allowlist 스키마는 검증했고 action 배선은 못 했다.
-- drill과 E2E의 release mode **happy path**(실제 `image@sha256` 대상). **거부 경로만** 증명됐다.
-- `--platform linux/amd64`가 `--provenance`/`--sbom` index 출력과 promotion script의 `--prefer-index=false` retag와 상호작용하는 방식. R10a부터 있던 기존 동작이고, script의 digest read-back이 불일치를 잡는 지점이다.
+- `gh attestation verify` — **여전히 미검증.** 실제 게시된 digest와 attestation, `GH_TOKEN` + registry 인증 경로가 필요하다. buildx가 index에 넣는 in-toto attestation manifest는 `actions/attest-build-provenance`/`attest-sbom`이 GitHub attestation store에 올리는 것과 다른 물건이라, 로컬 build가 이 경로에 준 커버리지는 0이다.
+- `trivy-action`의 `trivyignores` 입력이 allowlist YAML을 실제로 소비하는지, SARIF 아티팩트 업로드가 되는지 — **여전히 미검증.** R12가 trivy 0.74.0에 `--ignorefile deployments/security/trivy-allowlist.yaml`을 직접 넘겨 파일이 파싱되고 candidate digest 스캔이 HIGH/CRITICAL 0으로 통과하는 것까지는 확인했다. action이 그 입력을 `--ignorefile`로 넘기는지는 확인하지 못했다.
+- drill과 E2E의 release mode **happy path** — **닫힘.** 실제 `image@sha256`를 대상으로 PG 16/17/18 drill과 Docker Go E2E가 통과했고, 두 gate 모두 candidate가 보고한 version이 `expected_version`과 같은지 확인한다.
+- `--platform linux/amd64` × `--provenance`/`--sbom` index 출력 × `--prefer-index=false` retag — **닫힘.** candidate digest는 index digest이고 index는 platform manifest 1 + attestation manifest 1을 담는다. `imagetools create --prefer-index=false`로 exact tag와 channel tag를 만든 뒤 read-back한 digest가 candidate index digest와 같았다. absent/same/different 3-way와 stable/alpha/beta/rc 승격, malformed 입력의 registry 접근 0회도 같은 registry에서 실행했다.
