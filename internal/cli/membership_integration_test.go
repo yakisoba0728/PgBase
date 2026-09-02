@@ -301,8 +301,18 @@ func TestMembershipEnableV5RefusesAMixedFleetAndTheRollbackReopensItToReleaseA(t
 	requireReadiness(t, app)
 	session := upgradeSession(t, app)
 	headWitness := deployedFleetWitness(t, readMembershipReport(t, databaseURL))
+	// A second instance of the same release, so the fleet is more than one
+	// process before anything in it is out of date.
+	peer := requireRolloutWriter(t, databaseURL, membership.WriterC)
+	peerWitness := membershipWitness(peer.FleetMember())
 
-	requireMembershipCommand(t, databaseURL, "cutover", "--witness", headWitness)
+	// The other half of the proof, on its own: every live writer here is at or
+	// above the Release A floor, so nothing about the versions can refuse this.
+	// What refuses it is that the operator named some of the fleet rather than
+	// all of it, which is the confirmation the proof exists to demand.
+	requireMembershipRefusal(t, databaseURL, "cutover", "--witness", headWitness)
+	requireMembershipCommand(t, databaseURL, "cutover",
+		"--witness", headWitness, "--witness", peerWitness)
 	requireMembershipCommand(t, databaseURL, "backfill")
 	requireMembershipCommand(t, databaseURL, "promote-ready")
 
@@ -312,19 +322,23 @@ func TestMembershipEnableV5RefusesAMixedFleetAndTheRollbackReopensItToReleaseA(t
 	releaseA := requireRolloutWriter(t, databaseURL, membership.WriterA)
 	releaseAWitness := membershipWitness(releaseA.FleetMember())
 	mixed := readMembershipReport(t, databaseURL)
-	if !slices.Equal(mixed.Witnesses, sortedWitnesses(releaseAWitness, headWitness)) ||
+	if !slices.Equal(mixed.Witnesses, sortedWitnesses(releaseAWitness, headWitness, peerWitness)) ||
 		mixed.State != "ready" || mixed.MinimumWriterVersion != 1 {
 		t.Fatalf("status over a mixed fleet at the Release A floor = %#v", mixed)
 	}
 
-	requireMembershipRefusal(t, databaseURL, "enable-v5",
-		"--witness", releaseAWitness, "--witness", headWitness)
+	// The whole live fleet, named honestly, and still refused: one member is
+	// below the Release B floor enable-v5 requires.
+	requireMembershipRefusal(t, databaseURL, "enable-v5", "--witness", releaseAWitness,
+		"--witness", headWitness, "--witness", peerWitness)
 	requireMembershipRefusal(t, databaseURL, "enable-v5", "--witness", headWitness)
 	if held := readMembershipReport(t, databaseURL); held.CursorIssueVersion != 4 ||
 		held.MinimumWriterVersion != 1 || held.V5EnabledAt != nil {
 		t.Fatalf("a refused enable-v5 moved the capability: %#v", held)
 	}
 
+	// Only the running application renews; the two registered runtimes each
+	// hold one lease and let it run out, which is the drain the runbook names.
 	drainWriterFleet(t, databaseURL, headWitness)
 	requireMembershipCommand(t, databaseURL, "enable-v5", "--witness", headWitness)
 	enabled := readMembershipReport(t, databaseURL)
