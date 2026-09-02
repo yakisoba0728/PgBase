@@ -41,7 +41,7 @@ DB capability row가 유일한 source of truth다. `internal/schema.Service`가 
 
 ### D2-5 — migration 번호
 
-현재 embedded migration은 v1~v7뿐이므로 다음은 **v8 확정**. 실제 파일 생성 직전에 다시 확인하고 checksum을 고정한다.
+결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다.
 
 ### D3-1 — 승인
 
