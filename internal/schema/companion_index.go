@@ -26,13 +26,6 @@ const companionIndexAdvisoryKey int64 = 0x7067626173650008
 // two minutes past the heartbeat, so this leaves room for one missed refresh.
 const schemaWriterLeaseTTL = 90 * time.Second
 
-// PostgreSQL's pg_index.indoption bits. A companion key is DESC NULLS LAST on
-// the sorted column and the plain DESC default on the id tiebreaker.
-const (
-	indexOptionDescending = 1
-	indexOptionNullsFirst = 2
-)
-
 // CompanionIndexState is the durable rollout state of the nullable-DESC
 // companion indexes. Only ready lets a caller treat a companion as a required
 // physical contract.
@@ -118,8 +111,8 @@ type CompanionIndexDiagnostics struct {
 	// Invalid counts companions PostgreSQL left behind by an interrupted
 	// CREATE INDEX CONCURRENTLY. They are recoverable by rerunning maintenance.
 	Invalid int
-	// Mismatched counts companions whose stored key order is not the exact
-	// DESC NULLS LAST shape the read path needs.
+	// Mismatched counts companions whose stored keys are not the exact shape the
+	// read path needs, including their operator classes and collations.
 	Mismatched int
 	Missing    int
 }
@@ -132,10 +125,12 @@ func catalogShapeError(err error) bool {
 }
 
 // companionIndexObserved is one companion as PostgreSQL actually stores it.
+// keys renders one key column each; attributes counts every attribute, so an
+// INCLUDE column the manifest never declared cannot hide behind matching keys.
 type companionIndexObserved struct {
-	valid   bool
-	options []int16
-	columns []string
+	valid      bool
+	attributes int
+	keys       []string
 }
 
 func (s *Service) instance() (uuid.UUID, error) {
@@ -520,12 +515,13 @@ func (s *Service) buildCompanionIndexes(ctx context.Context, companions []IndexS
 		return fmt.Errorf("disable statement timeout for companion index maintenance: %w", err)
 	}
 
+	observed, err := loadCompanionIndexes(ctx, connection, companions)
+	if err != nil {
+		return err
+	}
 	for _, companion := range companions {
-		observed, present, err := observeCompanionIndex(ctx, connection, companion)
-		if err != nil {
-			return err
-		}
-		if present && observed.valid && companionShapeMatches(companion, observed) {
+		found, present := observed[companionKey(companion)]
+		if present && found.valid && companionShapeMatches(companion, found) {
 			continue
 		}
 		if present {
@@ -544,8 +540,8 @@ func (s *Service) buildCompanionIndexes(ctx context.Context, companions []IndexS
 }
 
 // createCompanionIndexStatement renders the exact key order a nullable
-// descending page needs. The column keeps NULLS LAST, which the public contract
-// promises, and the id tiebreaker keeps PostgreSQL's DESC default.
+// descending page needs: NULLS LAST on the column, as the public contract
+// promises, and PostgreSQL's DESC default on the id tiebreaker.
 func createCompanionIndexStatement(companion IndexSpec) string {
 	statement := "create index concurrently " + pgx.Identifier{companion.Name}.Sanitize() +
 		" on " + pgx.Identifier{companion.Namespace, companion.Table}.Sanitize() + " ("
@@ -553,28 +549,29 @@ func createCompanionIndexStatement(companion IndexSpec) string {
 		if index > 0 {
 			statement += ", "
 		}
-		statement += pgx.Identifier{key.Column}.Sanitize()
-		if key.Descending {
-			statement += " desc"
-		} else {
-			statement += " asc"
-		}
-		if key.NullsFirst {
-			statement += " nulls first"
-		} else {
-			statement += " nulls last"
-		}
+		statement += companionKeyShape(pgx.Identifier{key.Column}.Sanitize(), key)
 	}
 	return statement + ")"
 }
 
-func observeCompanionIndex(ctx context.Context, db database.DBTX, companion IndexSpec) (companionIndexObserved, bool, error) {
-	observed, err := loadCompanionIndexes(ctx, db, []IndexSpec{companion})
-	if err != nil {
-		return companionIndexObserved{}, false, err
+// companionKeyShape renders one key the way loadCompanionIndexes renders the
+// stored key, so the two are compared as one value and the DDL above is built
+// from what the comparison accepts. An operator class precedes the direction
+// because that is the order CREATE INDEX accepts; the physical side appends
+// "collate" for a key that does not sort in its column's own collation, which
+// no manifest key ever asks for.
+func companionKeyShape(column string, key IndexKeySpec) string {
+	direction, nulls := " asc", " nulls last"
+	if key.OperatorClass != "" {
+		column += " " + key.OperatorClass
 	}
-	found, ok := observed[companionKey(companion)]
-	return found, ok, nil
+	if key.Descending {
+		direction = " desc"
+	}
+	if key.NullsFirst {
+		nulls = " nulls first"
+	}
+	return column + direction + nulls
 }
 
 func companionKey(companion IndexSpec) string {
@@ -598,11 +595,16 @@ func loadCompanionIndexes(ctx context.Context, db database.DBTX, companions []In
 	}
 	rows, err := db.Query(ctx, `select schemas.nspname, tables.relname, index_tables.relname,
 		indexes.indisvalid and indexes.indisready and indexes.indislive,
-		indexes.indoption::smallint[],
+		indexes.indnatts::integer,
 		array(select columns.attname
-			from unnest(indexes.indkey::smallint[]) with ordinality as keys(attnum, position)
-			join pg_attribute as columns
-				on columns.attrelid = indexes.indrelid and columns.attnum = keys.attnum
+			|| case when operator_classes.opcdefault then '' else ' ' || operator_classes.opcname end
+			|| case when (keys.option & 1) = 1 then ' desc' else ' asc' end
+			|| case when (keys.option & 2) = 2 then ' nulls first' else ' nulls last' end
+			|| case when keys.key_collation = columns.attcollation then '' else ' collate' end
+			from unnest(indexes.indkey::smallint[], indexes.indoption::smallint[], indexes.indclass::oid[], indexes.indcollation::oid[])
+				with ordinality as keys(attnum, option, operator_class, key_collation, position)
+			join pg_attribute as columns on columns.attrelid = indexes.indrelid and columns.attnum = keys.attnum
+			join pg_opclass as operator_classes on operator_classes.oid = keys.operator_class
 			order by keys.position)
 		from pg_index as indexes
 		join pg_class as index_tables on index_tables.oid = indexes.indexrelid
@@ -623,7 +625,7 @@ func loadCompanionIndexes(ctx context.Context, db database.DBTX, companions []In
 	for rows.Next() {
 		var namespace, table, name string
 		var found companionIndexObserved
-		if err := rows.Scan(&namespace, &table, &name, &found.valid, &found.options, &found.columns); err != nil {
+		if err := rows.Scan(&namespace, &table, &name, &found.valid, &found.attributes, &found.keys); err != nil {
 			return nil, fmt.Errorf("scan companion indexes: %w", err)
 		}
 		observed[namespace+"\x00"+table+"\x00"+name] = found
@@ -634,25 +636,16 @@ func loadCompanionIndexes(ctx context.Context, db database.DBTX, companions []In
 	return observed, nil
 }
 
-// companionShapeMatches compares the stored key order against the manifest. A
-// same-named index with a different direction or null placement cannot serve the
-// page, so it counts as absent rather than as satisfying the contract.
+// companionShapeMatches compares the stored keys against the manifest. A
+// same-named index that differs in column order, direction, null placement,
+// operator class or collation cannot serve the page, so it counts as absent
+// rather than as satisfying the contract.
 func companionShapeMatches(companion IndexSpec, observed companionIndexObserved) bool {
-	if len(observed.columns) != len(companion.Keys) || len(observed.options) != len(companion.Keys) {
+	if observed.attributes != len(companion.Keys) || len(observed.keys) != len(companion.Keys) {
 		return false
 	}
 	for index, key := range companion.Keys {
-		if observed.columns[index] != key.Column {
-			return false
-		}
-		want := int16(0)
-		if key.Descending {
-			want |= indexOptionDescending
-		}
-		if key.NullsFirst {
-			want |= indexOptionNullsFirst
-		}
-		if observed.options[index] != want {
+		if observed.keys[index] != companionKeyShape(key.Column, key) {
 			return false
 		}
 	}
