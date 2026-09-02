@@ -23,7 +23,7 @@ import (
 
 const (
 	schemaMigrationV8Checksum = "e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff"
-	schemaMigrationV9Checksum = "f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918"
+	schemaMigrationV9Checksum = "19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6"
 )
 
 type schemaArtifactStatus struct {

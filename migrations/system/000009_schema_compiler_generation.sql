@@ -1,10 +1,13 @@
--- Drain any pre-P0 CREATE INDEX CONCURRENTLY maintenance before changing its
--- durable protocol. The old command takes this as a session lock before it
--- inspects or changes a companion index. Taking the transaction-scoped form of
--- the same lock makes migration 9 wait for that work to finish and prevents a
--- new old-generation build from entering until this transaction commits. This
--- must be the first product lock: old maintenance releases this lock before its
--- later promotion takes the schema lock, so the ordering cannot form a cycle.
+-- Wait for pre-P0 CREATE INDEX CONCURRENTLY maintenance that has already
+-- entered its physical phase. The old command takes this as a session lock
+-- before it inspects or changes a companion index. Taking the
+-- transaction-scoped form makes migration 9 wait for that work and excludes
+-- other contenders only until this transaction commits. It cannot observe a
+-- predecessor paused after its status/catalog/manifest precheck but before this
+-- lock; the release procedure must freeze and drain every pre-P0 process before
+-- M. This bounded drain must still be the first product lock: old maintenance
+-- releases it before its later promotion takes the schema lock, so the ordering
+-- cannot form a cycle.
 SELECT pg_advisory_xact_lock(8099550625536475144);
 
 -- Drain any schema writer or rollout transition that entered before M. Taking
