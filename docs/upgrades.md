@@ -134,8 +134,7 @@ retired database, and it honours the retirement by refusing a v4 cursor even
 though it still carries the decoder.
 
 A Release C instance fails every list closed with `record_unavailable`
-(HTTP 503) against a database that has not retired v4 — including a fresh
-install, whose capability is seeded off and issuing v4. This is the same
+(HTTP 503) against a database that has not retired v4. This is the same
 fail-closed shape Release B uses for the wrong history, and for the same
 reason: there is no cursor the binary could mint for a page that has more
 results, and serving a truncated first page with no continuation is the silent
@@ -150,6 +149,47 @@ caller to tell the two apart.
 After Release C the rollback target is the exact verified Release B artifact
 with the capability left retired. Do not deploy Release A0 or Release A on a
 retired database, and do not attempt to clear `v4_retired_at`.
+
+#### A new install starts retired, not off
+
+The steps above describe upgrading a deployment that already carries data. A
+brand new install has nothing to migrate, and the rollout it would have to run
+has no work in any of its steps, so Release C takes such a database straight to
+the retired terminal state when it registers its writer. There is no operator
+sequence to run and no command to invoke on a new install; lists work from the
+first record.
+
+The shortcut applies **only** where it is provably vacuous. It is refused, and
+the full sequence above remains the only way forward, unless all of the
+following hold in the same database transaction:
+
+- the capability is still exactly the row migration 7 seeded — `off`,
+  generation `0`, writer floor `0`, issuing v4, every rollout timestamp null;
+- no collection holds a record, and `pgbase_meta.record_creation_ordinals` is
+  empty. The test is records, not collections: an install whose administrator
+  has already created collections still has nothing to backfill;
+- no rollout has started — every creation counter is at generation `0` with
+  ordinal `0`, and every backfill row is `off` at generation `0`;
+- every catalogued collection has its table, and its counter and backfill rows;
+- every active writer lease is at Release B or later. This is the same fleet
+  condition retirement itself requires, because the terminal state raises the
+  writer floor to Release B and a live older writer must not be promoted out of
+  its own database.
+
+The transaction takes the exclusive schema pin and the capability row lock
+before it proves any of that, so a collection create or a record write cannot
+commit between the proof and the promotion. Several replicas may start at once:
+exactly one performs the promotion and the rest observe it as already done. A
+database that has any rollout history or any data is left untouched — not an
+error, so a mid-rollout fleet still starts — and its operator runs the real
+sequence above.
+
+The bootstrap is independent of `PGBASE_AUTO_MIGRATE`. It is a capability
+transition on an already-migrated database, not a migration, and it runs where
+the writer registers, which is after startup has already required a compatible
+history. An operator who applies migrations by hand with auto-migration off
+still ends up on a database whose seeded capability is `off`, and gets the same
+result.
 
 #### A base record without its membership sidecar disappears from lists
 
