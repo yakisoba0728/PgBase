@@ -46,10 +46,13 @@ interface ListState {
   filterText: string;
   appliedFilter: string;
   sort: string;
+  // The cursor that opened every page after the first, oldest first. Empty
+  // means the first page, so its length is also how far the chain has walked.
+  cursors: string[];
 }
 
 function initialList(identity: string): ListState {
-  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", sort: "" };
+  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", sort: "", cursors: [] };
 }
 
 function nextSort(current: string, column: string): string {
@@ -66,6 +69,7 @@ export interface RecordList {
   filterInvalid: boolean;
   filterText: string;
   filtered: boolean;
+  hasPrevious: boolean;
   fieldFor(column: string): FieldDefinition | undefined;
   sortDirection(column: string): "ascending" | "descending" | undefined;
   sortable(column: string): boolean;
@@ -73,6 +77,7 @@ export interface RecordList {
   applyFilter(): void;
   clear(): void;
   toggleSort(column: string): void;
+  previousPage(): void;
   nextPage(): void;
 }
 
@@ -91,32 +96,28 @@ export function useRecordList(collectionName: string): RecordList {
     return () => controller.abort();
   }, [collectionName, identity, schema, update]);
 
-  useEffect(() => {
-    inFlight.current?.abort();
-    const controller = new AbortController();
-    inFlight.current = controller;
-    update(identity, { page: null });
-    void records.list(collectionName, { filter: state.appliedFilter, sort: state.sort }, controller.signal)
-      .then((page) => { if (!controller.signal.aborted) update(identity, { page, filterInvalid: false, failed: false }); })
-      .catch((caught: unknown) => { if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true } : { failed: true }); });
-    return () => controller.abort();
-  }, [collectionName, identity, records, state.appliedFilter, state.sort, update]);
-
-  const nextPage = useCallback(async () => {
-    const cursor = state.page?.nextCursor;
-    if (cursor === undefined) return;
-    // A continuation fetched under older filter or sort values must not
-    // overwrite the page the current ones produced.
+  // Both directions read the same query under the same chain, so stepping back
+  // re-reads the page the server issued that cursor for. A continuation fetched
+  // under older filter or sort values must not overwrite the page the current
+  // ones produced, so the previous request is abandoned first.
+  const openPage = useCallback(async (cursors: string[]) => {
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
     try {
-      const page = await records.list(collectionName, { cursor, filter: state.appliedFilter, sort: state.sort }, controller.signal);
-      if (!controller.signal.aborted) update(identity, { page });
+      const page = await records.list(collectionName, { cursor: cursors.at(-1), filter: state.appliedFilter, sort: state.sort }, controller.signal);
+      if (!controller.signal.aborted) update(identity, { page, cursors, filterInvalid: false, failed: false });
     } catch (caught: unknown) {
       if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true } : { failed: true });
     }
-  }, [collectionName, identity, records, state.appliedFilter, state.page?.nextCursor, state.sort, update]);
+  }, [collectionName, identity, records, state.appliedFilter, state.sort, update]);
+
+  // A new query has no chain to walk: its cursors address the old query's pages.
+  useEffect(() => {
+    update(identity, { page: null, cursors: [] });
+    void openPage([]);
+    return () => inFlight.current?.abort();
+  }, [identity, openPage, update]);
 
   const fields = state.collection?.fields;
   return {
@@ -127,6 +128,7 @@ export function useRecordList(collectionName: string): RecordList {
     filterInvalid: state.filterInvalid,
     filterText: state.filterText,
     filtered: state.appliedFilter !== "" || state.sort !== "",
+    hasPrevious: state.cursors.length > 0,
     fieldFor: (column) => fields?.find((field) => field.name === column),
     sortDirection: (column) => state.sort === column ? "ascending" : state.sort === `-${column}` ? "descending" : undefined,
     sortable: (column) => alwaysSortable.has(column) || (fields?.some((field) =>
@@ -139,7 +141,8 @@ export function useRecordList(collectionName: string): RecordList {
     applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim() })),
     clear: () => update(identity, { filterText: "", appliedFilter: "", sort: "" }),
     toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column) })),
-    nextPage: () => void nextPage(),
+    previousPage: () => { if (state.cursors.length > 0) void openPage(state.cursors.slice(0, -1)); },
+    nextPage: () => { if (state.page?.nextCursor !== undefined) void openPage([...state.cursors, state.page.nextCursor]); },
   };
 }
 

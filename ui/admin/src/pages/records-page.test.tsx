@@ -53,6 +53,32 @@ describe("records page", () => {
     expect(callsTo(harness.script, "list").at(-1)?.detail).toEqual({ collection: "posts", sort: "owner" });
   });
 
+  it("offers Previous only once the cursor chain has moved off the first page", async () => {
+    const notes = collection("notes", "notes-id", [textField("title", 0)]);
+    const harness = scriptedAdmin("/admin/collections/notes/records");
+    harness.script.catalog.push({ value: { version: 7, collections: [notes] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "first" }], nextCursor: "cursor one" } });
+    harness.script.list.push({ value: { items: [{ id: ownerID, title: "second" }] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "first" }], nextCursor: "cursor one" } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByText("first")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("second")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(await screen.findByText("first")).toBeVisible();
+    expect(callsTo(harness.script, "list").map((call) => call.detail)).toEqual([
+      { collection: "notes" },
+      { collection: "notes", cursor: "cursor one" },
+      { collection: "notes" },
+    ]);
+  });
+
   it("reports a list it cannot load instead of loading forever", async () => {
     const harness = scriptedAdmin("/admin/collections/posts/records");
     harness.script.catalog.push({ value: { version: 7, collections: [posts] } });

@@ -72,6 +72,67 @@ describe("RecordList", () => {
     expect(callsTo(script, "list")[3].detail).toEqual({ collection: "posts", cursor: "page two", filter: "title = 'first'", sort: "title" });
   });
 
+  it("walks Previous and Next along one cursor chain under one query", async () => {
+    const { result, script } = openList([posts], { items: [{ id: recordID }], nextCursor: "unfiltered" });
+    await waitFor(() => expect(result.current.page?.nextCursor).toBe("unfiltered"));
+
+    script.list.push({ value: { items: [{ id: recordID }], nextCursor: "cursor one" } });
+    act(() => result.current.setFilterText("title = 'a'"));
+    act(() => result.current.applyFilter());
+    await waitFor(() => expect(result.current.page?.nextCursor).toBe("cursor one"));
+    expect(result.current.hasPrevious).toBe(false);
+    act(() => result.current.previousPage());
+    expect(callsTo(script, "list")).toHaveLength(2);
+
+    script.list.push({ value: { items: [{ id: otherID }], nextCursor: "cursor two" } });
+    act(() => result.current.nextPage());
+    await waitFor(() => expect(result.current.page?.nextCursor).toBe("cursor two"));
+    expect(result.current.hasPrevious).toBe(true);
+
+    script.list.push({ value: { items: [{ id: targetID }] } });
+    act(() => result.current.nextPage());
+    await waitFor(() => expect(result.current.page?.nextCursor).toBeUndefined());
+
+    script.list.push({ value: { items: [{ id: otherID }], nextCursor: "cursor two" } });
+    act(() => result.current.previousPage());
+    await waitFor(() => expect(result.current.page?.nextCursor).toBe("cursor two"));
+
+    script.list.push({ value: { items: [{ id: recordID }], nextCursor: "cursor one" } });
+    act(() => result.current.previousPage());
+    await waitFor(() => expect(result.current.hasPrevious).toBe(false));
+
+    expect(callsTo(script, "list").map((call) => call.detail)).toEqual([
+      { collection: "posts" },
+      { collection: "posts", filter: "title = 'a'" },
+      { collection: "posts", cursor: "cursor one", filter: "title = 'a'" },
+      { collection: "posts", cursor: "cursor two", filter: "title = 'a'" },
+      { collection: "posts", cursor: "cursor one", filter: "title = 'a'" },
+      { collection: "posts", filter: "title = 'a'" },
+    ]);
+  });
+
+  it("forgets the cursor chain when the query changes", async () => {
+    const { result, script } = openList([posts], { items: [{ id: recordID }], nextCursor: "cursor one" });
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+
+    script.list.push({ value: { items: [{ id: otherID }] } });
+    act(() => result.current.nextPage());
+    await waitFor(() => expect(result.current.hasPrevious).toBe(true));
+
+    // The reload the new sort starts has not landed yet, and the chain's cursors
+    // address the old query's pages, so Previous is already unavailable.
+    const sorted = deferredStep<RecordPage>();
+    script.list.push(sorted.step);
+    act(() => result.current.toggleSort("id"));
+    expect(result.current.hasPrevious).toBe(false);
+    act(() => result.current.previousPage());
+    expect(callsTo(script, "list")).toHaveLength(3);
+
+    await act(async () => { sorted.settle({ value: { items: [{ id: recordID }], nextCursor: "cursor three" } }); });
+    expect(result.current.hasPrevious).toBe(false);
+    expect(callsTo(script, "list").at(-1)?.detail).toEqual({ collection: "posts", sort: "id" });
+  });
+
   it("cycles a sortable column through ascending, descending and unsorted", async () => {
     const { result, script } = openList([posts], { items: [] });
     await waitFor(() => expect(result.current.page).not.toBeNull());

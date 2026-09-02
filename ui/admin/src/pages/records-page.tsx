@@ -47,6 +47,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
           : displayCell(record[column], list.fieldFor(column))}
       </td>)}</tr>)}
     </tbody></table></div>}
+    {list.hasPrevious && <button onClick={list.previousPage} type="button">Previous page</button>}
     {page?.nextCursor && <button onClick={list.nextPage} type="button">Next page</button>}
   </section>;
 }
