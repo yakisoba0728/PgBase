@@ -10,15 +10,17 @@ import (
 )
 
 // requestAddressesRelationField mirrors the operand classification that
-// planRelationFilter and planRelationSort perform: an operand is scalar only
-// when it names a known non-relation field without a dotted path. Everything
-// else -- a dotted path, or the bare name of a root relation field -- is
-// resolved against the catalog as a relation path, so it counts as relation
-// work whether the plan then succeeds or is rejected. An unknown bare name is
-// a plain validation error and stays scalar.
+// planRelationFilter and planRelationSort perform, so an operation is counted
+// as relation work whether the plan then succeeds or is rejected.
+//
+// A filter resolves against the catalog as a relation path for a dotted path
+// and for the bare name of a root relation field alike. A sort does so only
+// for a dotted path: a bare single relation orders on the root's own column
+// and a bare multi relation is refused from its cardinality, so neither reads
+// a target. An unknown bare name is a plain validation error and stays scalar.
 func requestAddressesRelationField(root schema.Collection, filter filterNode, sortKeys []SortKey) bool {
 	for _, key := range sortKeys {
-		if operandAddressesRelationField(root, key.Field) {
+		if strings.Contains(key.Field, ".") {
 			return true
 		}
 	}
