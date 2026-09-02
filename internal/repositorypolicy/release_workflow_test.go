@@ -172,6 +172,24 @@ func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *tes
 	}
 }
 
+func TestPlaywrightReleaseGateDoesNotMaskFailuresWithRetries(t *testing.T) {
+	config, err := os.ReadFile(filepath.Join("..", "..", "ui", "admin", "playwright.config.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^\s*retries:\s*0,\s*$`).Match(config) {
+		t.Fatal("Playwright release coverage relies on a retry instead of deterministic preconditions")
+	}
+
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "e2e.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(workflow), "--retries") {
+		t.Fatal("E2E workflow overrides the zero-retry Playwright policy")
+	}
+}
+
 func TestSecurityWorkflowLimitsTheGatedSARIFReportToHighSeverityFindings(t *testing.T) {
 	contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "security.yml"))
 	if err != nil {
