@@ -443,6 +443,149 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	}
 }
 
+// The byte-limit truncate/re-anchor path above stubs a v4 traversal, so nothing
+// proved that an expanded page mints a v5 descriptor, carries the same binding
+// through a re-anchor, and keeps a later creation outside the traversal the way
+// the scalar and relation roots do.
+func TestListExpandedReanchorsInsideOneV5MembershipBoundary(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	createExpandGraph(t, ctx, pool, schemas, records, 4)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := catalog.Collections["expand_posts"]
+	baseline, err := records.listScalar(ctx, "expand_posts", "", 10, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	postIDs := make([]uuid.UUID, 0, len(baseline.Items))
+	for _, id := range recordIDs(baseline.Items) {
+		postIDs = append(postIDs, uuid.MustParse(id))
+	}
+	installReadyMembershipFixture(t, ctx, pool, posts, postIDs)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
+	// Only the transaction time is pinned, so the expected cursor is byte
+	// comparable while the resolver's own generation, high-water and durable
+	// ready state still decide whether a descriptor may be minted at all.
+	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		traversal.TransactionTime = fixedTransactionTime
+		return traversal, err
+	}
+
+	request := ListRequest{
+		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
+		Collection: "expand_posts", Limit: 3, Expand: "owner,reviewers",
+	}
+	wide, err := records.ListExpanded(ctx, request)
+	if err != nil || len(wide.Items) != 3 || wide.NextCursor == "" {
+		t.Fatalf("wide page items/cursor = %d/%q err=%v", len(wide.Items), wide.NextCursor, err)
+	}
+	descriptor := &cursor.V5Descriptor{
+		CatalogVersion: catalog.Version, MembershipGeneration: 1, HighWater: int64(len(postIDs)),
+		QueryHash: records.cursors.QueryFingerprint([]byte(`{"filter":null}`)),
+		ScopeHash: records.cursors.ScopeFingerprint([]byte(
+			`{"kind":"administrator","id":"` + expandTestAdministratorID.String() + `","policy":"administrator-all-v1"}`,
+		)),
+		Order: []cursor.V5OrderTerm{
+			{Path: []string{"$created_at"}, Type: string(schema.TypeTimestampTZ), Nulls: cursor.NullsLast},
+			{Path: []string{"$id"}, Type: string(schema.TypeUUID), Nulls: cursor.NullsLast},
+		},
+	}
+	wideCursor, err := records.cursors.Decode(wide.NextCursor, posts.ID, time.Time{})
+	if err != nil || wideCursor.Version != cursor.Version5 || !reflect.DeepEqual(wideCursor.V5, descriptor) {
+		t.Fatalf("expanded page v5 binding = %#v (err %v), want %#v", wideCursor.V5, err, descriptor)
+	}
+
+	anchor := wide.Items[1].Root
+	values, err := recordSortValues(effectiveSortKeys(nil), anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedCursor, err := records.cursors.Encode(cursor.Page{
+		Version: cursor.Version5, CollectionID: posts.ID, Values: values,
+		AnchorID:  uuid.MustParse(anchor["id"].(string)),
+		ExpiresAt: fixedTransactionTime.Add(cursorTTL), V5: descriptor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactJSON, err := json.Marshal(ExpandedRecordPage{Items: wide.Items[:2], NextCursor: expectedCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records.expandLimits.maxBytes = len(exactJSON) + 1
+	limited, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited.Items) != 2 || limited.NextCursor != expectedCursor {
+		t.Fatalf("truncated page items/cursor = %d/%q, want 2 re-anchored under the same v5 binding",
+			len(limited.Items), limited.NextCursor)
+	}
+	records.expandLimits = defaultExpandLimits
+
+	late, err := records.Create(ctx, "expand_posts", map[string]json.RawMessage{
+		"title": json.RawMessage(`"post-late"`),
+	})
+	if err != nil {
+		t.Fatalf("Create(late post): %v", err)
+	}
+	lateID := uuid.MustParse(late["id"].(string))
+	if _, err := pool.Exec(ctx, `with bumped as (
+		update pgbase_meta.collection_creation_counters
+		set last_ordinal = $3, updated_at = transaction_timestamp()
+		where collection_id = $1 and generation = 1 and last_ordinal = $3 - 1
+		returning collection_id
+	)
+	insert into pgbase_meta.record_creation_ordinals (collection_id, record_id, ordinal)
+	select collection_id, $2, $3 from bumped`, posts.ID, lateID, len(postIDs)+1); err != nil {
+		t.Fatalf("commit late membership: %v", err)
+	}
+
+	request.Cursor = limited.NextCursor
+	continued, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := recordIDs(baseline.Items)[2:]
+	if got := expandedRootIDs(continued.Items); !reflect.DeepEqual(got, want) || continued.NextCursor != "" {
+		t.Fatalf("continued page = %v cursor:%q, want %v and a terminal page", got, continued.NextCursor, want)
+	}
+
+	request.Cursor, request.Limit = "", 1
+	fresh, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshCursor, err := records.cursors.Decode(fresh.NextCursor, posts.ID, time.Time{})
+	if err != nil || freshCursor.V5 == nil || freshCursor.V5.HighWater != int64(len(postIDs)+1) {
+		t.Fatalf("fresh traversal binding = %#v (err %v), want high-water %d",
+			freshCursor.V5, err, len(postIDs)+1)
+	}
+	request.Limit = 10
+	all, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expandedRootIDs(all.Items); !reflect.DeepEqual(got, append(recordIDs(baseline.Items), lateID.String())) {
+		t.Fatalf("fresh traversal ids = %v, want every committed post", got)
+	}
+}
+
 func TestExpandedCursorIgnoresTargetUpdates(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
