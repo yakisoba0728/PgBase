@@ -89,15 +89,15 @@ func TestSchemaOperationWireGolden(t *testing.T) {
 		},
 		{
 			name: "legacy apply keeps its body and gains the compatibility header",
-			schemas: &fakeSchemaService{applied: schema.Collection{
+			schemas: &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 				ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts",
 				CreatedAt: time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC),
-			}},
+			}}},
 			make: func() *http.Request { return goldenApplyRequest(false) },
 		},
 		{
 			name: "guarded apply created",
-			schemas: &fakeSchemaService{guardedApplyResult: schema.ApplyResult{Collection: schema.Collection{
+			schemas: &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 				ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts",
 				CreatedAt: time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC),
 			}}},
@@ -105,21 +105,21 @@ func TestSchemaOperationWireGolden(t *testing.T) {
 		},
 		{
 			name: "guarded apply replayed",
-			schemas: &fakeSchemaService{guardedApplyResult: schema.ApplyResult{
+			schemas: &fakeSchemaService{applyResult: schema.ApplyResult{
 				Replayed: true, Receipt: committed,
 			}},
 			make: func() *http.Request { return goldenApplyRequest(true) },
 		},
 		{
 			name:    "guarded apply identity bound to a different request",
-			schemas: &fakeSchemaService{guardedApplyErr: schema.ErrOperationConflict},
+			schemas: &fakeSchemaService{applyErr: schema.ErrOperationConflict},
 			make:    func() *http.Request { return goldenApplyRequest(true) },
 		},
 		{
 			name: "guarded apply terminal failure",
 			schemas: &fakeSchemaService{
-				guardedApplyErr: schema.ErrOperationFailed,
-				guardedApplyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
+				applyErr: schema.ErrOperationFailed,
+				applyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
 					OperationID: operationID, Status: schema.OperationFailed,
 					FailureCode: schema.OperationFailureApplyFailed,
 				}},
@@ -128,7 +128,7 @@ func TestSchemaOperationWireGolden(t *testing.T) {
 		},
 		{
 			name:    "guarded apply outcome undecided",
-			schemas: &fakeSchemaService{guardedApplyErr: &schema.OperationRecoveryError{}},
+			schemas: &fakeSchemaService{applyErr: &schema.OperationRecoveryError{}},
 			make:    func() *http.Request { return goldenApplyRequest(true) },
 		},
 		{

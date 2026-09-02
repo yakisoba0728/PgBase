@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,14 @@ func operationRequest(method, target string) *http.Request {
 	request.Header.Set("X-Request-ID", "fixed-request-id")
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: testSessionToken})
 	return request
+}
+
+// testApplyChange is the change testApplyBody asks for, sealed the way the
+// handler seals it.
+func testApplyChange() schema.Change {
+	return schema.NewCreateChange(schema.CreateCollectionInput{
+		Name: "posts", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
+	})
 }
 
 func applyRequest(t *testing.T, body string) *http.Request {
@@ -301,17 +310,23 @@ func TestSchemaOperationHistoryPreservesTheKernelPageVerbatim(t *testing.T) {
 // gave up recovery is new.
 func TestHeaderlessSchemaApplyKeepsTheLegacyPathBodyAndStatus(t *testing.T) {
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{applied: schema.Collection{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
-	}}
+	}}}
 	response := httptest.NewRecorder()
 	schemaOperationHandler(t, schemas).ServeHTTP(response, applyRequest(t, testApplyBody))
 
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if schemas.applyCalls != 1 || schemas.guardedApplyCalls != 0 {
-		t.Fatalf("legacy apply calls = %d, guarded apply calls = %d", schemas.applyCalls, schemas.guardedApplyCalls)
+	// The intent is what separates the two paths now, so this pins the whole
+	// legacy one at once: no operation identity, and the change and plan the
+	// request carried.
+	wantIntent := schema.LegacyApply(testApplyChange(), schema.Plan{Checksum: testChecksum, BaseVersion: 7},
+		validSession().Administrator.ID)
+	if schemas.applyCalls != 1 || !reflect.DeepEqual(schemas.applyIntent, wantIntent) {
+		t.Fatalf("apply calls = %d, intent = %+v, want the legacy intent %+v",
+			schemas.applyCalls, schemas.applyIntent, wantIntent)
 	}
 	if got := response.Header().Get("PgBase-Compatibility"); got != schemaApplyUnguardedCompatibility {
 		t.Fatalf("PgBase-Compatibility = %q, want %q", got, schemaApplyUnguardedCompatibility)
@@ -320,7 +335,7 @@ func TestHeaderlessSchemaApplyKeepsTheLegacyPathBodyAndStatus(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ID != schemas.applied.ID || body.Name != "posts" {
+	if body.ID != schemas.applyResult.Collection.ID || body.Name != "posts" {
 		t.Fatalf("legacy apply body = %+v", body)
 	}
 }
@@ -385,9 +400,8 @@ func TestSchemaApplyRejectsAnUnusableOperationIdentityBeforeAnyDomainCall(t *tes
 				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 			}
 			assertErrorCode(t, response.Body.Bytes(), "invalid_request")
-			if schemas.applyCalls != 0 || schemas.guardedApplyCalls != 0 {
-				t.Fatalf("rejected identity reached the schema module: legacy=%d guarded=%d",
-					schemas.applyCalls, schemas.guardedApplyCalls)
+			if schemas.applyCalls != 0 {
+				t.Fatalf("rejected identity reached the schema module: apply calls = %d", schemas.applyCalls)
 			}
 		})
 	}
@@ -395,7 +409,7 @@ func TestSchemaApplyRejectsAnUnusableOperationIdentityBeforeAnyDomainCall(t *tes
 
 func TestGuardedSchemaApplyReturnsTheCollectionAndTheOperationIdentity(t *testing.T) {
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{guardedApplyResult: schema.ApplyResult{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{
 		Collection: schema.Collection{
 			ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts",
 			TableName: "posts", CreatedAt: createdAt,
@@ -410,8 +424,14 @@ func TestGuardedSchemaApplyReturnsTheCollectionAndTheOperationIdentity(t *testin
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if schemas.guardedApplyCalls != 1 || schemas.applyCalls != 0 {
-		t.Fatalf("guarded apply calls = %d, legacy apply calls = %d", schemas.guardedApplyCalls, schemas.applyCalls)
+	wantIntent, err := schema.GuardedApply(testApplyChange(), schema.Plan{Checksum: testChecksum, BaseVersion: 7},
+		validSession().Administrator.ID, uuid.MustParse(testOperationID), testIdempotency)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schemas.applyCalls != 1 || !reflect.DeepEqual(schemas.applyIntent, wantIntent) {
+		t.Fatalf("apply calls = %d, intent = %+v, want the guarded intent %+v",
+			schemas.applyCalls, schemas.applyIntent, wantIntent)
 	}
 	if got := response.Header().Get(operationIDHeader); got != testOperationID {
 		t.Fatalf("%s = %q, want %q", operationIDHeader, got, testOperationID)
@@ -428,7 +448,7 @@ func TestGuardedSchemaApplyReturnsTheCollectionAndTheOperationIdentity(t *testin
 // so the replay says what it knows and points at the receipt.
 func TestGuardedSchemaApplyReplayAnswersWithTheReceipt(t *testing.T) {
 	operationID := uuid.MustParse(testOperationID)
-	schemas := &fakeSchemaService{guardedApplyResult: schema.ApplyResult{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{
 		Replayed: true,
 		Receipt: schema.OperationReceipt{
 			OperationID: operationID, Status: schema.OperationCommitted,
@@ -457,7 +477,7 @@ func TestGuardedSchemaApplyReplayAnswersWithTheReceipt(t *testing.T) {
 // detects. The guarded code says which conflict it was; the legacy path keeps
 // the code it has always returned.
 func TestSchemaOperationConflictSeparatesGuardedFromLegacy(t *testing.T) {
-	guarded := &fakeSchemaService{guardedApplyErr: schema.ErrOperationConflict}
+	guarded := &fakeSchemaService{applyErr: schema.ErrOperationConflict}
 	request := applyRequest(t, testApplyBody)
 	request.Header.Set(operationIDHeader, testOperationID)
 	request.Header.Set(idempotencyKeyHeader, testIdempotency)
@@ -481,7 +501,7 @@ func TestSchemaOperationConflictSeparatesGuardedFromLegacy(t *testing.T) {
 // appear. Returning a failure here would be transport guesswork the ledger can
 // contradict a second later.
 func TestGuardedSchemaApplyEndsUndecidedWithTheRecoveryURL(t *testing.T) {
-	schemas := &fakeSchemaService{guardedApplyErr: &schema.OperationRecoveryError{}}
+	schemas := &fakeSchemaService{applyErr: &schema.OperationRecoveryError{}}
 	request := applyRequest(t, testApplyBody)
 	request.Header.Set(operationIDHeader, testOperationID)
 	request.Header.Set(idempotencyKeyHeader, testIdempotency)
@@ -542,7 +562,7 @@ func TestGuardedSchemaApplyReadsTheLedgerWhenItsOwnContextExpires(t *testing.T) 
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			schemas := &fakeSchemaService{statusReceipt: testCase.receipt, statusErr: testCase.statusErr}
-			schemas.guardedApplyHook = func(ctx context.Context) (schema.ApplyResult, error) {
+			schemas.applyHook = func(ctx context.Context) (schema.ApplyResult, error) {
 				return schema.ApplyResult{}, ctx.Err()
 			}
 			request := applyRequest(t, testApplyBody)
@@ -579,8 +599,8 @@ func TestGuardedSchemaApplyReadsTheLedgerWhenItsOwnContextExpires(t *testing.T) 
 // carry raw SQL, request or error text, none of which the receipt holds.
 func TestGuardedSchemaApplyReportsTheBoundedFailureCode(t *testing.T) {
 	schemas := &fakeSchemaService{
-		guardedApplyErr: schema.ErrOperationFailed,
-		guardedApplyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
+		applyErr: schema.ErrOperationFailed,
+		applyResult: schema.ApplyResult{Receipt: schema.OperationReceipt{
 			OperationID: uuid.MustParse(testOperationID), Status: schema.OperationFailed,
 			FailureCode: schema.OperationFailurePlanConflict,
 		}},
