@@ -34,7 +34,7 @@ func TestDecodePreservesOmittedClearAndCanonicalOrder(t *testing.T) {
 		"labels":   json.RawMessage(`[]`),
 	}
 
-	decoded, err := bindings.Decode(PatchInput, payload)
+	decoded, err := bindings.decode(PatchWrite, payload)
 	if err != nil {
 		t.Fatalf("decode patch: %v", err)
 	}
@@ -69,24 +69,24 @@ func TestDecodePreservesOmittedClearAndCanonicalOrder(t *testing.T) {
 		t.Fatalf("explicit multi clear was not preserved: %#v", values["labels"])
 	}
 
-	returned := decoded.Relations()
+	returned := decoded.values()
 	returned[0].IDs = append(returned[0].IDs, uuid.New())
 	returned[0].JSON = json.RawMessage(`"changed"`)
-	if reflect.DeepEqual(returned, decoded.Relations()) {
+	if reflect.DeepEqual(returned, decoded.values()) {
 		t.Fatal("Relations returned mutable internal state")
 	}
 }
 
 func TestDecodeCreateAndPatchOmissionHaveDifferentMinimumSemantics(t *testing.T) {
 	bindings := mustCodecBindings(t)
-	_, err := bindings.Decode(CreateInput, map[string]json.RawMessage{})
+	_, err := bindings.decode(CreateWrite, map[string]json.RawMessage{})
 	assertValidation(t, err, "tags", "relation_min_select")
 
-	decoded, err := bindings.Decode(PatchInput, map[string]json.RawMessage{})
+	decoded, err := bindings.decode(PatchWrite, map[string]json.RawMessage{})
 	if err != nil {
 		t.Fatalf("decode omitted patch: %v", err)
 	}
-	for _, value := range decoded.Relations() {
+	for _, value := range decoded.values() {
 		if value.Present || value.Clear {
 			t.Fatalf("patch omission changed field %q: %#v", value.FieldName, value)
 		}
@@ -116,7 +116,7 @@ func TestDecodeStableValidationCodes(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := bindings.Decode(PatchInput, map[string]json.RawMessage{test.field: json.RawMessage(test.raw)})
+			_, err := bindings.decode(PatchWrite, map[string]json.RawMessage{test.field: json.RawMessage(test.raw)})
 			assertValidation(t, err, test.field, test.code)
 			if strings.Contains(err.Error(), first.String()) || strings.Contains(err.Error(), test.raw) {
 				t.Fatalf("validation error disclosed input: %q", err)
@@ -171,20 +171,20 @@ func TestLockOrderDoesNotDependOnRelationValueOrder(t *testing.T) {
 	first := uuid.MustParse("0199aa20-0000-7000-8000-000000000401")
 	second := uuid.MustParse("0199aa20-0000-7000-8000-000000000402")
 	source := uuid.MustParse("0199aa20-0000-7000-8000-000000000403")
-	forward, err := bindings.Decode(PatchInput, map[string]json.RawMessage{
+	forward, err := bindings.decode(PatchWrite, map[string]json.RawMessage{
 		"labels": json.RawMessage(`["` + first.String() + `","` + second.String() + `"]`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	reverse, err := bindings.Decode(PatchInput, map[string]json.RawMessage{
+	reverse, err := bindings.decode(PatchWrite, map[string]json.RawMessage{
 		"labels": json.RawMessage(`["` + second.String() + `","` + first.String() + `"]`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	left := bindings.rowLocks(source, SourceStored, forward)
-	right := bindings.rowLocks(source, SourceStored, reverse)
+	left := bindings.rowLocks(source, sourceStored, forward)
+	right := bindings.rowLocks(source, sourceStored, reverse)
 	if len(left) != len(right) {
 		t.Fatalf("lock lengths differ: %d != %d", len(left), len(right))
 	}
@@ -210,12 +210,12 @@ func FuzzDecodeRelationValue(f *testing.F) {
 	f.Add(`null`)
 	f.Add(`{"unexpected":true}`)
 	f.Fuzz(func(t *testing.T, raw string) {
-		decoded, err := bindings.Decode(PatchInput, map[string]json.RawMessage{"labels": json.RawMessage(raw)})
+		decoded, err := bindings.decode(PatchWrite, map[string]json.RawMessage{"labels": json.RawMessage(raw)})
 		if err != nil {
 			return
 		}
 		value := relationValuesByName(decoded)["labels"]
-		roundTrip, err := bindings.Decode(PatchInput, map[string]json.RawMessage{"labels": value.JSON})
+		roundTrip, err := bindings.decode(PatchWrite, map[string]json.RawMessage{"labels": value.JSON})
 		if err != nil {
 			t.Fatalf("canonical value did not round trip: raw=%q canonical=%q err=%v", raw, value.JSON, err)
 		}
@@ -287,9 +287,9 @@ func relationSpec(
 	}
 }
 
-func relationValuesByName(input Input) map[string]Value {
-	values := make(map[string]Value)
-	for _, value := range input.Relations() {
+func relationValuesByName(input writeInput) map[string]relationValue {
+	values := make(map[string]relationValue)
+	for _, value := range input.values() {
 		values[value.FieldName] = value
 	}
 	return values

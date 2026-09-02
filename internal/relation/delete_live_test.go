@@ -41,24 +41,23 @@ func TestDeleteGraphLivePostgreSQL(t *testing.T) {
 		if got := plan.Deletes(); !reflect.DeepEqual(got, wantDeletes) {
 			t.Fatalf("unexpected cascade closure:\n got=%v\nwant=%v", got, wantDeletes)
 		}
-		clears := plan.Clears()
-		if len(clears) != 2 {
-			t.Fatalf("clear count=%d, want multi+single: %#v", len(clears), clears)
+		if len(plan.clears) != 2 {
+			t.Fatalf("clear count=%d, want multi+single: %#v", len(plan.clears), plan.clears)
 		}
-		byField := make(map[string]Clear, len(clears))
-		for _, clear := range clears {
-			byField[clear.FieldName] = clear
-			if clear.Source != fixture.ref(fixture.survivor) {
+		byField := make(map[string]deleteClear, len(plan.clears))
+		for _, clear := range plan.clears {
+			byField[clear.relation.field.Name] = clear
+			if clear.source != fixture.ref(fixture.survivor) {
 				t.Fatalf("unexpected clear source: %#v", clear)
 			}
 		}
 		wantMultiTargets := []uuid.UUID{fixture.root, fixture.a}
 		sortUUIDs(wantMultiTargets)
-		if !reflect.DeepEqual(byField["null_links"].TargetIDs, wantMultiTargets) {
-			t.Fatalf("unexpected multi clear targets: %v", byField["null_links"].TargetIDs)
+		if !reflect.DeepEqual(byField["null_links"].targetIDs, wantMultiTargets) {
+			t.Fatalf("unexpected multi clear targets: %v", byField["null_links"].targetIDs)
 		}
-		if !reflect.DeepEqual(byField["single_null"].TargetIDs, []uuid.UUID{fixture.root}) {
-			t.Fatalf("unexpected single clear targets: %v", byField["single_null"].TargetIDs)
+		if !reflect.DeepEqual(byField["single_null"].targetIDs, []uuid.UUID{fixture.root}) {
+			t.Fatalf("unexpected single clear targets: %v", byField["single_null"].targetIDs)
 		}
 		updates := plan.Updates()
 		if len(updates) != 1 || updates[0].Source != fixture.ref(fixture.survivor) ||
@@ -149,8 +148,8 @@ func TestDeleteGraphLivePostgreSQL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("delayed internal restrict was rejected: %v", err)
 		}
-		if len(plan.Deletes()) != 3 || len(plan.Clears()) != 0 {
-			t.Fatalf("unexpected delayed closure: deletes=%v clears=%v", plan.Deletes(), plan.Clears())
+		if len(plan.Deletes()) != 3 || len(plan.clears) != 0 {
+			t.Fatalf("unexpected delayed closure: deletes=%v clears=%v", plan.Deletes(), plan.clears)
 		}
 	})
 

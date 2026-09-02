@@ -16,14 +16,14 @@ import (
 // It never deletes a base record or writes updated_at, revisions, audit, or
 // outbox.
 func (p DeletePlan) ExecuteStorage(ctx context.Context) error {
-	if p.owner == nil || p.tx == nil || len(p.deletes) == 0 || len(p.clearOp) != len(p.clears) {
+	if p.owner == nil || p.tx == nil || len(p.deletes) == 0 {
 		return ErrInvalidBinding
 	}
 	return p.owner.executeStorage(ctx, p.tx, p)
 }
 
 func (g *DeleteGraph) executeStorage(ctx context.Context, tx pgx.Tx, plan DeletePlan) error {
-	for _, group := range groupDeleteClearOps(plan.clearOp) {
+	for _, group := range groupDeleteClears(plan.clears) {
 		if group.relation.spec.Cardinality == schema.RelationSingle {
 			if err := executeSingleClearBatch(ctx, tx, group); err != nil {
 				return err
@@ -73,26 +73,26 @@ func (g *DeleteGraph) executeStorage(ctx context.Context, tx pgx.Tx, plan Delete
 }
 
 type deleteClearGroup struct {
-	relation   deleteRelationBinding
-	operations []deleteClearOp
+	relation deleteRelationBinding
+	clears   []deleteClear
 }
 
-func groupDeleteClearOps(operations []deleteClearOp) []deleteClearGroup {
+func groupDeleteClears(clears []deleteClear) []deleteClearGroup {
 	type key struct {
 		collectionID uuid.UUID
 		fieldID      uuid.UUID
 	}
 	groups := make(map[key]*deleteClearGroup)
 	keys := make([]key, 0)
-	for _, operation := range operations {
-		groupKey := key{collectionID: operation.relation.source.id, fieldID: operation.relation.field.ID}
+	for _, clear := range clears {
+		groupKey := key{collectionID: clear.relation.source.id, fieldID: clear.relation.field.ID}
 		group := groups[groupKey]
 		if group == nil {
-			group = &deleteClearGroup{relation: operation.relation}
+			group = &deleteClearGroup{relation: clear.relation}
 			groups[groupKey] = group
 			keys = append(keys, groupKey)
 		}
-		group.operations = append(group.operations, operation)
+		group.clears = append(group.clears, clear)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if comparison := bytes.Compare(keys[i].collectionID[:], keys[j].collectionID[:]); comparison != 0 {
@@ -113,14 +113,14 @@ func groupDeleteClearOps(operations []deleteClearOp) []deleteClearGroup {
 }
 
 func executeSingleClearBatch(ctx context.Context, tx pgx.Tx, group deleteClearGroup) error {
-	sourceIDs := make([]uuid.UUID, 0, len(group.operations))
-	targetIDs := make([]uuid.UUID, 0, len(group.operations))
-	for _, operation := range group.operations {
-		if len(operation.clear.TargetIDs) != 1 {
+	sourceIDs := make([]uuid.UUID, 0, len(group.clears))
+	targetIDs := make([]uuid.UUID, 0, len(group.clears))
+	for _, clear := range group.clears {
+		if len(clear.targetIDs) != 1 {
 			return ErrInvalidStoredValue
 		}
-		sourceIDs = append(sourceIDs, operation.clear.Source.RecordID)
-		targetIDs = append(targetIDs, operation.clear.TargetIDs[0])
+		sourceIDs = append(sourceIDs, clear.source.RecordID)
+		targetIDs = append(targetIDs, clear.targetIDs[0])
 	}
 	tag, err := tx.Exec(ctx, `with requested(source_id, target_id) as (
 		select * from unnest($1::uuid[], $2::uuid[])
@@ -133,20 +133,20 @@ func executeSingleClearBatch(ctx context.Context, tx pgx.Tx, group deleteClearGr
 	if err != nil {
 		return newDeleteOperationError(err)
 	}
-	if tag.RowsAffected() != int64(len(group.operations)) {
+	if tag.RowsAffected() != int64(len(group.clears)) {
 		return ErrInvalidStoredValue
 	}
 	return nil
 }
 
 func executeMultiClearBatch(ctx context.Context, tx pgx.Tx, group deleteClearGroup) error {
-	sourceIDs := make([]uuid.UUID, 0, len(group.operations))
+	sourceIDs := make([]uuid.UUID, 0, len(group.clears))
 	pairSources := make([]uuid.UUID, 0)
 	pairTargets := make([]uuid.UUID, 0)
-	for _, operation := range group.operations {
-		sourceIDs = append(sourceIDs, operation.clear.Source.RecordID)
-		for _, targetID := range operation.clear.TargetIDs {
-			pairSources = append(pairSources, operation.clear.Source.RecordID)
+	for _, clear := range group.clears {
+		sourceIDs = append(sourceIDs, clear.source.RecordID)
+		for _, targetID := range clear.targetIDs {
+			pairSources = append(pairSources, clear.source.RecordID)
 			pairTargets = append(pairTargets, targetID)
 		}
 	}

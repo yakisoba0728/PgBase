@@ -196,16 +196,16 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return transactionalMembership(err)
 		}
 
-		relations, err := prepareRelationMutation(catalog, collection, relation.CreateInput, request.Input)
+		relations, err := prepareRelationWrite(catalog, collection, relation.CreateWrite, request.Input)
 		if err != nil {
 			return err
 		}
-		statement, err := query.CompileInsert(collection, relations.compiler, recordID)
+		statement, err := query.CompileInsert(collection, relations.Scalar(), recordID)
 		if err != nil {
 			return err
 		}
-		if err := relations.lock(ctx, tx, recordID, relation.SourcePending); err != nil {
-			return err
+		if err := relations.Lock(ctx, tx, recordID); err != nil {
+			return normalizeRelationError(err)
 		}
 		data, err := query.EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 		if err != nil {
@@ -214,10 +214,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := createFence.RecordCreated(ctx, recordID); err != nil {
 			return transactionalMembership(err)
 		}
-		if err := relations.replaceMulti(ctx, tx, recordID); err != nil {
-			return err
+		if err := relations.Store(ctx, tx, recordID, data); err != nil {
+			return normalizeRelationError(err)
 		}
-		if err := relations.hydrate(ctx, tx, recordID, data); err != nil {
+		if err := validateRecordSize(data); err != nil {
 			return err
 		}
 		digest, err := recordartifact.SchemaDigest(collection)
@@ -299,26 +299,26 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
 		}
-		relations, err := prepareRelationMutation(catalog, collection, relation.PatchInput, request.Input)
+		relations, err := prepareRelationWrite(catalog, collection, relation.PatchWrite, request.Input)
 		if err != nil {
 			return err
 		}
-		statement, err := query.CompileUpdate(collection, request.ID, relations.compiler)
+		statement, err := query.CompileUpdate(collection, request.ID, relations.Scalar())
 		if err != nil {
 			return err
 		}
-		if err := relations.lock(ctx, tx, request.ID, relation.SourceStored); err != nil {
-			return err
+		if err := relations.Lock(ctx, tx, request.ID); err != nil {
+			return normalizeRelationError(err)
 		}
-		before, err := readRecord(ctx, tx, collection, request.ID, !relations.present)
+		before, err := readRecord(ctx, tx, collection, request.ID, !relations.LocksSource())
 		if err != nil {
 			return err
 		}
 		if err := validateEntityTagSet(request.IfMatch); err != nil {
 			return err
 		}
-		if err := relations.hydrate(ctx, tx, request.ID, before); err != nil {
-			return err
+		if err := relations.Snapshot(ctx, tx, request.ID, before); err != nil {
+			return normalizeRelationError(err)
 		}
 		digest, err := recordartifact.SchemaDigest(collection)
 		if err != nil {
@@ -340,10 +340,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return query.NormalizeRecordError(err)
 		}
-		if err := relations.replaceMulti(ctx, tx, request.ID); err != nil {
-			return err
+		if err := relations.Store(ctx, tx, request.ID, after); err != nil {
+			return normalizeRelationError(err)
 		}
-		if err := relations.hydrate(ctx, tx, request.ID, after); err != nil {
+		if err := validateRecordSize(after); err != nil {
 			return err
 		}
 		newVersion := previousVersion + 1

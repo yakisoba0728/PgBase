@@ -11,15 +11,15 @@ import (
 // Decode splits and normalizes one create or patch payload. Unknown and scalar
 // members remain byte-for-byte equivalent cloned JSON for the scalar compiler.
 // Relation errors contain only the field name and a stable code.
-func (b *Bindings) Decode(mode InputMode, payload map[string]json.RawMessage) (Input, error) {
-	if b == nil || (mode != CreateInput && mode != PatchInput) {
-		return Input{}, ErrInvalidBinding
+func (b *Bindings) decode(mode WriteMode, payload map[string]json.RawMessage) (writeInput, error) {
+	if b == nil || (mode != CreateWrite && mode != PatchWrite) {
+		return writeInput{}, ErrInvalidBinding
 	}
 
-	decoded := Input{
+	decoded := writeInput{
 		Scalar:             make(map[string]json.RawMessage, len(payload)),
 		sourceCollectionID: b.source.id,
-		relations:          make([]Value, 0, len(b.fields)),
+		relations:          make([]relationValue, 0, len(b.fields)),
 	}
 	for name, raw := range payload {
 		if _, relationField := b.fieldsByName[name]; relationField {
@@ -30,7 +30,7 @@ func (b *Bindings) Decode(mode InputMode, payload map[string]json.RawMessage) (I
 
 	for _, binding := range b.fields {
 		raw, present := payload[binding.field.Name]
-		value := Value{
+		value := relationValue{
 			FieldName:          binding.field.Name,
 			Present:            present,
 			fieldID:            binding.field.ID,
@@ -38,8 +38,8 @@ func (b *Bindings) Decode(mode InputMode, payload map[string]json.RawMessage) (I
 			cardinality:        binding.spec.Cardinality,
 		}
 		if !present {
-			if mode == CreateInput && binding.spec.MinSelect > 0 {
-				return Input{}, validation(binding.field.Name, "relation_min_select")
+			if mode == CreateWrite && binding.spec.MinSelect > 0 {
+				return writeInput{}, validation(binding.field.Name, "relation_min_select")
 			}
 			decoded.relations = append(decoded.relations, value)
 			continue
@@ -47,7 +47,7 @@ func (b *Bindings) Decode(mode InputMode, payload map[string]json.RawMessage) (I
 
 		ids, clear, canonical, err := decodeValue(binding.field.Name, binding.spec, raw)
 		if err != nil {
-			return Input{}, err
+			return writeInput{}, err
 		}
 		value.IDs = ids
 		value.Clear = clear

@@ -2,14 +2,22 @@ package recordops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
+
+// jsonStringOfSize renders a JSON string whose encoding alone is bytes long,
+// so a record built from one field is predictably above or below the bound.
+func jsonStringOfSize(bytes int) json.RawMessage {
+	return json.RawMessage(`"` + strings.Repeat("x", bytes-2) + `"`)
+}
 
 type relationTelemetryRecorder struct {
 	mu     sync.Mutex

@@ -38,57 +38,39 @@ type RecordRef struct {
 	RecordID     uuid.UUID
 }
 
-// Clear identifies one surviving source field whose references into the
-// delete closure must be removed. TargetIDs are sorted and never appear in an
-// error string.
-type Clear struct {
-	Source    RecordRef
-	FieldID   uuid.UUID
-	FieldName string
-	TargetIDs []uuid.UUID
-}
-
-// Update is the record-level projection of one or more Clears. It lets the
-// caller emit exactly one revision/audit/outbox change for a surviving record.
+// Update is the record-level projection of one or more set-null clears. It
+// lets the caller emit exactly one revision/audit/outbox change per surviving
+// record.
 type Update struct {
 	Source        RecordRef
 	ChangedFields []string
 }
 
 // DeletePlan is an immutable deterministic delete closure. Callers use
-// Deletes and Clears to write audit/revision/outbox and base-record changes;
+// Deletes and Updates to write audit/revision/outbox and base-record changes;
 // ExecuteStorage uses the private bindings to clean relation storage.
 type DeletePlan struct {
 	owner   *DeleteGraph
 	tx      pgx.Tx
 	deletes []RecordRef
-	clears  []Clear
-	clearOp []deleteClearOp
+	clears  []deleteClear
 }
 
 // Deletes returns a sorted caller-owned copy of the cascade closure.
 func (p DeletePlan) Deletes() []RecordRef { return append([]RecordRef(nil), p.deletes...) }
 
-// Clears returns a deep caller-owned copy sorted by source record and field.
-func (p DeletePlan) Clears() []Clear {
-	result := make([]Clear, len(p.clears))
-	for index, clear := range p.clears {
-		result[index] = clear
-		result[index].TargetIDs = append([]uuid.UUID(nil), clear.TargetIDs...)
-	}
-	return result
-}
-
-// Updates groups Clears by source record with sorted unique field names.
+// Updates groups the set-null clears by source record with sorted unique
+// field names, in the same (collection, record) order as Deletes.
 func (p DeletePlan) Updates() []Update {
 	updates := make([]Update, 0)
 	for _, clear := range p.clears {
-		if len(updates) == 0 || updates[len(updates)-1].Source != clear.Source {
-			updates = append(updates, Update{Source: clear.Source})
+		if len(updates) == 0 || updates[len(updates)-1].Source != clear.source {
+			updates = append(updates, Update{Source: clear.source})
 		}
 		current := &updates[len(updates)-1]
-		if len(current.ChangedFields) == 0 || current.ChangedFields[len(current.ChangedFields)-1] != clear.FieldName {
-			current.ChangedFields = append(current.ChangedFields, clear.FieldName)
+		name := clear.relation.field.Name
+		if len(current.ChangedFields) == 0 || current.ChangedFields[len(current.ChangedFields)-1] != name {
+			current.ChangedFields = append(current.ChangedFields, name)
 		}
 	}
 	for index := range updates {
@@ -241,7 +223,7 @@ func (g *DeleteGraph) Plan(ctx context.Context, tx pgx.Tx, root RecordRef) (Dele
 		}
 	}
 
-	clears, clearOps, err := makeDeleteClears(hits, deleted)
+	clears, err := makeDeleteClears(hits, deleted)
 	if err != nil {
 		return DeletePlan{}, err
 	}
@@ -250,7 +232,7 @@ func (g *DeleteGraph) Plan(ctx context.Context, tx pgx.Tx, root RecordRef) (Dele
 		affected[record] = struct{}{}
 	}
 	for _, clear := range clears {
-		affected[clear.Source] = struct{}{}
+		affected[clear.source] = struct{}{}
 	}
 	if len(affected) > g.limits.records {
 		return DeletePlan{}, deleteValidation("relation_delete_budget_exceeded")
@@ -258,7 +240,7 @@ func (g *DeleteGraph) Plan(ctx context.Context, tx pgx.Tx, root RecordRef) (Dele
 	if err := g.lockAffectedRows(ctx, tx, root, deletes, clears); err != nil {
 		return DeletePlan{}, err
 	}
-	return DeletePlan{owner: g, tx: tx, deletes: deletes, clears: clears, clearOp: clearOps}, nil
+	return DeletePlan{owner: g, tx: tx, deletes: deletes, clears: clears}, nil
 }
 
 func validDeleteLimits(limits deleteLimits) bool {
@@ -430,13 +412,17 @@ type deleteClearKey struct {
 	fieldID uuid.UUID
 }
 
-type deleteClearOp struct {
-	clear    Clear
-	relation deleteRelationBinding
+// deleteClear is one surviving source field whose references into the delete
+// closure must be removed. targetIDs are sorted and never appear in an error
+// string.
+type deleteClear struct {
+	source    RecordRef
+	targetIDs []uuid.UUID
+	relation  deleteRelationBinding
 }
 
-func makeDeleteClears(hits []deleteHit, deleted map[RecordRef]struct{}) ([]Clear, []deleteClearOp, error) {
-	operations := make(map[deleteClearKey]*deleteClearOp)
+func makeDeleteClears(hits []deleteHit, deleted map[RecordRef]struct{}) ([]deleteClear, error) {
+	clears := make(map[deleteClearKey]*deleteClear)
 	targetSets := make(map[deleteClearKey]map[uuid.UUID]struct{})
 	for _, hit := range hits {
 		if hit.relation.spec.OnDelete != schema.RelationSetNull {
@@ -446,20 +432,17 @@ func makeDeleteClears(hits []deleteHit, deleted map[RecordRef]struct{}) ([]Clear
 			continue
 		}
 		key := deleteClearKey{source: hit.source, fieldID: hit.relation.field.ID}
-		operation := operations[key]
-		if operation == nil {
-			operation = &deleteClearOp{
-				clear:    Clear{Source: hit.source, FieldID: hit.relation.field.ID, FieldName: hit.relation.field.Name},
-				relation: hit.relation,
-			}
-			operations[key] = operation
+		clear := clears[key]
+		if clear == nil {
+			clear = &deleteClear{source: hit.source, relation: hit.relation}
+			clears[key] = clear
 			targetSets[key] = make(map[uuid.UUID]struct{})
 		}
 		targetSets[key][hit.target.RecordID] = struct{}{}
 	}
 
-	keys := make([]deleteClearKey, 0, len(operations))
-	for key := range operations {
+	keys := make([]deleteClearKey, 0, len(clears))
+	for key := range clears {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
@@ -469,33 +452,26 @@ func makeDeleteClears(hits []deleteHit, deleted map[RecordRef]struct{}) ([]Clear
 		if recordRefLess(keys[j].source, keys[i].source) {
 			return false
 		}
-		left := operations[keys[i]].relation.field
-		right := operations[keys[j]].relation.field
+		left := clears[keys[i]].relation.field
+		right := clears[keys[j]].relation.field
 		if left.Ordinal != right.Ordinal {
 			return left.Ordinal < right.Ordinal
 		}
 		return bytes.Compare(keys[i].fieldID[:], keys[j].fieldID[:]) < 0
 	})
-	clears := make([]Clear, 0, len(keys))
-	clearOps := make([]deleteClearOp, 0, len(keys))
+	ordered := make([]deleteClear, 0, len(keys))
 	for _, key := range keys {
-		operation := operations[key]
+		clear := clears[key]
 		for targetID := range targetSets[key] {
-			operation.clear.TargetIDs = append(operation.clear.TargetIDs, targetID)
+			clear.targetIDs = append(clear.targetIDs, targetID)
 		}
-		sortUUIDs(operation.clear.TargetIDs)
-		if operation.relation.spec.Cardinality == schema.RelationSingle && len(operation.clear.TargetIDs) != 1 {
-			return nil, nil, ErrInvalidStoredValue
+		sortUUIDs(clear.targetIDs)
+		if clear.relation.spec.Cardinality == schema.RelationSingle && len(clear.targetIDs) != 1 {
+			return nil, ErrInvalidStoredValue
 		}
-		clears = append(clears, cloneClear(operation.clear))
-		clearOps = append(clearOps, *operation)
+		ordered = append(ordered, *clear)
 	}
-	return clears, clearOps, nil
-}
-
-func cloneClear(clear Clear) Clear {
-	clear.TargetIDs = append([]uuid.UUID(nil), clear.TargetIDs...)
-	return clear
+	return ordered, nil
 }
 
 func (g *DeleteGraph) lockAffectedRows(
@@ -503,14 +479,14 @@ func (g *DeleteGraph) lockAffectedRows(
 	tx pgx.Tx,
 	root RecordRef,
 	deletes []RecordRef,
-	clears []Clear,
+	clears []deleteClear,
 ) error {
 	affected := make(map[RecordRef]struct{}, len(deletes)+len(clears))
 	for _, record := range deletes {
 		affected[record] = struct{}{}
 	}
 	for _, clear := range clears {
-		affected[clear.Source] = struct{}{}
+		affected[clear.source] = struct{}{}
 	}
 	byCollection := make(map[uuid.UUID][]uuid.UUID)
 	for record := range affected {

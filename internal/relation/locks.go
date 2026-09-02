@@ -15,10 +15,10 @@ import (
 
 const collectionAdvisoryDomain = "pgbase:relation-collection-lock:v1"
 
-// LockCollections acquires transaction-scoped exclusive advisory locks for
+// lockCollections acquires transaction-scoped exclusive advisory locks for
 // the source collection and every target collection changed by input. UUID
 // ordering is global and independent of JSON field/value order.
-func (b *Bindings) LockCollections(ctx context.Context, tx pgx.Tx, input Input) error {
+func (b *Bindings) lockCollections(ctx context.Context, tx pgx.Tx, input writeInput) error {
 	if tx == nil || !b.accepts(input) {
 		return ErrInvalidBinding
 	}
@@ -31,7 +31,7 @@ func (b *Bindings) LockCollections(ctx context.Context, tx pgx.Tx, input Input) 
 	return nil
 }
 
-func (b *Bindings) collectionLockIDs(input Input) []uuid.UUID {
+func (b *Bindings) collectionLockIDs(input writeInput) []uuid.UUID {
 	unique := map[uuid.UUID]struct{}{b.source.id: {}}
 	for _, value := range input.relations {
 		if value.Present {
@@ -62,21 +62,21 @@ type rowLock struct {
 	fields       []string
 }
 
-// LockRows locks a stored source FOR UPDATE and all referenced targets FOR KEY
-// SHARE. With SourcePending, the not-yet-inserted source is not locked and its
+// lockRows locks a stored source FOR UPDATE and all referenced targets FOR KEY
+// SHARE. With sourcePending, the not-yet-inserted source is not locked and its
 // own ID is accepted as a self target. Missing targets are deliberately merged
 // into one field/code shape with no target ID or table disclosure.
 //
-// Callers must call LockCollections first in the same transaction.
-func (b *Bindings) LockRows(
+// Callers must call lockCollections first in the same transaction.
+func (b *Bindings) lockRows(
 	ctx context.Context,
 	tx pgx.Tx,
 	sourceID uuid.UUID,
-	state SourceState,
-	input Input,
+	state sourceState,
+	input writeInput,
 ) error {
 	if tx == nil || sourceID == uuid.Nil || !b.accepts(input) ||
-		(state != SourcePending && state != SourceStored) {
+		(state != sourcePending && state != sourceStored) {
 		return ErrInvalidBinding
 	}
 
@@ -168,9 +168,9 @@ func lockTargetBatch(ctx context.Context, tx pgx.Tx, locks []rowLock) ([]rowLock
 	return missing, nil
 }
 
-func (b *Bindings) rowLocks(sourceID uuid.UUID, state SourceState, input Input) []rowLock {
+func (b *Bindings) rowLocks(sourceID uuid.UUID, state sourceState, input writeInput) []rowLock {
 	byPair := make(map[[2]uuid.UUID]*rowLock)
-	if state == SourceStored {
+	if state == sourceStored {
 		key := [2]uuid.UUID{b.source.id, sourceID}
 		byPair[key] = &rowLock{
 			collectionID: b.source.id,
@@ -185,7 +185,7 @@ func (b *Bindings) rowLocks(sourceID uuid.UUID, state SourceState, input Input) 
 		}
 		target := b.collections[value.targetCollectionID]
 		for _, targetID := range value.IDs {
-			if state == SourcePending && target.id == b.source.id && targetID == sourceID {
+			if state == sourcePending && target.id == b.source.id && targetID == sourceID {
 				continue
 			}
 			key := [2]uuid.UUID{target.id, targetID}
