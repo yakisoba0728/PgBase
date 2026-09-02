@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/tests/testsupport"
@@ -153,6 +154,17 @@ func TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage(t *testing.T) {
 	if got := r0PageNames(t, first.Items); !reflect.DeepEqual(got, []string{"010"}) || first.NextCursor == "" {
 		t.Fatalf("first page = %v cursor:%t, want [010] and a cursor", got, first.NextCursor != "")
 	}
+	// The delayed create has bumped the creation counter but not committed, so
+	// the traversal is signed against the three backfilled baselines and no
+	// more. Pinning the number keeps a drifting or re-resolved boundary from
+	// passing on record identity alone.
+	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
+	firstCursor, err := codec.Decode(first.NextCursor, collection.ID, time.Time{})
+	if err != nil || firstCursor.Version != cursor.Version5 || firstCursor.V5 == nil ||
+		firstCursor.V5.MembershipGeneration != 1 || firstCursor.V5.HighWater != int64(len(baseline)) {
+		t.Fatalf("first page binding = %#v (err %v), want generation 1 and high-water %d",
+			firstCursor.V5, err, len(baseline))
+	}
 
 	later := make(chan r0CreateResult, 1)
 	go func() {
@@ -187,6 +199,36 @@ func TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage(t *testing.T) {
 	}
 	if got := r0PageNames(t, continued.Items); !reflect.DeepEqual(got, []string{"020", "030"}) {
 		t.Fatalf("continued page = %v, want first-page membership [020 030]", got)
+	}
+
+	// The same traversal walked one page at a time. Every continuation has to
+	// re-issue the binding page 1 was signed with, byte for byte: a boundary
+	// re-resolved mid-walk would still return these records in this order while
+	// silently widening the traversal for whatever came next.
+	token := first.NextCursor
+	for _, want := range []string{"020", "030"} {
+		page, err := records.List(ctx, ListRequest{
+			Principal: principal, RequestID: "r0-page-walk-" + want, Collection: collection.Name,
+			Cursor: token, Limit: 1,
+		})
+		if err != nil {
+			t.Fatalf("List(page %s): %v", want, err)
+		}
+		if got := r0PageNames(t, page.Items); !reflect.DeepEqual(got, []string{want}) {
+			t.Fatalf("page %s = %v, want [%s]", want, got, want)
+		}
+		if want == "030" {
+			if page.NextCursor != "" {
+				t.Fatalf("terminal page cursor = %q, want the traversal to end at its high-water", page.NextCursor)
+			}
+			break
+		}
+		decoded, err := codec.Decode(page.NextCursor, collection.ID, time.Time{})
+		if err != nil || decoded.Version != cursor.Version5 || !reflect.DeepEqual(decoded.V5, firstCursor.V5) {
+			t.Fatalf("page %s binding = %#v (err %v), want the page 1 binding %#v",
+				want, decoded.V5, err, firstCursor.V5)
+		}
+		token = page.NextCursor
 	}
 
 	fresh, err := records.List(ctx, ListRequest{
