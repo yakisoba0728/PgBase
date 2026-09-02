@@ -122,6 +122,7 @@ jobs:
           output: pgbase-image.sarif
           exit-code: "0"
           severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
           trivyignores: ${{ inputs.source_commit != '' && '.release-gate-policy/deployments/security/trivy-allowlist.yaml' || 'deployments/security/trivy-allowlist.yaml' }}
 
       # The gate only judges HIGH and CRITICAL, but a full-severity record is
