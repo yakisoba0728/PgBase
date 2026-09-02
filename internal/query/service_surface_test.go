@@ -82,7 +82,11 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// rejecting a jsonb root filter at plan time so the statement compiler and
 	// the cursor fingerprint cannot disagree about which detail the caller gets.
 	// Leave no slack: raise this only alongside the deletion that pays for it.
-	if runtimeLines > 4_917 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4917", runtimeLines)
+	//
+	// Ratcheted from 4,917 by R5 section 9.2, which paid for its own additions:
+	// the dead CompileDelete, and resolveOrderSpec once planRelationSort's root
+	// terms became identical to it.
+	if runtimeLines > 4_910 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 4910", runtimeLines)
 	}
 }
