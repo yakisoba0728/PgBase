@@ -27,7 +27,7 @@
         },
         {
           "phase": "B",
-          "commit": "71ee9de0ab51ee70ffdec244ec4f50160399a790",
+          "commit": "4676b81e3c940d9a65da11837093686379457d0f",
           "version": "v0.0.7-beta.0",
           "writerVersion": 2,
           "issuesCursor": 5,
@@ -35,7 +35,7 @@
         },
         {
           "phase": "C",
-          "commit": "a81097063bed07ac0bb282af2dda51aa9a91599c",
+          "commit": "07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4",
           "version": "v0.0.7-rc.0",
           "writerVersion": 3,
           "issuesCursor": 5,
@@ -53,7 +53,7 @@
       "artifacts": [
         {
           "phase": "P0",
-          "commit": "bab8cdb255d9714fa5a65413ad1c56d3f6713dbe",
+          "commit": "f93c2c755848dc4757ad76c469bf8aa24bf9b63d",
           "version": "v0.0.9-alpha.0",
           "schemaCompilerGeneration": 2,
           "acceptedMigrations": [8, 9],
@@ -61,7 +61,7 @@
         },
         {
           "phase": "F",
-          "commit": "526d0b43405ba276f0525d93f6a4c4927a5de9bf",
+          "commit": "87a89145958c6716662e03137328fba5e1dc39f3",
           "version": "v0.0.9-rc.0",
           "schemaCompilerGeneration": 3,
           "acceptedMigrations": [9],
