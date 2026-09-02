@@ -30,10 +30,12 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 	}
 }
 
-func TestRunRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
+func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 7 {
-		t.Fatalf("schema-operations feature manifest = %#v", migrations)
+	// The accepted pair follows the declared P0 compatibility range, which is the
+	// last two embedded histories.
+	if len(migrations) != 8 || migrations[6].Version != 7 || migrations[7].Version != 8 {
+		t.Fatalf("preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {
 		name     string
@@ -41,10 +43,11 @@ func TestRunRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 		dirty    bool
 		wantCode string
 	}{
-		{name: "v4 rejected", through: 4, wantCode: "migration_not_current"},
 		{name: "v5 rejected", through: 5, wantCode: "migration_not_current"},
-		{name: "v6 accepted", through: 6},
-		{name: "dirty v6 rejected", through: 6, dirty: true, wantCode: "migration_checksum_mismatch"},
+		{name: "v6 rejected", through: 6, wantCode: "migration_not_current"},
+		{name: "v7 accepted", through: 7},
+		{name: "v8 accepted", through: 8},
+		{name: "dirty v7 rejected", through: 7, dirty: true, wantCode: "migration_checksum_mismatch"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {

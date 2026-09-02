@@ -81,6 +81,9 @@ func inspectSnapshot(ctx context.Context, tx pgx.Tx, status migrate.Status, repo
 	if err := checkPhysicalSchema(ctx, tx, schemaVersion, report); err != nil {
 		return err
 	}
+	if err := checkCompanionIndexes(ctx, tx, report); err != nil {
+		return err
+	}
 	return checkRecordMembership(ctx, tx, status, report)
 }
 

@@ -96,10 +96,14 @@ func TestRunReportsMissingMembershipSidecarsOnlyWhenReady(t *testing.T) {
 }
 
 func TestRunFailsClosedOnPartialMembershipInstallation(t *testing.T) {
+	// A history torn between v6 and v7 is no longer one of the two the current
+	// preparatory artifact declares, so the migration gate names the real problem
+	// before any membership object is inspected. Partial installations on a
+	// declared history stay covered by the drop-one-object cases below.
 	t.Run("v6 history with a v7 fragment", func(t *testing.T) {
 		databaseURL := testutil.NewDatabase(t)
 		migrations := system.Migrations()
-		if len(migrations) != 7 {
+		if len(migrations) < 7 || migrations[6].Version != 7 {
 			t.Fatalf("membership manifest = %#v", migrations)
 		}
 		testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:6])
@@ -113,7 +117,7 @@ func TestRunFailsClosedOnPartialMembershipInstallation(t *testing.T) {
 		)`); err != nil {
 			t.Fatal(err)
 		}
-		assertInvalidMembershipInstallation(t, runDoctor(t, pool))
+		assertFindingCode(t, runDoctor(t, pool), "migration_not_current")
 	})
 
 	for _, object := range []string{
