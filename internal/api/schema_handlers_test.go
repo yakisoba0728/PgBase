@@ -828,10 +828,9 @@ func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {
 
 func schemaTestDependencies(auth AdminAuth, schemas SchemaService) Dependencies {
 	return Dependencies{
-		AdminAuth:   auth,
-		Schema:      schemas,
-		PublicURL:   mustURL("https://admin.example.com"),
-		TokenSecret: testTokenSecret,
+		AdminAuth: auth,
+		Schema:    schemas,
+		PublicURL: mustURL("https://admin.example.com"),
 	}
 }
 

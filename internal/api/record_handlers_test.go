@@ -637,7 +637,7 @@ func (f *fakeRecordService) Delete(_ context.Context, request recordops.DeleteRe
 }
 
 func recordTestDependencies(auth AdminAuth, records RecordService) Dependencies {
-	return Dependencies{AdminAuth: auth, Records: records, PublicURL: mustURL("https://admin.example.com"), TokenSecret: testTokenSecret}
+	return Dependencies{AdminAuth: auth, Records: records, PublicURL: mustURL("https://admin.example.com")}
 }
 
 func serveRecordRequest(t *testing.T, records RecordService, auth AdminAuth, request *http.Request) *httptest.ResponseRecorder {

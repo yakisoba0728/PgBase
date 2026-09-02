@@ -75,14 +75,16 @@ func TestServiceSetupLoginAuthenticateExpireAndLogout(t *testing.T) {
 	if setup.RawToken == "" || !setup.ExpiresAt.Equal(clock.Now().Add(12*time.Hour)) {
 		t.Fatalf("setup session = %#v", setup)
 	}
-	if got, expiresAt, err := service.Authenticate(context.Background(), setup.RawToken); err != nil || got != setup.Administrator || !expiresAt.Equal(setup.ExpiresAt) {
-		t.Fatalf("Authenticate setup token = %#v, %s, %v", got, expiresAt, err)
+	if got, err := service.Authenticate(context.Background(), setup.RawToken); err != nil ||
+		got.Administrator != setup.Administrator || !got.ExpiresAt.Equal(setup.ExpiresAt) ||
+		got.CSRFToken != setup.CSRFToken {
+		t.Fatalf("Authenticate setup token = %#v, %v", got, err)
 	}
 
 	if err := service.Logout(context.Background(), setup.RawToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := service.Authenticate(context.Background(), setup.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Authenticate(context.Background(), setup.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate logged-out token error = %v", err)
 	}
 
@@ -94,11 +96,11 @@ func TestServiceSetupLoginAuthenticateExpireAndLogout(t *testing.T) {
 		t.Fatal("login reused the setup session token")
 	}
 	rotated := NewService(pool, NewArgon2idPasswords(), []byte("abcdef0123456789abcdef0123456789"), "", 12*time.Hour, clock)
-	if _, _, err := rotated.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := rotated.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate after token-secret rotation error = %v", err)
 	}
 	clock.Add(12 * time.Hour)
-	if _, _, err := service.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Authenticate(context.Background(), login.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Authenticate expired token error = %v", err)
 	}
 }
@@ -450,10 +452,10 @@ func TestServiceResetAdministratorPasswordRevokesAllExistingSessions(t *testing.
 	if updated.Email != "admin@example.com" || !updated.Active {
 		t.Fatalf("updated administrator = %#v", updated)
 	}
-	if _, _, err := service.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Authenticate(context.Background(), issued.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("old session authentication error = %v, want invalid credentials", err)
 	}
-	if _, _, err := service.Authenticate(context.Background(), preResetSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Authenticate(context.Background(), preResetSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("pre-reset login session authentication error = %v, want invalid credentials", err)
 	}
 	var sessions int
@@ -568,7 +570,7 @@ func TestServiceResetAdministratorPasswordRollsBackWhenSessionRevocationFails(t 
 	if _, err := service.ResetAdministratorPassword(context.Background(), "admin@example.com", "new correct horse battery staple"); err == nil {
 		t.Fatal("reset succeeded despite forced session-deletion failure")
 	}
-	if _, _, err := service.Authenticate(context.Background(), issued.RawToken); err != nil {
+	if _, err := service.Authenticate(context.Background(), issued.RawToken); err != nil {
 		t.Fatalf("old session was not preserved after rollback: %v", err)
 	}
 	if _, err := service.Login(context.Background(), "admin@example.com", "correct horse battery staple", "rollback-client"); err != nil {

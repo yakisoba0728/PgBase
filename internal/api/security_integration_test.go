@@ -26,10 +26,9 @@ func TestSecuritySetupCannotBeReused(t *testing.T) {
 	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, setupToken, time.Hour, nil)
 	var logs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 
 	first := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"`+setupToken+`","email":"admin@example.test","password":"`+securityPassword+`"}`)
@@ -52,9 +51,8 @@ func TestSecuritySetupIsUnavailableWithoutConfiguredTokenAndCreatesNoState(t *te
 	pool := newSecurityDatabase(t)
 	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "", time.Hour, nil)
 	handler := mustRouter(t, Dependencies{
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+		AdminAuth: auth,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"","email":"admin@example.test","password":"`+securityPassword+`"}`)
 	request.Header.Set("Origin", "http://pgbase.test")
@@ -87,10 +85,9 @@ func TestSecurityMalformedPasswordHashReturnsGenericCredentialsError(t *testing.
 	}
 	var logs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"`+securityPassword+`"}`)
 	request.Header.Set("Origin", "http://pgbase.test")
@@ -137,11 +134,10 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	tampered := valid[:5] + differentSecurityCharacter(valid[5]) + valid[6:]
 	var logs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Records:     records,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		Records:   records,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 	request := httptest.NewRequest(http.MethodGet, "http://pgbase.test/api/v1/collections/records/records?cursor="+url.QueryEscape(tampered), nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})

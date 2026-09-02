@@ -43,11 +43,10 @@ func TestSecuritySQLValuesRemainParametersAndErrorsStaySecretFree(t *testing.T) 
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Records:     records,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		Records:   records,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 	body := `{"title":` + mustMarshalSecurityString(t, attack) + `,"metadata":{"note":` + mustMarshalSecurityString(t, attack) + `}}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/v1/collections/records/records", body)
@@ -74,10 +73,9 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Schema:      securityPlannerService{},
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		Schema:    securityPlannerService{},
 	})
 	body := `{"operation":"create","name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/collections/plan", body)
@@ -121,7 +119,7 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", test.body)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -159,7 +157,7 @@ func TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling(t *testing.T
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := securityRequestWithContentType(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", body, test.contentType)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -187,7 +185,7 @@ func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{loginSession: validSession()}
-			handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := httptest.NewRequest(http.MethodPost, "http://pgbase.test/api/admin/auth/login", bytes.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "http://pgbase.test")
@@ -234,10 +232,9 @@ func TestSecurityAdminSessionOriginAndCSRFBypassesAreRejected(t *testing.T) {
 			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator, authenticateErr: test.authError}
 			var logs bytes.Buffer
 			dependencies := Dependencies{
-				Logger:      observability.NewJSONLogger(&logs),
-				AdminAuth:   auth,
-				PublicURL:   mustURL("http://pgbase.test"),
-				TokenSecret: testTokenSecret,
+				Logger:    observability.NewJSONLogger(&logs),
+				AdminAuth: auth,
+				PublicURL: mustURL("http://pgbase.test"),
 			}
 			if test.trustedProxy {
 				dependencies.PublicURL = nil
@@ -311,7 +308,6 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 				Logger:         observability.NewJSONLogger(&logs),
 				AdminAuth:      auth,
 				PublicURL:      mustURL("http://pgbase.test"),
-				TokenSecret:    testTokenSecret,
 				TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			})
 			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"correct horse battery staple"}`)
@@ -344,10 +340,9 @@ func TestSecurityJSONErrorsAndStructuredLogsRedactSecrets(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var requestLogs bytes.Buffer
 	handler := mustRouter(t, Dependencies{
-		Logger:      observability.NewJSONLogger(&requestLogs),
-		AdminAuth:   auth,
-		Records:     securityErrorRecords{err: hostile},
-		TokenSecret: testTokenSecret,
+		Logger:    observability.NewJSONLogger(&requestLogs),
+		AdminAuth: auth,
+		Records:   securityErrorRecords{err: hostile},
 	})
 	request := httptest.NewRequest(http.MethodGet, "http://pgbase.test/api/v1/collections/records/records/018f1f09-7b44-7cc1-98e8-6f9a46a17d21", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})

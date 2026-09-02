@@ -21,7 +21,6 @@ type Dependencies struct {
 	Records            RecordService
 	PublicURL          *url.URL
 	TrustedProxies     []netip.Prefix
-	TokenSecret        []byte
 	System             SystemStatusProvider
 	AdminUI            http.Handler
 	Metrics            *observability.Metrics

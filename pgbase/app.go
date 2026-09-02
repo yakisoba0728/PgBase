@@ -297,7 +297,6 @@ func newWithCatalogPreflight(
 		Records:            recordService,
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
-		TokenSecret:        normalized.TokenSecret,
 		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
 		AdminUI:            adminHandler,
 		Metrics:            metrics,

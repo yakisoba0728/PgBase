@@ -70,6 +70,18 @@ type Session struct {
 	Administrator Administrator
 	RawToken      string
 	ExpiresAt     time.Time
+	// CSRFToken is derived here rather than by the transport so the token
+	// secret never has to leave this module. A caller that can prove a session
+	// already holds everything needed to answer a CSRF challenge for it.
+	CSRFToken string
+}
+
+// Principal is an authenticated session as the transport sees it. It carries
+// the CSRF token for the same reason Session does.
+type Principal struct {
+	Administrator Administrator
+	ExpiresAt     time.Time
+	CSRFToken     string
 }
 
 // Passwords hashes and verifies administrator passwords.

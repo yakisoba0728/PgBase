@@ -66,7 +66,7 @@ func TestAdminSessionMiddlewareRequiresOriginAndCSRFForEveryMutationMethod(t *te
 		t.Run(method, func(t *testing.T) {
 			auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
 			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-			handler := adminSessionMiddleware(auth, testTokenSecret, mustURL("https://pgbase.example"), nil, next)
+			handler := adminSessionMiddleware(auth, mustURL("https://pgbase.example"), nil, next)
 			request := httptest.NewRequest(method, "https://pgbase.example/api/admin/resource", nil)
 			request.Header.Set("Origin", "https://pgbase.example")
 			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
@@ -84,7 +84,7 @@ func TestAdminSessionMiddlewareAllowsReadWithoutOriginOrCSRF(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := adminSessionMiddleware(auth, testTokenSecret, mustURL("https://pgbase.example"), nil, next)
+	handler := adminSessionMiddleware(auth, mustURL("https://pgbase.example"), nil, next)
 	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/resource", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
 	response := httptest.NewRecorder()

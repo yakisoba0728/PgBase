@@ -62,10 +62,17 @@ func (f *fakeAdminAuth) Login(_ context.Context, email, password, subject string
 	return f.loginSession, f.loginErr
 }
 
-func (f *fakeAdminAuth) Authenticate(_ context.Context, rawToken string) (adminauth.Administrator, time.Time, error) {
+func (f *fakeAdminAuth) Authenticate(_ context.Context, rawToken string) (adminauth.Principal, error) {
 	f.authenticateCalls++
 	f.authenticateToken = rawToken
-	return f.authenticateAdmin, f.authenticateExpiry, f.authenticateErr
+	if f.authenticateErr != nil {
+		return adminauth.Principal{}, f.authenticateErr
+	}
+	return adminauth.Principal{
+		Administrator: f.authenticateAdmin,
+		ExpiresAt:     f.authenticateExpiry,
+		CSRFToken:     adminauth.DeriveCSRFToken(testTokenSecret, rawToken),
+	}, nil
 }
 
 func (f *fakeAdminAuth) Logout(_ context.Context, rawToken string) error {
@@ -87,6 +94,10 @@ func validSession() adminauth.Session {
 		Administrator: administrator,
 		RawToken:      "fixed-session-token",
 		ExpiresAt:     createdAt.Add(12 * time.Hour),
+		// The real service derives this inside adminauth, so the fake has to
+		// as well or the transport would be tested against a session shape it
+		// can never receive.
+		CSRFToken: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"),
 	}
 }
 
@@ -100,9 +111,8 @@ func mustURL(value string) *url.URL {
 
 func testDependencies(auth AdminAuth, publicURL *url.URL) Dependencies {
 	return Dependencies{
-		AdminAuth:   auth,
-		PublicURL:   publicURL,
-		TokenSecret: testTokenSecret,
+		AdminAuth: auth,
+		PublicURL: publicURL,
 	}
 }
 

@@ -22,6 +22,9 @@ type AdminPrincipal struct {
 	Administrator adminauth.Administrator
 	RawSession    string
 	ExpiresAt     time.Time
+	// CSRFToken comes from the authentication result. The transport compares
+	// it rather than deriving it, so the token secret stays inside adminauth.
+	CSRFToken string
 }
 
 // AdminPrincipalFromContext returns the authenticated principal installed by
@@ -41,8 +44,8 @@ func sameOriginMiddleware(publicURL *url.URL, trustedProxies []netip.Prefix, nex
 	})
 }
 
-func adminSessionMiddleware(auth AdminAuth, tokenSecret []byte, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
-	handler := csrfMutationMiddleware(tokenSecret, next)
+func adminSessionMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
+	handler := csrfMutationMiddleware(next)
 	handler = authenticateAdminMiddleware(auth, handler)
 	return originMutationMiddleware(publicURL, trustedProxies, handler)
 }
@@ -64,7 +67,7 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 			writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 			return
 		}
-		administrator, expiresAt, err := auth.Authenticate(r.Context(), cookie.Value)
+		authenticated, err := auth.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
 			if errors.Is(err, adminauth.ErrInvalidCredentials) {
 				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
@@ -78,16 +81,20 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
 			return
 		}
-		principal := AdminPrincipal{Administrator: administrator, RawSession: cookie.Value, ExpiresAt: expiresAt}
+		principal := AdminPrincipal{
+			Administrator: authenticated.Administrator, RawSession: cookie.Value,
+			ExpiresAt: authenticated.ExpiresAt, CSRFToken: authenticated.CSRFToken,
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), adminPrincipalKey{}, principal)))
 	})
 }
 
-func csrfMiddleware(tokenSecret []byte, next http.Handler) http.Handler {
+func csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := AdminPrincipalFromContext(r.Context())
 		provided := r.Header.Get("X-PgBase-CSRF")
-		if !ok || provided == "" || !hmac.Equal([]byte(provided), []byte(adminauth.DeriveCSRFToken(tokenSecret, principal.RawSession))) {
+		if !ok || provided == "" || principal.CSRFToken == "" ||
+			!hmac.Equal([]byte(provided), []byte(principal.CSRFToken)) {
 			writeAPIError(w, r, APIError{Status: http.StatusForbidden, Code: "csrf_rejected", Message: "CSRF verification failed"})
 			return
 		}
@@ -95,8 +102,8 @@ func csrfMiddleware(tokenSecret []byte, next http.Handler) http.Handler {
 	})
 }
 
-func csrfMutationMiddleware(tokenSecret []byte, next http.Handler) http.Handler {
-	protected := csrfMiddleware(tokenSecret, next)
+func csrfMutationMiddleware(next http.Handler) http.Handler {
+	protected := csrfMiddleware(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isAdminMutation(r.Method) {
 			next.ServeHTTP(w, r)

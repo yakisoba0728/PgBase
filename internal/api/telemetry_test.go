@@ -94,7 +94,7 @@ func TestAdminEndpointsRecordBoundedAuthenticationEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := &captureRecorder{}
-			endpoint := adminEndpoints{auth: tt.auth, tokenSecret: testTokenSecret, recorder: recorder}
+			endpoint := adminEndpoints{auth: tt.auth, recorder: recorder}
 			response := httptest.NewRecorder()
 			tt.endpoint(endpoint, response, tt.request())
 			if response.Code != tt.wantStatus {

@@ -145,7 +145,8 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 		if err := clearSuccessfulRateLimits(ctx, store, buckets); err != nil {
 			return err
 		}
-		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt}
+		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt,
+			CSRFToken: DeriveCSRFToken(s.tokenSecret, rawToken)}
 		return nil
 	})
 	if err != nil {
@@ -306,7 +307,8 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 			return err
 		}
 		traceLogin(ctx, loginStageLimiterCleanup)
-		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt}
+		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt,
+			CSRFToken: DeriveCSRFToken(s.tokenSecret, rawToken)}
 		return nil
 	})
 	if err != nil {
@@ -325,11 +327,20 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 }
 
 // Authenticate resolves a raw session token without persisting the raw material.
-func (s *Service) Authenticate(ctx context.Context, rawToken string) (Administrator, time.Time, error) {
+func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal, error) {
 	if err := s.ready(); err != nil {
-		return Administrator{}, time.Time{}, err
+		return Principal{}, err
 	}
-	return NewStore(s.pool).AuthenticateSession(ctx, HashSessionToken(s.tokenSecret, rawToken), s.clock.Now())
+	administrator, expiresAt, err := NewStore(s.pool).AuthenticateSession(
+		ctx, HashSessionToken(s.tokenSecret, rawToken), s.clock.Now())
+	if err != nil {
+		return Principal{}, err
+	}
+	return Principal{
+		Administrator: administrator,
+		ExpiresAt:     expiresAt,
+		CSRFToken:     DeriveCSRFToken(s.tokenSecret, rawToken),
+	}, nil
 }
 
 // Logout revokes a raw session token. It is idempotent.
