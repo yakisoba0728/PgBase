@@ -240,6 +240,15 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // integration test that lists a record depends on it, and replacing it with the
 // real rollout would make those suites drive six transitions each. That is a
 // trade to make deliberately in its own stack, not inside a P1 fix.
+//
+// Two final UI concurrency fixes held the 3,527-line ceiling rather than raising
+// it. Stale protected requests and logout completions are fenced by auth/session
+// generations (+1/-1 across session.tsx and http-backend.ts, net zero). A schema
+// apply identity is now durably retained before the POST and recovered after a
+// reload or re-login until the server's maximum apply window has elapsed
+// (+102/-102 in collection-designer.ts, net zero). The latter was paid for by
+// consolidating adjacent type/property declarations in that same module; no
+// behavior, rationale, export, or guard was deleted to manufacture headroom.
 type structuralLimit struct {
 	name    string
 	value   func(repositoryMetrics) int

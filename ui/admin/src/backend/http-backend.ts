@@ -86,12 +86,7 @@ const historyPageSize = 20;
 const maximumHistoryPageSize = 100;
 const operationsPath = "/api/admin/schema-operations";
 
-/**
- * Rebuilds the receipt from the fields the contract names. A response that grew
- * a field cannot smuggle it into the UI, which is what keeps raw SQL, request
- * hashes and secrets out of the status and history surfaces by construction
- * rather than by trusting the server to keep redacting.
- */
+/** Rebuilds only contract fields so a response cannot smuggle raw SQL, request hashes or secrets into the UI. */
 function receipt(raw: unknown): OperationReceipt {
   const wire = raw as Record<string, unknown>;
   const bounded: OperationReceipt = {
@@ -149,6 +144,7 @@ function sessionFailure(wire: Wire): SessionError {
 
 class HTTPBackend implements AdminBackend {
   #csrfToken = "";
+  #authGeneration = 0;
   readonly #expired = new Set<() => void>();
 
   readonly session = {
@@ -171,6 +167,7 @@ class HTTPBackend implements AdminBackend {
     setup: (input: SetupInput) => this.#authenticate("/api/admin/setup", input),
     login: (input: LoginInput) => this.#authenticate("/api/admin/auth/login", input),
     logout: async (): Promise<void> => {
+      const authGeneration = this.#authGeneration;
       try {
         await this.#send({
           path: "/api/admin/auth/logout",
@@ -180,7 +177,7 @@ class HTTPBackend implements AdminBackend {
       } catch (caught: unknown) {
         throw caught instanceof WireError ? sessionFailure(caught.wire) : caught;
       }
-      this.#csrfToken = "";
+      if (authGeneration === this.#authGeneration) { this.#csrfToken = ""; this.#authGeneration += 1; }
     },
     onExpired: (listener: () => void) => {
       this.#expired.add(listener);
@@ -210,8 +207,8 @@ class HTTPBackend implements AdminBackend {
         });
         return applyOutcome(reply.data, identity.operationId);
       } catch (caught: unknown) {
-        // A request that never reached an answer says nothing about the
-        // transaction: it races the commit rather than reporting on it. A 2xx
+        // A request that never answered says nothing about the transaction: it
+        // races the commit rather than reporting on it. A 2xx
         // whose body could not be read is the same case — the server accepted
         // the apply and only the answer was lost. The identity was minted
         // before the request precisely so both can be asked about.
@@ -297,6 +294,7 @@ class HTTPBackend implements AdminBackend {
   #adopt(reply: Reply): AuthenticatedSession {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };
     this.#csrfToken = session.csrfToken;
+    this.#authGeneration += 1;
     return { administrator: session.administrator, expiresAt: session.expiresAt };
   }
 
@@ -373,6 +371,7 @@ class HTTPBackend implements AdminBackend {
   }
 
   async #send(request: Request): Promise<Reply> {
+    const authGeneration = this.#authGeneration;
     const headers = new Headers(request.headers);
     headers.set("Accept", "application/json");
     if (request.csrf === true) headers.set("X-PgBase-CSRF", this.#csrfToken);
@@ -393,7 +392,7 @@ class HTTPBackend implements AdminBackend {
 
     let reported: Omit<Wire, "status"> | null = null;
     try { reported = envelope(await decode(response)); } catch { /* a failure body is best effort */ }
-    if (response.status === 401 && request.anonymous !== true) for (const listener of [...this.#expired]) listener();
+    if (response.status === 401 && request.anonymous !== true && authGeneration === this.#authGeneration) for (const listener of [...this.#expired]) listener();
     throw new WireError({ status: response.status, code: reported?.code ?? "request_failed", details: reported?.details ?? {} });
   }
 }
