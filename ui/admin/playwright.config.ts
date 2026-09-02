@@ -26,7 +26,7 @@ if (authenticatedBaseURL !== undefined) {
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
-  retries: 1,
+  retries: 0,
   use: {
     trace: "retain-on-failure",
   },

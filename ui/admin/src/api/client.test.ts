@@ -108,4 +108,29 @@ describe("APIClient JSON and session boundaries", () => {
     expect(unauthorized).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  it("ignores an old protected-request 401 after a fresh login succeeds", async () => {
+    let finishOldRequest: (response: Response) => void = () => {};
+    const oldRequest = new Promise<Response>((resolve) => { finishOldRequest = resolve; });
+    const unauthorized = vi.fn();
+    const session = (csrfToken: string) => textResponse(200, JSON.stringify({
+      administrator: { id: "admin", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
+      csrfToken,
+      expiresAt: "2026-09-02T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(session("csrf-old"))
+      .mockReturnValueOnce(oldRequest)
+      .mockResolvedValueOnce(session("csrf-fresh")));
+    const client = new APIClient(unauthorized);
+
+    await client.login({ email: "admin@example.com", password: "old password" });
+    const staleRead = client.request("/api/admin/collections");
+    await client.login({ email: "admin@example.com", password: "fresh password" });
+    finishOldRequest(textResponse(401, `{"error":{"code":"authentication_required","message":"Authentication required","details":{}}}`));
+
+    await expect(staleRead).rejects.toEqual(expect.objectContaining<Partial<APIClientError>>({ status: 401 }));
+    expect(unauthorized).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
 });
