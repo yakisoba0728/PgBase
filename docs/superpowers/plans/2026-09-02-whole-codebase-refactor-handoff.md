@@ -9,36 +9,57 @@
 결정 기록: [`2026-09-02-open-decisions.md`](./2026-09-02-open-decisions.md) — 구현 판단은 모두 닫혔고,
 남은 외부 CI/registry evidence는 설계 결정과 분리했다.
 
-## 2026-09-03 사후 보완 인수인계 — 현재 기준
+## 2026-09-03 최종 로컬 감사 인수인계 — 현재 기준
 
-기존 “15/17 닫힘” 보고, `2c942ea` 기준 인수인계와 감사 대응의 `0fdc66c → 7d9362e` 정정은 아래에
-역사 기록으로 보존한다.
-둘 다 현재 build 또는 phase source로 사용하지 않는다. 현재 main 후보는
-`d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이다.
+기존 “15/17 닫힘” 보고, `2c942ea` 기준 인수인계와 감사 대응의 `0fdc66c → 7d9362e` 정정은 아래에 역사
+기록으로 보존한다. 현재 build와 manifest 기준은
+`72de20e5e92d12b168782af36432c463d4598e78`이다.
 
-최종 보고 뒤 다음 순서로 경계를 더 닫았다.
+최종 보고 뒤 인증 전이(`da6a728`), channel 단조성(`be01eec`), durable schema recovery(`58b45fe`),
+retry 없는 browser gate(`3716e6d`, `d2701c5`), guarded operation identity(`4a82832`), API no-store
+(`d97bb109`)를 닫았다. 이어 promotion의 대기 실행을 `queue: max`로 보존했다(`91f52e1`). 이것은 플랫폼 상한
+100개의 pending run을 보존하지만 외부 registry writer에 대한 CAS는 아니다.
 
-- `da6a728`: 늦은 401 만료와 logout 완료가 새 로그인을 덮지 않도록 session generation fence를 추가했다.
-- `be01eec`: moving release channel을 직렬화하고 OCI version의 단조 증가를 mutation 전에 검증한다.
-- `58b45fe`: schema operation identity를 POST 전에 durable browser storage에 기록해 reload/재로그인과 응답
-  유실 뒤에도 복구하고, storage 실패는 apply를 막는다.
-- `3716e6d`, `d2701c5`: Playwright retry를 0으로 고정하고 결정된 receipt, 실제 새 health sample, fresh schema
-  preview를 기다리게 했다.
-- `4a82832`: operation ID와 idempotency key를 불변 guarded identity로 묶어 어느 한쪽을 바꾼 retry를
-  `ErrOperationConflict`로 거부한다.
-- `d97bb109`: 모든 `/api/` 성공과 오류, 인증 거부, validation, catch-all 404에 중앙
-  `Cache-Control: no-store`를 건다.
+Playwright의 authenticated project는 하나의 global catalog version을 함께 바꾸므로 worker 1개로
+직렬화했다. `retries: 0`은 유지했고 TypeScript source에 들어 있던 raw NUL separator는 명시적 escape로
+정상화했다(`13421ce`). 마지막으로 같은 관리자·같은 route의 여러 탭이 하나의 pending slot을 덮어쓰거나
+다른 탭의 recovery record를 삭제하던 P2를 operation별 v2 key로 닫았다. reload는 유효 pending을 expiry·ID
+순으로 처리하고 failed verdict와 현재 dirty draft를 보존한다. unsafe storage는 오래된 오류보다 복구 지침을
+우선 표시한다(`c1b27fa`, `c1d4b6b`, `cc58163`, `86909dd`, `ade7129`).
 
-새 artifact/process 검증 입력은 다음 여섯 phase tip이다. phase별 writer/compiler 상수와 migration은 유지했다.
+v2에는 operation ID·종류·expiry만 저장하며 draft와 idempotency key는 저장하지 않는다. **65분** expiry는
+server-side schema apply 최대 1시간에 transaction/reconciliation settlement 5분을 더한 것이다. legacy v1과
+v2는 exact operation ID만 삭제하고, malformed entry나 storage 실패는 fail-closed다.
 
-| phase | 최종 tip |
+### 최종 artifact 입력
+
+| selectable phase | 최종 tip |
 |---|---|
-| A0 | `e188d3e5855bdfd2d1ee42cb1e7712419b638336` |
-| A | `b94875efd59b88d4c8e082299b3acc83d4c3e82f` |
-| B | `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3` |
-| C | `5ccf2565b8232e14b3b9398c0941bb8996e7c20e` |
-| P0 | `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14` |
-| F | `1f00fb8c05d62ba5b3a6dde3861d86e916f490cf` |
+| A0 | `9672d695c315dbcf36f993cec78eebe9fa5faac9` |
+| A | `451e715938e9d58f50970080d34142776ef256b2` |
+| B | `4676b81e3c940d9a65da11837093686379457d0f` |
+| C | `07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4` |
+| P0 | `f93c2c755848dc4757ad76c469bf8aa24bf9b63d` |
+| F | `87a89145958c6716662e03137328fba5e1dc39f3` |
+
+여섯 tip은 main history에 tree-neutrally 보존되고 manifest와 release oracle에 고정됐다. phase별
+writer/compiler 상수와 migration bytes는 유지했다. Operator
+`f7ec0ff54953417dd0b41331f0b9d02b023195d8`와 Predecessor
+`d3fb5eb9e5480ea1fdba30fcd81ff85608e2755b`는 rollout/rollback용 historical audit fixture이며 selectable
+phase가 아니다.
+
+최종 bundle은 `/tmp/pgbase-final-storage-safe-artifacts.U8s0mp`, `go1.26.7 darwin/arm64`, mode `0755`다.
+
+| binary | SHA-256 |
+|---|---|
+| A0 | `ff4418865a2d2aff76b7cff8051d2d650a27223fe455fb5279c943952faedf84` |
+| A | `e048929edab0794eb47252e451203949b4dcb0faa6ce1936e826e8e5ca737683` |
+| B | `c7ad49086aae87a64cc3bc9b140f17851e23db3b6c75336fa98be81f227c903f` |
+| C | `48f2e4636c7ada341ddd46914a72653d3fd8f244d277f3595d286b12ad02fb17` |
+| Operator | `427b58adf5c64452a9b261ede5ea22977934709f9a85d36f245decb8e09b2653` |
+| Predecessor | `5399706fe99985472cc09842b5d61a37d2f2f91c3e337afdc4227de1f3d5ae5b` |
+| P0 | `4ae9998580e4521b1b277d6c27949a8b6fdd2165292e9e4ee1bf591f0dd39cea` |
+| F | `24701d9999434bb63980616180efa504fb9d7ec8b8e9aefb206a03064d2e9002` |
 
 ### migration v9를 실행하기 전 필수 경고
 
@@ -48,25 +69,40 @@ P0 job으로 `pgbase migrate up --through 9`를 실행한다. maintenance adviso
 precheck 뒤에서 멈춘 구 process는 migration lock으로 차단되지 않으므로 process drain을 생략할 수 없다.
 
 v9 checksum은 `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`이다. v9가 기존
-`building`/`ready`를 `pending`으로 내리므로 F full-fleet와 generation 3 lease를 확인한 뒤 activation/build를
-다시 수행한다. M 뒤에는 pre-P0로 rollback하지 않고 검증된 P0에서 forward-fix한다.
+`building`/`ready`를 `pending`으로 내리므로 F full-fleet와 generation 3 lease 뒤 activation/build를 다시
+수행한다. F는 v8 DB를 서비스하지 않으며 M 뒤에는 pre-P0가 아니라 검증된 P0로만 rollback한다.
 
-### **FINAL_VALIDATION_PENDING**
+### 로컬 검증 결과와 소요 시간
 
-이 문서가 가리키는 새 tip들에 대해 최종 PG/artifact/E2E/restore/Playwright matrix를 완료했다고 아직
-주장하지 않는다. 아래 값은 exact snapshot 재실행 뒤 채운다.
+- PG16/17/18 integration·race exact backend matrix: 순차 통과, real `357.19s` / `333.30s` / `332.18s`
+- release artifact process oracle `-race`: 통과, test `37.844s`, real `38.87s`
+- `go test -race ./... -count=1`: 통과, real `17.06s`; vet/lint/format/repository policy 통과, lint `0 issues`
+- UI full/typecheck/build/dist: `381/381`, typecheck·build 통과, dist 동기
+- Docker E2E `-count=2 -shuffle=on`: exact `72de20e` 재실행 통과, package `59.231s`, real `60.07s`
+- restore drill `-count=1`: exact `72de20e` 재실행 통과, package `16.493s`, real `17.32s`
+- final `72de20e` image Playwright, 새 onboarding/auth Compose volume: `retries: 0`, `8/8`, test `5.6s`, real `6.05s`
+- `govulncheck`: 호출 가능한 취약점 0; `npm audit`: 취약점 0
 
-- 검증 기준 main과 manifest/integration SHA: `FINAL_VALIDATION_PENDING`
-- 새 8-binary bundle 경로와 binary SHA-256: `FINAL_VALIDATION_PENDING`
-- PG16/17/18, PG16 race 및 releaseartifacts race 시간: `FINAL_VALIDATION_PENDING`
-- UI full/typecheck/build/dist와 Docker E2E/restore 시간: `FINAL_VALIDATION_PENDING`
-- Playwright retries=0 반복 횟수, 결과와 시간: `FINAL_VALIDATION_PENDING`
+검증 시간이 길어진 이유는 버전별 PostgreSQL matrix를 안정된 부하에서 순차 실행하고, phase 변경 뒤 8개
+과거 source를 다시 빌드해 process oracle로 검증했으며 Docker E2E 2회 shuffle, restore, mutation 재현,
+fresh browser stack을 함께 확인했기 때문이다. 기존 결과를 새 pin에 소급하거나 retry로 실패를 숨기지 않았다.
 
-그 로컬 표를 닫은 뒤에도 macOS Actions 실행, GHCR candidate와 GitHub-hosted provenance/SBOM/custom
-attestation 조회, 실제 `trivy-action`/SARIF upload, exact candidate gate와 명시적 promotion은 외부 evidence로
-남는다. 그것들이 없으면 배포 승인이 아니다.
+data group zero-slack ratchet은 `16,747`줄로 D1 ceiling `16,750`까지 수치상 3줄만 남았다. 게이트 자체는
+현재값에 고정됐으므로 다음 증가는 같은 stack의 삭제로 지불해야 한다. UI runtime은 `3,522/3,527`줄이다.
 
-상세 사후 감사 기록과 증거 슬롯은
+### 남은 작업
+
+로컬 구현·감사·release-equivalent process 검증은 위 snapshot에서 닫혔다. 다음은 이 worktree가 만들 수 없는
+외부 evidence이며, 완료되기 전에는 배포 승인이 아니다.
+
+- exact commit push 뒤 `macos-15` terminal CI 실행
+- GHCR exact candidate push와 provenance/SBOM/custom attestation 게시·`gh attestation verify`
+- 실제 `trivy-action` allowlist와 SARIF upload
+- exact digest의 모든 release gate와 사람의 명시적 promotion
+- moving/exact tag의 only-writer 보장 또는 registry tag 보호
+
+PG17의 고부하 5초 statement-timeout 원인은 특정하지 못했다. 조용한 환경에서 최대 연결 46/100, lock wait
+29개 sample 전부 0으로 통과했지만 이를 해결로 보지 않는다. 상세 근거는
 [`2026-09-02-audit-response.md`](./2026-09-02-audit-response.md)의 마지막 절을 따른다.
 
 ## [역사 기록 · superseded] 2026-09-03 최종 인수인계 (`2c942ea` 기준)

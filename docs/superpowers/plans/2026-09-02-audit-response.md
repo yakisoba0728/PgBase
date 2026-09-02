@@ -7,11 +7,11 @@
 변이 증거를 요구하는 이유는 통과하는 테스트가 무엇을 증명하는지 알 수 없기 때문이다. 수정을 되돌렸을 때
 깨지지 않는 테스트는 그 수정에 대해 아무것도 말해주지 않는다.
 
-> **현재 판정 안내 (2026-09-03 사후 보완)**
+> **현재 판정 안내 (2026-09-03 로컬 감사 마감)**
 >
 > 아래의 “15/17 닫힘, 2건 도달 불가” 보고와 `0fdc66c → 7d9362e` 정정은 감사 과정의 역사 기록이다.
-> 현재 코드 기준점은 `d97bb109`이고, 현재 phase pin과 미완 검증은 문서 끝의
-> “최종 보고 이후 사후 보완” 절이 대체한다. 당시 주장과 실행 시간을 지우지 않는 이유는 무엇이 언제
+> 현재 코드·manifest 기준점은 `72de20e5e92d12b168782af36432c463d4598e78`이고, 현재 phase pin과 로컬
+> 검증 결과는 문서 끝의 “최종 로컬 감사 마감” 절이 대체한다. 당시 주장과 실행 시간을 지우지 않는 이유는 무엇이 언제
 > 재검증됐는지를 구분하기 위해서다.
 
 ## 상태 요약
@@ -509,8 +509,8 @@ fence 테스트가 60~90초짜리 동시 작업 창을 늘려 확률을 높이�
 | `-race` integration PG16 | 통과 |
 | UI vitest | 24 files / **359** tests |
 | typecheck / build / dist drift | 통과, dist 동기 |
-| Docker E2E `-count=2 -shuffle=on` | 통과 (48.3s) |
-| 복원 훈련 | 통과 (12.7s) |
+| Docker E2E `-count=2 -shuffle=on` | 통과 — 최신 exact `72de20e` 재실행은 package `59.231s`, real `60.07s` |
+| 복원 훈련 | 통과 — 최신 exact `72de20e` 재실행은 package `16.493s`, real `17.32s` |
 | Playwright | **8/8** |
 
 세 PostgreSQL 컨테이너는 전 과정에서 건드리지 않았고 실행 전후로 확인했다. 위 PG17 통과는 조용한 기계에서
@@ -607,79 +607,122 @@ worktree에서 권한 없이 대신 만들 수 없는 외부 실행 기록이다
 원인을 특정하지 못했으므로 별도 환경 성능 관측으로 그대로 남긴다; 조용한 환경의 반복 통과로 원인이
 해결됐다고 주장하지 않는다.
 
-# 최종 보고 이후 사후 보완 (`7d9362e` 이후 → `d97bb109`)
+# 최종 로컬 감사 마감 (`7d9362e` 이후 → `72de20e`)
 
-앞 절이 “로컬 구현은 닫혔다”고 기록한 뒤에도 recovery, 인증, release promotion 경계에서 여섯 묶음의
-추가 결함을 발견했다. 따라서 `2c942ea`와 `7d9362e`를 현재 코드나 배포 phase의 기준으로 사용하지 않는다.
-현재 main 후보는 `d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이며, 다음 수정이 순서대로 포함돼 있다.
+앞 절이 “로컬 구현은 닫혔다”고 기록한 뒤에도 recovery, 인증, promotion, browser test 격리 경계에서 결함이
+추가로 발견됐다. 따라서 `2c942ea`, `7d9362e`, `d97bb109`를 현재 코드나 phase pin의 기준으로 사용하지 않는다.
+현재 코드·manifest 후보는 `72de20e5e92d12b168782af36432c463d4598e78`이다.
 
 | 커밋 | 닫은 경계 |
 |---|---|
-| `da6a728` | 401 만료 전이와 logout 완료를 session generation에 묶었다. 늦게 끝난 이전 전이가 새 로그인과 CSRF 상태를 덮거나 익명 화면으로 되돌리지 못한다. |
-| `be01eec` | `latest`/`alpha`/`beta`/`rc`를 채널별로 직렬화하고 OCI version의 엄격한 단조 증가를 요구한다. 늦게 끝난 구 workflow, 다른 채널 label, 같거나 낮은 version은 registry mutation 전에 거부한다. |
-| `58b45fe` | schema apply identity를 POST 전에 관리자·route별 browser storage에 기록한다. 응답 유실, reload, 재로그인 뒤 같은 operation receipt를 복구하며 storage가 안전하지 않으면 apply 자체를 fail-closed한다. |
-| `3716e6d`, `d2701c5` | Playwright retry를 `0`으로 고정하고 다른 worker의 `running` 행 대신 결정된 receipt와 실제 새 health sample을 기다린다. UI unit test도 fresh preview 비동기 경계를 정확히 기다린다. |
-| `4a82832` | guarded operation의 ID와 idempotency key를 하나의 불변 identity로 묶었다. 같은 actor/resource/request/key로 다른 operation ID를 보내면 `ErrOperationConflict`이며 원 receipt는 바뀌지 않는다. |
-| `d97bb109` | 모든 `/api/` 응답에 중앙 `Cache-Control: no-store`를 건다. 인증·validation·operation recovery·catch-all 404도 캐시될 수 없고, 성공 handler의 중복 header는 제거했다. |
+| `da6a728` | 401 만료 전이와 logout 완료를 session generation에 묶었다. 늦은 결과가 새 로그인과 CSRF 상태를 덮지 못한다. |
+| `be01eec` | `latest`/`alpha`/`beta`/`rc`를 채널별로 직렬화하고 OCI version의 엄격한 단조 증가를 요구한다. |
+| `58b45fe` | schema apply identity를 POST 전에 관리자·route별 browser storage에 기록하고, reload·재로그인·응답 유실 뒤 같은 receipt를 복구한다. storage 불능은 fail-closed다. |
+| `3716e6d`, `d2701c5` | Playwright retry를 `0`으로 고정하고 결정된 receipt, 실제 새 health sample, fresh preview를 기다린다. |
+| `4a82832` | guarded operation ID와 idempotency key를 하나의 불변 identity로 묶었다. |
+| `d97bb109` | 모든 `/api/` 성공·오류·인증 거부·validation·catch-all 404에 중앙 `Cache-Control: no-store`를 건다. |
+| `91f52e1` | promotion concurrency에 `queue: max`를 명시해 같은 채널의 대기 실행을 보존한다. 플랫폼 상한 100개까지의 큐 보호이며 외부 registry writer에 대한 CAS는 아니다. |
+| `13421ce` | 전역 catalog version을 함께 바꾸는 authenticated Playwright spec을 worker 1개로 직렬화했다. TypeScript source의 raw NUL 구분자를 명시적 escape로 바꿔 runtime identity는 유지하면서 source를 정상 text로 복원했다. |
+| `c1b27fa` | 같은 관리자·같은 route를 연 여러 탭이 한 pending slot을 덮어쓰거나 서로의 recovery record를 지우지 않도록 operation별 v2 key로 분리했다. |
+| `c1d4b6b`, `cc58163`, `86909dd` | 여러 pending을 expiry/ID 순으로 진행하고, 먼저 확인한 failed verdict를 사용자-visible error로 보존하며, 외부 pending의 `draft: null` 때문에 현재 탭의 dirty guard를 해제하지 않는다. |
+| `ade7129` | malformed/unavailable storage가 편집을 막았을 때 오래된 preview/apply 오류보다 복구 지침을 우선 표시한다. |
+| `72de20e` | 위 browser 안전성 수정이 필요한 B/C/P0/F tip을 다시 만들고 여섯 selectable phase를 manifest와 release oracle에 재고정했다. |
+
+Browser recovery의 최종 저장 계약은 관리자+route+operation별 v2 key에 operation ID, 종류, expiry만 POST 전에
+쓰는 것이다. draft 본문과 idempotency key는 저장하지 않는다. expiry가 **65분**인 이유는 server-side schema
+apply 허용 최댓값 1시간에 transaction/reconciliation이 receipt를 확정할 5분을 더한 것이다. legacy v1은 같은
+operation ID일 때만 지우고, v2도 exact ID만 삭제한다. reload는 유효 pending을 expiry·operation ID 순으로 한
+건씩 조회한다. failed는 다음 pending으로 진행하더라도 오류를 화면에 남기며 단일 failed verdict는 그대로
+유지한다. expired는 다음 건으로 넘어간다. malformed entry나 storage 실패는 fail-closed고 그 복구 지침이
+오래된 오류보다 우선 표시된다. 외부 pending의
+`draft: null`은 현재 탭이 clean하다는 뜻이 아니므로 signature와 pristine 상태가 다르면 dirty guard를 유지한다.
 
 ## 최종 검증 입력 phase pin
 
-아래 여섯 commit이 새 artifact/process 검증의 입력이다. A0/A에는 schema-operation route가 없으므로
-`d97bb109`를 그대로 이식하지 않고, 그 route의 catch-all 404가 `no-store`임을 고정했다. B/C/P0/F의
-no-store patch는 `d97bb109`와 patch-id가 같다. 각 phase의 writer/compiler 상수와 migration bytes는
-바꾸지 않았다.
+아래 여섯 commit만 배포 가능한 phase selector다. 모두 현재 main의 ancestor로 보존됐고, writer/compiler 상수와
+migration bytes는 각 역사 phase 그대로다. A0/A는 modern schema designer가 없어서 same-route storage 수정
+대상이 아니며, B/C/P0/F에는 그 수정을 이식했다. 여섯 tip 모두 authenticated browser project가
+`retries: 0`, worker 1을 사용하고 source에 raw NUL을 두지 않는다.
 
 | phase | branch | 최종 tip |
 |---|---|---|
-| A0 | `codex/record-membership-a0-carry-forward` | `e188d3e5855bdfd2d1ee42cb1e7712419b638336` |
-| A | `codex/record-membership-a-carry-forward` | `b94875efd59b88d4c8e082299b3acc83d4c3e82f` |
-| B | `codex/record-membership-b-carry-forward` | `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3` |
-| C | `codex/record-membership-c-carry-forward` | `5ccf2565b8232e14b3b9398c0941bb8996e7c20e` |
-| P0 | `codex/schema-p0-carry-forward` | `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14` |
-| F | `codex/schema-f-carry-forward` | `1f00fb8c05d62ba5b3a6dde3861d86e916f490cf` |
+| A0 | `codex/record-membership-a0-carry-forward` | `9672d695c315dbcf36f993cec78eebe9fa5faac9` |
+| A | `codex/record-membership-a-carry-forward` | `451e715938e9d58f50970080d34142776ef256b2` |
+| B | `codex/record-membership-b-carry-forward` | `4676b81e3c940d9a65da11837093686379457d0f` |
+| C | `codex/record-membership-c-carry-forward` | `07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4` |
+| P0 | `codex/schema-p0-carry-forward` | `f93c2c755848dc4757ad76c469bf8aa24bf9b63d` |
+| F | `codex/schema-f-carry-forward` | `87a89145958c6716662e03137328fba5e1dc39f3` |
+
+Operator `f7ec0ff54953417dd0b41331f0b9d02b023195d8`와 Predecessor
+`d3fb5eb9e5480ea1fdba30fcd81ff85608e2755b`는 process rollout/rollback을 재현하기 위한 **historical audit
+fixture**다. 둘은 manifest의 배포 가능한 phase selector가 아니며, 여섯 selectable tip에 적용한 현재 browser
+test 계약을 두 fixture까지 소급해 주장하지 않는다.
 
 ## migration v9 운영 경고
 
 v9는 일반적인 `migrate up` 대상이 아니다. 먼저 pre-P0 binary를 새로 시작할 수 있는 server, one-shot CLI,
 예약된 `schema-index` job을 모두 동결하고, v8에서 P0를 full fleet에 배포해 readiness를 확인한 뒤 남은
-pre-P0 process와 in-flight schema transaction을 전부 drain해야 한다. status/catalog/manifest precheck 뒤
-maintenance lock 전에서 멈춘 구 process도 drain 대상이다. migration의 advisory lock은 이미 physical phase에
-들어간 작업만 기다릴 수 있으며 이 precheck 창을 post-commit hard fence로 바꾸지 못한다.
+pre-P0 process와 in-flight schema transaction을 전부 drain한다. status/catalog/manifest precheck 뒤
+maintenance lock 전에 멈춘 구 process도 대상이다. advisory lock은 이미 physical phase에 들어간 작업만
+기다릴 수 있으므로 이 process drain은 안전 계약이다.
 
 M은 auto-migration을 끈 지정 P0 job의 `pgbase migrate up --through 9`로만 수행하고 checksum
 `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6` 영수증을 보존한다. v9는 기존
-`building`/`ready` capability를 `pending`으로 내리므로 F full-fleet와 generation 3 lease를 확인한 뒤
-`schema-index activate`와 `schema-index build`를 다시 실행해야 한다. M 뒤 rollback은 검증된 P0만 허용하며
-pre-P0를 다시 배포하거나 migration history/object를 역수정하지 않는다.
+`building`/`ready` capability를 `pending`으로 내린다. F full-fleet와 generation 3 lease를 확인한 다음
+`schema-index activate`와 `schema-index build`를 다시 실행한다. F binary는 v8 DB를 서비스하지 않으며,
+M 뒤 rollback은 검증된 P0만 허용한다.
 
-## **FINAL_VALIDATION_PENDING**
+## 최종 로컬 검증 증거
 
-이 사후 보완 묶음에 대한 최종 release-equivalent 실행은 아직 이 문서에 기록하지 않았다. 앞 절의 과거
-bundle 경로, 시간, 8/8 Playwright 결과를 새 tip의 증거로 재사용하지 않는다. 다음 칸은 실행 담당자가 exact
-snapshot에서 완료한 뒤 실제 값으로 교체한다.
+검증 기준은 코드·manifest commit `72de20e5e92d12b168782af36432c463d4598e78`이다. phase source/tree,
+manifest와 Go oracle의 commit·writer/compiler 상수, migration bytes를 대조했고 모두 일치했다.
 
-| 증거 | 최종 기록 |
+| 검증 | 결과 |
 |---|---|
-| 검증 기준 main/manifest SHA | `FINAL_VALIDATION_PENDING` |
-| 새 8-binary bundle 경로, target/toolchain, binary SHA-256 | `FINAL_VALIDATION_PENDING` |
-| phase source/tree 및 migration-byte 대조 | `FINAL_VALIDATION_PENDING` |
-| `releaseartifacts` process/race 결과와 시간 | `FINAL_VALIDATION_PENDING` |
-| PG16/17/18 integration, PG16 race 결과와 시간 | `FINAL_VALIDATION_PENDING` |
-| Go unit/vet/lint와 repository policy 결과 | `FINAL_VALIDATION_PENDING` |
-| UI full test/typecheck/build/dist drift 결과와 시간 | `FINAL_VALIDATION_PENDING` |
-| Docker E2E/restore 결과와 시간 | `FINAL_VALIDATION_PENDING` |
-| Playwright retries=0 반복 결과, 실행 횟수와 시간 | `FINAL_VALIDATION_PENDING` |
+| PG16 / PG17 / PG18 integration·race exact backend tree | 순차 통과; real `357.19s` / `333.30s` / `332.18s` |
+| release artifact process oracle, `-race -count=1` | 통과; test `37.844s`, real `38.87s` |
+| `go test -race ./... -count=1` / vet / lint / format / repository policy | 모두 통과; race real `17.06s`, vet `0.86s`, lint `0 issues` (`3.13s`) |
+| UI full / typecheck / production build / committed dist | `381/381` 통과, typecheck·build 통과, dist 동기 |
+| Docker E2E `-count=2 -shuffle=on` | exact `72de20e` 재실행 통과; package `59.231s`, real `60.07s` |
+| restore drill `-count=1` | exact `72de20e` 재실행 통과; package `16.493s`, real `17.32s` |
+| final `72de20e` image Playwright, 새 onboarding/auth Compose volume | `retries: 0`, `8/8` 통과; test `5.6s`, real `6.05s` |
+| dependency/security read-only checks | `govulncheck`: 호출 가능한 취약점 0; `npm audit`: 취약점 0 |
 
-## 최종 로컬 검증 뒤에도 외부에만 남는 evidence
+최종 8-binary bundle은 `/tmp/pgbase-final-storage-safe-artifacts.U8s0mp`, target은 `darwin/arm64`, toolchain은
+`go1.26.7`, mode는 모두 `0755`다.
 
-위 `FINAL_VALIDATION_PENDING`을 실제 로컬 결과로 닫더라도 다음은 GitHub/registry 권한이 있는 실행에서만
-만들 수 있다.
+| binary | SHA-256 |
+|---|---|
+| `pgbase-record-membership-v7-a0` | `ff4418865a2d2aff76b7cff8051d2d650a27223fe455fb5279c943952faedf84` |
+| `pgbase-record-membership-v7-a` | `e048929edab0794eb47252e451203949b4dcb0faa6ce1936e826e8e5ca737683` |
+| `pgbase-record-membership-v7-b` | `c7ad49086aae87a64cc3bc9b140f17851e23db3b6c75336fa98be81f227c903f` |
+| `pgbase-record-membership-v7-c` | `48f2e4636c7ada341ddd46914a72653d3fd8f244d277f3595d286b12ad02fb17` |
+| `pgbase-record-membership-v7-operator` | `427b58adf5c64452a9b261ede5ea22977934709f9a85d36f245decb8e09b2653` |
+| `pgbase-schema-compiler-v9-predecessor` | `5399706fe99985472cc09842b5d61a37d2f2f91c3e337afdc4227de1f3d5ae5b` |
+| `pgbase-schema-compiler-v9-p0` | `4ae9998580e4521b1b277d6c27949a8b6fdd2165292e9e4ee1bf591f0dd39cea` |
+| `pgbase-schema-compiler-v9-f` | `24701d9999434bb63980616180efa504fb9d7ec8b8e9aefb206a03064d2e9002` |
 
-- push된 commit의 `macos-15` terminal job 실제 통과 기록
+감사 실행 시간이 길어진 주된 이유는 exact PostgreSQL matrix를 안정된 부하에서 버전별로 순차 실행했고,
+phase 수정 때마다 과거 source 8개를 다시 빌드해 process oracle로 검증했기 때문이다. 여기에 Docker E2E 2회
+shuffle, restore, mutation 재현, fresh browser stack 검증을 더했다. retry로 실패를 숨기거나 기존 bundle의
+결과를 새 pin에 소급하지 않았다.
+
+정량 게이트도 통과했다. data group의 현재 zero-slack ratchet은 `16,747`줄이고 D1 ceiling `16,750`까지
+수치상 여유는 3줄뿐이다. 게이트 자체는 이미 현재값에 고정됐으므로 이 다섯 package의 다음 증가는 같은
+stack의 삭제로 지불해야 한다. UI runtime은 `3,522/3,527`줄이다.
+
+## 로컬 마감 뒤에도 외부에만 남는 evidence
+
+로컬 코드 감사와 release-equivalent process 검증은 위 snapshot에서 닫혔다. 다음은 GitHub/registry 권한과
+실제 candidate digest가 있어야 만들 수 있으므로 여전히 외부 전용이다.
+
+- push된 exact commit의 `macos-15` terminal job 실제 통과 기록
 - `Release phase image gate`가 GHCR에 게시한 exact candidate digest와 provenance/SBOM/custom source
   attestation, 그리고 `gh attestation verify` 조회 기록
 - `trivy-action`의 allowlist 전달과 SARIF artifact upload가 실제 Actions runner에서 성공한 기록
 - 바로 그 candidate digest에 대한 모든 release gate 통과와 사람의 명시적 promotion 기록
+- moving/exact tag를 쓰는 다른 registry writer가 없다는 운영 보장 또는 registry 측 tag 보호
 
-따라서 `FINAL_VALIDATION_PENDING` 상태에서는 로컬 완료도, 배포 승인도 주장하지 않는다. 그 표를 실제 값으로
-닫은 뒤에도 위 외부 evidence가 없으면 배포 승인을 내리지 않는다.
+PG17에서 기계 부하가 높을 때 정상 query가 5초 `statement_timeout`을 넘긴 관측도 해결됐다고 하지 않는다.
+조용한 기계의 반복에서는 최대 연결 46/100, 관측한 lock wait 29개가 모두 0이었고 통과했지만, 고부하 원인은
+특정하지 못했다. 따라서 이 문서는 **로컬 감사 마감**이지 완료된 외부 release evidence나 배포 승인서가 아니다.

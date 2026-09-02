@@ -12,52 +12,66 @@
 아니다. 외부 CI·registry 실행은 권한/환경 의존 검증이지 설계 판단 대기
 항목이 아니다.
 
-## 2026-09-03 최종 보고 이후 결정 보완
+## 2026-09-03 최종 로컬 감사 결정 — 현재 실행 기준
 
-이 절이 현재 실행 기준이다. 기존 “15/17 닫힘”과 `2c942ea`/`7d9362e` 보고는 역사 기록이며, 그 뒤 발견된
-경계를 다음 불변식으로 고정했다. 현재 main 후보는
-`d97bb109ea48c76f5000ecebfd73a72d8c02b04c`이다.
+기존 “15/17 닫힘”과 `2c942ea`/`7d9362e` 보고는 역사 기록이다. 현재 코드·manifest 후보는
+`72de20e5e92d12b168782af36432c463d4598e78`이며, 로컬 release-equivalent 감사 matrix까지 실행했다.
 
-| 결정 | 실행 기준 | 커밋 |
+| 결정 | 실행 기준 | 근거 커밋 |
 |---|---|---|
-| 인증 전이 | 401 만료와 logout 완료는 session generation이 같을 때만 상태를 바꾼다. 늦은 결과는 더 새 로그인과 CSRF를 덮지 않는다. | `da6a728` |
-| moving channel | `latest`/`alpha`/`beta`/`rc`는 채널별 직렬화와 OCI version의 엄격한 단조 증가를 모두 통과한 뒤에만 움직인다. | `be01eec` |
-| schema recovery | apply identity를 POST 전에 관리자·route별 browser storage에 기록한다. reload/재로그인과 응답 유실은 같은 receipt로 복구하며 storage 불능은 fail-closed한다. | `58b45fe` |
-| browser gate | Playwright는 `retries: 0`이며 결정된 receipt와 실제 새 health sample을 기다린다. schema preview unit test도 비동기 갱신을 await한다. | `3716e6d`, `d2701c5` |
-| guarded identity | operation ID와 idempotency key는 한 쌍이다. 같은 guarded 요청의 retry가 어느 하나라도 바꾸면 conflict이고 기존 receipt는 불변이다. | `4a82832` |
-| API cache | `/api/`의 성공과 모든 오류·인증 거부·validation·catch-all 404는 중앙 `Cache-Control: no-store` 계약을 갖는다. | `d97bb109` |
+| 인증 전이 | 401 만료와 logout 완료는 같은 session generation에만 상태를 바꾼다. | `da6a728` |
+| moving channel | `latest`/`alpha`/`beta`/`rc`는 채널별 직렬화와 OCI version의 엄격한 단조 증가를 통과해야 한다. `queue: max`는 플랫폼 상한 100개의 pending run을 보존하지만 외부 registry writer의 CAS를 대신하지 않는다. | `be01eec`, `91f52e1` |
+| schema recovery | POST 전에 관리자+route+operation별 v2 key에 ID·종류·65분 expiry만 저장한다. 1시간 server apply 상한에 settlement 5분을 더한 창이며 draft/key는 저장하지 않는다. exact ID만 삭제하고 legacy v1을 이행한다. failed verdict·현재 dirty draft를 보존하며 malformed/storage failure는 복구 지침을 우선 표시하고 fail-closed한다. | `58b45fe`, `c1b27fa`, `c1d4b6b`, `cc58163`, `86909dd`, `ade7129` |
+| browser gate | Playwright는 `retries: 0`이다. 전역 catalog version을 공유하는 authenticated spec은 worker 1개로 실행하고 결정된 receipt·새 health sample·fresh preview를 기다린다. source의 NUL separator는 raw byte가 아니라 명시적 escape다. | `3716e6d`, `d2701c5`, `13421ce` |
+| guarded identity | operation ID와 idempotency key는 한 쌍이며 어느 하나를 바꾼 retry도 conflict다. | `4a82832` |
+| API cache | `/api/`의 성공, 모든 오류, 인증 거부, validation, catch-all 404는 중앙 `Cache-Control: no-store` 계약을 갖는다. | `d97bb109` |
 
-새 artifact 검증 입력은 A0 `e188d3e5855bdfd2d1ee42cb1e7712419b638336`, A
-`b94875efd59b88d4c8e082299b3acc83d4c3e82f`, B `1b0227c53ca2754d1b9b142f964e33adc1a2d6b3`, C
-`5ccf2565b8232e14b3b9398c0941bb8996e7c20e`, P0 `b0a3c17c923bc0b403b0f8ffe5b0a566ce144d14`, F
-`1f00fb8c05d62ba5b3a6dde3861d86e916f490cf`이다. 이 pin은 phase별 writer/compiler 상수와 migration bytes를
-바꾸지 않는다.
+최종 selectable phase pin은 A0 `9672d695c315dbcf36f993cec78eebe9fa5faac9`, A
+`451e715938e9d58f50970080d34142776ef256b2`, B `4676b81e3c940d9a65da11837093686379457d0f`, C
+`07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4`, P0 `f93c2c755848dc4757ad76c469bf8aa24bf9b63d`, F
+`87a89145958c6716662e03137328fba5e1dc39f3`다. 각 phase의 writer/compiler 상수와 migration bytes는 그대로다.
+Operator `f7ec0ff54953417dd0b41331f0b9d02b023195d8`와 Predecessor
+`d3fb5eb9e5480ea1fdba30fcd81ff85608e2755b`는 process 검사용 historical fixture이며 selectable phase가 아니다.
 
 ### migration v9 결정은 process fence를 포함한다
 
 v9 전에 pre-P0 실행 경로를 동결하고 v8의 P0 full-fleet readiness를 확인한 뒤, 이미 시작된 server, CLI,
 scheduled `schema-index`, schema transaction을 모두 drain한다. maintenance lock 전 precheck 창은 DB lock만으로
 닫히지 않으므로 이 process drain은 권고가 아니라 안전 계약이다. 지정 P0 job만 checksum
-`19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`의 v9를 적용한다. 그 뒤 F full-fleet와
-generation 3 lease를 확인하고, v9가 `pending`으로 내린 companion capability를 activate/build한다. M 뒤
-rollback 대상은 pre-P0가 아니라 검증된 P0다.
+`19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`의 v9를 적용한다. v9가 기존
+`building`/`ready`를 `pending`으로 내리므로 F full-fleet와 generation 3 lease 뒤 activate/build를 다시 한다.
+F는 v8 DB를 서비스하지 않으며 M 뒤 rollback 대상은 검증된 P0다.
 
-### **FINAL_VALIDATION_PENDING**
+### 로컬 검증 마감
 
-설계 결정은 닫혔지만 새 pin 전체의 최종 실행 evidence는 아직 기록 전이다. 이전 bundle과 실행 시간을 새
-candidate에 소급하지 않는다. 최종 main/manifest SHA, 새 8-binary bundle 경로와 SHA-256, PG16/17/18와
-PG16 race 시간, releaseartifacts race, UI full/typecheck/build/dist, Docker E2E/restore, Playwright retries=0
-반복 횟수·시간은 모두 `FINAL_VALIDATION_PENDING`이다.
+`/tmp/pgbase-final-storage-safe-artifacts.U8s0mp`의 `go1.26.7 darwin/arm64` 8-binary bundle로
+`releaseartifacts -race`가 `37.844s`(real `38.87s`)에 통과했다. SHA-256은 A0 `ff441886…`, A
+`e048929e…`, B `c7ad4908…`, C `48f2e463…`, Operator `427b58ad…`, Predecessor `5399706f…`, P0
+`4ae99985…`, F `24701d99…`이다. 전체 digest와 phase 대조표는
+[`2026-09-02-audit-response.md`](./2026-09-02-audit-response.md)의 마지막 절에 있다.
 
-이 로컬 검증을 닫은 뒤에도 다음은 결정 대기가 아니라 외부 전용 evidence로 남는다.
+PG16/17/18 integration·race, `go test -race ./... -count=1`(real `17.06s`), vet/lint/repository policy,
+UI `381/381`·typecheck·build·dist,
+exact `72de20e` Docker E2E 2회 shuffle(package `59.231s`, real `60.07s`), restore(package `16.493s`,
+real `17.32s`), final `72de20e` image의 새 Compose volume Playwright,
+`8/8`(`retries: 0`, test `5.6s`, real `6.05s`), `govulncheck`와 `npm audit`가 통과했다. 검증 시간이
+길어진 것은 버전별 PostgreSQL matrix를 안정된 부하에서
+순차 실행하고 phase source 8개를 재빌드해 oracle로 다시 검증하며 Docker/restore/browser/mutation 근거를
+함께 확인했기 때문이다.
 
-- `macos-15` terminal CI 실제 실행
+data group zero-slack ratchet은 `16,747`줄로 D1 ceiling `16,750`까지 수치상 3줄만 남았다. 게이트는 이미
+현재값에 고정됐으므로 다음 증가는 같은 stack의 삭제로 지불한다. UI runtime은 `3,522/3,527`줄이다.
+
+### 결정 대기가 아니라 외부 evidence로 남는 것
+
+- exact commit push 뒤 `macos-15` terminal CI 실제 실행
 - GHCR exact candidate와 GitHub-hosted provenance/SBOM/custom attestation 및 `gh attestation verify`
 - 실제 `trivy-action` allowlist 전달과 SARIF artifact upload
-- 그 exact digest에 대한 release gate와 사람의 명시적 promotion
+- 그 exact digest의 모든 gate와 사람의 명시적 promotion
+- moving/exact tag의 다른 writer가 없다는 운영 보장 또는 registry tag 보호
 
-따라서 `FINAL_VALIDATION_PENDING`을 채우기 전에는 로컬 완료를, 외부 evidence 전에는 배포 승인을 주장하지
-않는다.
+PG17의 고부하 5초 statement-timeout 원인은 특정하지 못했다. 조용한 환경에서 통과했다는 사실을 해결로
+간주하지 않는다. 따라서 구현 판단과 로컬 감사는 닫혔지만 이 문서는 배포 승인을 내리지 않는다.
 
 ---
 
