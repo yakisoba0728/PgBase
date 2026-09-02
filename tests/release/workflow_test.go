@@ -234,6 +234,73 @@ func TestEveryFrontendInstallSkipsLifecycleScripts(t *testing.T) {
 	}
 }
 
+// workflowSteps splits a workflow's `steps:` entries. Steps are the unit the
+// release contract is written in — a source build is allowed only while a step
+// is switched off in release mode — and the surrounding job structure carries
+// no `if:` that could stand in for the step's own.
+func workflowSteps(t *testing.T, name string) [][]string {
+	t.Helper()
+	var steps [][]string
+	var current []string
+	inStep := false
+	for _, line := range workflowLines(t, name) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if strings.HasPrefix(trimmed, "- name:") && indent == 6 {
+			if inStep {
+				steps = append(steps, current)
+			}
+			current = []string{trimmed}
+			inStep = true
+			continue
+		}
+		if !inStep {
+			continue
+		}
+		if indent < 8 {
+			steps = append(steps, current)
+			current = nil
+			inStep = false
+			continue
+		}
+		current = append(current, trimmed)
+	}
+	if inStep {
+		steps = append(steps, current)
+	}
+	if len(steps) == 0 {
+		t.Fatalf("%s declares no steps", name)
+	}
+	return steps
+}
+
+// Release mode judges the published candidate or nothing. A gate that builds
+// its own image scans, or runs, an artifact the release never publishes, and
+// the two would agree right up until the moment they did not. Both workflows
+// already carry the condition; without this test nothing fails when it is
+// dropped, which is the class of unguarded guard the 2026-09-01 audit named.
+func TestImageGatesNeverBuildTheirOwnArtifactInReleaseMode(t *testing.T) {
+	for _, workflow := range []string{"security.yml", "e2e.yml"} {
+		built := 0
+		for _, step := range workflowSteps(t, workflow) {
+			body := strings.Join(step, "\n")
+			if !strings.Contains(body, "docker build") && !strings.Contains(body, "docker compose -f deployments/docker-compose.yml build") {
+				continue
+			}
+			built++
+			if !strings.Contains(body, "release == 'false'") {
+				t.Errorf("%s step %q builds an image without excluding release mode", workflow, step[0])
+			}
+		}
+		if built != 1 {
+			t.Errorf("%s has %d image build steps, want exactly the local-CI one", workflow, built)
+		}
+	}
+}
+
 func sortedJobNames(jobs map[string][]string) []string {
 	names := make([]string, 0, len(jobs))
 	for name := range jobs {
