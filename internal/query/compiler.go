@@ -106,13 +106,6 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	}, nil
 }
 
-func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
-	return Statement{
-		SQL:  "DELETE FROM " + quotedTable(collection) + " WHERE " + quoted("id") + " = $1",
-		Args: []any{id},
-	}
-}
-
 func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
