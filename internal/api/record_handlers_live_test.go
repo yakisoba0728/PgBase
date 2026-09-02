@@ -43,11 +43,11 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 		{Name: "note", Type: schema.TypeText},
 		{Name: "metadata", Type: schema.TypeJSONB, Required: true},
 	}}
-	plan, err := schemas.PlanCreate(ctx, definition)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administrator.ID); err != nil {
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administrator.ID)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -238,11 +238,11 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
-		plan, err := schemas.PlanCreate(ctx, input)
+		plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administrator.ID); err != nil {
+		if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administrator.ID)); err != nil {
 			t.Fatal(err)
 		}
 	}

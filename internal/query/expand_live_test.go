@@ -249,11 +249,11 @@ func TestExpandedReadRejectsLegacyExpandFieldCollisionWithoutBreakingPlainGet(t 
 			}},
 		},
 	})
-	if _, err := schemas.PlanCreate(ctx, schema.CreateCollectionInput{
+	if _, err := schemas.Preview(ctx, schema.NewCreateChange(schema.CreateCollectionInput{
 		Name:   "expand_collision_rejected",
 		Fields: []schema.FieldInput{{Name: "expand", Type: schema.TypeText}},
-	}); err == nil {
-		t.Fatal("PlanCreate with a field named expand = nil error, want reserved name rejection")
+	})); err == nil {
+		t.Fatal("Preview(create) with a field named expand = nil error, want reserved name rejection")
 	}
 	if _, err := pool.Exec(ctx, `alter table app.expand_collision_roots
 		rename column legacy_expand to expand`); err != nil {

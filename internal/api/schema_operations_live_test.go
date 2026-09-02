@@ -63,7 +63,7 @@ func (f liveOperationFixture) guardedCreate(
 	definition := schema.CreateCollectionInput{
 		Name: name, Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
 	}
-	plan, err := f.schemas.PlanCreate(context.Background(), definition)
+	plan, err := f.schemas.Preview(context.Background(), schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestLiveGuardedApplyReplaysAndRefusesADifferentRequest(t *testing.T) {
 	definition := schema.CreateCollectionInput{
 		Name: "ledger_replayed", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
 	}
-	plan, err := fixture.schemas.PlanCreate(context.Background(), definition)
+	plan, err := fixture.schemas.Preview(context.Background(), schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,9 +276,9 @@ func TestLiveGuardedApplyReplaysAndRefusesADifferentRequest(t *testing.T) {
 		t.Fatalf("replay outcome = %+v", outcome)
 	}
 
-	otherPlan, err := fixture.schemas.PlanCreate(context.Background(), schema.CreateCollectionInput{
+	otherPlan, err := fixture.schemas.Preview(context.Background(), schema.NewCreateChange(schema.CreateCollectionInput{
 		Name: "ledger_conflicting", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestLiveGuardedApplyAnswersACancelledRequestFromTheLedger(t *testing.T) {
 	definition := schema.CreateCollectionInput{
 		Name: "ledger_cancelled", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
 	}
-	plan, err := fixture.schemas.PlanCreate(context.Background(), definition)
+	plan, err := fixture.schemas.Preview(context.Background(), schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}

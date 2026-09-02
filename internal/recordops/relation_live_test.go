@@ -493,11 +493,11 @@ func createRelationCollections(t *testing.T, ctx context.Context, schemas *schem
 			}},
 		}},
 	} {
-		plan, err := schemas.PlanCreate(ctx, input)
+		plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {
 			t.Fatalf("plan %s: %v", input.Name, err)
 		}
-		if _, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administratorID)); err != nil {
 			t.Fatalf("apply %s: %v", input.Name, err)
 		}
 	}

@@ -42,13 +42,13 @@ func newR0QueryServiceTest(t *testing.T) (string, *database.Pool, *schema.Servic
 func applyR0QueryCollection(t *testing.T, schemas *schema.Service, input schema.CreateCollectionInput) schema.Collection {
 	t.Helper()
 	ctx := context.Background()
-	plan, err := schemas.PlanCreate(ctx, input)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan collection %s: %v", input.Name, err)
 	}
-	collection, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, uuid.MustParse(r0AdministratorID))
+	applied, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, uuid.MustParse(r0AdministratorID)))
 	if err != nil {
 		t.Fatalf("apply collection %s: %v", input.Name, err)
 	}
-	return collection
+	return applied.Collection
 }

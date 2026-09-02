@@ -245,12 +245,12 @@ func TestRecordServicePaginatesLongTextSortValuesWithBoundedCursor(t *testing.T)
 			{Name: "part_b", Type: schema.TypeText, Required: true, Indexed: true},
 		},
 	}
-	plan, err := schemas.PlanUpdate(ctx, update)
+	plan, err := schemas.Preview(ctx, schema.NewUpdateChange(update))
 	if err != nil {
-		t.Fatalf("PlanUpdate(drop cursor sort field): %v", err)
+		t.Fatalf("Preview(update drop cursor sort field): %v", err)
 	}
-	if _, err := schemas.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
-		t.Fatalf("ApplyUpdate(drop cursor sort field): %v", err)
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewUpdateChange(update), plan, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001"))); err != nil {
+		t.Fatalf("Apply(update drop cursor sort field): %v", err)
 	}
 	if _, err := records.listScalar(ctx, "long_sort_records", fresh.NextCursor, 2, "", sortText); !IsInvalidCursor(err) {
 		t.Fatalf("List(after dropped cursor sort field) error = %v, want invalid cursor", err)
@@ -767,11 +767,11 @@ func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Servi
 
 func applyRecordCollection(t *testing.T, schemas *schema.Service, input schema.CreateCollectionInput) {
 	t.Helper()
-	plan, err := schemas.PlanCreate(context.Background(), input)
+	plan, err := schemas.Preview(context.Background(), schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")); err != nil {
+	if _, err := schemas.Apply(context.Background(), schema.LegacyApply(schema.NewCreateChange(input), plan, uuid.MustParse("019551d0-e9c0-7000-8000-000000000001"))); err != nil {
 		t.Fatal(err)
 	}
 }

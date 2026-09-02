@@ -262,11 +262,11 @@ func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *sche
 		{Name: "count", Type: schema.TypeInteger, Default: json.RawMessage(`"0"`)},
 		{Name: "metadata", Type: schema.TypeJSONB, Default: json.RawMessage(`{}`)},
 	}}
-	plan, err := schemas.PlanCreate(ctx, definition)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administratorID)); err != nil {
 		t.Fatal(err)
 	}
 	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
