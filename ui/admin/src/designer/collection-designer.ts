@@ -443,7 +443,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   }, [administratorId, identity, recovery?.status, undecided, update]);
 
   useEffect(() => {
-    if (recovery?.status === "failed" && undecided !== null && forgetPending(administratorId, identity, undecided.operationId)) { issued.current = null; const next = administratorId === null ? null : storedPending(administratorId, identity); if (next !== null) update(identity, { undecided: next || null }); else if (state.undecided === null) update(identity, { undecided }); }
+    if (recovery?.status === "failed" && undecided !== null && forgetPending(administratorId, identity, undecided.operationId)) { issued.current = null; const next = administratorId === null ? null : storedPending(administratorId, identity), message = operationFailureMessage(recovery.failureCode, "The schema operation did not apply."); if (next === false) update(identity, { undecided: null }); else if (next !== null) update(identity, { undecided: next, ...(undecided.kind === "drop" ? { deleteError: message } : { error: message }) }); else if (state.undecided === null) update(identity, { undecided }); }
     if (recovered === null) return;
     forgetPending(administratorId, identity, recovered.operationId);
     if (recovered.draft !== null && signature === recovered.draft) savedDraft();
