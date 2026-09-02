@@ -18,12 +18,12 @@
 | R4 App WriterB | 완료·커밋 — Release B가 배포 가능한 산출물이 됨 |
 | doctor membership | 완료·커밋 (감사 blocker D1 포함 3건 + 후속 6건) |
 | R6 RecordKernel/RelationKernel | 완료·통합 — cascade N+1 제거 (6N+6 → 상수 12) |
-| R7 | 4/5 묶음 완료. 잔여: AtomicJSON 런타임 강제, ledger HTTP recovery 계약 |
+| R7 | 완료 — 잔여였던 AtomicJSON 런타임 강제(`api/route_registry.go`, `applyResponseMode`)와 ledger HTTP recovery 계약(`api/schema_operations.go`)이 모두 착지했다 |
 | R10b | 완료·통합 — 완료 기준 12개 전부 충족 |
-| R8 / R9a / R5(§9.2) / R7 잔여 | 진행 중 |
+| R8 / R9a / R5(§9.2) | 완료·통합 |
 | R4 Release C / R5(§9.3) / F0~F3 | 완료·통합 |
 | R11 | 완료 — compatibility path 삭제와 정량 게이트 확정 (§0.0) |
-| R12 | 미착수 |
+| R12 | 완료 — 로컬에서 실행 가능한 gate 전부 재실행, 나머지는 CI 전용으로 명시 (§0.1) |
 
 ## 0.0 R11 — compatibility path 삭제와 정량 마감 (완료)
 
@@ -106,6 +106,26 @@ database+query+recordops+relation+schema = 15,854
 
 약 3,100줄 초과이고 R6는 이를 줄이지 못했다(N+1 제거 배치가 순 +86). `internal/schema` 6,376줄이 단일 최대 기여자인데 전용 단계가 없다. R11은 다른 단계가 놓친 것을 쓸어담는 단계이지 혼자 3,100줄을 찾는 단계가 아니다. 아래 R11 항목에 선택지를 기록했다.
 
+이 절의 숫자는 R11 착지 시점 스냅샷이다. R5 §9.3의 companion index가 `internal/schema`를 6,376 → 7,223으로 올렸고, 확정된 그룹 게이트는 `internal/repositorypolicy/loc_budget_test.go`의 16,653이다.
+
+## 0.1 R12 — 최종 release-equivalent gate (완료)
+
+R12는 게이트를 새로 만드는 단계가 아니라 R10a/R10b가 만든 정의를 최종 candidate에 다시 실행하고 결과를 마감하는 단계다. 이 저장소에는 registry credential도, 게시된 image도, Actions runner도 없으므로 **외부 registry 쓰기·tag 이동·publish는 하지 않았다.** 대신 127.0.0.1의 일회용 `registry:2` 컨테이너에 workflow와 같은 명령으로 candidate를 한 번 build/push해 실제 `image@sha256`을 만들고, 그 digest를 gate에 그대로 흘렸다.
+
+로컬에서 증명한 것:
+
+- `--platform linux/amd64 --provenance=mode=max --sbom=true --push`가 만드는 candidate digest는 **index digest**이고 그 index는 platform manifest 하나 + attestation manifest 하나를 담는다. `promote-release-image.sh`의 `imagetools create --prefer-index=false` retag는 그 index digest를 **보존한다**. R10b가 검증 불가로 남긴 항목이다.
+- release mode의 `RestoreDrill`(PG 16/17/18)과 Docker Go E2E가 같은 digest로 통과한다. 두 gate 모두 candidate가 `/api/admin/system`에서 보고하는 version이 `expected_version`과 같은지 확인하며, drill은 dump 전과 restore 후 두 번 확인한다. `PGBASE_VERSION`은 Compose의 build arg일 뿐 runtime 환경변수가 아니므로 `--no-build` release mode에서 이 비교는 image에 박힌 값을 읽는다. R10b는 거부 경로만 증명했었다.
+- stable/alpha/beta/rc 승격과 exact tag의 absent/same/different 3-way, malformed·unsupported 입력의 registry 접근 0회를 실제 registry API로 전부 실행했다.
+- candidate image의 admin-ui 단계가 만든 `ui/admin/dist`가 커밋된 dist와 파일 집합·sha256까지 동일하다.
+
+CI에서만 확인할 수 있는 것은 이 문서 마지막 절과 open-decisions의 같은 목록에 남겼다. 특히 `gh attestation verify`는 로컬 커버리지가 **0**이다 — buildx가 index에 넣는 in-toto attestation manifest는 `actions/attest-*`가 GitHub에 올리는 attestation과 다른 물건이다.
+
+R12가 찾아 고친 것:
+
+- **Go E2E suite가 Compose를 `up -d`로 띄우고 health를 기다리지 않았다.** `TestGracefulShutdownRejectsNewRequestsAndDrainsInflight`는 `PGBASE_AUTO_MIGRATE` 없이 두 번째 instance를 띄우므로, 이 테스트가 먼저 도는 순서에서는 compose 서비스의 자동 migration보다 앞서 붙어 `system migrations are not current`로 fail-closed하고 90초 뒤 실패한다. `-shuffle=1788335022190278000 -count=2`로 재현했다. workflow는 `go test` 전에 별도 step에서 `up -d --wait`를 실행하므로 CI가 이 결함을 가리고 있었다. suite 자신이 `--wait`하도록 고쳤다.
+- **release mode에서 gate가 자기 image를 build하지 못하게 하는 실행 가능한 정책이 없었다.** `security.yml`의 `docker build`와 `e2e.yml`의 `docker compose build`는 `release == 'false'` 조건을 달고 있지만 그 조건을 지키는 테스트가 없어, 지워도 트리가 초록이었다. `tests/release.TestImageGatesNeverBuildTheirOwnArtifactInReleaseMode`로 고정했다(조건 제거 변이로 실패 확인).
+
 ## 0. 남은 작업 TODO
 
 우선순위 순이다. `[ ]`는 미완, `[x]`는 이 세션에서 완료.
@@ -135,10 +155,12 @@ database+query+recordops+relation+schema = 15,854
 
 ### 0.3 Release B 감사 minor 항목
 
-- [ ] `compiler.go` / `relation_filter_sort.go`의 `if after != nil && len(after.Values) != 0`. 새 value-less first-page boundary에 필요한 guard지만, 향후 zero-value boundary가 생기면 hard error가 아니라 **1페이지로 조용히 재시작**한다. 현재 도달 경로는 없다(제거된 안전망).
-- [ ] `cursor_v5_binding.go`의 `newCursorV5Descriptor`가 `IssueVersion`만 보고 unexported `traversal.ready`를 확인하지 않는다. `validTraversalStatus` 덕분에 현재만 안전하다. `bindCursorV5`는 `ValidateV5`로 확인하므로 발급 경로도 맞추는 것이 좋다.
-- [ ] `TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage`가 continuation 1회만 검사하고 high-water 실제 값을 단언하지 않는다. 3페이지 이상 carry 케이스 추가.
-- [ ] `expand_live_test.go`가 `IssueVersion: cursor.Version4`로 stub해서 그 고정 시간 경로는 v5를 전혀 타지 않는다.
+R12의 독립 재대조 결과 네 항목 모두 이후 단계에서 닫혔다.
+
+- [x] `if after != nil && len(after.Values) != 0` → `!after.membershipOnly` 플래그로 바뀌었다. 짧은 value list는 이제 `orderSpec.keyset`에 도달해 `invalid_cursor`가 되고, 1페이지 재시작은 v5 first page만의 명시적 경로다 (`query/types.go`, `query/order.go`).
+- [x] `newCursorV5Descriptor`가 bind 경로와 같은 `Traversal.ValidateV5`를 호출한다. `ValidateV5`가 unexported `ready`를 먼저 본다 (`query/cursor_v5_binding.go`, `membership/traversal.go`).
+- [x] `TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage`가 high-water 값을 직접 단언하고 3페이지를 걸으며 continuation binding의 byte 동일성을 확인한다. 중간 cursor가 하나뿐이라 carry 동일성은 1회만 검사된다.
+- [x] `expand_live_test.go`가 clock만 stub하고 traversal은 실제 resolver를 쓴다. `cursor.Version4`는 Release C가 삭제해 존재하지 않는다.
 
 ### 0.4 doctor 후속 항목 (커밋됨, blocker 아님)
 
@@ -236,6 +258,8 @@ base:     ac90b4f  (이전 세션의 문서 checkpoint)
 `refactor/whole-codebase`는 아직 push하지 않았다.
 
 ## 2. 현재 단계 판정
+
+**이 표는 중단 시점(2026-09-02 이른 세션)의 스냅샷이고 더 이상 현재 상태가 아니다.** 이후 R5~R12와 F0~F3가 전부 착지했다. 현재 판정은 §0의 표와 §0.1을 본다. 아래는 그때의 판단을 남긴 기록이다.
 
 | 단계 | 상태 | 근거 |
 |---|---|---|
@@ -487,7 +511,9 @@ query:      FAIL — runtime 4,888 > 4,850 한 건
 
 ## 8. 정량 상태
 
-`tools/repostats`는 Git 추적 파일만 계산한다. 현재 새 doctor 파일 두 개가 untracked이므로 그대로 실행한 수치만으로 WIP runtime을 과소 계산한다.
+**이 절도 중단 시점의 스냅샷이다.** 확정된 값과 게이트는 open-decisions의 "R11 재산정 결과"에 있고, R12가 그 표를 `go run ./tools/repostats`로 다시 대조해 전 항목 일치를 확인했다(handwritten 34,812 / Go 31,339 / UI 3,473 / interface 17 / export 467 / `New*` 25 / 주석 1,739 / page hook 19 / UI export 119 / 800줄 초과 0).
+
+`tools/repostats`는 Git 추적 파일만 계산한다. 당시에는 새 doctor 파일 두 개가 untracked이라 그대로 실행한 수치가 WIP runtime을 과소 계산했다.
 
 현재 tracked-only working-tree 측정:
 
