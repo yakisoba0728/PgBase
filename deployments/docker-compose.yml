@@ -35,6 +35,7 @@ services:
       PGBASE_TOKEN_SECRET: ${PGBASE_TOKEN_SECRET:?copy deployments/.env.example to deployments/.env and generate a token secret}
       PGBASE_METRICS_TOKEN: ${PGBASE_METRICS_TOKEN:-}
       PGBASE_AUTO_MIGRATE: "true"
+      PGBASE_STATEMENT_TIMEOUT: ${PGBASE_STATEMENT_TIMEOUT:-5s}
       PGBASE_SHUTDOWN_TIMEOUT: ${PGBASE_SHUTDOWN_TIMEOUT:-15s}
       PGBASE_STOP_GRACE_PERIOD: ${PGBASE_STOP_GRACE_PERIOD:-20s}
     depends_on:

@@ -17,10 +17,14 @@ import (
 const (
 	composeShutdownTimeout = 8 * time.Second
 	composeStopGracePeriod = 13 * time.Second
-	// The in-flight request is released with enough of the application timeout
-	// left to prove the drain finished on its own, and far enough inside the
-	// Compose grace that a SIGKILL would be unambiguous.
-	composeInflightHold = 5 * time.Second
+	// PostgreSQL would otherwise cancel the deliberately blocked request before
+	// the drain window closes, and the drill would prove nothing about the
+	// Compose grace period.
+	composeStatementTimeout = 60 * time.Second
+	// The in-flight request is released late in the application shutdown
+	// timeout, with enough left to prove the drain finished on its own, and far
+	// enough inside the Compose grace that a SIGKILL would be unambiguous.
+	composeInflightHold = 6 * time.Second
 )
 
 // A direct SIGTERM proves the application drains. Only `docker compose stop`
