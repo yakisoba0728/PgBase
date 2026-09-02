@@ -53,9 +53,9 @@ func checkRecordMembership(ctx context.Context, db pgx.Tx, status migrate.Status
 		return nil
 	}
 	switch state {
-	case "off", "cutover":
+	case "cutover":
 		return nil
-	case "dual_write", "ready":
+	case "off", "dual_write", "ready":
 	default:
 		appendInvalidMembershipInstallation(report)
 		return nil
@@ -96,10 +96,17 @@ func checkRecordMembership(ctx context.Context, db pgx.Tx, status migrate.Status
 		))
 	}
 	if scan.missing {
-		report.Findings = append(report.Findings, finding(
-			"record_membership_sidecar_missing",
-			"A base record is missing its required membership sidecar",
-		))
+		if state == "off" {
+			report.Findings = append(report.Findings, finding(
+				"record_membership_rollout_not_started",
+				"Record membership rollout has not started for a database that contains records; follow the membership rollout runbook",
+			))
+		} else {
+			report.Findings = append(report.Findings, finding(
+				"record_membership_sidecar_missing",
+				"A base record is missing its required membership sidecar",
+			))
+		}
 	}
 	return nil
 }
@@ -202,7 +209,7 @@ func sidecarScanStatement(collections []membershipCollection, state string) (str
 			where sidecar.collection_id = ` + placeholder + `
 			  and not exists (select 1 from ` + table + ` as base where base.id = sidecar.record_id)
 		) as orphaned, `)
-		if state == "ready" {
+		if state == "off" || state == "ready" {
 			statement.WriteString(`exists (
 				select 1
 				from ` + table + ` as base
