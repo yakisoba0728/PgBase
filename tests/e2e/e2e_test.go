@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -737,22 +736,11 @@ func configureSuite() (e2eSuite, error) {
 	release := false
 	candidateImage := os.Getenv("PGBASE_E2E_CANDIDATE_IMAGE")
 	expectedVersion := os.Getenv("PGBASE_E2E_EXPECTED_VERSION")
-	if (candidateImage == "") != (expectedVersion == "") {
-		return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE and PGBASE_E2E_EXPECTED_VERSION must be set together")
+	releaseCandidate, err := resolveE2ECandidate(candidateImage, expectedVersion)
+	if err != nil {
+		return e2eSuite{}, err
 	}
-	if candidateImage != "" {
-		candidatePattern := regexp.MustCompile(`^[^@\s]+@sha256:[0-9a-f]{64}$`)
-		if !candidatePattern.MatchString(candidateImage) {
-			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE must be an image@sha256 digest reference without a mutable tag")
-		}
-		imageName := candidateImage[:strings.LastIndex(candidateImage, "@")]
-		if strings.Contains(imageName[strings.LastIndex(imageName, "/")+1:], ":") {
-			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_CANDIDATE_IMAGE must be an image@sha256 digest reference without a mutable tag")
-		}
-		versionPattern := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$`)
-		if !versionPattern.MatchString(expectedVersion) {
-			return e2eSuite{}, fmt.Errorf("PGBASE_E2E_EXPECTED_VERSION is not a supported canonical release version")
-		}
+	if releaseCandidate {
 		image = candidateImage
 		version = expectedVersion
 		release = true
@@ -769,7 +757,10 @@ func configureSuite() (e2eSuite, error) {
 		"PGBASE_VERSION="+version,
 		// The Compose drain test must observe a full graceful shutdown inside
 		// the suite budget, so the project keeps the shipped five-second grace
-		// margin at a shorter absolute timeout.
+		// margin at a shorter absolute timeout. The statement timeout is raised
+		// only so a deliberately blocked request stays in flight until late in
+		// that drain window instead of being canceled by PostgreSQL first.
+		"PGBASE_STATEMENT_TIMEOUT="+composeStatementTimeout.String(),
 		"PGBASE_SHUTDOWN_TIMEOUT="+composeShutdownTimeout.String(),
 		"PGBASE_STOP_GRACE_PERIOD="+composeStopGracePeriod.String(),
 	)
