@@ -25,10 +25,6 @@ type compiledCatalog struct {
 	expectedPhysicalSchema ExpectedPhysicalSchema
 }
 
-func compileCatalog(source Catalog) (*compiledCatalog, error) {
-	return compileCatalogWithLimit(source, maximumCatalogWireBytes)
-}
-
 func compileCatalogWithLimit(source Catalog, wireLimit int) (*compiledCatalog, error) {
 	immutable := cloneCatalog(source)
 	immutable.wire = nil
@@ -43,8 +39,8 @@ func compileCatalogWithLimit(source Catalog, wireLimit int) (*compiledCatalog, e
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCatalogWireSizeLimit(len(wire), wireLimit); err != nil {
-		return nil, err
+	if len(wire) > wireLimit {
+		return nil, ErrCatalogLimitExceeded
 	}
 	expectedPhysicalSchema, err := compileExpectedPhysicalSchema(immutable)
 	if err != nil {
@@ -52,13 +48,6 @@ func compileCatalogWithLimit(source Catalog, wireLimit int) (*compiledCatalog, e
 	}
 	immutable.wire = wire
 	return &compiledCatalog{catalog: immutable, expectedPhysicalSchema: expectedPhysicalSchema}, nil
-}
-
-func validateCatalogWireSizeLimit(size, limit int) error {
-	if size > limit {
-		return ErrCatalogLimitExceeded
-	}
-	return nil
 }
 
 func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) {

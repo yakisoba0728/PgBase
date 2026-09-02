@@ -16,6 +16,18 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
+// publishCatalog compiles and publishes one snapshot the way EnsureCurrent and
+// the listener do. No runtime caller replaces an already published catalog, so
+// tests reach the cache through the same two steps production uses.
+func publishCatalog(cache *Cache, catalog Catalog) error {
+	compiled, err := cache.prepare(catalog, maximumCatalogWireBytes)
+	if err != nil {
+		return err
+	}
+	cache.publish(compiled)
+	return nil
+}
+
 func TestCatalogSnapshotsCannotMutatePublishedCache(t *testing.T) {
 	cache := &Cache{}
 	catalog := cacheTestCatalog(4, "posts")
@@ -25,7 +37,7 @@ func TestCatalogSnapshotsCannotMutatePublishedCache(t *testing.T) {
 		Type: TypeText, Default: json.RawMessage(`"safe"`), Ordinal: 0,
 	}}
 	catalog.Collections["posts"] = posts
-	if err := cache.Replace(catalog); err != nil {
+	if err := publishCatalog(cache, catalog); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,12 +56,14 @@ func TestCatalogSnapshotsCannotMutatePublishedCache(t *testing.T) {
 
 func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
 	cache := &Cache{}
-	if err := cache.Replace(cacheTestCatalog(2, "pages")); err != nil {
+	if err := publishCatalog(cache, cacheTestCatalog(2, "pages")); err != nil {
 		t.Fatal(err)
 	}
-	if err := cache.Replace(cacheTestCatalog(1, "posts")); err != nil {
+	older, err := compileCatalogWithLimit(cacheTestCatalog(1, "posts"), maximumCatalogWireBytes)
+	if err != nil {
 		t.Fatal(err)
 	}
+	cache.publish(older)
 
 	current := cache.Load()
 	if current.Version != 2 {
@@ -63,14 +77,14 @@ func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
 func TestCatalogCacheRejectsInvalidPublicationAndCompilesOneSnapshotPerVersion(t *testing.T) {
 	cache := &Cache{}
 	catalog := cacheTestCatalog(8, "posts")
-	if err := cache.Replace(catalog); err != nil {
+	if err := publishCatalog(cache, catalog); err != nil {
 		t.Fatal(err)
 	}
 	first := cache.current.Load()
 	if first == nil {
 		t.Fatal("cache did not publish a compiled snapshot")
 	}
-	if err := cache.Replace(cloneCatalog(catalog)); err != nil {
+	if err := publishCatalog(cache, cloneCatalog(catalog)); err != nil {
 		t.Fatal(err)
 	}
 	if second := cache.current.Load(); second != first {
@@ -81,8 +95,8 @@ func TestCatalogCacheRejectsInvalidPublicationAndCompilesOneSnapshotPerVersion(t
 	broken := invalid.Collections["broken"]
 	broken.ID = uuid.Nil
 	invalid.Collections["broken"] = broken
-	if err := cache.Replace(invalid); !errors.Is(err, ErrConflict) {
-		t.Fatalf("Replace(invalid) error = %v, want ErrConflict", err)
+	if err := publishCatalog(cache, invalid); !errors.Is(err, ErrConflict) {
+		t.Fatalf("publish(invalid) error = %v, want ErrConflict", err)
 	}
 	if current := cache.current.Load(); current != first {
 		t.Fatal("invalid catalog changed the published snapshot")
@@ -166,12 +180,6 @@ func TestCatalogWireLimitIsExactlySixteenMiB(t *testing.T) {
 	const sixteenMiB = 16 * 1024 * 1024
 	if maximumCatalogWireBytes != sixteenMiB {
 		t.Fatalf("catalog wire limit = %d, want %d", maximumCatalogWireBytes, sixteenMiB)
-	}
-	if err := validateCatalogWireSizeLimit(maximumCatalogWireBytes, maximumCatalogWireBytes); err != nil {
-		t.Fatalf("exact limit rejected: %v", err)
-	}
-	if err := validateCatalogWireSizeLimit(maximumCatalogWireBytes+1, maximumCatalogWireBytes); !errors.Is(err, ErrCatalogLimitExceeded) {
-		t.Fatalf("limit+1 error = %v, want ErrCatalogLimitExceeded", err)
 	}
 }
 

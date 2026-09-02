@@ -227,17 +227,16 @@ func (g *DeleteGraph) Plan(ctx context.Context, tx pgx.Tx, root RecordRef) (Dele
 	if err != nil {
 		return DeletePlan{}, err
 	}
-	affected := make(map[RecordRef]struct{}, len(deletes)+len(clears))
-	for _, record := range deletes {
-		affected[record] = struct{}{}
-	}
+	// makeDeleteClears has returned, so the closure set is free to grow into
+	// the full affected set the budget, the row locks and storage all use.
+	affected := deleted
 	for _, clear := range clears {
 		affected[clear.source] = struct{}{}
 	}
 	if len(affected) > g.limits.records {
 		return DeletePlan{}, deleteValidation("relation_delete_budget_exceeded")
 	}
-	if err := g.lockAffectedRows(ctx, tx, root, deletes, clears); err != nil {
+	if err := g.lockAffectedRows(ctx, tx, root, affected); err != nil {
 		return DeletePlan{}, err
 	}
 	return DeletePlan{owner: g, tx: tx, deletes: deletes, clears: clears}, nil
@@ -367,6 +366,9 @@ func readDeleteHits(
 	if err != nil {
 		return nil, newDeleteOperationError(err)
 	}
+	// Every exit closes the rows before the caller issues the next statement
+	// on this connection.
+	defer rows.Close()
 	requested := make(map[uuid.UUID]struct{}, len(targetIDs))
 	for _, id := range targetIDs {
 		requested[id] = struct{}{}
@@ -376,20 +378,16 @@ func readDeleteHits(
 	for rows.Next() {
 		var sourceID, targetID uuid.UUID
 		if err := rows.Scan(&sourceID, &targetID); err != nil {
-			rows.Close()
 			return nil, newDeleteOperationError(err)
 		}
 		pair := [2]uuid.UUID{sourceID, targetID}
 		if sourceID == uuid.Nil || targetID == uuid.Nil {
-			rows.Close()
 			return nil, ErrInvalidStoredValue
 		}
 		if _, ok := requested[targetID]; !ok {
-			rows.Close()
 			return nil, ErrInvalidStoredValue
 		}
 		if _, duplicate := seen[pair]; duplicate {
-			rows.Close()
 			return nil, ErrInvalidStoredValue
 		}
 		seen[pair] = struct{}{}
@@ -400,10 +398,8 @@ func readDeleteHits(
 		})
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return nil, newDeleteOperationError(err)
 	}
-	rows.Close()
 	return hits, nil
 }
 
@@ -475,19 +471,8 @@ func makeDeleteClears(hits []deleteHit, deleted map[RecordRef]struct{}) ([]delet
 }
 
 func (g *DeleteGraph) lockAffectedRows(
-	ctx context.Context,
-	tx pgx.Tx,
-	root RecordRef,
-	deletes []RecordRef,
-	clears []deleteClear,
+	ctx context.Context, tx pgx.Tx, root RecordRef, affected map[RecordRef]struct{},
 ) error {
-	affected := make(map[RecordRef]struct{}, len(deletes)+len(clears))
-	for _, record := range deletes {
-		affected[record] = struct{}{}
-	}
-	for _, clear := range clears {
-		affected[clear.source] = struct{}{}
-	}
 	byCollection := make(map[uuid.UUID][]uuid.UUID)
 	for record := range affected {
 		byCollection[record.CollectionID] = append(byCollection[record.CollectionID], record.RecordID)
