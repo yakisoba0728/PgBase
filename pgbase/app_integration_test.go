@@ -443,7 +443,9 @@ func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status := (systemStatusState{pool: pool, runner: runner}).Status(ctx)
+	sampler := newSystemStatusSampler(pool, runner, nil, nil)
+	sampler.sample(ctx)
+	status := sampler.Status(ctx)
 	if !status.MigrationDirty {
 		t.Fatalf("system status = %#v, want dirty migration history", status)
 	}

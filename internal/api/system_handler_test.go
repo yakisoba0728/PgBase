@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,13 @@ func TestSystemStatusRequiresAdministratorSession(t *testing.T) {
 }
 
 func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
-	status := SystemStatus{Version: "v1.2.3", DatabaseReachable: true, MigrationCurrent: 4, MigrationLatest: 4, MigrationDirty: true, CatalogVersion: 9, ListenerReady: true}
+	status := SystemStatus{
+		Version: "v1.2.3", DatabaseReachable: true, MigrationCurrent: 4, MigrationLatest: 4,
+		MigrationDirty: true, CatalogVersion: 9, ListenerReady: true,
+		Unavailable:   []SystemStatusProbe{{Component: "listener", Code: "unavailable"}},
+		SampledAt:     "2026-09-01T00:00:00Z",
+		LastSuccessAt: "2026-08-31T23:59:00Z",
+	}
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	dependencies := testDependencies(auth, nil)
 	dependencies.System = fakeSystemStatus{status: status}
@@ -42,8 +49,11 @@ func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got != status {
+	if !reflect.DeepEqual(got, status) {
 		t.Fatalf("status = %#v, want %#v", got, status)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"unavailable":[{"component":"listener","code":"unavailable"}]`)) {
+		t.Fatalf("response omitted the unavailable probe: %s", response.Body.String())
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte(`"migrationDirty":true`)) {
 		t.Fatalf("response omitted dirty migration state: %s", response.Body.String())

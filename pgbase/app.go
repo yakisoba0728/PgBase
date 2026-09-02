@@ -33,6 +33,7 @@ type App struct {
 	schemaOperations backgroundRunner
 	schemaListener   backgroundRunner
 	membershipWriter backgroundRunner
+	systemStatus     *systemStatusSampler
 	listen           func(string, string) (net.Listener, error)
 	shutdownMu       sync.Mutex
 	shutdownStarted  bool
@@ -84,34 +85,6 @@ type readinessState struct {
 	accepting    atomic.Bool
 	dependencies []api.Readiness
 	recorder     observability.Recorder
-}
-
-type systemStatusState struct {
-	pool     *database.Pool
-	runner   *migrate.Runner
-	cache    *schema.Cache
-	listener api.Readiness
-}
-
-func (s systemStatusState) Status(ctx context.Context) api.SystemStatus {
-	status := api.SystemStatus{Version: Version}
-	if s.pool != nil && s.pool.Ping(ctx) == nil {
-		status.DatabaseReachable = true
-	}
-	if s.runner != nil {
-		if migrationStatus, err := s.runner.Status(ctx); err == nil {
-			status.MigrationCurrent = migrationStatus.Current
-			status.MigrationLatest = migrationStatus.Latest
-			status.MigrationDirty = migrationStatus.Dirty
-		}
-	}
-	if s.cache != nil {
-		status.CatalogVersion = s.cache.Load().Version
-	}
-	if s.listener != nil && s.listener.Ready(ctx) == nil {
-		status.ListenerReady = true
-	}
-	return status
 }
 
 func (s *readinessState) Ready(ctx context.Context) error {
@@ -292,6 +265,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
+	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	handler, err := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
@@ -301,7 +275,7 @@ func newWithCatalogPreflight(
 		Records:            recordService,
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
-		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
+		System:             systemStatus,
 		AdminUI:            adminHandler,
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
@@ -320,6 +294,7 @@ func newWithCatalogPreflight(
 		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
 		membershipWriter: membershipRuntime,
+		systemStatus:     systemStatus,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -503,7 +478,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]namedBackgroundRunner, 0, 5)
+		runners := make([]namedBackgroundRunner, 0, 6)
 		if a.cleaner != nil {
 			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
 		}
@@ -518,6 +493,9 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		}
 		if a.membershipWriter != nil {
 			runners = append(runners, namedBackgroundRunner{name: "record membership writer", runner: a.membershipWriter})
+		}
+		if a.systemStatus != nil {
+			runners = append(runners, namedBackgroundRunner{name: "system status sampler", runner: a.systemStatus})
 		}
 		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {
