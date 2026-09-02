@@ -16,6 +16,7 @@ const (
 	accessPublic accessPolicy = iota + 1
 	accessSameOrigin
 	accessAdminSession
+	accessAdminSameOriginRead
 	accessAdminBearer
 	accessMetricsToken
 	accessEmbeddedUI
@@ -121,6 +122,8 @@ func (p accessPolicy) String() string {
 		return "same-origin"
 	case accessAdminSession:
 		return "admin-session"
+	case accessAdminSameOriginRead:
+		return "admin-same-origin-read"
 	case accessAdminBearer:
 		return "admin-bearer"
 	case accessMetricsToken:
@@ -141,6 +144,8 @@ func (d Dependencies) admit(policy accessPolicy, handler http.Handler) http.Hand
 		return sameOriginMiddleware(d.PublicURL, d.TrustedProxies, handler)
 	case accessAdminSession:
 		return adminSessionMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
+	case accessAdminSameOriginRead:
+		return adminSameOriginReadMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
 	case accessAdminBearer:
 		return authenticateAdminMiddleware(d.AdminAuth, handler)
 	}
@@ -166,6 +171,9 @@ func (d Dependencies) requiredModules() error {
 	}
 	if d.System == nil {
 		missing = append(missing, "System")
+	}
+	if d.SchemaHealth == nil {
+		missing = append(missing, "SchemaHealth")
 	}
 	if d.SchemaApplyTimeout <= 0 {
 		missing = append(missing, "SchemaApplyTimeout")
@@ -203,4 +211,17 @@ const (
 	// ledger enforces when it decides how many receipts fit one page, so a
 	// page the ledger was willing to build is a page the router can deliver.
 	maximumOperationPageResponseBytes = 256<<10 + responseFraming
+	// A finding serializes to a severity, a stable code and a fixed operator
+	// message and never to an identifier, so none reaches 512 bytes. The cap
+	// below therefore bounds the findings at well under 16 KiB, and the rest
+	// of this budget covers the probe list and timestamps.
+	maximumSchemaHealthResponseBytes = 32<<10 + responseFraming
 )
+
+// MaximumSchemaFindings bounds how many findings one diagnostic report may
+// carry over HTTP. Findings are already deduplicated by code and name no
+// collection, field or row, so a run cannot produce more than the number of
+// codes this binary defines; the cap is what keeps the payload bounded if that
+// code set later outgrows the budget above. A report that hits it says so
+// through its finding count, and `pgbase doctor` still prints every finding.
+const MaximumSchemaFindings = 32

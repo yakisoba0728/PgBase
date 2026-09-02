@@ -50,6 +50,25 @@ func adminSessionMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies [
 	return originMutationMiddleware(publicURL, trustedProxies, handler)
 }
 
+// adminSameOriginReadMiddleware admits an authenticated read only from this
+// deployment's own origin. A read cannot demand an Origin header the way a
+// mutation does — a browser sends none on a same-origin GET, and a page cannot
+// add one — so the rule is that a presented origin must be ours. That still
+// closes the case this route has to close: a cross-origin fetch always sends
+// Origin, so a configured CORS allowance cannot hand another site a report
+// describing the operator's own schema, while the admin page and a non-browser
+// operator client are unaffected.
+func adminSameOriginReadMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
+	handler := authenticateAdminMiddleware(auth, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(r.Header.Values("Origin")) > 0 && !sameOrigin(r, publicURL, trustedProxies) {
+			writeAPIError(w, r, APIError{Status: http.StatusForbidden, Code: "origin_rejected", Message: "Request origin is not allowed"})
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
 func originMutationMiddleware(publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isAdminMutation(r.Method) && !sameOrigin(r, publicURL, trustedProxies) {
