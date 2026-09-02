@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { CollectionCatalog } from "../api/collections";
+import type { AdminRoute } from "../routing/admin-location";
 import { useSession } from "../auth/session";
 
-interface CollectionsPageProps { navigate(path: string): void }
+interface CollectionsPageProps { navigate(route: AdminRoute): void }
 
 export function CollectionsPage({ navigate }: CollectionsPageProps) {
   const { collections } = useSession();
@@ -25,7 +26,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   return <section>
     <div className="page-heading">
       <div><h2>Collections</h2>{catalog && <p>Catalog version {catalog.version}</p>}</div>
-      <button className="link-button" onClick={() => navigate("/admin/collections/new")} type="button">Create collection</button>
+      <button className="link-button" onClick={() => navigate({ kind: "collection-create" })} type="button">Create collection</button>
     </div>
     {failed && <p role="alert">Unable to load collections.</p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
@@ -34,9 +35,9 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
       {Object.values(catalog.collections).sort((a, b) => a.name.localeCompare(b.name)).map((collection) => {
         const relationCount = collection.fields.filter((field) => field.type === "relation").length;
         return <li key={collection.name}>
-          <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/records`)} type="button">{collection.name}</button>
+          <button className="text-button" onClick={() => navigate({ kind: "records", collection: collection.name })} type="button">{collection.name}</button>
           <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
-          <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collection.name)}/edit`)} type="button">Edit</button>
+          <button className="text-button" onClick={() => navigate({ kind: "collection-edit", collection: collection.name })} type="button">Edit</button>
         </li>;
       })}
     </ul>}

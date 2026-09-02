@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { APIClient, APIClientError } from "../api/client";
 import { CollectionsAPI } from "../api/collections";
 import { RecordsAPI } from "../api/records";
+import { browserHistory, canonicalAdminPath, type AdminHistory } from "../routing/admin-location";
 import type { LoginInput, SessionResponse, SessionState, SetupInput } from "../api/types";
 
 interface SessionContextValue {
@@ -26,21 +27,19 @@ function authenticatedState(session: SessionResponse): SessionState {
   };
 }
 
-function updatePath(state: SessionState): void {
-  const path = state.kind === "setup-required" ? "/admin/setup" :
-    state.kind === "anonymous" ? "/admin/login" :
-      window.location.pathname.startsWith("/admin/") && !["/admin/login", "/admin/setup"].includes(window.location.pathname) ? window.location.pathname : "/admin/collections";
-  if (window.location.pathname !== path) window.history.replaceState(null, "", path);
-}
-
-export function SessionProvider({ children }: { children: ReactNode }) {
+export function SessionProvider({ children, history = browserHistory }: { children: ReactNode; history?: AdminHistory }) {
   const [state, setState] = useState<SessionState>({ kind: "loading" });
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const updatePath = useCallback((next: SessionState) => {
+    const screen = next.kind === "setup-required" ? "setup" : next.kind === "anonymous" ? "login" : "shell";
+    const path = canonicalAdminPath(screen, history.path());
+    if (history.path() !== path) history.replace(path);
+  }, [history]);
   const client = useMemo(() => new APIClient(() => {
     const next: SessionState = { kind: "anonymous" };
     setState(next);
     updatePath(next);
-  }), []);
+  }), [updatePath]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,7 +71,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!(error instanceof APIClientError && error.status === 401)) setSessionError("Unable to check the current session. Please sign in.");
     });
     return () => controller.abort();
-  }, [client]);
+  }, [client, updatePath]);
 
   useEffect(() => {
     if (state.kind !== "authenticated") return;
@@ -85,7 +84,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!Number.isFinite(delay) || delay <= 0) { expire(); return; }
     const timer = window.setTimeout(expire, delay);
     return () => window.clearTimeout(timer);
-  }, [state]);
+  }, [state, updatePath]);
 
   const setup = useCallback(async (input: SetupInput) => {
     const session = await client.setup(input);
@@ -93,7 +92,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessionError(null);
     setState(next);
     updatePath(next);
-  }, [client]);
+  }, [client, updatePath]);
 
   const login = useCallback(async (input: LoginInput) => {
     const session = await client.login(input);
@@ -101,7 +100,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessionError(null);
     setState(next);
     updatePath(next);
-  }, [client]);
+  }, [client, updatePath]);
 
   const logout = useCallback(async () => {
     if (state.kind !== "authenticated") return;
@@ -109,7 +108,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const next: SessionState = { kind: "anonymous" };
     setState(next);
     updatePath(next);
-  }, [client, state]);
+  }, [client, state, updatePath]);
 
   const csrfToken = state.kind === "authenticated" ? state.csrfToken : "";
   const collections = useMemo(() => new CollectionsAPI(client, csrfToken), [client, csrfToken]);

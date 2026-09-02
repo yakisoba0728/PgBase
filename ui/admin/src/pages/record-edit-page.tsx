@@ -10,6 +10,7 @@ import {
 } from "../api/collections";
 import { CreateAttempt, type RecordsAPI, type RecordData, type RecordValue } from "../api/records";
 import { useSession } from "../auth/session";
+import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   encodeRelationValue,
   relationDraftValue,
@@ -201,7 +202,7 @@ function RelationTargetSearch({
   </fieldset>;
 }
 
-export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(path: string): void }) {
+export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(route: AdminRoute): void }) {
   const { collections, records } = useSession();
   const [collection, setCollection] = useState<CollectionDefinition | null>(null);
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
@@ -216,15 +217,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
   const createAttemptRef = useRef(new CreateAttempt());
   const loadedResourceRef = useRef<{ collectionName: string; id?: string } | null>(null);
   const isCreate = id === undefined;
-  const resourceIdentity = `${collectionName}\u0000${id ?? "new"}`;
-  const activeResourceRef = useRef<string | null>(resourceIdentity);
-
-  useEffect(() => {
-    activeResourceRef.current = resourceIdentity;
-    return () => {
-      if (activeResourceRef.current === resourceIdentity) activeResourceRef.current = null;
-    };
-  }, [resourceIdentity]);
+  const active = useRouteGuard(adminRouteIdentity({ kind: "record", collection: collectionName, id }));
 
   useEffect(() => {
     createAttemptRef.current.reset();
@@ -277,7 +270,6 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
 
   async function save() {
     if (!collection) return;
-    const requestedResource = resourceIdentity;
     const nextErrors: Record<string, string> = {};
     const input: RecordData = {};
     for (const field of collection.fields) {
@@ -320,10 +312,10 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         if (etag === null) throw new Error("record ETag is unavailable");
         await records.update(collectionName, id, input, etag);
       }
-      if (activeResourceRef.current !== requestedResource) return;
-      navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records`);
+      if (!active()) return;
+      navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
       else if (caught instanceof APIClientError && caught.status === 412) {
         setStale(true);
@@ -338,22 +330,21 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         if (Object.keys(mapped).length === 0) setMessage("Record input is invalid.");
       } else setMessage("Unable to save the record.");
     } finally {
-      if (activeResourceRef.current === requestedResource) setPending(false);
+      if (active()) setPending(false);
     }
   }
 
   async function remove() {
     if (!id || etag === null || !window.confirm("Delete this record? This cannot be undone.")) return;
-    const requestedResource = resourceIdentity;
     setPending(true);
     setMessage(null);
     try {
       await records.delete(collectionName, id, etag);
-      if (activeResourceRef.current !== requestedResource) return;
-      navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records`);
+      if (!active()) return;
+      navigate({ kind: "records", collection: collectionName });
     }
     catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
       else if (caught instanceof APIClientError && caught.status === 412) {
         setStale(true);
@@ -367,7 +358,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       } else setMessage("Unable to delete the record.");
     }
     finally {
-      if (activeResourceRef.current === requestedResource) setPending(false);
+      if (active()) setPending(false);
     }
   }
 
