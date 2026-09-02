@@ -579,7 +579,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     applyBlocked: editingBlocked || recoveryFailed || (removedFields.length > 0 && !state.confirmed),
     editingBlocked,
     pending: state.pending,
-    error: state.error ?? (storageBlocked ? recoverabilityText : ledgerOutran ? (state.create ? createdText : appliedText) : null),
+    error: storageBlocked ? recoverabilityText : state.error ?? (ledgerOutran ? (state.create ? createdText : appliedText) : null),
     deleteTarget,
     deleteConfirmText: state.deleteConfirmText,
     deleteConfirmed: deleteTarget !== null && state.deleteConfirmText === deleteTarget.collection,
