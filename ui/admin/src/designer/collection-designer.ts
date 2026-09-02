@@ -503,12 +503,23 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       // administrator stays here until the ledger says which it was.
       if (outcome.kind === "undecided") { update(identity, { undecided: outcome.operationId }); return; }
       // The server agreed with the draft it was sent, so that draft is the saved
-      // one. A draft edited since is unsaved work of its own, so it keeps the
-      // departure guard and this page instead of leaving as if it went too.
+      // one, and the collection it answers with replaces the definition an edit
+      // page measures its data-loss warning against. A create measures against
+      // none, so it keeps the null it started with rather than adopting the
+      // collection it just made.
       const outran = live.current !== signature;
-      update(identity, { pristine: signature, error: outran ? (state.create ? createdText : appliedText) : null });
-      if (outran) return;
-      savedDraft();
+      update(identity, {
+        pristine: signature,
+        definition: state.create ? null : outcome.definition ?? state.definition,
+        error: outran ? (state.create ? createdText : appliedText) : null,
+      });
+      // A draft edited since is unsaved work of its own, so it keeps this page
+      // instead of leaving as if it went too. A replay answers with a receipt
+      // and no collection, leaving an edit page nothing to re-measure against,
+      // so there the draft keeps the departure guard and is asked about rather
+      // than kept on a page whose warning would still read the old collection.
+      if (outran && (state.create || outcome.definition !== undefined)) return;
+      if (!outran) savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
       update(identity, applyFailure(caught, state.create));
