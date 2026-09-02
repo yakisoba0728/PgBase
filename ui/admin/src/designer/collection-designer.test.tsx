@@ -1120,6 +1120,30 @@ describe("CollectionDesigner operation recovery", () => {
     expect(reloaded.result.current.recovery?.status).toBe("failed");
   });
 
+  it("does not release this tab's dirty draft when another tab leaves a pending operation", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    const second = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    await ready(second.result);
+    act(() => first.result.current.editField(0, { set: "name", value: "headline" }));
+    await waitFor(() => expect(first.ledger.held()).toBe(true));
+
+    plan(second.script, "second");
+    const application = deferredStep<ScriptedApply | undefined>();
+    second.script.apply.push(application.step);
+    act(() => second.result.current.requestPreview());
+    await waitFor(() => expect(second.result.current.preview).not.toBeNull());
+    act(() => second.result.current.requestApply());
+    await waitFor(() => expect(localStorage).toHaveLength(1));
+
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.editField(0, { set: "name", value: "headline2" }));
+    await waitFor(() => expect(first.result.current.recovery).not.toBeNull());
+    expect(first.result.current.fields[0].name).toBe("headline2");
+    expect(first.ledger.held()).toBe(true);
+    await act(async () => application.settle({ value: { status: "unknown" } }));
+  });
+
   it("abandons a receipt only after the maximum server apply window has passed", async () => {
     const first = open({ kind: "edit", collection: "posts" });
     await ready(first.result);
