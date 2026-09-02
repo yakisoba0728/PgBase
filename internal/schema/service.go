@@ -95,51 +95,6 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	return plan, nil
 }
 
-func (s *Service) PlanCreate(ctx context.Context, input CreateCollectionInput) (Plan, error) {
-	return s.Preview(ctx, NewCreateChange(input))
-}
-
-func (s *Service) PlanUpdate(ctx context.Context, input UpdateCollectionInput) (Plan, error) {
-	return s.Preview(ctx, NewUpdateChange(input))
-}
-
-func (s *Service) PlanDelete(ctx context.Context, name string) (plan Plan, err error) {
-	return s.Preview(ctx, NewDeleteChange(name))
-}
-
-func (s *Service) ApplyCreate(ctx context.Context, input CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (created Collection, err error) {
-	result, err := s.Apply(ctx, LegacyApply(
-		NewCreateChange(input),
-		Plan{Checksum: checksum, BaseVersion: baseVersion},
-		administratorID,
-	))
-	if err != nil {
-		return Collection{}, err
-	}
-	return result.Collection, nil
-}
-
-func (s *Service) ApplyUpdate(ctx context.Context, input UpdateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (updated Collection, err error) {
-	result, err := s.Apply(ctx, LegacyApply(
-		NewUpdateChange(input),
-		Plan{Checksum: checksum, BaseVersion: baseVersion},
-		administratorID,
-	))
-	if err != nil {
-		return Collection{}, err
-	}
-	return result.Collection, nil
-}
-
-func (s *Service) ApplyDelete(ctx context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) error {
-	_, err := s.Apply(ctx, LegacyApply(
-		NewDeleteChange(name),
-		Plan{Checksum: checksum, BaseVersion: baseVersion},
-		administratorID,
-	))
-	return err
-}
-
 func validateRequiredRelationAdds(
 	ctx context.Context,
 	db database.DBTX,
