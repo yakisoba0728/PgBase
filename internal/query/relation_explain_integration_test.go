@@ -14,8 +14,12 @@ import (
 )
 
 const (
-	r0ExplainRootRows               = 100_001
-	r0ExplainMinimumExecutionBlocks = 900
+	r0ExplainRootRows = 100_001
+	// The full-sort plan this replaced read every root row and touched over
+	// this many buffers; the page-index scan reads a single page's worth.
+	r0ExplainFullSortExecutionBlocks = 900
+	r0ExplainMaximumExecutionBlocks  = 100
+	r0ExplainMaximumScannedRows      = 200
 )
 
 type r0ExplainEnvelope struct {
@@ -33,7 +37,7 @@ type r0ExplainNode struct {
 	Plans            []r0ExplainNode `json:"Plans"`
 }
 
-func TestCurrentRelationFilterRootDescendingSortUsesFullSortInsteadOfPageIndex(t *testing.T) {
+func TestRelationFilterWithRootDescendingSortUsesThePageIndexBackwardScan(t *testing.T) {
 	_, pool, schemas, records := newR0QueryServiceTest(t)
 	ctx := context.Background()
 	target := applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{Name: "r0_explain_targets"})
@@ -85,9 +89,12 @@ func TestCurrentRelationFilterRootDescendingSortUsesFullSortInsteadOfPageIndex(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantOrder := `ORDER BY "rq_root"."created_at" DESC NULLS LAST, "rq_root"."id" DESC NULLS LAST`
+	// created_at is a NOT NULL system column, so descending pages can take the
+	// btree's own NULLS FIRST placement. That is what lets the planner read the
+	// (created_at, id) page index backward instead of sorting the collection.
+	wantOrder := `ORDER BY "rq_root"."created_at" DESC NULLS FIRST, "rq_root"."id" DESC NULLS FIRST`
 	if !strings.Contains(statement.SQL, wantOrder) {
-		t.Fatalf("root DESC SQL = %q, want current order %q", statement.SQL, wantOrder)
+		t.Fatalf("root DESC SQL = %q, want order %q", statement.SQL, wantOrder)
 	}
 
 	connection, err := pool.Acquire(ctx)
@@ -108,22 +115,34 @@ func TestCurrentRelationFilterRootDescendingSortUsesFullSortInsteadOfPageIndex(t
 	if err := json.Unmarshal(raw, &explained); err != nil || len(explained) != 1 {
 		t.Fatalf("decode EXPLAIN = %v envelopes=%d raw=%s", err, len(explained), raw)
 	}
+	// Resolve the page index by its definition rather than by name, so this
+	// asserts the physical (created_at, id) index and not a naming rule.
+	var pageIndex string
+	if err := connection.QueryRow(ctx,
+		`SELECT indexname FROM pg_indexes WHERE schemaname = 'app' AND tablename = $1
+			AND indexdef LIKE '%(created_at, id)'`, root.TableName).Scan(&pageIndex); err != nil {
+		t.Fatal(err)
+	}
 	top := explained[0].Plan
-	sortNode := r0FindExplainNode(top, func(node r0ExplainNode) bool { return node.NodeType == "Sort" })
-	rootScan := r0FindExplainNode(top, func(node r0ExplainNode) bool {
-		return node.NodeType == "Seq Scan" && node.RelationName == root.TableName
+	backward := r0FindExplainNode(top, func(node r0ExplainNode) bool {
+		return node.RelationName == root.TableName && node.IndexName == pageIndex &&
+			node.ScanDirection == "Backward"
 	})
-	if sortNode == nil || rootScan == nil || rootScan.ActualRows != float64(r0ExplainRootRows) {
-		t.Fatalf("current plan missing full Sort/root Seq Scan: %#v", top)
+	if backward == nil {
+		t.Fatalf("plan did not scan %s backward: %#v", pageIndex, top)
 	}
-	if backward := r0FindExplainNode(top, func(node r0ExplainNode) bool {
-		return node.RelationName == root.TableName && node.IndexName != "" && node.ScanDirection == "Backward"
-	}); backward != nil {
-		t.Fatalf("current plan unexpectedly used backward root index: %#v", *backward)
+	if backward.ActualRows > r0ExplainMaximumScannedRows {
+		t.Fatalf("backward scan read %v rows, want at most %d of the %d-row fixture",
+			backward.ActualRows, r0ExplainMaximumScannedRows, r0ExplainRootRows)
 	}
-	if blocks := top.SharedHitBlocks + top.SharedReadBlocks; blocks < r0ExplainMinimumExecutionBlocks {
-		t.Fatalf("current execution blocks = %d, want at least fixed-fixture baseline %d; plan=%#v",
-			blocks, r0ExplainMinimumExecutionBlocks, top)
+	if sortNode := r0FindExplainNode(top, func(node r0ExplainNode) bool {
+		return node.NodeType == "Sort"
+	}); sortNode != nil {
+		t.Fatalf("plan still sorts instead of reading the page index in order: %#v", *sortNode)
+	}
+	if blocks := top.SharedHitBlocks + top.SharedReadBlocks; blocks > r0ExplainMaximumExecutionBlocks {
+		t.Fatalf("execution blocks = %d, want at most %d; the full-sort plan needed over %d; plan=%#v",
+			blocks, r0ExplainMaximumExecutionBlocks, r0ExplainFullSortExecutionBlocks, top)
 	}
 }
 
