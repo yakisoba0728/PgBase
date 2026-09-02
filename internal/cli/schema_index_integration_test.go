@@ -70,9 +70,9 @@ func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {
 	instanceID := "0199c300-0000-7000-8000-000000000001"
 	const writerGeneration = releasephase.SchemaCompilerGeneration
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.schema_writer_leases
-		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
+		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at, writer_protocol)
 		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
-			transaction_timestamp() + interval '90 seconds')`,
+			transaction_timestamp() + interval '90 seconds', 1)`,
 		instanceID, writerGeneration); err != nil {
 		t.Fatal(err)
 	}

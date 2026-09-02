@@ -77,7 +77,7 @@ func TestCatalogPreflightPublishesSnapshotThatListenerReuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Release()
-	listener := NewListener(pool, cache, nil)
+	listener := NewListener(pool, cache, nil, service)
 	if _, err := listener.reload(context.Background(), connection.Conn()); err != nil {
 		t.Fatalf("listener reload: %v", err)
 	}

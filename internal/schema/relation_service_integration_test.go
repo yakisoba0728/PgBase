@@ -115,7 +115,8 @@ func TestRelationServiceResolvesSelfRelationAndPublishesListenerCatalog(t *testi
 	ctx := context.Background()
 	_, service, administratorID := newSchemaServiceTest(t)
 	listenerCache := &Cache{}
-	listener := NewListener(service.pool, listenerCache, nil)
+	listener := NewListener(service.pool, listenerCache, nil,
+		NewService(service.pool, listenerCache, nil))
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- listener.Run(runCtx) }()

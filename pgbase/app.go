@@ -269,7 +269,7 @@ func newWithCatalogPreflight(
 		})},
 	}}
 	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
-	schemaListener := schema.NewListener(pool, schemaCache, metrics)
+	schemaListener := schema.NewListener(pool, schemaCache, metrics, schemaService)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
 	if err != nil {

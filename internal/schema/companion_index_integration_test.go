@@ -550,7 +550,8 @@ func leaseSchemaWriterAt(t *testing.T, pool *database.Pool, writer *Service, ver
 		t.Fatal(err)
 	}
 	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return writer.refreshSchemaWriterLease(ctx, tx, version)
+		writer.compilerVersion = version
+		return writer.refreshSchemaWriterLease(ctx, tx)
 	}); err != nil {
 		t.Fatalf("record schema writer lease at generation %d: %v", version, err)
 	}
@@ -617,9 +618,8 @@ func TestCompanionIndexActivationRefusesTheAmbiguousWriterGeneration(t *testing.
 
 // The migration-9 preparatory artifact can run on either side of M, but it is
 // not the feature artifact. It identifies itself as the last v1-only compiler,
-// refuses to open a companion rollout, and keeps issuing v1 even if it is used
-// as the post-M deployment rollback target after a later artifact left ready
-// capability state behind.
+// refuses to open a companion rollout, and keeps issuing v1. A feature artifact
+// must close an active rollout before P0 can serve as the deploy rollback.
 func TestSchemaCompilerGenerationP0KeepsTheCompanionFeatureOff(t *testing.T) {
 	if companionFeatureArtifact(t) {
 		return
@@ -654,6 +654,12 @@ func TestSchemaCompilerGenerationP0KeepsTheCompanionFeatureOff(t *testing.T) {
 	}
 	if issued.Checksum != v1.Checksum {
 		t.Fatalf("P0 issued plan %q, want v1 %q", issued.Checksum, v1.Checksum)
+	}
+	if _, err := service.Apply(ctx, LegacyApply(change, issued, administratorID)); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("P0 apply before capability rollback = %v, want ErrCompanionIndexFleet", err)
+	}
+	if _, err := service.RollbackCompanionIndexes(ctx); err != nil {
+		t.Fatalf("roll back companion capability for P0 deploy: %v", err)
 	}
 	applyChange(t, service, change, administratorID)
 	var compilerVersion int16

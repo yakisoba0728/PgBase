@@ -265,7 +265,7 @@ func (s *Service) executeClaimedOperation(
 	// A schema writer that never proves its version also never mutates the
 	// catalog, so an activation reading unexpired leases sees every writer that
 	// could still be holding an old plan.
-	if err := s.refreshSchemaWriterLease(ctx, tx, schemaCompilerVersion); err != nil {
+	if err := s.refreshSchemaWriterLease(ctx, tx); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}
 	started := time.Now()

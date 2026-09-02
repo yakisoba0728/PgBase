@@ -37,12 +37,11 @@ type Service struct {
 	beforeDDL        func(context.Context, pgx.Tx) error
 	catalogWireLimit int
 
-	// Identity for this process's durable schema-writer lease. It is minted on
-	// first use rather than at construction so a service that never writes the
-	// catalog never claims to be a live schema writer.
-	instanceOnce sync.Once
-	instanceID   uuid.UUID
-	instanceErr  error
+	// The listener heartbeat and Apply fence share one immutable writer identity.
+	instanceOnce    sync.Once
+	instanceID      uuid.UUID
+	instanceErr     error
+	compilerVersion int16
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
@@ -59,6 +58,7 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 		now:              time.Now,
 		commitTx:         func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) },
 		catalogWireLimit: maximumCatalogWireBytes,
+		compilerVersion:  schemaCompilerVersion,
 	}
 }
 

@@ -14,9 +14,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/releasephase"
 )
 
-// schemaCompilerVersion is the durable generation this binary records.
-// This P0 artifact stays at generation 2 and issues v1 only. Migration 9 demotes
-// the old proof before the final generation-3 artifact can activate companions.
+// schemaCompilerVersion is 2 in feature-off P0 and 3 in the final artifact.
 const schemaCompilerVersion int16 = releasephase.SchemaCompilerGeneration
 
 // companionIndexAdvisoryKey serializes concurrent index maintenance. It is a
@@ -24,8 +22,7 @@ const schemaCompilerVersion int16 = releasephase.SchemaCompilerGeneration
 // cannot run inside a transaction block.
 const companionIndexAdvisoryKey int64 = 0x7067626173650008
 
-// schemaWriterLeaseTTL is the lease window. The v8 timeline check caps expiry at
-// two minutes past the heartbeat, so this leaves room for one missed refresh.
+// The v8 constraint caps this below two minutes from the heartbeat.
 const schemaWriterLeaseTTL = 90 * time.Second
 
 // CompanionIndexState is the durable rollout state of the nullable-DESC
@@ -138,9 +135,6 @@ type companionIndexObserved struct {
 }
 
 func (s *Service) instance() (uuid.UUID, error) {
-	if err := s.ready(); err != nil {
-		return uuid.Nil, err
-	}
 	s.instanceOnce.Do(func() {
 		s.instanceID, s.instanceErr = uuid.NewV7()
 	})
@@ -163,10 +157,8 @@ func (s *Service) CompanionIndexStatus(ctx context.Context) (CompanionIndexStatu
 	return status, err
 }
 
-// SchemaWriterFleet lists the unexpired leases an operator must confirm before
-// activation. It is a read: the transition re-reads the same rows under its own
-// locks, so a fleet that changes in between fails the activation rather than
-// slipping through.
+// SchemaWriterFleet lists the leases an operator confirms before activation.
+// The transition re-reads them under lock, rejecting a changed fleet.
 func (s *Service) SchemaWriterFleet(ctx context.Context) ([]SchemaWriterLease, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
@@ -213,13 +205,10 @@ func readSchemaWriterLeases(ctx context.Context, db database.DBTX) ([]SchemaWrit
 
 func companionIndexInstalled(ctx context.Context, db database.DBTX) (bool, error) {
 	var installed bool
-	// The column test doubles as the table test, since a missing relation makes
-	// attrelid null and matches nothing. A capability predating migration 9 has no
-	// proved generation to read, so it counts as absent and the pre-migration rule --
-	// no readable capability means v1 -- covers every older history at once.
-	if err := db.QueryRow(ctx, `select to_regclass('pgbase_meta.schema_writer_leases') is not null
-		and exists (select 1 from pg_attribute where attname = 'proven_compiler_version'
-			and attrelid = to_regclass('pgbase_meta.schema_companion_index_capability'))`).Scan(&installed); err != nil {
+	// Missing relations yield a null attrelid, so the v9 column is the whole test.
+	if err := db.QueryRow(ctx, `select exists (select 1 from pg_attribute
+		where attname = 'proven_compiler_version' and attrelid =
+		to_regclass('pgbase_meta.schema_companion_index_capability'))`).Scan(&installed); err != nil {
 		return false, fmt.Errorf("inspect schema companion index installation: %w", err)
 	}
 	return installed, nil
@@ -260,32 +249,48 @@ func scanCompanionIndexStatus(row pgx.Row) (CompanionIndexStatus, error) {
 	return status, nil
 }
 
-// refreshSchemaWriterLease records this process as a live schema writer at a
-// compiler version. It runs inside the caller's transaction so a schema write and
-// its version claim commit together: a writer that never proves its version also
-// never mutates the catalog. The version is a parameter with one production caller
-// passing this binary's own, so a test can stand up an older writer through this
-// statement instead of hand-writing a row no shipped binary would have produced.
-func (s *Service) refreshSchemaWriterLease(ctx context.Context, tx pgx.Tx, version int16) error {
-	installed, err := companionIndexInstalled(ctx, tx)
-	if err != nil {
-		return err
+// refreshSchemaWriterLease joins heartbeat or schema DDL to this process's
+// durable generation claim. The shared transaction fences old DDL at activation.
+func (s *Service) refreshSchemaWriterLease(ctx context.Context, tx pgx.Tx) error {
+	version := s.compilerVersion
+	var installed, generationGate bool
+	if err := tx.QueryRow(ctx, `select to_regclass('pgbase_meta.schema_writer_leases') is not null,
+		exists (select 1 from pg_attribute where attname = 'proven_compiler_version'
+			and attrelid = to_regclass('pgbase_meta.schema_companion_index_capability'))`).
+		Scan(&installed, &generationGate); err != nil {
+		return fmt.Errorf("inspect schema writer lease installation: %w", err)
 	}
 	if !installed {
 		return nil
+	}
+	if generationGate {
+		var admitted bool
+		if err := tx.QueryRow(ctx, `select state = 'pending' or proven_compiler_version = $1
+			from pgbase_meta.schema_companion_index_capability where singleton for share`, version).
+			Scan(&admitted); err != nil {
+			return fmt.Errorf("read schema writer generation fence: %w", err)
+		}
+		if !admitted {
+			return ErrCompanionIndexFleet
+		}
 	}
 	instanceID, err := s.instance()
 	if err != nil {
 		return err
 	}
+	protocolColumn, protocolValue, protocolUpdate := "", "", ""
+	if generationGate {
+		protocolColumn, protocolValue = ", writer_protocol", ", 1"
+		protocolUpdate = ", writer_protocol = excluded.writer_protocol"
+	}
 	_, err = tx.Exec(ctx, `insert into pgbase_meta.schema_writer_leases
-		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
+		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at`+protocolColumn+`)
 		values ($1, $2, transaction_timestamp(), transaction_timestamp(),
-			transaction_timestamp() + $3::interval)
+			transaction_timestamp() + $3::interval`+protocolValue+`)
 		on conflict (instance_id) do update set
 			compiler_version = excluded.compiler_version,
 			heartbeat_at = excluded.heartbeat_at,
-			lease_expires_at = excluded.lease_expires_at`,
+			lease_expires_at = excluded.lease_expires_at`+protocolUpdate,
 		instanceID, version, schemaWriterLeaseTTL.String())
 	if err != nil {
 		return fmt.Errorf("refresh schema writer lease: %w", err)
@@ -432,13 +437,9 @@ func lockCompanionCapability(ctx context.Context, tx pgx.Tx) (CompanionIndexStat
 	return status, version, nil
 }
 
-// verifySchemaWriterFleet requires the durable leases to be exactly the operator
-// proof and every one of them to be at this compiler version or newer. Because
-// instance_id is a primary key the live leases are distinct IDs in byte order,
-// so a sorted proof that lines up with them position by position is the same
-// set, and a repeated witness leaves too few distinct values to line up at all.
-// Walking the leases rather than the proof is what makes "every live writer"
-// literal. An empty fleet is refused: it proves nothing.
+// verifySchemaWriterFleet requires the exact, nonempty lease set at this
+// compiler generation. Sorting primary-key UUIDs makes duplicates and omissions
+// fail the position-by-position comparison.
 func verifySchemaWriterFleet(ctx context.Context, tx pgx.Tx, proof SchemaWriterFleetProof) error {
 	live, err := readSchemaWriterLeases(ctx, tx)
 	if err != nil {
@@ -450,7 +451,7 @@ func verifySchemaWriterFleet(ctx context.Context, tx pgx.Tx, proof SchemaWriterF
 	witnesses := slices.Clone(proof.Instances)
 	slices.SortFunc(witnesses, func(first, second uuid.UUID) int { return bytes.Compare(first[:], second[:]) })
 	for index, lease := range live {
-		if witnesses[index] != lease.InstanceID || lease.CompilerVersion < schemaCompilerVersion {
+		if witnesses[index] != lease.InstanceID || lease.CompilerVersion != schemaCompilerVersion {
 			return ErrCompanionIndexFleet
 		}
 	}

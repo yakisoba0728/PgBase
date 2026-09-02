@@ -20,6 +20,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 	"github.com/webisnoteasy/PgBase/migrations/system"
@@ -218,7 +219,7 @@ func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T
 		{name: "v6 rejected", through: 6},
 		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
 		{name: "v7 rejected", through: 7},
-		{name: "v8 rejected", through: 8},
+		{name: "v8 accepted", through: 8, wantAccept: true},
 		{name: "v9 accepted", through: 9, wantAccept: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v8 rejected", through: 8, dirty: true},
@@ -318,6 +319,26 @@ func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T
 						t.Fatal("app with feature history did not become ready")
 					}
 					time.Sleep(10 * time.Millisecond)
+				}
+				var schemaWriters int
+				if err := app.pool.QueryRow(context.Background(), `select count(*)
+					from pgbase_meta.schema_writer_leases where compiler_version = $1
+					and lease_expires_at > clock_timestamp()`, releasephase.SchemaCompilerGeneration).
+					Scan(&schemaWriters); err != nil {
+					_ = app.Close(context.Background())
+					t.Fatal(err)
+				}
+				if schemaWriters != 1 {
+					_ = app.Close(context.Background())
+					t.Fatalf("ready app schema-writer leases = %d, want 1", schemaWriters)
+				}
+				if testCase.through == 9 {
+					var protocol int16
+					if err := app.pool.QueryRow(context.Background(), `select writer_protocol
+						from pgbase_meta.schema_writer_leases`).Scan(&protocol); err != nil || protocol != 1 {
+						_ = app.Close(context.Background())
+						t.Fatalf("ready app writer protocol = %d, %v", protocol, err)
+					}
 				}
 				// Remove the required history, not the top one: at v8 the top row
 				// is the optional migration, and dropping it leaves the clean v7

@@ -6,6 +6,22 @@ FROM pgbase_meta.schema_state
 WHERE singleton
 FOR UPDATE;
 
+-- A generation number alone cannot fence an already-running pre-P0 binary: its
+-- old lease upsert omits writer_protocol. Preserve existing leases while an
+-- exclusive table lock excludes those upserts, then require an explicit protocol
+-- token with no default. Their original expiry keeps every live generation-2
+-- writer visible to activation. PostgreSQL validates the proposed INSERT before
+-- taking ON CONFLICT's update path, so an old process that wakes after M receives
+-- a NOT NULL violation inside its schema-write transaction before DDL can commit.
+LOCK TABLE pgbase_meta.schema_writer_leases IN ACCESS EXCLUSIVE MODE;
+ALTER TABLE pgbase_meta.schema_writer_leases
+	ADD COLUMN writer_protocol smallint;
+UPDATE pgbase_meta.schema_writer_leases SET writer_protocol = 1;
+ALTER TABLE pgbase_meta.schema_writer_leases
+	ALTER COLUMN writer_protocol SET NOT NULL,
+	ADD CONSTRAINT schema_writer_leases_protocol_check
+		CHECK (writer_protocol = 1);
+
 -- Which compiler generation proved this rollout, recorded at the moment the
 -- fleet was proved.
 --

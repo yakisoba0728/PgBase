@@ -4,9 +4,11 @@ package system_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
@@ -426,6 +428,67 @@ func TestSchemaCompilerGenerationConstraintTiesTheProofToTheState(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			requireSQLState(t, ctx, pool, statement, "23514")
 		})
+	}
+}
+
+// A pre-P0 process can remain alive across M even after its last generation-2
+// lease expires. Its old upsert must fail at the database seam before that
+// process can commit schema DDL under a generation-3 capability.
+func TestSchemaCompilerGenerationMigrationFencesThePreP0WriterProtocol(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	const oldUpsert = `INSERT INTO pgbase_meta.schema_writer_leases
+		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at)
+		VALUES ('019551d0-e9c0-7000-8000-000000000829', 2,
+			transaction_timestamp(), transaction_timestamp(),
+			transaction_timestamp() + interval '90 seconds')
+		ON CONFLICT (instance_id) DO UPDATE SET
+			heartbeat_at = excluded.heartbeat_at,
+			lease_expires_at = excluded.lease_expires_at`
+	if _, err := pool.Exec(ctx, oldUpsert); err != nil {
+		t.Fatalf("seed pre-P0 lease: %v", err)
+	}
+	if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+		t.Fatalf("apply migration 9: %v", err)
+	}
+	var leases, protocol int
+	if err := pool.QueryRow(ctx, `SELECT count(*), min(writer_protocol)
+		FROM pgbase_meta.schema_writer_leases`).Scan(&leases, &protocol); err != nil {
+		t.Fatal(err)
+	}
+	if leases != 1 || protocol != 1 {
+		t.Fatalf("migration 9 preserved leases = %d at protocol %d", leases, protocol)
+	}
+	requireSQLState(t, ctx, pool, oldUpsert, "23502")
+	err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, oldUpsert); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `CREATE TABLE public.pre_p0_schema_ddl (id bigint PRIMARY KEY)`)
+		return err
+	})
+	requireErrorSQLState(t, err, "23502")
+	var catalogChanged bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.pre_p0_schema_ddl') IS NOT NULL`).Scan(&catalogChanged); err != nil {
+		t.Fatal(err)
+	}
+	if catalogChanged {
+		t.Fatal("pre-P0 schema DDL committed after migration 9")
+	}
+	for _, invalid := range []int{0, 2} {
+		requireSQLState(t, ctx, pool, fmt.Sprintf(`UPDATE pgbase_meta.schema_writer_leases
+			SET writer_protocol = %d`, invalid), "23514")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO pgbase_meta.schema_writer_leases
+		(instance_id, compiler_version, started_at, heartbeat_at, lease_expires_at, writer_protocol)
+		VALUES ('019551d0-e9c0-7000-8000-000000000829', 2,
+			transaction_timestamp(), transaction_timestamp(),
+			transaction_timestamp() + interval '90 seconds', 1)
+		ON CONFLICT (instance_id) DO UPDATE SET writer_protocol = excluded.writer_protocol`); err != nil {
+		t.Fatalf("register P0 writer protocol: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT writer_protocol FROM pgbase_meta.schema_writer_leases
+		WHERE instance_id = '019551d0-e9c0-7000-8000-000000000829'`).Scan(&protocol); err != nil || protocol != 1 {
+		t.Fatalf("P0 writer protocol = %d, %v", protocol, err)
 	}
 }
 
