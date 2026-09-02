@@ -333,7 +333,7 @@ func (a *App) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	backgroundDone, activated := a.activateBackground(ctx, startupDone)
+	backgroundDone, activated := a.activate(ctx, nil, nil, startupDone)
 	if !activated {
 		return errAppClosed
 	}
@@ -369,45 +369,39 @@ func (a *App) Run(ctx context.Context) error {
 		return errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
 	}
 	serverDone := make(chan error, 1)
-	backgroundDone, activated := a.activateStartup(ctx, listener, serverDone, startupDone)
+	backgroundDone, activated := a.activate(ctx, listener, serverDone, startupDone)
 	if !activated {
 		return errAppClosed
 	}
 
 	select {
 	case serverErr := <-serverDone:
-		a.readiness.setAccepting(context.Background(), false)
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(serverErr, closeErr)
+		return a.shutdown(serverErr, nil)
 	case <-backgroundDone:
-		a.readiness.setAccepting(context.Background(), false)
 		a.closeMu.Lock()
 		backgroundErr := a.backgroundErr
 		a.closeMu.Unlock()
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		serverErr := waitForServer(closeCtx, serverDone)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(backgroundErr, closeErr, serverErr)
+		return errors.Join(backgroundErr, a.shutdown(nil, serverDone))
 	case <-ctx.Done():
-		a.readiness.setAccepting(context.Background(), false)
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		serverErr := waitForServer(closeCtx, serverDone)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(closeErr, serverErr)
+		return a.shutdown(nil, serverDone)
 	}
+}
+
+// shutdown is the one exit Run takes, whatever ended it: readiness goes false
+// so nothing new arrives, Close drains HTTP before it cancels background work,
+// and only then is the HTTP server result collected.
+func (a *App) shutdown(serverErr error, awaitServer <-chan error) error {
+	a.readiness.setAccepting(context.Background(), false)
+	closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
+	defer cancel()
+	closeErr := a.Close(closeCtx)
+	if awaitServer != nil {
+		serverErr = waitForServer(closeCtx, awaitServer)
+	}
+	if errors.Is(serverErr, http.ErrServerClosed) {
+		serverErr = nil
+	}
+	return errors.Join(serverErr, closeErr)
 }
 
 func (a *App) beginStartup() (chan struct{}, error) {
@@ -428,32 +422,23 @@ func (a *App) beginStartup() (chan struct{}, error) {
 	}
 }
 
-func (a *App) activateStartup(ctx context.Context, listener net.Listener, serverDone chan<- error, startupDone chan struct{}) (<-chan struct{}, bool) {
+// activate publishes the running lifecycle under one lock so a concurrent
+// Close either wins outright or waits for a fully started application. A nil
+// listener is the caller-owned Start path, which serves no pgBase listener.
+func (a *App) activate(ctx context.Context, listener net.Listener, serverDone chan<- error, startupDone chan struct{}) (<-chan struct{}, bool) {
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
 	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
-		_ = listener.Close()
+		if listener != nil {
+			_ = listener.Close()
+		}
 		a.completeStartupLocked(startupDone)
 		return nil, false
 	}
 	backgroundDone := a.startBackground(ctx)
-	go func() {
-		serverDone <- a.httpServer.Serve(listener)
-	}()
-	a.readiness.setAccepting(ctx, true)
-	a.lifecycleState = appLifecycleRunning
-	a.completeStartupLocked(startupDone)
-	return backgroundDone, true
-}
-
-func (a *App) activateBackground(ctx context.Context, startupDone chan struct{}) (<-chan struct{}, bool) {
-	a.lifecycleMu.Lock()
-	defer a.lifecycleMu.Unlock()
-	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
-		a.completeStartupLocked(startupDone)
-		return nil, false
+	if listener != nil {
+		go func() { serverDone <- a.httpServer.Serve(listener) }()
 	}
-	backgroundDone := a.startBackground(ctx)
 	a.readiness.setAccepting(ctx, true)
 	a.lifecycleState = appLifecycleRunning
 	a.completeStartupLocked(startupDone)
