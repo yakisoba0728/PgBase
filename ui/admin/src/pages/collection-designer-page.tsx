@@ -41,9 +41,9 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
     <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
       {designer.create && <>
         <label htmlFor="collection-name">Collection name</label>
-        <input id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
+        <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
-      <fieldset>
+      <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor
           field={field}
@@ -57,9 +57,9 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
           relationTargetsLoading={designer.relationTargetsLoading}
           showRequiredRelationMigration={designer.isNewField(field.name)}
         />)}
-        <button className="secondary" onClick={designer.addField} type="button">Add field</button>
+        <button className="secondary" disabled={designer.editingBlocked} onClick={designer.addField} type="button">Add field</button>
       </fieldset>
-      <button disabled={designer.pending} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</button>
+      <button disabled={designer.pending || designer.editingBlocked} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</button>
     </form>
     {designer.preview && <section className="preview" aria-label={designer.create ? "Collection preview" : "Collection change preview"}>
       <h3>Server preview</h3>
@@ -80,16 +80,16 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
       <h3>Danger zone</h3>
       {designer.deleteError && <p role="alert">{designer.deleteError}</p>}
       {designer.deleteTarget === null
-        ? <button className="danger" disabled={designer.deletePending} onClick={designer.requestDeletePlan} type="button">{designer.deletePending ? "Preparing…" : "Delete collection"}</button>
+        ? <button className="danger" disabled={designer.deletePending || designer.editingBlocked} onClick={designer.requestDeletePlan} type="button">{designer.deletePending ? "Preparing…" : "Delete collection"}</button>
         : <div>
           <p>This permanently drops the table and all records.</p>
           <p>Deleting {designer.deleteTarget.collection} · physical table {designer.deleteTarget.tableName} · catalog version {designer.deleteTarget.baseVersion}</p>
           <h4>SQL</h4>
           <pre>{designer.deleteTarget.sql.join("\n\n")}</pre>
           <label htmlFor="delete-confirmation">Type {designer.deleteTarget.collection} to confirm</label>
-          <input autoComplete="off" id="delete-confirmation" onChange={(event) => designer.confirmDeleteName(event.target.value)} value={designer.deleteConfirmText} />
-          <button className="danger" disabled={designer.deletePending || !designer.deleteConfirmed} onClick={designer.requestDelete} type="button">{designer.deletePending ? "Deleting…" : "Confirm delete"}</button>
-          <button className="secondary" disabled={designer.deletePending} onClick={designer.cancelDelete} type="button">Cancel</button>
+          <input autoComplete="off" disabled={designer.editingBlocked} id="delete-confirmation" onChange={(event) => designer.confirmDeleteName(event.target.value)} value={designer.deleteConfirmText} />
+          <button className="danger" disabled={designer.deletePending || designer.editingBlocked || !designer.deleteConfirmed} onClick={designer.requestDelete} type="button">{designer.deletePending ? "Deleting…" : "Confirm delete"}</button>
+          <button className="secondary" disabled={designer.deletePending || designer.editingBlocked} onClick={designer.cancelDelete} type="button">Cancel</button>
         </div>}
     </section>}
   </section>;

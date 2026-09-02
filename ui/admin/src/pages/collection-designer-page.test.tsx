@@ -166,6 +166,8 @@ describe("collection designer page", () => {
         baseVersion: 7, committedVersion: 8, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:31Z",
       },
     });
+    harness.script.catalog.push({ value: { version: 8, collections: [posts] } });
+    harness.script.list.push({ value: { items: [] } });
     const user = userEvent.setup();
     renderAdmin(harness);
 
@@ -173,7 +175,8 @@ describe("collection designer page", () => {
     await user.click(screen.getByRole("button", { name: "Preview change" }));
     await user.click(await screen.findByRole("button", { name: "Apply change" }));
 
-    expect(await screen.findByText(/The change was applied\./)).toBeVisible();
+    await waitFor(() => expect(harness.history.path()).toBe("/admin/collections/posts/records"));
+    expect(await screen.findByText("No records yet.")).toBeVisible();
   });
 
   it("says the draft on screen is unsaved beside the commit the ledger reports", async () => {
