@@ -92,6 +92,44 @@ func TestSchemaOperationStatusScopesTheReceiptToTheCurrentAdministrator(t *testi
 	}
 }
 
+func TestSchemaOperationRecoveryResponsesAreNeverCacheable(t *testing.T) {
+	tests := []struct {
+		name     string
+		schemas  *fakeSchemaService
+		request  *http.Request
+		wantCode int
+	}{
+		{
+			name: "missing receipt", schemas: &fakeSchemaService{statusErr: schema.ErrOperationNotFound},
+			request: operationRequest(http.MethodGet, "/api/admin/schema-operations/"+testOperationID), wantCode: http.StatusNotFound,
+		},
+		{
+			name: "malformed receipt id", schemas: &fakeSchemaService{},
+			request: operationRequest(http.MethodGet, "/api/admin/schema-operations/not-a-uuid"), wantCode: http.StatusNotFound,
+		},
+		{
+			name: "invalid history limit", schemas: &fakeSchemaService{},
+			request: operationRequest(http.MethodGet, "/api/admin/schema-operations?limit=101"), wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "unauthenticated recovery", schemas: &fakeSchemaService{},
+			request: httptest.NewRequest(http.MethodGet, "/api/admin/schema-operations/"+testOperationID, nil), wantCode: http.StatusUnauthorized,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			schemaOperationHandler(t, test.schemas).ServeHTTP(response, test.request)
+			if response.Code != test.wantCode {
+				t.Fatalf("status = %d, want %d body = %s", response.Code, test.wantCode, response.Body.String())
+			}
+			if got := response.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
+		})
+	}
+}
+
 // A receipt is redacted by construction. This pins the exact key set so a new
 // ledger column cannot reach the wire by being added to the domain struct.
 func TestSchemaOperationStatusExposesOnlyTheRedactedReceiptFields(t *testing.T) {

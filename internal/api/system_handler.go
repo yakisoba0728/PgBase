@@ -45,7 +45,6 @@ func systemStatus(provider SystemStatusProvider) http.HandlerFunc {
 		if status.Unavailable == nil {
 			status.Unavailable = []SystemStatusProbe{}
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, status)
 	}
 }
@@ -109,7 +108,6 @@ func schemaHealth(provider SchemaHealthProvider) http.HandlerFunc {
 		if health.Unavailable == nil {
 			health.Unavailable = []SystemStatusProbe{}
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, health)
 	}
 }
