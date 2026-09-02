@@ -1,5 +1,12 @@
+import type { KeyboardEvent } from "react";
 import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
 import { useRelationPicker } from "./relation-picker";
+
+/** Two targets may share a label, so an id disambiguates every name a screen
+ *  reader announces and every name a test can address. */
+function describeTarget(label: string, id: string): string {
+  return label === id ? id : `${label} — ${id}`;
+}
 
 export function RelationTargetPicker({ disabled, draft, field, onChange, target }: {
   disabled: boolean;
@@ -10,30 +17,71 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
 }) {
   const picker = useRelationPicker(target, field, draft, onChange);
   const searchField = picker.searchField;
-  const statusID = `record-${field.name}-target-search-status`;
+  const base = `record-${field.name}-target`;
+  const statusID = `${base}-search-status`;
+  const listID = `${base}-results`;
+  const results = picker.results;
+  const open = results !== null && results.length > 0;
+  const active = open && picker.activeIndex >= 0 ? `${base}-option-${picker.activeIndex}` : undefined;
+
+  // The listbox never takes focus: the textbox keeps it and points at the
+  // active option, so arrow keys browse results without losing the query the
+  // administrator is still editing. Home and End stay caret keys until the
+  // list is actually being browsed.
+  function navigate(event: KeyboardEvent<HTMLInputElement>): void {
+    const browsing = picker.activeIndex >= 0;
+    if (event.key === "ArrowDown") picker.moveActive("next");
+    else if (event.key === "ArrowUp") picker.moveActive("previous");
+    else if (event.key === "Home" && browsing) picker.moveActive("first");
+    else if (event.key === "End" && browsing) picker.moveActive("last");
+    else if (event.key === "Escape") picker.dismiss();
+    else if (event.key === "Enter") { if (browsing) picker.chooseActive(); else picker.search(); }
+    else return;
+    event.preventDefault();
+  }
+
   return <fieldset>
     <legend>{field.name} target lookup</legend>
-    <label htmlFor={`record-${field.name}-target-search`}>
+    <label htmlFor={`${base}-search`}>
       {searchField === undefined ? `${field.name} target UUID` : `${field.name} target ${searchField.name}`}
     </label>
     <input
+      aria-activedescendant={active}
+      aria-autocomplete="list"
+      aria-controls={open ? listID : undefined}
       aria-describedby={picker.status ? statusID : undefined}
+      aria-expanded={open}
       disabled={disabled || picker.searching}
-      id={`record-${field.name}-target-search`}
+      id={`${base}-search`}
       maxLength={1024}
       onChange={(event) => picker.setQuery(event.target.value)}
-      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); picker.search(); } }}
+      onKeyDown={navigate}
       placeholder={searchField === undefined ? "Canonical target UUID" : `Exact ${searchField.name}`}
+      role="combobox"
       value={picker.query}
     />
     <button disabled={disabled || picker.searching} onClick={picker.search} type="button">
       {picker.searching ? "Searching…" : `Search ${field.name} targets`}
     </button>
     {picker.status && <p aria-live="polite" id={statusID}>{picker.status}</p>}
-    {picker.results !== null && picker.results.length > 0 && <ul aria-label={`${field.name} target results`}>
-      {picker.results.map((option) => <li key={option.id}>
-        <button disabled={disabled} onClick={() => picker.select(option.id)} type="button">
-          Select {option.label}{searchField === undefined || option.label === option.id ? "" : ` — ${option.id}`}
+    {open && <ul aria-label={`${field.name} target results`} className="target-results" id={listID} role="listbox">
+      {results.map((option, index) => <li
+        aria-selected={index === picker.activeIndex}
+        className={index === picker.activeIndex ? "active-option" : undefined}
+        id={`${base}-option-${index}`}
+        key={option.id}
+        onClick={() => { if (!disabled) picker.select(option.id); }}
+        role="option"
+      >{describeTarget(option.label, option.id)}</li>)}
+    </ul>}
+    {picker.hasMore && <button disabled={disabled || picker.loadingMore} onClick={picker.loadMore} type="button">
+      {picker.loadingMore ? "Loading more…" : `Load more ${field.name} targets`}
+    </button>}
+    {picker.selections.length > 0 && <ul aria-label={`${field.name} selected targets`}>
+      {picker.selections.map((selection) => <li key={selection.id}>
+        {describeTarget(selection.label, selection.id)}{selection.available ? "" : " — unavailable"}
+        <button disabled={disabled} onClick={() => picker.deselect(selection.id)} type="button">
+          Remove {describeTarget(selection.label, selection.id)}
         </button>
       </li>)}
     </ul>}
