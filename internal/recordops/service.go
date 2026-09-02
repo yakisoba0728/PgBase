@@ -225,22 +225,15 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return err
 		}
 		etag := recordartifact.RevisionETag(collection.ID, recordID, digest, validator)
-		record := &Record{Data: data, ETag: etag, Version: 1}
-		changed := committedUserFields(collection)
-		if err := writeAudit(ctx, tx, auditWrite{
-			EventID: eventID, Principal: request.Principal, RequestID: request.RequestID,
-			Collection: collection, RecordID: recordID, Operation: "create",
-			SchemaVersion: catalog.Version, SchemaDigest: digest, NewVersion: 1,
-			NewETag: etag, ChangedFields: changed, InputHash: requestHash[:],
-			IdempotencyKeyHash: keyHash, Compatibility: compatibility,
+		if err := commitMutation(ctx, tx, request.Principal, request.RequestID, requestHash[:], artifactBatch{
+			collection: collection, operation: "create",
+			schemaVersion: catalog.Version, schemaDigest: digest,
+			rows: []artifactRow{{
+				eventID: eventID, recordID: recordID, newVersion: 1,
+				newETag: etag, changedFields: committedUserFields(collection), changes: data,
+				idempotencyKeyHash: keyHash, compatibility: compatibility, validator: validator,
+			}},
 		}); err != nil {
-			return err
-		}
-		if err := recordartifact.WriteRevision(ctx, tx, collection.ID, recordID, 0, 1, validator, eventID); err != nil {
-			return err
-		}
-		if err := writeOutbox(ctx, tx, eventID, collection, recordID, "create", 1,
-			mutationChanges(data, changed), false); err != nil {
 			return err
 		}
 		if len(keyHash) > 0 {
@@ -253,7 +246,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				return err
 			}
 		}
-		result = MutationResult{Record: record, EventID: eventID, Compatibility: compatibility}
+		result = MutationResult{
+			Record:  &Record{Data: data, ETag: etag, Version: 1},
+			EventID: eventID, Compatibility: compatibility,
+		}
 		return nil
 	})
 	if err != nil {
@@ -348,22 +344,17 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		newVersion := previousVersion + 1
 		newETag := recordartifact.RevisionETag(collection.ID, request.ID, digest, validator)
-		changed := sortedInputFields(request.Input)
-		if err := writeAudit(ctx, tx, auditWrite{
-			EventID: eventID, Principal: request.Principal, RequestID: request.RequestID,
-			Collection: collection, RecordID: request.ID, Operation: "update",
-			SchemaVersion: catalog.Version, SchemaDigest: digest,
-			PreviousVersion: &previousVersion, NewVersion: newVersion,
-			PreviousETag: previousETag, NewETag: newETag, ChangedFields: changed,
-			InputHash: inputHash[:], Compatibility: compatibility,
+		if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], artifactBatch{
+			collection: collection, operation: "update",
+			schemaVersion: catalog.Version, schemaDigest: digest,
+			rows: []artifactRow{{
+				eventID: eventID, recordID: request.ID,
+				previousVersion: &previousVersion, newVersion: newVersion,
+				previousETag: previousETag, newETag: newETag,
+				changedFields: sortedInputFields(request.Input), changes: after,
+				compatibility: compatibility, validator: validator,
+			}},
 		}); err != nil {
-			return err
-		}
-		if err := recordartifact.WriteRevision(ctx, tx, collection.ID, request.ID, previousVersion, newVersion, validator, eventID); err != nil {
-			return err
-		}
-		if err := writeOutbox(ctx, tx, eventID, collection, request.ID, "update", newVersion,
-			mutationChanges(after, changed), false); err != nil {
 			return err
 		}
 		result = MutationResult{
@@ -775,56 +766,6 @@ func readRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, id
 	return record, query.NormalizeRecordError(err)
 }
 
-type auditWrite struct {
-	EventID            uuid.UUID
-	Principal          Principal
-	RequestID          string
-	Collection         schema.Collection
-	RecordID           uuid.UUID
-	Operation          string
-	SchemaVersion      int64
-	SchemaDigest       [32]byte
-	PreviousVersion    *int64
-	NewVersion         int64
-	PreviousETag       string
-	NewETag            string
-	ChangedFields      []string
-	InputHash          []byte
-	IdempotencyKeyHash []byte
-	Compatibility      Compatibility
-}
-
-func writeAudit(ctx context.Context, tx pgx.Tx, event auditWrite) error {
-	compatibility := "none"
-	if event.Compatibility != CompatibilityNone {
-		compatibility = string(event.Compatibility)
-	}
-	var previousETag, newETag any
-	if event.PreviousETag != "" {
-		previousETag = event.PreviousETag
-	}
-	if event.NewETag != "" {
-		newETag = event.NewETag
-	}
-	var idempotencyHash any
-	if len(event.IdempotencyKeyHash) > 0 {
-		idempotencyHash = event.IdempotencyKeyHash
-	}
-	_, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_audit_events
-		(event_id, actor_kind, actor_id, request_id, collection_id, collection_name,
-		 record_id, operation, schema_version, schema_digest, previous_version,
-		 new_version, previous_etag, new_etag, changed_fields, input_hash,
-		 idempotency_key_hash, compatibility, committed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-			$14, $15, $16, $17, $18, transaction_timestamp())`,
-		event.EventID, string(event.Principal.Kind), event.Principal.ID, event.RequestID,
-		event.Collection.ID, event.Collection.Name, event.RecordID, event.Operation,
-		event.SchemaVersion, event.SchemaDigest[:], event.PreviousVersion,
-		event.NewVersion, previousETag, newETag, event.ChangedFields, event.InputHash,
-		idempotencyHash, compatibility)
-	return err
-}
-
 type outboxEnvelope struct {
 	Version        int            `json:"version"`
 	EventID        uuid.UUID      `json:"eventId"`
@@ -835,25 +776,6 @@ type outboxEnvelope struct {
 	RecordVersion  int64          `json:"recordVersion"`
 	Changes        map[string]any `json:"changes,omitempty"`
 	Tombstone      bool           `json:"tombstone,omitempty"`
-}
-
-func writeOutbox(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, collection schema.Collection,
-	recordID uuid.UUID, operation string, version int64, changes map[string]any, tombstone bool,
-) error {
-	envelope, err := json.Marshal(outboxEnvelope{
-		Version: outboxEnvelopeVersion, EventID: eventID, CollectionID: collection.ID,
-		CollectionName: collection.Name, RecordID: recordID, Operation: operation,
-		RecordVersion: version, Changes: changes, Tombstone: tombstone,
-	})
-	if err != nil {
-		return fmt.Errorf("encode record outbox event: %w", err)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox
-		(event_id, topic, collection_id, collection_name, record_id, operation,
-		 record_version, envelope, created_at)
-		VALUES ($1, 'record.mutation.v1', $2, $3, $4, $5, $6, $7::jsonb, transaction_timestamp())`,
-		eventID, collection.ID, collection.Name, recordID, operation, version, string(envelope))
-	return err
 }
 
 func findIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, collectionID uuid.UUID,
