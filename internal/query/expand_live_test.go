@@ -86,7 +86,13 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
 
-	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
+	// A v5 cursor binds the principal scope digest, so the plain baseline has
+	// to read as the same principal for "both readers issue the same root
+	// cursor" to still be the property under test.
+	base, err := records.List(ctx, ListRequest{
+		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
+		Collection: "expand_posts", Limit: 2,
+	})
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
@@ -464,7 +470,7 @@ func TestListExpandedReanchorsInsideOneV5MembershipBoundary(t *testing.T) {
 	for _, id := range recordIDs(baseline.Items) {
 		postIDs = append(postIDs, uuid.MustParse(id))
 	}
-	installReadyMembershipFixture(t, ctx, pool, posts, postIDs)
+	syncMembershipOrdinals(t, ctx, pool)
 	controller := membership.New(pool)
 	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
 	if err != nil {

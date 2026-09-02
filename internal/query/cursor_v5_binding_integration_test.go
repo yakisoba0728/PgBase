@@ -16,6 +16,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestListContinuesSignedV5ScalarPageWithinBoundMembership(t *testing.T) {
@@ -44,7 +45,7 @@ func TestListContinuesSignedV5ScalarPageWithinBoundMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_scalar_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
 
 	page, err := records.List(ctx, ListRequest{
@@ -85,7 +86,7 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_chain_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	controller := membership.New(pool)
 	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
 	if err != nil {
@@ -194,7 +195,7 @@ func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_binding_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	valid := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
 	otherPrincipal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")}
 
@@ -256,7 +257,79 @@ func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
 	}
 }
 
-func TestListKeepsExistingV5TraversalAfterIssuanceRollsBackToV4(t *testing.T) {
+// Release C has no v4 encoder, so on a database that still issues v4 -- a fresh
+// install, or any point of the rollout before retirement -- there is no cursor
+// it could mint for a page that has more results. Serving the first page anyway
+// would hand back a truncated result with no continuation, which is exactly the
+// silent omission the whole membership rollout exists to remove, so the read
+// fails closed instead.
+func TestListFailsClosedUntilCursorV4IsRetired(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_retirement_gate_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		if _, err := records.Create(ctx, "cursor_retirement_gate_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_retirement_gate_records"]
+
+	retired, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil || retired.NextCursor == "" {
+		t.Fatalf("List(retired boundary) = %#v, %v; want a page with a cursor", retired, err)
+	}
+
+	for _, unretired := range []struct {
+		name   string
+		update string
+	}{
+		{name: "ready issuing v4", update: `update pgbase_meta.record_membership_capability set
+			minimum_writer_version = 1, cursor_issue_version = 4, v5_enabled_at = null,
+			v4_decode_until = null, v4_retired_at = null,
+			updated_at = transaction_timestamp() where singleton`},
+		{name: "ready issuing v5 before retirement", update: `update pgbase_meta.record_membership_capability
+			set v4_retired_at = null, updated_at = transaction_timestamp() where singleton`},
+	} {
+		t.Run(unretired.name, func(t *testing.T) {
+			testutil.RetireRecordMembershipCapability(t, ctx, pool)
+			if _, err := pool.Exec(ctx, unretired.update); err != nil {
+				t.Fatal(err)
+			}
+			_, err := records.List(ctx, ListRequest{
+				Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+			})
+			if !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+				t.Fatalf("List(unretired boundary) error = %v, want membership unavailable", err)
+			}
+			if _, err := records.List(ctx, ListRequest{
+				Principal: testReadPrincipal, Collection: collection.Name,
+				Cursor: retired.NextCursor, Limit: 1, Sort: "title",
+			}); !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+				t.Fatalf("List(continuation on unretired boundary) error = %v, want membership unavailable", err)
+			}
+		})
+	}
+}
+
+// Rolling issuance back to v4 was the dual-write escape hatch up to Release B.
+// Retirement deliberately ends it: this binary can neither issue nor decode a
+// v4 cursor, so a capability that could still be told to issue one would leave
+// the fleet unable to continue any page at all. Retirement is therefore the
+// point of no return, and DisableV5 has to refuse for good afterwards.
+func TestRetirementPermanentlyRefusesTheRollbackToV4Issuance(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
@@ -280,17 +353,8 @@ func TestListKeepsExistingV5TraversalAfterIssuanceRollsBackToV4(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_rollback_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	controller := membership.New(pool)
-	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := controller.EnableV5(ctx, membership.FleetProof{
-		Members: []membership.FleetMember{runtimeB.FleetMember()},
-	}); err != nil {
-		t.Fatal(err)
-	}
 	first, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
 	})
@@ -302,15 +366,23 @@ func TestListKeepsExistingV5TraversalAfterIssuanceRollsBackToV4(t *testing.T) {
 		t.Fatalf("first cursor = %#v, %v; want v5", issued, err)
 	}
 
-	if _, err := controller.DisableV5(ctx); err != nil {
-		t.Fatalf("DisableV5: %v", err)
+	if _, err := controller.DisableV5(ctx); !errors.Is(err, membership.ErrInvalidState) {
+		t.Fatalf("DisableV5 after retirement = %v, want an invalid state", err)
 	}
+	status, err := controller.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.CursorIssueVersion != cursor.Version5 || status.V4RetiredAt == nil {
+		t.Fatalf("capability after the refused rollback = %#v", status)
+	}
+
 	continued, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name,
 		Cursor: first.NextCursor, Limit: 10, Sort: "title",
 	})
 	if err != nil {
-		t.Fatalf("List(existing v5 after rollback): %v", err)
+		t.Fatalf("List(continuation after the refused rollback): %v", err)
 	}
 	if got, want := recordIDs(continued.Items), []string{ids[1].String(), ids[2].String()}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("continued ids = %v, want %v", got, want)
@@ -320,11 +392,11 @@ func TestListKeepsExistingV5TraversalAfterIssuanceRollsBackToV4(t *testing.T) {
 		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
 	})
 	if err != nil {
-		t.Fatalf("List(fresh after rollback): %v", err)
+		t.Fatalf("List(fresh page after the refused rollback): %v", err)
 	}
-	rolledBack, err := records.cursors.Decode(fresh.NextCursor, collection.ID, time.Time{})
-	if err != nil || rolledBack.Version != cursor.Version4 {
-		t.Fatalf("fresh cursor = %#v, %v; want v4", rolledBack, err)
+	stillV5, err := records.cursors.Decode(fresh.NextCursor, collection.ID, time.Time{})
+	if err != nil || stillV5.Version != cursor.Version5 {
+		t.Fatalf("fresh cursor = %#v, %v; want v5", stillV5, err)
 	}
 }
 
@@ -338,7 +410,7 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 	}
 	posts := catalog.Collections["relation_query_posts"]
 	people := catalog.Collections["relation_query_people"]
-	installReadyMembershipFixture(t, ctx, pool, posts, []uuid.UUID{fixture.postAda, fixture.postBob})
+	syncMembershipOrdinals(t, ctx, pool)
 	expiresAt := databaseCursorExpiryFixture(t, records)
 
 	encode := func(highWater int64) string {
@@ -406,13 +478,13 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 func TestListIssuesTheSameV5MembershipForRelationAndExpandedRoots(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
-	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	createRelationFilterSortFixture(t, ctx, pool, schemas, records)
 	catalog, err := schemas.Catalog(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	posts := catalog.Collections["relation_query_posts"]
-	installReadyMembershipFixture(t, ctx, pool, posts, []uuid.UUID{fixture.postAda, fixture.postBob})
+	syncMembershipOrdinals(t, ctx, pool)
 	controller := membership.New(pool)
 	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
 	if err != nil {
@@ -489,7 +561,7 @@ func TestListPreservesV5HighWaterAcrossSequentialHydrationBatches(t *testing.T) 
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_batch_roots"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "record-a", 18)
 
 	page, err := records.List(ctx, ListRequest{
@@ -566,58 +638,11 @@ func databaseCursorExpiryFixture(t *testing.T, records *Service) time.Time {
 	return databaseTime.UTC().Add(cursorTTL)
 }
 
-func installReadyMembershipFixture(
-	t *testing.T,
-	ctx context.Context,
-	pool *database.Pool,
-	collection schema.Collection,
-	recordIDs []uuid.UUID,
-) {
+// The base fixture already retires cursor v4 on an empty catalog, so this only
+// has to reserve sidecar ordinals for rows a test seeded outside Create.
+func syncMembershipOrdinals(t *testing.T, ctx context.Context, pool *database.Pool) {
 	t.Helper()
-	err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var lastCreatedAt time.Time
-		var lastRecordID uuid.UUID
-		if err := tx.QueryRow(ctx, `select created_at, id from `+pgx.Identifier{"app", collection.TableName}.Sanitize()+`
-			where id = any($1::uuid[]) order by created_at desc, id desc limit 1`, recordIDs).Scan(&lastCreatedAt, &lastRecordID); err != nil {
-			return err
-		}
-		var now time.Time
-		if err := tx.QueryRow(ctx, `select transaction_timestamp()`).Scan(&now); err != nil {
-			return err
-		}
-		cutoverAt := now.Add(-2 * time.Minute)
-		readyAt := now.Add(-time.Minute)
-		if _, err := tx.Exec(ctx, `update pgbase_meta.collection_creation_counters
-			set generation = 1, last_ordinal = $2, updated_at = $3 where collection_id = $1`,
-			collection.ID, len(recordIDs), now); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `update pgbase_meta.record_membership_backfills set
-			generation = 1, state = 'ready', cutover_count = $2,
-			cutover_last_created_at = $3, cutover_last_record_id = $4,
-			checkpoint_created_at = null, checkpoint_record_id = null,
-			last_assigned_ordinal = $2, validated_base_count = $2,
-			validated_sidecar_count = $2, updated_at = $5, completed_at = $5
-			where collection_id = $1`, collection.ID, len(recordIDs), lastCreatedAt, lastRecordID, now); err != nil {
-			return err
-		}
-		for index, recordID := range recordIDs {
-			if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_creation_ordinals
-				(collection_id, record_id, ordinal) values ($1, $2, $3)`,
-				collection.ID, recordID, index+1); err != nil {
-				return err
-			}
-		}
-		_, err := tx.Exec(ctx, `update pgbase_meta.record_membership_capability set
-			state = 'ready', generation = 1, minimum_writer_version = 1,
-			cursor_issue_version = 4, cutover_at = $1, ready_at = $2,
-			cutover_collection_count = 1, cutover_record_count = $4,
-			ready_collection_count = 1, updated_at = $3 where singleton`, cutoverAt, readyAt, now, len(recordIDs))
-		return err
-	})
-	if err != nil {
-		t.Fatalf("install ready membership fixture: %v", err)
-	}
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 }
 
 // Minting a v5 descriptor needs the query and order fingerprints, and those can
@@ -651,7 +676,7 @@ func TestListKeepsFilterValidationErrorsWhenIssuingV5(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_validation_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 
 	cases := []struct {
 		name   string
@@ -743,7 +768,7 @@ func TestListRefusesToMintV5FromAnUnreadyTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection := catalog.Collections["cursor_v5_unready_records"]
-	installReadyMembershipFixture(t, ctx, pool, collection, ids)
+	syncMembershipOrdinals(t, ctx, pool)
 	request := ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Limit: 10, Sort: "title",
 	}

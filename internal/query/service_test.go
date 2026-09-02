@@ -760,6 +760,7 @@ func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Servi
 		values ('019551d0-e9c0-7000-8000-000000000001', 'record-test@example.com', 'test', true, current_timestamp, current_timestamp)`); err != nil {
 		t.Fatal(err)
 	}
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
 	return pool, schemas, NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
 }

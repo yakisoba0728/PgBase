@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestCreateRefusesRecordOverThePageBudget(t *testing.T) {
-	_, _, records, principal := newRecordOperationsTest(t)
+	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 
 	_, err := records.Create(ctx, CreateRequest{
@@ -24,6 +25,7 @@ func TestCreateRefusesRecordOverThePageBudget(t *testing.T) {
 	})
 	assertQueryValidation(t, err, "record", "record_too_large")
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "size-list-000001", Collection: "records", Limit: 10,
 	})
@@ -114,6 +116,7 @@ func TestLegacyOversizedRecordBlocksListButStaysShrinkable(t *testing.T) {
 		t.Fatalf("plant legacy oversized record: %v", err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	_, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "legacy-list-0001", Collection: "records", Limit: 10,
 	})

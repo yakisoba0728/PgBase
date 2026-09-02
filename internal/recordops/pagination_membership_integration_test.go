@@ -83,6 +83,20 @@ func TestV5KeysetTraversalExcludesRecordsCommittedAfterFirstPage(t *testing.T) {
 	if _, err := controller.EnableV5(ctx, proof); err != nil {
 		t.Fatalf("EnableV5: %v", err)
 	}
+	// Release C serves a list only on a retired boundary, and retirement needs
+	// the cursor TTL to have elapsed; backdating the timeline is the only way
+	// to observe that without waiting fifteen minutes.
+	if _, err := pool.Exec(ctx, `update pgbase_meta.record_membership_capability set
+		cutover_at = transaction_timestamp() - interval '20 minutes',
+		ready_at = transaction_timestamp() - interval '19 minutes',
+		v5_enabled_at = transaction_timestamp() - interval '16 minutes',
+		v4_decode_until = transaction_timestamp() - interval '1 minute',
+		updated_at = transaction_timestamp() where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.RetireV4(ctx, proof); err != nil {
+		t.Fatalf("RetireV4: %v", err)
+	}
 
 	if _, err := pool.Exec(ctx, `CREATE SEQUENCE pgbase_meta.r0_delayed_create_ready`); err != nil {
 		t.Fatal(err)

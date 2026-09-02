@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestBackfillSkipsDelayedDualWriteInsideCutoverBound(t *testing.T) {
@@ -402,6 +403,7 @@ func TestResolvedTraversalOwnsReadyGenerationAndHighWaterChecks(t *testing.T) {
 	if _, err := fixture.service.PromoteReady(fixture.ctx); err != nil {
 		t.Fatal(err)
 	}
+	testutil.RetireRecordMembershipCapability(t, fixture.ctx, fixture.pool)
 
 	if err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		traversal, err := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
@@ -445,14 +447,14 @@ func TestResolvedTraversalOwnsReadyGenerationAndHighWaterChecks(t *testing.T) {
 func TestResolveTraversalFailsClosedBeforeReadyAndOnPartialInstallation(t *testing.T) {
 	fixture := newMembershipConcurrencyFixture(t, "membership_traversal_fail_closed", nil)
 	fixture.cutover(t)
+	// Dual-write no longer reaches ValidateV5 at all: the resolver refuses a
+	// boundary that has not retired v4, because this binary has no cursor it
+	// could issue for one.
 	if err := fixture.pool.InTx(fixture.ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		traversal, resolveErr := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		return traversal.ValidateV5(1, 0)
-	}); !errors.Is(err, ErrTraversalInvalid) {
-		t.Fatalf("dual-write ValidateV5 error = %v, want ErrTraversalInvalid", err)
+		_, resolveErr := ResolveTraversal(fixture.ctx, tx, fixture.collectionID)
+		return resolveErr
+	}); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrTraversalInvalid) {
+		t.Fatalf("dual-write ResolveTraversal error = %v, want ErrUnavailable", err)
 	}
 	assertTraversalUnavailable := func(t *testing.T) {
 		t.Helper()

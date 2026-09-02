@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing.T) {
@@ -58,6 +59,7 @@ func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing
 	}
 	assertRelationRecord(t, got.Data, firstTarget, []uuid.UUID{firstTarget, secondTarget})
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-list-001", Collection: "articles", Limit: 10,
 	})
@@ -188,7 +190,7 @@ func TestRecordOperationsEmitBoundedRelationWriteExpandAndDeleteTelemetry(t *tes
 }
 
 func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	first := createRelationTarget(t, ctx, records, principal, "Ada")
@@ -212,6 +214,7 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 		t.Fatal(err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	filtered, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-query-filter", Collection: "articles", Limit: 10,
 		Filter: "tags = '" + first.String() + "'", Sort: "owner.name",
@@ -244,7 +247,7 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 }
 
 func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
@@ -320,6 +323,7 @@ func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *test
 		t.Fatalf("target update missing from expansion: %#v", afterExpand["owner"])
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	rawPage, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-expand-list-raw", Collection: "articles", Limit: 1,
 	})
@@ -376,7 +380,7 @@ func TestRecordOperationsRelationValidationAndMissingTargetRollback(t *testing.T
 }
 
 func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
@@ -400,6 +404,7 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 		t.Fatalf("create relation page tail: %v", err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-page-list", Collection: "articles", Limit: 4,
 	})
@@ -461,6 +466,7 @@ func TestRecordOperationsRelationListClassifiesStoredDriftWithoutDisclosure(t *t
 		t.Fatalf("inject relation position drift: %v", err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	_, err = records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-drift-list", Collection: "articles", Limit: 10,
 	})

@@ -17,7 +17,12 @@ func TestListExpandedHydratesNestedForwardPathsBreadthFirstWithoutNPlusOne(t *te
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
+	// The v5 root cursor binds the principal scope digest, so the baseline is
+	// read as the principal the expanded call below uses.
+	base, err := records.List(ctx, ListRequest{
+		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
+		Collection: "expand_posts", Limit: 2,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

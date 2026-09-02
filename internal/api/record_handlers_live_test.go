@@ -348,6 +348,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		t.Fatalf("expanded target did not refresh: %#v", updatedBody["expand"])
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	firstPage := serve("/api/v1/collections/api_expand_articles/records?limit=1&expand=owner%2Ctags")
 	var page struct {
 		Items      []map[string]any `json:"items"`

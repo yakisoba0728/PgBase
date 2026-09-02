@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -118,6 +119,7 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+edgeTable+` ENABLE TRIGGER USER`); err != nil {
 		t.Fatal(err)
 	}
+	syncMembershipOrdinals(t, ctx, pool)
 	operationTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	publicPage, err := records.listScalar(ctx, root.Name, "", r0HydrationRootCount, "", "")
 	if err != nil {
@@ -157,10 +159,19 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A v5 cursor binds the catalog version, the principal scope and the
+	// durable traversal, so the traced kernel call has to be given the same
+	// three the public reader resolved for itself.
+	plan.catalogVersion, plan.principal = catalog.Version, testReadPrincipal
+	traversal, err := membership.ResolveTraversal(ctx, tx, collection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := records.readRootPageInTx(ctx, tx, rootPageReadRequest{
 		plan:  plan,
 		limit: r0HydrationRootCount, operationTime: operationTime,
-		hydrator: newRootHydrator(tx, catalog, collection),
+		traversal: traversal,
+		hydrator:  newRootHydrator(tx, catalog, collection),
 	})
 	if err != nil {
 		t.Fatalf("readRootPageInTx(): %v", err)
@@ -238,6 +249,7 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 		t.Fatalf("large scalar fixture rows = %d, want %d", tag.RowsAffected(), rootCount)
 	}
 
+	syncMembershipOrdinals(t, ctx, pool)
 	operationTime := time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC)
 	publicPage, err := records.listScalar(ctx, root.Name, "", rootCount, "", "")
 	if err != nil {
@@ -259,9 +271,15 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 		if err != nil {
 			return err
 		}
+		plan.catalogVersion, plan.principal = catalog.Version, testReadPrincipal
+		traversal, err := membership.ResolveTraversal(ctx, tx, collection.ID)
+		if err != nil {
+			return err
+		}
 		result, err = records.readRootPageInTx(ctx, tx, rootPageReadRequest{
 			plan: plan, limit: rootCount, operationTime: operationTime,
-			hydrator: newRootHydrator(tx, catalog, collection),
+			traversal: traversal,
+			hydrator:  newRootHydrator(tx, catalog, collection),
 		})
 		return err
 	}); err != nil {
@@ -391,6 +409,7 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 		firstID, firstTime, payloads[0], payloads[1], payloads[2], payloads[3], secondID, secondTime); err != nil {
 		t.Fatal(err)
 	}
+	syncMembershipOrdinals(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse(r0AdministratorID)},
 		Collection: root.Name, Limit: 2,
