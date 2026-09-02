@@ -1,7 +1,8 @@
 import { act, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { backendScript } from "../test/backend-script";
-import { administrator, renderAdmin, scriptedAdmin } from "../test/harness";
+import { backendScript, deferredStep, scriptedHealth } from "../test/backend-script";
+import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin } from "../test/harness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -22,6 +23,33 @@ describe("session lifecycle", () => {
 
     expect(screen.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
     expect(harness.history.path()).toBe("/admin/login");
+  });
+
+  it("keeps a fresh login when an old logout finishes later", async () => {
+    const script = backendScript();
+    script.resume.push({ value: { kind: "authenticated", session: { administrator, expiresAt: activeSessionExpiresAt() } } });
+    script.catalog.push({ value: { version: 0, collections: [] } }, { value: { version: 0, collections: [] } });
+    const oldLogout = deferredStep<void>();
+    script.logout.push(oldLogout.step);
+    script.status.push({ fault: { kind: "unauthorized" } });
+    script.health.push({ value: scriptedHealth() });
+    script.login.push({ value: { administrator, expiresAt: activeSessionExpiresAt() } });
+    const harness = scriptedAdmin("/admin/collections", script);
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await screen.findByRole("heading", { name: "pgBase administration" });
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(screen.getByRole("link", { name: "System" }));
+    await screen.findByRole("heading", { name: "Sign in to pgBase" });
+    await user.type(screen.getByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "fresh password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("heading", { name: "pgBase administration" });
+
+    await act(async () => { oldLogout.settle({ value: undefined }); });
+
+    expect(screen.getByRole("heading", { name: "pgBase administration" })).toBeVisible();
   });
 
   it.each([

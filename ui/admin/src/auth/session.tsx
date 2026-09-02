@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { httpBackend } from "../backend/http-backend";
 import { SessionError, type AdminBackend, type AuthSnapshot, type AuthenticatedSession, type LoginInput, type SessionFailure, type SetupInput } from "../backend/ports";
 import { browserHistory, canonicalAdminPath, type AdminHistory } from "../routing/admin-location";
@@ -22,8 +22,9 @@ export function SessionProvider({ backend, children, history = browserHistory }:
   const [admin] = useState(() => backend ?? httpBackend());
   const [state, setState] = useState<AuthSnapshot>({ kind: "loading" });
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const transitionGeneration = useRef(0);
   const settle = useCallback((next: AuthSnapshot) => {
-    setState(next);
+    transitionGeneration.current += 1; setState(next);
     const screen = next.kind === "setup-required" ? "setup" : next.kind === "anonymous" ? "login" : "shell";
     const path = canonicalAdminPath(screen, history.path());
     if (history.path() !== path) history.replace(path);
@@ -69,8 +70,8 @@ export function SessionProvider({ backend, children, history = browserHistory }:
     login: (input) => open(admin.session.login(input)),
     logout: async () => {
       if (state.kind !== "authenticated") return;
-      await admin.session.logout();
-      settle({ kind: "anonymous" });
+      const generation = transitionGeneration.current; await admin.session.logout();
+      if (generation === transitionGeneration.current) settle({ kind: "anonymous" });
     },
   }), [admin, open, sessionError, settle, state]);
 
