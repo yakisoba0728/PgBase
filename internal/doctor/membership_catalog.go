@@ -169,6 +169,12 @@ type membershipPhysicalCatalog struct {
 	constraints  map[string]physicalConstraint
 	indexes      map[string]physicalIndex
 	predicates   map[string]string
+	// Attachments that can silently rewrite or hide rows. They are tracked
+	// apart from physicalTable because only this loader reads them; a shared
+	// field would read as false for the relation catalog that never selects it.
+	rowSecurity map[int64]bool
+	triggers    map[string]struct{}
+	rules       map[string]struct{}
 }
 
 func recordMembershipCatalogValid(ctx context.Context, db database.DBTX) (bool, error) {
@@ -185,7 +191,26 @@ func recordMembershipCatalogValid(ctx context.Context, db database.DBTX) (bool, 
 	if !membershipConstraintsMatch(catalog) || !membershipIndexesMatch(catalog) {
 		return false, nil
 	}
-	return true, nil
+	return membershipAttachmentsAbsent(catalog), nil
+}
+
+// v7 installs no trigger, rule or row-level security policy on any membership
+// table, and none may appear later: a BEFORE INSERT trigger returning NULL, a
+// DO INSTEAD rule, or row security that hides rows from the doctor role would
+// each defeat the coverage query and the sidecar scans while every column,
+// constraint and index above still matched. Pinning the CHECK bodies by hash is
+// pointless if drift can simply be attached alongside them.
+func membershipAttachmentsAbsent(catalog membershipPhysicalCatalog) bool {
+	if len(catalog.triggers) != 0 || len(catalog.rules) != 0 {
+		return false
+	}
+	for _, name := range membershipTableNames {
+		table := catalog.tablesByName[name]
+		if table == nil || catalog.rowSecurity[table.oid] {
+			return false
+		}
+	}
+	return true
 }
 
 func loadMembershipPhysicalCatalog(ctx context.Context, db database.DBTX) (membershipPhysicalCatalog, error) {
@@ -195,6 +220,9 @@ func loadMembershipPhysicalCatalog(ctx context.Context, db database.DBTX) (membe
 		constraints:  make(map[string]physicalConstraint),
 		indexes:      make(map[string]physicalIndex),
 		predicates:   make(map[string]string),
+		rowSecurity:  make(map[int64]bool),
+		triggers:     make(map[string]struct{}),
+		rules:        make(map[string]struct{}),
 	}
 	tableNames := append([]string{"collections"}, membershipTableNames...)
 	if err := loadMembershipTables(ctx, db, &catalog, tableNames); err != nil {
@@ -206,12 +234,69 @@ func loadMembershipPhysicalCatalog(ctx context.Context, db database.DBTX) (membe
 	if err := loadMembershipIndexes(ctx, db, &catalog); err != nil {
 		return membershipPhysicalCatalog{}, err
 	}
+	if err := loadMembershipAttachments(ctx, db, &catalog); err != nil {
+		return membershipPhysicalCatalog{}, err
+	}
 	return catalog, nil
+}
+
+// The foreign keys on these tables own internal RI trigger rows, so only
+// user-visible triggers are collected.
+func loadMembershipAttachments(ctx context.Context, db database.DBTX, catalog *membershipPhysicalCatalog) error {
+	rows, err := db.Query(ctx, `select triggers.tgrelid::bigint, triggers.tgname
+		from pg_trigger as triggers
+		join pg_class as tables on tables.oid = triggers.tgrelid
+		join pg_namespace as schemas on schemas.oid = tables.relnamespace
+		where schemas.nspname = 'pgbase_meta' and tables.relname = any($1::text[])
+		  and not triggers.tgisinternal
+		order by triggers.tgrelid, triggers.tgname`, membershipTableNames)
+	if err != nil {
+		return fmt.Errorf("read record membership triggers: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tableOID int64
+		var name string
+		if err := rows.Scan(&tableOID, &name); err != nil {
+			return fmt.Errorf("scan record membership trigger: %w", err)
+		}
+		catalog.triggers[ownedObjectKey(tableOID, name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate record membership triggers: %w", err)
+	}
+	return loadMembershipRules(ctx, db, catalog)
+}
+
+func loadMembershipRules(ctx context.Context, db database.DBTX, catalog *membershipPhysicalCatalog) error {
+	rows, err := db.Query(ctx, `select rules.ev_class::bigint, rules.rulename
+		from pg_rewrite as rules
+		join pg_class as tables on tables.oid = rules.ev_class
+		join pg_namespace as schemas on schemas.oid = tables.relnamespace
+		where schemas.nspname = 'pgbase_meta' and tables.relname = any($1::text[])
+		order by rules.ev_class, rules.rulename`, membershipTableNames)
+	if err != nil {
+		return fmt.Errorf("read record membership rules: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tableOID int64
+		var name string
+		if err := rows.Scan(&tableOID, &name); err != nil {
+			return fmt.Errorf("scan record membership rule: %w", err)
+		}
+		catalog.rules[ownedObjectKey(tableOID, name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate record membership rules: %w", err)
+	}
+	return nil
 }
 
 func loadMembershipTables(ctx context.Context, db database.DBTX, catalog *membershipPhysicalCatalog, tableNames []string) error {
 	rows, err := db.Query(ctx, `select tables.oid::bigint, tables.relname,
 		tables.relkind::text, tables.relpersistence::text,
+		tables.relrowsecurity or tables.relforcerowsecurity,
 		columns.attnum::integer, columns.attname,
 		format_type(columns.atttypid, columns.atttypmod), columns.attnotnull,
 		pg_get_expr(defaults.adbin, defaults.adrelid)
@@ -230,13 +315,15 @@ func loadMembershipTables(ctx context.Context, db database.DBTX, catalog *member
 	for rows.Next() {
 		var oid int64
 		var name, relKind, persistence string
+		var rowSecurity bool
 		var attribute *int
 		var columnName, typeName *string
 		var notNull *bool
 		var defaultSQL *string
-		if err := rows.Scan(&oid, &name, &relKind, &persistence, &attribute, &columnName, &typeName, &notNull, &defaultSQL); err != nil {
+		if err := rows.Scan(&oid, &name, &relKind, &persistence, &rowSecurity, &attribute, &columnName, &typeName, &notNull, &defaultSQL); err != nil {
 			return fmt.Errorf("scan record membership table: %w", err)
 		}
+		catalog.rowSecurity[oid] = rowSecurity
 		table := catalog.tablesByOID[oid]
 		if table == nil {
 			table = &physicalTable{
