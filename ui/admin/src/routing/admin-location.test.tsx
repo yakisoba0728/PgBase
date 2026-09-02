@@ -91,6 +91,27 @@ describe("history adapters", () => {
     expect(changes).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ["memory", () => { const history = memoryHistory("/admin/collections"); return { history, move: () => history.back() }; }],
+    ["browser", () => {
+      window.history.replaceState(null, "", "/admin/collections");
+      return { history: browserHistory, move: () => window.dispatchEvent(new PopStateEvent("popstate")) };
+    }],
+  ])("tells a browser move apart from its own address changes through the %s adapter", (_name, open) => {
+    const { history, move } = open();
+    const changes = vi.fn();
+    const stop = history.listen(changes);
+
+    history.push("/admin/system");
+    expect(changes).toHaveBeenLastCalledWith(false);
+    history.replace("/admin/collections");
+    expect(changes).toHaveBeenLastCalledWith(false);
+    move();
+    expect(changes).toHaveBeenLastCalledWith(true);
+
+    stop();
+  });
+
   it("walks back and forward through memory entries", () => {
     const history = memoryHistory("/admin/collections");
     const { result } = renderHook(() => useAdminLocation(history));
@@ -110,6 +131,47 @@ describe("history adapters", () => {
     act(() => result.current.navigate({ kind: "record", collection: "a b", id: "one two" }));
     expect(history.path()).toBe("/admin/collections/a%20b/records/one%20two");
     expect(result.current.identity).toBe(adminRouteIdentity({ kind: "record", collection: "a b", id: "one two" }));
+  });
+});
+
+describe("route departure", () => {
+  it("restores the address the browser moved away from when the departure is refused", () => {
+    const history = memoryHistory("/admin/collections");
+    const { result } = renderHook(() => useAdminLocation(history, () => false));
+
+    act(() => history.push("/admin/collections/posts/records"));
+    expect(result.current.route).toEqual({ kind: "records", collection: "posts" });
+
+    act(() => history.back());
+    expect(history.path()).toBe("/admin/collections/posts/records");
+    expect(result.current.route).toEqual({ kind: "records", collection: "posts" });
+  });
+
+  it("moves on once the departure is allowed", () => {
+    const history = memoryHistory("/admin/collections");
+    let allowed = false;
+    const { result } = renderHook(() => useAdminLocation(history, () => allowed));
+
+    act(() => history.push("/admin/system"));
+    act(() => history.back());
+    expect(result.current.route).toEqual({ kind: "system" });
+
+    allowed = true;
+    act(() => history.back());
+    expect(result.current.route).toEqual({ kind: "collections" });
+  });
+
+  it("refuses a typed navigation but never the address this application sets itself", () => {
+    const history = memoryHistory("/admin/collections");
+    const { result } = renderHook(() => useAdminLocation(history, () => false));
+
+    act(() => result.current.navigate({ kind: "system" }));
+    expect(history.path()).toBe("/admin/collections");
+
+    // The session canonicalises the address on its own; a forced sign-out is
+    // not a departure the administrator is asked about.
+    act(() => history.replace("/admin/system"));
+    expect(result.current.route).toEqual({ kind: "system" });
   });
 });
 

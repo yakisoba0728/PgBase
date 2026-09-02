@@ -14,6 +14,7 @@ import {
   type RelationDeleteAction,
 } from "../backend/ports";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 
 interface DraftRelation {
   targetCollection: string;
@@ -257,6 +258,10 @@ function schemaMessage(error: unknown, fallback: string, validationFallback = "C
   return fallback;
 }
 
+// The draft as it stood when the server last agreed with it. Comparing the
+// whole draft is what makes an untouched form leave without a question.
+const draftSignature = (name: string, fields: DraftField[]): string => stringifyJSON({ name, fields });
+
 interface State {
   identity: string;
   create: boolean;
@@ -276,15 +281,19 @@ interface State {
   deleteConfirmText: string;
   deletePending: boolean;
   deleteError: string | null;
+  pristine: string;
 }
 
 function initial(mode: DesignerMode, identity: string): State {
   const create = mode.kind === "create";
+  const name = create ? "" : mode.collection;
+  const fields = create ? [newField()] : [];
   return {
-    identity, create, phase: create ? "ready" : "loading", name: create ? "" : mode.collection, tableName: "",
-    definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields: create ? [newField()] : [],
+    identity, create, phase: create ? "ready" : "loading", name, tableName: "",
+    definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
+    pristine: draftSignature(name, fields),
   };
 }
 
@@ -297,7 +306,11 @@ function loadedState(current: State, catalog: CollectionCatalog): Partial<State>
   if (current.create) return base;
   const definition = catalog.get(current.name);
   if (definition === undefined) return { ...base, phase: "missing" };
-  return { ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields: draftFields(definition, catalog) };
+  const fields = draftFields(definition, catalog);
+  return {
+    ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields,
+    pristine: draftSignature(definition.name, fields),
+  };
 }
 
 function renamed(current: State, name: string): Partial<State> {
@@ -387,6 +400,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
   const [state, update] = useResourceState(identity, (current) => initial(mode, current));
+  const savedDraft = useUnsavedDraft(identity, draftSignature(state.name, state.fields) !== state.pristine);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
     (!state.create || state.fields.some((field) => field.type === "relation"));
@@ -439,13 +453,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     try {
       await schema.apply(preview);
       if (!active()) return;
+      savedDraft();
       navigate(state.create ? { kind: "collections" } : { kind: "records", collection: state.definition?.name ?? state.name });
     } catch (caught: unknown) {
       update(identity, applyFailure(caught, state.create));
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, identity, navigate, preview, removedFields.length, schema, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
+  }, [active, identity, navigate, preview, removedFields.length, savedDraft, schema, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const deleteTarget = useMemo(() => deleteTargetOf(state.definition, state.deletePlan), [state.definition, state.deletePlan]);
 
@@ -468,13 +483,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     try {
       await schema.apply(state.deletePlan);
       if (!active()) return;
+      savedDraft();
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
       update(identity, deleteFailure(caught));
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [active, deleteTarget, identity, navigate, schema, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
+  }, [active, deleteTarget, identity, navigate, savedDraft, schema, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,

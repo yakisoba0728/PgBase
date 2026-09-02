@@ -2,6 +2,7 @@ import { useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { AdminLink } from "./routing/admin-link";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
+import { UnsavedDrafts, draftLedger } from "./routing/unsaved-draft";
 import type { AdminBackend } from "./backend/ports";
 import { CollectionDesignerPage } from "./pages/collection-designer-page";
 import { CollectionsPage } from "./pages/collections-page";
@@ -26,12 +27,15 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate) {
 
 function AuthenticatedShell({ history }: { history?: AdminHistory }) {
   const { logout, state } = useSession();
-  const { identity, navigate, route } = useAdminLocation(history);
+  const [drafts] = useState(draftLedger);
+  const { identity, navigate, route } = useAdminLocation(history, drafts.mayLeave);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   if (state.kind !== "authenticated") return null;
   async function signOut() {
-    if (logoutPending) return;
+    // Signing out ends the session the draft would have been saved under, so it
+    // is a departure the administrator is asked about like any other.
+    if (logoutPending || !drafts.mayLeave()) return;
     setLogoutPending(true);
     setLogoutError(null);
     try {
@@ -51,7 +55,7 @@ function AuthenticatedShell({ history }: { history?: AdminHistory }) {
     </header>
     {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
     <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
-    {outlet(route, identity, navigate)}
+    <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate)}</UnsavedDrafts>
   </main>;
 }
 
