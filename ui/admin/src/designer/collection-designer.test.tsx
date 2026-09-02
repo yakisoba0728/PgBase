@@ -1186,6 +1186,21 @@ describe("CollectionDesigner operation recovery", () => {
     expect(callsTo(reloaded.script, "operation")).toHaveLength(0);
   });
 
+  it("reports unsafe browser storage ahead of an older apply error", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+    script.plan.push({ fault: { kind: "unreachable" } });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.error).toContain("Unable to preview"));
+
+    const key = `pgbase.schema-operation.v2.${administrator.id}.${encodeURIComponent("collection-edit\0posts")}.33333333-3333-4333-8333-333333333333`;
+    localStorage.setItem(key, "{}");
+    act(() => result.current.editField(0, { set: "name", value: "headline" }));
+
+    expect(result.current.editingBlocked).toBe(true);
+    expect(result.current.error).toContain("browser storage");
+  });
+
   it("never recovers another administrator's pending operation", async () => {
     const first = open({ kind: "edit", collection: "posts" });
     await ready(first.result);
