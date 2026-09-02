@@ -150,7 +150,10 @@ R12가 찾아 고친 것:
 - [x] **RUN-3 (P2)** 잘못된 opclass를 정상으로 판정 — EXPLAIN으로 Seq Scan → Index Only Scan 확인.
 - [x] **RUN-4 (P2)** SIGTERM이 drain보다 먼저 background를 취소 — **이전에 "고쳤다"고 잘못 보고했던 항목**.
 - [x] **STD-3 (P3)** compatibility forwarding surface 제거 — 순감 65줄, wire golden 무변경.
-- [ ] **SPEC-2 (P2)** v2 plan compiler와 신규 collection의 transactional companion 생성 미배선. **진행 중.**
+- [x] **SPEC-2 (P2)** v2 plan compiler와 신규 collection의 transactional companion 생성 미배선 — issuance를
+  capability row에 묶고, ready create는 같은 트랜잭션에서 companion을 만들며, update만 gate를 닫는다.
+- [ ] **판단 필요:** SPEC-2가 D2-4에 없는 delete 취급(capability 유지)을 더했다. 근거는
+  [open-decisions](2026-09-02-open-decisions.md) 말미에 분리해 두었다.
 
 감사 밖에서 추가로 확인한 것:
 

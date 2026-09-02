@@ -15,7 +15,7 @@
 | STD-2 DELETE graph 비용 | P2 | 닫힘 | `52eb31d` (지불: `03f07ec`) |
 | STD-3 forwarding wrapper | P3 | 닫힘 | `e5a7b5b`…`3594daa` |
 | SPEC-1 운영 진입점 부재 | **P1** | 닫힘 | `2e87742`, `672391d` |
-| SPEC-2 compiler v2 미배선 | P2 | 진행 중 | — |
+| SPEC-2 compiler v2 미배선 | P2 | 닫힘 | `4737dda`…`1fabe31` |
 | SPEC-3 macOS terminal CI | P2 | 닫힘 | `00423d1` |
 | RUN-1 장시간 DDL이 앱을 종료 | **P1** | 닫힘 | `514df60` (+ 잔여 `560a5cc`) |
 | RUN-2 witness 중복 우회 | **P1** | 닫힘 | `7c51094` |
@@ -136,6 +136,54 @@ allocation이 안정적 신호다(다른 에이전트들이 같은 머신에서 
 **남은 것을 명시한다.** 버전당 1회 컴파일은 여전히 O(C²)다. 요청당이 아니라 버전당으로 옮긴 것이 STD-2의 완료
 조건이고, 평탄화는 별도 변경이다. `catalogCollectionsByID`는 delete마다 O(C) 맵을 다시 만든다.
 읽기 경로의 `relation.Bind`는 여전히 요청당이다 — 다른 호출 지점이며 STD-2가 아니다.
+
+### SPEC-2 · v2 plan compiler와 신규 collection의 transactional companion 생성
+
+실제 checksum compiler는 `schema-plan-v1` 상수였고 production v2 issuance도 dual validation 경로도 없었다.
+create DDL은 core/relation index만 만들고 companion은 만들지 않았다. 그리고 **모든** schema mutation이
+capability를 pending으로 내렸으므로, ready 이후 collection을 하나 만들면 수동 activation/build가 다시 필요했다.
+
+**issuance는 capability row에서만 온다**(D2-2). `schemaPlanCompilerV1/V2`는 unexported 상수 쌍이고
+`compilePlan`이 label을 한 번만 찍으므로 한 형식으로 만들고 다른 형식으로 이름 붙이는 것이 불가능하다.
+`ready`만 v2를 발급한다 — migration 8의 주석이 이미 약속하던 것이다. exported `CompilePlan`은 v1에 고정돼 있어
+wire golden이 하나도 움직이지 않았다.
+
+**demote를 좁힌 것이 핵심이다.** 판정은 `companions && kind != changeUpdate`다. v2 create는 자기 companion을
+같은 트랜잭션에서 만들고, delete는 자기 테이블을 그 위의 모든 index와 함께 떨어뜨린다 — 둘 다 빈틈을 남기지
+않는다. **update만** gate를 닫고 승인된 CIC maintenance 경로가 다시 연다.
+
+capability를 이어가려면 `catalog_version`뿐 아니라 `ready_index_count`도 옮겨야 한다. doctor가 그 수를
+catalog와 대조하기 때문이다. 그리고 `updated_at`은 `transaction_timestamp()`가 아니라 `clock_timestamp()`다 —
+이 트랜잭션이 schema advisory lock을 기다리는 동안 커밋된 promotion은 이 트랜잭션 시작보다 나중의 `ready_at`을
+쓰고, v8의 timeline CHECK가 그것을 거부한다. **담당자가 "테스트가 순차 실행이라 어떤 테스트도 이걸 잡지
+못했을 것"이라고 스스로 기록했다.**
+
+**dual validation.** `compileMixedFleetPlan`이 두 세대를 모두 컴파일하고 Apply가 어느 쪽 checksum도 받는다.
+바이너리 하나만 있어도 가설이 아니다 — preview와 apply 사이에 capability가 움직일 수 있다. 다만 바이너리
+사이에서는 **단방향**이다: 새 바이너리는 둘 다 받지만 수정 전 바이너리는 v1만 받는다. 이것은 본질적이고,
+lease 증명이 경계를 만든다 — v1 writer가 만료되지 않은 lease를 들고 있는 동안 activation이 거부된다.
+잔여: 90s TTL을 넘겨 유휴 상태인 v1 writer는 v2 checksum을 `ErrConflict`로 거부하고(클라이언트가 재-preview,
+손상 없음) 다음 쓰기에서 demote한다.
+
+**commitment point는 collection 단위**이며 apply 트랜잭션 커밋 시점이다 — v2로 만들어진 collection은
+companion을 영구히 갖고, v1으로 만들어진 것은 CIC가 필요하다. *capability* 자체에는 돌아올 수 없는 지점이
+없다: rollback은 언제든 issuance를 v1으로 되돌리고, 모든 index는 유지되며, 재-activation은 fleet을 다시 증명한다.
+
+변이 6건 중 통합 담당자가 직접 재실행한 두 건(양방향):
+
+| 변이 | 관측 |
+|---|---|
+| 무조건 demote(수정 전) | create·delete 테스트가 `State:"pending"`, api 테스트가 `creating a collection dropped the capability` |
+| 지나치게 좁힘(update도 통과) | update 테스트가 `capability after adding an indexed nullable field = ... State:"ready"` |
+
+담당자가 정직하게 남긴 두 가지: **T2의 의미 있는 변이는 revert가 아니라 over-narrowing(M3)이다** — revert는
+update 경로를 그대로 두므로 T2가 설계상 통과한다. 그리고 T4의 v1-lease activation 거부는 **기존 동작**이라
+자기 변이 중 어느 것에도 실패하지 않으며, commitment point가 거기 기대기 때문에 단언할 뿐 자기 수정의
+증거가 아니다.
+
+**D2-4를 넘어선 부분.** D2-4는 create와 update만 명명한다. delete가 capability를 유지한다는 것은 감사 문구를
+따른 구현 판단이며, 결정 문서에 쓰여 있지 않다. `open-decisions.md`에 "확인 필요"로 분리해 두었다 —
+되돌리려면 `&& kind != changeDelete` 한 줄이고 다른 것은 바뀌지 않는다.
 
 ### STD-3 · SchemaKernel의 compatibility forwarding surface
 
@@ -265,6 +313,9 @@ RUN-1/RUN-4는 스스로 지불했고(−2), SPEC-1(+297)과 STD-1(+44)은 지�
 | Docker E2E `-count=2 -shuffle=on` | 14개 시나리오 통과 (52.98s) |
 | 복원 훈련 `-tags=restore` | `TestRestoreDrill` 포함 3건 통과 (12.17s) |
 | Playwright (onboarding + authenticated) | **8/8 통과** |
+
+10건이 모두 들어간 최종 tip에서 위 전부를 한 번 더 실행했고 결과는 동일하다 — lint 0 issues, UI 354,
+E2E 2회 셔플 통과(57.4s), 복원 훈련 통과(14.3s), PG16/17/18 통합과 PG16 race 모두 clean, `dist` 동기.
 
 Playwright는 CI와 같은 구성으로 돌렸다 — 이 worktree에서 빌드한 이미지, 격리된 Compose project 2개
 (18090/15432, 18091/15433). onboarding spec은 관리자가 없는 인스턴스를 요구하므로 authenticated와 backend를
