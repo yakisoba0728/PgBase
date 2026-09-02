@@ -378,3 +378,149 @@ case "off", "cutover":
    sidecar scan처럼 collection을 한 문장으로 접어야 한다. 실링을 또 올리는 변경이므로 승인이 필요하다.
 
 판단이 필요한 항목으로 남긴다.
+
+# 재감사 (`d3fb5eb → ed52e71`) 대응
+
+첫 대응 뒤 독립 재감사가 7건을 제기했고 **완료·release 승인 불가**로 판정했다. 기존 10건 기준으로는
+완전 해결 6건(STD-2, STD-3, RUN-1~4), 부분 해결 3건(STD-1, SPEC-1, SPEC-2), 실행 증거 없음 1건(SPEC-3)이었다.
+
+## 상태
+
+| 항목 | 등급 | 상태 | 커밋 |
+|---|---|---|---|
+| 복구 경로에서 draft guard 해제 | P2 | 닫힘 | `d3c5e3c`…`73725b5` |
+| 우발 파일 `&1` | P3 | 닫힘 | `6f7d853` |
+| 구/신 compiler를 fleet proof가 구별 못 함 | **P1** | 닫힘 | `477e487` (migration v9) |
+| 승인 checksum과 다른 DDL 실행 | **P1** | 닫힘 | `477e487` |
+| 모든 update가 capability를 pending으로 | P2 | 닫힘 | `477e487` |
+| SPEC-1 rollout 검증이 완료 조건 미충족 | **P1** | 부분 — 아래 | `1546c91`…`d949d3b` |
+| SPEC-3 미검증 | P2 | **도달 불가** | — |
+
+## 내가 만든 것: `&1`
+
+통합 명령에 `2>\&1`로 앰퍼샌드를 이스케이프해서 셸이 `&1`이라는 파일로 리다이렉트했고, `git add -A`가
+`ed52e71`에 실어 넣었다. 지적받기 전까지 알아채지 못했다.
+
+## P1 — 승인한 checksum과 다른 DDL을 실행
+
+`operation_apply.go`가 두 세대의 checksum 중 어느 쪽이든 받아들인 뒤, **capability가 고른 plan을 실행**했다.
+호출자가 v1 statement 목록에 동의했는데 v2 DDL이 도는 것이다. 게다가 migration row에는 호출자의 checksum과
+실행된 plan JSON이 **함께** 기록되므로 둘이 영구히 어긋난 채 남는다.
+
+`compileMixedFleetPlan`의 "either admits nothing new"라는 주석은 *definition*에 대해서만 참이고
+*statement*에 대해서는 거짓이었다 — 그게 v2 세대의 존재 이유인데도.
+
+수정: 호출자가 승인한 checksum이 가리키는 plan을 실행한다. `plan` 자체를 재할당하므로 DDL, 기록되는 plan JSON,
+companion 생성 여부가 모두 자동으로 따라간다.
+
+변이 검증(통합 담당자 재실행): 재할당을 제거하면 `TestApplyAcceptsAPlanChecksumFromEitherCompilerGeneration` 실패.
+
+## P1 — compiler generation이 승격된 적이 없음
+
+`d3fb5eb`(v1만 발급)과 HEAD(v2 발급)가 **둘 다 `schemaCompilerVersion = 2`**를 선언한다. 따라서
+`lease.CompilerVersion < schemaCompilerVersion` 검사가 두 세대를 구별하지 못하고, 진짜 혼합 fleet이 activation
+증명을 통과한다. 기존 테스트가 통과한 것은 lease 행에 `1`을 손으로 써넣었기 때문이며 **그 값은 어떤 배포본도
+만든 적이 없다.** SPEC-2가 기대던 mixed-fleet 안전성 논거 전체가 무효였다.
+
+첫 대응에서 내가 "lease 증명이 경계를 만든다"고 적었는데, 그 경계는 존재하지 않았다.
+
+수정: 세대를 `3`으로 올리고, migration v9가 capability에 증명한 세대를 기록한다. **v9는 기존 `ready`와
+`building`을 모두 pending으로 내린다** — 이전 배포본이 자신을 구별할 수 없었으니 그 증명은 아무것도 뒷받침하지
+않는다. v8의 `rollout_state_check`는 건드리지 않고 별도 제약으로 추가해, v8이 배포한 것을 v8이 계속 검사하게 했다.
+
+**운영 비용:** 이미 `ready`에 도달한 fleet은 업그레이드 후 `schema-index activate`를 다시 돌려야 한다.
+그리고 모든 capability 읽기가 새 컬럼을 참조하므로 **이 바이너리는 v8 데이터베이스를 서비스할 수 없다.**
+
+변이 검증(재실행): 세대를 `2`로 되돌리면
+`activation over a generation 2 writer = <nil>, want ErrCompanionIndexFleet`.
+
+## P1 — SPEC-1 rollout fence: 부분 해결
+
+기존 `TestMembershipUpgradesAPopulatedDatabaseThroughTheDocumentedRollout`은 전이 일곱 단계를 **WriterC 하나**로
+수행했다. rollout의 안전 논거 전체가 release별 fence인데, 단일 인스턴스에서는 아무도 낡지 않으므로 fence가
+전혀 검사되지 않는다.
+
+이것을 변이로 증명했다. `refreshWriter`의 `writerVersion < minimum` 검사를 삭제하면:
+
+```
+기존 테스트   PASS  0.53s     ← fence를 검사하지 않고 있었다
+새 테스트 2건 FAIL  61s, 91s
+  registering Release A under the Release B floor = <nil>, want ... no longer accepted
+  the passed Release A0 writer kept renewing after the cutover raised the floor
+```
+
+새 테스트는 A0/A/B/C 런타임을 실제로 등록하고, TTL 만료를 단축 없이 기다리며, `Execute`를 통해 구동한다.
+
+**닫지 못한 부분:** 독립 release artifact는 만들 수 없다. A0/A/B는 태그된 커밋이 아니라 한 코드베이스의
+`WriterVersion` 상수이므로 체크아웃해 빌드할 과거 바이너리가 존재하지 않는다. 단일 프로세스가 각 버전의
+런타임을 들고 있는 것이 이 환경의 한계다.
+
+## 부수적으로 드러난 것
+
+- **`heartbeatFailsClosed(ErrWriterTooOld)`의 루프 내 분기는 production 경로로 도달 불가능하다.** 모든 전이가
+  살아있는 lease에 fence를 걸고, tolerance(50s) < TTL(60s)이므로 통과당한 채 살아있는 writer가 존재할 수 없다.
+  순수한 심층 방어다. 단, tolerance 논거는 host와 DB 시계가 ~10s 안에서 일치한다고 가정한다.
+- **`RetireV4`의 버전 floor 검사는 dead code다.** floor B에서만 실행될 수 있고 그때 모든 lease는 이미 B 이상이다.
+- **`RegisterWriter`의 주석이 낡았다.** "Release A0 is allowed to start on the exact v6 history"는 거짓이다 —
+  배포 호출자 둘 다 WriterC이고, 선언 이력이 v9인 지금 v6 DB는 그 전에 거부된다. 주석을 사실에 맞게 고쳤다.
+- **읽기 경로는 cursor issue version이 아니라 `v4_retired_at`에 fence를 건다.** rollback이
+  `docs/upgrades.md`가 경고하는 truncated-page 창을 열지 않는다는 뜻이다. 담당자가 처음엔 200을 기대했다가
+  실패하자 **코드와 문서에 맞춰 테스트를 고쳤다** — 반대가 아니라.
+
+## 미해결로 남기는 것: 부하 의존 PG17 실패
+
+`go test -tags=integration ./...`가 PG17에서 실패하는 것을 3회 연속 관측했다. `internal/schema`의 서로 다른
+테스트들이 매번 5.0~5.3초에 실패했다 — pool의 statement timeout 값이다.
+
+**나는 이것을 fence 테스트가 일으킨 회귀라고 단정했고, 그것은 틀렸다.** 근거로 삼은 비교는
+"fence 이전 커밋 2/2 통과 / HEAD 3/3 실패"였는데, 앞의 것은 기계가 조용할 때, 뒤의 것은 다른 에이전트 작업이
+정리되던 때 잰 것이다. 교란변수를 통제하지 않았다.
+
+조용한 기계에서 HEAD를 다시 재면 **4/4 통과한다.** 계측 결과 최대 연결 46/100, 락 대기는 29개 샘플 전부 0이다.
+연결 고갈도 락 경합도 아니고, 부하가 높을 때 정상 쿼리가 5초를 넘기는 것이다. `-p 1`(패키지 직렬)로는 통과한다.
+
+fence 테스트가 60~90초짜리 동시 작업 창을 늘려 확률을 높이는 것은 사실이지만 결정적 원인은 아니다.
+**원인을 짚지 못했으므로 고쳤다고 하지 않는다.** 재현 조건은 위와 같다.
+
+## 이 환경에서 도달 불가능한 것
+
+- **SPEC-3의 실제 CI 실행.** macOS job과 그것을 고정하는 정책 테스트는 브랜치에 있지만 실행은 push를 요구한다.
+- **SPEC-1의 독립 release artifact.** 위와 같은 이유로 존재하지 않는다.
+- **실제 candidate digest에 대한 외부 release gate.** attestation/upload와 registry promotion은 외부 변경이다.
+
+이 셋이 남아 있는 한 완료·배포 승인 판정은 내리지 않는다.
+
+## 재감사 수정 후 마감 매트릭스
+
+| gate | 결과 |
+|---|---|
+| `gofmt -l` / `go vet ./...` / `go vet -tags=integration ./...` | clean |
+| `./scripts/lint-go.sh` | 0 issues |
+| `go test ./... -count=1` | 전체 통과 |
+| `-race` (touched 7개 패키지) | 통과 |
+| integration PG16 / PG17 / PG18 | 각각 통과 |
+| `-race` integration PG16 | 통과 |
+| UI vitest | 24 files / **359** tests |
+| typecheck / build / dist drift | 통과, dist 동기 |
+| Docker E2E `-count=2 -shuffle=on` | 통과 (48.3s) |
+| 복원 훈련 | 통과 (12.7s) |
+| Playwright | **8/8** |
+
+세 PostgreSQL 컨테이너는 전 과정에서 건드리지 않았고 실행 전후로 확인했다. 위 PG17 통과는 조용한 기계에서
+잰 것이며, 바로 위에 기록한 부하 의존 실패를 무효화하지 않는다.
+
+## 정량 예산 (재감사 수정 반영)
+
+```
+data group            16,747 / 16,750   ← 여유 3줄
+handwritten runtime   35,271            UI runtime 3,527
+exported 462   interfaces 17   constructors 25   files over 800 LOC 0
+```
+
+**data group이 D1 천장 3줄 아래다.** D1은 이 숫자를 고정했고 절대 올리지 않으므로, 이 다섯 패키지의 다음
+변경은 같은 스택의 삭제로 스스로 값을 치러야 한다. 반올림 오차가 아니라 실제 제약이다.
+
+## 판단 대기 (변동 없음)
+
+- `App.Start`도 background를 `Close`에만 묶을지 — 공개 API 의미 변경이라 godoc 명시까지만 했다.
+- doctor가 "돌지 않은 rollout"(`off` + 레코드 존재)을 탐지할지 — doctor statement 실링을 올려야 한다.
