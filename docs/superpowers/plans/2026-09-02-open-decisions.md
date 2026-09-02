@@ -65,6 +65,52 @@ R10b의 `internal/repositorypolicy/release_workflow_test.go` 수정은 workflow 
 
 ---
 
+## D6 — 전체 정량 지표 현황 (R11 재산정 입력값)
+
+D1에서 "전체 runtime hard target도 R11에서 함께 재산정한다"고 결정했다. R9a 통합 시점의 실측이다. R8, R5 §9.2, R5 §9.3이 아직 착지하지 않았으므로 최종값은 아니다.
+
+```text
+지표                        현재      계획 target      차이
+handwritten runtime       31,726      22,484        +9,242
+  Go runtime              29,205
+  UI runtime               2,521       2,050          +471
+interface 선언                 14          12            +2
+exported 선언                 442         285          +157
+New* constructor              30          16           +14
+Go runtime 주석 줄         1,268         600          +668
+UI page 직접 hook             19          30       ✅ 달성
+Playwright              231줄/6파일     최소 5      ✅ 달성
+```
+
+Go runtime 상위 기여자:
+
+```text
+internal/schema   6,376      internal/relation   2,008
+internal/query    4,917      internal/adminauth  1,331
+internal/api      2,522      internal/cli          926
+internal/doctor   2,410      pgbase                881
+internal/recordops 2,157     internal/cursor       719
+```
+
+`tests/` 아래 non-test Go는 66줄뿐이라 측정 아티팩트가 아니다. 실제 runtime이다.
+
+### 해석
+
+계획의 22,484는 baseline이자 hard guardrail이었다("현재 22,484줄을 넘지 않는 것을 hard guardrail로 둔다"). 즉 리팩터링 후에도 늘지 않는 것이 전제였는데, 현재 41% 초과다. R2b ledger, R4 membership sidecar/rollout, R7 route registry와 ledger recovery 계약, R9a의 port/location 계층이 전부 계획이 요구한 신규 표면이고 baseline에는 없던 것들이다.
+
+R9a 담당 에이전트의 보고를 그대로 옮기면: "AdminLocation(137), ports 계층(176 + 306 vs 기존 `api/*` 394), opaque value 타입과 `useResourceState`는 R9a 항목 1~2가 *요구하는* 표면이고 2,490 baseline에는 존재하지 않았다. 계획의 2,041 추정치는 이들보다 앞선다." 아무도 import하지 않는 export 7개를 제거하고 선언을 압축해 −42줄/−9 export를 확보했지만, 표면을 줄이지 않으면서 지표만 맞추는 `export type {…}` 묶음은 하지 않았다.
+
+주석 1,268줄은 특히 주의가 필요하다. 계획 §5는 주석을 리팩터링과 함께 **제거**하라고 하지만 동시에 PostgreSQL snapshot/lock/null ordering 근거, 보안 fail-closed 근거, cursor rollout 제약은 **유지**하라고 한다. 이번 세션의 단계들은 후자를 대량으로 추가했다(deadline margin 근거, unwrap 근거, savepoint 근거, advisory key 미통합 근거 등). 600줄 목표는 그 유지 대상을 셈에 넣지 않은 값으로 보인다.
+
+### R11에서 결정할 것
+
+- 전체 runtime hard target의 새 값
+- exported 선언, New* constructor, 주석 줄 목표의 새 값 — 또는 이들을 hard KPI에서 빼고 방향성 지표로 강등할지
+- UI 2,050의 새 값
+- 어느 지표를 zero-slack ratchet으로 강제하고 어느 것을 보고 전용으로 둘지
+
+---
+
 ## D1 — 그룹 LOC 예산 3,100줄 초과 (블로커, R11)
 
 ### 측정값
