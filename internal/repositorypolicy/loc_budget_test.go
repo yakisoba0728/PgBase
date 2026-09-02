@@ -35,7 +35,7 @@ import (
 // key renderer feeding both the DDL and the comparison). A zero-slack ratchet
 // tracks the measurement in both directions; only raising it needs the
 // accounting recorded below.
-const dataGroupRuntimeLimit = 16_639
+const dataGroupRuntimeLimit = 16_594
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -157,6 +157,16 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 //	handwritten runtime lines      35,150 -> 35,157
 //	  gross-new 7 / gross-deleted 0, all of it godoc on pgbase.(*App).Start
 //
+// Lowered by audit finding STD-3, which deleted the six PlanX/ApplyX wrappers
+// from *schema.Service and wired the HTTP adapter to Preview and
+// Apply(LegacyApply(...)) directly. The wire goldens are byte-identical; the
+// six were literal forwards, and the only thing they discarded --
+// ApplyResult.Receipt and .Replayed -- the handler discarded too.
+//
+//	handwritten runtime lines      35,157 -> 35,092  (-65)
+//	production exported declarations   468 ->   462  (-6, the six methods)
+//	data group runtime              16,639 -> 16,594 (-45, all internal/schema)
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -174,10 +184,10 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_157, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_092, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_517, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 468, "plan 285"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 25, "plan 16"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 19, "plan 30"},

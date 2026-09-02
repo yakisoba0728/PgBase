@@ -13,7 +13,7 @@
 |---|---|---|---|
 | STD-1 draft 유실 | P2 | 닫힘 | `4fc6891`…`eed8837` |
 | STD-2 DELETE graph 비용 | P2 | 닫힘 | `52eb31d` (지불: `03f07ec`) |
-| STD-3 forwarding wrapper | P3 | 진행 중 | — |
+| STD-3 forwarding wrapper | P3 | 닫힘 | `e5a7b5b`…`3594daa` |
 | SPEC-1 운영 진입점 부재 | **P1** | 닫힘 | `2e87742`, `672391d` |
 | SPEC-2 compiler v2 미배선 | P2 | 진행 중 | — |
 | SPEC-3 macOS terminal CI | P2 | 닫힘 | `00423d1` |
@@ -136,6 +136,36 @@ allocation이 안정적 신호다(다른 에이전트들이 같은 머신에서 
 **남은 것을 명시한다.** 버전당 1회 컴파일은 여전히 O(C²)다. 요청당이 아니라 버전당으로 옮긴 것이 STD-2의 완료
 조건이고, 평탄화는 별도 변경이다. `catalogCollectionsByID`는 delete마다 O(C) 맵을 다시 만든다.
 읽기 경로의 `relation.Bind`는 여전히 요청당이다 — 다른 호출 지점이며 STD-2가 아니다.
+
+### STD-3 · SchemaKernel의 compatibility forwarding surface
+
+`PlanCreate/PlanUpdate/PlanDelete/ApplyCreate/ApplyUpdate/ApplyDelete` 6개가 `Preview`/`Apply`로 전달하는
+wrapper로 남아 있었고, `internal/api`가 의존하는 interface도 기존·신규 표면을 나란히 들고 있었다.
+
+HTTP adapter를 `Preview` / `Apply(LegacyApply(...))`에 직접 연결하고, interface와 `*Service` 양쪽에서 6개를
+삭제했다. 호출 지점 약 250곳은 대부분 테스트였고, `internal/schema` 안에서는 실제 호출을 그대로 보여주는
+unexported helper로, 바깥 패키지에서는 인라인으로 바꿨다. **테스트가 이제 production이 쓰는 표면을 읽는다.**
+
+**wire golden은 손대지 않았다.** `internal/api/testdata/schema_operations_wire.golden.json`은 byte 동일하고,
+`git diff -- internal/api/testdata/`가 비어 있음을 통합 시 확인했다. golden test 파일이 편집되긴 했지만
+fixture field 이름(`applied:`/`guardedApplyResult:` → `applyResult:`)뿐이고 기대값 줄은 0개다.
+
+**동작 차이는 없었다.** 6개 모두 문자 그대로의 forward였다. 유일하게 버리던 것 — `ApplyResult.Receipt`와
+`.Replayed` — 은 handler도 이미 버리고 있었다. 다만 legacy claim 충돌 시 `Replayed: true`에 zero `Collection`이
+돌아가는 기존 경계가 있으며(`operation_apply.go:replayedApplyResult`), 이번에 도입된 것이 아니라 원래
+있던 것임을 기록해 둔다.
+
+리팩터링이라 증거는 새 테스트가 아니라 **변하지 않은 기존 스위트**다. 테스트를 1개 삭제했는데
+(`TestPreviewMatchesCompatibilityEntryPoints`), wrapper가 사라지자 비교의 양쪽이 같은 `Preview` 호출이 되어
+무조건 통과하는 동어반복이 됐기 때문이다. 같은 파일 바로 아래의
+`TestApplyIntentUsesOneKernelForCreateUpdateAndDelete`가 실제 DB에 대해 create/update/delete를
+`Preview` + `Apply`로 구동하며 더 많은 것을 확인한다. **테스트 삭제는 발견 자체가 허가한 일이 아니므로
+근거와 함께 남긴다.**
+
+과거 문서 두 곳이 이 6개를 현재 설계로 서술하고 있었다.
+`docs/superpowers/specs/2026-08-31-relation-schema-lifecycle-design.md` §6에는 갱신 주석을 달았다.
+`docs/superpowers/plans/2026-08-28-production-kernel.md:1093` 은 날짜가 박힌 계획 기록이고 거기 적힌 signature는
+당시에도 배포본과 달랐으므로(baseVersion 없음) 기록으로 남겨 두고 고치지 않았다.
 
 ### STD-1 · 저장 중 편집한 draft가 유실됨
 
