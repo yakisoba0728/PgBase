@@ -37,9 +37,9 @@ func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testi
 			},
 		},
 	}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
-		t.Fatalf("PlanCreate(): %v", err)
+		t.Fatalf("Preview(create): %v", err)
 	}
 	if len(plan.Definition.Fields) != 2 || plan.Definition.Fields[0].Relation == nil || plan.Definition.Fields[1].Relation == nil {
 		t.Fatalf("planned relation fields = %#v", plan.Definition.Fields)
@@ -51,9 +51,9 @@ func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testi
 		t.Fatalf("planned targets do not resolve to users %s: %#v", users.ID, plan.Definition.Fields)
 	}
 
-	created, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	created, err := applyCreate(ctx, service, input, plan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyCreate(): %v", err)
+		t.Fatalf("applyCreate(): %v", err)
 	}
 	if len(created.Fields) != 2 || created.Fields[0].Relation == nil || created.Fields[1].Relation == nil {
 		t.Fatalf("created relation fields = %#v", created.Fields)
@@ -134,16 +134,16 @@ func TestRelationServiceResolvesSelfRelationAndPublishesListenerCatalog(t *testi
 			Relation: &RelationInput{TargetCollection: "nodes", OnDelete: RelationSetNull},
 		}},
 	}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
-		t.Fatalf("PlanCreate(): %v", err)
+		t.Fatalf("Preview(create): %v", err)
 	}
 	if plan.Definition.Fields[0].Relation == nil || plan.Definition.Fields[0].Relation.TargetCollectionID != nil {
 		t.Fatalf("self relation plan must remain symbolic: %#v", plan.Definition.Fields[0].Relation)
 	}
-	created, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	created, err := applyCreate(ctx, service, input, plan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyCreate(): %v", err)
+		t.Fatalf("applyCreate(): %v", err)
 	}
 	if created.Fields[0].Relation == nil || created.Fields[0].Relation.TargetCollectionID != created.ID {
 		t.Fatalf("resolved self relation = %#v, source=%s", created.Fields[0].Relation, created.ID)
@@ -170,14 +170,14 @@ func TestRelationServiceRejectsStalePlanWithoutPartialState(t *testing.T) {
 		Name: "owner", Type: TypeRelation,
 		Relation: &RelationInput{TargetCollection: "users"},
 	}}}
-	stalePlan, err := service.PlanCreate(ctx, input)
+	stalePlan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "pages"}, administratorID)
 
-	if _, err := service.ApplyCreate(ctx, input, stalePlan.Checksum, stalePlan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
-		t.Fatalf("ApplyCreate(stale) error = %v, want ErrConflict", err)
+	if _, err := applyCreate(ctx, service, input, stalePlan, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("applyCreate(stale) error = %v, want ErrConflict", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 2, migrations: 2})
 	var physicalTable string
@@ -216,12 +216,12 @@ func TestRelationServiceRollsBackDDLAndSchemaCommitWhenRelationMetadataInsertFai
 		Name: "owner", Type: TypeRelation,
 		Relation: &RelationInput{TargetCollection: "users"},
 	}}}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); !errors.Is(err, ErrDataConstraint) {
-		t.Fatalf("ApplyCreate() error = %v, want ErrDataConstraint", err)
+	if _, err := applyCreate(ctx, service, input, plan, administratorID); !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("applyCreate() error = %v, want ErrDataConstraint", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, migrations: 1})
 	var physicalTable string
@@ -255,13 +255,13 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 		{Name: "title", Type: TypeText},
 		{Name: "owner", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "users"}},
 	}}
-	addPlan, err := service.PlanUpdate(ctx, add)
+	addPlan, err := service.Preview(ctx, NewUpdateChange(add))
 	if err != nil {
-		t.Fatalf("PlanUpdate(add): %v", err)
+		t.Fatalf("Preview(update add): %v", err)
 	}
-	added, err := service.ApplyUpdate(ctx, add, addPlan.Checksum, addPlan.BaseVersion, administratorID)
+	added, err := applyUpdate(ctx, service, add, addPlan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyUpdate(add): %v", err)
+		t.Fatalf("applyUpdate(add): %v", err)
 	}
 	if added.Fields[0].ID != posts.Fields[0].ID || added.Fields[1].ID == uuid.Nil {
 		t.Fatalf("field IDs after add: before=%#v after=%#v", posts.Fields, added.Fields)
@@ -274,13 +274,13 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 			TargetCollection: "users", OnDelete: RelationCascade,
 		}},
 	}}
-	changePlan, err := service.PlanUpdate(ctx, change)
+	changePlan, err := service.Preview(ctx, NewUpdateChange(change))
 	if err != nil {
-		t.Fatalf("PlanUpdate(change): %v", err)
+		t.Fatalf("Preview(update change): %v", err)
 	}
-	changed, err := service.ApplyUpdate(ctx, change, changePlan.Checksum, changePlan.BaseVersion, administratorID)
+	changed, err := applyUpdate(ctx, service, change, changePlan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyUpdate(change): %v", err)
+		t.Fatalf("applyUpdate(change): %v", err)
 	}
 	if changed.Fields[0].ID != posts.Fields[0].ID || changed.Fields[1].ID != ownerID ||
 		changed.Fields[1].Relation == nil || changed.Fields[1].Relation.OnDelete != RelationCascade || !changed.Fields[1].Unique {
@@ -288,13 +288,13 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 	}
 
 	drop := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	dropPlan, err := service.PlanUpdate(ctx, drop)
+	dropPlan, err := service.Preview(ctx, NewUpdateChange(drop))
 	if err != nil {
-		t.Fatalf("PlanUpdate(drop): %v", err)
+		t.Fatalf("Preview(update drop): %v", err)
 	}
-	dropped, err := service.ApplyUpdate(ctx, drop, dropPlan.Checksum, dropPlan.BaseVersion, administratorID)
+	dropped, err := applyUpdate(ctx, service, drop, dropPlan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyUpdate(drop): %v", err)
+		t.Fatalf("applyUpdate(drop): %v", err)
 	}
 	if len(dropped.Fields) != 1 || dropped.Fields[0].ID != posts.Fields[0].ID {
 		t.Fatalf("fields after relation drop = %#v", dropped.Fields)
@@ -333,13 +333,13 @@ func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) 
 			TargetCollection: "users", OnDelete: RelationCascade,
 		}},
 	}}
-	plan, err := service.PlanUpdate(ctx, requiredOwner)
+	plan, err := service.Preview(ctx, NewUpdateChange(requiredOwner))
 	if err != nil {
-		t.Fatalf("PlanUpdate(empty required relation): %v", err)
+		t.Fatalf("Preview(update empty required relation): %v", err)
 	}
-	updated, err := service.ApplyUpdate(ctx, requiredOwner, plan.Checksum, plan.BaseVersion, administratorID)
+	updated, err := applyUpdate(ctx, service, requiredOwner, plan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyUpdate(empty required relation): %v", err)
+		t.Fatalf("applyUpdate(empty required relation): %v", err)
 	}
 	if len(updated.Fields) != 2 || updated.Fields[1].Relation == nil || !updated.Fields[1].Required {
 		t.Fatalf("required relation update = %#v", updated.Fields)
@@ -362,12 +362,12 @@ func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) 
 			TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: &maximumMembers,
 		}},
 	}}
-	membersPlan, err := service.PlanUpdate(ctx, requiredMembers)
+	membersPlan, err := service.Preview(ctx, NewUpdateChange(requiredMembers))
 	if err != nil {
-		t.Fatalf("PlanUpdate(empty required multiple relation): %v", err)
+		t.Fatalf("Preview(update empty required multiple relation): %v", err)
 	}
-	if _, err := service.ApplyUpdate(ctx, requiredMembers, membersPlan.Checksum, membersPlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyUpdate(empty required multiple relation): %v", err)
+	if _, err := applyUpdate(ctx, service, requiredMembers, membersPlan, administratorID); err != nil {
+		t.Fatalf("applyUpdate(empty required multiple relation): %v", err)
 	}
 	membersNames := NewRelationPhysicalNames("groups", "members")
 	var membersTable string
@@ -389,9 +389,9 @@ func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) 
 			TargetCollection: "users", Cardinality: RelationMultiple, MaxSelect: &maximumReviewers,
 		}},
 	}}
-	stalePlan, err := service.PlanUpdate(ctx, requiredReviewers)
+	stalePlan, err := service.Preview(ctx, NewUpdateChange(requiredReviewers))
 	if err != nil {
-		t.Fatalf("PlanUpdate(empty required multiple relation): %v", err)
+		t.Fatalf("Preview(update empty required multiple relation): %v", err)
 	}
 	if _, err := pool.Exec(ctx, `insert into app.drafts (id, created_at, updated_at, title)
 		values ($1, current_timestamp, current_timestamp, 'needs backfill')`, uuid.New()); err != nil {
@@ -405,9 +405,9 @@ func TestRelationServiceAddsRequiredRelationOnlyWhenSourceIsEmpty(t *testing.T) 
 			t.Fatalf("required relation error = %#v, want %#v", err, want)
 		}
 	}
-	_, err = service.PlanUpdate(ctx, requiredReviewers)
+	_, err = service.Preview(ctx, NewUpdateChange(requiredReviewers))
 	assertBackfillNeeded(err)
-	_, err = service.ApplyUpdate(ctx, requiredReviewers, stalePlan.Checksum, stalePlan.BaseVersion, administratorID)
+	_, err = applyUpdate(ctx, service, requiredReviewers, stalePlan, administratorID)
 	assertBackfillNeeded(err)
 
 	names := NewRelationPhysicalNames("drafts", "reviewers")
@@ -438,7 +438,7 @@ func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *te
 			t.Fatalf("error = %#v, want collection_referenced", err)
 		}
 	}
-	_, err := service.PlanDelete(ctx, "users")
+	_, err := service.Preview(ctx, NewDeleteChange("users"))
 	assertCollectionReferenced(err)
 
 	catalog, err := service.Catalog(ctx)
@@ -453,23 +453,23 @@ func TestRelationServiceGuardsIncomingCollectionDeleteUntilRelationRemoved(t *te
 	if err != nil {
 		t.Fatalf("plan delete against a catalog without the referencing collection: %v", err)
 	}
-	assertCollectionReferenced(service.ApplyDelete(ctx, "users", forgedPlan.Checksum, forgedPlan.BaseVersion, administratorID))
+	assertCollectionReferenced(applyDelete(ctx, service, "users", forgedPlan, administratorID))
 	assertSchemaCounts(t, pool, schemaCounts{version: 2, collections: 2, fields: 1, migrations: 2})
 
 	remove := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}}
-	removePlan, err := service.PlanUpdate(ctx, remove)
+	removePlan, err := service.Preview(ctx, NewUpdateChange(remove))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyUpdate(ctx, remove, removePlan.Checksum, removePlan.BaseVersion, administratorID); err != nil {
+	if _, err := applyUpdate(ctx, service, remove, removePlan, administratorID); err != nil {
 		t.Fatalf("remove relation: %v", err)
 	}
-	deletePlan, err := service.PlanDelete(ctx, "users")
+	deletePlan, err := service.Preview(ctx, NewDeleteChange("users"))
 	if err != nil {
-		t.Fatalf("PlanDelete(after remove): %v", err)
+		t.Fatalf("Preview(delete after remove): %v", err)
 	}
-	if err := service.ApplyDelete(ctx, "users", deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyDelete(after remove): %v", err)
+	if err := applyDelete(ctx, service, "users", deletePlan, administratorID); err != nil {
+		t.Fatalf("applyDelete(after remove): %v", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 4, collections: 1, migrations: 4})
 	remaining, err := service.Catalog(ctx)

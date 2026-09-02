@@ -35,14 +35,14 @@ func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyCreate, err := service.PlanCreate(ctx, create)
+	legacyCreate, err := service.Preview(ctx, NewCreateChange(create))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(previewCreate, legacyCreate) {
 		t.Fatalf("create Preview() = %#v, compatibility plan = %#v", previewCreate, legacyCreate)
 	}
-	if _, err := service.ApplyCreate(ctx, create, previewCreate.Checksum, previewCreate.BaseVersion, administratorID); err != nil {
+	if _, err := applyCreate(ctx, service, create, previewCreate, administratorID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyUpdate, err := service.PlanUpdate(ctx, update)
+	legacyUpdate, err := service.Preview(ctx, NewUpdateChange(update))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyDelete, err := service.PlanDelete(ctx, create.Name)
+	legacyDelete, err := service.Preview(ctx, NewDeleteChange(create.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,42 +152,42 @@ func TestApplyOperationsRecordBoundedOutcomesAndDurations(t *testing.T) {
 	ctx := context.Background()
 
 	createInput := CreateCollectionInput{Name: "telemetry_records", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	createPlan, err := service.PlanCreate(ctx, createInput)
+	createPlan, err := service.Preview(ctx, NewCreateChange(createInput))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyCreate(ctx, createInput, createPlan.Checksum, createPlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate(): %v", err)
+	if _, err := applyCreate(ctx, service, createInput, createPlan, administratorID); err != nil {
+		t.Fatalf("applyCreate(): %v", err)
 	}
 
 	updateInput := UpdateCollectionInput{Name: createInput.Name, Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
-	updatePlan, err := service.PlanUpdate(ctx, updateInput)
+	updatePlan, err := service.Preview(ctx, NewUpdateChange(updateInput))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyUpdate(ctx, updateInput, updatePlan.Checksum, updatePlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyUpdate(): %v", err)
+	if _, err := applyUpdate(ctx, service, updateInput, updatePlan, administratorID); err != nil {
+		t.Fatalf("applyUpdate(): %v", err)
 	}
 
-	deletePlan, err := service.PlanDelete(ctx, createInput.Name)
+	deletePlan, err := service.Preview(ctx, NewDeleteChange(createInput.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ApplyDelete(ctx, createInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyDelete(): %v", err)
+	if err := applyDelete(ctx, service, createInput.Name, deletePlan, administratorID); err != nil {
+		t.Fatalf("applyDelete(): %v", err)
 	}
-	if err := service.ApplyDelete(ctx, createInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
-		t.Fatalf("ApplyDelete(stale) error = %v, want conflict", err)
+	if err := applyDelete(ctx, service, createInput.Name, deletePlan, administratorID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("applyDelete(stale) error = %v, want conflict", err)
 	}
 
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	canceledPlan, err := service.PlanCreate(ctx, CreateCollectionInput{Name: "canceled_apply"})
+	canceledPlan, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{Name: "canceled_apply"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyCreate(canceled, CreateCollectionInput{Name: "canceled_apply"}, canceledPlan.Checksum, canceledPlan.BaseVersion, administratorID); !errors.Is(err, context.Canceled) {
-		t.Fatalf("ApplyCreate(canceled) error = %v", err)
+	if _, err := applyCreate(canceled, service, CreateCollectionInput{Name: "canceled_apply"}, canceledPlan, administratorID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("applyCreate(canceled) error = %v", err)
 	}
 
 	events := recorder.snapshot()
@@ -219,31 +219,31 @@ func TestRelationSchemaPlanAndApplyRecordBoundedRelationEvents(t *testing.T) {
 	ctx := context.Background()
 
 	targetInput := CreateCollectionInput{Name: "telemetry_targets", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	targetPlan, err := service.PlanCreate(ctx, targetInput)
+	targetPlan, err := service.Preview(ctx, NewCreateChange(targetInput))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyCreate(ctx, targetInput, targetPlan.Checksum, targetPlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate(target): %v", err)
+	if _, err := applyCreate(ctx, service, targetInput, targetPlan, administratorID); err != nil {
+		t.Fatalf("applyCreate(target): %v", err)
 	}
 
 	sourceInput := CreateCollectionInput{Name: "telemetry_sources", Fields: []FieldInput{{
 		Name: "target", Type: TypeRelation, Relation: &RelationInput{TargetCollection: targetInput.Name},
 	}}}
-	sourcePlan, err := service.PlanCreate(ctx, sourceInput)
+	sourcePlan, err := service.Preview(ctx, NewCreateChange(sourceInput))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyCreate(ctx, sourceInput, sourcePlan.Checksum, sourcePlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate(source): %v", err)
+	if _, err := applyCreate(ctx, service, sourceInput, sourcePlan, administratorID); err != nil {
+		t.Fatalf("applyCreate(source): %v", err)
 	}
 
-	deletePlan, err := service.PlanDelete(ctx, sourceInput.Name)
+	deletePlan, err := service.Preview(ctx, NewDeleteChange(sourceInput.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ApplyDelete(ctx, sourceInput.Name, deletePlan.Checksum, deletePlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyDelete(source): %v", err)
+	if err := applyDelete(ctx, service, sourceInput.Name, deletePlan, administratorID); err != nil {
+		t.Fatalf("applyDelete(source): %v", err)
 	}
 
 	var relationEvents []observability.Event
@@ -268,29 +268,29 @@ func TestRelationSchemaPlanRecordsValidationAndSkipsScalarPlans(t *testing.T) {
 	service := NewService(pool, &Cache{}, recorder)
 	ctx := context.Background()
 
-	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+	if _, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{
 		Name:   "telemetry_scalar_plan",
 		Fields: []FieldInput{{Name: "title", Type: TypeText}},
-	}); err != nil {
-		t.Fatalf("PlanCreate(scalar): %v", err)
+	})); err != nil {
+		t.Fatalf("Preview(create scalar): %v", err)
 	}
-	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+	if _, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{
 		Name: "telemetry_relation_plan",
 		Fields: []FieldInput{{
 			Name: "parent", Type: TypeRelation,
 			Relation: &RelationInput{TargetCollection: "telemetry_relation_plan"},
 		}},
-	}); err != nil {
-		t.Fatalf("PlanCreate(relation): %v", err)
+	})); err != nil {
+		t.Fatalf("Preview(create relation): %v", err)
 	}
-	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+	if _, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{
 		Name: "telemetry_invalid_relation_plan",
 		Fields: []FieldInput{{
 			Name: "parent", Type: TypeRelation,
 			Relation: &RelationInput{TargetCollection: "missing_telemetry_target"},
 		}},
-	}); err == nil {
-		t.Fatal("PlanCreate(invalid relation) succeeded")
+	})); err == nil {
+		t.Fatal("Preview(create invalid relation) succeeded")
 	}
 
 	events := recorder.snapshot()
@@ -317,11 +317,11 @@ func TestApplyCreatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 		},
 	}
 
-	plan, err := service.PlanCreate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
-	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	collection, err := applyCreate(context.Background(), service, input, plan, administratorID)
 	if err != nil {
 		t.Fatalf("apply create: %v", err)
 	}
@@ -383,11 +383,11 @@ func TestApplyCreateRejectsDuplicateCollectionWithoutChangingState(t *testing.T)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
 	applyFreshPlan(t, service, input, administratorID)
 
-	second, err := service.PlanCreate(context.Background(), input)
+	second, err := service.Preview(context.Background(), NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyCreate(context.Background(), input, second.Checksum, second.BaseVersion, administratorID)
+	_, err = applyCreate(context.Background(), service, input, second, administratorID)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate apply error = %v, want ErrConflict", err)
 	}
@@ -398,11 +398,11 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 	t.Run("explicit base version mismatch", func(t *testing.T) {
 		pool, service, administratorID := newSchemaServiceTest(t)
 		input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-		plan, err := service.PlanCreate(context.Background(), input)
+		plan, err := service.Preview(context.Background(), NewCreateChange(input))
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion+1, administratorID)
+		_, err = applyCreate(context.Background(), service, input, Plan{Checksum: plan.Checksum, BaseVersion: plan.BaseVersion + 1}, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("base-version mismatch error = %v, want ErrConflict", err)
 		}
@@ -412,13 +412,13 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 	t.Run("stale base version", func(t *testing.T) {
 		pool, service, administratorID := newSchemaServiceTest(t)
 		staleInput := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-		stalePlan, err := service.PlanCreate(context.Background(), staleInput)
+		stalePlan, err := service.Preview(context.Background(), NewCreateChange(staleInput))
 		if err != nil {
 			t.Fatal(err)
 		}
 		applyFreshPlan(t, service, CreateCollectionInput{Name: "pages"}, administratorID)
 
-		_, err = service.ApplyCreate(context.Background(), staleInput, stalePlan.Checksum, stalePlan.BaseVersion, administratorID)
+		_, err = applyCreate(context.Background(), service, staleInput, stalePlan, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("stale apply error = %v, want ErrConflict", err)
 		}
@@ -427,7 +427,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 
 	t.Run("wrong checksum", func(t *testing.T) {
 		pool, service, administratorID := newSchemaServiceTest(t)
-		_, err := service.ApplyCreate(context.Background(), CreateCollectionInput{Name: "posts"}, "wrong-checksum", 0, administratorID)
+		_, err := applyCreate(context.Background(), service, CreateCollectionInput{Name: "posts"}, Plan{Checksum: "wrong-checksum", BaseVersion: 0}, administratorID)
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
 		}
@@ -438,7 +438,7 @@ func TestApplyCreateRejectsStaleBaseVersionAndWrongChecksum(t *testing.T) {
 func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{Name: "broken"}
-	plan, err := service.PlanCreate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +449,7 @@ func TestApplyCreateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 		_, err := tx.Exec(ctx, `CREATE TABLE "app"."will_not_parse" (`)
 		return err
 	}
-	_, err = service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	_, err = applyCreate(context.Background(), service, input, plan, administratorID)
 	if err == nil {
 		t.Fatal("invalid DDL apply succeeded")
 	}
@@ -480,7 +480,7 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 	}
 	service := NewService(pool, &Cache{}, nil)
 	input := CreateCollectionInput{Name: "slow_table"}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,8 +489,8 @@ func TestApplyCreateCompletesDDLBeyondThirtySecondsAndCanBeRechecked(t *testing.
 		return err
 	}
 	started := time.Now()
-	if _, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate() applied the request statement timeout to DDL: %v", err)
+	if _, err := applyCreate(ctx, service, input, plan, administratorID); err != nil {
+		t.Fatalf("applyCreate() applied the request statement timeout to DDL: %v", err)
 	}
 	if elapsed := time.Since(started); elapsed < 30*time.Second {
 		t.Fatalf("slow DDL completed in %s, want a characterization longer than 30s", elapsed)
@@ -523,7 +523,7 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 	}
 	plans := make([]Plan, len(inputs))
 	for index, input := range inputs {
-		plan, err := service.PlanCreate(context.Background(), input)
+		plan, err := service.Preview(context.Background(), NewCreateChange(input))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -557,7 +557,7 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 		go func(input CreateCollectionInput, plan Plan) {
 			defer workers.Done()
 			<-start
-			_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+			_, applyErr := applyCreate(context.Background(), service, input, plan, administratorID)
 			results <- applyErr
 		}(inputs[index], plans[index])
 	}
@@ -590,7 +590,7 @@ func TestApplyCreateSerializesConcurrentUseOfOnePlan(t *testing.T) {
 func TestApplyCreateValidatesCompleteCatalogCommittedBeforeLockedSnapshot(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	plan, err := service.PlanCreate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestApplyCreateValidatesCompleteCatalogCommittedBeforeLockedSnapshot(t *tes
 
 	applyResult := make(chan error, 1)
 	go func() {
-		_, applyErr := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+		_, applyErr := applyCreate(context.Background(), service, input, plan, administratorID)
 		applyResult <- applyErr
 	}()
 	waitForAdvisoryLockWaiter(t, pool)
@@ -732,7 +732,7 @@ func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing
 	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing
 
 	applyResult := make(chan error, 1)
 	go func() {
-		_, applyErr := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+		_, applyErr := applyCreate(ctx, service, input, plan, administratorID)
 		applyResult <- applyErr
 	}()
 	<-plannerEntered
@@ -771,7 +771,7 @@ func TestCatalogRetriesSerializationFailureFromACommittedSchemaChange(t *testing
 	release()
 
 	if err := <-applyResult; err != nil {
-		t.Fatalf("ApplyCreate while a catalog reader waited: %v", err)
+		t.Fatalf("applyCreate while a catalog reader waited: %v", err)
 	}
 	read := <-catalogRead
 	if read.err != nil {
@@ -803,7 +803,7 @@ func TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds(t *test
 		{Name: "title", Type: TypeText},
 		{Name: "summary", Type: TypeText},
 	}}
-	plan, err := service.PlanUpdate(ctx, update)
+	plan, err := service.Preview(ctx, NewUpdateChange(update))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +824,7 @@ func TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds(t *test
 
 	applyResult := make(chan error, 1)
 	go func() {
-		_, err := service.ApplyUpdate(ctx, update, plan.Checksum, plan.BaseVersion, administratorID)
+		_, err := applyUpdate(ctx, service, update, plan, administratorID)
 		applyResult <- err
 	}()
 	waitForSchemaStateLockWaiter(t, pool)
@@ -841,7 +841,7 @@ func TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds(t *test
 		t.Fatal(err)
 	}
 	if err := <-applyResult; err != nil {
-		t.Fatalf("ApplyUpdate after record transaction ended: %v", err)
+		t.Fatalf("applyUpdate after record transaction ended: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `select count(*) from information_schema.columns
 		where table_schema = 'app' and table_name = 'posts' and column_name = 'summary'`).Scan(&summaryColumns); err != nil {
@@ -884,7 +884,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	cache := &Cache{}
 	service := NewService(pool, cache, nil)
 	input := CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
@@ -900,7 +900,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	defer cancelRequest()
 	applyResult := make(chan error, 1)
 	go func() {
-		_, applyErr := service.ApplyCreate(requestCtx, input, plan.Checksum, plan.BaseVersion, administratorID)
+		_, applyErr := applyCreate(requestCtx, service, input, plan, administratorID)
 		applyResult <- applyErr
 	}()
 	<-plannerEntered
@@ -932,7 +932,7 @@ func TestApplyCreateDoesNotReportFailureAfterCommitWhenRequestIsCanceled(t *test
 	cancelRequest()
 	waiter.Release()
 	if err := <-applyResult; err != nil {
-		t.Fatalf("ApplyCreate reported failure after committing schema state: %v", err)
+		t.Fatalf("applyCreate reported failure after committing schema state: %v", err)
 	}
 
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
@@ -967,11 +967,11 @@ func TestApplyUpdatePersistsCatalogDDLAndAuditAtomically(t *testing.T) {
 			{Name: "extra", Type: TypeInteger, Default: json.RawMessage(`"1"`)},
 		},
 	}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan update: %v", err)
 	}
-	updated, err := service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	updated, err := applyUpdate(ctx, service, input, plan, administratorID)
 	if err != nil {
 		t.Fatalf("apply update: %v", err)
 	}
@@ -1040,11 +1040,11 @@ func TestApplyUpdatePreservesRetainedFieldIDsAndCreatesIDsOnlyForNewFields(t *te
 		{Name: "views", Type: TypeNumeric},
 		{Name: "summary", Type: TypeText},
 	}}
-	plan, err := service.PlanUpdate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewUpdateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := service.ApplyUpdate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	updated, err := applyUpdate(context.Background(), service, input, plan, administratorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1061,22 +1061,22 @@ func TestApplyUpdateRejectsUnknownCollectionStaleVersionAndChecksum(t *testing.T
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 	input := UpdateCollectionInput{Name: "ghosts", Fields: nil}
-	if _, err := service.PlanUpdate(ctx, input); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := service.Preview(ctx, NewUpdateChange(input)); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("plan unknown collection error = %v, want ErrCollectionNotFound", err)
 	}
-	if _, err := service.ApplyUpdate(ctx, input, "", 1, administratorID); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := applyUpdate(ctx, service, input, Plan{Checksum: "", BaseVersion: 1}, administratorID); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("apply unknown collection error = %v, want ErrCollectionNotFound", err)
 	}
 
 	valid := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
-	plan, err := service.PlanUpdate(ctx, valid)
+	plan, err := service.Preview(ctx, NewUpdateChange(valid))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ApplyUpdate(ctx, valid, plan.Checksum, plan.BaseVersion+5, administratorID); !errors.Is(err, ErrConflict) {
+	if _, err := applyUpdate(ctx, service, valid, Plan{Checksum: plan.Checksum, BaseVersion: plan.BaseVersion + 5}, administratorID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale base version error = %v, want ErrConflict", err)
 	}
-	if _, err := service.ApplyUpdate(ctx, valid, "wrong-checksum", plan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+	if _, err := applyUpdate(ctx, service, valid, Plan{Checksum: "wrong-checksum", BaseVersion: plan.BaseVersion}, administratorID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
 	}
 }
@@ -1085,7 +1085,7 @@ func TestApplyUpdateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	input := UpdateCollectionInput{Name: "posts"}
-	plan, err := service.PlanUpdate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewUpdateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1097,7 +1097,7 @@ func TestApplyUpdateRollsBackDDLMetadataAuditAndVersionOnStatementFailure(t *tes
 		return err
 	}
 
-	_, err = service.ApplyUpdate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	_, err = applyUpdate(context.Background(), service, input, plan, administratorID)
 	if err == nil {
 		t.Fatal("invalid DDL update succeeded")
 	}
@@ -1116,7 +1116,7 @@ func TestApplyUpdateSerializesUnderAdvisoryLock(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
-	plan, err := service.PlanUpdate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewUpdateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1142,7 +1142,7 @@ func TestApplyUpdateSerializesUnderAdvisoryLock(t *testing.T) {
 
 	applied := make(chan error, 1)
 	go func() {
-		_, applyErr := service.ApplyUpdate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+		_, applyErr := applyUpdate(context.Background(), service, input, plan, administratorID)
 		applied <- applyErr
 	}()
 	waitForAdvisoryLockWaiter(t, pool)
@@ -1165,11 +1165,11 @@ func TestApplyDeleteRemovesCatalogTableAndAudit(t *testing.T) {
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "pages", Fields: []FieldInput{{Name: "body", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
 
-	plan, err := service.PlanDelete(ctx, "posts")
+	plan, err := service.Preview(ctx, NewDeleteChange("posts"))
 	if err != nil {
 		t.Fatalf("plan delete: %v", err)
 	}
-	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if err := applyDelete(ctx, service, "posts", plan, administratorID); err != nil {
 		t.Fatalf("apply delete: %v", err)
 	}
 
@@ -1199,10 +1199,10 @@ func TestApplyDeleteRemovesCatalogTableAndAudit(t *testing.T) {
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 3, collections: 1, fields: 1, migrations: 3})
 
-	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, 3, administratorID); !errors.Is(err, ErrCollectionNotFound) {
+	if err := applyDelete(ctx, service, "posts", Plan{Checksum: plan.Checksum, BaseVersion: 3}, administratorID); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("second delete error = %v, want ErrCollectionNotFound", err)
 	}
-	if _, err := service.PlanDelete(ctx, "ghosts"); !errors.Is(err, ErrCollectionNotFound) {
+	if _, err := service.Preview(ctx, NewDeleteChange("ghosts")); !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("plan unknown delete error = %v, want ErrCollectionNotFound", err)
 	}
 }
@@ -1211,14 +1211,14 @@ func TestApplyDeleteRejectsStaleVersionAndChecksum(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, administratorID)
 	ctx := context.Background()
-	plan, err := service.PlanDelete(ctx, "posts")
+	plan, err := service.Preview(ctx, NewDeleteChange("posts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ApplyDelete(ctx, "posts", plan.Checksum, plan.BaseVersion+1, administratorID); !errors.Is(err, ErrConflict) {
+	if err := applyDelete(ctx, service, "posts", Plan{Checksum: plan.Checksum, BaseVersion: plan.BaseVersion + 1}, administratorID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale base version error = %v, want ErrConflict", err)
 	}
-	if err := service.ApplyDelete(ctx, "posts", "wrong-checksum", plan.BaseVersion, administratorID); !errors.Is(err, ErrConflict) {
+	if err := applyDelete(ctx, service, "posts", Plan{Checksum: "wrong-checksum", BaseVersion: plan.BaseVersion}, administratorID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("wrong checksum error = %v, want ErrConflict", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
@@ -1239,7 +1239,7 @@ func TestPlanUpdateOmitsSetDefaultForUnchangedObjectDefaults(t *testing.T) {
 		{Name: "starts_at", Type: TypeTimestampTZ, Default: json.RawMessage(`{"kind":"now"}`)},
 		{Name: "payload", Type: TypeJSONB, Default: json.RawMessage(`{"a":[1,2,3],"z":1}`)},
 	}}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan update: %v", err)
 	}
@@ -1260,11 +1260,11 @@ func TestApplyUpdateCreatesEnforcesAndDropsIndexesForFieldFlags(t *testing.T) {
 		{Name: "title", Type: TypeText},
 		{Name: "slug", Type: TypeText, Unique: true, Indexed: true},
 	}}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan update: %v", err)
 	}
-	if _, err := service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := applyUpdate(ctx, service, input, plan, administratorID); err != nil {
 		t.Fatalf("apply update: %v", err)
 	}
 
@@ -1287,11 +1287,11 @@ func TestApplyUpdateCreatesEnforcesAndDropsIndexesForFieldFlags(t *testing.T) {
 	}
 
 	demoted := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText}, {Name: "slug", Type: TypeText}}}
-	plan, err = service.PlanUpdate(ctx, demoted)
+	plan, err = service.Preview(ctx, NewUpdateChange(demoted))
 	if err != nil {
 		t.Fatalf("plan demote: %v", err)
 	}
-	if _, err := service.ApplyUpdate(ctx, demoted, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := applyUpdate(ctx, service, demoted, plan, administratorID); err != nil {
 		t.Fatalf("apply demote: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `select count(*) from pg_indexes
@@ -1314,11 +1314,11 @@ func TestApplyUpdateReportsDataConstraintInsteadOfInternalError(t *testing.T) {
 	}
 
 	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "note", Type: TypeText, Required: true}}}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan update: %v", err)
 	}
-	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	_, err = applyUpdate(ctx, service, input, plan, administratorID)
 	if !errors.Is(err, ErrDataConstraint) {
 		t.Fatalf("apply error = %v, want ErrDataConstraint", err)
 	}
@@ -1344,13 +1344,13 @@ func TestApplyUpdateReportsExistingDuplicateValuesAsDataConstraint(t *testing.T)
 	}
 
 	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText, Unique: true}}}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	_, err = applyUpdate(ctx, service, input, plan, administratorID)
 	if !errors.Is(err, ErrDataConstraint) {
-		t.Fatalf("ApplyUpdate error = %v, want ErrDataConstraint", err)
+		t.Fatalf("applyUpdate error = %v, want ErrDataConstraint", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 }
@@ -1366,13 +1366,13 @@ func TestApplyUpdateReportsOversizedExistingBtreeValueAsDataConstraint(t *testin
 	}
 
 	input := UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "slug", Type: TypeText, Indexed: true}}}
-	plan, err := service.PlanUpdate(ctx, input)
+	plan, err := service.Preview(ctx, NewUpdateChange(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	_, err = applyUpdate(ctx, service, input, plan, administratorID)
 	if !errors.Is(err, ErrDataConstraint) {
-		t.Fatalf("ApplyUpdate error = %v, want ErrDataConstraint", err)
+		t.Fatalf("applyUpdate error = %v, want ErrDataConstraint", err)
 	}
 	assertSchemaCounts(t, pool, schemaCounts{version: 1, collections: 1, fields: 1, migrations: 1})
 }
@@ -1393,20 +1393,20 @@ func TestCatalogReadsSurviveLegacyOversizedTextDefault(t *testing.T) {
 			{Name: "body", Type: TypeText, Default: json.RawMessage(`"short"`)},
 		},
 	}
-	plan, err := service.PlanCreate(ctx, input)
+	plan, err := service.Preview(ctx, NewCreateChange(input))
 	if err != nil {
-		t.Fatalf("PlanCreate: %v", err)
+		t.Fatalf("Preview(create): %v", err)
 	}
-	if _, err := service.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate: %v", err)
+	if _, err := applyCreate(ctx, service, input, plan, administratorID); err != nil {
+		t.Fatalf("applyCreate: %v", err)
 	}
 	bystander := CreateCollectionInput{Name: "bystander", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	bystanderPlan, err := service.PlanCreate(ctx, bystander)
+	bystanderPlan, err := service.Preview(ctx, NewCreateChange(bystander))
 	if err != nil {
-		t.Fatalf("PlanCreate bystander: %v", err)
+		t.Fatalf("Preview(create) bystander: %v", err)
 	}
-	if _, err := service.ApplyCreate(ctx, bystander, bystanderPlan.Checksum, bystanderPlan.BaseVersion, administratorID); err != nil {
-		t.Fatalf("ApplyCreate bystander: %v", err)
+	if _, err := applyCreate(ctx, service, bystander, bystanderPlan, administratorID); err != nil {
+		t.Fatalf("applyCreate bystander: %v", err)
 	}
 
 	// An older binary bounded record values but not schema defaults, so a
@@ -1441,16 +1441,16 @@ func TestCatalogReadsSurviveLegacyOversizedTextDefault(t *testing.T) {
 			Name: "body", Type: TypeText, Default: json.RawMessage(strconv.Quote(oversized)),
 		}},
 	}
-	carryPlan, err := service.PlanUpdate(ctx, carry)
+	carryPlan, err := service.Preview(ctx, NewUpdateChange(carry))
 	if err != nil {
-		t.Fatalf("PlanUpdate unchanged legacy default: %v", err)
+		t.Fatalf("Preview(update) unchanged legacy default: %v", err)
 	}
 	if len(carryPlan.Statements) != 0 {
 		t.Fatalf("unchanged legacy default emitted DDL: %#v", carryPlan.Statements)
 	}
-	updated, err := service.ApplyUpdate(ctx, carry, carryPlan.Checksum, carryPlan.BaseVersion, administratorID)
+	updated, err := applyUpdate(ctx, service, carry, carryPlan, administratorID)
 	if err != nil {
-		t.Fatalf("ApplyUpdate unchanged legacy default: %v", err)
+		t.Fatalf("applyUpdate unchanged legacy default: %v", err)
 	}
 	if got := string(updated.Fields[0].Default); got != strconv.Quote(oversized) {
 		t.Fatalf("applied legacy default = %d bytes, want the stored value preserved", len(got))
@@ -1460,10 +1460,10 @@ func TestCatalogReadsSurviveLegacyOversizedTextDefault(t *testing.T) {
 		t.Fatal("catalog lost an unrelated collection, so one legacy default locked the database")
 	}
 	// The bound still closes the input path.
-	if _, err := service.PlanCreate(ctx, CreateCollectionInput{
+	if _, err := service.Preview(ctx, NewCreateChange(CreateCollectionInput{
 		Name:   "rejected_defaults",
 		Fields: []FieldInput{{Name: "body", Type: TypeText, Default: json.RawMessage(strconv.Quote(oversized))}},
-	}); err == nil {
-		t.Fatal("PlanCreate accepted an oversized text default, want validation error")
+	})); err == nil {
+		t.Fatal("Preview(create) accepted an oversized text default, want validation error")
 	}
 }

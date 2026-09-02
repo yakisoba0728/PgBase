@@ -284,11 +284,11 @@ func newSchemaServiceTest(t *testing.T) (*database.Pool, *Service, uuid.UUID) {
 
 func applyFreshPlan(t *testing.T, service *Service, input CreateCollectionInput, administratorID uuid.UUID) Collection {
 	t.Helper()
-	plan, err := service.PlanCreate(context.Background(), input)
+	plan, err := service.Preview(context.Background(), NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan create: %v", err)
 	}
-	collection, err := service.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, administratorID)
+	collection, err := applyCreate(context.Background(), service, input, plan, administratorID)
 	if err != nil {
 		t.Fatalf("apply create: %v", err)
 	}
