@@ -70,6 +70,9 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 		if err := checkCollections(ctx, tx, &report); err != nil {
 			return err
 		}
+		if err := checkCompanionIndexes(ctx, tx, &report); err != nil {
+			return err
+		}
 		return checkRecordMembership(ctx, tx, status, &report)
 	}); err != nil {
 		return report, err

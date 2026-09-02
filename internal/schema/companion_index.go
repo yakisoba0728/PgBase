@@ -100,10 +100,14 @@ type CompanionIndexReceipt struct {
 // CompanionIndexDiagnostics is the physical truth behind the capability row,
 // read from one snapshot so a caller cannot mix a state with a later catalog.
 type CompanionIndexDiagnostics struct {
-	Status         CompanionIndexStatus
-	CatalogVersion int64
-	Expected       int
-	Valid          int
+	Status CompanionIndexStatus
+	// CatalogReadable is false when the catalog itself is inconsistent. The
+	// companion contract is undefined then, and the catalog fault is the finding
+	// a caller should act on.
+	CatalogReadable bool
+	CatalogVersion  int64
+	Expected        int
+	Valid           int
 	// Invalid counts companions PostgreSQL left behind by an interrupted
 	// CREATE INDEX CONCURRENTLY. They are recoverable by rerunning maintenance.
 	Invalid int
@@ -111,6 +115,13 @@ type CompanionIndexDiagnostics struct {
 	// DESC NULLS LAST shape the read path needs.
 	Mismatched int
 	Missing    int
+}
+
+// catalogShapeError reports a failure that means the stored catalog is not a
+// consistent snapshot, as opposed to a database or context failure.
+func catalogShapeError(err error) bool {
+	return err != nil && (errors.Is(err, ErrConflict) ||
+		errors.Is(err, ErrCatalogInvalid) || errors.Is(err, errCatalogIntegrity))
 }
 
 // companionIndexObserved is one companion as PostgreSQL actually stores it.
@@ -654,13 +665,19 @@ func ReadCompanionIndexDiagnostics(ctx context.Context, db database.DBTX) (Compa
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
 	}
-	return companionIndexDiagnostics(ctx, db, status, version)
+	diagnostics, err := companionIndexDiagnostics(ctx, db, status, version)
+	if catalogShapeError(err) {
+		// A caller that already reports the catalog fault must not also be told
+		// the companion contract is broken; there is no contract to compare to.
+		return CompanionIndexDiagnostics{Status: status, CatalogVersion: version}, nil
+	}
+	return diagnostics, err
 }
 
 func companionIndexDiagnostics(
 	ctx context.Context, db database.DBTX, status CompanionIndexStatus, version int64,
 ) (CompanionIndexDiagnostics, error) {
-	diagnostics := CompanionIndexDiagnostics{Status: status, CatalogVersion: version}
+	diagnostics := CompanionIndexDiagnostics{Status: status, CatalogVersion: version, CatalogReadable: true}
 	catalog, err := NewStore(db).ReadCatalog(ctx, version)
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
