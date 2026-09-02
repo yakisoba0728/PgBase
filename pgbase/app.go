@@ -245,7 +245,7 @@ func newWithCatalogPreflight(
 	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics, normalized.TokenSecret)
 	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
-	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterB)
+	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
 	if err != nil {
 		return nil, fmt.Errorf("register record membership writer: %w", err)
 	}
