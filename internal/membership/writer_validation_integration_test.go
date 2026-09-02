@@ -362,24 +362,37 @@ func assertWriterValidationTrace(t *testing.T, statements []string, create bool)
 	t.Helper()
 	want := 2
 	if create {
-		want = 3
+		want = 1
 	}
 	if len(statements) != want {
 		t.Fatalf("writer validation statement count = %d, want %d\n%s",
 			len(statements), want, formatWriterValidationTrace(statements))
 	}
-	if !strings.Contains(statements[0], "from pgbase_meta.schema_state") ||
-		!strings.HasSuffix(statements[0], "for share") {
-		t.Fatalf("first writer statement does not pin schema: %s", statements[0])
-	}
 	validationIndex := 1
 	if create {
-		counter := statements[1]
-		if !strings.Contains(counter, "pgbase_meta.collection_creation_counters") ||
-			!strings.Contains(counter, "for no key update") {
-			t.Fatalf("second create statement does not lock the collection counter: %s", counter)
+		validationIndex = 0
+		statement := statements[0]
+		schemaIndex := strings.Index(statement, "from pgbase_meta.schema_state")
+		counterIndex := strings.Index(statement, "join pgbase_meta.collection_creation_counters")
+		capabilityIndex := strings.Index(statement, "join pgbase_meta.record_membership_capability")
+		if schemaIndex < 0 || counterIndex <= schemaIndex || capabilityIndex <= counterIndex {
+			t.Fatalf("single create statement does not preserve schema -> counter -> capability locks: %s", statement)
 		}
-		validationIndex = 2
+		for _, fragment := range []string{
+			"pinned_schema as materialized",
+			"locked_counter as materialized",
+			"locked_capability as materialized",
+			"where singleton limit 1 for share",
+			"for key share of creation_counter",
+			"on capability.singleton limit 1 for share of capability",
+		} {
+			if !strings.Contains(statement, fragment) {
+				t.Fatalf("single create statement is missing %q: %s", fragment, statement)
+			}
+		}
+	} else if !strings.Contains(statements[0], "from pgbase_meta.schema_state") ||
+		!strings.HasSuffix(statements[0], "for share") {
+		t.Fatalf("first writer statement does not pin schema: %s", statements[0])
 	}
 	validation := statements[validationIndex]
 	for _, fragment := range []string{
