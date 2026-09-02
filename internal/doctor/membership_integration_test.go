@@ -3,6 +3,7 @@
 package doctor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -193,6 +194,32 @@ func TestRunFailsClosedOnMalformedMembershipCatalog(t *testing.T) {
 			breakSQL: `alter table pgbase_meta.record_membership_capability drop constraint record_membership_capability_rollout_state_check;
 				alter table pgbase_meta.record_membership_capability add constraint record_membership_capability_rollout_state_check check (true)`,
 		},
+		// Each of these leaves every column, constraint, index and CHECK hash
+		// intact while silently swallowing or hiding the very rows the coverage
+		// query and the sidecar scans read.
+		{
+			name: "trigger swallowing sidecar inserts",
+			breakSQL: `create function pgbase_meta.doctor_probe() returns trigger
+				language plpgsql as $$ begin return null; end $$;
+				create trigger doctor_probe before insert on pgbase_meta.record_creation_ordinals
+				for each row execute function pgbase_meta.doctor_probe()`,
+		},
+		{
+			name:     "rule discarding sidecar inserts",
+			breakSQL: `create rule doctor_probe as on insert to pgbase_meta.record_creation_ordinals do instead nothing`,
+		},
+		{
+			name:     "row level security enabled on the sidecar",
+			breakSQL: `alter table pgbase_meta.record_creation_ordinals enable row level security`,
+		},
+		{
+			name:     "row level security forced on the capability row",
+			breakSQL: `alter table pgbase_meta.record_membership_capability force row level security`,
+		},
+		{
+			name:     "row level security enabled on the writer leases",
+			breakSQL: `alter table pgbase_meta.runtime_writer_leases enable row level security`,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			pool := newDoctorPool(t)
@@ -349,11 +376,22 @@ func newMembershipDoctorFixture(t *testing.T, state string) membershipDoctorFixt
 	}
 
 	switch state {
-	case "off":
+	// beginCutover bumps only the capability generation: per-collection
+	// counters and backfills stay at the 'off' values until finishCutover
+	// moves the rollout to dual_write.
+	case "off", "cutover":
 		if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.collection_creation_counters
 			(collection_id, generation, last_ordinal, updated_at) values ($1, 0, 0, $2)`,
 			collectionID, createdAt); err != nil {
 			t.Fatal(err)
+		}
+		if state == "cutover" {
+			if _, err := pool.Exec(context.Background(), `update pgbase_meta.record_membership_capability set
+				state = 'cutover', generation = 1, minimum_writer_version = 1,
+				cursor_issue_version = 4, cutover_at = $1, updated_at = $1 where singleton`,
+				createdAt); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.record_membership_backfills
 			(collection_id, generation, state, updated_at) values ($1, 0, 'off', $2)`,
@@ -399,15 +437,31 @@ func newMembershipDoctorFixture(t *testing.T, state string) membershipDoctorFixt
 	return membershipDoctorFixture{pool: pool, collectionID: collectionID, createdAt: createdAt}
 }
 
+// pinnedDoctorMessages is the exact text doctor must emit for every code these
+// tests can produce. A code missing from here is a deliberate stop: whoever
+// adds a finding has to state its constant message.
+var pinnedDoctorMessages = map[string]string{
+	"schema_state_stale":                     "Schema state does not match schema migration history",
+	"record_membership_installation_invalid": "Record membership schema installation is incomplete",
+	"record_membership_sidecar_orphaned":     "A record membership sidecar is missing its base record",
+	"record_membership_sidecar_missing":      "A base record is missing its required membership sidecar",
+}
+
+// assertBoundedMembershipReport bounds what reaches an operator, and nothing
+// else. It rebuilds the report from each finding's code alone and demands the
+// encoding match byte for byte, so a message, severity or field that ever
+// carries a collection name, row count or SQL fragment fails here even though
+// the leak scans below would still pass.
+//
+// It does NOT bound the work doctor performs: the sidecar queries stay
+// O(total records) and hold AccessShare on every collection table however small
+// this report is. Only TestRunTakesNoCollectionLocksDuringCutover constrains
+// that side.
 func assertBoundedMembershipReport(t *testing.T, report Report, secretIDs ...uuid.UUID) {
 	t.Helper()
 	encoded, err := json.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
-	}
-	maximumBytes := 192 * (len(report.Findings) + 1)
-	if len(encoded) > maximumBytes {
-		t.Fatalf("membership diagnostic grew beyond its bound: %d bytes", len(encoded))
 	}
 	for _, secret := range secretIDs {
 		if strings.Contains(string(encoded), secret.String()) {
@@ -416,6 +470,21 @@ func assertBoundedMembershipReport(t *testing.T, report Report, secretIDs ...uui
 	}
 	if strings.Contains(string(encoded), `app."order"`) || strings.Contains(string(encoded), "record_creation_ordinals") {
 		t.Fatalf("membership diagnostic leaked SQL details: %s", encoded)
+	}
+	rebuilt := Report{OK: report.OK, Findings: make([]Finding, 0, len(report.Findings))}
+	for _, got := range report.Findings {
+		message, pinned := pinnedDoctorMessages[got.Code]
+		if !pinned {
+			t.Fatalf("finding %q has no pinned message; add its constant to pinnedDoctorMessages", got.Code)
+		}
+		rebuilt.Findings = append(rebuilt.Findings, finding(got.Code, message))
+	}
+	want, err := json.Marshal(rebuilt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, want) {
+		t.Fatalf("membership diagnostic carries data beyond its code:\n got %s\nwant %s", encoded, want)
 	}
 }
 
@@ -483,8 +552,9 @@ func addMembershipCollection(t *testing.T, fixture membershipDoctorFixture, name
 }
 
 // Drift in several collections is still one operator-facing problem per kind.
-// Without the dedup this reports one finding per collection, which is exactly
-// the unbounded report the membership checks are supposed to prevent.
+// Both kinds are present in the first collection here, so the scan stops there;
+// TestRunReportsSplitMembershipSidecarDriftOncePerKind covers the case where
+// the loop has to keep going.
 func TestRunReportsMembershipSidecarDriftOncePerKindAcrossCollections(t *testing.T) {
 	fixture := newMembershipDoctorFixture(t, "ready")
 	secondID := addMembershipCollection(t, fixture, "invoice", "ready")
@@ -563,4 +633,161 @@ func TestRunClosesInvalidMembershipInstallationBeforeScanningContent(t *testing.
 	report := runDoctor(t, fixture.pool)
 	assertInvalidMembershipInstallation(t, report)
 	assertBoundedMembershipReport(t, report, orphanID, baseID, fixture.collectionID)
+}
+
+// A collection table dropped after doctor took its snapshot is a benign race,
+// not drift. A SQL read of pg_class still reports the table, so
+// readMembershipCollections hands out a collection whose probe then resolves
+// the identifier against the live catalog and raises 42P01. The run has to skip
+// that collection, keep scanning the rest, and stay committable.
+func TestRunSkipsCollectionsDroppedAfterTheDoctorSnapshot(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMembershipDoctorFixture(t, "ready")
+	addMembershipCollection(t, fixture, "invoice", "ready")
+	orphanID := uuid.MustParse("0199c000-0000-7000-8000-0000000000e1")
+	if _, err := fixture.pool.Exec(ctx, `update pgbase_meta.collection_creation_counters
+		set last_ordinal = 1, updated_at = $2 where collection_id = $1`,
+		fixture.collectionID, fixture.createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `insert into pgbase_meta.record_creation_ordinals
+		(collection_id, record_id, ordinal) values ($1, $2, 1)`,
+		fixture.collectionID, orphanID); err != nil {
+		t.Fatal(err)
+	}
+	status, err := migrate.New(fixture.pool, nil).Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	connection, err := fixture.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	report := Report{Findings: []Finding{}}
+	if err := pinDeparseStyles(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	// The snapshot is taken by the first read, not by BEGIN or SET LOCAL. Drop
+	// the table before this and readMembershipCollections never returns the
+	// collection at all, so the race under test never happens.
+	if err := checkSchemaState(ctx, tx, &report); err != nil {
+		t.Fatal(err)
+	}
+	// "invoice" sorts before "order", so the dropped collection is probed first
+	// and the surviving orphan is found only if the scan resumed after it.
+	if _, err := fixture.pool.Exec(ctx, `drop table app."invoice"`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkRecordMembership(ctx, tx, status, &report); err != nil {
+		t.Fatalf("doctor failed on a collection dropped after its snapshot: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("doctor transaction did not survive the undefined-table error: %v", err)
+	}
+	want := []Finding{finding(
+		"record_membership_sidecar_orphaned",
+		"A record membership sidecar is missing its base record",
+	)}
+	if !reflect.DeepEqual(report.Findings, want) {
+		t.Fatalf("findings = %#v, want %#v", report.Findings, want)
+	}
+	assertBoundedMembershipReport(t, report, orphanID, fixture.collectionID)
+}
+
+// One kind of drift per collection keeps the scan running through both, which
+// is the only shape that pins where the findings are appended: the scan
+// accumulates into two booleans and appends once after the loop, so an append
+// moved inside it reports the orphan again for every later collection.
+func TestRunReportsSplitMembershipSidecarDriftOncePerKind(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMembershipDoctorFixture(t, "ready")
+	invoiceID := addMembershipCollection(t, fixture, "invoice", "ready")
+	orphanID := uuid.MustParse("0199c000-0000-7000-8000-0000000000f1")
+	baseID := uuid.MustParse("0199c000-0000-7000-8000-0000000000f2")
+	// "invoice" sorts first and carries only the orphaned sidecar; "order"
+	// carries only the unpaired base record, so neither collection alone
+	// satisfies the scan's stop condition.
+	if _, err := fixture.pool.Exec(ctx, `update pgbase_meta.collection_creation_counters
+		set last_ordinal = 1, updated_at = $2 where collection_id = $1`,
+		invoiceID, fixture.createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `insert into pgbase_meta.record_creation_ordinals
+		(collection_id, record_id, ordinal) values ($1, $2, 1)`, invoiceID, orphanID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `insert into app."order"
+		(id, created_at, updated_at) values ($1, $2, $2)`, baseID, fixture.createdAt); err != nil {
+		t.Fatal(err)
+	}
+
+	report := runDoctor(t, fixture.pool)
+	want := []Finding{
+		finding("record_membership_sidecar_orphaned", "A record membership sidecar is missing its base record"),
+		finding("record_membership_sidecar_missing", "A base record is missing its required membership sidecar"),
+	}
+	if !reflect.DeepEqual(report.Findings, want) {
+		t.Fatalf("findings = %#v, want exactly %#v", report.Findings, want)
+	}
+	assertBoundedMembershipReport(t, report, orphanID, baseID, invoiceID, fixture.collectionID)
+}
+
+// cutover is a write barrier: internal/membership/writer.go returns
+// ErrUnavailable for every write while it is set, so no sidecar can exist and
+// base rows without one are the expected state rather than drift.
+func TestRunAcceptsUnpairedBaseRecordsDuringCutover(t *testing.T) {
+	fixture := newMembershipDoctorFixture(t, "cutover")
+	baseID := uuid.MustParse("0199c000-0000-7000-8000-0000000000d1")
+	if _, err := fixture.pool.Exec(context.Background(), `insert into app."order"
+		(id, created_at, updated_at) values ($1, $2, $2)`, baseID, fixture.createdAt); err != nil {
+		t.Fatal(err)
+	}
+
+	report := runDoctor(t, fixture.pool)
+	if !report.OK || len(report.Findings) != 0 {
+		t.Fatalf("report = %#v, want the cutover write barrier to read as healthy", report)
+	}
+	assertBoundedMembershipReport(t, report, baseID, fixture.collectionID)
+}
+
+// Findings alone cannot tell cutover's early return from the dual_write scan:
+// the coverage query already proves no sidecar exists, so the orphan probe
+// finds nothing and the missing probe is gated on ready. What differs is the
+// lock footprint. The sidecar scans are the only doctor statements that touch a
+// collection table, so during cutover an operator holding ACCESS EXCLUSIVE on a
+// collection must not be able to stall a doctor run at all.
+func TestRunTakesNoCollectionLocksDuringCutover(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMembershipDoctorFixture(t, "cutover")
+	blocker, err := fixture.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Release()
+	blocking, err := blocker.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocking.Rollback(ctx) }()
+	if _, err := blocking.Exec(ctx, `lock table app."order" in access exclusive mode`); err != nil {
+		t.Fatal(err)
+	}
+
+	bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	report, err := Run(bounded, fixture.pool, migrate.New(fixture.pool, nil))
+	if err != nil {
+		t.Fatalf("doctor waited on a collection lock it must not take during cutover: %v", err)
+	}
+	if !report.OK || len(report.Findings) != 0 {
+		t.Fatalf("report = %#v", report)
+	}
 }

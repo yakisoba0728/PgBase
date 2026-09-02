@@ -2,10 +2,12 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 )
@@ -14,7 +16,9 @@ const recordMembershipMigrationVersion int64 = 7
 
 // checkRecordMembership deliberately runs after the existing catalog checks so
 // adding these findings does not reorder any established doctor diagnostics.
-func checkRecordMembership(ctx context.Context, db database.DBTX, status migrate.Status, report *Report) error {
+// It takes the transaction itself rather than a database.DBTX because the
+// sidecar scans need savepoints; see sidecarScan.probe.
+func checkRecordMembership(ctx context.Context, db pgx.Tx, status migrate.Status, report *Report) error {
 	if status.Dirty || !status.Compatible {
 		return nil
 	}
@@ -62,58 +66,125 @@ func checkRecordMembership(ctx context.Context, db database.DBTX, status migrate
 	// Everything above this point costs a fixed number of catalog queries. The
 	// sidecar scans below do not: proving that no sidecar is orphaned and no
 	// base row is unpaired requires visiting every row of both sides, so this
-	// loop is O(total records) and issues one query per collection in
-	// dual_write plus a second one in ready. `exists` stops at the first
+	// loop is O(total records), and each collection costs a savepoint around
+	// one probe in dual_write or two in ready. `exists` stops at the first
 	// offender, which only helps a database that is already broken; a healthy
 	// one pays the full scan. These are also the only AccessShare locks doctor
 	// takes on app tables, so a long run holds them against concurrent DDL.
 	// The cost is accepted because a bounded probe cannot prove absence, and it
 	// is bounded in the only way that matters to a caller: at most two findings
 	// regardless of how many rows or collections are wrong.
-	orphanedFound := false
-	missingFound := false
+	scan := sidecarScan{}
 	for _, collection := range collections {
 		if !collection.baseIDValid {
 			continue
 		}
-		table := pgx.Identifier{"app", collection.table}.Sanitize()
-		if !orphanedFound {
-			if err := db.QueryRow(ctx, `select exists (
-				select 1
-				from pgbase_meta.record_creation_ordinals as sidecar
-				where sidecar.collection_id = $1
-				  and not exists (select 1 from `+table+` as base where base.id = sidecar.record_id)
-			)`, collection.id).Scan(&orphanedFound); err != nil {
-				return fmt.Errorf("check orphaned record membership sidecars: %w", err)
-			}
+		if err := scan.probe(ctx, db, collection, state); err != nil {
+			return err
 		}
-		if state == "ready" && !missingFound {
-			if err := db.QueryRow(ctx, `select exists (
-				select 1
-				from `+table+` as base
-				where not exists (
-					select 1 from pgbase_meta.record_creation_ordinals as sidecar
-					where sidecar.collection_id = $1 and sidecar.record_id = base.id
-				)
-			)`, collection.id).Scan(&missingFound); err != nil {
-				return fmt.Errorf("check missing record membership sidecars: %w", err)
-			}
-		}
-		if orphanedFound && (state != "ready" || missingFound) {
+		if scan.orphaned && (state != "ready" || scan.missing) {
 			break
 		}
 	}
-	if orphanedFound {
-		appendFindingOnce(report, finding(
+	// Each kind is appended exactly once here, after the loop, so the report
+	// stays bounded no matter how many collections are wrong.
+	if scan.orphaned {
+		report.Findings = append(report.Findings, finding(
 			"record_membership_sidecar_orphaned",
 			"A record membership sidecar is missing its base record",
 		))
 	}
-	if missingFound {
-		appendFindingOnce(report, finding(
+	if scan.missing {
+		report.Findings = append(report.Findings, finding(
 			"record_membership_sidecar_missing",
 			"A base record is missing its required membership sidecar",
 		))
+	}
+	return nil
+}
+
+type sidecarScan struct {
+	orphaned, missing bool
+}
+
+// probe runs one collection's sidecar queries inside a savepoint.
+//
+// These queries are the only doctor statements that name a collection table as
+// a dynamic identifier, and PostgreSQL resolves an identifier against the live
+// catalog even under this transaction's RepeatableRead snapshot: a SQL read of
+// pg_class or information_schema still reports a table that a concurrent
+// session has already dropped, so readMembershipCollections can hand out a
+// collection whose table no longer exists and the probe then raises 42P01.
+//
+// Doctor cannot close that window by pinning the schema the way the membership
+// service does. Its transaction is READ ONLY and PostgreSQL rejects
+// `SELECT ... FOR SHARE` there, so a pin would mean giving up read-only access
+// mode and then holding a schema_state row lock for the whole O(total records)
+// scan, blocking every concurrent schema apply on a diagnostic that is supposed
+// to observe rather than interfere.
+//
+// Skipping is safe because a table that is missing for any reason other than a
+// DROP committed after this snapshot is already reported: it is absent from the
+// snapshot too, which clears baseIDValid and makes checkCollections emit
+// collection_table_missing. Any other undefined relation is drift, so the
+// savepoint is rolled back and the error returned.
+func (scan *sidecarScan) probe(ctx context.Context, tx pgx.Tx, collection membershipCollection, state string) error {
+	table := pgx.Identifier{"app", collection.table}.Sanitize()
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("open record membership scan savepoint: %w", err)
+	}
+	defer func() { _ = savepoint.Rollback(ctx) }()
+
+	if !scan.orphaned {
+		if err := savepoint.QueryRow(ctx, `select exists (
+			select 1
+			from pgbase_meta.record_creation_ordinals as sidecar
+			where sidecar.collection_id = $1
+			  and not exists (select 1 from `+table+` as base where base.id = sidecar.record_id)
+		)`, collection.id).Scan(&scan.orphaned); err != nil {
+			return resumeAfterConcurrentDrop(ctx, tx, savepoint, table,
+				fmt.Errorf("check orphaned record membership sidecars: %w", err))
+		}
+	}
+	if state == "ready" && !scan.missing {
+		if err := savepoint.QueryRow(ctx, `select exists (
+			select 1
+			from `+table+` as base
+			where not exists (
+				select 1 from pgbase_meta.record_creation_ordinals as sidecar
+				where sidecar.collection_id = $1 and sidecar.record_id = base.id
+			)
+		)`, collection.id).Scan(&scan.missing); err != nil {
+			return resumeAfterConcurrentDrop(ctx, tx, savepoint, table,
+				fmt.Errorf("check missing record membership sidecars: %w", err))
+		}
+	}
+	if err := savepoint.Commit(ctx); err != nil {
+		return fmt.Errorf("release record membership scan savepoint: %w", err)
+	}
+	return nil
+}
+
+// resumeAfterConcurrentDrop returns nil only when scanErr is an undefined-table
+// error raised because table is gone from the live catalog. The savepoint is
+// rolled back first: a failed statement aborts the surrounding transaction
+// until it is unwound, so without this the remaining collections would all fail
+// with 25P02 and the caller would lose the findings already gathered.
+func resumeAfterConcurrentDrop(ctx context.Context, tx pgx.Tx, savepoint pgx.Tx, table string, scanErr error) error {
+	var postgresError *pgconn.PgError
+	if !errors.As(scanErr, &postgresError) || postgresError.Code != "42P01" {
+		return scanErr
+	}
+	if err := savepoint.Rollback(ctx); err != nil {
+		return scanErr
+	}
+	var live bool
+	if err := tx.QueryRow(ctx, `select to_regclass($1) is not null`, table).Scan(&live); err != nil {
+		return scanErr
+	}
+	if live {
+		return scanErr
 	}
 	return nil
 }
@@ -242,17 +313,10 @@ func readMembershipCollections(ctx context.Context, db database.DBTX) ([]members
 	return collections, nil
 }
 
-func appendFindingOnce(report *Report, candidate Finding) {
-	for _, existing := range report.Findings {
-		if existing.Code == candidate.Code {
-			return
-		}
-	}
-	report.Findings = append(report.Findings, candidate)
-}
-
+// Every caller returns immediately after appending, so this cannot fire twice
+// in one run and needs no deduplication of its own.
 func appendInvalidMembershipInstallation(report *Report) {
-	appendFindingOnce(report, finding(
+	report.Findings = append(report.Findings, finding(
 		"record_membership_installation_invalid",
 		"Record membership schema installation is incomplete",
 	))
