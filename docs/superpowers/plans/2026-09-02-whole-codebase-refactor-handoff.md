@@ -1,12 +1,42 @@
 # PgBase 전면 리팩터링 중단·인수인계
 
-작성일: 2026-09-02 (최종 갱신: 2026-09-02, 재개 세션)
+작성일: 2026-09-02 (최종 갱신: 2026-09-03, 전체 재감사)
 
 중단 사유: 사용자가 현재까지의 결과를 보존하고 전체 구현을 중단한 뒤, 완료 범위·진행 방식·잔여 작업을 문서로 남기도록 요청했다. 이후 같은 날 재개해 doctor 묶음을 감사·수정·커밋했고 Release B 감사를 마쳤다.
 
 원 계획: [`2026-09-01-whole-codebase-refactor.md`](./2026-09-01-whole-codebase-refactor.md)
 
-결정 대기 항목: [`2026-09-02-open-decisions.md`](./2026-09-02-open-decisions.md) — 블로커 2건(그룹 LOC 예산, R5 §9.3 착수 전 5건)과 검토 요청, 이미 내린 판단의 근거.
+결정 기록: [`2026-09-02-open-decisions.md`](./2026-09-02-open-decisions.md) — 구현 판단은 모두 닫혔고,
+남은 외부 CI/registry evidence는 설계 결정과 분리했다.
+
+## 2026-09-03 최종 인수인계
+
+브랜치 `refactor/whole-codebase`, 마지막 코드/manifest commit `7d9362e`. 원 계획 R0~R12와 F0~F3, 최초 감사
+10건, 재감사 7건을 다시 대조했다. “15/17 닫힘” 보고 이후에도 네 경계를 더 발견했다: 실제 schema
+writer/listener 교착(P1), 구 maintenance의 post-F 승격 경로(P1), v8/v9 catalog-shape fail-open(P1), M 직전
+구 CIC session의 post-M 잔류(P2). 모두 회귀 테스트와 역변이로 닫았다. 상세 원인과 증거는
+[`2026-09-02-audit-response.md`](./2026-09-02-audit-response.md)의 마지막 절이 현재 권위 있는 기록이다.
+
+현재 artifact 고정점은 다음과 같다.
+
+- schema P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`
+- schema F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
+- migration 9 `f4d5b404ed1c5df0ecbea6066a7285b27fee62aa47aaf157a6a47cbd9aaf1918`
+- release manifest/gate `7d9362e`
+
+Git history의 실제 A0/A/B/C/predecessor/P0/F source를 각각 빌드하는 builder, process rollout/rollback oracle,
+digest-pinned phase image workflow를 추가했다. 최종 8-binary bundle로 전체 `releaseartifacts` race process가
+통과했다. 구현 방식은 characterization/RED → 최소 수정 → 실제 PostgreSQL lock/catalog 관측 → 역변이 →
+PG16/17/18 및 release-equivalent matrix → Standards/Spec 독립 감사 순서다.
+
+남은 작업은 이 로컬 트리에서 수행할 수 없는 외부 evidence뿐이다.
+
+- branch push 후 macOS terminal CI 실제 실행
+- GHCR phase candidate push와 provenance/SBOM/custom source attestation 게시·조회
+- 배포 대상 final candidate의 release gate 및 사람의 명시적 promotion
+
+이 외부 기록 전에는 배포 승인을 내리지 않는다. branch push, publish, deploy, registry/tag 변경은 하지 않았다.
+아래의 “남은 작업 TODO”, 과거 WIP와 진행률 표는 중단 당시의 역사 기록이며 현재 상태가 아니다.
 
 ## 0. 진행 현황 (재개 세션)
 
