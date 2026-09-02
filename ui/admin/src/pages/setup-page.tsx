@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { APIClientError } from "../api/client";
-import type { SetupInput } from "../api/types";
+import { sessionFailure } from "../auth/session";
+import type { SetupInput } from "../backend/ports";
 
 interface SetupPageProps {
   onSetup(input: SetupInput): Promise<void>;
@@ -20,11 +20,10 @@ function passwordBytes(password: string): number {
 }
 
 function safeServerErrors(error: unknown): SetupErrors {
-  if (error instanceof APIClientError) {
-    if (error.code === "invalid_credentials") return { setupToken: "Setup token is invalid." };
-    if (error.code === "setup_unavailable") return { form: "Administrator setup is no longer available." };
-    if (error.code === "validation_failed") return { form: "Enter a valid email address and a password of 12 to 1024 bytes." };
-  }
+  const reason = sessionFailure(error);
+  if (reason === "invalid-credentials") return { setupToken: "Setup token is invalid." };
+  if (reason === "setup-unavailable") return { form: "Administrator setup is no longer available." };
+  if (reason === "invalid-input") return { form: "Enter a valid email address and a password of 12 to 1024 bytes." };
   return { form: "Unable to create the administrator. Try again." };
 }
 

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { APIClientError } from "../api/client";
-import { stringifyJSON } from "../api/json";
-import { fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionPlan } from "../api/collections";
-import { useSession } from "../auth/session";
+import { fieldTypes, SchemaError, type CollectionCatalog, type CollectionChange, type PlannedChange } from "../backend/ports";
+import { useBackend } from "../auth/session";
 import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   buildInput,
@@ -14,9 +12,6 @@ import {
   schemaErrorMessage,
   type DraftField,
 } from "./collection-field-editor";
-
-export { buildInput, parseDefault } from "./collection-field-editor";
-export type { DraftField } from "./collection-field-editor";
 
 // The shared field editor does not know which collection is being created, so
 // this page records whether a relation target was picked as the "(self)" option
@@ -36,21 +31,20 @@ function selfRelationFlag(previous: CreateDraftField, next: DraftField, collecti
 }
 
 export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute): void }) {
-  const { collections } = useSession();
+  const { schema } = useBackend();
   const [name, setName] = useState("");
   const [fields, setFields] = useState<CreateDraftField[]>([newDraftField()]);
   const [relationCatalog, setRelationCatalog] = useState<CollectionCatalog | null>(null);
   const [relationCatalogLoading, setRelationCatalogLoading] = useState(false);
   const [relationCatalogFailed, setRelationCatalogFailed] = useState(false);
-  const [plan, setPlan] = useState<CollectionPlan | null>(null);
-  const [plannedInput, setPlannedInput] = useState<CollectionChangeInput | null>(null);
+  const [plan, setPlan] = useState<PlannedChange | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = useRouteGuard(adminRouteIdentity({ kind: "collection-create" }));
-  const inputSignature = useMemo(() => {
-    try { return stringifyJSON(buildInput("create", name, fields)); } catch { return "invalid"; }
+  const currentInput = useMemo(() => {
+    try { return buildInput("create", name, fields); } catch { return null; }
   }, [fields, name]);
-  const previewCurrent = plan !== null && plannedInput !== null && stringifyJSON(plannedInput) === inputSignature;
+  const previewCurrent = plan !== null && currentInput !== null && plan.matches(currentInput);
   const needsRelationCatalog = fields.some((field) => field.type === "relation");
   const relationTargets = useMemo(() => relationTargetOptions(relationCatalog, name), [name, relationCatalog]);
 
@@ -58,7 +52,7 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
     if (!needsRelationCatalog || relationCatalog !== null || relationCatalogFailed) return;
     const controller = new AbortController();
     setRelationCatalogLoading(true);
-    void collections.catalog(controller.signal).then((catalog) => {
+    void schema.catalog(controller.signal).then((catalog) => {
       if (controller.signal.aborted) return;
       setRelationCatalog(catalog);
       setRelationCatalogFailed(false);
@@ -68,11 +62,10 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
       if (!controller.signal.aborted) setRelationCatalogLoading(false);
     });
     return () => controller.abort();
-  }, [collections, needsRelationCatalog, relationCatalog, relationCatalogFailed]);
+  }, [needsRelationCatalog, relationCatalog, relationCatalogFailed, schema]);
 
   function changeField(index: number, field: DraftField) {
     setPlan(null);
-    setPlannedInput(null);
     setFields((current) => current.map((currentField, position) => position === index
       ? { ...field, selfRelation: selfRelationFlag(currentField, field, name) }
       : currentField));
@@ -80,24 +73,21 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
 
   function removeField(index: number) {
     setPlan(null);
-    setPlannedInput(null);
     setFields((current) => current.filter((_, position) => position !== index));
   }
 
   async function preview() {
     setError(null);
-    let input: CollectionChangeInput;
+    let input: CollectionChange;
     try { input = buildInput("create", name, fields); } catch (caught: unknown) { setError(draftErrorMessage(caught, "Collection input is invalid.")); return; }
     setPending(true);
     try {
-      const result = await collections.plan(input);
+      const result = await schema.plan(input);
       if (!active()) return;
-      setPlannedInput(input);
       setPlan(result);
     } catch (caught: unknown) {
       if (!active()) return;
       setPlan(null);
-      setPlannedInput(null);
       setError(schemaErrorMessage(caught, "Unable to preview the collection."));
     } finally {
       if (active()) setPending(false);
@@ -105,32 +95,21 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
   }
 
   async function apply() {
-    if (!previewCurrent || plan === null || plannedInput === null) return;
-    const appliedBaseVersion = plan.baseVersion;
+    if (!previewCurrent || plan === null) return;
     setPending(true);
     setError(null);
     try {
-      await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
+      await schema.apply(plan);
       if (!active()) return;
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
       if (!active()) return;
-      if (caught instanceof APIClientError && caught.status === 409) {
+      const reason = caught instanceof SchemaError ? caught.reason : "failed";
+      if (reason === "same-version-conflict" || reason === "catalog-moved") {
         setPlan(null);
-        setPlannedInput(null);
-        // A same-version 409 usually means the name is already taken; a moved
-        // catalog means the preview was stale.
-        try {
-          const catalog = await collections.catalog();
-          if (!active()) return;
-          if (catalog.version === appliedBaseVersion) {
-            setError("A collection with this name likely already exists.");
-          } else {
-            setError("The catalog changed. Preview the collection again before applying.");
-          }
-        } catch {
-          setError("The catalog changed. Preview the collection again before applying.");
-        }
+        setError(reason === "same-version-conflict"
+          ? "A collection with this name likely already exists."
+          : "The catalog changed. Preview the collection again before applying.");
       } else setError(schemaErrorMessage(caught, "Unable to create the collection."));
     } finally {
       if (active()) setPending(false);
@@ -147,7 +126,6 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
       <input id="collection-name" onChange={(event) => {
         const nextName = event.target.value;
         setPlan(null);
-        setPlannedInput(null);
         setFields((current) => current.map((field) => field.selfRelation === true && field.relation !== undefined
           ? { ...field, relation: { ...field.relation, targetCollection: nextName } }
           : field));
@@ -167,14 +145,14 @@ export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute)
           relationTargets={relationTargets}
           relationTargetsLoading={relationCatalogLoading}
         />)}
-        <button className="secondary" onClick={() => { setPlan(null); setPlannedInput(null); setFields((current) => [...current, newDraftField()]); }} type="button">Add field</button>
+        <button className="secondary" onClick={() => { setPlan(null); setFields((current) => [...current, newDraftField()]); }} type="button">Add field</button>
       </fieldset>
       <button disabled={pending} type="submit">{pending ? "Previewing…" : "Preview collection"}</button>
     </form>
     {previewCurrent && plan && <section className="preview" aria-label="Collection preview">
       <h3>Server preview</h3>
       <p>Catalog version {plan.baseVersion}</p>
-      <ul>{plan.definition.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
+      <ul>{plan.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
       <h4>SQL</h4>
       <pre>{plan.sql.join("\n\n")}</pre>
       <button disabled={pending} onClick={() => void apply()} type="button">{pending ? "Applying…" : "Apply collection"}</button>

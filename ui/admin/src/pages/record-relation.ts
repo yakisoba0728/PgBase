@@ -1,5 +1,4 @@
-import type { CollectionDefinition, FieldDefinition } from "../api/collections";
-import type { RecordData, RecordValue } from "../api/records";
+import type { CollectionDefinition, FieldDefinition, RecordData, RecordValue } from "../backend/ports";
 
 const canonicalUUIDPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const nilUUID = "00000000-0000-0000-0000-000000000000";

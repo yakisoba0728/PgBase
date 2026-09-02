@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { APIClientError } from "../api/client";
-import type { LoginInput } from "../api/types";
+import { sessionFailure } from "../auth/session";
+import type { LoginInput } from "../backend/ports";
 
 interface LoginPageProps {
   onLogin(input: LoginInput): Promise<void>;
@@ -39,7 +39,7 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
     } catch (error) {
       setPassword("");
       setErrors({
-        form: error instanceof APIClientError && error.code === "invalid_credentials"
+        form: sessionFailure(error) === "invalid-credentials"
           ? "Email or password is incorrect."
           : "Unable to sign in. Try again.",
       });

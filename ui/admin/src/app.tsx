@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
+import type { AdminBackend } from "./backend/ports";
 import { CollectionCreatePage } from "./pages/collection-create-page";
 import { CollectionEditPage } from "./pages/collection-edit-page";
 import { CollectionsPage } from "./pages/collections-page";
@@ -62,6 +63,6 @@ function SessionScreen({ history }: { history?: AdminHistory }) {
   return <AuthenticatedShell history={history} />;
 }
 
-export function App({ history }: { history?: AdminHistory } = {}) {
-  return <SessionProvider history={history}><SessionScreen history={history} /></SessionProvider>;
+export function App({ backend, history }: { backend?: AdminBackend; history?: AdminHistory } = {}) {
+  return <SessionProvider backend={backend} history={history}><SessionScreen history={history} /></SessionProvider>;
 }

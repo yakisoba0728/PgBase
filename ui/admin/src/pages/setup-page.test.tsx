@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
-import { APIClient, APIClientError } from "../api/client";
 import { activeSessionExpiresAt } from "../test/fixtures";
 
 const administrator = {
@@ -28,53 +27,6 @@ function setupRequired(): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe("APIClient", () => {
-  it("sends credential-included JSON requests and decodes field errors without retrying a POST", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(400, {
-      error: {
-        code: "validation_failed",
-        message: "Authentication input is invalid",
-        details: { email: ["invalid"] },
-      },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(new APIClient().setup({
-      setupToken: "first-run-token",
-      email: "admin@example.com",
-      password: "a secure password",
-    })).rejects.toMatchObject({
-      status: 400,
-      code: "validation_failed",
-      details: { email: ["invalid"] },
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(path).toBe("/api/admin/setup");
-    expect(options.method).toBe("POST");
-    expect(options.credentials).toBe("include");
-    expect(new Headers(options.headers).get("Content-Type")).toBe("application/json");
-  });
-
-  it("adds the CSRF header on logout and passes abort signals to session fetches", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(204));
-    vi.stubGlobal("fetch", fetchMock);
-    const signal = new AbortController().signal;
-    const client = new APIClient();
-
-    await client.logout("csrf-token");
-    await client.getSession(signal);
-
-    const [logoutPath, logoutOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(logoutPath).toBe("/api/admin/auth/logout");
-    expect(logoutOptions.method).toBe("POST");
-    expect(logoutOptions.credentials).toBe("include");
-    expect(new Headers(logoutOptions.headers).get("X-CSRF-Token")).toBe("csrf-token");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/session", expect.objectContaining({ signal }));
-  });
 });
 
 describe("administrator setup", () => {

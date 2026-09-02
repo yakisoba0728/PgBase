@@ -2,12 +2,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
-import {
-  collectionFromCatalog,
-  collectionFromCatalogByID,
-  type CollectionCatalog,
-  type CollectionDefinition,
-} from "../api/collections";
 import { activeSessionExpiresAt } from "../test/fixtures";
 
 const administrator = { id: "9a2e0000-0000-4000-8000-000000000001", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" };
@@ -335,16 +329,4 @@ describe("relation record administration", () => {
     );
   });
 
-  it("looks up source and target collections without traversing inherited catalog properties", () => {
-    const inherited: CollectionDefinition = { id: "inherited-id", name: "inherited", tableName: "inherited", fields: [] };
-    const own: CollectionDefinition = { id: "own-id", name: "constructor", tableName: "constructor", fields: [] };
-    const collections = Object.create({ inherited, shadow: inherited }) as Record<string, CollectionDefinition>;
-    Object.defineProperty(collections, "constructor", { configurable: true, enumerable: true, value: own });
-    const catalog = { version: 1, collections } satisfies CollectionCatalog;
-
-    expect(collectionFromCatalog(catalog, "shadow")).toBeUndefined();
-    expect(collectionFromCatalog(catalog, "constructor")).toBe(own);
-    expect(collectionFromCatalogByID(catalog, "inherited-id")).toBeUndefined();
-    expect(collectionFromCatalogByID(catalog, "own-id")).toBe(own);
-  });
 });
