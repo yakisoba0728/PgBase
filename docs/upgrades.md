@@ -107,6 +107,38 @@ A healthy deployment cannot reach this state: the base row and its sidecar are w
 Do not enable the capability on a database whose doctor report is not clean.
 
 
+### Relation sort ordering release
+
+This release changes how two query shapes are ordered and paginated. It needs
+no migration and no capability, but it invalidates cursors that were issued by
+the previous binary.
+
+A sort on a bare single relation, such as `sort=owner`, now orders on the
+root's own foreign-key column instead of joining the target and ordering on
+its id. The foreign key guarantees those are the same value, and the root
+column is already indexed, so the result order is unchanged while the plan
+loses a join, a private cursor and the 100,000-row budget. A sort on a
+multiple relation still returns the same `relation_sort_unsupported` error.
+
+A relation filter combined with a root `-created_at` sort now uses the
+`(created_at, id)` page index backward, instead of sorting the whole table. On
+a 100,001-row collection this moved the plan from `Limit -> Sort` over a
+sequential scan reading 936 shared blocks to a backward index scan reading 5,
+with no sort node.
+
+**In-flight cursors for those two shapes stop working when the new binary
+starts serving.** The v5 descriptor's order path changes for `sort=owner`, and
+the null placement changes for a relation filter with `-created_at`. Both
+surface as `400 invalid_cursor`, which every client already handles as
+"restart from the first page", so no client change is required. Nothing else
+about the wire changes: `NULLS LAST` remains the public contract for a
+nullable descending sort, and pages themselves are byte-identical.
+
+There is no hold point. A mixed fleet answers each request from whichever
+binary receives it, and a client that receives `invalid_cursor` simply
+restarts its pagination.
+
+
 ## Rollback actions are different operations
 
 | Action | Before M commits | After M commits |
