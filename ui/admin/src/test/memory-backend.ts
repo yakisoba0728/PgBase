@@ -19,6 +19,7 @@ import {
   type RecordPage,
   type ResumedSession,
   type SetupInput,
+  type SchemaHealth,
   type SystemStatus,
 } from "../backend/ports";
 import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedApply, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
@@ -146,6 +147,7 @@ export function memoryBackend(script: BackendScript): AdminBackend {
     },
     system: {
       status: (signal) => guard(signal, () => take<SystemStatus>("status", {}, "system")),
+      health: (signal) => guard(signal, () => take<SchemaHealth>("health", {}, "system")),
     },
   };
 }

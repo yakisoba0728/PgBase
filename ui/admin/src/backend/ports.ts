@@ -195,10 +195,31 @@ export class RecordError extends Error {
   constructor(readonly reason: RecordFailure, readonly details: Record<string, string[]> = {}) { super(reason); this.name = "RecordError"; }
 }
 
+// unavailable names every probe whose value this sample could not read, which
+// is the only thing separating a genuinely healthy zero from one nobody could
+// obtain: the numeric members keep their last confirmed reading either way.
 export interface SystemStatus {
   version: string; databaseReachable: boolean; migrationCurrent: number; migrationLatest: number;
   migrationDirty: boolean; catalogVersion: number; listenerReady: boolean;
+  unavailable: SystemStatusProbe[]; sampledAt: string; lastSuccessAt: string;
 }
+
+export interface SystemStatusProbe { component: string; code: string }
+
+/**
+ * The redacted result of the most recent background diagnostic run. state is
+ * read first because the three outcomes are not derivable from the finding
+ * list: a run that never completed and a run that found nothing both carry
+ * none. findingCount is the uncapped total, so a truncated list is visible as
+ * one rather than read as the whole report.
+ */
+export interface SchemaHealth {
+  state: "healthy" | "drift" | "unavailable";
+  findings: SchemaFinding[]; findingCount: number;
+  unavailable: SystemStatusProbe[]; sampledAt: string; lastSuccessAt: string; retries: number;
+}
+
+export interface SchemaFinding { severity: string; code: string; message: string }
 
 export interface SessionPort {
   resume(signal?: AbortSignal): Promise<ResumedSession>;
@@ -228,6 +249,7 @@ export interface RecordPort {
 
 export interface SystemPort {
   status(signal?: AbortSignal): Promise<SystemStatus>;
+  health(signal?: AbortSignal): Promise<SchemaHealth>;
 }
 
 export interface AdminBackend {

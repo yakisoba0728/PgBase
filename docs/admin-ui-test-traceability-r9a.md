@@ -217,3 +217,24 @@ the behaviour they pin is now reached differently, so they are recorded here.
 |---|---|---|
 | Workspace "reports an empty result and a truncated result differently" expected `Showing the first 50 matching target records.` | a truncated page is distinguishable from an empty one | Picker, same test title, expects `Showing 1 target record. Load more to see the rest.` and `hasMore` — the page is no longer the last one the picker can reach |
 | DOM `record-edit-page.test.tsx` clicked `button` named `Select release — <id>` | choosing a result puts its id in the draft | the same test clicks `option` named `release — <id>`; results are an ARIA listbox the textbox drives, so a result is an option rather than a button |
+
+## F3 — administrator System schema health
+
+F3 added the schema diagnosis to the System page and taught the status panel to
+distinguish a reading no probe confirmed. Every row above still names the same
+assertion; the two surfaces this section names grew rather than moved.
+
+| Assertion before F3 | Behaviour pinned | Assertion now |
+|---|---|---|
+| DOM `system-page.test.tsx` "renders the operational status the backend reports and nothing else" scripted a bare status literal | the page renders only the fields the port names and leaks no secret | the same test title, scripted through `scriptedStatus()` so the R8 probe list, sample time and success time are present; it also scripts a diagnosis, because the page now loads both reads together |
+| E2E `system.spec.ts` matched `dl.system-status` as one element | the status panel renders every label with real values | the same spec scopes the status panel with `.first()`; the page has a second `dl` for the diagnosis, and the spec asserts the freshly migrated backend reports `healthy` |
+
+New assertions, replacing nothing:
+
+| Assertion | Behaviour pinned |
+|---|---|
+| DOM `system-page.test.tsx` "shows an unconfirmed reading as unavailable rather than as its value" | a component named in the probe list never renders the number it happens to hold |
+| DOM `system-page.test.tsx` "shows a healthy zero as a confirmed reading" | the same zero renders as itself when no probe claims it |
+| DOM `system-page.test.tsx` "distinguishes a healthy diagnosis from one that never completed" / "reports an undiagnosed schema as not diagnosed rather than as healthy" | healthy, drift and unavailable are three states, not an empty finding list |
+| DOM `system-page.test.tsx` "shows the drift findings and says when the list is only part of the report" / "does not claim a truncated report when every finding is shown" | the cap is visible when it bites and silent when it does not |
+| Conformance "reads a $name schema diagnosis" (3 cases) and "fails a schema diagnosis read rather than reporting an empty one" | both adapters agree about every state and about failing rather than inventing an empty diagnosis |

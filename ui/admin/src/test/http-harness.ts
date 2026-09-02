@@ -143,6 +143,9 @@ export function httpHarness(script: BackendScript): { backend: AdminBackend; fet
       if (query.get("cursor")) detail.cursor = query.get("cursor");
       return wireResponse(await fromStep(nextStep<OperationHistory>(script, "operations", detail), (value) => ({ status: 200, body: stringifyJSON(value) })));
     }
+    if (path === "/api/admin/system/health") {
+      return wireResponse(await fromStep(nextStep<unknown>(script, "health"), (value) => ({ status: 200, body: stringifyJSON(value) })));
+    }
     if (path === "/api/admin/system") {
       return wireResponse(await fromStep(nextStep<unknown>(script, "status"), (value) => ({ status: 200, body: stringifyJSON(value) })));
     }

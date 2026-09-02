@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { callsTo, deferredStep } from "./test/backend-script";
+import { callsTo, deferredStep, scriptedHealth, scriptedStatus } from "./test/backend-script";
 import { collection, renderAdmin, scriptedAdmin, textField } from "./test/harness";
 
 const posts = collection("posts", "posts-id", [textField("title", 0)]);
@@ -35,7 +35,8 @@ describe("administration shell", () => {
   it("moves between the collection list and the read-only system page", async () => {
     const harness = scriptedAdmin("/admin/collections");
     harness.script.catalog.push({ value: { version: 9, collections: [] } });
-    harness.script.status.push({ value: { version: "v1.2.3", databaseReachable: true, migrationCurrent: 4, migrationLatest: 5, migrationDirty: true, catalogVersion: 9, listenerReady: false } });
+    harness.script.status.push({ value: scriptedStatus() });
+    harness.script.health.push({ value: scriptedHealth() });
     const user = userEvent.setup();
     renderAdmin(harness);
 

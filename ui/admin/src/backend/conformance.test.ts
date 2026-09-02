@@ -404,9 +404,14 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
     await expect(backend.records.remove(await backend.records.get("posts", recordID))).resolves.toBeUndefined();
   });
 
-  it("reads the operational system status", async () => {
+  it("reads the operational system status with the probes that could not be sampled", async () => {
     const script = backendScript();
-    const status = { version: "v1.2.3", databaseReachable: true, migrationCurrent: 4, migrationLatest: 5, migrationDirty: true, catalogVersion: 9, listenerReady: false };
+    const status = {
+      version: "v1.2.3", databaseReachable: true, migrationCurrent: 4, migrationLatest: 5,
+      migrationDirty: true, catalogVersion: 9, listenerReady: false,
+      unavailable: [{ component: "listener", code: "unavailable" }],
+      sampledAt: "2026-09-01T00:05:00Z", lastSuccessAt: "2026-09-01T00:00:00Z",
+    };
     script.status.push({ value: status });
 
     await expect(open(script).system.status()).resolves.toEqual(status);
@@ -417,6 +422,47 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
     script.status.push({ fault: { kind: "unreachable" } });
 
     await expect(open(script).system.status()).rejects.toBeDefined();
+  });
+
+  // Each state has to survive the wire as itself: a drift report carrying its
+  // capped findings, and the two states that both carry none.
+  it.each([
+    {
+      name: "drift",
+      health: {
+        state: "drift" as const,
+        findings: [{ severity: "error", code: "collection_index_missing", message: "A catalog field index is missing" }],
+        findingCount: 40, unavailable: [], sampledAt: "2026-09-01T00:05:00Z",
+        lastSuccessAt: "2026-09-01T00:05:00Z", retries: 0,
+      },
+    },
+    {
+      name: "healthy",
+      health: {
+        state: "healthy" as const, findings: [], findingCount: 0, unavailable: [],
+        sampledAt: "2026-09-01T00:05:00Z", lastSuccessAt: "2026-09-01T00:05:00Z", retries: 0,
+      },
+    },
+    {
+      name: "unavailable",
+      health: {
+        state: "unavailable" as const, findings: [], findingCount: 0,
+        unavailable: [{ component: "doctor", code: "timeout" }],
+        sampledAt: "2026-09-01T00:05:00Z", lastSuccessAt: "2026-08-31T22:00:00Z", retries: 7,
+      },
+    },
+  ])("reads a $name schema diagnosis", async ({ health }) => {
+    const script = backendScript();
+    script.health.push({ value: health });
+
+    await expect(open(script).system.health()).resolves.toEqual(health);
+  });
+
+  it("fails a schema diagnosis read rather than reporting an empty one", async () => {
+    const script = backendScript();
+    script.health.push({ fault: { kind: "unreachable" } });
+
+    await expect(open(script).system.health()).rejects.toBeDefined();
   });
 
   it("keeps a record failure distinct from a schema failure", async () => {

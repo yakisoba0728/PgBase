@@ -8,6 +8,7 @@ import type {
   RecordData,
   RecordPage,
   ResumedSession,
+  SchemaHealth,
   SystemStatus,
 } from "../backend/ports";
 
@@ -60,6 +61,26 @@ export interface ScriptedRecord { data: RecordData; etag: string }
  */
 export interface ScriptedApply { status: OperationStatus; replayed?: boolean }
 
+/**
+ * A fully sampled system. A test that cares about one component patches that
+ * one, so the state it is not asserting on cannot drift into the assertion.
+ */
+export function scriptedStatus(patch: Partial<SystemStatus> = {}): SystemStatus {
+  return {
+    version: "v1.2.3", databaseReachable: true, migrationCurrent: 4, migrationLatest: 5,
+    migrationDirty: true, catalogVersion: 9, listenerReady: false,
+    unavailable: [], sampledAt: "2026-09-01T00:05:00Z", lastSuccessAt: "2026-09-01T00:05:00Z", ...patch,
+  };
+}
+
+/** A completed diagnosis that found nothing, patched the same way. */
+export function scriptedHealth(patch: Partial<SchemaHealth> = {}): SchemaHealth {
+  return {
+    state: "healthy", findings: [], findingCount: 0, unavailable: [],
+    sampledAt: "2026-09-01T00:05:00Z", lastSuccessAt: "2026-09-01T00:05:00Z", retries: 0, ...patch,
+  };
+}
+
 export interface Call { operation: string; detail: Record<string, unknown> }
 
 export interface BackendScript {
@@ -78,6 +99,7 @@ export interface BackendScript {
   update: Step<ScriptedRecord>[];
   remove: Step<void>[];
   status: Step<SystemStatus>[];
+  health: Step<SchemaHealth>[];
   calls: Call[];
 }
 
@@ -86,7 +108,7 @@ export function backendScript(): BackendScript {
     resume: [], setup: [], login: [], logout: [],
     catalog: [], plan: [], apply: [], operation: [], operations: [],
     list: [], read: [], create: [], update: [], remove: [],
-    status: [], calls: [],
+    status: [], health: [], calls: [],
   };
 }
 
