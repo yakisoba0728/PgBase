@@ -177,6 +177,53 @@ version 8 commits, do not deploy a pre-P0 binary or reverse the migration;
 redeploy the exact verified P0 artifact with the capability left `pending` if a
 deployment rollback is required, then forward-fix.
 
+#### Enabling the companion indexes
+
+Activation is an operator command, not a deploy and not a configuration value.
+The capability row is the only source of truth, so no environment variable, HTTP
+route, or `pgbase.Options` field can move it:
+
+```console
+pgbase schema-index status --json
+pgbase schema-index activate --witness INSTANCE_ID [--witness INSTANCE_ID ...]
+pgbase schema-index build
+pgbase schema-index status --json
+```
+
+1. `status` reports the state, how many companion indexes the catalog implies,
+   how many exist, and every live schema writer with the plan-compiler version it
+   would issue. A process claims that lease in the same transaction as a catalog
+   change, so a writer that has proven nothing has also changed nothing.
+2. `activate` requires the durable leases to be exactly the witnesses you name
+   and every one of them to be at the current compiler version. It refuses an
+   empty fleet: an activation must observe at least one writer that has proven it
+   understands the companion contract. It moves `pending` to `building` only.
+3. `build` runs `CREATE INDEX CONCURRENTLY` outside any transaction, resumes from
+   whatever PostgreSQL's catalog already holds, drops and rebuilds the invalid
+   index an interrupted run leaves behind, and promotes `building` to `ready`
+   only after revalidating every companion against the current catalog. It is
+   safe to rerun and safe to kill; rerun it until it reports `state=ready`.
+4. Adding a field or index to an existing collection drops the capability back to
+   `pending` in the same transaction as the catalog change, because the new field
+   may imply a companion nothing has built. Rerun `activate` and `build` after
+   such a change.
+
+`pgbase schema-index rollback` turns the capability off from any state. It does
+not drop the indexes: the rollout rules keep new physical objects in place after
+a downgrade so a forward fix does not have to rebuild them.
+
+`pgbase doctor --json` distinguishes the three states:
+
+| Finding | Meaning | Action |
+| --- | --- | --- |
+| none | `pending`: no companion is a required contract | none |
+| `schema_companion_index_build_incomplete` | `building`: the rollout is unfinished | rerun `pgbase schema-index build` |
+| `schema_companion_index_missing` | `ready`, but a companion is absent or has the wrong key order | rerun `activate` then `build` |
+| `schema_companion_index_invalid` | an interrupted concurrent build left an unusable index; reported in every state | rerun `pgbase schema-index build` |
+
+`schema_companion_index_invalid` is recoverable and never requires editing the
+PostgreSQL catalog by hand.
+
 ## Rollback actions are different operations
 
 | Action | Before M commits | After M commits |

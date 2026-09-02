@@ -81,6 +81,13 @@ func (status CompanionIndexStatus) Ready() bool {
 	return status.Installed && status.State == CompanionIndexReady
 }
 
+// SchemaWriterLease is one live schema writer as the database records it.
+type SchemaWriterLease struct {
+	InstanceID      uuid.UUID
+	CompilerVersion int16
+	ExpiresAt       time.Time
+}
+
 // SchemaWriterFleetProof is the operator-confirmed set of live schema writers
 // observed before activation. The transition re-reads the durable leases under
 // its own locks and requires an exact match, so a stale proof cannot pass.
@@ -155,6 +162,43 @@ func (s *Service) CompanionIndexStatus(ctx context.Context) (CompanionIndexStatu
 		})
 	}, nil)
 	return status, err
+}
+
+// SchemaWriterFleet lists the unexpired leases an operator must confirm before
+// activation. It is a read: the transition re-reads the same rows under its own
+// locks, so a fleet that changes in between fails the activation rather than
+// slipping through.
+func (s *Service) SchemaWriterFleet(ctx context.Context) ([]SchemaWriterLease, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	var leases []SchemaWriterLease
+	err := database.Retry(ctx, func() error {
+		leases = nil
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+			installed, err := companionIndexInstalled(ctx, tx)
+			if err != nil || !installed {
+				return err
+			}
+			rows, err := tx.Query(ctx, `select instance_id, compiler_version, lease_expires_at
+				from pgbase_meta.schema_writer_leases
+				where lease_expires_at > transaction_timestamp()
+				order by instance_id`)
+			if err != nil {
+				return fmt.Errorf("read schema writer leases: %w", err)
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var lease SchemaWriterLease
+				if err := rows.Scan(&lease.InstanceID, &lease.CompilerVersion, &lease.ExpiresAt); err != nil {
+					return fmt.Errorf("scan schema writer leases: %w", err)
+				}
+				leases = append(leases, lease)
+			}
+			return rows.Err()
+		})
+	}, nil)
+	return leases, err
 }
 
 func companionIndexInstalled(ctx context.Context, db database.DBTX) (bool, error) {

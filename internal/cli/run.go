@@ -36,13 +36,17 @@ type CommandSet struct {
 	Migrate     Command
 	Admin       Command
 	Doctor      Command
+	SchemaIndex Command
 	Healthcheck Command
 }
 
 // DefaultCommands returns the command handlers wired into the production binary.
 // Commands are added by their owning packages in later implementation tasks.
 func DefaultCommands() CommandSet {
-	return CommandSet{Serve: runServe, Migrate: runMigrate, Admin: runAdmin, Doctor: runDoctor, Healthcheck: runHealthcheck}
+	return CommandSet{
+		Serve: runServe, Migrate: runMigrate, Admin: runAdmin, Doctor: runDoctor,
+		SchemaIndex: runSchemaIndex, Healthcheck: runHealthcheck,
+	}
 }
 
 func runHealthcheck(ctx context.Context, args []string, _ func(string) (string, bool), _, _ io.Writer) error {
@@ -230,6 +234,8 @@ func Run(ctx context.Context, args []string, lookup func(string) (string, bool),
 		command = commands.Admin
 	case "doctor":
 		command = commands.Doctor
+	case "schema-index":
+		command = commands.SchemaIndex
 	case "healthcheck":
 		command = commands.Healthcheck
 	default:
@@ -477,6 +483,6 @@ func migrationOperationError(logger *slog.Logger, message string, err error) err
 }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor, schema-index> [arguments]")
 	return err
 }
