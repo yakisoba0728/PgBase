@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,51 +25,6 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
-
-func TestPreviewMatchesCompatibilityEntryPoints(t *testing.T) {
-	_, service, administratorID := newSchemaServiceTest(t)
-	ctx := context.Background()
-	create := CreateCollectionInput{Name: "preview_posts", Fields: []FieldInput{{Name: "title", Type: TypeText}}}
-	previewCreate, err := service.Preview(ctx, NewCreateChange(create))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyCreate, err := service.Preview(ctx, NewCreateChange(create))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(previewCreate, legacyCreate) {
-		t.Fatalf("create Preview() = %#v, compatibility plan = %#v", previewCreate, legacyCreate)
-	}
-	if _, err := applyCreate(ctx, service, create, previewCreate, administratorID); err != nil {
-		t.Fatal(err)
-	}
-
-	update := UpdateCollectionInput{Name: create.Name, Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}
-	previewUpdate, err := service.Preview(ctx, NewUpdateChange(update))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyUpdate, err := service.Preview(ctx, NewUpdateChange(update))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(previewUpdate, legacyUpdate) {
-		t.Fatalf("update Preview() = %#v, compatibility plan = %#v", previewUpdate, legacyUpdate)
-	}
-
-	previewDelete, err := service.Preview(ctx, NewDeleteChange(create.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyDelete, err := service.Preview(ctx, NewDeleteChange(create.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(previewDelete, legacyDelete) {
-		t.Fatalf("delete Preview() = %#v, compatibility plan = %#v", previewDelete, legacyDelete)
-	}
-}
 
 func TestApplyIntentUsesOneKernelForCreateUpdateAndDelete(t *testing.T) {
 	_, service, administratorID := newSchemaServiceTest(t)
