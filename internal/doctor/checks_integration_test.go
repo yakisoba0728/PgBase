@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -31,7 +32,7 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 
 func TestRunRequiresTheSchemaOperationsFeatureHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 6 {
+	if len(migrations) != 7 {
 		t.Fatalf("schema-operations feature manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -593,4 +594,72 @@ func TestRunReportsClosedDatabasePoolAsUnreachable(t *testing.T) {
 		t.Fatal("closed database pool did not return an error")
 	}
 	assertFindingCode(t, report, "database_unreachable")
+}
+
+// A cluster, database or role default for the literal styles must not change
+// what pg_get_expr renders, because every catalog drift check compares that
+// text against a pinned expectation. Without the transaction pin, iso_8601
+// deparses `interval '2 minutes'` as `P0Y0M0DT0H2M0S` and a healthy database
+// reports record_membership_installation_invalid.
+func TestRunIsUnaffectedByNonDefaultDeparseStyles(t *testing.T) {
+	for _, styles := range []struct {
+		name     string
+		interval string
+		date     string
+	}{
+		{name: "iso_8601", interval: "iso_8601", date: "ISO, MDY"},
+		{name: "sql_standard", interval: "sql_standard", date: "SQL, DMY"},
+		{name: "postgres_verbose", interval: "postgres_verbose", date: "Postgres, DMY"},
+	} {
+		t.Run(styles.name, func(t *testing.T) {
+			databaseURL := testutil.NewDatabase(t)
+			ctx := context.Background()
+			conn, err := pgx.Connect(ctx, databaseURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var databaseName string
+			if err := conn.QueryRow(ctx, "select current_database()").Scan(&databaseName); err != nil {
+				t.Fatal(err)
+			}
+			identifier := pgx.Identifier{databaseName}.Sanitize()
+			for _, statement := range []string{
+				"alter database " + identifier + " set intervalstyle = " + quoteLiteral(styles.interval),
+				"alter database " + identifier + " set datestyle = " + quoteLiteral(styles.date),
+			} {
+				if _, err := conn.Exec(ctx, statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			// Opened after the ALTER so every pooled session inherits the styles.
+			pool, err := database.Open(ctx, databaseURL, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(pool.Close)
+			var observed string
+			if err := pool.QueryRow(ctx, "show intervalstyle").Scan(&observed); err != nil {
+				t.Fatal(err)
+			}
+			if observed != styles.interval {
+				t.Fatalf("session intervalstyle = %q, want the database default %q", observed, styles.interval)
+			}
+			if err := migrate.New(pool, nil).Up(ctx); err != nil {
+				t.Fatal(err)
+			}
+			report := runDoctor(t, pool)
+			if !report.OK || len(report.Findings) != 0 {
+				t.Fatalf("report = %#v, want a healthy report under intervalstyle=%s datestyle=%s",
+					report, styles.interval, styles.date)
+			}
+		})
+	}
+}
+
+func quoteLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

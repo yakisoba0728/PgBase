@@ -127,6 +127,16 @@ func insertCollection(t *testing.T, pool *database.Pool, collection, table strin
 		values ($1, $2, $3, 'active', current_timestamp, current_timestamp)`, collectionID, collection, table); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.collection_creation_counters
+		(collection_id, generation, last_ordinal, updated_at)
+		values ($1, 0, 0, transaction_timestamp())`, collectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.record_membership_backfills
+		(collection_id, generation, state, updated_at)
+		values ($1, 0, 'off', transaction_timestamp())`, collectionID); err != nil {
+		t.Fatal(err)
+	}
 	return collectionID
 }
 

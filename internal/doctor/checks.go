@@ -11,8 +11,8 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-// Run inspects migration history, catalog metadata, and physical collection
-// tables. It does not alter database state.
+// Run inspects migration history, catalog metadata, physical collection
+// tables, and record membership consistency. It does not alter database state.
 func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (Report, error) {
 	report := Report{Findings: []Finding{}}
 	if pool == nil {
@@ -61,10 +61,16 @@ func Run(ctx context.Context, pool *database.Pool, migrations *migrate.Runner) (
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
 	}, func(tx pgx.Tx) error {
+		if err := pinDeparseStyles(ctx, tx); err != nil {
+			return err
+		}
 		if err := checkSchemaState(ctx, tx, &report); err != nil {
 			return err
 		}
-		return checkCollections(ctx, tx, &report)
+		if err := checkCollections(ctx, tx, &report); err != nil {
+			return err
+		}
+		return checkRecordMembership(ctx, tx, status, &report)
 	}); err != nil {
 		return report, err
 	}
@@ -95,6 +101,23 @@ func migrationHistoryFinding(status migrate.Status) (Finding, bool) {
 
 func finding(code, message string) Finding {
 	return Finding{Severity: "error", Code: code, Message: message}
+}
+
+// pinDeparseStyles fixes the literal styles PostgreSQL uses when it renders a
+// stored expression back to text. Every drift check that compares pg_get_expr
+// output against a pinned expectation depends on them: an operator or managed
+// provider default such as `IntervalStyle=iso_8601` deparses the same CHECK as
+// "P0Y0M0DT0H2M0S" instead of "00:02:00" and would report a healthy database
+// as broken. The connection pool pins only application_name, timezone and
+// statement_timeout, so this transaction cannot inherit a trustworthy value.
+func pinDeparseStyles(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, "set local intervalstyle = 'postgres'"); err != nil {
+		return fmt.Errorf("pin doctor interval style: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "set local datestyle = 'ISO, MDY'"); err != nil {
+		return fmt.Errorf("pin doctor date style: %w", err)
+	}
+	return nil
 }
 
 func checkSchemaState(ctx context.Context, db database.DBTX, report *Report) error {
