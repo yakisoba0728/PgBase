@@ -27,6 +27,21 @@ jobs:
           prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
           check rules /rules/prometheus-alerts.yml
 
+      - name: Validate dashboard PromQL
+        run: scripts/support/check-dashboard-promql.sh
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      # Parsing proves the queries are well formed; only the exposition golden
+      # proves they select a series pgBase actually publishes.
+      - name: Validate dashboard and alert metric contract
+        run: go test ./tests/observability -count=1
+
   unit:
     name: Go unit
     runs-on: ubuntu-24.04
