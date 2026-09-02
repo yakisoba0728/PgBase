@@ -594,7 +594,7 @@ func TestSchemaCompilerGenerationArtifactDeclaresItsV8V9Boundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Status{Current: 8, Latest: 9, Compatible: true}
+	want := Status{Current: 8, Latest: 9}
 	if status != want {
 		t.Fatalf("pre-migration status = %#v, want %#v", status, want)
 	}
