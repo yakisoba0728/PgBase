@@ -11,27 +11,24 @@
 
 ## 2026-09-03 최종 인수인계
 
-브랜치 `refactor/whole-codebase`, 마지막 코드/manifest commit `7d9362e`. 원 계획 R0~R12와 F0~F3, 최초 감사
+기준 main은 `refactor/whole-codebase`의 `2c942ea`이며, 배포 artifact 고정은
+`codex/record-membership-carry-forward-integration`에 준비했다. 원 계획 R0~R12와 F0~F3, 최초 감사
 10건, 재감사 7건을 다시 대조했다. “15/17 닫힘” 보고 이후에도 네 경계를 더 발견했다: 실제 schema
 writer/listener 교착(P1), 구 maintenance의 post-F 승격 경로(P1), v8/v9 catalog-shape fail-open(P1), M 전에
 물리 lock을 잡은 구 CIC session의 post-M 잔류(P2). 코드 회귀 테스트와 역변이에 더해, lock 전에
 멈춘 pre-P0 process는 full-fleet P0 배포와 launch freeze/process drain 계약으로 닫는다. 상세 원인과 증거는
 [`2026-09-02-audit-response.md`](./2026-09-02-audit-response.md)의 마지막 절이 현재 권위 있는 기록이다.
 
-이 문서에 기록된 기존 artifact 고정점은 다음과 같다.
+현재 artifact 고정점은 다음과 같다.
 
-- schema P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`
-- schema F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
+- schema P0 `cdcd2f1409575f6d0bd4c57eba193a6e1b532e45`
+- schema F `3b1042daf41c8aeccc45f6edc92c9198cd740006`
 - migration 9 `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`
-- release manifest/gate `7d9362e`
-
-P0/F commit과 manifest는 SQL 주석 교정 전 bytes를 embed한 고정점이므로 현재 source의
-release artifact가 아니다. 새 checksum을 포함한 P0/F를 재빌드하고 manifest를 repin한 후
-release-equivalent gate evidence를 다시 수집해야 한다.
+- membership A0/A/B/C `181a115`/`03c6ebc`/`bafc95a`/`36fea6e`
 
 Git history의 실제 A0/A/B/C/predecessor/P0/F source를 각각 빌드하는 builder, process rollout/rollback oracle,
-digest-pinned phase image workflow를 추가했다. 교정 전 최종 8-binary bundle로 전체 `releaseartifacts` race process가
-통과했다. 구현 방식은 characterization/RED → 최소 수정 → 실제 PostgreSQL lock/catalog 관측 → 역변이 →
+digest-pinned phase image workflow를 추가했다. 최종 8-binary bundle로 전체 `releaseartifacts` race process가
+30.186초에 통과했다. 구현 방식은 characterization/RED → 최소 수정 → 실제 PostgreSQL lock/catalog 관측 → 역변이 →
 PG16/17/18 및 release-equivalent matrix → Standards/Spec 독립 감사 순서다.
 
 남은 작업은 이 로컬 트리에서 수행할 수 없는 외부 evidence뿐이다.

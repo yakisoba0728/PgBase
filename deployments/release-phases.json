@@ -53,7 +53,7 @@
       "artifacts": [
         {
           "phase": "P0",
-          "commit": "adfa5da78b96ac3a2c341d43165cf58f048dac78",
+          "commit": "cdcd2f1409575f6d0bd4c57eba193a6e1b532e45",
           "version": "v0.0.9-alpha.0",
           "schemaCompilerGeneration": 2,
           "acceptedMigrations": [8, 9],
@@ -61,7 +61,7 @@
         },
         {
           "phase": "F",
-          "commit": "f7ec0ff54953417dd0b41331f0b9d02b023195d8",
+          "commit": "3b1042daf41c8aeccc45f6edc92c9198cd740006",
           "version": "v0.0.9-rc.0",
           "schemaCompilerGeneration": 3,
           "acceptedMigrations": [9],

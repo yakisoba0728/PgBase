@@ -559,19 +559,17 @@ Apply/transition은 schema 뒤의 같은 순서를 따른다.
 - membership carry-forward: A0 `181a115`, A `03c6ebc`, B `bafc95a`, C `36fea6e`, operator `f7ec0ff`.
   각 phase tip은 writer/cursor/doctor 계약을 유지하면서 공통 RUN-1/RUN-4/STD-2 수정을 포함하고,
   B/C는 STD-1과 RUN-2/RUN-3 수정도 포함한다.
-- schema compiler: predecessor `d3fb5eb`, P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`,
-  F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
+- schema compiler: predecessor `d3fb5eb`, P0 `cdcd2f1409575f6d0bd4c57eba193a6e1b532e45`,
+  F `3b1042daf41c8aeccc45f6edc92c9198cd740006`
 - migration 9 checksum:
   `19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6`
 
-위 P0/F commit은 SQL 주석 교정 전 artifact pin이므로, 현재 checksum을 포함한
-교체 P0/F를 다시 빌드하고 manifest를 repin한 뒤 release gate를 재실행해야 한다.
-
 P0는 generation 2이고 clean v8/v9를 받되 activation을 거부한다. F는 generation 3이고 clean v9만 받으며
-activation/v2 issuance를 연다. 교정 전 둘의 migration 9 bytes는 동일했다. 그 고정점의 최종 bundle
-`/tmp/pgbase-final-artifacts.nI7j44`의 8개 실행 파일은 모두 manifest commit/version/path, 실제 SHA-256,
+activation/v2 issuance를 연다. 교체 P0/F는 위 checksum의 동일한 migration 9 bytes를 embed한다. 최종 로컬
+darwin/arm64 bundle `/tmp/pgbase-final-carry-forward-artifacts.ONDUEm`의 8개 실행 파일은 모두
+manifest commit/version/path, 실제 SHA-256,
 `0755`, target/toolchain metadata와 일치했고, 그 bundle로 A0→M→A→B→C, B rollback,
-predecessor→P0→M→F→P0 rollback process test를 `-race`로 통과했다(30.696s).
+predecessor→P0→M→F→P0 rollback process test를 `-race`로 통과했다(30.186s).
 
 프로세스 oracle이 단순 metadata 검사가 아닌지도 변이로 확인했다. schema F를 P0로 바꾸면 “F가 v8을 계속
 서비스”해 실패했고, membership C를 B로 바꾸면 “retirement 전 C list가 503이 아니라 200”이라 실패했다.
