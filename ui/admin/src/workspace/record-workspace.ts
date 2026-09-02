@@ -23,6 +23,8 @@ import {
 
 const staleText = "This record changed after you loaded it. Reload the latest version before saving or deleting.";
 const missingText = "This record no longer exists.";
+const savedText = "The record was saved. The edits you made after sending it are not saved yet — save again to store them, or leave this page to discard them.";
+const createdText = "The record was created. The edits you made after sending it are not part of it — saving again creates another record.";
 const alwaysSortable = new Set(["id", "created_at"]);
 
 function ordered(collection: CollectionDefinition | null): FieldDefinition[] {
@@ -245,6 +247,10 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
 
   const dirty = useMemo(() => dirtyNames(state.draft, state.initial), [state.draft, state.initial]);
   const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
+  // The draft as it stands now, readable from a response handler that closed
+  // over the draft it sent: the two differ exactly when editing continued.
+  const live = useRef(state.draft);
+  live.current = state.draft;
 
   const save = useCallback(async () => {
     const collection = state.collection;
@@ -254,14 +260,18 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     if (Object.keys(errors).length > 0) return;
     update(identity, { pending: true, message: null });
     try {
-      if (isCreate) {
-        await records.create(attempt.current, input);
-        attempt.current.reset();
-      } else {
-        if (state.loaded === null) throw new Error("record version is unavailable");
-        await records.update(state.loaded, input);
-      }
+      if (!isCreate && state.loaded === null) throw new Error("record version is unavailable");
+      const stored = isCreate || state.loaded === null
+        ? await records.create(attempt.current, input)
+        : await records.update(state.loaded, input);
+      if (isCreate) attempt.current.reset();
       if (!active()) return;
+      // The server accepted the draft it was sent, so that draft is the saved one
+      // and its answer is the version a further save builds on. A draft edited
+      // since is unsaved work of its own, so it keeps the guard and this page.
+      const outran = dirtyNames(live.current, state.draft).size > 0;
+      update(identity, { initial: state.draft, loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
+      if (outran) return;
       savedDraft();
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
