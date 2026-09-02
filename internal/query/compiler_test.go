@@ -596,3 +596,52 @@ func TestEverySortEntryPointSharesTheTiebreakerDirection(t *testing.T) {
 		})
 	}
 }
+
+// A boundary carrying a membership high-water and no keyset values is the legal
+// first page of a v5 traversal. A boundary carrying no values for any other
+// reason is a bug, and both page compilers must surface it as an invalid cursor
+// rather than silently emit the unbounded page 1 statement a second time.
+func TestPageStatementsRejectKeysetlessBoundariesOutsideTheV5FirstPage(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	highWater := int64(7)
+	firstPage, err := CompileList(collection, ListQuery{
+		After: &pageBoundary{membership: &highWater, membershipOnly: true}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("CompileList(v5 first page) error = %v", err)
+	}
+	if !strings.Contains(firstPage.SQL, "pgbase_meta.record_creation_ordinals") ||
+		strings.Contains(firstPage.SQL, "IS NOT DISTINCT FROM") {
+		t.Fatalf("v5 first page SQL = %q, want a membership predicate and no keyset", firstPage.SQL)
+	}
+
+	catalog, posts := relationFilterSortCatalog()
+	requested, err := parseSort("owner.name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relationPlan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
+	if err != nil {
+		t.Fatalf("compileRelationListPlan() error = %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		after *pageBoundary
+	}{
+		{name: "zero boundary", after: &pageBoundary{}},
+		{name: "membership without the first-page marker", after: &pageBoundary{membership: &highWater}},
+		{name: "empty value list", after: &pageBoundary{Values: []json.RawMessage{}, membership: &highWater}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := CompileList(collection, ListQuery{After: test.after, Limit: 10}); !IsInvalidCursor(err) {
+				t.Fatalf("CompileList(%s) error = %v, want an invalid cursor", test.name, err)
+			}
+			if _, err := relationPlan.statement(test.after, 10); !IsInvalidCursor(err) {
+				t.Fatalf("relation pageStatement(%s) error = %v, want an invalid cursor", test.name, err)
+			}
+		})
+	}
+}

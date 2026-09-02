@@ -136,12 +136,8 @@ func (s orderSpec) cursorSelects() []string {
 }
 
 func (t orderTerm) cursorExpression() string {
-	return orderCursorExpression(t.expression, t.cursorField)
-}
-
-func orderCursorExpression(expression string, field schema.Field) string {
-	if field.Type == schema.TypeNumeric {
-		return expression + "::text"
+	if t.cursorField.Type == schema.TypeNumeric {
+		return t.expression + "::text"
 	}
-	return expression
+	return t.expression
 }

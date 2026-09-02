@@ -17,6 +17,10 @@ type Statement struct {
 type pageBoundary struct {
 	Values     []json.RawMessage
 	membership *int64
+	// Only a v5 traversal's first page may carry no keyset values, its high-water
+	// being the whole boundary. Every other boundary must reach orderSpec.keyset so
+	// a short value list fails as an invalid cursor, not as a restart at page 1.
+	membershipOnly bool
 }
 
 func (boundary *pageBoundary) membershipBoundary() *int64 {

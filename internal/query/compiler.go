@@ -126,7 +126,7 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 	if membership := after.membershipBoundary(); membership != nil {
 		conditions = append(conditions, rootMembershipPredicate(order.root, order.root.TableName, membership, builder))
 	}
-	if after != nil && len(after.Values) != 0 {
+	if after != nil && !after.membershipOnly {
 		keysetSQL, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
