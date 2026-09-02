@@ -278,7 +278,7 @@ func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (St
 	if membership := after.membershipBoundary(); membership != nil {
 		conditions = append(conditions, rootMembershipPredicate(p.order.root, relationRootAlias, membership, builder))
 	}
-	if after != nil && len(after.Values) != 0 {
+	if after != nil && !after.membershipOnly {
 		keyset, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
