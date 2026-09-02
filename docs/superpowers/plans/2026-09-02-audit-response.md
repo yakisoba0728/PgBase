@@ -280,3 +280,31 @@ exported godoc에 계약을 명시하는 것으로 닫는다 — 동작 변경�
 
 동작 자체를 `Run`과 맞출지(즉 `Start`도 `WithoutCancel`로 떼고 background 수명을 `Close`에만 묶을지)는
 공개 API 의미 변경이라 이 세션에서 임의로 하지 않는다. 판단이 필요하면 별도 결정 항목이다.
+
+### 권고 (구현하지 않음): doctor가 "돌지 않은 rollout"을 탐지하게 할지
+
+SPEC-1은 **실행 수단**을 만들었고 완료 조건도 그것이다. 남은 것은 **알아채는 수단**이다. 지금은
+`pgbase membership status`를 *부러* 확인해야 하고, 문서화된 규칙("ready 함대가 list를 못 하면 미완 롤아웃")을
+기억해야 한다. doctor는 원래 그걸 기억하지 않아도 되라고 있는 도구다.
+
+`internal/doctor/membership.go:55`가 정확히 그 지점이다:
+
+```go
+switch state {
+case "off", "cutover":
+    return nil
+```
+
+`off` + 레코드 존재는 모호하지 않다. `bootstrapFreshInstall`은 기존 레코드가 있으면 건너뛰므로, 그 조합은
+"업그레이드된 DB에서 rollout이 시작되지도 않았다"는 뜻이고 모든 list가 503이다. 반대로 `cutover`/`dual_write`는
+진행 중이지 결함이 아니므로 여기서 경고하면 안 된다 — 이 구분이 이 check의 전제다.
+
+**구현하지 않은 이유** 두 가지다.
+
+1. SPEC-1 담당이 readiness 대신 관측 가능성을 택한 것은 근거 있는 판단이었고, 감사의 완료 조건도 충족한다.
+   그 판단을 통합 담당자가 조용히 뒤집는 것은 옳지 않다.
+2. 비용이 공짜가 아니다. doctor의 statement 수는 `TestSnapshotQueryCountIsIndependentOfCatalogSize`가 31로
+   고정하고 있고, "레코드가 하나라도 있는가"는 statement가 하나 더 필요하다. catalog 크기와 무관하게 유지하려면
+   sidecar scan처럼 collection을 한 문장으로 접어야 한다. 실링을 또 올리는 변경이므로 승인이 필요하다.
+
+판단이 필요한 항목으로 남긴다.
