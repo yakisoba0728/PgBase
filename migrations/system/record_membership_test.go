@@ -69,12 +69,10 @@ func TestRecordMembershipMigrationSeedsCatalogWithoutAccessingDynamicRows(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	migrations := system.Migrations()
-	for _, migration := range migrations[:len(migrations)-1] {
-		if _, err := pool.Exec(ctx, migration.SQL); err != nil {
-			t.Fatalf("apply migration %d: %v", migration.Version, err)
-		}
-	}
+	// Pinned to version 7 rather than "the last migration": this asserts what
+	// the record-membership migration itself does, so a later append must not
+	// silently retarget it.
+	applyMigrationsBefore(t, ctx, pool, 7)
 	const collectionID = "019551d0-e9c0-7000-8000-000000000711"
 	if _, err := pool.Exec(ctx, `CREATE TABLE app.existing_records (
 		id uuid PRIMARY KEY,
@@ -108,7 +106,7 @@ func TestRecordMembershipMigrationSeedsCatalogWithoutAccessingDynamicRows(t *tes
 	}
 	migrationContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if _, err := pool.Exec(migrationContext, migrations[len(migrations)-1].SQL); err != nil {
+	if _, err := pool.Exec(migrationContext, migrationSQL(t, 7)); err != nil {
 		t.Fatalf("v7 accessed the locked dynamic table: %v", err)
 	}
 

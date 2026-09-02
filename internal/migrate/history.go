@@ -140,16 +140,19 @@ type historyCompatibilityPolicy struct {
 	optionalVersion int64
 }
 
-// recordMembershipPreparationPolicy is deliberately tied to the one declared
+// schemaCompanionIndexPreparationPolicy is deliberately tied to the one declared
 // P0 migration boundary. A later embedded migration must choose and test its
 // own compatibility range instead of silently widening startup acceptance.
-func recordMembershipPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
-	if len(migrations) != 7 ||
-		migrations[5].Version != 6 || migrations[5].Name != "schema_operations" ||
-		migrations[6].Version != 7 || migrations[6].Name != "record_membership" {
+// Returning nil here would not widen acceptance but narrow it to the exact
+// latest history, which would leave this artifact unable to serve the
+// pre-migration fleet it is supposed to prepare.
+func schemaCompanionIndexPreparationPolicy(migrations []system.Migration) *historyCompatibilityPolicy {
+	if len(migrations) != 8 ||
+		migrations[6].Version != 7 || migrations[6].Name != "record_membership" ||
+		migrations[7].Version != 8 || migrations[7].Name != "schema_companion_indexes" {
 		return nil
 	}
-	return &historyCompatibilityPolicy{requiredVersion: 6, optionalVersion: 7}
+	return &historyCompatibilityPolicy{requiredVersion: 7, optionalVersion: 8}
 }
 
 func requiredHistoryPolicy(migrations []system.Migration) historyCompatibilityPolicy {

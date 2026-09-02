@@ -198,3 +198,28 @@ func TestRecordOperationsMigrationRejectsImpossibleCommittedArtifacts(t *testing
 			`TRUNCATE TABLE pgbase_meta.record_audit_events CASCADE`, "55000")
 	})
 }
+
+// applyMigrationsBefore installs every embedded migration below version so a
+// test can exercise one migration against the exact history that precedes it.
+func applyMigrationsBefore(t *testing.T, ctx context.Context, pool *database.Pool, version int64) {
+	t.Helper()
+	for _, migration := range system.Migrations() {
+		if migration.Version >= version {
+			return
+		}
+		if _, err := pool.Exec(ctx, migration.SQL); err != nil {
+			t.Fatalf("apply migration %d: %v", migration.Version, err)
+		}
+	}
+}
+
+func migrationSQL(t *testing.T, version int64) string {
+	t.Helper()
+	for _, migration := range system.Migrations() {
+		if migration.Version == version {
+			return migration.SQL
+		}
+	}
+	t.Fatalf("embedded migration %d not found", version)
+	return ""
+}

@@ -196,10 +196,15 @@ func TestWriterFenceReservesAndDeletesMembershipAtomically(t *testing.T) {
 	assertWriterMembershipCounts(t, pool, collectionID, 1, 1)
 }
 
-func TestA0WriterAllowsOnlyPreMembershipHistory(t *testing.T) {
+// Once a migration past record membership is embedded, the pre-membership v6
+// history leaves this binary unable to checksum-verify the objects the resolver
+// depends on, so every writer version refuses it — A0 included. The prefix rule
+// this relies on is pinned directly in
+// TestMembershipHistoryAcceptsCompleteKnownFuturePrefix.
+func TestNoWriterAcceptsPreMembershipHistoryOnceALaterMigrationIsEmbedded(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	migrations := system.Migrations()
-	if len(migrations) != 7 {
+	if len(migrations) < 8 || migrations[5].Version != 6 || migrations[6].Version != 7 {
 		t.Fatalf("membership manifest = %#v", migrations)
 	}
 	testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:6])
@@ -210,28 +215,10 @@ func TestA0WriterAllowsOnlyPreMembershipHistory(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	runtimeA0, err := RegisterWriter(ctx, New(pool), WriterA0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a0, err := runtimeA0.Writer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		fence, err := a0.Begin(ctx, tx)
-		if err != nil {
-			return err
+	for _, version := range []WriterVersion{WriterA0, WriterA, WriterB, WriterC} {
+		if _, err := RegisterWriter(ctx, New(pool), version); err == nil {
+			t.Fatalf("writer version %d accepted a v6 database", version)
 		}
-		if fence.state != StateOff || fence.generation != 0 {
-			t.Fatalf("v6 A0 fence = %#v", fence)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RegisterWriter(ctx, New(pool), WriterA); !errors.Is(err, ErrUnavailable) {
-		t.Fatal("release A writer accepted a v6 database")
 	}
 }
 

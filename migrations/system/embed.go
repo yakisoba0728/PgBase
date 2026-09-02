@@ -35,6 +35,9 @@ var schemaOperationsSQL string
 //go:embed 000007_record_membership.sql
 var recordMembershipSQL string
 
+//go:embed 000008_schema_companion_indexes.sql
+var schemaCompanionIndexesSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -77,6 +80,12 @@ var migrations = []Migration{
 		Name:    "record_membership",
 		SQL:     recordMembershipSQL,
 		SHA256:  sha256.Sum256([]byte(recordMembershipSQL)),
+	},
+	{
+		Version: 8,
+		Name:    "schema_companion_indexes",
+		SQL:     schemaCompanionIndexesSQL,
+		SHA256:  sha256.Sum256([]byte(schemaCompanionIndexesSQL)),
 	},
 }
 
