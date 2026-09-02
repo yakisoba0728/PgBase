@@ -17,6 +17,9 @@ function relationField(name: string, ordinal: number, targetCollectionId: string
 
 const posts = collection("posts", "posts-id", [textField("title", 0, { required: true })]);
 const users = collection("users", "users-id");
+const headlined = collection("posts", "posts-id", [textField("headline", 0, { required: true })]);
+const withExtra = collection("posts", "posts-id", [textField("title", 0, { required: true }), textField("extra", 1)]);
+const articles = collection("articles", "articles-id", [textField("title", 0)]);
 
 // The designer holds its draft in the same ledger the shell mounts, so a test
 // that asks whether a draft survived can read the ledger rather than infer it.
@@ -391,7 +394,7 @@ describe("CollectionDesigner drafting during an apply", () => {
     act(() => result.current.requestApply());
 
     act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
-    await act(async () => { application.settle({ value: undefined }); });
+    await act(async () => { application.settle({ value: { collection: posts } }); });
 
     expect(navigate).not.toHaveBeenCalled();
     expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
@@ -416,7 +419,7 @@ describe("CollectionDesigner drafting during an apply", () => {
     await waitFor(() => expect(result.current.preview).not.toBeNull());
     act(() => result.current.requestApply());
 
-    await act(async () => { application.settle({ value: undefined }); });
+    await act(async () => { application.settle({ value: { collection: headlined } }); });
 
     expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
     expect(ledger.held()).toBe(false);
@@ -436,7 +439,7 @@ describe("CollectionDesigner drafting during an apply", () => {
     act(() => result.current.requestApply());
 
     act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
-    await act(async () => { creation.settle({ value: undefined }); });
+    await act(async () => { creation.settle({ value: { collection: articles } }); });
 
     expect(navigate).not.toHaveBeenCalled();
     expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
@@ -444,6 +447,87 @@ describe("CollectionDesigner drafting during an apply", () => {
     expect(result.current.error).toBe(
       "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.",
     );
+  });
+});
+
+describe("CollectionDesigner data-loss warning after an apply the draft outran", () => {
+  it("warns about a field the draft removes from the collection the applied change had just added", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    // A adds `extra`, so the collection the response carries has it and the
+    // definition this page loaded does not.
+    plan(script, "approved", ["ALTER TABLE posts ADD COLUMN extra"], [{ name: "title", type: "text" }, { name: "extra", type: "text" }]);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    act(() => result.current.addField());
+    act(() => result.current.editField(1, { set: "name", value: "extra" }));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    // B takes the field back out, so applying it would drop the column A made.
+    act(() => result.current.removeField(1));
+    await act(async () => { application.settle({ value: { collection: withExtra } }); });
+
+    plan(script, "approved", ["ALTER TABLE posts DROP COLUMN extra"], [{ name: "title", type: "text" }]);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+
+    expect(result.current.removedFields).toEqual(["extra"]);
+    expect(result.current.applyBlocked).toBe(true);
+  });
+
+  it("stops warning about a field the applied change had already dropped", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" }, [withExtra, users]);
+    await ready(result);
+
+    // A drops `extra`, so the collection the response carries no longer has it.
+    plan(script, "approved", ["ALTER TABLE posts DROP COLUMN extra"], [{ name: "title", type: "text" }]);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    act(() => result.current.removeField(1));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    // A is itself destructive, so it carries the confirmation of its own.
+    act(() => result.current.confirmDestructive(true));
+    act(() => result.current.requestApply());
+
+    // B knows nothing of that drop; it only adds a field of its own.
+    act(() => result.current.addField());
+    act(() => result.current.editField(1, { set: "name", value: "note" }));
+    await act(async () => { application.settle({ value: { collection: posts } }); });
+
+    plan(script, "approved", ["ALTER TABLE posts ADD COLUMN note"], [{ name: "title", type: "text" }, { name: "note", type: "text" }]);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+
+    expect(result.current.removedFields).toEqual([]);
+    expect(result.current.applyBlocked).toBe(false);
+  });
+
+  it("asks about a draft the replayed apply left no collection to re-measure against", async () => {
+    const { result, script, navigate, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    // The ledger stores the receipt, not the collection the first attempt
+    // returned, so a replay leaves this page nothing to re-measure against.
+    await act(async () => { application.settle({ value: { status: "committed", replayed: true } }); });
+
+    expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
+    // Nothing was released, so the departure guard is what asks about the draft
+    // rather than this page keeping it against a collection it can no longer
+    // trust.
+    expect(ledger.held()).toBe(true);
+    expect(navigate).toHaveBeenCalledWith({ kind: "records", collection: "posts" });
   });
 });
 
