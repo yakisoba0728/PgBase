@@ -102,7 +102,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	connectStarted := time.Now()
 	connection, err := l.pool.Acquire(ctx)
 	if err != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
 	defer func() {
@@ -116,10 +116,10 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 
 	l.pid.Store(connection.Conn().PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
-	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
+	l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
 	catalog, err := l.reload(ctx, connection.Conn())
 	if err != nil {
 		return false, err
@@ -197,14 +197,14 @@ func (l *Listener) record(ctx context.Context, event observability.Event) {
 
 func (l *Listener) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
 	if recovered := recover(); recovered != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, observability.OutcomeFailure, time.Since(started)))
+		l.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
 	}
 	var err error
 	if operationErr != nil {
 		err = *operationErr
 	}
-	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, listenerOperationOutcome(err), time.Since(started)))
+	l.record(ctx, observability.OperationEvent(operation, listenerOperationOutcome(err), time.Since(started)))
 }
 
 func listenerOperationOutcome(err error) observability.Outcome {

@@ -110,15 +110,39 @@ type Event struct {
 	ready              bool
 }
 
-// OperationEvent constructs an operation event. Invalid enum combinations are
-// rejected by Recorder and counted only as dropped events.
-func OperationEvent(component Component, operation Operation, outcome Outcome, duration time.Duration) Event {
+// OperationEvent constructs an operation event. The component is derived from
+// the operation rather than supplied, because an operation belongs to exactly
+// one subsystem and letting a caller name it is a way to mislabel a metric
+// series. An operation outside the closed set, or an invalid outcome or
+// duration, is rejected by Recorder and counted only as a dropped event.
+func OperationEvent(operation Operation, outcome Outcome, duration time.Duration) Event {
 	return Event{
 		kind:      EventKindOperation,
-		component: component,
+		component: componentForOperation(operation),
 		operation: operation,
 		outcome:   outcome,
 		duration:  duration,
+	}
+}
+
+// componentForOperation is the single operation-to-component mapping. Its zero
+// value for an unlisted operation is what makes such an event invalid, so the
+// mapping and the validity rule cannot disagree.
+func componentForOperation(operation Operation) Component {
+	switch operation {
+	case OperationMigrationUp, OperationMigrationStatus:
+		return ComponentMigration
+	case OperationSchemaCreate, OperationSchemaUpdate, OperationSchemaDelete:
+		return ComponentSchema
+	case OperationListenerConnect, OperationListenerReload:
+		return ComponentSchemaListener
+	case OperationAdminSetup, OperationAdminLogin:
+		return ComponentAdminAuth
+	case OperationRelationSchema, OperationRelationWrite, OperationRelationDelete,
+		OperationRelationExpand, OperationRelationRead:
+		return ComponentRelation
+	default:
+		return ""
 	}
 }
 
@@ -328,22 +352,8 @@ func validOperationEvent(event Event) bool {
 	if event.duration < 0 || !validOutcome(event.outcome) {
 		return false
 	}
-	switch event.component {
-	case ComponentMigration:
-		return event.operation == OperationMigrationUp || event.operation == OperationMigrationStatus
-	case ComponentSchema:
-		return event.operation == OperationSchemaCreate || event.operation == OperationSchemaUpdate || event.operation == OperationSchemaDelete
-	case ComponentSchemaListener:
-		return event.operation == OperationListenerConnect || event.operation == OperationListenerReload
-	case ComponentAdminAuth:
-		return event.operation == OperationAdminSetup || event.operation == OperationAdminLogin
-	case ComponentRelation:
-		return event.operation == OperationRelationSchema || event.operation == OperationRelationWrite ||
-			event.operation == OperationRelationDelete || event.operation == OperationRelationExpand ||
-			event.operation == OperationRelationRead
-	default:
-		return false
-	}
+	component := componentForOperation(event.operation)
+	return component != "" && component == event.component
 }
 
 func validOutcome(outcome Outcome) bool {

@@ -44,7 +44,7 @@ func TestMetricExpositionSemanticAndByteGoldens(t *testing.T) {
 			MaxIdleDestroyCount: 7, MaxLifetimeDestroyCount: 8, NewConnsCount: 9, TotalConns: 10,
 		}
 	})
-	metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationSchemaCreate, OutcomeSuccess, 250*time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(OperationSchemaCreate, OutcomeSuccess, 250*time.Millisecond))
 	metrics.Record(context.Background(), TransactionRetryEvent(RetryCauseDeadlock, true))
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessDatabase, false))
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessDatabase, true))
