@@ -8,6 +8,7 @@ import { CollectionDesignerPage } from "./pages/collection-designer-page";
 import { CollectionsPage } from "./pages/collections-page";
 import { RecordEditPage } from "./pages/record-edit-page";
 import { RecordsPage } from "./pages/records-page";
+import { SchemaOperationsPage } from "./pages/schema-operations-page";
 import { SystemPage } from "./pages/system-page";
 import { LoginPage } from "./pages/login-page";
 import { SetupPage } from "./pages/setup-page";
@@ -18,6 +19,7 @@ type Navigate = (route: AdminRoute) => void;
 // state before the next one renders instead of each page unwinding it.
 function outlet(route: AdminRoute, key: string, navigate: Navigate) {
   if (route.kind === "collection-create") return <CollectionDesignerPage key={key} mode={{ kind: "create" }} navigate={navigate} />;
+  if (route.kind === "operations") return <SchemaOperationsPage key={key} />;
   if (route.kind === "system") return <SystemPage key={key} />;
   if (route.kind === "collection-edit") return <CollectionDesignerPage key={key} mode={{ kind: "edit", collection: route.collection }} navigate={navigate} />;
   if (route.kind === "records") return <RecordsPage collectionName={route.collection} key={key} navigate={navigate} />;
@@ -54,7 +56,7 @@ function AuthenticatedShell({ history }: { history?: AdminHistory }) {
       <button disabled={logoutPending} onClick={() => void signOut()} type="button">{logoutPending ? "Signing out…" : "Sign out"}</button>
     </header>
     {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-    <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+    <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
     <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate)}</UnsavedDrafts>
   </main>;
 }

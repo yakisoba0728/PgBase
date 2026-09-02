@@ -11,6 +11,8 @@ import {
   type CreateAttempt,
   type ListOptions,
   type LoginInput,
+  type OperationHistory,
+  type OperationReceipt,
   type RecordData,
   type RecordPage,
   type ResumedSession,
@@ -26,13 +28,26 @@ const schemaCodes: Partial<Record<Fault["kind"], string>> = {
   "catalog-moved": "schema_conflict",
   "data-blocked": "validation_failed",
   referenced: "collection_referenced",
+  "invalid-cursor": "invalid_cursor",
+  "not-found": "not_found",
   unauthorized: "authentication_required",
   unreachable: "internal_error",
+};
+
+const schemaReasons: Partial<Record<Fault["kind"], "invalid-cursor" | "not-found">> = {
+  "invalid-cursor": "invalid-cursor",
+  "not-found": "not-found",
 };
 
 // A generic backend failure still has to reach the caller as that surface's own
 // typed error; only the HTTP adapter is allowed to know it began as a status.
 function failure(fault: Fault, surface: Surface): Error {
+  // The ledger surface answers the same wire codes on the schema port that the
+  // record port answers on its own, so the surface decides the typed error.
+  const schemaReason = schemaReasons[fault.kind];
+  if (surface === "schema" && schemaReason !== undefined) {
+    return new SchemaError(schemaReason, schemaCodes[fault.kind] ?? "request_failed", ("details" in fault ? fault.details : undefined) ?? {});
+  }
   if (fault.kind === "not-found") return new RecordError("not-found");
   if (fault.kind === "stale") return new RecordError("stale");
   if (fault.kind === "rejected") return new RecordError("rejected", fault.details ?? {});
@@ -95,6 +110,9 @@ export function memoryBackend(script: BackendScript): AdminBackend {
         return new PlannedChange(change, scripted.checksum, scripted.baseVersion, scripted.fields, scripted.sql);
       }),
       apply: (plan: PlannedChange) => guard(undefined, () => take<void>("apply", { request: plan.applyRequest() }, "schema")),
+      operation: (operationId: string, signal) => guard(signal, () => take<OperationReceipt>("operation", { operationId }, "schema")),
+      operations: (cursor: string | undefined, signal) => guard(signal, () =>
+        take<OperationHistory>("operations", cursor === undefined ? {} : { cursor }, "schema")),
     },
     records: {
       list: (collection: string, options: ListOptions, signal) => guard(signal, async () => {

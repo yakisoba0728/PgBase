@@ -1,7 +1,7 @@
 import { LosslessNumber } from "lossless-json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { httpBackend } from "./http-backend";
-import { CreateAttempt, RecordError } from "./ports";
+import { CreateAttempt, RecordError, SchemaError } from "./ports";
 
 const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const firstTag = "11111111-1111-4111-8111-111111111111";
@@ -15,6 +15,8 @@ function respond(status: number, body = "", headers?: HeadersInit): Response {
     text: vi.fn().mockResolvedValue(body),
   } as unknown as Response;
 }
+
+const operationID = "33333333-3333-4333-8333-333333333333";
 
 function envelope(code: string, details: Record<string, string[]> = {}): string {
   return JSON.stringify({ error: { code, message: "message", details } });
@@ -254,5 +256,50 @@ describe("HTTP adapter wire contract", () => {
     const plan = await backend.schema.plan({ operation: "delete", name: "posts" });
     await expect(backend.schema.apply(plan)).rejects.toMatchObject({ reason: "referenced" });
     expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("asks for the bounded history page and never a larger limit", async () => {
+    const mock = stub(session(), respond(200, `{"items":[]}`), respond(200, `{"items":[]}`));
+    const backend = await authenticated(mock);
+
+    await backend.schema.operations();
+    await backend.schema.operations("next-page");
+
+    expect(String(mock.mock.calls[1][0])).toBe("/api/admin/schema-operations?limit=20");
+    expect(String(mock.mock.calls[2][0])).toBe("/api/admin/schema-operations?limit=20&cursor=next-page");
+  });
+
+  it("reads one operation status by its own path", async () => {
+    const mock = stub(session(), respond(200, `{"operationId":"${operationID}","status":"running","operation":"collection_create","collectionId":"c","baseVersion":7,"createdAt":"t","updatedAt":"t"}`));
+    const backend = await authenticated(mock);
+
+    await expect(backend.schema.operation(operationID)).resolves.toMatchObject({ status: "running" });
+    expect(String(mock.mock.calls[1][0])).toBe(`/api/admin/schema-operations/${operationID}`);
+  });
+
+  it("keeps every field the receipt contract does not name out of the status and history it returns", async () => {
+    const leaky = `"sql":["DROP TABLE posts"],"requestHash":"deadbeef","idempotencyKey":"secret-key"`;
+    const receiptBody = `{"operationId":"${operationID}","status":"failed","failureCode":"apply_failed","operation":"collection_delete","collectionId":"c","baseVersion":7,"createdAt":"t","updatedAt":"t",${leaky}}`;
+    const mock = stub(session(), respond(200, receiptBody), respond(200, `{"items":[${receiptBody}]}`));
+    const backend = await authenticated(mock);
+
+    const status = await backend.schema.operation(operationID);
+    const [listed] = (await backend.schema.operations()).items;
+
+    for (const bounded of [status, listed]) {
+      expect(Object.keys(bounded).sort()).toEqual(
+        ["baseVersion", "collectionId", "createdAt", "failureCode", "operation", "operationId", "status", "updatedAt"],
+      );
+      expect(JSON.stringify(bounded)).not.toContain("DROP TABLE");
+      expect(JSON.stringify(bounded)).not.toContain("secret-key");
+    }
+  });
+
+  it("fails a history page larger than the ledger's own ceiling instead of rendering it", async () => {
+    const item = `{"operationId":"${operationID}","status":"committed","operation":"collection_create","collectionId":"c","baseVersion":7,"createdAt":"t","updatedAt":"t"}`;
+    const mock = stub(session(), respond(200, `{"items":[${Array(101).fill(item).join(",")}]}`));
+    const backend = await authenticated(mock);
+
+    await expect(backend.schema.operations()).rejects.toBeInstanceOf(SchemaError);
   });
 });

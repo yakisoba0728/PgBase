@@ -88,7 +88,33 @@ export class PlannedChange {
   applyRequest(): Record<string, unknown> { return { ...this.#change, checksum: this.#checksum, baseVersion: this.baseVersion }; }
 }
 
-type SchemaFailure = "same-version-conflict" | "catalog-moved" | "data-blocked" | "referenced" | "failed";
+export const operationStatuses = ["running", "unknown", "committed", "failed"] as const;
+export type OperationStatus = typeof operationStatuses[number];
+
+/**
+ * The redacted, owner-scoped view of one durable schema operation. Every field
+ * the ledger publishes is bounded and non-identifying; raw SQL, the request
+ * hash and the idempotency key have no representation here at all, so nothing
+ * a receipt can carry is a secret.
+ */
+export interface OperationReceipt {
+  operationId: string;
+  operation: string;
+  collectionId: string;
+  status: OperationStatus;
+  baseVersion: number;
+  committedVersion?: number;
+  failureCode?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface OperationHistory { items: OperationReceipt[]; nextCursor?: string }
+
+type SchemaFailure =
+  | "same-version-conflict" | "catalog-moved" | "data-blocked" | "referenced"
+  | "invalid-cursor" | "not-found" | "failed";
 
 export class SchemaError extends Error {
   constructor(readonly reason: SchemaFailure, readonly code: string, readonly details: Record<string, string[]> = {}) { super(reason); this.name = "SchemaError"; }
@@ -154,6 +180,10 @@ export interface SchemaPort {
   catalog(signal?: AbortSignal): Promise<CollectionCatalog>;
   plan(change: CollectionChange, signal?: AbortSignal): Promise<PlannedChange>;
   apply(plan: PlannedChange): Promise<void>;
+  operation(operationId: string, signal?: AbortSignal): Promise<OperationReceipt>;
+  // History is read one bounded page at a time. There is deliberately no limit
+  // to pass: a caller that cannot ask for a larger page cannot be handed one.
+  operations(cursor?: string, signal?: AbortSignal): Promise<OperationHistory>;
 }
 
 export interface RecordPort {

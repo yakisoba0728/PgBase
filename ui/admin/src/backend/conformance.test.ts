@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CreateAttempt, RecordError, SchemaError, SessionError, type AdminBackend, type CollectionChange, type CollectionDefinition } from "./ports";
+import {
+  CreateAttempt,
+  RecordError,
+  SchemaError,
+  SessionError,
+  type AdminBackend,
+  type CollectionChange,
+  type CollectionDefinition,
+  type OperationReceipt,
+} from "./ports";
 import { backendScript, callsTo, type BackendScript } from "../test/backend-script";
 import { httpHarness } from "../test/http-harness";
 import { memoryBackend } from "../test/memory-backend";
@@ -7,6 +16,17 @@ import { memoryBackend } from "../test/memory-backend";
 const administrator = { id: "9a2e0000-0000-4000-8000-000000000001", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" };
 const expiresAt = "2026-09-02T00:00:00Z";
 const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+const operationID = "33333333-3333-4333-8333-333333333333";
+const secondOperationID = "55555555-5555-4555-8555-555555555555";
+
+function scriptedReceipt(patch: Partial<OperationReceipt> = {}): OperationReceipt {
+  return {
+    operationId: operationID, operation: "collection_create", collectionId: "posts-id",
+    status: "committed", baseVersion: 7, committedVersion: 8,
+    createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:30Z", ...patch,
+  };
+}
 
 const posts: CollectionDefinition = {
   id: "posts-id",
@@ -151,6 +171,55 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
       details: { name: ["collection_referenced"] },
     });
     expect(callsTo(script, "catalog")).toHaveLength(0);
+  });
+
+  it("reads one operation receipt by the identity the apply was sent under", async () => {
+    const script = backendScript();
+    script.operation.push({ value: scriptedReceipt({ status: "committed" }) });
+
+    await expect(open(script).schema.operation(operationID)).resolves.toMatchObject({
+      operationId: operationID, status: "committed", committedVersion: 8,
+    });
+    expect(callsTo(script, "operation")[0].detail).toEqual({ operationId: operationID });
+  });
+
+  it("answers a tampered or another administrator's operation id with the same not-found reason", async () => {
+    const script = backendScript();
+    script.operation.push({ fault: { kind: "not-found" } });
+
+    await expect(open(script).schema.operation(operationID))
+      .rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("reads a bounded history page in the order the ledger returned it", async () => {
+    const script = backendScript();
+    // Two receipts sharing a creation instant: only the ledger's own tie-break
+    // orders them, so an adapter that re-sorted would reverse this pair.
+    const items = [
+      scriptedReceipt({ operationId: secondOperationID, createdAt: "2026-09-01T00:00:00Z" }),
+      scriptedReceipt({ operationId: operationID, createdAt: "2026-09-01T00:00:00Z" }),
+    ];
+    script.operations.push({ value: { items, nextCursor: "page-2" } });
+
+    const page = await open(script).schema.operations();
+    expect(page.items.map((item) => item.operationId)).toEqual([secondOperationID, operationID]);
+    expect(page.nextCursor).toBe("page-2");
+  });
+
+  it("carries the opaque cursor into the next history page", async () => {
+    const script = backendScript();
+    script.operations.push({ value: { items: [scriptedReceipt()] } });
+
+    await open(script).schema.operations("page-2");
+    expect(callsTo(script, "operations")[0].detail).toMatchObject({ cursor: "page-2" });
+  });
+
+  it("reports a cursor the ledger refuses as an invalid cursor rather than an empty page", async () => {
+    const script = backendScript();
+    script.operations.push({ fault: { kind: "invalid-cursor" } });
+
+    await expect(open(script).schema.operations("another-owners-cursor"))
+      .rejects.toMatchObject({ reason: "invalid-cursor", code: "invalid_cursor" });
   });
 
   it("fails a schema read with a typed error", async () => {

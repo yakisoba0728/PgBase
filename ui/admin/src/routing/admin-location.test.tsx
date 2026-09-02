@@ -16,6 +16,7 @@ import { memoryHistory } from "../test/memory-history";
 const routes: AdminRoute[] = [
   { kind: "collections" },
   { kind: "collection-create" },
+  { kind: "operations" },
   { kind: "system" },
   { kind: "collection-edit", collection: "posts" },
   { kind: "records", collection: "posts" },
@@ -32,6 +33,7 @@ describe("admin routes", () => {
 
   it.each([
     ["/admin/collections/new", { kind: "collection-create" }],
+    ["/admin/schema-operations", { kind: "operations" }],
     ["/admin/system", { kind: "system" }],
     ["/admin/collections/posts/edit", { kind: "collection-edit", collection: "posts" }],
     ["/admin/collections/posts/records", { kind: "records", collection: "posts" }],
