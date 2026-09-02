@@ -106,9 +106,13 @@ jobs:
 
       - name: Install browser test dependencies
         working-directory: ui/admin
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+        run: npm ci --ignore-scripts
+
+      # Browser and system dependency installation is an explicit, auditable
+      # command rather than a side effect of an install hook.
+      - name: Install the Playwright browser and its system dependencies
+        working-directory: ui/admin
+        run: npx playwright install --with-deps chromium
 
       - name: Verify empty-database browser onboarding
         working-directory: ui/admin

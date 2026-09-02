@@ -2,7 +2,10 @@ FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd3
 
 WORKDIR /src/ui/admin
 COPY ui/admin/package.json ui/admin/package-lock.json ./
-RUN npm ci
+# No dependency in the lock file declares preinstall/install/postinstall, and
+# the native rolldown and lightningcss binaries arrive as per-platform optional
+# packages rather than a download hook, so the build needs no install script.
+RUN npm ci --ignore-scripts
 COPY ui/admin/index.html ui/admin/tsconfig.json ui/admin/tsconfig.app.json ui/admin/vite.config.ts ./
 COPY ui/admin/src ./src
 RUN npm run build
