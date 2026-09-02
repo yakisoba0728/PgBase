@@ -707,7 +707,7 @@ func TestEnsureCurrentRejectsSnapshotThatPredatesACommittedSchemaChange(t *testi
 	<-snapshotPinned
 
 	applyFreshPlan(t, secondService, CreateCollectionInput{Name: "posts"}, administratorID)
-	if err := firstCache.Replace(secondCache.Load()); err != nil {
+	if err := publishCatalog(firstCache, secondCache.Load()); err != nil {
 		t.Fatalf("publish newer catalog snapshot: %v", err)
 	}
 	close(newerPublished)
