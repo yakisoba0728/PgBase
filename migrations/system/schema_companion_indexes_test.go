@@ -414,13 +414,13 @@ func TestSchemaCompilerGenerationConstraintTiesTheProofToTheState(t *testing.T) 
 	}
 	for name, statement := range map[string]string{
 		"building without a proved generation": `UPDATE pgbase_meta.schema_companion_index_capability
-			SET state = 'building', generation = 1, catalog_version = 0,
+			SET state = 'building_v3', generation = 1, catalog_version = 0,
 				building_at = transaction_timestamp(), updated_at = transaction_timestamp()
 			WHERE singleton`,
 		"pending naming a proved generation": `UPDATE pgbase_meta.schema_companion_index_capability
 			SET proven_compiler_version = 3 WHERE singleton`,
 		"proved generation below one": `UPDATE pgbase_meta.schema_companion_index_capability
-			SET state = 'building', generation = 1, catalog_version = 0,
+			SET state = 'building_v3', generation = 1, catalog_version = 0,
 				proven_compiler_version = 0, building_at = transaction_timestamp(),
 				updated_at = transaction_timestamp()
 			WHERE singleton`,
@@ -428,6 +428,31 @@ func TestSchemaCompilerGenerationConstraintTiesTheProofToTheState(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			requireSQLState(t, ctx, pool, statement, "23514")
 		})
+	}
+}
+
+// The predecessor's maintenance command recognizes the v8 "building" label
+// and promotes it with this exact state update. Migration 9 must make that
+// storage transition unrepresentable so an old checker cannot reopen ready.
+func TestSchemaCompilerGenerationMigrationFencesThePredecessorPromotion(t *testing.T) {
+	ctx, pool := newSchemaCompanionIndexSchema(t)
+	if _, err := pool.Exec(ctx, migrationSQL(t, 9)); err != nil {
+		t.Fatalf("apply migration 9: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.schema_companion_index_capability
+		SET state = 'building_v3', generation = 1, catalog_version = 0,
+			proven_compiler_version = 3, building_at = transaction_timestamp(),
+			updated_at = transaction_timestamp() WHERE singleton`); err != nil {
+		t.Fatalf("open current rollout: %v", err)
+	}
+	requireSQLState(t, ctx, pool, `UPDATE pgbase_meta.schema_companion_index_capability
+		SET state = 'ready', ready_at = transaction_timestamp(),
+			ready_index_count = 0, updated_at = transaction_timestamp()
+		WHERE singleton`, "23514")
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state FROM pgbase_meta.schema_companion_index_capability
+		WHERE singleton`).Scan(&state); err != nil || state != "building_v3" {
+		t.Fatalf("capability after predecessor promotion = %q, %v", state, err)
 	}
 }
 

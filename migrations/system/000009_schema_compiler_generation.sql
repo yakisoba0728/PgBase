@@ -74,10 +74,43 @@ SET state = 'pending',
     updated_at = transaction_timestamp()
 WHERE singleton AND state <> 'pending';
 
--- A separate constraint rather than a rewrite of v8's rollout_state_check, so
--- that check keeps testing exactly what v8 shipped. The lower bound has no upper
--- companion for the reason v8 gave for compiler_version: naming a newest
--- generation here would force every later migration to rewrite this line.
+-- The v8 storage labels are also an executable protocol understood by the
+-- predecessor's maintenance command. If v9 kept "building", that command could
+-- run its older physical checker after a generation-3 activation and then write
+-- "ready" without naming the compiler generation at all. Give the v9 protocol
+-- distinct non-pending labels. Old activation/promotion SQL then violates the
+-- database constraint, and an old build rejects building_v3 before touching an
+-- index. The Go API maps these storage labels back to the stable logical states.
+ALTER TABLE pgbase_meta.schema_companion_index_capability
+    DROP CONSTRAINT schema_companion_index_capability_state_check,
+    DROP CONSTRAINT schema_companion_index_capability_rollout_state_check,
+    ADD CONSTRAINT schema_companion_index_capability_state_check
+        CHECK (state IN ('pending', 'building_v3', 'ready_v3')),
+    ADD CONSTRAINT schema_companion_index_capability_rollout_state_check CHECK ((
+        (state = 'pending'
+            AND catalog_version IS NULL
+            AND building_at IS NULL
+            AND ready_at IS NULL
+            AND ready_index_count IS NULL)
+        OR
+        (state = 'building_v3'
+            AND generation >= 1
+            AND catalog_version IS NOT NULL
+            AND building_at IS NOT NULL
+            AND ready_at IS NULL
+            AND ready_index_count IS NULL)
+        OR
+        (state = 'ready_v3'
+            AND generation >= 1
+            AND catalog_version IS NOT NULL
+            AND building_at IS NOT NULL
+            AND ready_at IS NOT NULL
+            AND ready_index_count IS NOT NULL)
+    ) IS TRUE);
+
+-- The lower bound has no upper companion for the reason v8 gave for
+-- compiler_version: naming a newest generation here would force every later
+-- migration to rewrite this line.
 ALTER TABLE pgbase_meta.schema_companion_index_capability
     ADD CONSTRAINT schema_companion_index_capability_proven_generation_check CHECK ((
         (state = 'pending') = (proven_compiler_version IS NULL)

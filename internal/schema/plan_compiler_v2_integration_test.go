@@ -200,11 +200,10 @@ func TestAnUpdateThatAddsNoCompanionCarriesTheCapability(t *testing.T) {
 }
 
 // P1-B, forward-looking. Migration 9 demotes every capability proved under the
-// ambiguous generation once, but the same shape recurs at every later generation bump:
-// a row left ready by an older compiler names a proof that says nothing about this
-// binary. State alone cannot express that, which is why the proved generation is part
-// of the gate rather than a second value beside it.
-func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
+// ambiguous generation once, but the same shape recurs at every generation bump:
+// a row proved by any other compiler generation says nothing about this binary.
+// State alone cannot express that, so the proved generation is an exact gate.
+func TestAReadyCapabilityProvedByAnotherGenerationDoesNotIssueV2(t *testing.T) {
 	if !companionFeatureArtifact(t) {
 		return
 	}
@@ -237,11 +236,16 @@ func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
 	if status := companionStatus(t, service); status.State != CompanionIndexReady {
 		t.Fatalf("state under a stale proof = %#v", status)
 	}
+	if _, err := service.Apply(ctx, LegacyApply(change, issued, administratorID)); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("apply under a stale generation proof = %v, want ErrCompanionIndexFleet", err)
+	}
+	if _, err := service.RollbackCompanionIndexes(ctx); err != nil {
+		t.Fatalf("roll back stale generation proof: %v", err)
+	}
 	created := applyChange(t, service, change, administratorID).Collection
 	assertCompanionIndexAbsent(t, pool, companionSpec(t, service, created, "nickname"))
-	// And that v1 create closes the gate in its own transaction. This is what lets
-	// consumers keep reading Ready() as a state: a companion-less collection can never
-	// be committed under a row still claiming companions are required.
+	// The operator rollback is what lets v1 commit: a companion-less collection
+	// can never be written under a row still claiming companions are required.
 	if status := companionStatus(t, service); status.State != CompanionIndexPending {
 		t.Fatalf("capability after a v1 create under a stale proof = %#v", status)
 	}
@@ -266,6 +270,26 @@ func TestAReadyCapabilityProvedByAnOlderGenerationDoesNotIssueV2(t *testing.T) {
 	}
 	if reproved.Checksum != v2.Checksum {
 		t.Fatalf("re-proved capability issued %q, want the v2 checksum", reproved.Checksum)
+	}
+
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set proven_compiler_version = $1 where singleton`, schemaCompilerVersion+1); err != nil {
+		t.Fatal(err)
+	}
+	futureChange := NewCreateChange(companionShapedCollection("companion_future_proof"))
+	future, err := service.Preview(ctx, futureChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1, err = compilePlan(reprovedCatalog, futureChange, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if future.Checksum != v1.Checksum {
+		t.Fatalf("a capability proved by a newer generation issued %q, want the v1 checksum", future.Checksum)
+	}
+	if _, err := service.Apply(ctx, LegacyApply(futureChange, future, administratorID)); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("apply under a newer generation proof = %v, want ErrCompanionIndexFleet", err)
 	}
 }
 

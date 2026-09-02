@@ -344,7 +344,7 @@ func companionCapabilityReady(ctx context.Context, db database.DBTX) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	return schemaCompilerVersion >= 3 && status.Ready() && status.ProvenCompilerVersion >= schemaCompilerVersion, nil
+	return schemaCompilerVersion >= 3 && status.Ready() && status.ProvenCompilerVersion == schemaCompilerVersion, nil
 }
 
 // companionGapAfterChange reports whether the committed manifest names a companion the
@@ -382,7 +382,7 @@ func settleCompanionIndexCapability(
 	}
 	if _, err := tx.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
 		set catalog_version = $1, ready_index_count = $2, updated_at = clock_timestamp()
-		where singleton and state = 'ready'`, version, companions); err != nil {
+		where singleton and state = 'ready_v3'`, version, companions); err != nil {
 		return fmt.Errorf("advance schema companion index capability: %w", err)
 	}
 	return nil

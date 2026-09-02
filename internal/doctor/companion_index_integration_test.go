@@ -54,13 +54,13 @@ func setCompanionState(t *testing.T, pool *database.Pool, state string, indexCou
 	// proved at. Doctor reads that state rather than producing it, so the seed stamps
 	// the current generation instead of the production check being weakened for it.
 	statement := `update pgbase_meta.schema_companion_index_capability set
-		state = 'building', generation = 1, proven_compiler_version = 3,
+		state = 'building_v3', generation = 1, proven_compiler_version = 3,
 		catalog_version = (select version from pgbase_meta.schema_state where singleton),
 		building_at = transaction_timestamp(), ready_at = null, ready_index_count = null,
 		updated_at = transaction_timestamp() where singleton`
 	if state == "ready" {
 		statement = `update pgbase_meta.schema_companion_index_capability set
-			state = 'ready', generation = 1, proven_compiler_version = 3,
+			state = 'ready_v3', generation = 1, proven_compiler_version = 3,
 			catalog_version = (select version from pgbase_meta.schema_state where singleton),
 			building_at = transaction_timestamp(), ready_at = transaction_timestamp(),
 			ready_index_count = $1, updated_at = transaction_timestamp() where singleton`

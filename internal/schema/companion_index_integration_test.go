@@ -127,6 +127,50 @@ func TestCompanionIndexRolloutActivatesBuildsAndPromotes(t *testing.T) {
 	}
 }
 
+func TestCompanionMaintenanceRequiresItsExactCompilerGeneration(t *testing.T) {
+	if !companionFeatureArtifact(t) {
+		return
+	}
+	ctx := context.Background()
+	pool, service, _, collection := companionRolloutFixture(t)
+	activateCompanionRollout(t, service)
+	companion := companionSpec(t, service, collection, "nickname")
+
+	preparatory := NewService(pool, &Cache{}, nil)
+	preparatory.compilerVersion = 2
+	if _, err := preparatory.MaintainCompanionIndexes(ctx); !errors.Is(err, ErrCompanionIndexUnavailable) {
+		t.Fatalf("P0 maintenance over a generation-3 rollout = %v", err)
+	}
+	assertCompanionIndexAbsent(t, pool, companion)
+
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set proven_compiler_version = 4 where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MaintainCompanionIndexes(ctx); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("maintenance under another generation proof = %v", err)
+	}
+	assertCompanionIndexAbsent(t, pool, companion)
+
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set proven_compiler_version = 3 where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.buildCompanionIndexes(ctx, []IndexSpec{companion}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability
+		set proven_compiler_version = 2 where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.promoteCompanionIndexes(ctx); !errors.Is(err, ErrCompanionIndexFleet) {
+		t.Fatalf("locked promotion under another generation proof = %v", err)
+	}
+	if status := companionStatus(t, service); status.State != CompanionIndexBuilding {
+		t.Fatalf("capability after rejected promotion = %#v", status)
+	}
+}
+
 func assertCompanionIndexShape(t *testing.T, pool *database.Pool, companion IndexSpec) {
 	t.Helper()
 	var definition string
@@ -550,7 +594,9 @@ func leaseSchemaWriterAt(t *testing.T, pool *database.Pool, writer *Service, ver
 		t.Fatal(err)
 	}
 	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		previous := writer.compilerVersion
 		writer.compilerVersion = version
+		defer func() { writer.compilerVersion = previous }()
 		return writer.refreshSchemaWriterLease(ctx, tx)
 	}); err != nil {
 		t.Fatalf("record schema writer lease at generation %d: %v", version, err)
@@ -632,12 +678,15 @@ func TestSchemaCompilerGenerationP0KeepsTheCompanionFeatureOff(t *testing.T) {
 		t.Fatalf("P0 activation = %v, want ErrCompanionIndexUnavailable", err)
 	}
 	if _, err := pool.Exec(ctx, `update pgbase_meta.schema_companion_index_capability set
-		state = 'ready', generation = 1,
+		state = 'ready_v3', generation = 1,
 		catalog_version = (select version from pgbase_meta.schema_state where singleton),
 		building_at = transaction_timestamp(), ready_at = transaction_timestamp(),
 		ready_index_count = 1, proven_compiler_version = 3,
 		updated_at = transaction_timestamp() where singleton`); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := service.MaintainCompanionIndexes(ctx); !errors.Is(err, ErrCompanionIndexUnavailable) {
+		t.Fatalf("P0 maintenance = %v, want ErrCompanionIndexUnavailable", err)
 	}
 	catalog, err := service.Catalog(ctx)
 	if err != nil {
