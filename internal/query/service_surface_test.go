@@ -86,7 +86,14 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// Ratcheted from 4,917 by R5 section 9.2, which paid for its own additions:
 	// the dead CompileDelete, and resolveOrderSpec once planRelationSort's root
 	// terms became identical to it.
-	if runtimeLines > 4_910 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4910", runtimeLines)
+	//
+	// Ratcheted from 4,910 by R4 Release C, which retires cursor v4: +9/-25 for
+	// the decode case and its sort-key comparison in root_page.go, the encode
+	// branch in page_assembler.go, and the issue-version guard in
+	// cursor_v5_binding.go that the retired boundary makes constant. Removing
+	// the last v4 branch collapsed a three-way version switch into one check,
+	// so the arithmetic is a net -16 rather than the -25 deleted.
+	if runtimeLines > 4_894 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 4894", runtimeLines)
 	}
 }

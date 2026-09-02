@@ -18,10 +18,6 @@ import (
 
 const testMaximumDecodedCursorSize = 4096
 
-func testCursorSort() []cursor.SortKey {
-	return []cursor.SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}
-}
-
 func testCursorValues() []json.RawMessage {
 	return []json.RawMessage{
 		json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`),
@@ -29,76 +25,22 @@ func testCursorValues() []json.RawMessage {
 	}
 }
 
-func TestCursorCodecRoundTripsCanonicalVersionedPayload(t *testing.T) {
+// The golden token this binary used to mint and honour, kept verbatim as the
+// record of the contract Release C ends. It is correctly signed with the test
+// secret and not expired, so nothing but the retired format rejects it: after
+// retirement a caller that replays one gets the same stable invalid_cursor it
+// already handles for a corrupt or expired token, not a parse failure or a
+// different code.
+const retiredV4GoldenToken = "eyJ2Ijo0LCJjb2xsZWN0aW9uSWQiOiJhYWFhYWFhYS1iYmJiLTRjY2MtOGRkZC1lZWVlZWVlZWVlZWUiLCJzb3J0IjpbeyJmaWVsZCI6ImNyZWF0ZWRfYXQifSx7ImZpZWxkIjoiaWQifV0sInZhbHVlcyI6WyIyMDI2LTA4LTI4VDEyOjM0OjU2LjEyMzQ1Njc4OVoiLCIxMjM0NTY3OC0xMjM0LTQ1NjctODkwMS0xMjM0NTY3ODlhYmMiXSwiZXhwaXJlc0F0IjoiMjAyNi0wOC0yOFQxMjo0OTo1NloifWxYRsPOQAIV-PT37QBYtXHbot0Oq9w-tpbeyUdnAqU0"
+
+func TestCursorCodecRejectsTheRetiredV4GoldenToken(t *testing.T) {
 	t.Parallel()
 
 	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
-	want := cursor.Page{
-		Version:      cursor.Version4,
-		CollectionID: uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
-		Sort:         testCursorSort(),
-		Values:       testCursorValues(),
-		ExpiresAt:    time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
-	}
-
-	first, err := codec.Encode(want)
-	if err != nil {
-		t.Fatalf("Encode() error = %v", err)
-	}
-	second, err := codec.Encode(want)
-	if err != nil {
-		t.Fatalf("Encode() second error = %v", err)
-	}
-	if first != second {
-		t.Fatalf("Encode() was non-deterministic: %q != %q", first, second)
-	}
-	if strings.Contains(first, "=") {
-		t.Fatalf("Encode() token %q contains base64 padding", first)
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(first)
-	if err != nil {
-		t.Fatalf("decode token fixture: %v", err)
-	}
-	wantPayload := `{"v":` + strconv.Itoa(cursor.Version4) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56.123456789Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T12:49:56Z"}`
-	if got := string(raw[:len(raw)-sha256.Size]); got != wantPayload {
-		t.Fatalf("payload = %q, want %q", got, wantPayload)
-	}
-
-	got, err := codec.Decode(first, want.CollectionID, want.ExpiresAt.Add(-time.Minute))
-	if err != nil {
-		t.Fatalf("Decode() error = %v", err)
-	}
-	if got.Version != want.Version || got.CollectionID != want.CollectionID || !reflect.DeepEqual(got.Sort, want.Sort) || len(got.Values) != len(want.Values) {
-		t.Fatalf("Decode() = %#v, want %#v in UTC", got, want)
-	}
-	for index := range want.Values {
-		if string(got.Values[index]) != string(want.Values[index]) {
-			t.Fatalf("value %d = %s, want %s", index, got.Values[index], want.Values[index])
-		}
-	}
-	if !got.ExpiresAt.Equal(want.ExpiresAt) || got.ExpiresAt.Location() != time.UTC {
-		t.Fatalf("expiry = %#v, want %#v", got.ExpiresAt, want.ExpiresAt)
-	}
-}
-
-func TestCursorCodecV4GoldenTokenIsByteIdenticalWithDualDecoder(t *testing.T) {
-	t.Parallel()
-
-	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
-	token, err := codec.Encode(cursor.Page{
-		Version:      cursor.Version4,
-		CollectionID: uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
-		Sort:         testCursorSort(),
-		Values:       testCursorValues(),
-		ExpiresAt:    time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const want = "eyJ2Ijo0LCJjb2xsZWN0aW9uSWQiOiJhYWFhYWFhYS1iYmJiLTRjY2MtOGRkZC1lZWVlZWVlZWVlZWUiLCJzb3J0IjpbeyJmaWVsZCI6ImNyZWF0ZWRfYXQifSx7ImZpZWxkIjoiaWQifV0sInZhbHVlcyI6WyIyMDI2LTA4LTI4VDEyOjM0OjU2LjEyMzQ1Njc4OVoiLCIxMjM0NTY3OC0xMjM0LTQ1NjctODkwMS0xMjM0NTY3ODlhYmMiXSwiZXhwaXJlc0F0IjoiMjAyNi0wOC0yOFQxMjo0OTo1NloifWxYRsPOQAIV-PT37QBYtXHbot0Oq9w-tpbeyUdnAqU0"
-	if token != want {
-		t.Fatalf("v4 token changed:\ngot  %s\nwant %s", token, want)
-	}
+	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	_, err := codec.Decode(retiredV4GoldenToken, collectionID,
+		time.Date(2026, 8, 28, 12, 40, 0, 0, time.UTC))
+	assertInvalidCursor(t, err)
 }
 
 func TestCursorCodecRoundTripsCanonicalV5Descriptor(t *testing.T) {
@@ -294,30 +236,6 @@ func TestCursorCodecV5AnchorOnlyRoundTripPreservesAbsoluteExpiry(t *testing.T) {
 	}
 }
 
-func TestCursorCodecRejectsMixedV4AndV5DescriptorFields(t *testing.T) {
-	t.Parallel()
-
-	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
-	cursor := validV5CursorForTest()
-	cursor.Sort = testCursorSort()
-	_, err := codec.Encode(cursor)
-	assertInvalidCursor(t, err)
-}
-
-func TestCursorCodecRejectsV5DescriptorOnV4Cursor(t *testing.T) {
-	t.Parallel()
-
-	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
-	page := cursor.Page{
-		Version: cursor.Version4, CollectionID: uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
-		Sort: testCursorSort(), Values: testCursorValues(),
-		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
-		V5:        validV5CursorForTest().V5,
-	}
-	_, err := codec.Encode(page)
-	assertInvalidCursor(t, err)
-}
-
 func TestCursorCodecRejectsUninitializedV5Fingerprints(t *testing.T) {
 	t.Parallel()
 
@@ -396,15 +314,19 @@ func TestCursorCodecFallsBackToBoundedSignedAnchorForLargeValues(t *testing.T) {
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	anchorID := uuid.MustParse("12345678-1234-4567-8901-123456789abc")
 	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
-	token, err := codec.Encode(cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort: []cursor.SortKey{{Field: "title"}, {Field: systemFieldID}},
-		Values: []json.RawMessage{
-			json.RawMessage(strconv.Quote(strings.Repeat("x", testMaximumDecodedCursorSize))),
-			json.RawMessage(strconv.Quote(anchorID.String())),
-		},
-		AnchorID: anchorID, ExpiresAt: expiresAt,
-	})
+	page := validV5CursorForTest()
+	page.CollectionID = collectionID
+	page.ExpiresAt = expiresAt
+	page.V5.Order = []cursor.V5OrderTerm{
+		{Path: []string{"11111111-1111-4111-8111-111111111111"}, Type: "text", Nulls: cursor.NullsLast},
+		{Path: []string{"$id"}, Type: "uuid", Nulls: cursor.NullsLast},
+	}
+	page.Values = []json.RawMessage{
+		json.RawMessage(strconv.Quote(strings.Repeat("x", testMaximumDecodedCursorSize))),
+		json.RawMessage(strconv.Quote(anchorID.String())),
+	}
+	page.AnchorID = anchorID
+	token, err := codec.Encode(page)
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)
 	}
@@ -427,10 +349,10 @@ func TestCursorCodecRejectsTamperingMalformedTokensAndSecretRotation(t *testing.
 	codec := cursor.NewCodec(secret)
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
-	token, err := codec.Encode(cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt,
-	})
+	tampered := validV5CursorForTest()
+	tampered.CollectionID = collectionID
+	tampered.ExpiresAt = expiresAt
+	token, err := codec.Encode(tampered)
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)
 	}
@@ -472,10 +394,10 @@ func TestCursorCodecRejectsCrossCollectionReplayAndExpiration(t *testing.T) {
 	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
 	collectionID := uuid.New()
 	expiresAt := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
-	token, err := codec.Encode(cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt,
-	})
+	replayed := validV5CursorForTest()
+	replayed.CollectionID = collectionID
+	replayed.ExpiresAt = expiresAt
+	token, err := codec.Encode(replayed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,36 +409,24 @@ func TestCursorCodecRejectsCrossCollectionReplayAndExpiration(t *testing.T) {
 	}
 }
 
-func TestCursorCodecRejectsAuthenticatedInvalidPayloads(t *testing.T) {
+func TestCursorCodecRejectsEveryRetiredV4PayloadIdentically(t *testing.T) {
 	t.Parallel()
 
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	codec := cursor.NewCodec(secret)
 	collectionID := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	now := time.Date(2026, 8, 28, 12, 40, 0, 0, time.UTC)
-	base := `{"v":` + strconv.Itoa(cursor.Version4) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`
-	tests := []struct {
-		name    string
-		payload string
-	}{
-		{name: "unsupported version", payload: strings.Replace(base, `"v":`+strconv.Itoa(cursor.Version4), `"v":`+strconv.Itoa(cursor.Version4-1), 1)},
-		{name: "missing sort", payload: `{"v":` + strconv.Itoa(cursor.Version4) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","values":["1"],"expiresAt":"2026-08-28T13:00:00Z"}`},
-		{name: "empty sort", payload: `{"v":` + strconv.Itoa(cursor.Version4) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[],"values":[],"expiresAt":"2026-08-28T13:00:00Z"}`},
-		{name: "value count mismatch", payload: strings.Replace(base, `,"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"]`, `,"values":["2026-08-28T12:34:56Z"]`, 1)},
-		{name: "empty sort field", payload: strings.Replace(base, `"field":"created_at"`, `"field":""`, 1)},
-		{name: "invalid collection", payload: strings.Replace(base, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "not-a-uuid", 1)},
-		{name: "non utc expiry", payload: strings.Replace(base, "2026-08-28T13:00:00Z", "2026-08-28T22:00:00+09:00", 1)},
-		{name: "unknown field", payload: strings.Replace(base, `,"expiresAt":`, `,"role":"admin","expiresAt":`, 1)},
-		{name: "wrong type", payload: strings.Replace(base, `"v":`+strconv.Itoa(cursor.Version4), `"v":"`+strconv.Itoa(cursor.Version4)+`"`, 1)},
-		{name: "malformed json", payload: `{"v":` + strconv.Itoa(cursor.Version4)},
-		{name: "trailing json", payload: base + `{}`},
-		{name: "non canonical json", payload: `{ "v":` + strconv.Itoa(cursor.Version4) + `,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`},
+	wellFormed := `{"v":4,"collectionId":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","sort":[{"field":"created_at"},{"field":"id"}],"values":["2026-08-28T12:34:56Z","12345678-1234-4567-8901-123456789abc"],"expiresAt":"2026-08-28T13:00:00Z"}`
+	tests := map[string]string{
+		"well formed v4":  wellFormed,
+		"malformed v4":    strings.Replace(wellFormed, `"field":"created_at"`, `"field":""`, 1),
+		"unknown version": strings.Replace(wellFormed, `"v":4`, `"v":3`, 1),
 	}
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
+	for name, payload := range tests {
+		name, payload := name, payload
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := codec.Decode(authenticatedCursorFixture(secret, []byte(test.payload)), collectionID, now)
+			_, err := codec.Decode(authenticatedCursorFixture(secret, []byte(payload)), collectionID, now)
 			assertInvalidCursor(t, err)
 		})
 	}
@@ -529,23 +439,31 @@ func TestCursorCodecRejectsInvalidValuesBeforeEncoding(t *testing.T) {
 	collectionID := uuid.New()
 	expiresAt := time.Now().UTC().Add(time.Minute)
 	tests := []struct {
-		name   string
-		cursor cursor.Page
+		name    string
+		corrupt func(*cursor.Page)
 	}{
-		{name: "unsupported version", cursor: cursor.Page{Version: 2, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt}},
-		{name: "nil collection", cursor: cursor.Page{Version: cursor.Version4, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: expiresAt}},
-		{name: "no sort", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Values: testCursorValues(), ExpiresAt: expiresAt}},
-		{name: "sort without values", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Sort: testCursorSort(), ExpiresAt: expiresAt}},
-		{name: "empty sort value", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Sort: testCursorSort(), Values: []json.RawMessage{nil, json.RawMessage(`"x"`)}, ExpiresAt: expiresAt}},
-		{name: "caller supplied anchor hash", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), AnchorHash: make([]byte, sha256.Size), ExpiresAt: expiresAt}},
-		{name: "non utc time", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues(), ExpiresAt: time.Date(2026, 8, 28, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60))}},
-		{name: "zero time", cursor: cursor.Page{Version: cursor.Version4, CollectionID: collectionID, Sort: testCursorSort(), Values: testCursorValues()}},
+		{name: "no descriptor", corrupt: func(page *cursor.Page) { page.V5 = nil }},
+		{name: "nil collection", corrupt: func(page *cursor.Page) { page.CollectionID = uuid.Nil }},
+		{name: "value count mismatch", corrupt: func(page *cursor.Page) { page.Values = page.Values[:1] }},
+		{name: "empty value", corrupt: func(page *cursor.Page) { page.Values[0] = nil }},
+		{name: "caller supplied anchor hash", corrupt: func(page *cursor.Page) {
+			page.AnchorHash = bytes.Repeat([]byte{0x44}, sha256.Size)
+		}},
+		{name: "non utc time", corrupt: func(page *cursor.Page) {
+			page.ExpiresAt = time.Date(2026, 8, 28, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+		}},
+		{name: "zero time", corrupt: func(page *cursor.Page) { page.ExpiresAt = time.Time{} }},
+		{name: "negative high water", corrupt: func(page *cursor.Page) { page.V5.HighWater = -1 }},
 	}
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := codec.Encode(test.cursor)
+			page := validV5CursorForTest()
+			page.CollectionID = collectionID
+			page.ExpiresAt = expiresAt
+			test.corrupt(&page)
+			_, err := codec.Encode(page)
 			assertInvalidCursor(t, err)
 		})
 	}
@@ -557,11 +475,9 @@ func TestCursorCodecCopiesSecret(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	codec := cursor.NewCodec(secret)
 	collectionID := uuid.New()
-	page := cursor.Page{
-		Version: cursor.Version4, CollectionID: collectionID,
-		Sort: testCursorSort(), Values: testCursorValues(),
-		ExpiresAt: time.Date(2026, 8, 28, 12, 15, 0, 0, time.UTC),
-	}
+	page := validV5CursorForTest()
+	page.CollectionID = collectionID
+	page.ExpiresAt = time.Date(2026, 8, 28, 12, 15, 0, 0, time.UTC)
 	token, err := codec.Encode(page)
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)

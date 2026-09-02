@@ -441,6 +441,7 @@ func assembleRecordPageForTest(
 	assembler := pageAssembler{
 		cursors: service.cursors, order: pageOrderForTest(collectionID, sortKeys),
 		expiresAt: expiresAt, maximumBytes: maximumRecordPageBytes,
+		cursorV5: pageDescriptorForTest(sortKeys),
 	}
 	keep, cursor, err := assembler.finish(candidates, hasMore)
 	if err != nil {

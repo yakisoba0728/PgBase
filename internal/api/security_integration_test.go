@@ -5,6 +5,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -121,14 +122,22 @@ func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
 	records := recordops.NewService(pool, schemas, testTokenSecret)
 	codec := cursor.NewCodec(testTokenSecret)
 	valid, err := codec.Encode(cursor.Page{
-		Version:      cursor.Version4,
+		Version:      cursor.Version5,
 		CollectionID: collection.ID,
-		Sort:         []cursor.SortKey{{Field: "created_at"}, {Field: "id"}},
 		Values: []json.RawMessage{
 			json.RawMessage(`"2026-08-28T00:00:00Z"`),
 			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),
 		},
 		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		V5: &cursor.V5Descriptor{
+			CatalogVersion: 1, MembershipGeneration: 1, HighWater: 1,
+			QueryHash: bytes.Repeat([]byte{0x11}, sha256.Size),
+			ScopeHash: bytes.Repeat([]byte{0x22}, sha256.Size),
+			Order: []cursor.V5OrderTerm{
+				{Path: []string{"$created_at"}, Type: "timestamptz", Nulls: cursor.NullsLast},
+				{Path: []string{"$id"}, Type: "uuid", Nulls: cursor.NullsLast},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)

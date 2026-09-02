@@ -112,10 +112,6 @@ func (s orderSpec) encodeCursor(codec *cursor.Codec, anchor pageCandidate, expir
 		Version: cursor.Version5, CollectionID: s.root.ID, Values: cloneCursorValues(anchor.cursorValues),
 		AnchorID: anchor.id, PrivateValues: s.private(), ExpiresAt: expiresAt, V5: v5,
 	}
-	if v5 == nil {
-		page.Version = cursor.Version4
-		page.Sort = s.sortKeys()
-	}
 	token, err := codec.Encode(page)
 	if err != nil {
 		return "", invalidCursor()

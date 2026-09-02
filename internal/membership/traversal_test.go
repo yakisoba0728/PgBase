@@ -7,10 +7,9 @@ import (
 
 func TestTraversalValidateV5UsesReadyGenerationAndDurableHighWater(t *testing.T) {
 	ready := Traversal{
-		Generation:   3,
-		HighWater:    12,
-		IssueVersion: 4,
-		ready:        true,
+		Generation: 3,
+		HighWater:  12,
+		ready:      true,
 	}
 	for _, signedHighWater := range []int64{0, 7, 12} {
 		if err := ready.ValidateV5(3, signedHighWater); err != nil {

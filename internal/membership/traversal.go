@@ -14,8 +14,6 @@ type Traversal struct {
 	TransactionTime time.Time
 	Generation      int64
 	HighWater       int64
-	IssueVersion    int16
-	V4Retired       bool
 
 	ready bool
 	state State
@@ -155,8 +153,6 @@ func ResolveTraversal(
 		TransactionTime: transactionTime.UTC(),
 		Generation:      status.Generation,
 		HighWater:       lastOrdinal,
-		IssueVersion:    status.CursorIssueVersion,
-		V4Retired:       true,
 		ready:           true,
 		state:           status.State,
 	}, nil

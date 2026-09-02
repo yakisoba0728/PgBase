@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	Version4       = 4
 	Version5       = 5
 	maxDecodedSize = 4096
 	maxOrderTerms  = 9
@@ -28,7 +27,6 @@ type SortKey struct {
 type Page struct {
 	Version       int
 	CollectionID  uuid.UUID
-	Sort          []SortKey
 	Values        []json.RawMessage
 	AnchorID      uuid.UUID
 	AnchorHash    []byte

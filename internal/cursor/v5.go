@@ -40,8 +40,8 @@ type v5Payload struct {
 	ExpiresAt            string            `json:"expiresAt"`
 }
 
-func (c *Codec) encodeV5(page Page) (string, error) {
-	if page.V5 == nil || len(page.Sort) != 0 || page.CollectionID == uuid.Nil || page.ExpiresAt.IsZero() {
+func (c *Codec) Encode(page Page) (string, error) {
+	if page.V5 == nil || page.CollectionID == uuid.Nil || page.ExpiresAt.IsZero() {
 		return "", invalid()
 	}
 	_, expiryOffset := page.ExpiresAt.Zone()
@@ -100,7 +100,15 @@ func (c *Codec) encodeV5(page Page) (string, error) {
 	return c.signAndEncode(payload)
 }
 
-func (c *Codec) decodeV5(payload []byte, collectionID uuid.UUID, now time.Time) (Page, error) {
+// Decode authenticates the envelope before it parses anything, so an
+// unsigned or tampered token never reaches the wire format. A token in any
+// earlier format fails the same way a corrupt one does: this binary knows one
+// format, and everything else is simply an invalid cursor.
+func (c *Codec) Decode(token string, collectionID uuid.UUID, now time.Time) (Page, error) {
+	payload, err := c.authenticatedPayload(token)
+	if err != nil {
+		return Page{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var wire v5Payload
@@ -111,8 +119,8 @@ func (c *Codec) decodeV5(payload []byte, collectionID uuid.UUID, now time.Time) 
 	if decoder.Decode(&extra) != io.EOF {
 		return Page{}, invalid()
 	}
-	canonical, err := json.Marshal(wire)
-	if err != nil || !bytes.Equal(canonical, payload) || wire.Version != Version5 {
+	canonical, marshalErr := json.Marshal(wire)
+	if marshalErr != nil || !bytes.Equal(canonical, payload) || wire.Version != Version5 {
 		return Page{}, invalid()
 	}
 	payloadCollectionID, ok := canonicalUUID(wire.CollectionID)
