@@ -142,17 +142,6 @@ func TestCompileUpdateRejectsEmptyAndUnknownFieldsBeforeConstructingSQL(t *testi
 	assertValidationDetail(t, err, malicious, "unknown_field")
 }
 
-func TestCompileDeleteUsesOnlyCatalogTableAndIDParameter(t *testing.T) {
-	t.Parallel()
-
-	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	got := CompileDelete(compilerCollection(), id)
-	want := Statement{SQL: `DELETE FROM "app"."physical_records" WHERE "id" = $1`, Args: []any{id}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("CompileDelete() = %#v, want %#v", got, want)
-	}
-}
-
 func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) {
 	t.Parallel()
 

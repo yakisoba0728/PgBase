@@ -47,8 +47,7 @@ func (s *Service) Update(ctx context.Context, collectionName string, id uuid.UUI
 
 func (s *Service) Delete(ctx context.Context, collectionName string, id uuid.UUID) error {
 	return s.inTxCatalog(ctx, func(tx pgx.Tx, _ schema.Catalog, collection schema.Collection) error {
-		statement := CompileDelete(collection, id)
-		tag, err := tx.Exec(ctx, statement.SQL, statement.Args...)
+		tag, err := tx.Exec(ctx, "DELETE FROM "+quotedTable(collection)+" WHERE "+quoted("id")+" = $1", id)
 		if err != nil {
 			return err
 		}
