@@ -209,20 +209,20 @@ func (s *Service) catalogLimit() int {
 
 func (s *Service) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
 	if recovered := recover(); recovered != nil {
-		s.record(ctx, observability.OperationEvent(observability.ComponentSchema, operation, observability.OutcomeFailure, time.Since(started)))
+		s.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
 	}
 	var err error
 	if operationErr != nil {
 		err = *operationErr
 	}
-	s.record(ctx, observability.OperationEvent(observability.ComponentSchema, operation, schemaOperationOutcome(err), time.Since(started)))
+	s.record(ctx, observability.OperationEvent(operation, schemaOperationOutcome(err), time.Since(started)))
 }
 
 func (s *Service) finishRelationSchemaOperation(ctx context.Context, started time.Time, operationErr *error, enabled *bool) {
 	if recovered := recover(); recovered != nil {
 		if enabled != nil && *enabled {
-			s.record(ctx, observability.OperationEvent(observability.ComponentRelation, observability.OperationRelationSchema, observability.OutcomeFailure, time.Since(started)))
+			s.record(ctx, observability.OperationEvent(observability.OperationRelationSchema, observability.OutcomeFailure, time.Since(started)))
 		}
 		panic(recovered)
 	}
@@ -233,7 +233,7 @@ func (s *Service) finishRelationSchemaOperation(ctx context.Context, started tim
 	if operationErr != nil {
 		err = *operationErr
 	}
-	s.record(ctx, observability.OperationEvent(observability.ComponentRelation, observability.OperationRelationSchema, schemaOperationOutcome(err), time.Since(started)))
+	s.record(ctx, observability.OperationEvent(observability.OperationRelationSchema, schemaOperationOutcome(err), time.Since(started)))
 }
 
 func inputHasRelationField(fields []FieldInput) bool {

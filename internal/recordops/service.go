@@ -101,7 +101,6 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		if readTouchesRelationField(request.Expand, request.Filter, request.Sort) {
 			s.record(ctx, observability.OperationEvent(
-				observability.ComponentRelation,
 				relationReadOperation(request.Expand),
 				relationOperationOutcome(err),
 				time.Since(started),
@@ -675,7 +674,7 @@ func (s *Service) finishRelationRecordOperation(
 ) {
 	if recovered := recover(); recovered != nil {
 		if enabled != nil && *enabled {
-			s.record(ctx, observability.OperationEvent(observability.ComponentRelation, operation, observability.OutcomeFailure, time.Since(started)))
+			s.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		}
 		panic(recovered)
 	}
@@ -686,7 +685,7 @@ func (s *Service) finishRelationRecordOperation(
 	if operationErr != nil {
 		err = *operationErr
 	}
-	s.record(ctx, observability.OperationEvent(observability.ComponentRelation, operation, relationOperationOutcome(err), time.Since(started)))
+	s.record(ctx, observability.OperationEvent(operation, relationOperationOutcome(err), time.Since(started)))
 }
 
 // relationReadOperation separates expansion from relation-aware filter and

@@ -131,14 +131,14 @@ func (r *Runner) record(ctx context.Context, event observability.Event) {
 
 func (r *Runner) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
 	if recovered := recover(); recovered != nil {
-		r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, observability.OutcomeFailure, time.Since(started)))
+		r.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
 	}
 	var err error
 	if operationErr != nil {
 		err = *operationErr
 	}
-	r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, migrationOperationOutcome(err), time.Since(started)))
+	r.record(ctx, observability.OperationEvent(operation, migrationOperationOutcome(err), time.Since(started)))
 }
 
 func migrationOperationOutcome(err error) observability.Outcome {

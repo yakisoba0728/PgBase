@@ -61,7 +61,7 @@ func (s *Service) finishReadOperation(
 	if recovered := recover(); recovered != nil {
 		if enabled != nil && *enabled {
 			s.record(ctx, observability.OperationEvent(
-				observability.ComponentRelation, operation, observability.OutcomeFailure, time.Since(started),
+				operation, observability.OutcomeFailure, time.Since(started),
 			))
 		}
 		panic(recovered)
@@ -74,7 +74,7 @@ func (s *Service) finishReadOperation(
 		err = *operationErr
 	}
 	s.record(ctx, observability.OperationEvent(
-		observability.ComponentRelation, operation, readOperationOutcome(err), time.Since(started),
+		operation, readOperationOutcome(err), time.Since(started),
 	))
 }
 

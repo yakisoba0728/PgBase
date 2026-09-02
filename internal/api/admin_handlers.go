@@ -146,7 +146,7 @@ func (e adminEndpoints) recordOperation(ctx context.Context, operation observabi
 	if e.recorder == nil {
 		return
 	}
-	e.recorder.Record(ctx, observability.OperationEvent(observability.ComponentAdminAuth, operation, outcome, duration))
+	e.recorder.Record(ctx, observability.OperationEvent(operation, outcome, duration))
 }
 
 func adminAuthOutcome(err error) observability.Outcome {
