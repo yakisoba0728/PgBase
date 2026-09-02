@@ -1068,6 +1068,56 @@ describe("CollectionDesigner operation recovery", () => {
     await act(async () => secondApplication.settle({ value: { status: "unknown" } }));
   });
 
+  it("advances from this tab's failed operation to another tab's pending operation", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    const second = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    await ready(second.result);
+    plan(first.script, "first");
+    plan(second.script, "second");
+    const firstApplication = deferredStep<ScriptedApply | undefined>();
+    const secondApplication = deferredStep<ScriptedApply | undefined>();
+    first.script.apply.push(firstApplication.step);
+    second.script.apply.push(secondApplication.step);
+    act(() => first.result.current.requestPreview());
+    act(() => second.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    await waitFor(() => expect(second.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    act(() => second.result.current.requestApply());
+    await waitFor(() => expect(localStorage).toHaveLength(2));
+    const secondOperation = String(callsTo(second.script, "apply")[0].detail.operationId);
+    second.unmount();
+
+    first.script.operation.push({ value: operationReceipt("failed") }, { value: operationReceipt("running") });
+    await act(async () => firstApplication.settle({ value: { status: "unknown" } }));
+
+    await waitFor(() => expect(first.result.current.recovery?.operationId).toBe(secondOperation));
+    expect(first.result.current.editingBlocked).toBe(true);
+    expect(localStorage).toHaveLength(1);
+    await act(async () => secondApplication.settle({ value: { status: "unknown" } }));
+  });
+
+  it("keeps a failed receipt visible after reloading a single pending operation", async () => {
+    const first = open({ kind: "edit", collection: "posts" });
+    await ready(first.result);
+    plan(first.script);
+    first.script.apply.push({ value: { status: "unknown" } });
+    first.script.operation.push({ value: operationReceipt("running") });
+    act(() => first.result.current.requestPreview());
+    await waitFor(() => expect(first.result.current.preview).not.toBeNull());
+    act(() => first.result.current.requestApply());
+    await waitFor(() => expect(first.result.current.recovery?.status).toBe("running"));
+    first.unmount();
+
+    const reloaded = open({ kind: "edit", collection: "posts" });
+    reloaded.script.operation.push({ value: operationReceipt("failed") });
+    await ready(reloaded.result);
+    await waitFor(() => expect(reloaded.result.current.recovery?.status).toBe("failed"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reloaded.result.current.recovery?.status).toBe("failed");
+  });
+
   it("abandons a receipt only after the maximum server apply window has passed", async () => {
     const first = open({ kind: "edit", collection: "posts" });
     await ready(first.result);
