@@ -62,8 +62,8 @@ func TestMembershipRolloutManifestPinsFourRealReleaseArtifacts(t *testing.T) {
 	want := []releaseArtifact{
 		{Phase: "A0", Commit: "9672d695c315dbcf36f993cec78eebe9fa5faac9", Version: "v0.0.7-alpha.0", WriterVersion: integer(0), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
 		{Phase: "A", Commit: "451e715938e9d58f50970080d34142776ef256b2", Version: "v0.0.7-alpha.1", WriterVersion: integer(1), IssuesCursor: integer(4), DecodesCursors: []int{4, 5}},
-		{Phase: "B", Commit: "60c5ba2c22ac685455bcc4cecfe8887407d61ba0", Version: "v0.0.7-beta.0", WriterVersion: integer(2), IssuesCursor: integer(5), DecodesCursors: []int{4, 5}},
-		{Phase: "C", Commit: "b9b6f35a9785c2062fb0d92f0b64ae643cfd7a31", Version: "v0.0.7-rc.0", WriterVersion: integer(3), IssuesCursor: integer(5), DecodesCursors: []int{5}},
+		{Phase: "B", Commit: "a554198b3faa474fd481f7bf01e232eb7d19db54", Version: "v0.0.7-beta.0", WriterVersion: integer(2), IssuesCursor: integer(5), DecodesCursors: []int{4, 5}},
+		{Phase: "C", Commit: "bd7f75c62294a6b319971279f3d3c273fd5834c2", Version: "v0.0.7-rc.0", WriterVersion: integer(3), IssuesCursor: integer(5), DecodesCursors: []int{5}},
 	}
 	if !reflect.DeepEqual(membership.Artifacts, want) {
 		t.Fatalf("record membership artifacts = %#v, want %#v", membership.Artifacts, want)
