@@ -531,6 +531,53 @@ describe("CollectionDesigner data-loss warning after an apply the draft outran",
   });
 });
 
+describe("CollectionDesigner drafting during an undecided apply", () => {
+  it("keeps the guard on a draft edited while the apply the ledger later commits was in flight", async () => {
+    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    // B is typed while A is still in flight, so the outcome that lands names an
+    // operation that never carried this draft.
+    act(() => result.current.editField(0, { set: "name", value: "new_unsaved_title" }));
+    await act(async () => { application.settle({ value: { status: "unknown" } }); });
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+
+    expect(result.current.fields.map((field) => field.name)).toEqual(["new_unsaved_title"]);
+    // The ledger confirmed A, which says nothing about B: B is still unsaved
+    // work and still holds the departure guard.
+    expect(ledger.held()).toBe(true);
+  });
+
+  it("releases the guard when the ledger commits the draft that is still on screen", async () => {
+    const { result, script, ledger } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    plan(script);
+    const application = deferredStep<ScriptedApply | undefined>();
+    script.apply.push(application.step);
+    script.operation.push({ value: operationReceipt("committed") });
+    act(() => result.current.editField(0, { set: "name", value: "headline" }));
+    act(() => result.current.requestPreview());
+    await waitFor(() => expect(result.current.preview).not.toBeNull());
+    act(() => result.current.requestApply());
+
+    await act(async () => { application.settle({ value: { status: "unknown" } }); });
+    expect(ledger.held()).toBe(true);
+    await waitFor(() => expect(result.current.recovery?.status).toBe("committed"));
+
+    expect(result.current.fields.map((field) => field.name)).toEqual(["headline"]);
+    expect(ledger.held()).toBe(false);
+  });
+});
+
 describe("CollectionDesigner operation recovery", () => {
   it("stays on the page and reports an undecided apply instead of leaving as if it succeeded", async () => {
     const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
