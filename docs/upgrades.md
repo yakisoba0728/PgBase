@@ -80,6 +80,25 @@ Record membership adds a per-collection creation ordinal so list pagination cann
 - previous version `6`, checksum `6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a`;
 - optional target version `7`, checksum `8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e`.
 
+The immutable source identities for all four deployment phases and the pinned
+operator artifact live in
+`deployments/release-phases.json`. Build them from a full Git checkout rather
+than from the current source with a writer-version override:
+
+```console
+scripts/support/build-release-phase-artifacts.sh record-membership-v7 ./membership-artifacts
+```
+
+The builder fails when an object is missing or is not an ancestor of the
+checked-out release, builds each phase's real `cmd/pgbase` main package, and
+writes `record-membership-v7-artifacts.json` beside the five executables with
+their source commits, canonical versions, SHA-256 digests, target platform, and
+pinned Go toolchain. The backend release gate repeats that
+build from a full-history checkout and runs the A0 → M → A → B → C deployment
+and B rollback using separate server processes. A shallow checkout or source
+archive is therefore insufficient and fails closed; do not replace the pinned
+commits with linker-injected `WriterVersion` values.
+
 Run the `P0 -> M -> F` sequence above with A0 as the preparatory artifact and `--through 7`, then continue with the release-specific hold points:
 
 1. **Release A** admits only the post-migration history. Every record create takes the collection creation fence regardless of request headers or capability state, but the capability stays off and cursors stay v4.
@@ -152,14 +171,25 @@ creation counters and the capability row in a fixed order and validate counts
 before each promotion; an `UPDATE` that sets the row to `ready` skips all of it
 and can leave records with no membership sidecar, which lists then silently omit.
 
-#### Release B requires the exact v7 history on every instance
+#### The retained Release B artifact recognizes the v7-to-v8 boundary
 
-Unlike earlier releases, Release B validates the installation on **every list request**, not only at startup. A list fails closed with `record_unavailable` (HTTP 503) when the database is not on the exact history this binary was built for:
+Release B validates the installation on **every list request**, not only at
+startup. The initial Release B milestone recognized only v7. The immutable
+artifact retained in `deployments/release-phases.json` is the last stabilized B
+build before C: it recognizes both the clean v7 history and optional clean v8
+history, so it remains a real rollback target after C has run on v8. It still
+fails a list closed with `record_unavailable` (HTTP 503) when the database is
+outside that checksum-pinned range:
 
-- **behind** — a clean v6 or older database. Release B is not compatible with it in either direction; use A0 for the migration window.
-- **ahead** — the database carries a migration this binary does not know, which happens if a newer peer migrates first during a rolling deploy.
+- **behind** — a clean v6 or older database. Use A0 for the v6-to-v7 migration
+  window.
+- **ahead** — v9 or any migration this retained B artifact does not embed.
 
-This is deliberate. The binary cannot verify checksums for a migration it does not embed, and a later migration may alter the membership objects the resolver depends on. The `P0 -> M -> F` sequence is the supported mitigation: the preparatory artifact for the *next* migration goes to the whole fleet before that migration is applied, so a Release B instance never meets a database ahead of it.
+This is deliberate. A binary cannot verify checksums for a migration it does
+not embed, and a later migration may alter the membership objects the resolver
+depends on. The `P0 -> M -> F` sequence is the supported mitigation: the
+preparatory artifact for the *next* migration goes to the whole fleet before
+that migration is applied.
 
 Never apply a migration while any instance predates the artifact that recognizes it. Writes and single-record reads keep working in this state, so the fleet does not look broken — only lists fail — and the operator-facing error is intentionally redacted. `pgbase migrate status` and `pgbase doctor --json` are the tools that name the actual history problem.
 
@@ -231,13 +261,14 @@ transitions can run. A deployment that is proceeding correctly through a
 legitimate mid-rollout window must not be reported as failing.
 
 The rollout state is therefore surfaced where an operator looks for it rather
-than through readiness. `pgbase membership status --json` is that place, and it
-is the only one: it names the capability state, the cursor issue version, every
-rollout timestamp and the live fleet. `pgbase doctor --json` does **not** cover
-this — it reports membership drift and an invalid membership installation, but a
-database whose rollout simply has not been run is a clean doctor report. Treat a
-fleet that is ready but cannot list as an unfinished rollout, and run `pgbase
-membership status`.
+than through readiness. `pgbase membership status --json` is the transition
+authority: it names the capability state, cursor issue version, every rollout
+timestamp and the live fleet. `pgbase doctor --json` also reports
+`record_membership_rollout_not_started` when the state is `off` and any base
+record exists; an empty `off` database remains healthy, and the legitimate
+`cutover`/`dual_write` windows are not findings. Doctor does not replace status
+or supply witnesses. When a ready fleet cannot list, run both commands before
+moving the rollout.
 
 After Release C the rollback target is the exact verified Release B artifact
 with the capability left retired. Do not deploy Release A0 or Release A on a
@@ -472,11 +503,29 @@ issues v2 declared the same 2. A lease at 2 named neither of them, so a genuinel
 mixed fleet passed the proof. Nothing about a `ready` reached under that check
 stands, and there is no value to backfill, because the proof never observed one.
 
-Migration 9 therefore advances the writer generation to **3**, records the
-generation each rollout was proved at in a new
+Migration 9 records the generation each rollout was proved at in a new
 `schema_companion_index_capability.proven_compiler_version` column, and clears
-every rollout that predates it. A `ready` row is honoured only when its proved
-generation is at least this binary's.
+every rollout that predates it. The P0 artifact remains a v1-only generation-2
+writer; the F artifact advances to generation 3 and honours `ready` only when
+the row was proved by that generation.
+
+This rollout has two independently built artifacts with different startup and
+feature contracts:
+
+- **P0** accepts exactly clean v8 checksum
+  `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`
+  and clean v9 checksum
+  `d88dee3d52b98e2c9da75039151077339dea66ae1be8c7832e5f766dfe0310ea`.
+  It records compiler generation 2, issues only v1 plans, and refuses companion
+  activation.
+- **F** accepts exactly the clean v9 checksum, records generation 3, and is the
+  only artifact that can activate and issue v2 plans.
+
+The same full-history artifact builder used for the membership rollout builds
+an audit-only pre-P0 predecessor plus P0 and F from the immutable commits in
+`deployments/release-phases.json`. The process gate keeps the predecessor alive
+across M, proves its post-M Apply is rejected without changing the catalog,
+then proves a live P0/F mixed fleet cannot activate before P0 drains.
 
 **What this costs you.** Every fleet that had companion indexes enabled loses
 them as a required contract at migrate time and must run the operator sequence
@@ -496,23 +545,35 @@ Descending pages over nullable columns fall back to their pre-companion plans in
 that window. That fallback is the safety property the demotion buys, not a
 regression.
 
-**Order the upgrade migrate-first.** This release declares **exactly** the v9
-history: v8 is no longer a servable history, because every capability read names
-the new column. Run `pgbase migrate up` before deploying the new binary.
+Use the P0 → M → F protocol; do not migrate first under a pre-P0 fleet:
 
-Do not then roll back to a pre-v9 binary. It does not degrade gracefully — it
-refuses to start. Version 9 is absent from its embedded manifest, so it reads the
-committed history as containing an unknown version, reports it dirty, and fails
-the compatibility gate before it ever reads the capability. This is the existing
-rule in the rollback table below, not a new one: never deploy a binary that
-treats the new migration as unknown. Forward-fix instead.
+1. Publish and retain the verified P0 digest. Deploy P0 to every instance on
+   v8, require readiness, then drain every pre-P0 binary and in-flight schema
+   transaction. Confirm previews remain v1 and `schema-index activate` refuses.
+2. With application auto-migration off, run one designated P0 job with
+   `pgbase migrate up --through 9`. Retain the JSON receipt and require before
+   version/checksum = v8/the checksum above, after version/checksum = v9/the
+   checksum above, and `dirty=false`. A retry may report v9 on both sides.
+3. Confirm the capability is `pending`, then deploy F to the whole fleet and
+   drain P0. Only after every live schema writer reports generation 3 may the
+   operator run `schema-index activate` and `schema-index build`.
 
-Migration 9's constraint is a second, independent guard behind that one. A
-pre-v9 binary clears `state` to `pending` without clearing
-`proven_compiler_version`, which the constraint forbids — so once a v9 binary has
-activated, an old binary would fail not just `activate` but every schema change
-that touches the capability. It fails closed in each case, which is why the
-ordering above is a deployment rule rather than a race to win.
+Before M, deployment rollback may use the pre-P0 artifact on v8. After M, the
+only deployment rollback target is the retained P0 digest; never deploy a
+pre-P0 binary, because it treats v9 as an unknown history. If F has activated,
+run `schema-index rollback` while F is still available before redeploying P0;
+the indexes stay in place and P0 resumes v1 issuance. Forward-fix from P0.
+
+Migration 9 has two database guards behind that procedure. Under an exclusive
+lease-table lock it preserves existing leases, adds `writer_protocol`, backfills
+the only supported token `1`, then makes the column `NOT NULL`, constrained to
+`1`, with no default. A still-running pre-P0 process omits that column. PostgreSQL
+checks its proposed INSERT before taking the `ON CONFLICT` update path, so even
+the same instance ID receives SQLSTATE `23502` and its schema transaction aborts
+before DDL or catalog metadata can commit. Separately, the capability constraint
+forbids a non-pending state without a proved generation. These are hard fences;
+the P0 → M → F ordering is still required to make the deployment controlled
+rather than merely fail-safe.
 
 ## Rollback actions are different operations
 

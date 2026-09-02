@@ -116,7 +116,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
         run: |
           set -euo pipefail
-          for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document; do
+          for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3; do
             gh attestation verify "oci://$CANDIDATE_IMAGE" \
               --repo "$GITHUB_REPOSITORY" \
               --predicate-type "$predicate" \

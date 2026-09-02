@@ -4,6 +4,22 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned candidate supplied by the release gate
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Canonical version paired with candidate_image
+        required: false
+        default: ""
+        type: string
+      source_commit:
+        description: Optional immutable source commit corresponding to the candidate
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +32,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Historical phase sources predate this observability harness. This
+          # image-independent policy job belongs to the gate definition.
+          ref: ${{ github.sha }}
 
       - name: Validate Grafana dashboard JSON
         run: jq empty deployments/observability/grafana-dashboard.json
@@ -49,6 +69,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+
+      - name: Validate release candidate binding
+        if: inputs.candidate_image != ''
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: scripts/support/validate-release-candidate.sh "$CANDIDATE_IMAGE" "$EXPECTED_VERSION"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -83,6 +112,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -135,6 +166,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -175,3 +208,73 @@ jobs:
           path: go-test.log
           if-no-files-found: warn
           retention-days: 14
+
+  release-phase-artifacts:
+    name: Release phase artifacts
+    # A phase-image dispatch already selected one historical source commit.
+    # Recursively rebuilding every phase from that checkout is both redundant
+    # and impossible for commits that predate the manifest and builder.
+    if: inputs.source_commit == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - name: Check out repository with release artifact sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build immutable release phases
+        env:
+          PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: |
+          scripts/support/build-release-phase-artifacts.sh record-membership-v7 \
+            "$PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY"
+          scripts/support/build-release-phase-artifacts.sh schema-compiler-v9 \
+            "$PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY"
+
+      - name: Run the process rollout against the built artifacts
+        env:
+          PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+          PGBASE_SCHEMA_COMPILER_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: go test -race -tags='integration releaseartifacts' ./tests/release -count=1
+
+      # upload-artifact does not preserve executable mode bits. The tarball is
+      # the transport artifact so downloaded phase binaries remain runnable.
+      - name: Pack immutable release phase artifacts
+        shell: bash
+        run: >-
+          tar --create --gzip
+          --file "$RUNNER_TEMP/release-phase-artifacts.tar.gz"
+          --directory "$RUNNER_TEMP/release-phase-artifacts" .
+
+      - name: Upload immutable release phase artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-phase-artifacts
+          path: ${{ runner.temp }}/release-phase-artifacts.tar.gz
+          if-no-files-found: error
+          retention-days: 90

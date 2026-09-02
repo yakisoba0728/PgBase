@@ -4,6 +4,22 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned candidate supplied by the release gate
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Canonical version paired with candidate_image
+        required: false
+        default: ""
+        type: string
+      source_commit:
+        description: Optional immutable source commit corresponding to the candidate
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -15,6 +31,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+
+      - name: Validate release candidate binding
+        if: inputs.candidate_image != ''
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: scripts/support/validate-release-candidate.sh "$CANDIDATE_IMAGE" "$EXPECTED_VERSION"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

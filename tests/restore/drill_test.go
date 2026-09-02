@@ -185,7 +185,11 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 	// races the schema-operation maintenance loop.
 	instance.stop(t)
 
-	project.systemMigration = countEmbeddedSystemMigrations(t)
+	// The release gate harness can be newer than an immutable rollout phase.
+	// Record what the candidate actually migrated rather than assuming its
+	// embedded history has the harness checkout's current length.
+	project.systemMigration = mustAtoi(t, postgres.query(t, ctx, sourceDatabase,
+		"select count(*) from pgbase_meta.system_migrations"))
 	project.revisions = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_revisions"))
 	project.auditEvents = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_audit_events"))
 	project.outboxEvents = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_outbox"))
@@ -428,16 +432,4 @@ func assertCount(t *testing.T, postgres *postgresServer, ctx context.Context, na
 	if got := postgres.query(t, ctx, restoredDatabase, sql); got != strconv.Itoa(want) {
 		t.Errorf("restored %s = %s, want %d", name, got, want)
 	}
-}
-
-func countEmbeddedSystemMigrations(t *testing.T) int {
-	t.Helper()
-	entries, err := filepath.Glob(filepath.Join(repositoryRoot(t), "migrations", "system", "*.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("no embedded system migrations were found")
-	}
-	return len(entries)
 }

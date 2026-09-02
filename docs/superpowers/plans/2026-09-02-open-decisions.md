@@ -7,7 +7,10 @@
 
 브랜치 `refactor/whole-codebase`. 이 문서는 구현을 계속 진행하기 위해 사람의 판단이 필요한 항목만 모은 것이다. 이미 결정해 반영한 사항은 4절에 근거와 함께 적었으니 뒤집을 근거가 있으면 그때 바꾼다.
 
-블로커는 D1과 D2 둘이다. D1은 R11 착수 시점에, D2는 R5 §9.3 착수 시점에 필요하다. 그 앞 단계(R8, R9a, R5 §9.2, R7 잔여)는 영향받지 않는다.
+2026-09-03 최종 재감사에서 이 문서의 구현 판단은 모두 닫혔다. 아래의
+“블로커” 표현은 당시 진행 순서를 설명하는 역사 기록이며 현재 상태가
+아니다. 외부 CI·registry 실행은 권한/환경 의존 검증이지 설계 판단 대기
+항목이 아니다.
 
 ---
 
@@ -41,7 +44,7 @@ DB capability row가 유일한 source of truth다. `internal/schema.Service`가 
 
 ### D2-5 — migration 번호
 
-결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다 — **이행 완료**: R11의 v9 `schema_compiler_generation`이 checksum `5093ee8431e8851c51524f06a1bf15235ead5d21091759a2d931086af6451aee`로 들어갔고 같은 자리에 고정됐다. 그 다음은 v10이다.
+결정 당시 embedded migration은 v1~v7뿐이었으므로 다음은 v8로 확정했다. **이행 완료**: v8 `schema_companion_indexes`가 checksum `e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff`로 들어갔고 `embed_test.go`에 고정, `docs/upgrades.md`에 공개됐다. 그 다음 migration은 v9다 — **이행 완료**: v9 `schema_compiler_generation`은 재감사의 pre-P0 protocol fence와 세대화된 maintenance 상태까지 포함한 checksum `d88dee3d52b98e2c9da75039151077339dea66ae1be8c7832e5f766dfe0310ea`로 고정됐다. 그 다음은 v10이다.
 
 ### D3-1 — 승인
 
@@ -279,3 +282,30 @@ R11은 판정을 kind가 아니라 **companion manifest의 delta**로 바꿨다.
 않는 update가 capability를 pending으로 떨어뜨려 전체 재롤아웃을 요구했다(P2-C).
 
 따라서 이 항목은 더 이상 통합 담당자의 승인을 기다리지 않는다.
+
+## 2026-09-03 최종 재감사에서 닫은 추가 판단
+
+### `App.Start` context 의미 — 현재 계약 유지
+
+`Start`의 context는 라이브러리 임베더가 소유한 background lifetime이다.
+호출자는 자기 HTTP server를 먼저 종료한 뒤 `App.Close`를 호출해야 하며,
+context 취소는 background 작업을 직접 취소한다. `Run`은 HTTP server까지
+소유하므로 signal context를 drain 뒤까지 분리하는 별도 계약이다.
+`Start`까지 `context.WithoutCancel`로 바꾸면 기존 공개 의미를 뒤집으므로
+동작은 유지하고 exported godoc과 lifecycle/race 테스트로 고정했다.
+
+### doctor의 rollout 미시작 탐지 — 구현
+
+`off` + 기존 base record는 더 이상 정상 보고가 아니다. 기존의 한 번짜리
+folded sidecar scan을 재사용해
+`record_membership_rollout_not_started`를 내며, statement ceiling은 올리지
+않았다. 빈 `off` 데이터베이스는 정상이고, 불완전한 설치는 더 강한
+`record_membership_installation_invalid`로 남으며, 정상 진행 상태인
+`cutover`/`dual_write`는 경고하지 않는다.
+
+### retained Release B — stabilized v7/v8 artifact
+
+“Release B는 exact v7만 안다”는 최초 B milestone에는 맞지만 최종 rollback
+artifact에는 맞지 않는다. manifest의 retained B는 C 직전의 안정화
+커밋으로 고정해 v7과 v8을 모두 검증한다. 실제 B 바이너리가 v7→v8을
+적용한 뒤 C 배포와 B rollback을 수행하는 process oracle로 고정했다.

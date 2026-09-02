@@ -111,7 +111,7 @@ func TestReleaseCandidateVerifiesItsOwnProvenanceAndSBOM(t *testing.T) {
 	if !strings.Contains(candidate, "gh attestation verify") {
 		t.Error("the release candidate does not verify its published attestations")
 	}
-	for _, predicate := range []string{"https://slsa.dev/provenance/v1", "https://spdx.dev/Document"} {
+	for _, predicate := range []string{"https://slsa.dev/provenance/v1", "https://spdx.dev/Document/v2.3"} {
 		if !strings.Contains(source, predicate) {
 			t.Errorf("release-image.yml does not verify the %s attestation", predicate)
 		}

@@ -47,10 +47,30 @@ Before any gate consumes the digest, the workflow verifies that the provenance a
 gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
   --repo webisnoteasy/PgBase --predicate-type https://slsa.dev/provenance/v1
 gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
-  --repo webisnoteasy/PgBase --predicate-type https://spdx.dev/Document
+  --repo webisnoteasy/PgBase --predicate-type https://spdx.dev/Document/v2.3
 ```
 
 Run the same two commands against the digest you intend to deploy, and retain that digest with the deployment record.
+
+### Historical rollout-phase images
+
+Migration rollouts use the immutable source commits in
+`deployments/release-phases.json`, not a current binary with a version constant
+overridden. Dispatch the **Release phase image gate** workflow with the exact
+`rollout` and `phase`. It resolves exactly one manifest entry, builds that
+commit's real `cmd/pgbase` binary with Go 1.26.7, and copies only that binary and
+the pinned CA bundle into the current hardened distroless runtime. The candidate
+is built and pushed once as `linux/amd64`; its digest is then passed unchanged to
+the backend, frontend, E2E, security, and backup/restore gates. This workflow
+does not promote a tag.
+
+In addition to the ordinary provenance and SPDX 2.3 SBOM, the phase workflow
+publishes and verifies a custom predicate that binds the candidate to the
+rollout, phase, source repository and commit, packaging-workflow commit,
+canonical version, and raw binary SHA-256. Retain that verification evidence
+with the deployment record. The manifest's `operator` and audit-only
+`predecessor` entries are built by the backend process gate but cannot be
+selected as deployable phases by this workflow.
 
 ### Release tag policy
 
