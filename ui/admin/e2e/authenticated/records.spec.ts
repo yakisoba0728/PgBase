@@ -40,6 +40,14 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("edited post")).toBeVisible();
 
+    // Reopening the saved record is the only path that makes the editor
+    // resolve a stored id to a label, so this is what exercises the
+    // id-equality hydration filter against the real filter parser.
+    await page.getByRole("row").filter({ hasText: "second post" }).getByRole("link").first().click();
+    await expect(page.getByRole("heading", { name: `Edit ${posts} record` })).toBeVisible();
+    await expect(page.getByRole("button", { name: new RegExp(`^Remove alpha`) })).toBeVisible();
+    await page.goBack();
+
     await page.getByLabel("Filter").fill("title = 'second post'");
     await page.getByRole("button", { name: "Apply filter" }).click();
     await expect(page.getByText("second post")).toBeVisible();
