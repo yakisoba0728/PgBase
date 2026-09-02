@@ -6,6 +6,8 @@
 
 원 계획: [`2026-09-01-whole-codebase-refactor.md`](./2026-09-01-whole-codebase-refactor.md)
 
+결정 대기 항목: [`2026-09-02-open-decisions.md`](./2026-09-02-open-decisions.md) — 블로커 2건(그룹 LOC 예산, R5 §9.3 착수 전 5건)과 검토 요청, 이미 내린 판단의 근거.
+
 ## 0. 진행 현황 (재개 세션)
 
 브랜치 `refactor/whole-codebase`. 이 세션에서 30건 넘게 커밋했고 작업 트리는 깨끗하다.
