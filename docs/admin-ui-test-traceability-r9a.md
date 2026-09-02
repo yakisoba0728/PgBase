@@ -193,9 +193,10 @@ re-export, which plan section 12 forbids. All four titles are unchanged:
 
 Playwright grows from one real-backend workflow to six. The onboarding project
 keeps its own administrator-free backend; every other spec runs in the
-authenticated project against a separate backend origin, and each names its
-collections after the worker index and retry, so retries and parallel workers
-never address the same rows.
+authenticated project against a separate backend origin. Those specs use one
+worker because collection names isolate rows but not the backend's global
+catalog version; retries remain disabled, and generated names still isolate
+repeated runs.
 
 | Spec | Workflow |
 |---|---|
