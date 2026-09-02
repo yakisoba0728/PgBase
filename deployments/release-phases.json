@@ -11,7 +11,7 @@
       "artifacts": [
         {
           "phase": "A0",
-          "commit": "69ed27bde0e795196314d6ca6e7310907db1d002",
+          "commit": "181a115e3522a982e378e04fd65df7b93ef97e75",
           "version": "v0.0.7-alpha.0",
           "writerVersion": 0,
           "issuesCursor": 4,
@@ -19,7 +19,7 @@
         },
         {
           "phase": "A",
-          "commit": "47dc8de971dc8ebb6fc0d32fcfdb2c803b5d86b2",
+          "commit": "03c6ebcc14c177cea0e231780830bf6471e16950",
           "version": "v0.0.7-alpha.1",
           "writerVersion": 1,
           "issuesCursor": 4,
@@ -27,7 +27,7 @@
         },
         {
           "phase": "B",
-          "commit": "9377a27daf3869235438ac7732c2527ae02614c0",
+          "commit": "35fde3e26027a0ad11659d82594af6c433a1881e",
           "version": "v0.0.7-beta.0",
           "writerVersion": 2,
           "issuesCursor": 5,
@@ -35,7 +35,7 @@
         },
         {
           "phase": "C",
-          "commit": "fb9bb3adbc2fcbd8621975131ff8df28bb4395e7",
+          "commit": "08aa51bc6385244cb57708a1404db7163bc61dae",
           "version": "v0.0.7-rc.0",
           "writerVersion": 3,
           "issuesCursor": 5,

@@ -556,7 +556,9 @@ Apply/transition은 schema 뒤의 같은 순서를 따른다.
 커밋을 Git history에서 골라 `git archive`한 source를 Go 1.26.7로 각각 빌드한다. writer/compiler 상수는 linker로
 바꾸지 않으며 canonical 제품 version만 주입한다.
 
-- membership: A0 `69ed27b`, A `47dc8de`, stabilized B `9377a27`, C `fb9bb3a`, operator `f7ec0ff`
+- membership carry-forward: A0 `181a115`, A `03c6ebc`, B `35fde3e`, C `08aa51b`, operator `f7ec0ff`.
+  각 phase tip은 writer/cursor/doctor 계약을 유지하면서 공통 RUN-1/RUN-4/STD-2 수정을 포함하고,
+  B/C는 STD-1과 RUN-2/RUN-3 수정도 포함한다.
 - schema compiler: predecessor `d3fb5eb`, P0 `adfa5da78b96ac3a2c341d43165cf58f048dac78`,
   F `f7ec0ff54953417dd0b41331f0b9d02b023195d8`
 - migration 9 checksum:
