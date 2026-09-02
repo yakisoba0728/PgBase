@@ -16,7 +16,7 @@ func TestDeleteParticipantOrderMatchesMutationLockDomain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := bindings.Decode(PatchInput, map[string]json.RawMessage{
+	input, err := bindings.decode(PatchWrite, map[string]json.RawMessage{
 		"cascade_links": json.RawMessage(`[]`),
 	})
 	if err != nil {

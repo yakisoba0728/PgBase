@@ -172,7 +172,7 @@ func cloneField(field schema.Field) schema.Field {
 	return field
 }
 
-func (b *Bindings) accepts(input Input) bool {
+func (b *Bindings) accepts(input writeInput) bool {
 	if b == nil || input.sourceCollectionID != b.source.id || len(input.relations) != len(b.fields) {
 		return false
 	}

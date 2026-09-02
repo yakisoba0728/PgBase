@@ -22,7 +22,7 @@ func TestDeleteGraphSeparateConnectionConcurrencyPostgreSQL(t *testing.T) {
 
 	t.Run("read committed sees edge committed while waiting for collection lock", func(t *testing.T) {
 		cross := fixture.createCrossCollectionRestrict(t, ctx)
-		input, err := cross.bindings.Decode(PatchInput, map[string]json.RawMessage{
+		input, err := cross.bindings.decode(PatchWrite, map[string]json.RawMessage{
 			cross.field.Name: json.RawMessage(`["` + cross.root.String() + `"]`),
 		})
 		if err != nil {
@@ -46,13 +46,13 @@ func TestDeleteGraphSeparateConnectionConcurrencyPostgreSQL(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer writerTx.Rollback(ctx)
-		if err := cross.bindings.LockCollections(ctx, writerTx, input); err != nil {
+		if err := cross.bindings.lockCollections(ctx, writerTx, input); err != nil {
 			t.Fatal(err)
 		}
-		if err := cross.bindings.LockRows(ctx, writerTx, cross.sourceRecord, SourceStored, input); err != nil {
+		if err := cross.bindings.lockRows(ctx, writerTx, cross.sourceRecord, sourceStored, input); err != nil {
 			t.Fatal(err)
 		}
-		if err := cross.bindings.ReplaceMulti(ctx, writerTx, cross.sourceRecord, input); err != nil {
+		if err := cross.bindings.replaceMulti(ctx, writerTx, cross.sourceRecord, input); err != nil {
 			t.Fatal(err)
 		}
 

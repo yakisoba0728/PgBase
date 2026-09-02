@@ -13,11 +13,11 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-// ReplaceMulti replaces every present multi relation in field-ordinal order.
+// replaceMulti replaces every present multi relation in field-ordinal order.
 // Omitted patch values are untouched and an explicit empty array clears all
 // edges. Positions are the input array's zero-based order. The caller owns the
 // transaction and must acquire collection/row locks first.
-func (b *Bindings) ReplaceMulti(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID, input Input) error {
+func (b *Bindings) replaceMulti(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID, input writeInput) error {
 	if tx == nil || sourceID == uuid.Nil || !b.accepts(input) {
 		return ErrInvalidBinding
 	}
