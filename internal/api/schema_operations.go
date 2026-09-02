@@ -108,7 +108,6 @@ func (e schemaEndpoints) operationStatus(w http.ResponseWriter, r *http.Request)
 		writeSchemaOperationError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, receipt)
 }
 
@@ -145,7 +144,6 @@ func (e schemaEndpoints) operationHistory(w http.ResponseWriter, r *http.Request
 		writeSchemaOperationError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, page)
 }
 
@@ -219,7 +217,6 @@ func writeSchemaOperationOutcome(
 		OperationID: operationID, Status: status,
 		StatusURL: operationStatusURL(operationID), Receipt: receipt,
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	if status == schema.OperationCommitted {
 		writeJSON(w, http.StatusOK, outcome)
 		return

@@ -40,7 +40,6 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, struct {
 		SetupRequired bool `json:"setupRequired"`
 	}{SetupRequired: setupRequired})
@@ -183,7 +182,6 @@ func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken))
 }
 
@@ -207,7 +205,6 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
 		SameSite: http.SameSiteLaxMode,
 	})
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -221,7 +218,6 @@ func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Reques
 		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
 		SameSite: http.SameSiteLaxMode,
 	})
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken))
 }
 

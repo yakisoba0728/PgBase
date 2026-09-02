@@ -114,6 +114,12 @@
           ]
         },
         {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
           "name": "Content-Security-Policy",
           "values": [
             "default-src 'none'"
@@ -195,6 +201,12 @@
           ]
         },
         {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
           "name": "Content-Security-Policy",
           "values": [
             "default-src 'none'"
@@ -273,6 +285,12 @@
           "name": "Access-Control-Expose-Headers",
           "values": [
             "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
           ]
         },
         {
@@ -451,6 +469,12 @@
           ]
         },
         {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
           "name": "Content-Security-Policy",
           "values": [
             "default-src 'none'"
@@ -529,6 +553,12 @@
           "name": "Access-Control-Expose-Headers",
           "values": [
             "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
           ]
         },
         {
@@ -1201,6 +1231,12 @@
           ]
         },
         {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
           "name": "Content-Security-Policy",
           "values": [
             "default-src 'none'"
@@ -1378,6 +1414,12 @@
           "name": "Access-Control-Expose-Headers",
           "values": [
             "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
           ]
         },
         {
