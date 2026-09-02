@@ -11,12 +11,14 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -670,8 +672,10 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 	}
 
 	var replacement MutationResult
-	ensurer := &deleteRetryCatalogEnsurer{inner: schemas}
-	ensurer.beforeSecond = func() error {
+	// database.Retry publishes the retry observation after the failed attempt
+	// has rolled back and before the next one begins, so the closure can only
+	// change in that window.
+	betweenAttempts := &deleteRetryClosureRecorder{change: func() error {
 		if _, err := records.Update(ctx, UpdateRequest{
 			Principal: principal, RequestID: "retry-closure-remove", Collection: "null_survivors", ID: staleID,
 			IfMatch: EntityTagSet{Present: true, Values: []string{stale.Record.ETag}},
@@ -687,9 +691,8 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 			},
 		})
 		return err
-	}
-	retrying := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
-	retrying.schemas = ensurer
+	}}
+	retrying := NewServiceWithRecorder(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, betweenAttempts)
 	firstValidator := bytes.Repeat([]byte{0x31}, 32)
 	secondValidator := bytes.Repeat([]byte{0x32}, 32)
 	retrying.random = bytes.NewReader(append(append([]byte(nil), firstValidator...), secondValidator...))
@@ -700,6 +703,9 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		IfMatch: EntityTagSet{Present: true, Values: []string{target.Record.ETag}},
 	}); err != nil {
 		t.Fatalf("delete changing retry closure: %v", err)
+	}
+	if betweenAttempts.err != nil {
+		t.Fatalf("change the closure between attempts: %v", betweenAttempts.err)
 	}
 	if replacement.Record == nil {
 		t.Fatal("retry hook did not create the replacement source")
@@ -752,24 +758,17 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 	}
 }
 
-type deleteRetryCatalogEnsurer struct {
-	inner        CatalogEnsurer
-	calls        int
-	beforeSecond func() error
+type deleteRetryClosureRecorder struct {
+	once   sync.Once
+	change func() error
+	err    error
 }
 
-func (e *deleteRetryCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
-	catalog, err := e.inner.EnsureCurrent(ctx, tx)
-	if err != nil {
-		return schema.Catalog{}, err
+func (r *deleteRetryClosureRecorder) Record(_ context.Context, event observability.Event) {
+	if event.Kind() != observability.EventKindTransactionRetry || event.Exhausted() {
+		return
 	}
-	e.calls++
-	if e.calls == 2 && e.beforeSecond != nil {
-		if err := e.beforeSecond(); err != nil {
-			return schema.Catalog{}, err
-		}
-	}
-	return catalog, nil
+	r.once.Do(func() { r.err = r.change() })
 }
 
 type deleteRequestArtifact struct {

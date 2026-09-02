@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,16 +231,6 @@ func TestLegacyETagIsStrongAndRevisionETagUsesIndependentValidator(t *testing.T)
 	if first == second || !strings.HasPrefix(first, `"pgb1.`) {
 		t.Fatalf("revision tags first=%q second=%q", first, second)
 	}
-}
-
-type countingCatalogEnsurer struct {
-	inner CatalogEnsurer
-	calls atomic.Int32
-}
-
-func (c *countingCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
-	c.calls.Add(1)
-	return c.inner.EnsureCurrent(ctx, tx)
 }
 
 func newRecordOperationsTest(t testing.TB) (*database.Pool, *schema.Service, *Service, Principal) {

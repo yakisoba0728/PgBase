@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
@@ -361,6 +362,16 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	keyDigest := recordartifact.Digest("pgbase-idempotency-key-v1", []byte(key))
 	lockKey := advisoryLockKey(principal, []byte("records"), keyDigest[:])
 
+	// The membership runtime is registered before the gate below because its
+	// own catalog pin is not part of the ordering under test.
+	runtime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := NewServiceWithMembershipRuntime(
+		pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, runtime,
+	)
+
 	connection, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -374,20 +385,23 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockKey); err != nil {
 		t.Fatal(err)
 	}
+	// EnsureCurrent pins the catalog with SELECT ... FOR SHARE on the singleton
+	// schema_state row. Holding that row FOR UPDATE makes the pin block, so a
+	// create that reached the catalog before the idempotency lock cannot answer
+	// in-progress within the deadline below.
+	if _, err := tx.Exec(ctx, "SELECT version FROM pgbase_meta.schema_state WHERE singleton FOR UPDATE"); err != nil {
+		t.Fatal(err)
+	}
 
-	counting := &countingCatalogEnsurer{inner: schemas}
-	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
-	records.schemas = counting
-	_, err = records.Create(ctx, CreateRequest{
+	lockedContext, cancelLocked := context.WithTimeout(ctx, 3*time.Second)
+	_, err = records.Create(lockedContext, CreateRequest{
 		Principal: principal, RequestID: testRequestID, Collection: "records",
 		Input:          map[string]json.RawMessage{"title": json.RawMessage(`"lock-order"`)},
 		IdempotencyKey: key,
 	})
+	cancelLocked()
 	if !IsCode(err, CodeIdempotencyInProgress) {
 		t.Fatalf("create while lock held error=%v", err)
-	}
-	if calls := counting.calls.Load(); calls != 0 {
-		t.Fatalf("catalog snapshot was established before idempotency lock, calls=%d", calls)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
