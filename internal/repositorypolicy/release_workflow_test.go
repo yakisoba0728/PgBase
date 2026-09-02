@@ -121,7 +121,8 @@ func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *tes
 		}},
 		{name: "backup-restore.yml", markers: []string{
 			"PGBASE_RESTORE_CANDIDATE_IMAGE", "PGBASE_RESTORE_EXPECTED_VERSION",
-			"scripts/support/validate-release-candidate.sh", "actual_version",
+			"scripts/support/validate-release-candidate.sh",
+			"go test -tags=restore ./tests/restore",
 		}},
 	} {
 		contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", consumer.name))
@@ -171,22 +172,37 @@ func TestBackupRestoreDrillCoversAppRelationDataDiagnosticsAndToolCompatibility(
 		t.Fatal(err)
 	}
 	workflow := string(contents)
+	// The workflow now owns only scheduling and candidate wiring; the drill
+	// procedure itself lives in tests/restore, where it is executable rather
+	// than embedded in shell.
 	for _, marker := range []string{
-		"create table app.restore_records",
-		"restore-record-sentinel",
-		"select count(*) from app.restore_records",
+		"tests/restore/**",
+		"scripts/support/**",
+		"go test -tags=restore ./tests/restore",
+	} {
+		if !strings.Contains(workflow, marker) {
+			t.Fatalf("backup restore workflow is missing %q", marker)
+		}
+	}
+	drill := readDrillSources(t)
+	for _, marker := range []string{
 		"restore_people",
 		"restore_articles",
 		"pgbase_meta.field_relations",
 		"relations.cardinality = 'multiple'",
 		"string_agg(people.name, ',' order by edges.position)",
-		"go run ./cmd/pgbase doctor --json",
-		"pg_restore --version",
+		"pgbase_meta.record_revisions",
+		"pgbase_meta.record_audit_events",
+		"pgbase_meta.record_outbox",
+		"pgbase_meta.record_idempotency",
+		"pgbase_meta.schema_operations",
+		"Idempotency-Replayed",
+		`getHeaders.Get("ETag")`,
+		`"doctor", "--json"`,
+		`"pg_restore", "--version"`,
 		"server_version_num",
-		"tests/restore/**",
-		"scripts/support/**",
 	} {
-		if !strings.Contains(strings.ToLower(workflow), strings.ToLower(marker)) {
+		if !strings.Contains(drill, marker) {
 			t.Fatalf("backup restore drill is missing %q", marker)
 		}
 	}
@@ -289,6 +305,26 @@ func TestBackupDocumentationCoversEverySystemSchema(t *testing.T) {
 	if _, err := os.Stat(backupPath); err != nil {
 		t.Errorf("backup procedure linked from %s does not resolve: %v", securityPath, err)
 	}
+}
+
+func readDrillSources(t *testing.T) string {
+	t.Helper()
+	sources, err := filepath.Glob(filepath.Join("..", "..", "tests", "restore", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) == 0 {
+		t.Fatal("the restore drill has no Go sources")
+	}
+	var combined strings.Builder
+	for _, source := range sources {
+		contents, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined.Write(contents)
+	}
+	return combined.String()
 }
 
 func backtickedIdentifiers(text string) []string {
