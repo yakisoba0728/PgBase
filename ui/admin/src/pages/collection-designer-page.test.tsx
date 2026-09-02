@@ -96,6 +96,29 @@ describe("collection designer page", () => {
     expect(screen.getByRole("button", { name: "Delete collection" })).toBeVisible();
   });
 
+  it("shows the pinned deletion target and keeps confirming disabled until it is typed", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    harness.script.apply.push({ value: undefined });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Delete collection" }));
+
+    expect(await screen.findByText("Deleting posts · physical table posts · catalog version 7")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Type posts to confirm"), "post");
+    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Type posts to confirm"), "s");
+    await user.click(screen.getByRole("button", { name: "Confirm delete" }));
+    await waitFor(() => expect(callsTo(harness.script, "apply")).toHaveLength(1));
+    expect(callsTo(harness.script, "apply")[0].detail.request).toEqual({ operation: "delete", name: "posts", checksum: "drop", baseVersion: 7 });
+  });
+
   it("reports a collection the catalog does not have", async () => {
     const harness = scriptedAdmin("/admin/collections/ghosts/edit");
     harness.script.catalog.push({ value: { version: 7, collections: [posts] } });

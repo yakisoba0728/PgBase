@@ -273,6 +273,7 @@ interface State {
   pending: boolean;
   error: string | null;
   deletePlan: PlannedChange | null;
+  deleteConfirmText: string;
   deletePending: boolean;
   deleteError: string | null;
 }
@@ -282,7 +283,8 @@ function initial(mode: DesignerMode, identity: string): State {
   return {
     identity, create, phase: create ? "ready" : "loading", name: create ? "" : mode.collection, tableName: "",
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields: create ? [newField()] : [],
-    plan: null, confirmed: false, pending: false, error: null, deletePlan: null, deletePending: false, deleteError: null,
+    plan: null, confirmed: false, pending: false, error: null,
+    deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
   };
 }
 
@@ -307,6 +309,18 @@ function renamed(current: State, name: string): Partial<State> {
   };
 }
 
+// The identity the confirmation shows is the identity the request carries. A
+// plan that no longer names the collection now loaded is not a target at all,
+// so neither a stale plan nor a collection that moved under the dialog can be
+// dropped by accident.
+interface DeleteTarget { collection: string; tableName: string; baseVersion: number; sql: readonly string[] }
+
+function deleteTargetOf(definition: CollectionDefinition | null, plan: PlannedChange | null): DeleteTarget | null {
+  if (definition === null || plan === null) return null;
+  if (plan.operation !== "delete" || plan.collection !== definition.name) return null;
+  return { collection: definition.name, tableName: definition.tableName, baseVersion: plan.baseVersion, sql: plan.sql };
+}
+
 export interface CollectionDesigner {
   phase: State["phase"];
   create: boolean;
@@ -323,7 +337,9 @@ export interface CollectionDesigner {
   applyBlocked: boolean;
   pending: boolean;
   error: string | null;
-  deletePlan: PlannedChange | null;
+  deleteTarget: DeleteTarget | null;
+  deleteConfirmText: string;
+  deleteConfirmed: boolean;
   deletePending: boolean;
   deleteError: string | null;
   rename(name: string): void;
@@ -331,6 +347,7 @@ export interface CollectionDesigner {
   addField(): void;
   removeField(index: number): void;
   confirmDestructive(confirmed: boolean): void;
+  confirmDeleteName(typed: string): void;
   requestPreview(): void;
   requestApply(): void;
   requestDeletePlan(): void;
@@ -358,6 +375,7 @@ function deleteFailure(caught: unknown): Partial<State> {
   const reason = caught instanceof SchemaError ? caught.reason : "failed";
   return {
     deletePlan: null,
+    deleteConfirmText: "",
     deleteError: reason === "referenced" ? schemaMessage(caught, "Unable to delete the collection.", "Collection is referenced.")
       : reason === "catalog-moved" ? "The catalog changed. Preview the deletion again before applying."
         : schemaMessage(caught, "Unable to delete the collection."),
@@ -429,9 +447,11 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     }
   }, [active, identity, navigate, preview, removedFields.length, schema, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
+  const deleteTarget = useMemo(() => deleteTargetOf(state.definition, state.deletePlan), [state.definition, state.deletePlan]);
+
   const requestDeletePlan = useCallback(async () => {
     if (state.definition === null || state.deletePending) return;
-    update(identity, { deletePending: true, deletePlan: null, deleteError: null });
+    update(identity, { deletePending: true, deletePlan: null, deleteConfirmText: "", deleteError: null });
     try {
       update(identity, { deletePlan: await schema.plan({ operation: "delete", name: state.definition.name }) });
     } catch (caught: unknown) {
@@ -442,7 +462,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   }, [identity, schema, state.definition, state.deletePending, update]);
 
   const requestDelete = useCallback(async () => {
-    if (state.deletePlan === null || state.deletePending) return;
+    if (deleteTarget === null || state.deletePlan === null || state.deletePending) return;
+    if (state.deleteConfirmText !== deleteTarget.collection) return;
     update(identity, { deletePending: true });
     try {
       await schema.apply(state.deletePlan);
@@ -453,7 +474,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { deletePending: false });
     }
-  }, [active, identity, navigate, schema, state.deletePending, state.deletePlan, update]);
+  }, [active, deleteTarget, identity, navigate, schema, state.deleteConfirmText, state.deletePending, state.deletePlan, update]);
 
   return {
     phase: state.phase,
@@ -471,7 +492,9 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     applyBlocked: removedFields.length > 0 && !state.confirmed,
     pending: state.pending,
     error: state.error,
-    deletePlan: state.deletePlan,
+    deleteTarget,
+    deleteConfirmText: state.deleteConfirmText,
+    deleteConfirmed: deleteTarget !== null && state.deleteConfirmText === deleteTarget.collection,
     deletePending: state.deletePending,
     deleteError: state.deleteError,
     rename: (name) => update(identity, (current) => renamed(current, name)),
@@ -479,10 +502,11 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     addField: () => update(identity, (current) => redrafted([...current.fields, newField()])),
     removeField: (index) => update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))),
     confirmDestructive: (confirmed) => update(identity, { confirmed }),
+    confirmDeleteName: (deleteConfirmText) => update(identity, { deleteConfirmText }),
     requestPreview: () => void requestPreview(),
     requestApply: () => void requestApply(),
     requestDeletePlan: () => void requestDeletePlan(),
-    cancelDelete: () => update(identity, { deletePlan: null, deleteError: null }),
+    cancelDelete: () => update(identity, { deletePlan: null, deleteConfirmText: "", deleteError: null }),
     requestDelete: () => void requestDelete(),
   };
 }

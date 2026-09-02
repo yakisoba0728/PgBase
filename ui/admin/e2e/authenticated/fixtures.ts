@@ -116,6 +116,7 @@ export async function deleteCollection(page: Page, name: string): Promise<void> 
     await expect(missing.or(page.getByRole("button", { name: "Delete collection" })).first()).toBeVisible();
     if (await missing.count() > 0) return;
     await page.getByRole("button", { name: "Delete collection" }).click();
+    await page.getByLabel(`Type ${name} to confirm`).fill(name);
     await page.getByRole("button", { name: "Confirm delete" }).click();
     await expect(listing.or(moved).first()).toBeVisible();
     if (await listing.count() > 0) return;

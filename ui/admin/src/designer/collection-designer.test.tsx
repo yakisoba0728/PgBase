@@ -213,17 +213,75 @@ describe("CollectionDesigner deletion", () => {
     const { result, script, navigate } = open({ kind: "edit", collection: "posts" });
     await ready(result);
 
-    expect(result.current.deletePlan).toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
     act(() => result.current.requestDelete());
     expect(callsTo(script, "apply")).toHaveLength(0);
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     script.apply.push({ value: undefined });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.deletePlan?.sql).toEqual(["DROP TABLE posts"]));
+    await waitFor(() => expect(result.current.deleteTarget?.sql).toEqual(["DROP TABLE posts"]));
 
+    act(() => result.current.confirmDeleteName("posts"));
     act(() => result.current.requestDelete());
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ kind: "collections" }));
+  });
+
+  it("pins the identity it shows and refuses every name but that one", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    script.apply.push({ value: undefined });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    expect(result.current.deleteTarget).toEqual({ collection: "posts", tableName: "posts", baseVersion: 7, sql: ["DROP TABLE posts"] });
+
+    for (const typed of ["", "post", "POSTS", " posts"]) {
+      act(() => result.current.confirmDeleteName(typed));
+      expect(result.current.deleteConfirmed).toBe(false);
+      act(() => result.current.requestDelete());
+    }
+    expect(callsTo(script, "apply")).toHaveLength(0);
+
+    act(() => result.current.confirmDeleteName("posts"));
+    expect(result.current.deleteConfirmed).toBe(true);
+    act(() => result.current.requestDelete());
+    await waitFor(() => expect(callsTo(script, "apply")).toHaveLength(1));
+    expect(callsTo(script, "apply")[0].detail.request).toEqual({ operation: "delete", name: "posts", checksum: "drop", baseVersion: 7 });
+  });
+
+  it("keeps the pinned target when the draft is renamed under the confirmation", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+
+    act(() => result.current.rename("ghosts"));
+    expect(result.current.deleteTarget?.collection).toBe("posts");
+    act(() => result.current.confirmDeleteName("ghosts"));
+    act(() => result.current.requestDelete());
+    expect(callsTo(script, "apply")).toHaveLength(0);
+  });
+
+  it("drops the confirmation with the plan the catalog moved under", async () => {
+    const { result, script } = open({ kind: "edit", collection: "posts" });
+    await ready(result);
+
+    script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    script.apply.push({ fault: { kind: "catalog-moved" } });
+    act(() => result.current.requestDeletePlan());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    act(() => result.current.confirmDeleteName("posts"));
+    act(() => result.current.requestDelete());
+
+    await waitFor(() => expect(result.current.deleteError).toBe("The catalog changed. Preview the deletion again before applying."));
+    expect(result.current.deleteTarget).toBeNull();
+    expect(result.current.deleteConfirmText).toBe("");
+    act(() => result.current.requestDelete());
+    expect(callsTo(script, "apply")).toHaveLength(1);
   });
 
   it("explains a collection another collection still references", async () => {
@@ -233,11 +291,12 @@ describe("CollectionDesigner deletion", () => {
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     script.apply.push({ fault: { kind: "referenced", details: { name: ["collection_referenced"] } } });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.deletePlan).not.toBeNull());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
+    act(() => result.current.confirmDeleteName("posts"));
     act(() => result.current.requestDelete());
 
     await waitFor(() => expect(result.current.deleteError).toBe("Collection is referenced. name: collection_referenced"));
-    expect(result.current.deletePlan).toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
   });
 });
 
@@ -248,15 +307,15 @@ describe("CollectionDesigner resource isolation", () => {
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.deletePlan).not.toBeNull());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
 
     script.catalog.push({ value: { version: 7, collections: [posts, users] } });
     rerender({ current: { kind: "edit", collection: "users" } });
 
-    expect(result.current.deletePlan).toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
     expect(result.current.fields).toEqual([]);
     await waitFor(() => expect(result.current.name).toBe("users"));
-    expect(result.current.deletePlan).toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
   });
 
   it("drops a delete result that arrives after the designer moved to another collection", async () => {
@@ -265,10 +324,11 @@ describe("CollectionDesigner resource isolation", () => {
 
     script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
     act(() => result.current.requestDeletePlan());
-    await waitFor(() => expect(result.current.deletePlan).not.toBeNull());
+    await waitFor(() => expect(result.current.deleteTarget).not.toBeNull());
 
     const deletion = deferredStep<void>();
     script.apply.push(deletion.step);
+    act(() => result.current.confirmDeleteName("posts"));
     act(() => result.current.requestDelete());
 
     script.catalog.push({ value: { version: 7, collections: [posts, users] } });
@@ -278,7 +338,7 @@ describe("CollectionDesigner resource isolation", () => {
     await act(async () => { deletion.settle({ value: undefined }); });
 
     expect(navigate).not.toHaveBeenCalled();
-    expect(result.current.deletePlan).toBeNull();
+    expect(result.current.deleteTarget).toBeNull();
     expect(result.current.deleteError).toBeNull();
   });
 

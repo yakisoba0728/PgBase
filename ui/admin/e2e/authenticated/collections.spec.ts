@@ -19,7 +19,7 @@ test("creates, edits and deletes collections and follows a direct history jump b
     await page.goto(`/admin/collections/${first}/edit`);
     await expect(page.getByLabel("Field 2 name")).toHaveValue("subtitle");
     await page.getByRole("button", { name: "Delete collection" }).click();
-    await expect(page.getByRole("button", { name: "Confirm delete" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
 
     await page.goto(`/admin/collections/${second}/edit`);
     await expect(page.getByText(`${second} · physical table`)).toBeVisible();
