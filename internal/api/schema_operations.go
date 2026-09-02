@@ -154,7 +154,8 @@ func (e schemaEndpoints) operationHistory(w http.ResponseWriter, r *http.Request
 // ledger owns whether an operation committed, and a request that cannot be
 // decided ends pointing at where the answer will appear.
 func (e schemaEndpoints) writeGuardedApplyError(
-	w http.ResponseWriter, r *http.Request, actorID uuid.UUID, identity applyIdentity, err error,
+	w http.ResponseWriter, r *http.Request,
+	actorID uuid.UUID, identity applyIdentity, receipt schema.OperationReceipt, err error,
 ) {
 	var recovery *schema.OperationRecoveryError
 	switch {
@@ -175,7 +176,7 @@ func (e schemaEndpoints) writeGuardedApplyError(
 			Message: "Schema operation identity is already bound to a different request",
 		})
 	case errors.Is(err, schema.ErrOperationFailed):
-		writeSchemaOperationFailure(w, r)
+		writeSchemaOperationFailure(w, r, receipt.FailureCode)
 	default:
 		writeSchemaError(w, r, err)
 	}
@@ -207,7 +208,11 @@ func writeSchemaOperationOutcome(
 	operationID uuid.UUID, status schema.OperationStatus, receipt *schema.OperationReceipt,
 ) {
 	if status == schema.OperationFailed {
-		writeSchemaOperationFailure(w, r)
+		var failureCode schema.OperationFailureCode
+		if receipt != nil {
+			failureCode = receipt.FailureCode
+		}
+		writeSchemaOperationFailure(w, r, failureCode)
 		return
 	}
 	outcome := schemaOperationOutcome{
@@ -226,11 +231,19 @@ func writeSchemaOperationOutcome(
 	writeJSON(w, http.StatusAccepted, outcome)
 }
 
-func writeSchemaOperationFailure(w http.ResponseWriter, r *http.Request) {
-	writeAPIError(w, r, APIError{
+// writeSchemaOperationFailure reports a terminal ledger failure. The bounded
+// classification travels with it so a client learns whether to replan or to
+// escalate without a second round trip; raw SQL, request and error text stay
+// in the ledger where they never were.
+func writeSchemaOperationFailure(w http.ResponseWriter, r *http.Request, failureCode schema.OperationFailureCode) {
+	apiError := APIError{
 		Status: http.StatusConflict, Code: "schema_operation_failed",
 		Message: "Schema operation did not apply",
-	})
+	}
+	if failureCode != "" {
+		apiError.Details = map[string][]string{"operation": {string(failureCode)}}
+	}
+	writeAPIError(w, r, apiError)
 }
 
 func writeSchemaOperationError(w http.ResponseWriter, r *http.Request, err error) {

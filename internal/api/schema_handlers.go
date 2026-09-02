@@ -269,7 +269,7 @@ func (e schemaEndpoints) applyGuarded(
 	w.Header().Set(operationIDHeader, identity.operationID.String())
 	result, err := e.service.Apply(r.Context(), intent)
 	if err != nil {
-		e.writeGuardedApplyError(w, r, actorID, identity, err)
+		e.writeGuardedApplyError(w, r, actorID, identity, result.Receipt, err)
 		return
 	}
 	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
