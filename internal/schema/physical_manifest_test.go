@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -545,5 +546,92 @@ func assertEveryRequiredObjectOwned(t *testing.T, manifest ExpectedPhysicalSchem
 		if !manifest.Owns(ref) {
 			t.Errorf("required object is not owned: %+v", ref)
 		}
+	}
+}
+
+// The companion set must be a pure function of the catalog, so this pins both
+// which fields earn one and the exact key directions PostgreSQL has to store.
+func TestCompanionIndexesCoverOnlyNullableDescendingSortKeys(t *testing.T) {
+	compiled, err := compileCatalog(physicalManifestCatalog(false))
+	if err != nil {
+		t.Fatalf("compile catalog: %v", err)
+	}
+	manifest := compiled.expectedPhysicalSchema
+
+	// posts.slug is a nullable unique text field and posts.author a nullable
+	// single relation; both are sortable and both can hold NULL. posts.title is
+	// required, posts.published and posts.launched are unindexed, and posts.tags
+	// is a multiple relation the read path refuses to sort, so none of those may
+	// contribute a companion.
+	want := []IndexSpec{
+		companionIndexSpec("posts", "author", "author"),
+		companionIndexSpec("posts", "slug", "slug"),
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i].Name < want[j].Name })
+	if got := manifest.CompanionIndexes(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("companion indexes\n got: %#v\nwant: %#v", got, want)
+	}
+
+	for _, companion := range want {
+		for _, required := range manifest.Required().Indexes {
+			if required.Name == companion.Name {
+				t.Fatalf("companion %s must not be a required index before the capability is ready", companion.Name)
+			}
+		}
+		ref := PhysicalObjectRef{
+			Kind: PhysicalObjectIndex, Namespace: companion.Namespace,
+			Table: companion.Table, Name: companion.Name,
+		}
+		if !manifest.Owns(ref) {
+			t.Fatalf("companion %s is not owned; a rollback binary would call it an orphan", companion.Name)
+		}
+	}
+
+	for _, required := range manifest.Required().Indexes {
+		if required.Purpose != IndexPurposeCore {
+			t.Fatalf("required index %s purpose = %d, want IndexPurposeCore", required.Name, required.Purpose)
+		}
+	}
+}
+
+func TestCompanionIndexesAreImmutableAndDeterministic(t *testing.T) {
+	first, err := compileCatalog(physicalManifestCatalog(false))
+	if err != nil {
+		t.Fatalf("compile first catalog: %v", err)
+	}
+	second, err := compileCatalog(physicalManifestCatalog(true))
+	if err != nil {
+		t.Fatalf("compile second catalog: %v", err)
+	}
+	pristine := first.expectedPhysicalSchema.CompanionIndexes()
+	if got := second.expectedPhysicalSchema.CompanionIndexes(); !reflect.DeepEqual(got, pristine) {
+		t.Fatalf("companion indexes depend on map insertion order\nfirst:  %#v\nsecond: %#v", pristine, got)
+	}
+	if len(pristine) == 0 {
+		t.Fatal("fixture must produce at least one companion index")
+	}
+	mutated := first.expectedPhysicalSchema.CompanionIndexes()
+	mutated[0].Name = "mutated"
+	mutated[0].Keys[0].Column = "mutated"
+	mutated[0].Keys[0].NullsFirst = !mutated[0].Keys[0].NullsFirst
+	if got := first.expectedPhysicalSchema.CompanionIndexes(); !reflect.DeepEqual(got, pristine) {
+		t.Fatalf("caller mutated compiled companion indexes\n got: %#v\nwant: %#v", got, pristine)
+	}
+}
+
+func companionIndexSpec(collection, field, column string) IndexSpec {
+	return IndexSpec{
+		Namespace: "app",
+		Table:     collection,
+		Name:      NullableDescCompanionIndexName(collection, field),
+		Method:    "btree",
+		Keys: []IndexKeySpec{
+			{Column: column, Descending: true, NullsFirst: false},
+			{Column: "id", Descending: true, NullsFirst: true},
+		},
+		Valid:   true,
+		Ready:   true,
+		Live:    true,
+		Purpose: IndexPurposeNullableDesc,
 	}
 }
