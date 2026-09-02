@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { APIClientError } from "../api/client";
 import { stringifyJSON } from "../api/json";
 import { collectionFromCatalog, fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionDefinition, type CollectionPlan } from "../api/collections";
 import { useSession } from "../auth/session";
+import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   buildInput,
   CollectionFieldEditor,
@@ -19,7 +20,7 @@ function toInput(definition: CollectionDefinition, fields: DraftField[]): Collec
   return buildInput("update", definition.name, fields);
 }
 
-export function CollectionEditPage({ collectionName, navigate }: { collectionName: string; navigate(path: string): void }) {
+export function CollectionEditPage({ collectionName, navigate }: { collectionName: string; navigate(route: AdminRoute): void }) {
   const { collections } = useSession();
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [definition, setDefinition] = useState<CollectionDefinition | null>(null);
@@ -36,14 +37,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   const [deletePlan, setDeletePlan] = useState<CollectionPlan | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const activeResourceRef = useRef<string | null>(collectionName);
-
-  useEffect(() => {
-    activeResourceRef.current = collectionName;
-    return () => {
-      if (activeResourceRef.current === collectionName) activeResourceRef.current = null;
-    };
-  }, [collectionName]);
+  const active = useRouteGuard(adminRouteIdentity({ kind: "collection-edit", collection: collectionName }));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -110,38 +104,36 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
 
   async function preview() {
     if (definition === null || pending) return;
-    const requestedResource = collectionName;
     setError(null);
     let input: CollectionChangeInput;
     try { input = toInput(definition, fields); } catch (caught: unknown) { setError(draftErrorMessage(caught, "Collection input is invalid.")); return; }
     setPending(true);
     try {
       const result = await collections.plan(input);
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       setPlannedInput(input);
       setPlan(result);
       setDestructiveConfirmed(false);
     } catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       resetPlan();
       setError(schemaErrorMessage(caught, "Unable to preview the collection change."));
     } finally {
-      if (activeResourceRef.current === requestedResource) setPending(false);
+      if (active()) setPending(false);
     }
   }
 
   async function apply() {
     if (!previewCurrent || plan === null || plannedInput === null || pending || (removedFields.length > 0 && !destructiveConfirmed)) return;
-    const requestedResource = collectionName;
     const appliedBaseVersion = plan.baseVersion;
     setPending(true);
     setError(null);
     try {
       await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
-      if (activeResourceRef.current !== requestedResource) return;
-      navigate(`/admin/collections/${encodeURIComponent(definition?.name ?? collectionName)}/records`);
+      if (!active()) return;
+      navigate({ kind: "records", collection: definition?.name ?? collectionName });
     } catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       if (caught instanceof APIClientError && caught.status === 409) {
         resetPlan();
         // A 409 covers a stale plan, a plan that conflicts with existing data
@@ -149,7 +141,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
         // collisions. Tell a moved catalog apart from a same-version conflict.
         try {
           const catalog = await collections.catalog();
-          if (activeResourceRef.current !== requestedResource) return;
+          if (!active()) return;
           if (catalog.version === appliedBaseVersion) {
             setError("The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.");
           } else {
@@ -162,38 +154,36 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
         setError(schemaErrorMessage(caught, "Existing data blocks this change (for example missing or duplicate values).", "Existing data blocks this change (for example missing or duplicate values)."));
       } else setError(schemaErrorMessage(caught, "Unable to apply the collection change."));
     } finally {
-      if (activeResourceRef.current === requestedResource) setPending(false);
+      if (active()) setPending(false);
     }
   }
 
   async function previewDelete() {
     if (definition === null || deletePending) return;
-    const requestedResource = collectionName;
     setDeleteError(null);
     setDeletePending(true);
     try {
       const result = await collections.plan({ operation: "delete", name: definition.name });
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       setDeletePlan(result);
     } catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       setDeleteError(schemaErrorMessage(caught, "Unable to preview the collection deletion."));
     } finally {
-      if (activeResourceRef.current === requestedResource) setDeletePending(false);
+      if (active()) setDeletePending(false);
     }
   }
 
   async function applyDelete() {
     if (definition === null || deletePlan === null || deletePending) return;
-    const requestedResource = collectionName;
     setDeletePending(true);
     setDeleteError(null);
     try {
       await collections.apply({ operation: "delete", name: definition.name }, deletePlan.checksum, deletePlan.baseVersion);
-      if (activeResourceRef.current !== requestedResource) return;
-      navigate("/admin/collections");
+      if (!active()) return;
+      navigate({ kind: "collections" });
     } catch (caught: unknown) {
-      if (activeResourceRef.current !== requestedResource) return;
+      if (!active()) return;
       setDeletePlan(null);
       if (caught instanceof APIClientError && caught.code === "collection_referenced") {
         setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection.", "Collection is referenced."));
@@ -201,7 +191,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
         setDeleteError("The catalog changed. Preview the deletion again before applying.");
       } else setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection."));
     } finally {
-      if (activeResourceRef.current === requestedResource) setDeletePending(false);
+      if (active()) setDeletePending(false);
     }
   }
 

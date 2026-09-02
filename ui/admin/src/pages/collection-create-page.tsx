@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { APIClientError } from "../api/client";
 import { stringifyJSON } from "../api/json";
 import { fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionPlan } from "../api/collections";
 import { useSession } from "../auth/session";
+import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   buildInput,
   CollectionFieldEditor,
@@ -34,7 +35,7 @@ function selfRelationFlag(previous: CreateDraftField, next: DraftField, collecti
   return nextTarget !== "" && nextTarget === collectionName;
 }
 
-export function CollectionCreatePage({ navigate }: { navigate(path: string): void }) {
+export function CollectionCreatePage({ navigate }: { navigate(route: AdminRoute): void }) {
   const { collections } = useSession();
   const [name, setName] = useState("");
   const [fields, setFields] = useState<CreateDraftField[]>([newDraftField()]);
@@ -45,18 +46,13 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
   const [plannedInput, setPlannedInput] = useState<CollectionChangeInput | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const activeRef = useRef(true);
+  const active = useRouteGuard(adminRouteIdentity({ kind: "collection-create" }));
   const inputSignature = useMemo(() => {
     try { return stringifyJSON(buildInput("create", name, fields)); } catch { return "invalid"; }
   }, [fields, name]);
   const previewCurrent = plan !== null && plannedInput !== null && stringifyJSON(plannedInput) === inputSignature;
   const needsRelationCatalog = fields.some((field) => field.type === "relation");
   const relationTargets = useMemo(() => relationTargetOptions(relationCatalog, name), [name, relationCatalog]);
-
-  useEffect(() => {
-    activeRef.current = true;
-    return () => { activeRef.current = false; };
-  }, []);
 
   useEffect(() => {
     if (!needsRelationCatalog || relationCatalog !== null || relationCatalogFailed) return;
@@ -95,16 +91,16 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setPending(true);
     try {
       const result = await collections.plan(input);
-      if (!activeRef.current) return;
+      if (!active()) return;
       setPlannedInput(input);
       setPlan(result);
     } catch (caught: unknown) {
-      if (!activeRef.current) return;
+      if (!active()) return;
       setPlan(null);
       setPlannedInput(null);
       setError(schemaErrorMessage(caught, "Unable to preview the collection."));
     } finally {
-      if (activeRef.current) setPending(false);
+      if (active()) setPending(false);
     }
   }
 
@@ -115,10 +111,10 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
     setError(null);
     try {
       await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
-      if (!activeRef.current) return;
-      navigate("/admin/collections");
+      if (!active()) return;
+      navigate({ kind: "collections" });
     } catch (caught: unknown) {
-      if (!activeRef.current) return;
+      if (!active()) return;
       if (caught instanceof APIClientError && caught.status === 409) {
         setPlan(null);
         setPlannedInput(null);
@@ -126,7 +122,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
         // catalog means the preview was stale.
         try {
           const catalog = await collections.catalog();
-          if (!activeRef.current) return;
+          if (!active()) return;
           if (catalog.version === appliedBaseVersion) {
             setError("A collection with this name likely already exists.");
           } else {
@@ -137,7 +133,7 @@ export function CollectionCreatePage({ navigate }: { navigate(path: string): voi
         }
       } else setError(schemaErrorMessage(caught, "Unable to create the collection."));
     } finally {
-      if (activeRef.current) setPending(false);
+      if (active()) setPending(false);
     }
   }
 

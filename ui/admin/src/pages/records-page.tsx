@@ -4,6 +4,7 @@ import { collectionFromCatalog, type CollectionDefinition, type FieldDefinition 
 import type { RecordData, RecordPage } from "../api/records";
 import { stringifyJSON } from "../api/json";
 import { useSession } from "../auth/session";
+import type { AdminRoute } from "../routing/admin-location";
 
 function display(value: RecordData[string]): string {
   if (value === null) return "null";
@@ -26,7 +27,7 @@ function displayCell(value: RecordData[string], field: FieldDefinition | undefin
 
 const sortableColumns = new Set(["id", "created_at"]);
 
-export function RecordsPage({ collectionName, navigate }: { collectionName: string; navigate(path: string): void }) {
+export function RecordsPage({ collectionName, navigate }: { collectionName: string; navigate(route: AdminRoute): void }) {
   const { collections, records } = useSession();
   const [collection, setCollection] = useState<CollectionDefinition | null>(null);
   const [page, setPage] = useState<RecordPage | null>(null);
@@ -114,7 +115,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
   ) ?? false);
 
   return <section>
-    <div className="page-heading"><h2>{collectionName} records</h2><button onClick={() => navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records/new`)} type="button">Create record</button></div>
+    <div className="page-heading"><h2>{collectionName} records</h2><button onClick={() => navigate({ kind: "record", collection: collectionName })} type="button">Create record</button></div>
     <form className="filter-form" onSubmit={applyFilter}>
       <label htmlFor="record-filter">Filter</label>
       <input id="record-filter" onChange={(event) => setFilterText(event.target.value)} placeholder={`e.g. title = 'value' && rank >= 2`} value={filterText} />
@@ -128,7 +129,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     {page && page.items.length > 0 && <div className="table-scroll"><table><thead><tr>{columns.map((column) => <th aria-sort={sortDirection(column)} key={column}>{sortable(column) ? <button className="text-button" onClick={() => toggleSort(column)} type="button">{column}{sortDirection(column) === "ascending" ? " ↑" : sortDirection(column) === "descending" ? " ↓" : ""}</button> : column}</th>)}</tr></thead><tbody>
       {page.items.map((record, index) => <tr key={String(record.id ?? index)}>{columns.map((column) => {
         const field = collection?.fields.find((candidate) => candidate.name === column);
-        return <td key={column}>{column === "id" ? <button className="text-button" onClick={() => navigate(`/admin/collections/${encodeURIComponent(collectionName)}/records/${encodeURIComponent(String(record.id))}`)} type="button">{display(record[column])}</button> : displayCell(record[column], field)}</td>;
+        return <td key={column}>{column === "id" ? <button className="text-button" onClick={() => navigate({ kind: "record", collection: collectionName, id: String(record.id) })} type="button">{display(record[column])}</button> : displayCell(record[column], field)}</td>;
       })}</tr>)}
     </tbody></table></div>}
     {page?.nextCursor && <button onClick={() => void next()} type="button">Next page</button>}
