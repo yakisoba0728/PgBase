@@ -32,8 +32,8 @@ type App struct {
 	schemaOperations backgroundRunner
 	schemaListener   backgroundRunner
 	membershipWriter backgroundRunner
-	systemStatus     *systemStatusSampler
-	schemaHealth     *schemaHealthSampler
+	systemStatus     backgroundRunner
+	schemaHealth     backgroundRunner
 	listen           func(string, string) (net.Listener, error)
 	shutdownMu       sync.Mutex
 	shutdownStarted  bool
@@ -53,6 +53,32 @@ type App struct {
 
 type backgroundRunner interface {
 	Run(context.Context) error
+}
+
+// sampleLoop samples immediately and then on the interval until the context is
+// cancelled, which is the app's shutdown signal. Both samplers run this shape.
+func sampleLoop(ctx context.Context, interval time.Duration, sample func(context.Context)) error {
+	sample(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			sample(ctx)
+		}
+	}
+}
+
+// closeGate closes a first-sample gate exactly once, from the one sampling
+// goroutine. Only tests wait on it; a request served earlier sees no sample.
+func closeGate(gate chan struct{}) {
+	select {
+	case <-gate:
+	default:
+		close(gate)
+	}
 }
 
 type namedBackgroundRunner struct {
@@ -475,26 +501,18 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.closeMu.Unlock()
 	go func() {
 		runners := make([]namedBackgroundRunner, 0, 7)
-		if a.cleaner != nil {
-			runners = append(runners, namedBackgroundRunner{name: "administrator authentication cleaner", runner: a.cleaner})
-		}
-		if a.recordCleaner != nil {
-			runners = append(runners, namedBackgroundRunner{name: "record idempotency cleaner", runner: a.recordCleaner})
-		}
-		if a.schemaOperations != nil {
-			runners = append(runners, namedBackgroundRunner{name: "schema operation maintenance", runner: a.schemaOperations})
-		}
-		if a.schemaListener != nil {
-			runners = append(runners, namedBackgroundRunner{name: "schema listener", runner: a.schemaListener})
-		}
-		if a.membershipWriter != nil {
-			runners = append(runners, namedBackgroundRunner{name: "record membership writer", runner: a.membershipWriter})
-		}
-		if a.systemStatus != nil {
-			runners = append(runners, namedBackgroundRunner{name: "system status sampler", runner: a.systemStatus})
-		}
-		if a.schemaHealth != nil {
-			runners = append(runners, namedBackgroundRunner{name: "schema health sampler", runner: a.schemaHealth})
+		for _, candidate := range []namedBackgroundRunner{
+			{"administrator authentication cleaner", a.cleaner},
+			{"record idempotency cleaner", a.recordCleaner},
+			{"schema operation maintenance", a.schemaOperations},
+			{"schema listener", a.schemaListener},
+			{"record membership writer", a.membershipWriter},
+			{"system status sampler", a.systemStatus},
+			{"schema health sampler", a.schemaHealth},
+		} {
+			if candidate.runner != nil {
+				runners = append(runners, candidate)
+			}
 		}
 		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {
@@ -546,21 +564,20 @@ func (a *App) Close(ctx context.Context) error {
 	done := a.shutdownDone
 	a.shutdownMu.Unlock()
 
+	// A shutdown that finished as the deadline passed reports its own result,
+	// not the deadline.
 	select {
 	case <-done:
-		a.closeMu.Lock()
-		defer a.closeMu.Unlock()
-		return a.closeErr
 	case <-ctx.Done():
 		select {
 		case <-done:
-			a.closeMu.Lock()
-			defer a.closeMu.Unlock()
-			return a.closeErr
 		default:
 			return ctx.Err()
 		}
 	}
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
+	return a.closeErr
 }
 
 func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, done chan struct{}) {
@@ -614,23 +631,20 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 func forceCloseHTTP(ctx context.Context, server *http.Server) error {
 	result := make(chan error, 1)
 	go func() { result <- server.Close() }()
+	var err error
 	select {
-	case err := <-result:
-		if err == nil {
-			return nil
-		}
-		return fmt.Errorf("force close HTTP server: %w", err)
+	case err = <-result:
 	default:
-	}
-	select {
-	case err := <-result:
-		if err == nil {
-			return nil
+		select {
+		case err = <-result:
+		case <-ctx.Done():
+			err = ctx.Err()
 		}
-		return fmt.Errorf("force close HTTP server: %w", err)
-	case <-ctx.Done():
-		return fmt.Errorf("force close HTTP server: %w", ctx.Err())
 	}
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("force close HTTP server: %w", err)
 }
 
 func waitForDone(ctx context.Context, done <-chan struct{}, component string) error {

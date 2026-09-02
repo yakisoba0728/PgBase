@@ -41,22 +41,23 @@ func TestStartedAppDiagnosesSchemaHealthThroughTheNamedTaskRegistry(t *testing.T
 			t.Errorf("close app: %v", closeErr)
 		}
 	})
-	if app.schemaHealth == nil {
-		t.Fatal("the app did not construct a schema health sampler")
+	sampler, ok := app.schemaHealth.(*schemaHealthSampler)
+	if !ok {
+		t.Fatalf("schema health runner = %T, want *schemaHealthSampler", app.schemaHealth)
 	}
-	before := app.schemaHealth.Health(ctx)
+	before := sampler.Health(ctx)
 	if before.State != api.SchemaHealthUnavailable {
 		t.Fatalf("health before startup = %#v, want an undiagnosed schema", before)
 	}
 
 	go func() { _ = app.Start(ctx) }()
 	select {
-	case <-app.schemaHealth.sampled:
+	case <-sampler.sampled:
 	case <-time.After(30 * time.Second):
 		t.Fatal("the started app never diagnosed schema health")
 	}
 
-	health := app.schemaHealth.Health(ctx)
+	health := sampler.Health(ctx)
 	if health.State != api.SchemaHealthHealthy {
 		t.Fatalf("health = %#v, want a healthy diagnosis", health)
 	}

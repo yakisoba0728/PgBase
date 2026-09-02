@@ -101,20 +101,8 @@ func (s *systemStatusSampler) Status(context.Context) api.SystemStatus {
 	return snapshot
 }
 
-// Run samples immediately and then on the configured interval until the
-// context is cancelled, which is the app's shutdown signal.
 func (s *systemStatusSampler) Run(ctx context.Context) error {
-	s.sample(ctx)
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			s.sample(ctx)
-		}
-	}
+	return sampleLoop(ctx, s.interval, s.sample)
 }
 
 func (s *systemStatusSampler) sample(ctx context.Context) {
@@ -167,18 +155,7 @@ func (s *systemStatusSampler) sample(ctx context.Context) {
 	s.mu.Lock()
 	s.snapshot = next
 	s.mu.Unlock()
-	s.signalSampled()
-}
-
-// signalSampled closes the first-sample gate exactly once. Only the startup
-// test waits on it; the app itself never blocks on a sample completing, and a
-// request served before the gate closes sees the unsampled snapshot.
-func (s *systemStatusSampler) signalSampled() {
-	select {
-	case <-s.sampled:
-	default:
-		close(s.sampled)
-	}
+	closeGate(s.sampled)
 }
 
 func (s *systemStatusSampler) probeDatabase(ctx context.Context) error {
