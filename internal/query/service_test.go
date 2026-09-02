@@ -265,7 +265,6 @@ func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
 	if err := pool.QueryRow(ctx, `select clock_timestamp()`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	records.now = func() time.Time { return time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC) }
 	created, err := records.Create(ctx, "clock_records", map[string]json.RawMessage{"title": json.RawMessage(`"database time"`)})
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +276,7 @@ func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if createdAt.Before(before) || createdAt.After(after) || createdAt.Year() == 2099 {
+	if createdAt.Before(before) || createdAt.After(after) {
 		t.Fatalf("created_at = %s, want database clock between %s and %s", createdAt, before, after)
 	}
 }

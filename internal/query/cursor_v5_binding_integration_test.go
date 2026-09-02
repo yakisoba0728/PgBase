@@ -43,7 +43,6 @@ func TestListContinuesSignedV5ScalarPageWithinBoundMembership(t *testing.T) {
 	}
 	collection := catalog.Collections["cursor_v5_scalar_records"]
 	installReadyMembershipFixture(t, ctx, pool, collection, ids)
-	records.now = func() time.Time { return time.Date(2026, 9, 2, 4, 0, 0, 0, time.UTC) }
 	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
 
 	page, err := records.List(ctx, ListRequest{
@@ -85,20 +84,22 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 	}
 	collection := catalog.Collections["cursor_v5_chain_records"]
 	installReadyMembershipFixture(t, ctx, pool, collection, ids)
-	fixedNow := time.Date(2026, 9, 2, 5, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
 	firstPage, err := records.List(ctx, ListRequest{
 		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
 	})
 	if err != nil {
 		t.Fatalf("List(cursorless first page): %v", err)
 	}
-	firstCursor, err := records.cursors.Decode(firstPage.NextCursor, collection.ID, fixedNow)
+	firstCursor, err := records.cursors.Decode(firstPage.NextCursor, collection.ID, time.Time{})
 	if err != nil || firstCursor.Version != cursor.Version4 {
 		t.Fatalf("cursorless first page issued %#v, %v; want explicit v4", firstCursor, err)
 	}
 	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 4)
-	wantExpiry := fixedNow.Add(cursorTTL)
+	initial, err := records.cursors.Decode(token, collection.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(initial v5 cursor): %v", err)
+	}
+	wantExpiry := initial.ExpiresAt
 
 	for pageNumber, wantID := range ids[1:] {
 		page, err := records.List(ctx, ListRequest{
@@ -116,7 +117,7 @@ func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T
 			}
 			continue
 		}
-		decoded, err := records.cursors.Decode(page.NextCursor, collection.ID, fixedNow)
+		decoded, err := records.cursors.Decode(page.NextCursor, collection.ID, time.Time{})
 		if err != nil {
 			t.Fatalf("Decode(v5 page %d cursor): %v", pageNumber+2, err)
 		}
@@ -153,8 +154,6 @@ func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
 	}
 	collection := catalog.Collections["cursor_v5_binding_records"]
 	installReadyMembershipFixture(t, ctx, pool, collection, ids)
-	fixedNow := time.Date(2026, 9, 2, 6, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
 	valid := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
 	otherPrincipal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")}
 
@@ -186,7 +185,7 @@ func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
 			}
 			token := valid
 			if test.mutate != nil {
-				page, err := records.cursors.Decode(valid, collection.ID, fixedNow)
+				page, err := records.cursors.Decode(valid, collection.ID, time.Time{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -227,8 +226,7 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 	posts := catalog.Collections["relation_query_posts"]
 	people := catalog.Collections["relation_query_people"]
 	installReadyMembershipFixture(t, ctx, pool, posts, []uuid.UUID{fixture.postAda, fixture.postBob})
-	fixedNow := time.Date(2026, 9, 2, 7, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
+	expiresAt := databaseCursorExpiryFixture(t, records)
 
 	encode := func(highWater int64) string {
 		t.Helper()
@@ -248,7 +246,7 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 		token, err := records.cursors.Encode(cursor.Page{
 			Version: cursor.Version5, CollectionID: posts.ID,
 			Values: []json.RawMessage{nameJSON, idJSON}, AnchorID: fixture.postAda,
-			PrivateValues: true, ExpiresAt: fixedNow.Add(cursorTTL),
+			PrivateValues: true, ExpiresAt: expiresAt,
 			V5: &cursor.V5Descriptor{
 				CatalogVersion: catalog.Version, MembershipGeneration: 1, HighWater: highWater,
 				QueryHash: records.cursors.QueryFingerprint([]byte(`{"filter":null}`)),
@@ -264,7 +262,7 @@ func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T
 		if err != nil {
 			t.Fatalf("Encode(anchor-only relation v5): %v", err)
 		}
-		decoded, err := records.cursors.Decode(token, posts.ID, fixedNow)
+		decoded, err := records.cursors.Decode(token, posts.ID, time.Time{})
 		if err != nil || len(decoded.Values) != 0 || decoded.AnchorID != fixture.postAda {
 			t.Fatalf("relation cursor is not anchor-only: %#v, %v", decoded, err)
 		}
@@ -328,7 +326,6 @@ func TestListPreservesV5HighWaterAcrossSequentialHydrationBatches(t *testing.T) 
 	}
 	collection := catalog.Collections["cursor_v5_batch_roots"]
 	installReadyMembershipFixture(t, ctx, pool, collection, ids)
-	records.now = func() time.Time { return time.Date(2026, 9, 2, 8, 0, 0, 0, time.UTC) }
 	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "record-a", 18)
 
 	page, err := records.List(ctx, ListRequest{
@@ -380,7 +377,7 @@ func encodeScalarV5CursorFixture(
 		Version:      cursor.Version5,
 		CollectionID: collection.ID,
 		Values:       []json.RawMessage{anchorTitleJSON, anchorIDJSON},
-		ExpiresAt:    records.now().UTC().Add(cursorTTL),
+		ExpiresAt:    databaseCursorExpiryFixture(t, records),
 		V5: &cursor.V5Descriptor{
 			CatalogVersion: catalog.Version, MembershipGeneration: 1,
 			QueryHash: queryHash, ScopeHash: scopeHash, HighWater: highWater,
@@ -394,6 +391,15 @@ func encodeScalarV5CursorFixture(
 		t.Fatalf("Encode(v5 fixture): %v", err)
 	}
 	return token
+}
+
+func databaseCursorExpiryFixture(t *testing.T, records *Service) time.Time {
+	t.Helper()
+	var databaseTime time.Time
+	if err := records.pool.QueryRow(context.Background(), `select clock_timestamp()`).Scan(&databaseTime); err != nil {
+		t.Fatalf("read database time: %v", err)
+	}
+	return databaseTime.UTC().Add(cursorTTL)
 }
 
 func installReadyMembershipFixture(

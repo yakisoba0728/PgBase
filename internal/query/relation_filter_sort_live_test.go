@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,7 +21,6 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	ctx := context.Background()
 	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC) }
 
 	assertIDs := func(name, filter, sortText string, want ...uuid.UUID) {
 		t.Helper()
@@ -98,7 +96,6 @@ func TestListRelationAwareKeepsScalarListCursorExactlyCompatible(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC) }
 	legacy, err := records.listScalar(ctx, "relation_scalar_compat", "", 2, "name >= 'alpha'", "name")
 	if err != nil {
 		t.Fatal(err)
@@ -109,11 +106,11 @@ func TestListRelationAwareKeepsScalarListCursorExactlyCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyJSON, _ := json.Marshal(legacy)
-	relationJSON, _ := json.Marshal(relationAware)
-	if !bytes.Equal(legacyJSON, relationJSON) {
-		t.Fatalf("scalar relation-aware page = %s, legacy = %s", relationJSON, legacyJSON)
+	if !reflect.DeepEqual(legacy.Items, relationAware.Items) {
+		t.Fatalf("scalar relation-aware items = %#v, legacy = %#v", relationAware.Items, legacy.Items)
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "relation_scalar_compat"), relationAware.NextCursor, legacy.NextCursor)
 }
 
 func TestListExpandedCombinesRelationFilterSortWithNestedAndReverseExpansion(t *testing.T) {
@@ -121,7 +118,6 @@ func TestListExpandedCombinesRelationFilterSortWithNestedAndReverseExpansion(t *
 	ctx := context.Background()
 	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC) }
 
 	filtered, err := records.ListExpanded(ctx, ListRequest{
 		Principal: principal, Collection: "relation_query_posts", Limit: 10,

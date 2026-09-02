@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,7 +17,6 @@ func TestListExpandedHydratesNestedForwardPathsBreadthFirstWithoutNPlusOne(t *te
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 7, 0, 0, 0, time.UTC) }
 	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -36,9 +34,11 @@ func TestListExpandedHydratesNestedForwardPathsBreadthFirstWithoutNPlusOne(t *te
 	if len(page.Items) != 2 || page.querySteps != 5 {
 		t.Fatalf("nested page items/steps = %d/%d, want 2/5", len(page.Items), page.querySteps)
 	}
-	if page.NextCursor == "" || page.NextCursor != base.NextCursor {
-		t.Fatalf("nested expand changed root cursor: expanded=%q base=%q", page.NextCursor, base.NextCursor)
+	if page.NextCursor == "" {
+		t.Fatal("nested expand did not issue a root cursor")
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "expand_posts"), page.NextCursor, base.NextCursor)
 	for _, item := range page.Items {
 		if item.Root["owner"] != graph.ada.String() {
 			t.Fatalf("root owner = %#v", item.Root["owner"])

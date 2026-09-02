@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -22,7 +22,7 @@ var (
 )
 
 const (
-	cursorTTL              = 15 * time.Minute
+	cursorTTL              = membership.CursorTTL
 	maximumRecordPageBytes = 4 << 20
 )
 
@@ -34,13 +34,13 @@ type RecordPage struct {
 type Record = recordartifact.Record
 
 type Service struct {
-	pool         *database.Pool
-	schemas      *schema.Service
-	cursors      *cursor.Codec
-	expandLimits expandLimits
-	now          func() time.Time
-	logger       *slog.Logger
-	recorder     observability.Recorder
+	pool               *database.Pool
+	schemas            *schema.Service
+	cursors            *cursor.Codec
+	expandLimits       expandLimits
+	transactionTimeSQL string
+	logger             *slog.Logger
+	recorder           observability.Recorder
 }
 
 func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, loggers ...*slog.Logger) *Service {
@@ -53,9 +53,8 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 
 func NewServiceWithRecorder(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
 	return &Service{
-		pool: pool, schemas: schemas, cursors: cursor.NewCodec(cursorSecret), now: time.Now,
-		expandLimits: defaultExpandLimits,
-		logger:       logger, recorder: recorder,
+		pool: pool, schemas: schemas, cursors: cursor.NewCodec(cursorSecret),
+		expandLimits: defaultExpandLimits, transactionTimeSQL: `select transaction_timestamp()`, logger: logger, recorder: recorder,
 	}
 }
 
@@ -100,7 +99,7 @@ func (s *Service) record(ctx context.Context, event observability.Event) {
 }
 
 func (s *Service) ready() error {
-	if s == nil || s.pool == nil || s.schemas == nil || s.cursors == nil || s.now == nil {
+	if s == nil || s.pool == nil || s.schemas == nil || s.cursors == nil || s.transactionTimeSQL == "" {
 		return errors.New("record service is unavailable")
 	}
 	return nil

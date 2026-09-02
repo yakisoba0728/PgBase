@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,9 +20,7 @@ func TestReadKernelListPreservesRootIdentityAndCursorAcrossScalarRelationAndExpa
 		Kind: PrincipalAdministrator,
 		ID:   uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 	}
-	records.now = func() time.Time {
-		return time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	}
+	collectionID := mustCollectionID(t, schemas, "relation_query_posts")
 
 	t.Run("scalar root plan", func(t *testing.T) {
 		legacy, err := records.listScalar(ctx, "relation_query_posts", "", 1, "", "title")
@@ -54,10 +51,11 @@ func TestReadKernelListPreservesRootIdentityAndCursorAcrossScalarRelationAndExpa
 		if got := expandedRootIDs(expanded.Items); !reflect.DeepEqual(got, wantFirst) {
 			t.Fatalf("expanded root ids = %v, want %v", got, wantFirst)
 		}
-		if legacy.NextCursor == "" || relationAware.NextCursor != legacy.NextCursor || expanded.NextCursor != legacy.NextCursor {
-			t.Fatalf("scalar cursors legacy=%q relation-aware=%q expanded=%q",
-				legacy.NextCursor, relationAware.NextCursor, expanded.NextCursor)
+		if legacy.NextCursor == "" {
+			t.Fatal("scalar root page did not issue a cursor")
 		}
+		assertEquivalentCursorIgnoringExpiry(t, records, collectionID, relationAware.NextCursor, legacy.NextCursor)
+		assertEquivalentCursorIgnoringExpiry(t, records, collectionID, expanded.NextCursor, legacy.NextCursor)
 
 		fromLegacy, err := records.ListExpanded(ctx, ListRequest{
 			Principal: principal, Collection: "relation_query_posts", Cursor: legacy.NextCursor,
@@ -101,9 +99,10 @@ func TestReadKernelListPreservesRootIdentityAndCursorAcrossScalarRelationAndExpa
 		if got := expandedRootIDs(expanded.Items); !reflect.DeepEqual(got, wantFirst) {
 			t.Fatalf("expanded relation root ids = %v, want %v", got, wantFirst)
 		}
-		if raw.NextCursor == "" || expanded.NextCursor != raw.NextCursor {
-			t.Fatalf("relation cursors raw=%q expanded=%q", raw.NextCursor, expanded.NextCursor)
+		if raw.NextCursor == "" {
+			t.Fatal("relation root page did not issue a cursor")
 		}
+		assertEquivalentCursorIgnoringExpiry(t, records, collectionID, expanded.NextCursor, raw.NextCursor)
 
 		fromRaw, err := records.ListExpanded(ctx, ListRequest{
 			Principal: principal, Collection: "relation_query_posts", Cursor: raw.NextCursor,
@@ -137,10 +136,6 @@ func TestReadKernelRelationDescendingSortCrossesDuplicateAndNullBoundariesWithou
 		Kind: PrincipalAdministrator,
 		ID:   uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 	}
-	records.now = func() time.Time {
-		return time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
-	}
-
 	createPerson := func(name string) uuid.UUID {
 		t.Helper()
 		record, err := records.Create(ctx, "relation_query_people", map[string]json.RawMessage{

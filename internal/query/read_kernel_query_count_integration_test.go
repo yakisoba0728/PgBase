@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,11 +17,11 @@ import (
 )
 
 const (
-	queryCountScalarCeiling                 = 1
-	queryCountOneBatchTwoMultiFieldsCeiling = 3
-	queryCountTwoBatchTwoMultiFieldsCeiling = 6
-	queryCountShallowExpandCeiling          = 4
-	queryCountNestedExpandCeiling           = 5
+	queryCountScalarCeiling                 = 2
+	queryCountOneBatchTwoMultiFieldsCeiling = 4
+	queryCountTwoBatchTwoMultiFieldsCeiling = 7
+	queryCountShallowExpandCeiling          = 5
+	queryCountNestedExpandCeiling           = 6
 )
 
 type readKernelQueryTracer struct {
@@ -64,15 +63,12 @@ func TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount(t *testing.T
 	databaseURL, pool, schemas, records := newR0QueryServiceTest(t)
 	ctx := context.Background()
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse(r0AdministratorID)}
-	records.now = func() time.Time {
-		return time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
-	}
 
 	seedQueryCountScalarFixture(t, ctx, pool, schemas, 64)
 	seedQueryCountMultiFixture(t, ctx, pool, schemas, 64)
 	createExpandGraph(t, ctx, pool, schemas, records, 40)
 
-	t.Run("plain scalar stays at one query", func(t *testing.T) {
+	t.Run("plain scalar stays at one root query plus transaction time", func(t *testing.T) {
 		one := measureUnifiedListQueries(t, databaseURL, schemas, records, ListRequest{
 			Principal: principal, Collection: "query_count_scalar", Limit: 1,
 		})
@@ -212,9 +208,11 @@ func measureUnifiedListQueries(
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(traced.page, publicPage) {
+	if !reflect.DeepEqual(traced.page.Items, publicPage.Items) {
 		t.Fatalf("traced kernel page differs from public List\ntraced: %#v\npublic: %#v", traced.page, publicPage)
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records, collection.ID,
+		traced.page.NextCursor, publicPage.NextCursor)
 	return measuredUnifiedList{page: publicPage, statements: statements}
 }
 
@@ -224,6 +222,16 @@ func assertQueryCountCeiling(t *testing.T, name string, measured measuredUnified
 	if count == 0 || count > ceiling {
 		t.Fatalf("%s query count = %d, want 1..%d\n%s",
 			name, count, ceiling, formatQueryTrace(measured.statements))
+	}
+	timestampQueries := 0
+	for _, statement := range measured.statements {
+		if statement == "select transaction_timestamp()" {
+			timestampQueries++
+		}
+	}
+	if timestampQueries != 1 {
+		t.Fatalf("%s transaction-time query count = %d, want exactly 1\n%s",
+			name, timestampQueries, formatQueryTrace(measured.statements))
 	}
 }
 

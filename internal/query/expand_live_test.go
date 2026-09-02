@@ -84,8 +84,6 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	fixedNow := time.Date(2026, 8, 31, 5, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
 
 	base, err := records.listScalar(ctx, "expand_posts", "", 2, "", "")
 	if err != nil {
@@ -98,9 +96,11 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	if err != nil {
 		t.Fatalf("ListExpanded(): %v", err)
 	}
-	if expanded.NextCursor == "" || expanded.NextCursor != base.NextCursor {
-		t.Fatalf("expanded cursor = %q, base cursor = %q", expanded.NextCursor, base.NextCursor)
+	if expanded.NextCursor == "" {
+		t.Fatal("expanded page did not issue a root cursor")
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "expand_posts"), expanded.NextCursor, base.NextCursor)
 	if len(expanded.Items) != 2 || expanded.querySteps != 6 {
 		t.Fatalf("expanded page items/steps = %d/%d, want 2/6", len(expanded.Items), expanded.querySteps)
 	}
@@ -374,8 +374,8 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 4)
-	fixedNow := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
+	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
+	records.transactionTimeSQL = `select '2026-08-31 06:00:00+00'::timestamptz`
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
 		Collection: "expand_posts", Limit: 3, Expand: "owner,reviewers",
@@ -390,13 +390,14 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	collectionID := mustCollectionID(t, schemas, "expand_posts")
 	expectedCursor, err := records.cursors.Encode(cursor.Page{
-		Version: cursor.Version4, CollectionID: mustCollectionID(t, schemas, "expand_posts"),
+		Version: cursor.Version4, CollectionID: collectionID,
 		Sort: []cursor.SortKey{
 			{Field: sortKeys[0].Field, Desc: sortKeys[0].Desc},
 			{Field: sortKeys[1].Field, Desc: sortKeys[1].Desc},
 		}, Values: values, AnchorID: uuid.MustParse(anchor["id"].(string)),
-		ExpiresAt: fixedNow.Add(cursorTTL),
+		ExpiresAt: fixedTransactionTime.Add(cursorTTL),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -443,7 +444,6 @@ func TestExpandedCursorIgnoresTargetUpdates(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 7, 0, 0, 0, time.UTC) }
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
 		Collection: "expand_posts", Limit: 2, Expand: "owner",
@@ -461,9 +461,11 @@ func TestExpandedCursorIgnoresTargetUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.NextCursor == "" || after.NextCursor != before.NextCursor {
-		t.Fatalf("target update changed root cursor: before=%q after=%q", before.NextCursor, after.NextCursor)
+	if before.NextCursor == "" {
+		t.Fatal("expanded page did not issue a root cursor")
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "expand_posts"), after.NextCursor, before.NextCursor)
 	if after.Items[0].Expand["owner"].(map[string]any)["name"] != "Ada changed" {
 		t.Fatalf("target update was not visible in expansion: %#v", after.Items[0].Expand["owner"])
 	}

@@ -119,7 +119,6 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatal(err)
 	}
 	operationTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return operationTime }
 	publicPage, err := records.listScalar(ctx, root.Name, "", r0HydrationRootCount, "", "")
 	if err != nil {
 		t.Fatalf("List(): %v", err)
@@ -191,12 +190,13 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatalf("emitted page items/cursor = %d/%t, want %d/true",
 			len(result.page.Items), result.page.NextCursor != "", r0HydrationEmitted)
 	}
-	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) ||
-		publicPage.NextCursor != result.page.NextCursor {
+	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) {
 		t.Fatalf("public List and traced root kernel disagree: public=%v/%q traced=%v/%q",
 			recordIDs(publicPage.Items), publicPage.NextCursor,
 			recordIDs(result.page.Items), result.page.NextCursor)
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records, collection.ID,
+		publicPage.NextCursor, result.page.NextCursor)
 }
 
 func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) {
@@ -239,7 +239,6 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 	}
 
 	operationTime := time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return operationTime }
 	publicPage, err := records.listScalar(ctx, root.Name, "", rootCount, "", "")
 	if err != nil {
 		t.Fatalf("List(): %v", err)
@@ -280,10 +279,12 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 				index, item["payload"], len(payload), item["links_a"], item["links_b"])
 		}
 	}
-	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) || publicPage.NextCursor != result.page.NextCursor {
+	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) {
 		t.Fatalf("large scalar public and kernel pages disagree: public=%v/%q kernel=%v/%q",
 			recordIDs(publicPage.Items), publicPage.NextCursor, recordIDs(result.page.Items), result.page.NextCursor)
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records, root.ID,
+		publicPage.NextCursor, result.page.NextCursor)
 }
 
 func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing.T) {

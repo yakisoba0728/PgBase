@@ -203,10 +203,11 @@ func (s *Service) readListInTx(
 		return listResult{}, relationOperation, err
 	}
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
-	rootRequest := rootPageReadRequest{
-		plan:        rootPlan,
-		cursorToken: request.Cursor, limit: request.Limit, operationTime: s.now().UTC(),
+	rootRequest := rootPageReadRequest{plan: rootPlan, cursorToken: request.Cursor, limit: request.Limit}
+	if err := tx.QueryRow(ctx, s.transactionTimeSQL).Scan(&rootRequest.operationTime); err != nil {
+		return listResult{}, relationOperation, fmt.Errorf("read record transaction time: %w", err)
 	}
+	rootRequest.operationTime = rootRequest.operationTime.UTC()
 	if usage == nil {
 		if collectionHasMultipleRelation(collection) {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection)
