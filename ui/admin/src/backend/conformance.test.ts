@@ -219,6 +219,20 @@ describe.each(harnesses)("$name conformance", ({ open }) => {
       .resolves.toEqual({ kind: "undecided", operationId: operationID });
   });
 
+  it("carries the collection an applied change produced so a caller need not re-read the catalog", async () => {
+    const script = backendScript();
+    script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });
+    script.apply.push({ value: { collection: posts } });
+    const backend = open(script);
+
+    const plan = await backend.schema.plan({ operation: "update", name: "posts", fields: [] });
+
+    await expect(backend.schema.apply(plan, new ApplyAttempt(mintedIdentity()))).resolves.toEqual({
+      kind: "applied",
+      definition: posts,
+    });
+  });
+
   it("reads a replayed apply as applied only when the stored receipt committed", async () => {
     const script = backendScript();
     script.plan.push({ value: { baseVersion: 7, checksum: "approved", fields: [], sql: [] } });

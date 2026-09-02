@@ -109,13 +109,18 @@ function receipt(raw: unknown): OperationReceipt {
   return bounded;
 }
 
-// A guarded apply that answers with a collection body committed. Every other
-// 2xx is the ledger speaking, and only a committed receipt is a success: a
-// replayed, recovered or still-running operation stays undecided.
+// A guarded apply that answers with a collection body committed, and that body
+// is the collection the change produced. Every other 2xx is the ledger
+// speaking, and only a committed receipt is a success: a replayed, recovered or
+// still-running operation stays undecided, and a committed receipt carries no
+// collection. A delete answers with neither, so the field list is what tells a
+// collection body apart from one.
 function applyOutcome(data: unknown, operationId: string): ApplyOutcome {
-  const status = (data as { status?: unknown } | undefined)?.status;
-  if (typeof status !== "string") return { kind: "applied" };
-  return status === "committed" ? { kind: "applied" } : { kind: "undecided", operationId };
+  const body = data as { status?: unknown; fields?: unknown } | undefined;
+  if (typeof body?.status !== "string") {
+    return Array.isArray(body?.fields) ? { kind: "applied", definition: data as CollectionDefinition } : { kind: "applied" };
+  }
+  return body.status === "committed" ? { kind: "applied" } : { kind: "undecided", operationId };
 }
 
 function recordPath(collection: string, id?: string): string {
