@@ -245,6 +245,19 @@ func (s *Service) executeClaimedOperation(
 	if intent.change.kind == changeCreate {
 		result.Collection.CreatedAt = appliedAt
 	}
+	// Claim this process's compiler version in the same transaction as the DDL.
+	// A schema writer that never proves its version also never mutates the
+	// catalog, so an activation reading unexpired leases sees every writer that
+	// could still be holding an old plan.
+	if err := s.refreshSchemaWriterLease(ctx, tx); err != nil {
+		return ApplyResult{}, nil, operationRow{}, err
+	}
+	// The change can introduce a field whose companion index does not exist yet.
+	// Closing the gate here, atomically with the catalog change, is what keeps a
+	// ready capability from ever describing a catalog it has not been built for.
+	if err := demoteCompanionIndexCapability(ctx, tx); err != nil {
+		return ApplyResult{}, nil, operationRow{}, err
+	}
 	started := time.Now()
 	if err := s.executePlan(ctx, tx, plan); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
