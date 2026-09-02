@@ -144,6 +144,9 @@ jobs:
     needs: [preflight, candidate, gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    concurrency:
+      group: release-promotion-${{ needs.preflight.outputs.channel }}
+      cancel-in-progress: false
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -158,11 +161,12 @@ jobs:
         env:
           CANDIDATE_IMAGE: ${{ needs.candidate.outputs.candidate_image }}
           EXPECTED_VERSION: ${{ needs.candidate.outputs.expected_version }}
+          CHANNEL_VERSION_OVERRIDE: ${{ vars.PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION }}
         run: |
           set -euo pipefail
           image="${CANDIDATE_IMAGE%@sha256:*}"
           scripts/support/promote-release-image.sh \
-            "$image" "$GITHUB_REF_NAME" "$CANDIDATE_IMAGE" "$EXPECTED_VERSION" \
+            "$image" "$GITHUB_REF_NAME" "$CANDIDATE_IMAGE" "$EXPECTED_VERSION" "$CHANNEL_VERSION_OVERRIDE" \
             2>&1 | tee "$RUNNER_TEMP/release-promotion-audit.txt"
 
       - name: Upload promotion digest audit

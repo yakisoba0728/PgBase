@@ -32,13 +32,29 @@ func releaseTagMatrix() []matrixRow {
 	}
 }
 
+func previousChannelVersion(row matrixRow) string {
+	switch row.channel {
+	case "latest":
+		return "v1.2.2"
+	case "alpha":
+		return "v1.2.3-alpha.0"
+	case "beta":
+		return "v1.2.3-beta.1"
+	case "rc":
+		return "v1.2.3-rc.3"
+	default:
+		panic("unsupported release channel " + row.channel)
+	}
+}
+
 func TestReleaseTagMatrixCreatesTheExactTagAndMovesOneChannel(t *testing.T) {
 	for _, row := range releaseTagMatrix() {
 		t.Run(row.name, func(t *testing.T) {
 			registry := newFakeRegistry(t)
 			// Every channel starts at a foreign digest so an unmoved channel is
 			// distinguishable from a channel that happened to already match.
-			for _, label := range append([]string{row.channel}, row.otherLabels...) {
+			registry.publishVersioned(releaseImage+":"+row.channel, foreignDigest, previousChannelVersion(row))
+			for _, label := range row.otherLabels {
 				registry.publish(releaseImage+":"+label, foreignDigest)
 			}
 			output, err := registry.run("promote-release-image.sh",
@@ -59,7 +75,8 @@ func TestReleaseTagMatrixLeavesEveryOtherChannelUntouched(t *testing.T) {
 	for _, row := range releaseTagMatrix() {
 		t.Run(row.name, func(t *testing.T) {
 			registry := newFakeRegistry(t)
-			for _, label := range append([]string{row.channel}, row.otherLabels...) {
+			registry.publishVersioned(releaseImage+":"+row.channel, foreignDigest, previousChannelVersion(row))
+			for _, label := range row.otherLabels {
 				registry.publish(releaseImage+":"+label, foreignDigest)
 			}
 			if output, err := registry.run("promote-release-image.sh",
@@ -88,7 +105,7 @@ func TestExactVersionTagAbsentSameAndDifferentDigest(t *testing.T) {
 
 	t.Run("absent creates the exact tag and moves the channel", func(t *testing.T) {
 		registry := newFakeRegistry(t)
-		registry.publish(channelReference, foreignDigest)
+		registry.publishVersioned(channelReference, foreignDigest, "v1.2.2")
 		output, err := registry.run("promote-release-image.sh", releaseImage, tag, releaseImage+"@"+candidateDigest, tag)
 		if err != nil {
 			t.Fatalf("promotion failed: %v\n%s", err, output)
@@ -104,8 +121,8 @@ func TestExactVersionTagAbsentSameAndDifferentDigest(t *testing.T) {
 
 	t.Run("same digest is an idempotent no-op on both references", func(t *testing.T) {
 		registry := newFakeRegistry(t)
-		registry.publish(exactReference, candidateDigest)
-		registry.publish(channelReference, candidateDigest)
+		registry.publishVersioned(exactReference, candidateDigest, tag)
+		registry.publishVersioned(channelReference, candidateDigest, tag)
 		output, err := registry.run("promote-release-image.sh", releaseImage, tag, releaseImage+"@"+candidateDigest, tag)
 		if err != nil {
 			t.Fatalf("promotion failed: %v\n%s", err, output)
@@ -117,8 +134,8 @@ func TestExactVersionTagAbsentSameAndDifferentDigest(t *testing.T) {
 
 	t.Run("same exact digest still moves a stale channel", func(t *testing.T) {
 		registry := newFakeRegistry(t)
-		registry.publish(exactReference, candidateDigest)
-		registry.publish(channelReference, foreignDigest)
+		registry.publishVersioned(exactReference, candidateDigest, tag)
+		registry.publishVersioned(channelReference, foreignDigest, "v1.2.2")
 		output, err := registry.run("promote-release-image.sh", releaseImage, tag, releaseImage+"@"+candidateDigest, tag)
 		if err != nil {
 			t.Fatalf("promotion failed: %v\n%s", err, output)
@@ -144,6 +161,203 @@ func TestExactVersionTagAbsentSameAndDifferentDigest(t *testing.T) {
 			t.Errorf("conflict did not name the immutable exact tag:\n%s", output)
 		}
 	})
+}
+
+func TestMovingReleaseChannelsNeverRegress(t *testing.T) {
+	tests := []struct{ channel, current, candidate string }{
+		{channel: "latest", current: "v1.2.4", candidate: "v1.2.3"},
+		{channel: "alpha", current: "v2.0.0-alpha.10", candidate: "v2.0.0-alpha.9"},
+		{channel: "beta", current: "v2.0.0-beta.10", candidate: "v2.0.0-beta.9"},
+		{channel: "rc", current: "v2.0.0-rc.10", candidate: "v2.0.0-rc.9"},
+	}
+	for _, test := range tests {
+		t.Run(test.channel, func(t *testing.T) {
+			registry := newFakeRegistry(t)
+			registry.publishVersioned(releaseImage+":"+test.channel, foreignDigest, test.current)
+
+			output, err := registry.run("promote-release-image.sh",
+				releaseImage, test.candidate, releaseImage+"@"+candidateDigest, test.candidate)
+			if err == nil {
+				t.Fatalf("older release regressed %s:\n%s", test.channel, output)
+			}
+			if mutations := registry.mutations(); len(mutations) != 0 {
+				t.Fatalf("rejected regression still mutated %v", mutations)
+			}
+			if !strings.Contains(output, "channel_version_before="+test.current) {
+				t.Fatalf("rejected regression omitted current version evidence:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestMovingReleaseChannelsCompareCanonicalVersionsWithoutIntegerBounds(t *testing.T) {
+	tests := []struct{ channel, current, candidate string }{
+		{
+			channel:   "latest",
+			current:   "v999999999999999999999999999999999999999.8.7",
+			candidate: "v1000000000000000000000000000000000000000.0.0",
+		},
+		{
+			channel:   "alpha",
+			current:   "v2.0.0-alpha.999999999999999999999999999999999999999",
+			candidate: "v2.0.0-alpha.1000000000000000000000000000000000000000",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.channel, func(t *testing.T) {
+			registry := newFakeRegistry(t)
+			registry.publishVersioned(releaseImage+":"+test.channel, foreignDigest, test.current)
+
+			output, err := registry.run("promote-release-image.sh",
+				releaseImage, test.candidate, releaseImage+"@"+candidateDigest, test.candidate)
+			if err != nil {
+				t.Fatalf("newer unbounded release was rejected: %v\n%s", err, output)
+			}
+			assertMutations(t, registry, map[string]string{
+				releaseImage + ":" + test.candidate: candidateDigest,
+				releaseImage + ":" + test.channel:   candidateDigest,
+			})
+		})
+	}
+}
+
+func TestEqualMovingChannelVersionWithDifferentDigestFailsBeforeMutation(t *testing.T) {
+	registry := newFakeRegistry(t)
+	registry.publishVersioned(releaseImage+":latest", foreignDigest, "v1.2.3")
+
+	output, err := registry.run("promote-release-image.sh",
+		releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3")
+	if err == nil {
+		t.Fatalf("equal version with a different digest was accepted:\n%s", output)
+	}
+	if mutations := registry.mutations(); len(mutations) != 0 {
+		t.Fatalf("equal-version conflict mutated %v", mutations)
+	}
+}
+
+func TestLegacyUnlabelledChannelRequiresAnExactTagAnchoredBootstrap(t *testing.T) {
+	const currentVersion = "v1.2.2"
+	channelReference := releaseImage + ":latest"
+
+	t.Run("missing explicit version fails closed", func(t *testing.T) {
+		registry := newFakeRegistry(t)
+		registry.publish(channelReference, foreignDigest)
+		output, err := registry.run("promote-release-image.sh",
+			releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3")
+		if err == nil {
+			t.Fatalf("unlabelled channel was accepted without a bootstrap version:\n%s", output)
+		}
+		if mutations := registry.mutations(); len(mutations) != 0 {
+			t.Fatalf("missing bootstrap version mutated %v", mutations)
+		}
+	})
+
+	t.Run("unanchored version fails closed", func(t *testing.T) {
+		registry := newFakeRegistry(t)
+		registry.publish(channelReference, foreignDigest)
+		output, err := registry.run("promote-release-image.sh",
+			releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3", currentVersion)
+		if err == nil {
+			t.Fatalf("unanchored bootstrap version was accepted:\n%s", output)
+		}
+		if mutations := registry.mutations(); len(mutations) != 0 {
+			t.Fatalf("unanchored bootstrap version mutated %v", mutations)
+		}
+	})
+
+	t.Run("wrong exact-tag digest fails closed", func(t *testing.T) {
+		registry := newFakeRegistry(t)
+		registry.publish(channelReference, foreignDigest)
+		registry.publish(releaseImage+":"+currentVersion, digest("ef"))
+		output, err := registry.run("promote-release-image.sh",
+			releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3", currentVersion)
+		if err == nil {
+			t.Fatalf("wrong immutable anchor was accepted:\n%s", output)
+		}
+		if mutations := registry.mutations(); len(mutations) != 0 {
+			t.Fatalf("wrong immutable anchor mutated %v", mutations)
+		}
+	})
+
+	t.Run("matching immutable exact tag permits one-time bootstrap", func(t *testing.T) {
+		registry := newFakeRegistry(t)
+		registry.publish(channelReference, foreignDigest)
+		registry.publish(releaseImage+":"+currentVersion, foreignDigest)
+		output, err := registry.run("promote-release-image.sh",
+			releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3", currentVersion)
+		if err != nil {
+			t.Fatalf("anchored legacy bootstrap failed: %v\n%s", err, output)
+		}
+		assertMutations(t, registry, map[string]string{
+			releaseImage + ":v1.2.3": candidateDigest,
+			channelReference:         candidateDigest,
+		})
+		if !strings.Contains(output, "channel_version_source=legacy-exact-tag") {
+			t.Fatalf("bootstrap audit omitted its evidence source:\n%s", output)
+		}
+	})
+}
+
+func TestMovingChannelRejectsMalformedAndCrossChannelLabelsBeforeMutation(t *testing.T) {
+	for _, version := range []string{"v01.2.3", "v1.2.3-rc.1"} {
+		t.Run(version, func(t *testing.T) {
+			registry := newFakeRegistry(t)
+			registry.publishVersioned(releaseImage+":latest", foreignDigest, version)
+			output, err := registry.run("promote-release-image.sh",
+				releaseImage, "v1.2.4", releaseImage+"@"+candidateDigest, "v1.2.4")
+			if err == nil {
+				t.Fatalf("invalid current label %q was accepted:\n%s", version, output)
+			}
+			if mutations := registry.mutations(); len(mutations) != 0 {
+				t.Fatalf("invalid current label %q mutated %v", version, mutations)
+			}
+		})
+	}
+}
+
+func TestPresentMalformedLabelCannotUseTheLegacyBootstrapEscapeHatch(t *testing.T) {
+	for _, malformed := range []string{"", "absent", "v1.2.2\n", "v1.2.2\x00"} {
+		t.Run("label="+malformed, func(t *testing.T) {
+			registry := newFakeRegistry(t)
+			registry.publishVersioned(releaseImage+":latest", foreignDigest, malformed)
+			registry.publish(releaseImage+":v1.2.2", foreignDigest)
+
+			output, err := registry.run("promote-release-image.sh",
+				releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3", "v1.2.2")
+			if err == nil {
+				t.Fatalf("present malformed label %q used the legacy bootstrap:\n%s", malformed, output)
+			}
+			if mutations := registry.mutations(); len(mutations) != 0 {
+				t.Fatalf("present malformed label %q mutated %v", malformed, mutations)
+			}
+		})
+	}
+}
+
+func TestPromotionRejectsCandidateVersionMismatchBeforeMutation(t *testing.T) {
+	registry := newFakeRegistry(t)
+	registry.candidateVersion = "v1.2.2"
+	output, err := registry.run("promote-release-image.sh",
+		releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3")
+	if err == nil {
+		t.Fatalf("mislabeled candidate was accepted:\n%s", output)
+	}
+	if mutations := registry.mutations(); len(mutations) != 0 {
+		t.Fatalf("mislabeled candidate mutated %v", mutations)
+	}
+}
+
+func TestPromotionReadbackRequiresVersionAsWellAsDigest(t *testing.T) {
+	registry := newFakeRegistry(t)
+	registry.dropCreatedVersion = true
+	output, err := registry.run("promote-release-image.sh",
+		releaseImage, "v1.2.3", releaseImage+"@"+candidateDigest, "v1.2.3")
+	if err == nil {
+		t.Fatalf("digest-only readback was accepted:\n%s", output)
+	}
+	if !strings.Contains(output, "promotion readback did not preserve version") {
+		t.Fatalf("version readback failure was not diagnosed:\n%s", output)
+	}
 }
 
 func TestUnsupportedReleaseInputIsRejectedBeforeAnyRegistryCall(t *testing.T) {
@@ -253,10 +467,14 @@ func assertAuditRecordsDigests(t *testing.T, output, channel string) {
 	t.Helper()
 	for _, field := range []string{
 		"exact_before=",
+		"candidate_version=",
 		"channel=" + channel,
 		"channel_before=",
+		"channel_version_before=",
 		"exact_after=" + candidateDigest,
 		"channel_after=" + candidateDigest,
+		"exact_version_after=",
+		"channel_version_after=",
 	} {
 		if !strings.Contains(output, field) {
 			t.Errorf("promotion audit is missing %q:\n%s", field, output)

@@ -26,7 +26,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/webisnoteasy/
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-LABEL org.opencontainers.image.source="https://github.com/webisnoteasy/PgBase"
+ARG VERSION=dev
+LABEL org.opencontainers.image.source="https://github.com/webisnoteasy/PgBase" \
+      org.opencontainers.image.version="${VERSION}"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=nonroot:nonroot /out/pgbase /pgbase
 USER nonroot:nonroot

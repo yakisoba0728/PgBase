@@ -1,6 +1,7 @@
 package release
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,15 @@ inspect)
 		echo "ERROR: $reference: not found" >&2
 		exit 1
 	fi
+	if [[ "${5:-}" == "--format" && "${6:-}" == *'.Image'* ]]; then
+		version_entry="$entry.version"
+		if [[ ! -f "$version_entry" ]]; then
+			printf '{"linux/amd64":{"config":{"Labels":{}}}}\n'
+			exit 0
+		fi
+		printf '{"linux/amd64":{"config":{"Labels":{"org.opencontainers.image.version":%s}}}}\n' "$(cat "$version_entry")"
+		exit 0
+	fi
 	printf '{"digest":"%s","mediaType":"application/vnd.oci.image.manifest.v1+json"}\n' "$(cat "$entry")"
 	exit 0
 	;;
@@ -68,7 +78,12 @@ create)
 	fi
 	digest="${source_reference##*@}"
 	printf 'create\t%s\t%s\n' "$target" "$digest" >>"$log"
-	printf '%s' "$digest" >"$state/$(reference_key "$target")"
+	target_entry="$state/$(reference_key "$target")"
+	printf '%s' "$digest" >"$target_entry"
+	source_version="$state/$(reference_key "$source_reference").version"
+	if [[ -f "$source_version" && "${PGBASE_FAKE_DROP_CREATED_VERSION:-}" != "1" ]]; then
+		cp "$source_version" "$target_entry.version"
+	fi
 	exit 0
 	;;
 *)
@@ -89,6 +104,9 @@ type fakeRegistry struct {
 	stateDir  string
 	logPath   string
 	pathValue string
+
+	candidateVersion   string
+	dropCreatedVersion bool
 }
 
 func newFakeRegistry(t *testing.T) *fakeRegistry {
@@ -117,6 +135,23 @@ func newFakeRegistry(t *testing.T) *fakeRegistry {
 func (r *fakeRegistry) publish(reference, digest string) {
 	r.t.Helper()
 	if err := os.WriteFile(filepath.Join(r.stateDir, referenceKey(reference)), []byte(digest), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *fakeRegistry) publishVersioned(reference, digest, version string) {
+	r.t.Helper()
+	r.publish(reference, digest)
+	r.writeVersion(reference, version)
+}
+
+func (r *fakeRegistry) writeVersion(reference, version string) {
+	r.t.Helper()
+	encoded, err := json.Marshal(version)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.stateDir, referenceKey(reference)+".version"), encoded, 0o644); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -168,12 +203,26 @@ func (r *fakeRegistry) inspected(reference string) bool {
 
 func (r *fakeRegistry) run(script string, arguments ...string) (string, error) {
 	r.t.Helper()
+	if script == "promote-release-image.sh" && len(arguments) >= 4 {
+		candidateEntry := filepath.Join(r.stateDir, referenceKey(arguments[2]))
+		if err := os.WriteFile(candidateEntry, []byte(arguments[2][strings.LastIndex(arguments[2], "@")+1:]), 0o644); err != nil {
+			r.t.Fatal(err)
+		}
+		candidateVersion := r.candidateVersion
+		if candidateVersion == "" {
+			candidateVersion = arguments[3]
+		}
+		r.writeVersion(arguments[2], candidateVersion)
+	}
 	command := exec.Command(filepath.Join(repositoryRoot(r.t), "scripts", "support", script), arguments...)
 	command.Env = append(os.Environ(),
 		"PATH="+r.pathValue,
 		"PGBASE_FAKE_REGISTRY_STATE="+r.stateDir,
 		"PGBASE_FAKE_REGISTRY_LOG="+r.logPath,
 	)
+	if r.dropCreatedVersion {
+		command.Env = append(command.Env, "PGBASE_FAKE_DROP_CREATED_VERSION=1")
+	}
 	output, err := command.CombinedOutput()
 	return string(output), err
 }

@@ -84,9 +84,13 @@ func TestReleasePromotionHandlesAbsentSameAndDifferentExactTagsWithoutRebuild(t 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			registry := newFakeRegistry(t)
-			registry.set(releaseImage+":latest", oldChannelDigest)
+			registry.setVersioned(releaseImage+":latest", oldChannelDigest, "v1.2.2")
 			if test.exactDigest != "" {
-				registry.set(releaseImage+":"+releaseExpectedVer, test.exactDigest)
+				if test.exactDigest == candidateDigest {
+					registry.setVersioned(releaseImage+":"+releaseExpectedVer, test.exactDigest, releaseExpectedVer)
+				} else {
+					registry.set(releaseImage+":"+releaseExpectedVer, test.exactDigest)
+				}
 			}
 
 			stdout, stderr, err := registry.promote(releaseExpectedVer, releaseExpectedVer)
@@ -275,6 +279,15 @@ if [[ "$1 $2 $3" == "buildx imagetools inspect" ]]; then
     echo "ERROR: $ref: not found" >&2
     exit 1
   fi
+  if [[ "${5:-}" == "--format" && "${6:-}" == *'.Image'* ]]; then
+    version_file="$file.version"
+    if [[ ! -f "$version_file" ]]; then
+      printf '{"config":{"Labels":{}}}\n'
+      exit 0
+    fi
+    printf '{"config":{"Labels":{"org.opencontainers.image.version":"%s"}}}\n' "$(<"$version_file")"
+    exit 0
+  fi
   printf '{"digest":"%s"}\n' "$(<"$file")"
   exit 0
 fi
@@ -290,7 +303,12 @@ if [[ "$1 $2 $3" == "buildx imagetools create" ]]; then
     esac
   done
   [[ -n "$target" && "$source" == *@sha256:* ]]
-  printf '%s' "${source##*@}" > "$(state_file "$target")"
+  target_file="$(state_file "$target")"
+  source_file="$(state_file "$source")"
+  printf '%s' "${source##*@}" > "$target_file"
+  if [[ -f "$source_file.version" ]]; then
+    cp "$source_file.version" "$target_file.version"
+  fi
   printf 'MUTATE %s %s\n' "$target" "$source" >> "$PGBASE_FAKE_REGISTRY_LOG"
   exit 0
 fi
@@ -312,6 +330,9 @@ func (r *fakeRegistry) promote(tag, expectedVersion string) (string, string, err
 
 func (r *fakeRegistry) promoteWithCandidate(tag, expectedVersion, candidate string) (string, string, error) {
 	r.t.Helper()
+	if strings.Contains(candidate, "@") {
+		r.setVersioned(candidate, candidate[strings.LastIndex(candidate, "@")+1:], expectedVersion)
+	}
 	command := exec.Command("bash", r.promotePath, releaseImage, tag, candidate, expectedVersion)
 	command.Env = append(os.Environ(),
 		"PATH="+r.fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -329,6 +350,14 @@ func (r *fakeRegistry) promoteWithCandidate(tag, expectedVersion, candidate stri
 func (r *fakeRegistry) set(ref, digest string) {
 	r.t.Helper()
 	if err := os.WriteFile(filepath.Join(r.directory, fakeRegistryKey(ref)), []byte(digest), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *fakeRegistry) setVersioned(ref, digest, version string) {
+	r.t.Helper()
+	r.set(ref, digest)
+	if err := os.WriteFile(filepath.Join(r.directory, fakeRegistryKey(ref)+".version"), []byte(version), 0o600); err != nil {
 		r.t.Fatal(err)
 	}
 }

@@ -82,7 +82,11 @@ selected as deployable phases by this workflow.
 | `vMAJOR.MINOR.PATCH-rc.N` | same | `rc` | `latest`, `alpha`, `beta` |
 | anything else, including build metadata and unsupported channels | rejected in preflight | none | all |
 
-Only a stable SemVer release moves `latest`. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. Promotion deletes no tags, and the before/after digests of the exact tag and the channel are retained as a build artifact.
+Only a stable SemVer release moves `latest`. Each channel has its own promotion concurrency group, and the promotion reads the current channel image's `org.opencontainers.image.version` label before it mutates either tag. The candidate must be strictly newer within that same channel; an older version, an equal version at another digest, a malformed/cross-channel label, or an unreadable label fails before every registry mutation. Numeric SemVer components and prerelease ordinals are compared as canonical decimal strings rather than machine integers, so their length is not bounded by shell arithmetic.
+
+The final runtime image carries the canonical release version in both the binary and its OCI version label. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. After promotion, both the exact tag and channel are read back for the candidate digest and version label. Promotion deletes no tags, and the before/after digest and version evidence is retained as a build artifact.
+
+An older channel created before OCI version labels were added fails closed. For a one-time migration only, set the repository variable `PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION` to the channel's current canonical exact version (for example `v1.2.2`) before releasing a strictly newer version. Promotion proceeds only when that immutable exact tag exists and has exactly the channel's current digest. Remove the variable immediately after the successful promotion; never use it to guess a missing version or bypass a missing exact tag.
 
 ## Configuration
 

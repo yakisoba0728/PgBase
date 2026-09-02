@@ -103,6 +103,34 @@ func TestReleaseWorkflowGatesEveryPromotionBehindPreflightAndOneCandidate(t *tes
 	}
 }
 
+func TestReleasePromotionSerializesAndLabelsEachMovingChannel(t *testing.T) {
+	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
+	for _, contract := range []string{
+		"concurrency:\ngroup: release-promotion-${{ needs.preflight.outputs.channel }}\ncancel-in-progress: false",
+		"CHANNEL_VERSION_OVERRIDE: ${{ vars.PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION }}",
+		`"$image" "$GITHUB_REF_NAME" "$CANDIDATE_IMAGE" "$EXPECTED_VERSION" "$CHANNEL_VERSION_OVERRIDE"`,
+	} {
+		if !strings.Contains(promotion, contract) {
+			t.Errorf("release promotion is missing %q", contract)
+		}
+	}
+
+	dockerfileBytes, err := os.ReadFile(filepath.Join(repositoryRoot(t), "deployments", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile := string(dockerfileBytes)
+	runtimeStage := dockerfile[strings.LastIndex(dockerfile, "\nFROM ")+1:]
+	for _, contract := range []string{
+		"ARG VERSION=dev",
+		`org.opencontainers.image.version="${VERSION}"`,
+	} {
+		if !strings.Contains(runtimeStage, contract) {
+			t.Errorf("release runtime image is missing %q", contract)
+		}
+	}
+}
+
 func TestReleaseCandidateVerifiesItsOwnProvenanceAndSBOM(t *testing.T) {
 	source := workflowSource(t, "release-image.yml")
 	// The verification lives in the candidate job so every gate and the

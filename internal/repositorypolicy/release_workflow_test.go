@@ -40,6 +40,11 @@ func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t 
 	if !strings.Contains(string(dockerfile), `-X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}`) {
 		t.Fatal("release Dockerfile does not link the VERSION build argument into pgbase.Version")
 	}
+	runtimeStage := string(dockerfile)[strings.LastIndex(string(dockerfile), "\nFROM ")+1:]
+	if !strings.Contains(runtimeStage, "ARG VERSION=dev") ||
+		!strings.Contains(runtimeStage, `org.opencontainers.image.version="${VERSION}"`) {
+		t.Fatal("release runtime image does not carry the canonical version OCI label")
+	}
 }
 
 func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *testing.T) {
@@ -59,6 +64,8 @@ func TestReleaseWorkflowUsesCandidateFirstDigestPinnedGateBeforePromotion(t *tes
 		"candidate_image: ${{ needs.candidate.outputs.candidate_image }}",
 		"expected_version: ${{ needs.candidate.outputs.expected_version }}",
 		"promotion:\n    needs: [preflight, candidate, gate]",
+		"group: release-promotion-${{ needs.preflight.outputs.channel }}\n      cancel-in-progress: false",
+		"CHANNEL_VERSION_OVERRIDE: ${{ vars.PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION }}",
 		"scripts/support/promote-release-image.sh",
 	} {
 		if !strings.Contains(workflow, marker) {
