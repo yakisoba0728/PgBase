@@ -61,6 +61,13 @@ func TestReadOperationOutcomeSeparatesMembershipAvailabilityAndCancellation(t *t
 	}{
 		{name: "unavailable", err: membership.ErrUnavailable, want: observability.OutcomeUnavailable},
 		{name: "canceled unavailable", err: fmt.Errorf("%w: %w", membership.ErrUnavailable, context.Canceled), want: observability.OutcomeCanceled},
+		// PgBaseReadBudgetPressure selects outcome="budget" and its annotation
+		// names the response-size guard. This is the classifier a list actually
+		// reaches, so without this case the alert can stop firing while the
+		// recordops copy of the same mapping keeps its own test green.
+		{name: "response too large", err: validation("response", "response_too_large"), want: observability.OutcomeBudget},
+		{name: "budget exceeded", err: validation("expand", "expand_budget_exceeded"), want: observability.OutcomeBudget},
+		{name: "other validation", err: validation("sort", "unknown_field"), want: observability.OutcomeValidation},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
