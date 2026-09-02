@@ -151,7 +151,6 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, schemaPlanResponse{
 		BaseVersion: plan.BaseVersion,
 		Checksum:    plan.Checksum,
@@ -187,7 +186,6 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	if identity.guarded {
 		e.applyGuarded(w, r, request, principal.Administrator.ID, identity)
 		return
@@ -304,7 +302,6 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, catalog)
 }
 
