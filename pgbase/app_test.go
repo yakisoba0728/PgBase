@@ -533,3 +533,65 @@ func TestCloseDrainsHTTPBeforeCancellingBackgroundWork(t *testing.T) {
 		t.Fatalf("shutdown order = %v, want %v", got, want)
 	}
 }
+
+// A Run cancellation is a shutdown request, not a kill signal. SIGTERM reaches
+// Run's parent context, and the requests already in flight may still depend on
+// a cleaner, the schema listener or the membership writer lease. Background
+// work must therefore outlive the parent signal and stop only after the drain,
+// exactly as it does when Close is called directly.
+func TestRunCancellationDrainsHTTPBeforeCancellingBackgroundWork(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestEntered := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	runner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestEntered)
+		<-releaseRequest
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: 5 * time.Second},
+		httpServer:       server,
+		readiness:        &readinessState{},
+		cleaner:          runner,
+		lifecycleClosing: make(chan struct{}),
+		listen:           func(_, _ string) (net.Listener, error) { return listener, nil },
+	}
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(runCtx) }()
+	waitForSignal(t, runner.started, "background runner never started")
+
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		response, requestErr := http.Get("http://" + listener.Addr().String() + "/") // #nosec G107 -- test-local listener.
+		if requestErr == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	waitForSignal(t, requestEntered, "request never reached the handler")
+
+	cancelRun()
+	waitForSignal(t, app.lifecycleClosing, "Run cancellation never began shutdown")
+	stoppedBeforeDrain := false
+	select {
+	case <-runner.stopped:
+		stoppedBeforeDrain = true
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseRequest)
+	waitForSignal(t, clientDone, "request never completed")
+	if err := waitForResult(t, runDone, "Run never returned"); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if stoppedBeforeDrain {
+		t.Fatal("background runner was cancelled while HTTP request was still in flight")
+	}
+}
