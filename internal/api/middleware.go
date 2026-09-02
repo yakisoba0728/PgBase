@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -54,30 +55,65 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// recoveryMiddleware answers a panic with the stable internal error. It does
+// not buffer: an atomic route is buffered by its own response policy, so a
+// panic there unwinds past a buffer that is never committed and this handler
+// still writes onto a connection nothing has reached. A passthrough route has
+// already streamed whatever it wrote, which is the cost of not buffering it.
 func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buffered := &bufferedResponseWriter{destination: w, header: make(http.Header)}
 		defer func() {
-			if recover() != nil {
-				id := buffered.Header().Get("X-Request-ID")
-				if id == "" {
-					id = r.Header.Get("X-Request-ID")
-					if !validRequestID(id) {
-						id = newRequestID()
-					}
-				}
-				w.Header().Set("X-Request-ID", id)
-				w.Header().Set("X-Content-Type-Options", "nosniff")
-				w.Header().Set("Referrer-Policy", "no-referrer")
-				w.Header().Set("Content-Security-Policy", "default-src 'none'")
-				r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
-				logger.Error("http handler panicked", "request_id", id)
-				writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
+			if recover() == nil {
 				return
 			}
-			buffered.commit(w)
+			id := w.Header().Get("X-Request-ID")
+			if id == "" {
+				id = r.Header.Get("X-Request-ID")
+				if !validRequestID(id) {
+					id = newRequestID()
+				}
+				w.Header().Set("X-Request-ID", id)
+			}
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'")
+			r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
+			logger.Error("http handler panicked", "request_id", id)
+			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// errResponseTooLarge reaches the handler that overflowed its cap, so a
+// handler learns its write failed at the same moment the router does instead
+// of continuing to produce a body nobody will send.
+var errResponseTooLarge = errors.New("response exceeds the route response cap")
+
+// applyResponseMode installs the route's response policy. An atomic route is
+// buffered whole so its cap is decided before a single byte is committed; a
+// passthrough route is handed the connection because its body is a stream
+// whose size the router does not own and must not hold.
+func applyResponseMode(mode responseMode, next http.Handler) http.Handler {
+	if !mode.atomic {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buffered := &bufferedResponseWriter{
+			destination: w, header: make(http.Header), maximumBytes: mode.maximumBytes,
+		}
+		// Deliberately not deferred: a panic must leave the buffer
+		// uncommitted so recoveryMiddleware answers on a clean connection.
 		next.ServeHTTP(buffered, r)
+		if buffered.overflowed {
+			writeAPIError(w, r, APIError{
+				Status:  http.StatusInternalServerError,
+				Code:    "response_too_large",
+				Message: "Response exceeds the transport limit",
+			})
+			return
+		}
+		buffered.commit(w)
 	})
 }
 
@@ -90,11 +126,20 @@ type bufferedResponseWriter struct {
 	header      http.Header
 	body        bytes.Buffer
 	status      int
+	// maximumBytes is the cap the route declared. Zero leaves the buffer
+	// unbounded, which only a caller that already owns the body may ask for.
+	maximumBytes int
+	overflowed   bool
 }
 
 func (w *bufferedResponseWriter) Header() http.Header { return w.header }
 
 func (w *bufferedResponseWriter) Unwrap() http.ResponseWriter { return w.destination }
+
+// Flush is a no-op so http.ResponseController.Flush cannot walk Unwrap to the
+// real connection and commit a header for a body this buffer has not yet
+// decided to send.
+func (w *bufferedResponseWriter) Flush() {}
 
 func (w *bufferedResponseWriter) WriteHeader(status int) {
 	if w.status == 0 {
@@ -105,6 +150,17 @@ func (w *bufferedResponseWriter) WriteHeader(status int) {
 func (w *bufferedResponseWriter) Write(body []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
+	}
+	if w.overflowed {
+		return 0, errResponseTooLarge
+	}
+	// Measured before appending, so the buffer never grows past the cap. A cap
+	// checked afterwards would already have paid the memory it exists to
+	// refuse.
+	if w.maximumBytes > 0 && w.body.Len()+len(body) > w.maximumBytes {
+		w.overflowed = true
+		w.body.Reset()
+		return 0, errResponseTooLarge
 	}
 	return w.body.Write(body)
 }

@@ -176,6 +176,14 @@ func (d Dependencies) requiredModules() error {
 	return fmt.Errorf("construct API router: missing %s", strings.Join(missing, ", "))
 }
 
+// responseFraming is the fixed allowance a buffered response gets on top of
+// the kernel budget it mirrors. A kernel measures the value it produced; the
+// transport writes that value through json.Encoder, which appends a newline
+// and can frame a wrapper slightly differently. Without the allowance the cap
+// would reject a response the kernel considers legal, which is the one failure
+// enforcement must not introduce.
+const responseFraming = 4 << 10
+
 // Response caps. Each names the largest body the router is willing to hold in
 // memory for that class of route, so an admitted request cannot make peak
 // buffer usage a function of catalog or page size.
@@ -187,8 +195,8 @@ const (
 	// The catalog reuses the canonical snapshot bound the schema package
 	// already enforces, so the router never admits a catalog it could not
 	// have produced.
-	maximumCatalogResponseBytes = 16 << 20
+	maximumCatalogResponseBytes = 16<<20 + responseFraming
 	// Record pages reuse the read budget the query package enforces, so a
 	// page that fit the kernel's contract cannot fail at the transport.
-	maximumRecordPageResponseBytes = 4 << 20
+	maximumRecordPageResponseBytes = 4<<20 + responseFraming
 )
