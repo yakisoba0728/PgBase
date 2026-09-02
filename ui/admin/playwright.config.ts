@@ -28,7 +28,7 @@ if (authenticatedBaseURL !== undefined) {
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
-  retries: 1,
+  retries: 0,
   // Every authenticated spec owns collections named after its worker and retry,
   // so files may run in parallel; the shared backend is the only resource and
   // no two attempts address the same rows.

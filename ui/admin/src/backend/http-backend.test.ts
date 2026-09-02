@@ -48,9 +48,9 @@ async function authenticated(mock: ReturnType<typeof vi.fn>) {
   return backend;
 }
 
-const session = () => respond(200, JSON.stringify({
+const session = (csrfToken = "csrf-token") => respond(200, JSON.stringify({
   administrator: { id: "admin", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
-  csrfToken: "csrf-token",
+  csrfToken,
   expiresAt: "2026-09-02T00:00:00Z",
 }));
 
@@ -121,6 +121,50 @@ describe("HTTP adapter wire contract", () => {
     await expect(backend.schema.catalog()).rejects.toBeDefined();
     expect(expired).toHaveBeenCalledOnce();
     void mock;
+  });
+
+  it("ignores an old session 401 after a fresh login has opened", async () => {
+    let answerOldRequest: (response: Response) => void = () => {};
+    const oldRequest = new Promise<Response>((resolve) => { answerOldRequest = resolve; });
+    const mock = vi.fn()
+      .mockResolvedValueOnce(session())
+      .mockReturnValueOnce(oldRequest)
+      .mockResolvedValueOnce(respond(204))
+      .mockResolvedValueOnce(session());
+    vi.stubGlobal("fetch", mock);
+    const backend = httpBackend();
+    const expired = vi.fn();
+    backend.session.onExpired(expired);
+
+    await backend.session.login({ email: "admin@example.com", password: "first password" });
+    const staleRead = backend.schema.catalog();
+    await backend.session.logout();
+    await backend.session.login({ email: "admin@example.com", password: "fresh password" });
+    answerOldRequest(respond(401, envelope("authentication_required")));
+
+    await expect(staleRead).rejects.toBeDefined();
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it("keeps the fresh CSRF token when an old logout finishes later", async () => {
+    let answerOldLogout: (response: Response) => void = () => {};
+    const oldLogout = new Promise<Response>((resolve) => { answerOldLogout = resolve; });
+    const mock = vi.fn()
+      .mockResolvedValueOnce(session("csrf-old"))
+      .mockReturnValueOnce(oldLogout)
+      .mockResolvedValueOnce(session("csrf-fresh"))
+      .mockResolvedValueOnce(respond(200, `{"baseVersion":0,"checksum":"approved","definition":{"fields":[]},"sql":[]}`));
+    vi.stubGlobal("fetch", mock);
+    const backend = httpBackend();
+
+    await backend.session.login({ email: "admin@example.com", password: "first password" });
+    const staleLogout = backend.session.logout();
+    await backend.session.login({ email: "admin@example.com", password: "fresh password" });
+    answerOldLogout(respond(204));
+    await staleLogout;
+    await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+
+    expect(headerOf(mock, 3, "X-PgBase-CSRF")).toBe("csrf-fresh");
   });
 
   it("sends one credential-included JSON POST per setup attempt", async () => {
