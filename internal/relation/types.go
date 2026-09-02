@@ -65,30 +65,15 @@ type relationValue struct {
 	cardinality        schema.RelationCardinality
 }
 
-// writeInput is the lossless split between values handled by the scalar compiler
-// and normalized relation values handled by this package. Scalar contains
-// cloned JSON bytes; a present single relation is included there in canonical
-// form, while multi relations are kept exclusively in values().
+// writeInput is the lossless split between values handled by the scalar
+// compiler and normalized relation values handled by this package. Scalar
+// contains cloned JSON bytes; a present single relation is included there in
+// canonical form, while multi relations stay in relations.
 type writeInput struct {
 	Scalar map[string]json.RawMessage
 
 	sourceCollectionID uuid.UUID
 	relations          []relationValue
-}
-
-// Relations returns a deep copy in stable field-ordinal order.
-func (i writeInput) values() []relationValue {
-	values := make([]relationValue, len(i.relations))
-	for index, value := range i.relations {
-		values[index] = cloneValue(value)
-	}
-	return values
-}
-
-func cloneValue(value relationValue) relationValue {
-	value.IDs = append([]uuid.UUID(nil), value.IDs...)
-	value.JSON = append(json.RawMessage(nil), value.JSON...)
-	return value
 }
 
 func validation(field, code string) error {

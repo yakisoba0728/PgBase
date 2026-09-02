@@ -102,7 +102,7 @@ func (s *Service) deleteGraphInTransaction(
 	if err := plan.ExecuteStorage(ctx); err != nil {
 		return MutationResult{}, normalizeRelationError(err)
 	}
-	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, request, groups, identities, inputHash)
+	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities)
 	if err != nil {
 		return MutationResult{}, err
 	}
@@ -325,10 +325,8 @@ func touchDeleteSurvivors(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
-	request DeleteRequest,
 	groups []deleteGroup,
 	identities map[relation.RecordRef]deleteArtifactIdentity,
-	inputHash [32]byte,
 ) ([]artifactBatch, error) {
 	batches := make([]artifactBatch, 0, len(groups))
 	for _, group := range groups {
