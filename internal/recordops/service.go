@@ -10,14 +10,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	mathrand "math/rand/v2"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
@@ -28,24 +26,17 @@ import (
 )
 
 const (
-	maximumTxRetries      = 32
-	maximumTxRetryDelay   = 100 * time.Millisecond
-	idempotencyLifetime   = 24 * time.Hour
 	maximumIfMatchBytes   = 1024
 	maximumEntityTags     = 8
 	outboxEnvelopeVersion = 1
 )
-
-type CatalogEnsurer interface {
-	EnsureCurrent(context.Context, database.DBTX) (schema.Catalog, error)
-}
 
 // Service is the single supported writer for dynamic records. Query compilation
 // remains in package query, while this type owns every transaction-level
 // invariant around identity, revisions, audit, outbox, and replay.
 type Service struct {
 	pool     *database.Pool
-	schemas  CatalogEnsurer
+	schemas  *schema.Service
 	reader   *query.Service
 	logger   *slog.Logger
 	recorder observability.Recorder
@@ -185,7 +176,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		lock := advisoryLockKey(request.Principal, []byte(request.Collection), keyHash)
 		idempotencyLock = &lock
 	}
-	err = s.inTxWithAdvisory(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = inputTouchesRelationField(collection, request.Input)
 		createFence, err := membershipWriter.LockCreate(ctx, tx, collection.ID)
 		if err != nil {
@@ -303,7 +294,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		compatibility = CompatibilityLastWriteWins
 	}
 
-	err = s.inTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = inputTouchesRelationField(collection, request.Input)
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
@@ -412,7 +403,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 		return MutationResult{}, unavailableMembership(err)
 	}
 
-	err = s.inReadCommittedTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		relationOperation = collectionParticipatesInRelations(catalog, collection)
 		writeFence, err := membershipWriter.Begin(ctx, tx)
 		if err != nil {
@@ -534,52 +525,52 @@ func (s *Service) newValidator() ([]byte, error) {
 	return validator, nil
 }
 
-func (s *Service) inTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
-	return s.inTxWithAdvisory(ctx, collectionName, nil, operation)
-}
-
-// inReadCommittedTx is reserved for delete-graph operations. EnsureCurrent
-// takes schema_state FOR SHARE first; the graph then takes every participating
-// collection advisory lock before reverse discovery. Read Committed makes a
-// relation writer that committed while the graph waited visible to the first
-// discovery statement, preventing a stale-snapshot phantom.
-func (s *Service) inReadCommittedTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
-	return s.inTxAtIsolation(ctx, collectionName, nil, pgx.ReadCommitted, operation)
-}
-
-// inTxWithAdvisory acquires a create-idempotency lock before EnsureCurrent
-// performs the first snapshot-bearing catalog query. Consequently, a completed
-// creator is either still holding the lock (409 in progress) or committed
-// before this Repeatable Read snapshot and therefore visible for replay.
-func (s *Service) inTxWithAdvisory(
+// createTx owns the idempotent-create order. The advisory lock is taken before
+// EnsureCurrent performs the first snapshot-bearing catalog query, so a
+// completed creator is either still holding the lock (409 in progress) or
+// committed before this snapshot and therefore visible for replay.
+func (s *Service) createTx(
 	ctx context.Context,
 	collectionName string,
-	advisoryKey *int64,
+	idempotencyLock *int64,
 	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
 ) error {
 	isolation := pgx.RepeatableRead
-	if advisoryKey != nil {
+	if idempotencyLock != nil {
 		// PostgreSQL establishes a snapshot before evaluating a SELECT-list
 		// advisory-lock function. Read Committed makes the subsequent catalog and
 		// replay lookup observe a creator that committed in that tiny interval.
 		// The schema_state FOR SHARE lock still pins DDL for the whole transaction.
 		isolation = pgx.ReadCommitted
 	}
-	return s.inTxAtIsolation(ctx, collectionName, advisoryKey, isolation, operation)
+	return s.pinnedTx(ctx, collectionName, isolation, idempotencyLock, operation)
 }
 
-func (s *Service) inTxAtIsolation(
+func (s *Service) updateTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
+	return s.pinnedTx(ctx, collectionName, pgx.RepeatableRead, nil, operation)
+}
+
+// deleteTx owns the delete-graph order. EnsureCurrent takes schema_state FOR
+// SHARE first; the graph then takes every participating collection advisory
+// lock before reverse discovery. Read Committed makes a relation writer that
+// committed while the graph waited visible to the first discovery statement,
+// preventing a stale-snapshot phantom.
+func (s *Service) deleteTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
+	return s.pinnedTx(ctx, collectionName, pgx.ReadCommitted, nil, operation)
+}
+
+func (s *Service) pinnedTx(
 	ctx context.Context,
 	collectionName string,
-	advisoryKey *int64,
 	isolation pgx.TxIsoLevel,
+	idempotencyLock *int64,
 	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
 ) error {
-	for attempt := 0; ; attempt++ {
-		err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: isolation}, func(tx pgx.Tx) error {
-			if advisoryKey != nil {
+	return database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: isolation}, func(tx pgx.Tx) error {
+			if idempotencyLock != nil {
 				var locked bool
-				if err := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", *advisoryKey).Scan(&locked); err != nil {
+				if err := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", *idempotencyLock).Scan(&locked); err != nil {
 					return err
 				}
 				if !locked {
@@ -596,68 +587,17 @@ func (s *Service) inTxAtIsolation(
 			}
 			return operation(tx, catalog, collection)
 		})
-		cause, retryable := transactionRetryCause(err)
-		if err == nil || !retryable {
-			return err
+	}, func(cause database.RetryCause, exhausted bool) {
+		s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
+		if s.logger == nil {
+			return
 		}
-		if attempt >= maximumTxRetries {
-			s.record(ctx, observability.TransactionRetryEvent(cause, true))
-			if s.logger != nil {
-				s.logger.WarnContext(ctx, "record operation retries exhausted", "cause", cause, "attempts", attempt+1)
-			}
-			return err
+		message := "retrying record operation"
+		if exhausted {
+			message = "record operation retries exhausted"
 		}
-
-		delay := transactionRetryDelay(attempt)
-		timer := time.NewTimer(delay)
-		select {
-		case <-timer.C:
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			s.record(ctx, observability.TransactionRetryEvent(cause, false))
-			if s.logger != nil {
-				s.logger.WarnContext(ctx, "retrying record operation", "cause", cause, "attempt", attempt+1, "retry_in", delay)
-			}
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			return ctx.Err()
-		}
-	}
-}
-
-func transactionRetryDelay(attempt int) time.Duration {
-	delay := 2 * time.Millisecond
-	for step := 0; step < attempt && delay < maximumTxRetryDelay; step++ {
-		delay *= 2
-		if delay > maximumTxRetryDelay {
-			delay = maximumTxRetryDelay
-		}
-	}
-	half := delay / 2
-	return half + time.Duration(mathrand.Int64N(int64(delay-half)+1))
-}
-
-func transactionRetryCause(err error) (observability.RetryCause, bool) {
-	var postgresError *pgconn.PgError
-	if !errors.As(err, &postgresError) {
-		return "", false
-	}
-	switch postgresError.Code {
-	case "0A000":
-		return observability.RetryCauseCachedPlan, true
-	case "40001":
-		return observability.RetryCauseSerialization, true
-	case "40P01":
-		return observability.RetryCauseDeadlock, true
-	default:
-		return "", false
-	}
+		s.logger.WarnContext(ctx, message, "cause", cause)
+	})
 }
 
 func (s *Service) record(ctx context.Context, event observability.Event) {
