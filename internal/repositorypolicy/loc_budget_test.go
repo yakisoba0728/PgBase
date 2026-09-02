@@ -104,6 +104,17 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 //	  (*membership.Service).ActiveWriterFleet, the read half of the operator
 //	  surface; the transitions themselves were already exported.
 //
+// Raised again, on the residual RUN-1 left open. The heartbeat's tolerance is a
+// promise about wall-clock time, but the window was only re-examined after a
+// renewal attempt returned, and an attempt blocks for Options.StatementTimeout,
+// which Normalized accepts up to 2147483647ms. An operator who raised it could
+// have the loop stop after the lease it was tolerating had already expired.
+//
+//	handwritten runtime lines      35,109 -> 35,114
+//	  gross-new 7 / gross-deleted 0, net +7 over the 35,107 actually measured
+//	  after RUN-1 and RUN-4 landed, which paid two lines more than they spent.
+//	  internal/membership/runtime.go     +7 (3 code, 4 rationale)
+//
 // Nothing paid for it, and that is recorded rather than disguised. `unused` is
 // enabled in .golangci.yml and reports zero findings, so there is no dead
 // runtime code in either package to delete, and plan section 11 allows a
@@ -121,7 +132,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_109, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_114, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_473, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 468, "plan 285"},

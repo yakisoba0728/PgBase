@@ -145,7 +145,14 @@ func (r *Runtime) Run(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 			attempted := time.Now()
-			err := r.refresh(ctx)
+			// Bound the attempt by the window it is being tolerated for.
+			// Options.StatementTimeout has no upper bound, so an attempt that
+			// blocks for it returns only after the lease it was tolerating has
+			// already expired, and the loop would then stop later than it
+			// promised. The fence still rejects any write from that process.
+			attemptCtx, cancelAttempt := context.WithDeadline(ctx, tolerated)
+			err := r.refresh(attemptCtx)
+			cancelAttempt()
 			switch {
 			case err == nil:
 				tolerated = attempted.Add(r.leaseTolerance)
