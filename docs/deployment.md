@@ -33,11 +33,36 @@ docker compose --env-file deployments/.env -f deployments/docker-compose.yml run
 
 Do not use `docker compose ... up pgbase` as a production migration job unless the Compose service is overridden to `PGBASE_AUTO_MIGRATE=false`.
 
-## Release image verification status
+## Release image verification
 
-Deploy immutable `image@sha256:...` references rather than relying on a mutable tag. The current tag workflow runs backend, frontend, E2E, security, and backup/restore jobs before it publishes an image, but the image-dependent jobs do not consume one shared candidate: E2E builds a Compose image from source, security builds a separate audit image, backup/restore builds a Go binary from source, and the release job then performs another Buildx build for publication.
+Deploy immutable `image@sha256:...` references rather than relying on a mutable tag.
 
-This ordering proves that the same source revision passed those jobs; it does not prove that the final registry digest itself passed E2E, image scanning, or restore validation. The release workflow does generate SBOM and provenance attestations for the published digest. Until a single-candidate, digest-pinned gate and rebuild-free promotion path is implemented, verify the exact chosen digest in staging and retain that digest with the deployment record instead of describing the published image as same-artifact tested.
+A release tag runs a tag/version preflight first. Only after it accepts the tag does the workflow build and push exactly one candidate image, and that candidate's digest is the sole input to the five release gates: backend, frontend, Docker E2E, security scanning, and the backup/restore drill. The E2E and restore gates refuse to start without a digest-pinned candidate and have no source-build or local-tag fallback, and security scans the same digest instead of building its own audit image. Promotion adds tags to that verified digest and never rebuilds. The published digest is therefore the artifact that passed the gates.
+
+The candidate is built for `linux/amd64` only. There is no multi-architecture release image; running pgBase on another architecture means building from source and validating it yourself.
+
+Before any gate consumes the digest, the workflow verifies that the provenance and SBOM attestations it just published can actually be retrieved and verified from the registry:
+
+```console
+gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
+  --repo webisnoteasy/PgBase --predicate-type https://slsa.dev/provenance/v1
+gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
+  --repo webisnoteasy/PgBase --predicate-type https://spdx.dev/Document
+```
+
+Run the same two commands against the digest you intend to deploy, and retain that digest with the deployment record.
+
+### Release tag policy
+
+| Release tag | Immutable exact tag | Moving channel tag | Untouched |
+| --- | --- | --- | --- |
+| `vMAJOR.MINOR.PATCH` | created when absent, no-op when it already points at the candidate digest | `latest` | `alpha`, `beta`, `rc` |
+| `vMAJOR.MINOR.PATCH-alpha.N` | same | `alpha` | `latest`, `beta`, `rc` |
+| `vMAJOR.MINOR.PATCH-beta.N` | same | `beta` | `latest`, `alpha`, `rc` |
+| `vMAJOR.MINOR.PATCH-rc.N` | same | `rc` | `latest`, `alpha`, `beta` |
+| anything else, including build metadata and unsupported channels | rejected in preflight | none | all |
+
+Only a stable SemVer release moves `latest`. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. Promotion deletes no tags, and the before/after digests of the exact tag and the channel are retained as a build artifact.
 
 ## Configuration
 
