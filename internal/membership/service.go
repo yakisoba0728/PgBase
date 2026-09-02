@@ -287,10 +287,14 @@ func requireState(status Status, state State, issueVersion int16) error {
 }
 
 func rowsAffectedOne(tag pgconn.CommandTag, err error, operation string) error {
+	return rowsAffectedExactly(tag, err, 1, operation)
+}
+
+func rowsAffectedExactly(tag pgconn.CommandTag, err error, expected int64, operation string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", operation, err)
 	}
-	if tag.RowsAffected() != 1 {
+	if tag.RowsAffected() != expected {
 		return errors.New(operation + ": unexpected affected rows")
 	}
 	return nil

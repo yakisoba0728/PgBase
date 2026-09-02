@@ -38,7 +38,28 @@ func RegisterWriter(ctx context.Context, service *Service, version WriterVersion
 	if err := runtime.refresh(ctx); err != nil {
 		return nil, err
 	}
+	if err := runtime.bootstrapFreshInstall(ctx); err != nil {
+		return nil, err
+	}
 	return runtime, nil
+}
+
+// bootstrapFreshInstall is where a new install is taken to the retired
+// terminal state. Registration is the one place both pgbase.App and a direct
+// library caller reach, so putting it here is what lets a caller that builds a
+// record service by hand list records on a database it just migrated.
+//
+// Only the current release may do it. The terminal state fixes
+// minimum_writer_version at Release B, so a runtime that registered as an
+// earlier release would promote the database out from under itself, and a
+// process that is deliberately impersonating a mid-rollout artifact must not
+// carry the database past the release it is pretending to be.
+func (r *Runtime) bootstrapFreshInstall(ctx context.Context) error {
+	if r.version != WriterC {
+		return nil
+	}
+	_, err := r.service.BootstrapFreshInstall(ctx)
+	return err
 }
 
 func (r *Runtime) refresh(ctx context.Context) error {

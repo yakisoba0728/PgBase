@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
@@ -469,6 +470,10 @@ func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
 func TestReleaseCAppRuntimeRetiresCursorV4WithoutRaisingTheWriterFloor(t *testing.T) {
 	databaseURL := testutil.NewDatabase(t)
 	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	// An upgraded deployment carries data, which is exactly what makes the
+	// rollout real: the fresh-install bootstrap refuses a database that holds a
+	// record, so this exercises every hold point rather than the shortcut.
+	seedUpgradedDeploymentRecord(t, databaseURL)
 	ctx := context.Background()
 	app, err := New(ctx, Options{
 		DatabaseURL: databaseURL,
@@ -492,12 +497,17 @@ func TestReleaseCAppRuntimeRetiresCursorV4WithoutRaisingTheWriterFloor(t *testin
 	if _, err := membership.New(app.pool).Cutover(ctx, proof); err != nil {
 		t.Fatalf("Cutover with the app's own fleet proof: %v", err)
 	}
-	progress, err := membership.New(app.pool).Backfill(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !progress.Done {
-		t.Fatalf("backfill = %#v, want done on an empty catalog", progress)
+	for attempt := 0; ; attempt++ {
+		progress, err := membership.New(app.pool).Backfill(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if progress.Done {
+			break
+		}
+		if attempt == 8 {
+			t.Fatalf("backfill did not finish: %#v", progress)
+		}
 	}
 	if _, err := membership.New(app.pool).PromoteReady(ctx); err != nil {
 		t.Fatal(err)
@@ -541,6 +551,53 @@ func TestReleaseCAppRuntimeRetiresCursorV4WithoutRaisingTheWriterFloor(t *testin
 	}
 	if _, err := membership.RegisterWriter(ctx, membership.New(app.pool), membership.WriterB); err != nil {
 		t.Fatalf("register the Release B rollback target after retirement: %v", err)
+	}
+}
+
+// The catalog rows are written directly because the rollout has to start
+// before the app does, and the app is what owns the schema service.
+func seedUpgradedDeploymentRecord(t *testing.T, databaseURL string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("close upgraded deployment seed connection: %v", err)
+		}
+	}()
+	collectionID := uuid.MustParse("0199b800-0000-7000-8000-000000000001")
+	for _, statement := range []struct {
+		sql       string
+		arguments []any
+	}{
+		{sql: `insert into pgbase_meta.collections
+			(id, name, table_name, status, created_at, updated_at)
+			values ($1, 'upgraded_records', 'upgraded_records', 'active',
+				transaction_timestamp(), transaction_timestamp())`,
+			arguments: []any{collectionID}},
+		{sql: `insert into pgbase_meta.collection_creation_counters
+			(collection_id, generation, last_ordinal, updated_at)
+			values ($1, 0, 0, transaction_timestamp())`,
+			arguments: []any{collectionID}},
+		{sql: `insert into pgbase_meta.record_membership_backfills
+			(collection_id, generation, state, updated_at)
+			values ($1, 0, 'off', transaction_timestamp())`,
+			arguments: []any{collectionID}},
+		{sql: `create table app.upgraded_records (
+			id uuid primary key,
+			created_at timestamptz not null,
+			updated_at timestamptz not null
+		)`},
+		{sql: `insert into app.upgraded_records (id, created_at, updated_at)
+			values ($1, transaction_timestamp(), transaction_timestamp())`,
+			arguments: []any{uuid.MustParse("0199b800-0000-7000-8000-0000000000a1")}},
+	} {
+		if _, err := conn.Exec(ctx, statement.sql, statement.arguments...); err != nil {
+			t.Fatalf("seed upgraded deployment: %v", err)
+		}
 	}
 }
 
