@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { APIClientError } from "../api/client";
-import { stringifyJSON } from "../api/json";
-import { collectionFromCatalog, fieldTypes, type CollectionCatalog, type CollectionChangeInput, type CollectionDefinition, type CollectionPlan } from "../api/collections";
-import { useSession } from "../auth/session";
+import { fieldTypes, SchemaError, type CollectionCatalog, type CollectionChange, type CollectionDefinition, type PlannedChange } from "../backend/ports";
+import { useBackend } from "../auth/session";
 import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   buildInput,
@@ -16,17 +14,16 @@ import {
   type DraftField,
 } from "./collection-field-editor";
 
-function toInput(definition: CollectionDefinition, fields: DraftField[]): CollectionChangeInput {
+function toInput(definition: CollectionDefinition, fields: DraftField[]): CollectionChange {
   return buildInput("update", definition.name, fields);
 }
 
 export function CollectionEditPage({ collectionName, navigate }: { collectionName: string; navigate(route: AdminRoute): void }) {
-  const { collections } = useSession();
+  const { schema } = useBackend();
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [definition, setDefinition] = useState<CollectionDefinition | null>(null);
   const [fields, setFields] = useState<DraftField[]>([]);
-  const [plan, setPlan] = useState<CollectionPlan | null>(null);
-  const [plannedInput, setPlannedInput] = useState<CollectionChangeInput | null>(null);
+  const [plan, setPlan] = useState<PlannedChange | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -34,7 +31,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   const [destructiveConfirmed, setDestructiveConfirmed] = useState(false);
 
   // Delete flow state: null → no delete in progress; otherwise the SQL preview is shown.
-  const [deletePlan, setDeletePlan] = useState<CollectionPlan | null>(null);
+  const [deletePlan, setDeletePlan] = useState<PlannedChange | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const active = useRouteGuard(adminRouteIdentity({ kind: "collection-edit", collection: collectionName }));
@@ -45,7 +42,6 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     setCatalog(null);
     setFields([]);
     setPlan(null);
-    setPlannedInput(null);
     setPending(false);
     setError(null);
     setNotFound(false);
@@ -54,27 +50,27 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     setDeletePlan(null);
     setDeletePending(false);
     setDeleteError(null);
-    void collections.catalog(controller.signal).then((catalog) => {
+    void schema.catalog(controller.signal).then((catalog) => {
       if (controller.signal.aborted) return;
-      const existing = collectionFromCatalog(catalog, collectionName);
+      const existing = catalog.get(collectionName);
       if (!existing) { setNotFound(true); return; }
       setCatalog(catalog);
       setDefinition(existing);
       setFields(draftFieldsFromDefinition(existing, catalog));
     }).catch(() => { if (!controller.signal.aborted) setLoadFailed(true); });
     return () => controller.abort();
-  }, [collectionName, collections]);
+  }, [collectionName, schema]);
 
-  const inputSignature = useMemo(() => {
-    if (definition === null) return "";
-    try { return stringifyJSON(toInput(definition, fields)); } catch { return "invalid"; }
+  const currentInput = useMemo(() => {
+    if (definition === null) return null;
+    try { return toInput(definition, fields); } catch { return null; }
   }, [definition, fields]);
-  const previewCurrent = plan !== null && plannedInput !== null && stringifyJSON(plannedInput) === inputSignature;
+  const previewCurrent = plan !== null && currentInput !== null && plan.matches(currentInput);
   const relationTargets = useMemo(() => relationTargetOptions(catalog, definition?.name ?? collectionName), [catalog, collectionName, definition?.name]);
   const existingFieldNames = useMemo(() => new Set(definition?.fields.map((field) => field.name) ?? []), [definition]);
   const removedFields = useMemo(() => {
     if (!previewCurrent || definition === null || plan === null) return [];
-    const plannedNames = new Set(plan.definition.fields.map((field) => field.name));
+    const plannedNames = new Set(plan.fields.map((field) => field.name));
     return definition.fields
       .filter((field) => !plannedNames.has(field.name))
       .sort((left, right) => left.ordinal - right.ordinal)
@@ -83,7 +79,6 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
 
   function resetPlan() {
     setPlan(null);
-    setPlannedInput(null);
     setDestructiveConfirmed(false);
   }
 
@@ -105,13 +100,12 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   async function preview() {
     if (definition === null || pending) return;
     setError(null);
-    let input: CollectionChangeInput;
+    let input: CollectionChange;
     try { input = toInput(definition, fields); } catch (caught: unknown) { setError(draftErrorMessage(caught, "Collection input is invalid.")); return; }
     setPending(true);
     try {
-      const result = await collections.plan(input);
+      const result = await schema.plan(input);
       if (!active()) return;
-      setPlannedInput(input);
       setPlan(result);
       setDestructiveConfirmed(false);
     } catch (caught: unknown) {
@@ -124,33 +118,22 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
   }
 
   async function apply() {
-    if (!previewCurrent || plan === null || plannedInput === null || pending || (removedFields.length > 0 && !destructiveConfirmed)) return;
-    const appliedBaseVersion = plan.baseVersion;
+    if (!previewCurrent || plan === null || pending || (removedFields.length > 0 && !destructiveConfirmed)) return;
     setPending(true);
     setError(null);
     try {
-      await collections.apply(plannedInput, plan.checksum, plan.baseVersion);
+      await schema.apply(plan);
       if (!active()) return;
       navigate({ kind: "records", collection: definition?.name ?? collectionName });
     } catch (caught: unknown) {
       if (!active()) return;
-      if (caught instanceof APIClientError && caught.status === 409) {
+      const reason = caught instanceof SchemaError ? caught.reason : "failed";
+      if (reason === "same-version-conflict" || reason === "catalog-moved") {
         resetPlan();
-        // A 409 covers a stale plan, a plan that conflicts with existing data
-        // (for example a unique index over duplicate values), and object-name
-        // collisions. Tell a moved catalog apart from a same-version conflict.
-        try {
-          const catalog = await collections.catalog();
-          if (!active()) return;
-          if (catalog.version === appliedBaseVersion) {
-            setError("The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it.");
-          } else {
-            setError("The catalog changed. Preview the collection again before applying.");
-          }
-        } catch {
-          setError("The catalog changed. Preview the collection again before applying.");
-        }
-      } else if (caught instanceof APIClientError && caught.status === 422) {
+        setError(reason === "same-version-conflict"
+          ? "The plan conflicts with the current state. Preview again; if it keeps failing, existing data may be blocking it."
+          : "The catalog changed. Preview the collection again before applying.");
+      } else if (reason === "data-blocked") {
         setError(schemaErrorMessage(caught, "Existing data blocks this change (for example missing or duplicate values).", "Existing data blocks this change (for example missing or duplicate values)."));
       } else setError(schemaErrorMessage(caught, "Unable to apply the collection change."));
     } finally {
@@ -163,7 +146,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     setDeleteError(null);
     setDeletePending(true);
     try {
-      const result = await collections.plan({ operation: "delete", name: definition.name });
+      const result = await schema.plan({ operation: "delete", name: definition.name });
       if (!active()) return;
       setDeletePlan(result);
     } catch (caught: unknown) {
@@ -179,15 +162,16 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     setDeletePending(true);
     setDeleteError(null);
     try {
-      await collections.apply({ operation: "delete", name: definition.name }, deletePlan.checksum, deletePlan.baseVersion);
+      await schema.apply(deletePlan);
       if (!active()) return;
       navigate({ kind: "collections" });
     } catch (caught: unknown) {
       if (!active()) return;
       setDeletePlan(null);
-      if (caught instanceof APIClientError && caught.code === "collection_referenced") {
+      const reason = caught instanceof SchemaError ? caught.reason : "failed";
+      if (reason === "referenced") {
         setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection.", "Collection is referenced."));
-      } else if (caught instanceof APIClientError && caught.status === 409) {
+      } else if (reason === "catalog-moved") {
         setDeleteError("The catalog changed. Preview the deletion again before applying.");
       } else setDeleteError(schemaErrorMessage(caught, "Unable to delete the collection."));
     } finally {
@@ -225,7 +209,7 @@ export function CollectionEditPage({ collectionName, navigate }: { collectionNam
     {previewCurrent && plan && <section className="preview" aria-label="Collection change preview">
       <h3>Server preview</h3>
       <p>Catalog version {plan.baseVersion}</p>
-      <ul>{plan.definition.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
+      <ul>{plan.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
       <h4>SQL</h4>
       <pre>{plan.sql.join("\n\n")}</pre>
       {removedFields.length > 0 && <div aria-label="Permanent data loss warning" className="danger-zone" role="alert">

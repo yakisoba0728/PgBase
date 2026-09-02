@@ -1,15 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { APIClient, APIClientError } from "../api/client";
-import { CollectionsAPI } from "../api/collections";
-import { RecordsAPI } from "../api/records";
+import { httpBackend } from "../backend/http-backend";
+import { SessionError, type AdminBackend, type AuthSnapshot, type AuthenticatedSession, type LoginInput, type SessionFailure, type SetupInput } from "../backend/ports";
 import { browserHistory, canonicalAdminPath, type AdminHistory } from "../routing/admin-location";
-import type { LoginInput, SessionResponse, SessionState, SetupInput } from "../api/types";
 
 interface SessionContextValue {
-  client: APIClient;
-  collections: CollectionsAPI;
-  records: RecordsAPI;
-  state: SessionState;
+  backend: AdminBackend;
+  state: AuthSnapshot;
   sessionError: string | null;
   setup(input: SetupInput): Promise<void>;
   login(input: LoginInput): Promise<void>;
@@ -18,107 +14,79 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-function authenticatedState(session: SessionResponse): SessionState {
-  return {
-    kind: "authenticated",
-    administrator: session.administrator,
-    csrfToken: session.csrfToken,
-    expiresAt: session.expiresAt,
-  };
+export function sessionFailure(error: unknown): SessionFailure {
+  return error instanceof SessionError ? error.reason : "failed";
 }
 
-export function SessionProvider({ children, history = browserHistory }: { children: ReactNode; history?: AdminHistory }) {
-  const [state, setState] = useState<SessionState>({ kind: "loading" });
+export function SessionProvider({ backend, children, history = browserHistory }: { backend?: AdminBackend; children: ReactNode; history?: AdminHistory }) {
+  const [admin] = useState(() => backend ?? httpBackend());
+  const [state, setState] = useState<AuthSnapshot>({ kind: "loading" });
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const updatePath = useCallback((next: SessionState) => {
+  const settle = useCallback((next: AuthSnapshot) => {
+    setState(next);
     const screen = next.kind === "setup-required" ? "setup" : next.kind === "anonymous" ? "login" : "shell";
     const path = canonicalAdminPath(screen, history.path());
     if (history.path() !== path) history.replace(path);
   }, [history]);
-  const client = useMemo(() => new APIClient(() => {
-    const next: SessionState = { kind: "anonymous" };
-    setState(next);
-    updatePath(next);
-  }), [updatePath]);
+  const open = useCallback(async (session: Promise<AuthenticatedSession>) => {
+    const next = await session;
+    setSessionError(null);
+    settle({ kind: "authenticated", ...next });
+  }, [settle]);
+
+  useEffect(() => admin.session.onExpired(() => settle({ kind: "anonymous" })), [admin, settle]);
 
   useEffect(() => {
     const controller = new AbortController();
-    void client.getSession(controller.signal).then((session) => {
-      const next = authenticatedState(session);
-      setState(next);
-      updatePath(next);
-    }).catch(async (error: unknown) => {
+    void admin.session.resume(controller.signal).then((resumed) => {
+      if (resumed.kind === "authenticated") { settle({ kind: "authenticated", ...resumed.session }); return; }
+      if (resumed.kind === "setup-required") { settle(resumed); return; }
+      if (resumed.kind === "setup-unknown") setSessionError("Unable to check administrator setup status. Please retry.");
+      if (resumed.kind === "unreachable") setSessionError("Unable to check the current session. Please sign in.");
+      settle({ kind: "anonymous" });
+    }).catch(() => {
       if (controller.signal.aborted) return;
-      if (error instanceof APIClientError && error.status === 404 && error.code === "setup_required") {
-        setState({ kind: "setup-required" });
-        updatePath({ kind: "setup-required" });
-        return;
-      }
-      if (error instanceof APIClientError && error.status === 401) {
-        try {
-          const status = await client.getAdminStatus(controller.signal);
-          const next: SessionState = status.setupRequired ? { kind: "setup-required" } : { kind: "anonymous" };
-          setState(next);
-          updatePath(next);
-          return;
-        } catch {
-          if (controller.signal.aborted) return;
-          setSessionError("Unable to check administrator setup status. Please retry.");
-        }
-      }
-      setState({ kind: "anonymous" });
-      updatePath({ kind: "anonymous" });
-      if (!(error instanceof APIClientError && error.status === 401)) setSessionError("Unable to check the current session. Please sign in.");
+      setSessionError("Unable to check the current session. Please sign in.");
+      settle({ kind: "anonymous" });
     });
     return () => controller.abort();
-  }, [client, updatePath]);
+  }, [admin, settle]);
 
   useEffect(() => {
     if (state.kind !== "authenticated") return;
     const delay = Date.parse(state.expiresAt) - Date.now();
-    const expire = () => {
-      const next: SessionState = { kind: "anonymous" };
-      setState(next);
-      updatePath(next);
-    };
+    const expire = () => settle({ kind: "anonymous" });
     if (!Number.isFinite(delay) || delay <= 0) { expire(); return; }
     const timer = window.setTimeout(expire, delay);
     return () => window.clearTimeout(timer);
-  }, [state, updatePath]);
+  }, [settle, state]);
 
-  const setup = useCallback(async (input: SetupInput) => {
-    const session = await client.setup(input);
-    const next = authenticatedState(session);
-    setSessionError(null);
-    setState(next);
-    updatePath(next);
-  }, [client, updatePath]);
+  const value = useMemo<SessionContextValue>(() => ({
+    backend: admin,
+    state,
+    sessionError,
+    setup: (input) => open(admin.session.setup(input)),
+    login: (input) => open(admin.session.login(input)),
+    logout: async () => {
+      if (state.kind !== "authenticated") return;
+      await admin.session.logout();
+      settle({ kind: "anonymous" });
+    },
+  }), [admin, open, sessionError, settle, state]);
 
-  const login = useCallback(async (input: LoginInput) => {
-    const session = await client.login(input);
-    const next = authenticatedState(session);
-    setSessionError(null);
-    setState(next);
-    updatePath(next);
-  }, [client, updatePath]);
-
-  const logout = useCallback(async () => {
-    if (state.kind !== "authenticated") return;
-    await client.logout(state.csrfToken);
-    const next: SessionState = { kind: "anonymous" };
-    setState(next);
-    updatePath(next);
-  }, [client, state, updatePath]);
-
-  const csrfToken = state.kind === "authenticated" ? state.csrfToken : "";
-  const collections = useMemo(() => new CollectionsAPI(client, csrfToken), [client, csrfToken]);
-  const records = useMemo(() => new RecordsAPI(client, csrfToken), [client, csrfToken]);
-
-  return <SessionContext.Provider value={{ client, collections, records, state, sessionError, setup, login, logout }}>{children}</SessionContext.Provider>;
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
-export function useSession(): SessionContextValue {
+function useSessionContext(): SessionContextValue {
   const value = useContext(SessionContext);
   if (value === null) throw new Error("useSession must be used inside SessionProvider");
   return value;
+}
+
+export function useSession(): Omit<SessionContextValue, "backend"> {
+  return useSessionContext();
+}
+
+export function useBackend(): AdminBackend {
+  return useSessionContext().backend;
 }

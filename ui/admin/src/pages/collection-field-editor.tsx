@@ -1,17 +1,17 @@
-import { APIClientError } from "../api/client";
 import {
   relationCardinalities,
   relationDeleteActions,
+  SchemaError,
   type CollectionCatalog,
-  type CollectionChangeInput,
+  type CollectionChange,
   type CollectionDefinition,
   type FieldInput,
   type FieldType,
-  type PlannedFieldDefinition,
+  type PlannedField,
   type RelationCardinality,
   type RelationDeleteAction,
-} from "../api/collections";
-import { parseJSON, stringifyJSON } from "../api/json";
+} from "../backend/ports";
+import { parseJSON, stringifyJSON } from "../backend/json";
 
 export interface DraftRelation {
   targetCollection: string;
@@ -120,7 +120,7 @@ function relationInput(field: DraftField, index: number): FieldInput["relation"]
   };
 }
 
-export function buildInput(operation: "create" | "update", name: string, fields: DraftField[]): CollectionChangeInput {
+export function buildInput(operation: "create" | "update", name: string, fields: DraftField[]): CollectionChange {
   return {
     operation,
     name,
@@ -147,7 +147,7 @@ function defaultTextFor(type: string, value: unknown): string {
 
 export function draftFieldsFromDefinition(definition: CollectionDefinition, catalog: CollectionCatalog): DraftField[] {
   const targetNames = new Map(
-    Object.values(catalog.collections)
+    catalog.all()
       .filter((collection): collection is CollectionDefinition & { id: string } => collection.id !== undefined)
       .map((collection) => [collection.id, collection.name]),
   );
@@ -173,14 +173,14 @@ export function draftFieldsFromDefinition(definition: CollectionDefinition, cata
 }
 
 export function relationTargetOptions(catalog: CollectionCatalog | null, sourceCollection: string): RelationTargetOption[] {
-  const names = new Set(Object.values(catalog?.collections ?? {}).map((collection) => collection.name));
+  const names = new Set((catalog?.all() ?? []).map((collection) => collection.name));
   if (sourceCollection !== "") names.add(sourceCollection);
   return [...names]
     .sort((left, right) => left.localeCompare(right))
     .map((name) => ({ name, label: name === sourceCollection ? `${name} (self)` : name }));
 }
 
-export function previewField(field: PlannedFieldDefinition): string {
+export function previewField(field: PlannedField): string {
   const flags = [
     field.required && "required",
     field.unique && "unique",
@@ -204,7 +204,7 @@ export function draftErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function schemaErrorMessage(error: unknown, fallback: string, validationFallback = "Collection input is invalid."): string {
-  if (!(error instanceof APIClientError)) return fallback;
+  if (!(error instanceof SchemaError)) return fallback;
   const detailPrefix = error.code === "collection_referenced" ? "Collection is referenced." : validationFallback;
   const details = Object.entries(error.details)
     .flatMap(([path, codes]) => codes.map((code) => `${path}: ${code}`))

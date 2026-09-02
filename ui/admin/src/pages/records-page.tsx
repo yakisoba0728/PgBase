@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { APIClientError } from "../api/client";
-import { collectionFromCatalog, type CollectionDefinition, type FieldDefinition } from "../api/collections";
-import type { RecordData, RecordPage } from "../api/records";
-import { stringifyJSON } from "../api/json";
-import { useSession } from "../auth/session";
+import { RecordError, type CollectionDefinition, type FieldDefinition, type RecordData, type RecordPage } from "../backend/ports";
+import { stringifyJSON } from "../backend/json";
+import { useBackend } from "../auth/session";
 import type { AdminRoute } from "../routing/admin-location";
 
 function display(value: RecordData[string]): string {
@@ -28,7 +26,7 @@ function displayCell(value: RecordData[string], field: FieldDefinition | undefin
 const sortableColumns = new Set(["id", "created_at"]);
 
 export function RecordsPage({ collectionName, navigate }: { collectionName: string; navigate(route: AdminRoute): void }) {
-  const { collections, records } = useSession();
+  const { records, schema } = useBackend();
   const [collection, setCollection] = useState<CollectionDefinition | null>(null);
   const [page, setPage] = useState<RecordPage | null>(null);
   const [error, setError] = useState(false);
@@ -39,13 +37,13 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
 
   useEffect(() => {
     const controller = new AbortController();
-    void collections.catalog(controller.signal).then((catalog) => {
-      const definition = collectionFromCatalog(catalog, collectionName);
+    void schema.catalog(controller.signal).then((catalog) => {
+      const definition = catalog.get(collectionName);
       if (!definition) { setError(true); return; }
       setCollection(definition);
     }).catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
-  }, [collectionName, collections]);
+  }, [collectionName, schema]);
 
   const listAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -61,7 +59,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
         setError(false);
       }).catch((caught: unknown) => {
         if (controller.signal.aborted) return;
-        if (caught instanceof APIClientError && caught.code === "validation_failed") {
+        if (caught instanceof RecordError && caught.reason === "rejected") {
           setFilterError(true);
         } else setError(true);
       });
@@ -80,7 +78,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
       if (!controller.signal.aborted) setPage(result);
     } catch (caught: unknown) {
       if (controller.signal.aborted) return;
-      if (caught instanceof APIClientError && caught.code === "validation_failed") setFilterError(true);
+      if (caught instanceof RecordError && caught.reason === "rejected") setFilterError(true);
       else setError(true);
     }
   }

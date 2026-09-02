@@ -1,27 +1,18 @@
 import { useEffect, useState } from "react";
-import { useSession } from "../auth/session";
-
-interface SystemStatus {
-  version: string;
-  databaseReachable: boolean;
-  migrationCurrent: number;
-  migrationLatest: number;
-  migrationDirty: boolean;
-  catalogVersion: number;
-  listenerReady: boolean;
-}
+import type { SystemStatus } from "../backend/ports";
+import { useBackend } from "../auth/session";
 
 export function SystemPage() {
-  const { client } = useSession();
+  const { system } = useBackend();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    void client.request<SystemStatus>("/api/admin/system", { signal: controller.signal }).then(setStatus).catch(() => {
+    void system.status(controller.signal).then(setStatus).catch(() => {
       if (!controller.signal.aborted) setFailed(true);
     });
     return () => controller.abort();
-  }, [client]);
+  }, [system]);
 
   return <section>
     <h2>System</h2>

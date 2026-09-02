@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import type { CollectionCatalog } from "../api/collections";
+import type { CollectionCatalog } from "../backend/ports";
 import type { AdminRoute } from "../routing/admin-location";
-import { useSession } from "../auth/session";
+import { useBackend } from "../auth/session";
 
 interface CollectionsPageProps { navigate(route: AdminRoute): void }
 
 export function CollectionsPage({ navigate }: CollectionsPageProps) {
-  const { collections } = useSession();
+  const { schema } = useBackend();
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -14,14 +14,14 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
     const controller = new AbortController();
     setCatalog(null);
     setFailed(false);
-    void collections.catalog(controller.signal).then((result) => {
+    void schema.catalog(controller.signal).then((result) => {
       setCatalog(result);
       setFailed(false);
     }).catch(() => {
       if (!controller.signal.aborted) setFailed(true);
     });
     return () => controller.abort();
-  }, [collections]);
+  }, [schema]);
 
   return <section>
     <div className="page-heading">
@@ -30,9 +30,9 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
     </div>
     {failed && <p role="alert">Unable to load collections.</p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
-    {catalog && Object.values(catalog.collections).length === 0 && <p>No collections yet.</p>}
+    {catalog && catalog.all().length === 0 && <p>No collections yet.</p>}
     {catalog && <ul className="collection-list">
-      {Object.values(catalog.collections).sort((a, b) => a.name.localeCompare(b.name)).map((collection) => {
+      {catalog.all().map((collection) => {
         const relationCount = collection.fields.filter((field) => field.type === "relation").length;
         return <li key={collection.name}>
           <button className="text-button" onClick={() => navigate({ kind: "records", collection: collection.name })} type="button">{collection.name}</button>

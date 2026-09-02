@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { APIClientError } from "../api/client";
-import { parseJSON, stringifyJSON } from "../api/json";
+import { parseJSON, stringifyJSON } from "../backend/json";
 import {
-  collectionFromCatalog,
-  collectionFromCatalogByID,
+  CreateAttempt,
+  RecordError,
+  VersionedRecord,
   type CollectionCatalog,
   type CollectionDefinition,
   type FieldDefinition,
-} from "../api/collections";
-import { CreateAttempt, type RecordsAPI, type RecordData, type RecordValue } from "../api/records";
-import { useSession } from "../auth/session";
+  type RecordData,
+  type RecordPort,
+  type RecordValue,
+} from "../backend/ports";
+import { useBackend } from "../auth/session";
 import { adminRouteIdentity, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import {
   encodeRelationValue,
@@ -108,7 +110,7 @@ function RelationTargetSearch({
   draft: string;
   field: FieldDefinition;
   onChange(value: string): void;
-  records: RecordsAPI;
+  records: RecordPort;
   target: CollectionDefinition;
 }) {
   const [query, setQuery] = useState("");
@@ -203,7 +205,7 @@ function RelationTargetSearch({
 }
 
 export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(route: AdminRoute): void }) {
-  const { collections, records } = useSession();
+  const { records, schema } = useBackend();
   const [collection, setCollection] = useState<CollectionDefinition | null>(null);
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [draft, setDraft] = useState<Draft>({});
@@ -211,10 +213,10 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [etag, setETag] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<VersionedRecord | null>(null);
   const [stale, setStale] = useState(false);
   const [loadVersion, setLoadVersion] = useState(0);
-  const createAttemptRef = useRef(new CreateAttempt());
+  const createAttemptRef = useRef(new CreateAttempt(collectionName));
   const loadedResourceRef = useRef<{ collectionName: string; id?: string } | null>(null);
   const isCreate = id === undefined;
   const active = useRouteGuard(adminRouteIdentity({ kind: "record", collection: collectionName, id }));
@@ -233,18 +235,17 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       setCollection(null);
       setCatalog(null);
       setStale(false);
-      setETag(null);
+      setLoaded(null);
     }
     setMessage(null);
-    void collections.catalog(controller.signal).then(async (catalog) => {
-      const definition = collectionFromCatalog(catalog, collectionName);
+    void schema.catalog(controller.signal).then(async (catalog) => {
+      const definition = catalog.get(collectionName);
       if (!definition) throw new Error("missing collection");
       let record: RecordData = {};
-      let nextETag: string | null = null;
+      let version: VersionedRecord | null = null;
       if (id) {
-        const representation = await records.get(collectionName, id, controller.signal);
-        record = representation.data;
-        nextETag = representation.etag;
+        version = await records.get(collectionName, id, controller.signal);
+        record = version.data;
       }
       if (controller.signal.aborted) return;
       const values: Draft = {};
@@ -254,17 +255,17 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
       setInitial(values);
       setCollection(definition);
       setCatalog(catalog);
-      setETag(nextETag);
+      setLoaded(version);
       setStale(false);
       setErrors({});
     }).catch((caught: unknown) => {
       if (controller.signal.aborted) return;
       if (preserveStaleDraft) setMessage("Unable to reload the latest record. Your draft was preserved; try again.");
-      else if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
+      else if (caught instanceof RecordError && caught.reason === "not-found") setMessage("This record no longer exists.");
       else setMessage("Unable to load the record editor.");
     });
     return () => controller.abort();
-  }, [collectionName, collections, id, isCreate, loadVersion, records]);
+  }, [collectionName, id, isCreate, loadVersion, records, schema]);
 
   const dirty = useMemo(() => new Set(Object.keys(draft).filter((name) => !sameState(draft[name], initial[name]))), [draft, initial]);
 
@@ -306,21 +307,22 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
     setMessage(null);
     try {
       if (isCreate) {
-        await records.create(collectionName, input, createAttemptRef.current.keyFor(input));
+        await records.create(createAttemptRef.current, input);
         createAttemptRef.current.reset();
       } else {
-        if (etag === null) throw new Error("record ETag is unavailable");
-        await records.update(collectionName, id, input, etag);
+        if (loaded === null) throw new Error("record version is unavailable");
+        await records.update(loaded, input);
       }
       if (!active()) return;
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
       if (!active()) return;
-      if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
-      else if (caught instanceof APIClientError && caught.status === 412) {
+      const reason = caught instanceof RecordError ? caught.reason : "failed";
+      if (reason === "not-found") setMessage("This record no longer exists.");
+      else if (reason === "stale") {
         setStale(true);
         setMessage("This record changed after you loaded it. Reload the latest version before saving or deleting.");
-      } else if (caught instanceof APIClientError && caught.status === 422) {
+      } else if (caught instanceof RecordError && reason === "rejected") {
         const mapped: Record<string, string> = {};
         for (const [name, codes] of Object.entries(caught.details)) {
           const field = collection.fields.find((candidate) => candidate.name === name);
@@ -335,21 +337,22 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
   }
 
   async function remove() {
-    if (!id || etag === null || !window.confirm("Delete this record? This cannot be undone.")) return;
+    if (loaded === null || !window.confirm("Delete this record? This cannot be undone.")) return;
     setPending(true);
     setMessage(null);
     try {
-      await records.delete(collectionName, id, etag);
+      await records.remove(loaded);
       if (!active()) return;
       navigate({ kind: "records", collection: collectionName });
     }
     catch (caught: unknown) {
       if (!active()) return;
-      if (caught instanceof APIClientError && caught.status === 404) setMessage("This record no longer exists.");
-      else if (caught instanceof APIClientError && caught.status === 412) {
+      const reason = caught instanceof RecordError ? caught.reason : "failed";
+      if (reason === "not-found") setMessage("This record no longer exists.");
+      else if (reason === "stale") {
         setStale(true);
         setMessage("This record changed after you loaded it. Reload the latest version before saving or deleting.");
-      } else if (caught instanceof APIClientError && caught.status === 422) {
+      } else if (caught instanceof RecordError && reason === "rejected") {
         // The server reports a restricted relation against the record id, so
         // save()'s field mapping cannot render it.
         setMessage(caught.details["id"]?.includes("relation_delete_restricted")
@@ -376,7 +379,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         const errorID = errors[field.name] ? `record-${field.name}-error` : undefined;
         const describedBy = [relationHintID, errorID].filter(Boolean).join(" ") || undefined;
         const targetCollection = catalog !== null && relation !== undefined
-          ? collectionFromCatalogByID(catalog, relation.targetCollectionId)
+          ? catalog.byID(relation.targetCollectionId)
           : undefined;
         const targetName = targetCollection?.name;
         return <div className="record-field" key={field.name}>
