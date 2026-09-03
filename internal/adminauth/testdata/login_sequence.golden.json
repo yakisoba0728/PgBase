@@ -1,0 +1,60 @@
+{
+  "candidates": [
+    {
+      "name": "malformed candidate",
+      "outcome": "invalid_credentials",
+      "stages": [
+        "network admission complete; legacy global bucket ignored",
+        "email failure signal short read complete",
+        "delay class: 0s",
+        "KDF slot acquired",
+        "candidate hash short read complete",
+        "dummy KDF complete",
+        "KDF slot released",
+        "failure limiter signal recorded"
+      ],
+      "sessionDelta": 0,
+      "accountFailures": 1,
+      "networkFailures": 1,
+      "legacyGlobalFailures": 1000
+    },
+    {
+      "name": "unknown candidate",
+      "outcome": "invalid_credentials",
+      "stages": [
+        "network admission complete; legacy global bucket ignored",
+        "email failure signal short read complete",
+        "delay class: 0s",
+        "KDF slot acquired",
+        "candidate hash short read complete",
+        "dummy KDF complete",
+        "KDF slot released",
+        "failure limiter signal recorded"
+      ],
+      "sessionDelta": 0,
+      "accountFailures": 1,
+      "networkFailures": 1,
+      "legacyGlobalFailures": 1000
+    },
+    {
+      "name": "real candidate",
+      "outcome": "success",
+      "stages": [
+        "network admission complete; legacy global bucket ignored",
+        "email failure signal short read complete",
+        "delay class: 0s",
+        "KDF slot acquired",
+        "candidate hash short read complete",
+        "real KDF complete",
+        "KDF slot released",
+        "administrator hash and active recheck complete",
+        "session insert complete",
+        "successful limiter cleanup complete"
+      ],
+      "sessionDelta": 1,
+      "accountFailures": 0,
+      "networkFailures": 0,
+      "legacyGlobalFailures": 1000
+    }
+  ]
+}

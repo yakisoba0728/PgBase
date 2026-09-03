@@ -1,3 +1,5 @@
+//go:build integration
+
 package recordops
 
 import (
@@ -6,13 +8,12 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing.T) {
@@ -58,6 +59,7 @@ func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing
 	}
 	assertRelationRecord(t, got.Data, firstTarget, []uuid.UUID{firstTarget, secondTarget})
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-list-001", Collection: "articles", Limit: 10,
 	})
@@ -188,7 +190,7 @@ func TestRecordOperationsEmitBoundedRelationWriteExpandAndDeleteTelemetry(t *tes
 }
 
 func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	first := createRelationTarget(t, ctx, records, principal, "Ada")
@@ -212,6 +214,7 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 		t.Fatal(err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	filtered, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-query-filter", Collection: "articles", Limit: 10,
 		Filter: "tags = '" + first.String() + "'", Sort: "owner.name",
@@ -243,25 +246,8 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 	}
 }
 
-type relationTelemetryRecorder struct {
-	mu     sync.Mutex
-	events []observability.Event
-}
-
-func (r *relationTelemetryRecorder) Record(_ context.Context, event observability.Event) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, event)
-}
-
-func (r *relationTelemetryRecorder) snapshot() []observability.Event {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]observability.Event(nil), r.events...)
-}
-
 func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
@@ -337,6 +323,7 @@ func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *test
 		t.Fatalf("target update missing from expansion: %#v", afterExpand["owner"])
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	rawPage, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-expand-list-raw", Collection: "articles", Limit: 1,
 	})
@@ -393,7 +380,7 @@ func TestRecordOperationsRelationValidationAndMissingTargetRollback(t *testing.T
 }
 
 func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
-	_, schemas, records, principal := newRecordOperationsTest(t)
+	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
@@ -417,6 +404,7 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 		t.Fatalf("create relation page tail: %v", err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-page-list", Collection: "articles", Limit: 4,
 	})
@@ -478,6 +466,7 @@ func TestRecordOperationsRelationListClassifiesStoredDriftWithoutDisclosure(t *t
 		t.Fatalf("inject relation position drift: %v", err)
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	_, err = records.List(ctx, ListRequest{
 		Principal: principal, RequestID: "relation-drift-list", Collection: "articles", Limit: 10,
 	})
@@ -504,11 +493,11 @@ func createRelationCollections(t *testing.T, ctx context.Context, schemas *schem
 			}},
 		}},
 	} {
-		plan, err := schemas.PlanCreate(ctx, input)
+		plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {
 			t.Fatalf("plan %s: %v", input.Name, err)
 		}
-		if _, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+		if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administratorID)); err != nil {
 			t.Fatalf("apply %s: %v", input.Name, err)
 		}
 	}
@@ -537,18 +526,6 @@ func assertRelationRecord(t *testing.T, record map[string]any, owner uuid.UUID, 
 	}
 	if !reflect.DeepEqual(record["tags"], want) {
 		t.Fatalf("tags = %#v, want %#v", record["tags"], want)
-	}
-}
-
-func assertQueryValidation(t *testing.T, err error, field, code string) {
-	t.Helper()
-	var validation *query.ValidationError
-	if !errors.As(err, &validation) {
-		t.Fatalf("error = %v, want query validation", err)
-	}
-	want := []query.ValidationDetail{{Field: field, Code: code}}
-	if !reflect.DeepEqual(validation.Details, want) {
-		t.Fatalf("validation = %#v, want %#v", validation.Details, want)
 	}
 }
 

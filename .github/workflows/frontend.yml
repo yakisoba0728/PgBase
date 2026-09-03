@@ -4,6 +4,22 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned candidate supplied by the release gate
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Canonical version paired with candidate_image
+        required: false
+        default: ""
+        type: string
+      source_commit:
+        description: Optional immutable source commit corresponding to the candidate
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -15,6 +31,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+
+      - name: Validate release candidate binding
+        if: inputs.candidate_image != ''
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: scripts/support/validate-release-candidate.sh "$CANDIDATE_IMAGE" "$EXPECTED_VERSION"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -25,7 +50,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ui/admin
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         working-directory: ui/admin
@@ -35,9 +60,22 @@ jobs:
         working-directory: ui/admin
         run: npm test
 
-      - name: Build embedded administrator UI
+      # Building over the committed output would hide a file that the current
+      # source no longer produces, so the gate compares against a clean build.
+      - name: Rebuild the embedded administrator UI from an empty directory
         working-directory: ui/admin
-        run: npm run build
+        run: |
+          rm -rf dist
+          npm run build
 
-      - name: Verify embedded output is current
-        run: git diff --exit-code -- ui/admin/dist
+      - name: Verify the committed embedded output reproduces exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          divergence="$(git status --porcelain --untracked-files=all -- ui/admin/dist)"
+          if [[ -n "$divergence" ]]; then
+            echo "committed ui/admin/dist does not match a clean build:" >&2
+            printf '%s\n' "$divergence" >&2
+            git diff -- ui/admin/dist >&2 || true
+            exit 1
+          fi

@@ -6,42 +6,39 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
-
-	"golang.org/x/term"
-)
-
-var (
-	commandStdin          io.Reader = os.Stdin
-	terminalInput                   = term.IsTerminal
-	terminalPasswordInput           = readTerminalPasswordContext
 )
 
 const maximumAdministratorPasswordBytes = 1024
 
-var errDescriptorReadUnsupported = errors.New("context-aware descriptor reads are unsupported")
+var (
+	errDescriptorReadUnsupported = errors.New("context-aware descriptor reads are unsupported")
+	errNoTerminal                = errors.New("no controlling terminal is available")
+)
 
 type fileDescriptor interface{ Fd() uintptr }
 
-func readAdministratorPassword(ctx context.Context, stdin io.Reader, stderr io.Writer, passwordFromStdin bool) (string, error) {
+func readAdministratorPassword(ctx context.Context, streams IO, passwordFromStdin bool) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	stdin := streams.stdin()
+	stderr := streams.stderr()
 	if passwordFromStdin {
 		return readStreamPassword(ctx, stdin)
 	}
-	terminal, ok := stdin.(fileDescriptor)
-	if !ok || !terminalInput(int(terminal.Fd())) {
+	descriptor, ok := stdin.(fileDescriptor)
+	if !ok || !streams.terminal().IsTerminal(int(descriptor.Fd())) {
 		return "", configurationError{err: errors.New("administrator password input is not a terminal"), message: "use --password-stdin when standard input is not a terminal"}
 	}
+	terminal := streams.terminal()
 	if _, err := fmt.Fprint(stderr, "Password: "); err != nil {
 		return "", err
 	}
-	first, err := readTerminalPassword(ctx, int(terminal.Fd()))
+	first, err := terminal.ReadPassword(ctx, int(descriptor.Fd()))
 	if err != nil {
 		if ctx.Err() != nil {
 			_, _ = fmt.Fprintln(stderr)
@@ -61,7 +58,7 @@ func readAdministratorPassword(ctx context.Context, stdin io.Reader, stderr io.W
 	if _, err := fmt.Fprint(stderr, "\nConfirm password: "); err != nil {
 		return "", err
 	}
-	second, err := readTerminalPassword(ctx, int(terminal.Fd()))
+	second, err := terminal.ReadPassword(ctx, int(descriptor.Fd()))
 	if err != nil {
 		if ctx.Err() != nil {
 			_, _ = fmt.Fprintln(stderr)
@@ -117,8 +114,4 @@ func validateStreamPassword(line []byte, terminated bool, readErr error) (string
 		return "", configurationError{err: errors.New("empty administrator password"), message: "password must not be empty"}
 	}
 	return password, nil
-}
-
-func readTerminalPassword(ctx context.Context, descriptor int) ([]byte, error) {
-	return terminalPasswordInput(ctx, descriptor)
 }

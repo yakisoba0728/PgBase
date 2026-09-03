@@ -1,0 +1,817 @@
+//go:build integration
+
+package query
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
+)
+
+func TestListContinuesSignedV5ScalarPageWithinBoundMembership(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_scalar_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+
+	ids := make([]uuid.UUID, 0, 3)
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		record, err := records.Create(ctx, "cursor_v5_scalar_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatalf("Create(%s): %v", title, err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_scalar_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
+
+	page, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Cursor: token, Limit: 10, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(v5 continuation): %v", err)
+	}
+	if got, want := recordIDs(page.Items), []string{ids[1].String()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("v5 continuation ids = %v, want membership-bounded %v", got, want)
+	}
+	if page.NextCursor != "" {
+		t.Fatalf("membership-bounded terminal page cursor = %q, want empty", page.NextCursor)
+	}
+}
+
+func TestListKeepsV5BindingAndAbsoluteExpiryAcrossContinuationPages(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_chain_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 4)
+	for _, title := range []string{"alpha", "beta", "gamma", "omega"} {
+		record, err := records.Create(ctx, "cursor_v5_chain_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_chain_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
+	firstPage, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(cursorless first page): %v", err)
+	}
+	firstCursor, err := records.cursors.Decode(firstPage.NextCursor, collection.ID, time.Time{})
+	if err != nil || firstCursor.Version != cursor.Version5 || firstCursor.V5 == nil ||
+		firstCursor.V5.MembershipGeneration != 1 || firstCursor.V5.HighWater != 4 {
+		t.Fatalf("cursorless first page issued %#v, %v; want bound v5", firstCursor, err)
+	}
+	token := firstPage.NextCursor
+	initial, err := records.cursors.Decode(token, collection.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(initial v5 cursor): %v", err)
+	}
+	wantExpiry := initial.ExpiresAt
+	late, err := records.Create(ctx, collection.Name, map[string]json.RawMessage{
+		"title": json.RawMessage(`"delta"`),
+	})
+	if err != nil {
+		t.Fatalf("Create(late record): %v", err)
+	}
+	lateID := uuid.MustParse(late["id"].(string))
+	if _, err := pool.Exec(ctx, `with bumped as (
+		update pgbase_meta.collection_creation_counters
+		set last_ordinal = 5, updated_at = transaction_timestamp()
+		where collection_id = $1 and generation = 1 and last_ordinal = 4
+		returning collection_id
+	)
+	insert into pgbase_meta.record_creation_ordinals (collection_id, record_id, ordinal)
+	select collection_id, $2, 5 from bumped`, collection.ID, lateID); err != nil {
+		t.Fatalf("commit late membership: %v", err)
+	}
+
+	for pageNumber, wantID := range ids[1:] {
+		page, err := records.List(ctx, ListRequest{
+			Principal: testReadPrincipal, Collection: collection.Name, Cursor: token, Limit: 1, Sort: "title",
+		})
+		if err != nil {
+			t.Fatalf("List(v5 page %d): %v", pageNumber+2, err)
+		}
+		if got := recordIDs(page.Items); !reflect.DeepEqual(got, []string{wantID.String()}) {
+			t.Fatalf("v5 page %d ids = %v, want %s", pageNumber+2, got, wantID)
+		}
+		if pageNumber == len(ids)-2 {
+			if page.NextCursor != "" {
+				t.Fatalf("terminal v5 page cursor = %q, want empty", page.NextCursor)
+			}
+			continue
+		}
+		decoded, err := records.cursors.Decode(page.NextCursor, collection.ID, time.Time{})
+		if err != nil {
+			t.Fatalf("Decode(v5 page %d cursor): %v", pageNumber+2, err)
+		}
+		if decoded.Version != cursor.Version5 || decoded.V5 == nil || decoded.V5.HighWater != 4 ||
+			decoded.V5.MembershipGeneration != 1 || !decoded.ExpiresAt.Equal(wantExpiry) {
+			t.Fatalf("v5 page %d continuation = %#v", pageNumber+2, decoded)
+		}
+		token = page.NextCursor
+	}
+	fresh, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 10, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(fresh traversal): %v", err)
+	}
+	if got, want := recordIDs(fresh.Items), []string{
+		ids[0].String(), ids[1].String(), lateID.String(), ids[2].String(), ids[3].String(),
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("fresh traversal ids = %v, want %v", got, want)
+	}
+}
+
+func TestListRejectsV5ContinuationOutsideItsSignedBindings(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_binding_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 2)
+	for _, title := range []string{"alpha", "beta"} {
+		record, err := records.Create(ctx, "cursor_v5_binding_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_binding_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+	valid := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "alpha", 2)
+	otherPrincipal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")}
+
+	tests := []struct {
+		name      string
+		mutate    func(*cursor.Page)
+		principal Principal
+		filter    string
+		sort      string
+	}{
+		{name: "catalog", mutate: func(page *cursor.Page) { page.V5.CatalogVersion++ }},
+		{name: "membership generation", mutate: func(page *cursor.Page) { page.V5.MembershipGeneration++ }},
+		{name: "query", mutate: func(page *cursor.Page) { page.V5.QueryHash[0] ^= 0xff }},
+		{name: "scope principal", principal: otherPrincipal},
+		{name: "filter", filter: "title >= 'beta'"},
+		{name: "order", sort: "-title"},
+		{name: "order descriptor", mutate: func(page *cursor.Page) { page.V5.Order[0].Desc = true }},
+		{name: "high water above counter", mutate: func(page *cursor.Page) { page.V5.HighWater = 3 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			principal := test.principal
+			if !principal.Valid() {
+				principal = testReadPrincipal
+			}
+			sortText := test.sort
+			if sortText == "" {
+				sortText = "title"
+			}
+			token := valid
+			if test.mutate != nil {
+				page, err := records.cursors.Decode(valid, collection.ID, time.Time{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				test.mutate(&page)
+				token, err = records.cursors.Encode(page)
+				if err != nil {
+					t.Fatalf("Encode(mutated v5 cursor): %v", err)
+				}
+			}
+			_, err := records.List(ctx, ListRequest{
+				Principal: principal, Collection: collection.Name, Cursor: token,
+				Limit: 1, Filter: test.filter, Sort: sortText,
+			})
+			if !IsInvalidCursor(err) {
+				t.Fatalf("List(binding mismatch) error = %v, want invalid cursor", err)
+			}
+		})
+	}
+
+	if _, err := pool.Exec(ctx, `delete from pgbase_meta.record_membership_capability where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Cursor: valid, Limit: 1, Sort: "title",
+	}); !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+		t.Fatalf("List(with unavailable durable capability) error = %v, want membership unavailable", err)
+	}
+}
+
+// Release C has no v4 encoder, so on a database that still issues v4 -- a fresh
+// install, or any point of the rollout before retirement -- there is no cursor
+// it could mint for a page that has more results. Serving the first page anyway
+// would hand back a truncated result with no continuation, which is exactly the
+// silent omission the whole membership rollout exists to remove, so the read
+// fails closed instead.
+func TestListFailsClosedUntilCursorV4IsRetired(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_retirement_gate_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		if _, err := records.Create(ctx, "cursor_retirement_gate_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_retirement_gate_records"]
+
+	retired, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil || retired.NextCursor == "" {
+		t.Fatalf("List(retired boundary) = %#v, %v; want a page with a cursor", retired, err)
+	}
+
+	for _, unretired := range []struct {
+		name   string
+		update string
+	}{
+		{name: "ready issuing v4", update: `update pgbase_meta.record_membership_capability set
+			minimum_writer_version = 1, cursor_issue_version = 4, v5_enabled_at = null,
+			v4_decode_until = null, v4_retired_at = null,
+			updated_at = transaction_timestamp() where singleton`},
+		{name: "ready issuing v5 before retirement", update: `update pgbase_meta.record_membership_capability
+			set v4_retired_at = null, updated_at = transaction_timestamp() where singleton`},
+	} {
+		t.Run(unretired.name, func(t *testing.T) {
+			testutil.RetireRecordMembershipCapability(t, ctx, pool)
+			if _, err := pool.Exec(ctx, unretired.update); err != nil {
+				t.Fatal(err)
+			}
+			_, err := records.List(ctx, ListRequest{
+				Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+			})
+			if !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+				t.Fatalf("List(unretired boundary) error = %v, want membership unavailable", err)
+			}
+			if _, err := records.List(ctx, ListRequest{
+				Principal: testReadPrincipal, Collection: collection.Name,
+				Cursor: retired.NextCursor, Limit: 1, Sort: "title",
+			}); !errors.Is(err, membership.ErrUnavailable) || IsInvalidCursor(err) {
+				t.Fatalf("List(continuation on unretired boundary) error = %v, want membership unavailable", err)
+			}
+		})
+	}
+}
+
+// Rolling issuance back to v4 was the dual-write escape hatch up to Release B.
+// Retirement deliberately ends it: this binary can neither issue nor decode a
+// v4 cursor, so a capability that could still be told to issue one would leave
+// the fleet unable to continue any page at all. Retirement is therefore the
+// point of no return, and DisableV5 has to refuse for good afterwards.
+func TestRetirementPermanentlyRefusesTheRollbackToV4Issuance(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_rollback_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 3)
+	for _, title := range []string{"alpha", "beta", "gamma"} {
+		record, err := records.Create(ctx, "cursor_v5_rollback_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_rollback_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+	controller := membership.New(pool)
+	first, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("List(v5 first page) = %#v, %v", first, err)
+	}
+	issued, err := records.cursors.Decode(first.NextCursor, collection.ID, time.Time{})
+	if err != nil || issued.Version != cursor.Version5 {
+		t.Fatalf("first cursor = %#v, %v; want v5", issued, err)
+	}
+
+	if _, err := controller.DisableV5(ctx); !errors.Is(err, membership.ErrInvalidState) {
+		t.Fatalf("DisableV5 after retirement = %v, want an invalid state", err)
+	}
+	status, err := controller.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.CursorIssueVersion != cursor.Version5 || status.V4RetiredAt == nil {
+		t.Fatalf("capability after the refused rollback = %#v", status)
+	}
+
+	continued, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name,
+		Cursor: first.NextCursor, Limit: 10, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(continuation after the refused rollback): %v", err)
+	}
+	if got, want := recordIDs(continued.Items), []string{ids[1].String(), ids[2].String()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("continued ids = %v, want %v", got, want)
+	}
+
+	fresh, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(fresh page after the refused rollback): %v", err)
+	}
+	stillV5, err := records.cursors.Decode(fresh.NextCursor, collection.ID, time.Time{})
+	if err != nil || stillV5.Version != cursor.Version5 {
+		t.Fatalf("fresh cursor = %#v, %v; want v5", stillV5, err)
+	}
+}
+
+func TestListContinuesAnchorOnlyV5RelationPageWithinBoundMembership(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := catalog.Collections["relation_query_posts"]
+	people := catalog.Collections["relation_query_people"]
+	syncMembershipOrdinals(t, ctx, pool)
+	expiresAt := databaseCursorExpiryFixture(t, records)
+
+	encode := func(highWater int64) string {
+		t.Helper()
+		var ownerField, nameField schema.Field
+		for _, field := range posts.Fields {
+			if field.Name == "owner" {
+				ownerField = field
+			}
+		}
+		for _, field := range people.Fields {
+			if field.Name == "name" {
+				nameField = field
+			}
+		}
+		nameJSON, _ := json.Marshal("Ada")
+		idJSON, _ := json.Marshal(fixture.postAda.String())
+		token, err := records.cursors.Encode(cursor.Page{
+			Version: cursor.Version5, CollectionID: posts.ID,
+			Values: []json.RawMessage{nameJSON, idJSON}, AnchorID: fixture.postAda,
+			PrivateValues: true, ExpiresAt: expiresAt,
+			V5: &cursor.V5Descriptor{
+				CatalogVersion: catalog.Version, MembershipGeneration: 1, HighWater: highWater,
+				QueryHash: records.cursors.QueryFingerprint([]byte(`{"filter":null}`)),
+				ScopeHash: records.cursors.ScopeFingerprint([]byte(
+					`{"kind":"administrator","id":"` + testReadPrincipal.ID.String() + `","policy":"administrator-all-v1"}`,
+				)),
+				Order: []cursor.V5OrderTerm{
+					{Path: []string{ownerField.ID.String(), nameField.ID.String()}, Type: "text", Nulls: cursor.NullsLast},
+					{Path: []string{"$id"}, Type: "uuid", Nulls: cursor.NullsLast},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Encode(anchor-only relation v5): %v", err)
+		}
+		decoded, err := records.cursors.Decode(token, posts.ID, time.Time{})
+		if err != nil || len(decoded.Values) != 0 || decoded.AnchorID != fixture.postAda {
+			t.Fatalf("relation cursor is not anchor-only: %#v, %v", decoded, err)
+		}
+		return token
+	}
+
+	page, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: posts.Name, Cursor: encode(2), Limit: 10, Sort: "owner.name",
+	})
+	if err != nil {
+		t.Fatalf("List(anchor-only relation v5): %v", err)
+	}
+	if got := recordIDs(page.Items); !reflect.DeepEqual(got, []string{fixture.postBob.String()}) {
+		t.Fatalf("anchor-only relation continuation ids = %v, want %s", got, fixture.postBob)
+	}
+
+	bounded, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: posts.Name, Cursor: encode(1), Limit: 10, Sort: "owner.name",
+	})
+	if err != nil {
+		t.Fatalf("List(anchor-only bounded relation v5): %v", err)
+	}
+	if len(bounded.Items) != 0 || bounded.NextCursor != "" {
+		t.Fatalf("relation high-water page = %#v, want terminal empty page", bounded)
+	}
+}
+
+func TestListIssuesTheSameV5MembershipForRelationAndExpandedRoots(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := catalog.Collections["relation_query_posts"]
+	syncMembershipOrdinals(t, ctx, pool)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := ListRequest{
+		Principal: testReadPrincipal, Collection: posts.Name, Limit: 1, Sort: "owner.name",
+	}
+	relationPage, err := records.List(ctx, request)
+	if err != nil {
+		t.Fatalf("List(relation root): %v", err)
+	}
+	request.Expand = "owner"
+	expandedPage, err := records.List(ctx, request)
+	if err != nil {
+		t.Fatalf("List(expanded root): %v", err)
+	}
+	if got, want := recordIDs(relationPage.Items), recordIDs(expandedPage.Items); !reflect.DeepEqual(got, want) {
+		t.Fatalf("relation/expanded root ids = %v/%v", got, want)
+	}
+	relationCursor, err := records.cursors.Decode(relationPage.NextCursor, posts.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(relation cursor): %v", err)
+	}
+	expandedCursor, err := records.cursors.Decode(expandedPage.NextCursor, posts.ID, time.Time{})
+	if err != nil {
+		t.Fatalf("Decode(expanded cursor): %v", err)
+	}
+	if relationCursor.Version != cursor.Version5 || expandedCursor.Version != cursor.Version5 ||
+		relationCursor.V5 == nil || !reflect.DeepEqual(relationCursor.V5, expandedCursor.V5) ||
+		relationCursor.V5.HighWater != 2 || relationCursor.V5.MembershipGeneration != 1 {
+		t.Fatalf("relation/expanded v5 bindings = %#v/%#v", relationCursor.V5, expandedCursor.V5)
+	}
+}
+
+func TestListPreservesV5HighWaterAcrossSequentialHydrationBatches(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_batch_targets",
+		Fields: []schema.FieldInput{
+			{Name: "name", Type: schema.TypeText, Required: true},
+		},
+	})
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_batch_roots",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "targets", Type: schema.TypeRelation, Relation: &schema.RelationInput{
+				TargetCollection: "cursor_v5_batch_targets", Cardinality: schema.RelationMultiple,
+				MinSelect: relationFilterInt(0), MaxSelect: relationFilterInt(4), OnDelete: schema.RelationRestrict,
+			}},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 24)
+	for index := range 24 {
+		title := "record-" + string(rune('a'+index))
+		record, err := records.Create(ctx, "cursor_v5_batch_roots", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_batch_roots"]
+	syncMembershipOrdinals(t, ctx, pool)
+	token := encodeScalarV5CursorFixture(t, records, catalog, collection, testReadPrincipal, ids[0], "record-a", 18)
+
+	page, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Cursor: token, Limit: 20, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(v5 multi-batch continuation): %v", err)
+	}
+	want := make([]string, 0, 17)
+	for _, id := range ids[1:18] {
+		want = append(want, id.String())
+	}
+	if got := recordIDs(page.Items); !reflect.DeepEqual(got, want) {
+		t.Fatalf("multi-batch v5 continuation ids = %v, want %v", got, want)
+	}
+	if page.NextCursor != "" {
+		t.Fatalf("multi-batch bounded page cursor = %q, want empty", page.NextCursor)
+	}
+}
+
+func encodeScalarV5CursorFixture(
+	t *testing.T,
+	records *Service,
+	catalog schema.Catalog,
+	collection schema.Collection,
+	principal Principal,
+	anchorID uuid.UUID,
+	anchorTitle string,
+	highWater int64,
+) string {
+	t.Helper()
+	var titleField schema.Field
+	for _, field := range collection.Fields {
+		if field.Name == "title" {
+			titleField = field
+			break
+		}
+	}
+	if titleField.ID == uuid.Nil {
+		t.Fatal("title field has no stable identity")
+	}
+	anchorTitleJSON, _ := json.Marshal(anchorTitle)
+	anchorIDJSON, _ := json.Marshal(anchorID.String())
+	queryHash := records.cursors.QueryFingerprint([]byte(`{"filter":null}`))
+	scopeHash := records.cursors.ScopeFingerprint([]byte(
+		`{"kind":"administrator","id":"` + principal.ID.String() + `","policy":"administrator-all-v1"}`,
+	))
+	token, err := records.cursors.Encode(cursor.Page{
+		Version:      cursor.Version5,
+		CollectionID: collection.ID,
+		Values:       []json.RawMessage{anchorTitleJSON, anchorIDJSON},
+		ExpiresAt:    databaseCursorExpiryFixture(t, records),
+		V5: &cursor.V5Descriptor{
+			CatalogVersion: catalog.Version, MembershipGeneration: 1,
+			QueryHash: queryHash, ScopeHash: scopeHash, HighWater: highWater,
+			Order: []cursor.V5OrderTerm{
+				{Path: []string{titleField.ID.String()}, Type: string(schema.TypeText), Nulls: cursor.NullsLast},
+				{Path: []string{"$id"}, Type: string(schema.TypeUUID), Nulls: cursor.NullsLast},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Encode(v5 fixture): %v", err)
+	}
+	return token
+}
+
+func databaseCursorExpiryFixture(t *testing.T, records *Service) time.Time {
+	t.Helper()
+	var databaseTime time.Time
+	if err := records.pool.QueryRow(context.Background(), `select clock_timestamp()`).Scan(&databaseTime); err != nil {
+		t.Fatalf("read database time: %v", err)
+	}
+	return databaseTime.UTC().Add(cursorTTL)
+}
+
+// The base fixture already retires cursor v4 on an empty catalog, so this only
+// has to reserve sidecar ordinals for rows a test seeded outside Create.
+func syncMembershipOrdinals(t *testing.T, ctx context.Context, pool *database.Pool) {
+	t.Helper()
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
+}
+
+// Minting a v5 descriptor needs the query and order fingerprints, and those can
+// fail on request shape rather than on anything to do with a cursor. Collapsing
+// that into invalidCursor() changed a cursorless request's public answer from
+// 422 validation_failed to 400 invalid_cursor the moment v5 issuance was turned
+// on, which plan section 4 fixes as an unchangeable contract.
+func TestListKeepsFilterValidationErrorsWhenIssuingV5(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_validation_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+			{Name: "rank", Type: schema.TypeInteger, Indexed: true},
+			{Name: "payload", Type: schema.TypeJSONB},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 2)
+	for _, title := range []string{"alpha", "beta"} {
+		record, err := records.Create(ctx, "cursor_v5_validation_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_validation_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+
+	cases := []struct {
+		name   string
+		filter string
+		detail string
+	}{
+		{name: "literal type mismatch", filter: `rank = 'not a number'`, detail: "type_mismatch"},
+		{name: "root jsonb filter", filter: `payload = 'x'`, detail: "unsupported_type"},
+	}
+	listRequest := func(filter string) ListRequest {
+		return ListRequest{
+			Principal: testReadPrincipal, Collection: collection.Name, Limit: 10,
+			Sort: "title", Filter: filter,
+		}
+	}
+
+	// v5 issuance is a capability singleton, so pin every v4 answer before
+	// turning it on rather than toggling inside the loop.
+	for _, test := range cases {
+		_, err := records.List(ctx, listRequest(test.filter))
+		assertListValidationDetail(t, err, "filter", test.detail)
+	}
+
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// The request carries no cursor and never reaches cursor issuance,
+			// so enabling v5 must not change its answer.
+			_, err := records.List(ctx, listRequest(test.filter))
+			if IsInvalidCursor(err) {
+				t.Fatalf("List(%s) under v5 issuance = %v, want the validation error the same "+
+					"cursorless request returns under v4", test.filter, err)
+			}
+			assertListValidationDetail(t, err, "filter", test.detail)
+		})
+	}
+}
+
+func assertListValidationDetail(t *testing.T, err error, field, detail string) {
+	t.Helper()
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("error = %v (%T), want a validation error", err, err)
+	}
+	for _, got := range invalid.Details {
+		if got.Field == field && got.Code == detail {
+			return
+		}
+	}
+	t.Fatalf("validation details = %#v, want %s/%s", invalid.Details, field, detail)
+}
+
+// Minting has to prove the traversal is durably ready itself. Until it did, the
+// only thing standing between an unready generation and a signed v5 cursor was
+// membership's own rule that v5 issuance implies the ready state — an invariant
+// owned by another package, which a v5 rollout change there could relax without
+// anything in this package noticing.
+func TestListRefusesToMintV5FromAnUnreadyTraversal(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
+		Name: "cursor_v5_unready_records",
+		Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText, Required: true, Indexed: true},
+		},
+	})
+	ids := make([]uuid.UUID, 0, 2)
+	for _, title := range []string{"alpha", "beta"} {
+		record, err := records.Create(ctx, "cursor_v5_unready_records", map[string]json.RawMessage{
+			"title": json.RawMessage(`"` + title + `"`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, uuid.MustParse(record["id"].(string)))
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := catalog.Collections["cursor_v5_unready_records"]
+	syncMembershipOrdinals(t, ctx, pool)
+	request := ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 10, Sort: "title",
+	}
+
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		if err != nil {
+			return traversal, err
+		}
+		// Everything the resolver would report for a ready v5 collection except
+		// the durable ready state, which is unexported and so cannot be copied.
+		return membership.Traversal{
+			TransactionTime: traversal.TransactionTime, Generation: 1,
+			HighWater: int64(len(ids)),
+		}, nil
+	}
+	if _, err := records.List(ctx, request); !IsInvalidCursor(err) {
+		t.Fatalf("List(unready v5 traversal) = %v, want an invalid cursor", err)
+	}
+
+	// The same request against the resolver's own ready traversal mints, so the
+	// refusal above is readiness and nothing else about the descriptor inputs.
+	records.resolveTraversal = resolved
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
+	ready, err := records.List(ctx, ListRequest{
+		Principal: testReadPrincipal, Collection: collection.Name, Limit: 1, Sort: "title",
+	})
+	if err != nil {
+		t.Fatalf("List(ready v5 traversal): %v", err)
+	}
+	decoded, err := records.cursors.Decode(ready.NextCursor, collection.ID, time.Time{})
+	if err != nil || decoded.Version != cursor.Version5 || decoded.V5 == nil ||
+		decoded.V5.MembershipGeneration != 1 || decoded.V5.HighWater != int64(len(ids)) {
+		t.Fatalf("ready traversal issued %#v, %v; want a bound v5 cursor", decoded, err)
+	}
+}

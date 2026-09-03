@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
 
 type e2eSuite struct {
@@ -40,6 +42,7 @@ type e2eSuite struct {
 	administrator string
 	password      string
 	version       string
+	release       bool
 	environment   []string
 }
 
@@ -57,7 +60,27 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	suite = configured
-	if output, err := suite.compose(context.Background(), "up", "-d", "--build"); err != nil {
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	// --wait holds until the pgbase service reports healthy, which is the only
+	// point at which its automatic migration has finished. Tests that start a
+	// second instance run it without PGBASE_AUTO_MIGRATE, so one that reaches
+	// the database first fails closed on "system migrations are not current"
+	// and never becomes ready. Without this the suite passes only in the test
+	// orders where some other test happens to wait first.
+	startupArguments := []string{"up", "-d", "--wait"}
+	if suite.release {
+		if output, pullErr := suite.compose(startupCtx, "pull", "pgbase"); pullErr != nil {
+			startupCancel()
+			fmt.Fprintf(os.Stderr, "pull digest-pinned e2e candidate: %v\n%s\n", pullErr, output)
+			os.Exit(1)
+		}
+		startupArguments = append(startupArguments, "--no-build")
+	} else {
+		startupArguments = append(startupArguments, "--build")
+	}
+	output, err := suite.compose(startupCtx, startupArguments...)
+	startupCancel()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "start e2e compose project: %v\n%s\n", err, output)
 		suite.writeFailureLogs()
 		if cleanupErr := suite.cleanup(); cleanupErr != nil {
@@ -179,19 +202,11 @@ func TestReadinessTracksDatabaseOutageAndRecovery(t *testing.T) {
 	})
 
 	client := newAPIClient(suite.baseURL)
-	deadline := time.Now().Add(10 * time.Second)
-	var unavailable error
-	for time.Now().Before(deadline) {
-		requestCtx, requestCancel := context.WithTimeout(ctx, 3*time.Second)
-		unavailable = client.request(requestCtx, http.MethodGet, "/health/ready", nil, http.StatusServiceUnavailable, nil)
-		requestCancel()
-		if unavailable == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if unavailable != nil {
-		t.Fatalf("readiness did not report PostgreSQL outage: %v", unavailable)
+	if err := testsupport.Poll(ctx, 10*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
+		err := client.request(attemptCtx, http.MethodGet, "/health/ready", nil, http.StatusServiceUnavailable, nil)
+		return err == nil, err
+	}); err != nil {
+		t.Fatalf("readiness did not report PostgreSQL outage: %v", err)
 	}
 	if output, err := suite.compose(ctx, "unpause", "postgres"); err != nil {
 		t.Fatalf("unpause PostgreSQL: %v\n%s", err, output)
@@ -220,21 +235,17 @@ func TestTwoInstancesSynchronizeSchema(t *testing.T) {
 	}
 	applyCollection(t, ctx, instanceA, definition)
 
-	deadline := time.Now().Add(15 * time.Second)
-	for {
+	if err := testsupport.Poll(ctx, 15*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
 		var catalog struct {
 			Collections map[string]json.RawMessage `json:"collections"`
 		}
-		err := instanceB.request(ctx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog)
-		if err == nil {
-			if _, ok := catalog.Collections[collectionName]; ok {
-				break
-			}
+		if err := instanceB.request(attemptCtx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog); err != nil {
+			return false, err
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("instance B did not observe schema applied through A: %v", err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		_, present := catalog.Collections[collectionName]
+		return present, nil
+	}); err != nil {
+		t.Fatalf("instance B did not observe schema applied through A: %v", err)
 	}
 	record := createRecord(t, ctx, instanceB, collectionName, map[string]any{"body": "seen through listener"})
 	if stringValue(t, record, "body") != "seen through listener" {
@@ -728,6 +739,18 @@ func configureSuite() (e2eSuite, error) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	image := project + ":test"
 	version := "e2e-test"
+	release := false
+	candidateImage := os.Getenv("PGBASE_E2E_CANDIDATE_IMAGE")
+	expectedVersion := os.Getenv("PGBASE_E2E_EXPECTED_VERSION")
+	releaseCandidate, err := resolveE2ECandidate(candidateImage, expectedVersion)
+	if err != nil {
+		return e2eSuite{}, err
+	}
+	if releaseCandidate {
+		image = candidateImage
+		version = expectedVersion
+		release = true
+	}
 	environment := append(os.Environ(),
 		"PGBASE_HTTP_PORT="+strconv.Itoa(httpPort),
 		"PGBASE_POSTGRES_PORT="+strconv.Itoa(postgresPort),
@@ -738,12 +761,20 @@ func configureSuite() (e2eSuite, error) {
 		"PGBASE_PUBLIC_URL="+baseURL,
 		"PGBASE_IMAGE="+image,
 		"PGBASE_VERSION="+version,
+		// The Compose drain test must observe a full graceful shutdown inside
+		// the suite budget, so the project keeps the shipped five-second grace
+		// margin at a shorter absolute timeout. The statement timeout is raised
+		// only so a deliberately blocked request stays in flight until late in
+		// that drain window instead of being canceled by PostgreSQL first.
+		"PGBASE_STATEMENT_TIMEOUT="+composeStatementTimeout.String(),
+		"PGBASE_SHUTDOWN_TIMEOUT="+composeShutdownTimeout.String(),
+		"PGBASE_STOP_GRACE_PERIOD="+composeStopGracePeriod.String(),
 	)
 	return e2eSuite{
 		repoRoot: repoRoot, composeFile: filepath.Join(repoRoot, "deployments", "docker-compose.yml"),
 		project: project, image: image, baseURL: baseURL, httpPort: httpPort, postgresPort: postgresPort,
 		setupToken: setupToken, tokenSecret: base64.StdEncoding.EncodeToString(rawSecret), metricsToken: metricsToken, databasePass: databasePass,
-		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, environment: environment,
+		administrator: "admin@example.test", password: "correct horse battery staple 2026!", version: version, release: release, environment: environment,
 	}, nil
 }
 
@@ -773,11 +804,13 @@ func (s e2eSuite) cleanup() error {
 	if err != nil {
 		cleanupErrors = append(cleanupErrors, fmt.Errorf("clean compose project: %w (output: %s)", err, strings.TrimSpace(output)))
 	}
-	imageCtx, imageCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	output, err = s.docker(imageCtx, "image", "rm", s.image)
-	imageCancel()
-	if err != nil && !strings.Contains(output, "No such image") {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove image: %w (output: %s)", err, strings.TrimSpace(output)))
+	if !s.release {
+		imageCtx, imageCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		output, err = s.docker(imageCtx, "image", "rm", s.image)
+		imageCancel()
+		if err != nil && !strings.Contains(output, "No such image") {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove image: %w (output: %s)", err, strings.TrimSpace(output)))
+		}
 	}
 	return errors.Join(cleanupErrors...)
 }
@@ -852,18 +885,12 @@ func randomHex(bytesCount int) (string, error) {
 func waitReady(t *testing.T, ctx context.Context, baseURL string) {
 	t.Helper()
 	client := newAPIClient(baseURL)
-	deadline := time.Now().Add(90 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		lastErr = client.ready(requestCtx)
-		cancel()
-		if lastErr == nil {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
+	if err := testsupport.Poll(ctx, 90*time.Second, 250*time.Millisecond, 2*time.Second, func(attemptCtx context.Context) (bool, error) {
+		err := client.ready(attemptCtx)
+		return err == nil, err
+	}); err != nil {
+		t.Fatalf("wait for readiness: %v", err)
 	}
-	t.Fatalf("wait for readiness: %v", lastErr)
 }
 
 func applyCollection(t *testing.T, ctx context.Context, client *apiClient, definition map[string]any) {

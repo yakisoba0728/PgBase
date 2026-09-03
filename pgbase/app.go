@@ -13,6 +13,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
@@ -20,20 +21,23 @@ import (
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 )
 
-// App owns the pgBase HTTP server and its required process resources.
 type App struct {
-	options         Options
-	pool            *database.Pool
-	handler         http.Handler
-	httpServer      *http.Server
-	readiness       *readinessState
-	cleaner         backgroundRunner
-	recordCleaner   backgroundRunner
-	schemaListener  backgroundRunner
-	listen          func(string, string) (net.Listener, error)
-	shutdownMu      sync.Mutex
-	shutdownStarted bool
-	shutdownDone    chan struct{}
+	options          Options
+	pool             *database.Pool
+	handler          http.Handler
+	httpServer       *http.Server
+	readiness        *readinessState
+	cleaner          backgroundRunner
+	recordCleaner    backgroundRunner
+	schemaOperations backgroundRunner
+	schemaListener   backgroundRunner
+	membershipWriter backgroundRunner
+	systemStatus     backgroundRunner
+	schemaHealth     backgroundRunner
+	listen           func(string, string) (net.Listener, error)
+	shutdownMu       sync.Mutex
+	shutdownStarted  bool
+	shutdownDone     chan struct{}
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -49,6 +53,43 @@ type App struct {
 
 type backgroundRunner interface {
 	Run(context.Context) error
+}
+
+// sampleLoop samples immediately and then on the interval until the context is
+// cancelled, which is the app's shutdown signal. Both samplers run this shape.
+func sampleLoop(ctx context.Context, interval time.Duration, sample func(context.Context)) error {
+	sample(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			sample(ctx)
+		}
+	}
+}
+
+// closeGate closes a first-sample gate exactly once, from the one sampling
+// goroutine. Only tests wait on it; a request served earlier sees no sample.
+func closeGate(gate chan struct{}) {
+	select {
+	case <-gate:
+	default:
+		close(gate)
+	}
+}
+
+type namedBackgroundRunner struct {
+	name   string
+	runner backgroundRunner
+}
+
+type backgroundResult struct {
+	name            string
+	err             error
+	cancellationErr error
 }
 
 type appLifecycleState uint8
@@ -70,34 +111,6 @@ type readinessState struct {
 	accepting    atomic.Bool
 	dependencies []api.Readiness
 	recorder     observability.Recorder
-}
-
-type systemStatusState struct {
-	pool     *database.Pool
-	runner   *migrate.Runner
-	cache    *schema.Cache
-	listener api.Readiness
-}
-
-func (s systemStatusState) Status(ctx context.Context) api.SystemStatus {
-	status := api.SystemStatus{Version: Version}
-	if s.pool != nil && s.pool.Ping(ctx) == nil {
-		status.DatabaseReachable = true
-	}
-	if s.runner != nil {
-		if migrationStatus, err := s.runner.Status(ctx); err == nil {
-			status.MigrationCurrent = migrationStatus.Current
-			status.MigrationLatest = migrationStatus.Latest
-			status.MigrationDirty = migrationStatus.Dirty
-		}
-	}
-	if s.cache != nil {
-		status.CatalogVersion = s.cache.Load().Version
-	}
-	if s.listener != nil && s.listener.Ready(ctx) == nil {
-		status.ListenerReady = true
-	}
-	return status
 }
 
 func (s *readinessState) Ready(ctx context.Context) error {
@@ -170,6 +183,14 @@ func (e readinessFailure) Components() []string { return append([]string(nil), e
 // pgBase background workers or an HTTP listener; the PostgreSQL pool may run
 // its own internal maintenance goroutines. Callers must invoke Start or Run.
 func New(ctx context.Context, options Options) (*App, error) {
+	return newWithCatalogPreflight(ctx, options, schema.PreflightCatalog)
+}
+
+func newWithCatalogPreflight(
+	ctx context.Context,
+	options Options,
+	preflight func(context.Context, *database.Pool, *schema.Cache) error,
+) (*App, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -189,21 +210,45 @@ func New(ctx context.Context, options Options) (*App, error) {
 	}()
 
 	var metrics *observability.Metrics
+	var metricsExposition http.Handler
 	if len(normalized.MetricsToken) > 0 {
 		metrics = observability.NewMetrics(pool.Stats)
+		// Built here so the bearer secret stops at composition. The metrics
+		// module hashes it immediately and keeps only the hash.
+		metricsExposition = metrics.Handler(normalized.MetricsToken)
 	}
 	runner := migrate.NewWithRecorder(pool, normalized.Logger, metrics)
+	schemaCache := &schema.Cache{}
 	if normalized.AutoMigrate {
-		if err := runner.Up(ctx); err != nil {
-			return nil, fmt.Errorf("apply system migrations: %w", err)
+		if err := preflight(ctx, pool, schemaCache); err != nil {
+			return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
+		}
+		before, err := runner.Status(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read system migration status before auto-migration: %w", err)
+		}
+		if before.Current != 0 && !before.Compatible {
+			return nil, errors.New("system migrations are not current")
+		}
+		// An existing database is accepted only on the checksum-pinned history
+		// the compatibility policy declares. A designated exact-target job must
+		// cross the boundary to the next version; auto-migration remains
+		// available only for a fresh database bootstrap.
+		if before.Current == 0 {
+			if err := runner.Up(ctx); err != nil {
+				return nil, fmt.Errorf("apply system migrations: %w", err)
+			}
 		}
 	}
 	status, err := runner.Status(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read system migration status: %w", err)
 	}
-	if status.Dirty || status.Current != status.Latest {
+	if !status.Compatible {
 		return nil, errors.New("system migrations are not current")
+	}
+	if err := preflight(ctx, pool, schemaCache); err != nil {
+		return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
 	}
 	if metrics != nil {
 		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessDatabase, true))
@@ -217,16 +262,21 @@ func New(ctx context.Context, options Options) (*App, error) {
 			if err != nil {
 				return err
 			}
-			if status.Dirty || status.Current != status.Latest {
+			if !status.Compatible {
 				return errors.New("system migrations are not current")
 			}
 			return nil
 		})},
 	}}
-	schemaCache := &schema.Cache{}
-	schemaService := schema.NewServiceWithRecorder(pool, schemaCache, schema.Planner{}, metrics)
-	schemaListener := schema.NewListenerWithRecorder(pool, schemaCache, metrics)
+	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
+	schemaListener := schema.NewListener(pool, schemaCache, metrics, schemaService)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
+	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
+	if err != nil {
+		return nil, fmt.Errorf("register record membership writer: %w", err)
+	}
+	readiness.dependencies = append(readiness.dependencies,
+		namedReadiness{name: "record membership writer", check: membershipRuntime})
 	authService := adminauth.NewService(
 		pool,
 		adminauth.NewArgon2idPasswords(),
@@ -235,12 +285,16 @@ func New(ctx context.Context, options Options) (*App, error) {
 		normalized.AdminSessionTTL,
 		nil,
 	)
-	recordService := recordops.NewServiceWithRecorder(pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics)
+	recordService := recordops.NewService(
+		pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics, membershipRuntime,
+	)
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
-	handler := api.NewRouter(api.Dependencies{
+	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
+	schemaHealth := newSchemaHealthSampler(pool, runner)
+	handler, err := api.NewRouter(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
@@ -249,12 +303,16 @@ func New(ctx context.Context, options Options) (*App, error) {
 		Records:            recordService,
 		PublicURL:          normalized.PublicURL,
 		TrustedProxies:     normalized.TrustedProxies,
-		TokenSecret:        normalized.TokenSecret,
-		System:             systemStatusState{pool: pool, runner: runner, cache: schemaCache, listener: schemaListener},
+		System:             systemStatus,
+		SchemaHealth:       schemaHealth,
 		AdminUI:            adminHandler,
 		Metrics:            metrics,
-		MetricsToken:       normalized.MetricsToken,
+		MetricsExposition:  metricsExposition,
+		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
 	})
+	if err != nil {
+		return nil, err
+	}
 	app := &App{
 		options:          normalized,
 		pool:             pool,
@@ -262,7 +320,11 @@ func New(ctx context.Context, options Options) (*App, error) {
 		readiness:        readiness,
 		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
+		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
+		membershipWriter: membershipRuntime,
+		systemStatus:     systemStatus,
+		schemaHealth:     schemaHealth,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -286,6 +348,13 @@ func (a *App) Handler() http.Handler { return a.handler }
 // Start starts pgBase background components for a caller-owned HTTP server.
 // A started application cannot subsequently be passed to Run; call Close when
 // the caller-owned server has stopped.
+//
+// The context cancels background work directly, and pgBase cannot order that
+// against a server it does not own. A context tied to SIGTERM therefore stops
+// the listener and the membership heartbeat while the caller's requests are
+// still draining; Run escapes this only because it owns the server and drains
+// first. Pass a context that outlives the server and shut down through Close,
+// which drains before it cancels.
 func (a *App) Start(ctx context.Context) error {
 	if a == nil || a.httpServer == nil {
 		return errors.New("pgbase app is not initialized")
@@ -297,7 +366,7 @@ func (a *App) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	backgroundDone, activated := a.activateBackground(ctx, startupDone)
+	backgroundDone, activated := a.activate(ctx, nil, nil, startupDone)
 	if !activated {
 		return errAppClosed
 	}
@@ -333,45 +402,46 @@ func (a *App) Run(ctx context.Context) error {
 		return errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
 	}
 	serverDone := make(chan error, 1)
-	backgroundDone, activated := a.activateStartup(ctx, listener, serverDone, startupDone)
+	// Background tasks are deliberately detached from Run's parent context. A
+	// SIGTERM cancels that parent, and cancellation reaches a direct child
+	// before Run's own select arm runs, so the listener, the membership
+	// heartbeat and the reconciler would stop under requests still in flight.
+	// The parent signal only starts shutdown here; shutdown cancels the tasks
+	// after the drain. Start keeps its caller-owned contract, where the
+	// caller's context does cancel background work directly.
+	backgroundDone, activated := a.activate(context.WithoutCancel(ctx), listener, serverDone, startupDone)
 	if !activated {
 		return errAppClosed
 	}
 
 	select {
 	case serverErr := <-serverDone:
-		a.readiness.setAccepting(context.Background(), false)
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(serverErr, closeErr)
+		return a.shutdown(serverErr, nil)
 	case <-backgroundDone:
-		a.readiness.setAccepting(context.Background(), false)
 		a.closeMu.Lock()
 		backgroundErr := a.backgroundErr
 		a.closeMu.Unlock()
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		serverErr := waitForServer(closeCtx, serverDone)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(backgroundErr, closeErr, serverErr)
+		return errors.Join(backgroundErr, a.shutdown(nil, serverDone))
 	case <-ctx.Done():
-		a.readiness.setAccepting(context.Background(), false)
-		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
-		closeErr := a.Close(closeCtx)
-		serverErr := waitForServer(closeCtx, serverDone)
-		cancel()
-		if errors.Is(serverErr, http.ErrServerClosed) {
-			serverErr = nil
-		}
-		return errors.Join(closeErr, serverErr)
+		return a.shutdown(nil, serverDone)
 	}
+}
+
+// shutdown is the one exit Run takes, whatever ended it: readiness goes false
+// so nothing new arrives, Close drains HTTP before it cancels background work,
+// and only then is the HTTP server result collected.
+func (a *App) shutdown(serverErr error, awaitServer <-chan error) error {
+	a.readiness.setAccepting(context.Background(), false)
+	closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
+	defer cancel()
+	closeErr := a.Close(closeCtx)
+	if awaitServer != nil {
+		serverErr = waitForServer(closeCtx, awaitServer)
+	}
+	if errors.Is(serverErr, http.ErrServerClosed) {
+		serverErr = nil
+	}
+	return errors.Join(serverErr, closeErr)
 }
 
 func (a *App) beginStartup() (chan struct{}, error) {
@@ -392,32 +462,23 @@ func (a *App) beginStartup() (chan struct{}, error) {
 	}
 }
 
-func (a *App) activateStartup(ctx context.Context, listener net.Listener, serverDone chan<- error, startupDone chan struct{}) (<-chan struct{}, bool) {
+// activate publishes the running lifecycle under one lock so a concurrent
+// Close either wins outright or waits for a fully started application. A nil
+// listener is the caller-owned Start path, which serves no pgBase listener.
+func (a *App) activate(ctx context.Context, listener net.Listener, serverDone chan<- error, startupDone chan struct{}) (<-chan struct{}, bool) {
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
 	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
-		_ = listener.Close()
+		if listener != nil {
+			_ = listener.Close()
+		}
 		a.completeStartupLocked(startupDone)
 		return nil, false
 	}
 	backgroundDone := a.startBackground(ctx)
-	go func() {
-		serverDone <- a.httpServer.Serve(listener)
-	}()
-	a.readiness.setAccepting(ctx, true)
-	a.lifecycleState = appLifecycleRunning
-	a.completeStartupLocked(startupDone)
-	return backgroundDone, true
-}
-
-func (a *App) activateBackground(ctx context.Context, startupDone chan struct{}) (<-chan struct{}, bool) {
-	a.lifecycleMu.Lock()
-	defer a.lifecycleMu.Unlock()
-	if a.lifecycleState != appLifecycleStarting || a.startupDone != startupDone {
-		a.completeStartupLocked(startupDone)
-		return nil, false
+	if listener != nil {
+		go func() { serverDone <- a.httpServer.Serve(listener) }()
 	}
-	backgroundDone := a.startBackground(ctx)
 	a.readiness.setAccepting(ctx, true)
 	a.lifecycleState = appLifecycleRunning
 	a.completeStartupLocked(startupDone)
@@ -446,26 +507,35 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]backgroundRunner, 0, 3)
-		if a.cleaner != nil {
-			runners = append(runners, a.cleaner)
+		runners := make([]namedBackgroundRunner, 0, 7)
+		for _, candidate := range []namedBackgroundRunner{
+			{"administrator authentication cleaner", a.cleaner},
+			{"record idempotency cleaner", a.recordCleaner},
+			{"schema operation maintenance", a.schemaOperations},
+			{"schema listener", a.schemaListener},
+			{"record membership writer", a.membershipWriter},
+			{"system status sampler", a.systemStatus},
+			{"schema health sampler", a.schemaHealth},
+		} {
+			if candidate.runner != nil {
+				runners = append(runners, candidate)
+			}
 		}
-		if a.recordCleaner != nil {
-			runners = append(runners, a.recordCleaner)
-		}
-		if a.schemaListener != nil {
-			runners = append(runners, a.schemaListener)
-		}
-		results := make(chan error, len(runners))
+		results := make(chan backgroundResult, len(runners))
 		for _, runner := range runners {
-			go func(runner backgroundRunner) { results <- runner.Run(runCtx) }(runner)
+			go func(runner namedBackgroundRunner) {
+				err := runner.runner.Run(runCtx)
+				results <- backgroundResult{name: runner.name, err: err, cancellationErr: runCtx.Err()}
+			}(runner)
 		}
 		var backgroundErr error
 		for index := range runners {
-			err := <-results
-			cancellationErr := runCtx.Err()
-			if err != nil && !(cancellationErr != nil && errors.Is(err, cancellationErr)) {
-				backgroundErr = errors.Join(backgroundErr, err)
+			result := <-results
+			switch {
+			case result.err == nil && result.cancellationErr == nil:
+				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s stopped unexpectedly", result.name))
+			case result.err != nil && !(result.cancellationErr != nil && errors.Is(result.err, result.cancellationErr)):
+				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s: %w", result.name, result.err))
 			}
 			if index == 0 {
 				cancel()
@@ -501,21 +571,20 @@ func (a *App) Close(ctx context.Context) error {
 	done := a.shutdownDone
 	a.shutdownMu.Unlock()
 
+	// A shutdown that finished as the deadline passed reports its own result,
+	// not the deadline.
 	select {
 	case <-done:
-		a.closeMu.Lock()
-		defer a.closeMu.Unlock()
-		return a.closeErr
 	case <-ctx.Done():
 		select {
 		case <-done:
-			a.closeMu.Lock()
-			defer a.closeMu.Unlock()
-			return a.closeErr
 		default:
 			return ctx.Err()
 		}
 	}
+	a.closeMu.Lock()
+	defer a.closeMu.Unlock()
+	return a.closeErr
 }
 
 func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, done chan struct{}) {
@@ -528,9 +597,11 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	backgroundCancel := a.backgroundCancel
 	backgroundDone := a.backgroundDone
 	a.closeMu.Unlock()
-	if backgroundCancel != nil {
-		backgroundCancel()
-	}
+
+	// Drain HTTP before cancelling background work. Readiness is already
+	// false, so no new request arrives, but the requests still in flight may
+	// depend on a cleaner, the schema listener or the membership writer lease.
+	// Cancelling those first would fail requests that were about to succeed.
 	if a.httpServer != nil {
 		shutdownErr := a.httpServer.Shutdown(ctx)
 		if errors.Is(shutdownErr, http.ErrServerClosed) {
@@ -542,6 +613,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 				closeErr = errors.Join(closeErr, forceErr)
 			}
 		}
+	}
+	if backgroundCancel != nil {
+		backgroundCancel()
 	}
 	if err := waitForDone(ctx, backgroundDone, "background components"); err != nil {
 		closeErr = errors.Join(closeErr, err)
@@ -564,23 +638,20 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 func forceCloseHTTP(ctx context.Context, server *http.Server) error {
 	result := make(chan error, 1)
 	go func() { result <- server.Close() }()
+	var err error
 	select {
-	case err := <-result:
-		if err == nil {
-			return nil
-		}
-		return fmt.Errorf("force close HTTP server: %w", err)
+	case err = <-result:
 	default:
-	}
-	select {
-	case err := <-result:
-		if err == nil {
-			return nil
+		select {
+		case err = <-result:
+		case <-ctx.Done():
+			err = ctx.Err()
 		}
-		return fmt.Errorf("force close HTTP server: %w", err)
-	case <-ctx.Done():
-		return fmt.Errorf("force close HTTP server: %w", ctx.Err())
 	}
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("force close HTTP server: %w", err)
 }
 
 func waitForDone(ctx context.Context, done <-chan struct{}, component string) error {

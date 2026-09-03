@@ -1,0 +1,185 @@
+{
+  "families": [
+    {
+      "name": "pgbase_application_operation_duration_seconds",
+      "type": "HISTOGRAM",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_application_operations_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_application_readiness",
+      "type": "GAUGE",
+      "metricCount": 4
+    },
+    {
+      "name": "pgbase_application_readiness_transitions_total",
+      "type": "COUNTER",
+      "metricCount": 8
+    },
+    {
+      "name": "pgbase_database_pool_acquire_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_acquire_duration_seconds_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_acquired_connections",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_canceled_acquire_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_constructing_connections",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_empty_acquire_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_empty_acquire_wait_seconds_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_idle_connections",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_max_connections",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_max_idle_destroy_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_max_lifetime_destroy_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_new_connections_count_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_pool_total_connections",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_database_transaction_retries_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_http_request_duration_seconds",
+      "type": "HISTOGRAM",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_http_requests_in_flight",
+      "type": "GAUGE",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_http_requests_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    },
+    {
+      "name": "pgbase_observability_dropped_events_total",
+      "type": "COUNTER",
+      "metricCount": 1
+    }
+  ],
+  "samples": [
+    {
+      "name": "pgbase_application_operations_total",
+      "labels": {
+        "component": "schema",
+        "operation": "schema_create",
+        "outcome": "success"
+      },
+      "value": 1
+    },
+    {
+      "name": "pgbase_application_operation_duration_seconds",
+      "labels": {
+        "component": "schema",
+        "operation": "schema_create",
+        "outcome": "success"
+      },
+      "count": 1,
+      "sum": 0.25
+    },
+    {
+      "name": "pgbase_database_transaction_retries_total",
+      "labels": {
+        "cause": "deadlock",
+        "exhausted": "true"
+      },
+      "value": 1
+    },
+    {
+      "name": "pgbase_application_readiness",
+      "labels": {
+        "component": "database"
+      },
+      "value": 1
+    },
+    {
+      "name": "pgbase_application_readiness_transitions_total",
+      "labels": {
+        "component": "database",
+        "ready": "true"
+      },
+      "value": 1
+    },
+    {
+      "name": "pgbase_observability_dropped_events_total",
+      "value": 1
+    },
+    {
+      "name": "pgbase_http_requests_total",
+      "labels": {
+        "method": "GET",
+        "route": "/health/live",
+        "status": "2xx"
+      },
+      "value": 1
+    },
+    {
+      "name": "pgbase_http_request_duration_seconds",
+      "labels": {
+        "method": "GET",
+        "route": "/health/live",
+        "status": "2xx"
+      },
+      "count": 1,
+      "sum": 0.25
+    },
+    {
+      "name": "pgbase_database_pool_max_connections",
+      "value": 20
+    }
+  ]
+}

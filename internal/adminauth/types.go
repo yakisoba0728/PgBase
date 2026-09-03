@@ -9,7 +9,6 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
-// ErrorKind is a stable authentication failure category.
 type ErrorKind uint8
 
 const (
@@ -20,7 +19,6 @@ const (
 	ErrorKindConflict
 )
 
-// Error is an authentication error safe for callers to classify.
 type Error struct {
 	Kind ErrorKind
 }
@@ -42,7 +40,6 @@ func (e *Error) Error() string {
 	}
 }
 
-// Is compares authentication errors by kind.
 func (e *Error) Is(target error) bool {
 	var other *Error
 	return errors.As(target, &other) && e.Kind == other.Kind
@@ -70,15 +67,25 @@ type Session struct {
 	Administrator Administrator
 	RawToken      string
 	ExpiresAt     time.Time
+	// CSRFToken is derived here rather than by the transport so the token
+	// secret never has to leave this module. A caller that can prove a session
+	// already holds everything needed to answer a CSRF challenge for it.
+	CSRFToken string
 }
 
-// Passwords hashes and verifies administrator passwords.
+// Principal is an authenticated session as the transport sees it. It carries
+// the CSRF token for the same reason Session does.
+type Principal struct {
+	Administrator Administrator
+	ExpiresAt     time.Time
+	CSRFToken     string
+}
+
 type Passwords interface {
 	Hash(password string) (string, error)
 	Verify(encodedHash, password string) error
 }
 
-// Clock supplies time to authentication operations.
 type Clock interface {
 	Now() time.Time
 }
@@ -94,7 +101,6 @@ func normalizedClock(clock Clock) Clock {
 	return clock
 }
 
-// Service coordinates administrator authentication transactions.
 type Service struct {
 	pool        *database.Pool
 	passwords   Passwords
@@ -107,7 +113,6 @@ type Service struct {
 
 const passwordVerificationConcurrency = 2
 
-// NewService constructs an administrator authentication service.
 func NewService(pool *database.Pool, passwords Passwords, tokenSecret []byte, setupToken string, sessionTTL time.Duration, clock Clock) *Service {
 	return &Service{
 		pool:        pool,

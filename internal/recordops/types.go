@@ -6,9 +6,9 @@ package recordops
 
 import (
 	"encoding/json"
-	"errors"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
 
@@ -26,14 +26,11 @@ import (
 // has no way to know the size of the record it produces.
 const maximumRecordBytes = 2 << 20
 
-type PrincipalKind string
+type PrincipalKind = identity.Kind
 
-const PrincipalAdministrator PrincipalKind = "administrator"
+const PrincipalAdministrator PrincipalKind = identity.Administrator
 
-type Principal struct {
-	Kind PrincipalKind
-	ID   uuid.UUID
-}
+type Principal = identity.Subject
 
 type EntityTagSet struct {
 	Present bool
@@ -49,11 +46,7 @@ const (
 	CompatibilityLastWriteWins         Compatibility = "missing-if-match"
 )
 
-type Record struct {
-	Data    map[string]any `json:"data"`
-	ETag    string         `json:"-"`
-	Version int64          `json:"-"`
-}
+type Record = query.Record
 
 type MutationResult struct {
 	Record        *Record
@@ -118,6 +111,7 @@ const (
 	CodeIdempotencyInProgress ErrorCode = "idempotency_in_progress"
 	CodeInvalidPrecondition   ErrorCode = "invalid_precondition"
 	CodePreconditionFailed    ErrorCode = "precondition_failed"
+	CodeUnavailable           ErrorCode = "record_unavailable"
 )
 
 // Error exposes a stable, non-sensitive failure code. CurrentETag is populated
@@ -125,6 +119,7 @@ const (
 type Error struct {
 	Code        ErrorCode
 	CurrentETag string
+	canceled    bool
 }
 
 func (e *Error) Error() string {
@@ -132,9 +127,4 @@ func (e *Error) Error() string {
 		return "record operation failed"
 	}
 	return string(e.Code)
-}
-
-func IsCode(err error, code ErrorCode) bool {
-	var operationError *Error
-	return errors.As(err, &operationError) && operationError.Code == code
 }

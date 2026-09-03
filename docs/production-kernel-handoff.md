@@ -157,6 +157,7 @@ Physical target FK는 `ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`인 com
 | `POST /api/admin/collections/plan` | 컬렉션 create/update/delete 계획 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `POST /api/admin/collections/apply` | 검토한 계획 적용 (`operation` 필수) | 관리자 세션 + mutation 보호 |
 | `GET /api/admin/system` | 버전, DB, migration, catalog/listener 상태 | 관리자 인증 |
+| `GET /api/admin/system/health` | 배경 doctor 실행의 redacted finding code와 healthy/drift/unavailable 상태 | 관리자 인증 + same-origin read |
 | `GET /api/v1/collections/{collection}/records` | 레코드 목록, bounded scalar/relation-path `filter`, root/single-relation indexed scalar `sort`, `expand`, cursor 페이지네이션 | 관리자 세션 |
 | `POST /api/v1/collections/{collection}/records` | typed 레코드 생성 | 관리자 세션 + mutation 보호 |
 | `GET /api/v1/collections/{collection}/records/{id}` | raw relation ID와 optional bounded `expand`를 포함한 단일 레코드 조회 | 관리자 세션 |
@@ -209,7 +210,7 @@ Expand는 4 KiB expression, depth 6, unique node 20, 전체 fetched row 10,000, 
 | `pgbase doctor [--json]` | DB와 migration 진단 |
 | `pgbase healthcheck --url URL [--timeout DURATION]` | shell/curl 없는 컨테이너 health probe |
 
-핵심 환경 변수는 `PGBASE_DATABASE_URL`, `PGBASE_TOKEN_SECRET`, `PGBASE_SETUP_TOKEN`, `PGBASE_METRICS_TOKEN`, `PGBASE_HTTP_ADDRESS`, `PGBASE_PUBLIC_URL`, `PGBASE_AUTO_MIGRATE`, `PGBASE_TRUSTED_PROXIES`, `PGBASE_CORS_ALLOWED_ORIGINS`, `PGBASE_ADMIN_SESSION_TTL`, `PGBASE_STATEMENT_TIMEOUT`, `PGBASE_SHUTDOWN_TIMEOUT`다. 정확한 요구사항과 기본값은 [Deployment and configuration](deployment.md#configuration)을 기준으로 한다.
+핵심 환경 변수는 `PGBASE_DATABASE_URL`, `PGBASE_TOKEN_SECRET`, `PGBASE_SETUP_TOKEN`, `PGBASE_METRICS_TOKEN`, `PGBASE_HTTP_ADDRESS`, `PGBASE_PUBLIC_URL`, `PGBASE_AUTO_MIGRATE`, `PGBASE_TRUSTED_PROXIES`, `PGBASE_CORS_ALLOWED_ORIGINS`, `PGBASE_ADMIN_SESSION_TTL`, `PGBASE_STATEMENT_TIMEOUT`, `PGBASE_SHUTDOWN_TIMEOUT`, `PGBASE_STOP_GRACE_PERIOD`다. 정확한 요구사항과 기본값은 [Deployment and configuration](deployment.md#configuration)을 기준으로 한다.
 
 Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options)`를 호출한다. 내장 HTTP 서버는 `Run`을 사용하고, 호출자가 서버를 소유할 때는 반드시 `Start`를 성공시킨 뒤 `Handler`를 제공하고 마지막에 `Close`한다. `Start`된 앱을 다시 `Run`할 수는 없다. `New`는 pgBase worker나 HTTP listener를 시작하지 않지만, 이 단계에서 생성하는 `pgxpool`은 내부 연결 유지 goroutine을 실행할 수 있다.
 
@@ -236,29 +237,33 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 - 개발 Compose만 `PGBASE_AUTO_MIGRATE=true`다. 운영에서는 false 또는 unset 상태에서 별도 migration job을 사용한다.
 - tag release는 digest로 고정한 BuildKit `docker-container` builder를 사용하고 tag 원문을 binary `VERSION`에 주입한다. `/api/admin/system`에서 실행 중인 이미지 버전을 확인할 수 있다.
 
+마지막 항목의 builder digest 고정은 build 도구의 공급망 고정이지 publish candidate 동일성 증거가 아니다. 현재 tag workflow에서 E2E는 Compose로 pgBase 이미지를 만들고, security는 별도의 audit 이미지를 만들며, backup/restore는 source-built Go binary를 사용한다. 이 reusable job들이 끝난 뒤 release job이 publish 이미지를 별도로 Buildx build/push한다. 따라서 현재 gate는 같은 source revision을 검증하지만 E2E·security·restore가 최종 publish digest를 실행했다는 것을 증명하지 않는다. release SBOM과 provenance는 publish digest에 연결되지만, 단일 candidate build와 검증된 digest의 promotion은 아직 구현되지 않았다.
+
 ## 10. 검증 gate
 
 최종 전달 후보는 마지막 변경 뒤 다음 gate를 모두 다시 통과해야 한다. 이 표는 실제 트래픽의 처리량이나 SLO 증거가 아니라 release acceptance 범위다. 각 전달 보고에는 실행한 PostgreSQL 버전, 명령, 결과와 미실행 항목을 별도로 남긴다.
 
 | 영역 | 검증 |
 | --- | --- |
-| Go | live PostgreSQL을 사용한 `go test ./... -count=1` |
+| Go unit | live PostgreSQL 없이 `scripts/test-go-unit.sh -count=1` |
+| Go integration | live PostgreSQL을 사용한 `scripts/test-go-integration.sh -count=1` |
 | 정적 검사 | `go vet ./...` |
-| 동시성 | Linux / Go 1.26.7에서 `go test -race ./... -count=1` |
+| 동시성 | Linux / Go 1.26.7에서 `scripts/test-go-integration.sh -race -count=1` |
 | Frontend | integrity-bound `npm ci`, typecheck, unit/contract test, production build |
 | Embedded UI | 재빌드한 `ui/admin/dist`와 커밋 결과가 동일 |
-| Black-box E2E | digest-pinned PostgreSQL 16.13 Compose에서 `-count=2 -shuffle=on` 실행 |
+| Black-box E2E | source-built pgBase Compose 이미지와 digest-pinned PostgreSQL 16.13에서 `-count=2 -shuffle=on` 실행 |
 | E2E 범위 | 실제 Chromium 온보딩, bootstrap/CRUD/restart, record idempotency·ETag guard, two-instance concurrent stale-write 수렴, DB outage/recovery, two-instance schema sync, graceful drain, 이미지 버전 주입 |
 | Relation | migration/schema planner/doctor, single/multi ordered CRUD, restart/two-instance catalog read, bounded expand/filter/sort, restrict/cascade/set-null graph와 rollback/concurrency를 포함한 focused/full gate |
-| Backup/restore | 실제 API로 single/multiple relation과 ordered edge를 seed하고 빈 DB에 전체 dump를 복원한 뒤 metadata, owner join, edge 순서와 relation-aware doctor 검증 |
+| Backup/restore | source-built Go binary와 실제 API로 single/multiple relation과 ordered edge를 seed하고 빈 DB에 전체 dump를 복원한 뒤 metadata, owner join, edge 순서와 relation-aware doctor 검증 |
 | Telemetry | opt-in/off와 bearer 실패/성공 Docker scrape, raw path/query sentinel 부재, private registry/race, dashboard JSON과 고정 digest `promtool` rule 검증, disabled/enabled benchmark artifact |
 | CI PostgreSQL matrix | 16.13, 17.9, 18.3 |
-| Container | nonroot, shell 없음, hardened Compose runtime 검사, digest-pinned BuildKit bootstrap |
+| Container | E2E가 별도로 build한 이미지의 nonroot/shell 없음/hardened Compose runtime 검사, release builder digest 고정 |
+| Release artifact | publish digest에 SBOM/provenance 연결. 같은 digest에 대한 E2E/security/restore와 rebuild 없는 digest promotion은 아직 없음 |
 | Review | 4개 병렬 영역 재감사, 교차 검증과 잔여 finding 수정 완료 |
 
 2026-08-31 최종 워킹트리는 PostgreSQL 16.13, 17.9, 18.3 각각에서 `go test -race ./... -count=1`을 skip 없이 통과했다. Admin UI는 12개 파일 80개 테스트와 typecheck/build를 통과했고, Docker black-box E2E는 relation 시나리오를 포함해 `-count=2 -shuffle=on`으로 통과했다. gofmt/vet/build/diff check, reachable Go vulnerability 0, high npm vulnerability 0, dashboard JSON과 8개 Prometheus alert rule 검증도 통과했다. 상세 finding별 종결 근거는 [2026-08-31 codebase audit](codebase-audit-2026-08-31.md#7-수정-종결과-최종-재검증)에 남겼다.
 
-GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 typecheck/test/build/dist 재현성, Docker black-box E2E와 backup/restore drill을 각각 gate한다. 태그 이미지 발행은 이 reusable gate가 모두 성공한 뒤에만 실행된다. 이 검증은 구현 정확성의 근거지만 실제 트래픽의 용량·지연·장시간 안정성 증거를 대신하지 않는다.
+GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 typecheck/test/build/dist 재현성, Docker black-box E2E와 backup/restore drill을 각각 gate한다. 태그 이미지 발행은 이 reusable gate가 모두 성공한 뒤에만 실행된다. 다만 각 image-dependent gate와 publish job은 독립 build이므로 이 순서는 source revision gate이지 same-digest artifact gate가 아니다. 이 검증은 구현 정확성의 근거지만 최종 publish artifact 동일성이나 실제 트래픽의 용량·지연·장시간 안정성 증거를 대신하지 않는다.
 
 ## 11. 운영 배포 계약
 
@@ -285,7 +290,7 @@ GitHub Actions는 Go formatting/vet/race와 benchmark artifact, 프론트엔드 
 2. 제공된 요청률/지연/error, DB pool, migration/schema/listener/readiness/auth/retry 지표와 초기 경보를 staging에서 운영하고, 실제 트래픽으로 threshold와 SLO를 교정한다.
 3. 목표 트래픽 모델로 load, soak, spike, DB 장애와 network partition 테스트를 실행하고 용량/SLO 증거를 보존한다.
 4. 운영 방식의 backup/PITR와 별도 환경 restore drill을 실행하고 RPO/RTO를 확정한다.
-5. 실제 registry tag release, 서명 검증 정책, release note와 migration 호환성 승인을 운영 절차로 확정한다. 이미지·builder digest, provenance와 SBOM 생성 경로는 구현되어 있다.
+5. 실제 registry tag release, 서명 검증 정책, release note와 migration 호환성 승인을 운영 절차로 확정한다. Publish image·builder digest와 provenance/SBOM 생성 경로는 구현되어 있지만, E2E/security/restore가 같은 candidate digest를 검증하고 그 digest를 rebuild 없이 승격하는 경로는 아직 없다.
 6. 외부 또는 독립 보안 리뷰, 의존성/이미지 scan과 incident runbook을 완료한다.
 
 ### P1: PocketBase형 공개 애플리케이션 백엔드
@@ -321,12 +326,13 @@ git switch main
 git pull --ff-only
 ```
 
-새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx, 그리고 데이터베이스를 만들 수 있는 superuser 계정을 가진 PostgreSQL 16 이상을 준비한다. `PGBASE_TEST_ADMIN_URL` 없이 `go test`를 실행하면 live PostgreSQL이 필요한 테스트가 `internal/testutil`에서 전부 조용히 skip되면서도 모든 패키지가 `ok`로 보고되므로, §10 검증 gate와 같은 조건을 만들려면 이 변수를 반드시 설정한다. clone 직후 다음 순서로 전달 상태를 확인한다.
+새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx, 그리고 데이터베이스를 만들 수 있는 superuser 계정을 가진 PostgreSQL 16 이상을 준비한다. Go unit suite는 live PostgreSQL 파일을 build하지 않으며, PostgreSQL integration suite는 `PGBASE_TEST_ADMIN_URL`이 없으면 `go test`를 시작하기 전에 실패한다. 두 명령 모두 JSON test event를 skip allowlist와 대조한다. CI는 같은 integration suite를 PostgreSQL 16.13, 17.9, 18.3에서 각각 실행한다. clone 직후 다음 순서로 전달 상태를 확인한다.
 
 ```console
-export PGBASE_TEST_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
-go test ./... -count=1
+scripts/test-go-unit.sh -count=1
 go vet ./...
+export PGBASE_TEST_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+scripts/test-go-integration.sh -count=1
 cd ui/admin
 npm ci --ignore-scripts
 npm run typecheck

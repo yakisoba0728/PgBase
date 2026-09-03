@@ -159,6 +159,10 @@ UNIQUE (source_id, position)
 
 기존 `PlanCreate/Update/Delete`와 `ApplyCreate/Update/Delete` Interface는 유지하되 Planner는 full Catalog를 받는 relation Facet을 사용한다.
 
+> **2026-09-02 갱신.** 위 여섯 method는 이후 `Preview`/`Apply` 한 쌍으로 대체됐고, 2026-09-02 감사의 STD-3에
+> 따라 `*schema.Service`와 `internal/api`의 의존 interface에서 삭제됐다. Legacy HTTP wire는 그대로이며
+> adapter가 `Preview` / `Apply(LegacyApply(...))`를 직접 호출한다. 이 절의 나머지 Plan 순서는 유효하다.
+
 Plan 순서:
 
 1. field와 symbolic target을 validation한다.

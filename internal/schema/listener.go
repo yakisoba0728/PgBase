@@ -12,36 +12,40 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
-const schemaChangeChannel = "pgbase_schema_changed"
+const (
+	schemaChangeChannel           = "pgbase_schema_changed"
+	schemaWriterHeartbeatInterval = 30 * time.Second
+)
 
 var ErrSynchronizationUnavailable = errors.New("schema catalog synchronization is unavailable")
 
 type Listener struct {
-	pool  *database.Pool
-	cache *Cache
-	ready atomic.Bool
+	pool   *database.Pool
+	cache  *Cache
+	writer *Service
+	ready  atomic.Bool
 
-	pid      atomic.Uint32
-	retryMin time.Duration
-	retryMax time.Duration
-	recorder observability.Recorder
+	pid                     atomic.Uint32
+	retryMin                time.Duration
+	retryMax                time.Duration
+	writerHeartbeatInterval time.Duration
+	recorder                observability.Recorder
 
 	afterInitialReload func(Catalog)
 }
 
-func NewListener(pool *database.Pool, cache *Cache) *Listener {
-	return NewListenerWithRecorder(pool, cache, nil)
-}
-
-func NewListenerWithRecorder(pool *database.Pool, cache *Cache, recorder observability.Recorder) *Listener {
+func NewListener(pool *database.Pool, cache *Cache, recorder observability.Recorder, writer *Service) *Listener {
 	if cache == nil {
 		cache = &Cache{}
 	}
-	return &Listener{pool: pool, cache: cache, retryMin: 100 * time.Millisecond, retryMax: 5 * time.Second, recorder: recorder}
+	return &Listener{pool: pool, cache: cache, writer: writer,
+		retryMin: 100 * time.Millisecond, retryMax: 5 * time.Second,
+		writerHeartbeatInterval: schemaWriterHeartbeatInterval,
+		recorder:                recorder}
 }
 
 func (l *Listener) Run(ctx context.Context) error {
-	if l == nil || l.pool == nil || l.cache == nil {
+	if l == nil || l.pool == nil || l.cache == nil || l.writer == nil || l.writerHeartbeatInterval <= 0 {
 		return ErrSynchronizationUnavailable
 	}
 	if ctx == nil {
@@ -50,16 +54,14 @@ func (l *Listener) Run(ctx context.Context) error {
 	l.setReady(ctx, false)
 	defer l.setReady(ctx, false)
 
-	minimum, maximum := l.backoffBounds()
-	backoff := minimum
+	backoff := l.retryMin
 	for {
 		becameReady, err := l.listenOnce(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		l.setReady(ctx, false)
 		if becameReady {
-			backoff = minimum
+			backoff = l.retryMin
 		}
 		if err == nil {
 			return nil
@@ -67,18 +69,11 @@ func (l *Listener) Run(ctx context.Context) error {
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			return ctx.Err()
 		case <-timer.C:
 		}
-		if backoff < maximum {
-			backoff *= 2
-			if backoff > maximum {
-				backoff = maximum
-			}
-		}
+		backoff = min(backoff*2, l.retryMax)
 	}
 }
 
@@ -102,7 +97,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	connectStarted := time.Now()
 	connection, err := l.pool.Acquire(ctx)
 	if err != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
 	defer func() {
@@ -116,10 +111,10 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 
 	l.pid.Store(connection.Conn().PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
-	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
+	l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
 	catalog, err := l.reload(ctx, connection.Conn())
 	if err != nil {
 		return false, err
@@ -129,10 +124,12 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	}
 	l.setReady(ctx, true)
 	becameReady := true
-
 	for {
-		if _, err := connection.Conn().WaitForNotification(ctx); err != nil {
-			return becameReady, fmt.Errorf("wait for schema change notification: %w", err)
+		waitCtx, cancelWait := context.WithTimeout(ctx, l.writerHeartbeatInterval)
+		_, waitErr := connection.Conn().WaitForNotification(waitCtx)
+		cancelWait()
+		if waitErr != nil && !errors.Is(waitErr, context.DeadlineExceeded) {
+			return becameReady, fmt.Errorf("wait for schema change notification: %w", waitErr)
 		}
 		if _, err := l.reload(ctx, connection.Conn()); err != nil {
 			return becameReady, err
@@ -160,16 +157,29 @@ func (l *Listener) reload(ctx context.Context, connection *pgx.Conn) (catalog Ca
 	if err != nil {
 		return Catalog{}, err
 	}
-	catalog, err = store.ReadCatalog(ctx, version)
-	if err != nil {
+	current := l.cache.find(version)
+	var compiled *compiledCatalog
+	if current != nil && current.catalog.Version == version {
+		compiled = current
+	} else {
+		catalog, err = store.ReadCatalog(ctx, version)
+		if err != nil {
+			return Catalog{}, err
+		}
+		compiled, err = l.cache.prepare(catalog, maximumCatalogWireBytes)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("compile schema catalog: %w", err)
+		}
+	}
+	if err := l.writer.refreshSchemaWriterLease(ctx, tx); err != nil {
 		return Catalog{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Catalog{}, fmt.Errorf("commit schema catalog reload: %w", err)
 	}
 	committed = true
-	l.cache.Replace(catalog)
-	return catalog, nil
+	l.cache.publish(compiled)
+	return cloneCatalog(compiled.catalog), nil
 }
 
 func (l *Listener) setReady(ctx context.Context, ready bool) {
@@ -187,14 +197,14 @@ func (l *Listener) record(ctx context.Context, event observability.Event) {
 
 func (l *Listener) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
 	if recovered := recover(); recovered != nil {
-		l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, observability.OutcomeFailure, time.Since(started)))
+		l.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
 	}
 	var err error
 	if operationErr != nil {
 		err = *operationErr
 	}
-	l.record(ctx, observability.OperationEvent(observability.ComponentSchemaListener, operation, listenerOperationOutcome(err), time.Since(started)))
+	l.record(ctx, observability.OperationEvent(operation, listenerOperationOutcome(err), time.Since(started)))
 }
 
 func listenerOperationOutcome(err error) observability.Outcome {
@@ -213,19 +223,4 @@ func listenerOperationOutcome(err error) observability.Outcome {
 	default:
 		return observability.OutcomeFailure
 	}
-}
-
-func (l *Listener) backoffBounds() (time.Duration, time.Duration) {
-	minimum := l.retryMin
-	if minimum <= 0 {
-		minimum = 100 * time.Millisecond
-	}
-	maximum := l.retryMax
-	if maximum <= 0 {
-		maximum = 5 * time.Second
-	}
-	if maximum < minimum {
-		maximum = minimum
-	}
-	return minimum, maximum
 }

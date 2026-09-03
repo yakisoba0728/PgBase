@@ -1,4 +1,7 @@
 .worktrees/
+.claude/
+.zcode/
+.DS_Store
 .env
 .env.local
 deployments/.env

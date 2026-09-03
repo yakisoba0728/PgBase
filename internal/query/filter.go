@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -48,10 +49,7 @@ type filterLiteral struct {
 
 // SortKey is one ordered column of a list query. The logical field name is
 // resolved against the catalog before compilation.
-type SortKey struct {
-	Field string
-	Desc  bool
-}
+type SortKey = cursor.SortKey
 
 type filterParser struct {
 	input string

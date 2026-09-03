@@ -1,7 +1,6 @@
 package query
 
 import (
-	"errors"
 	"sort"
 	"strings"
 
@@ -336,36 +335,4 @@ func catalogCollectionByID(catalog schema.Catalog, id uuid.UUID) (schema.Collect
 	return found, matches == 1
 }
 
-func validateProjection(collection schema.Collection, predicate Predicate, fields FieldSet) error {
-	switch predicate.kind {
-	case predicateAllowAll, predicateDenyAll:
-	case predicateRecordIDs:
-		for _, id := range predicate.ids {
-			if id == uuid.Nil {
-				return ErrProjectionDenied
-			}
-		}
-	default:
-		return ErrProjectionDenied
-	}
-	if fields.all {
-		return nil
-	}
-	if fields.fields == nil {
-		return ErrProjectionDenied
-	}
-	for name := range fields.fields {
-		if _, ok := collectionField(collection, name); !ok {
-			return ErrProjectionDenied
-		}
-	}
-	return nil
-}
-
 func expandBudgetError() error { return validation("expand", "expand_budget_exceeded") }
-
-func isExpandBudgetError(err error) bool {
-	var validationError *ValidationError
-	return errors.As(err, &validationError) && len(validationError.Details) == 1 &&
-		validationError.Details[0] == (ValidationDetail{Field: "expand", Code: "expand_budget_exceeded"})
-}

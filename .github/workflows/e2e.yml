@@ -4,17 +4,39 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      candidate_image:
+        description: Optional digest-pinned release candidate; empty keeps local CI mode
+        required: false
+        default: ""
+        type: string
+      expected_version:
+        description: Required with candidate_image
+        required: false
+        default: ""
+        type: string
+      source_commit:
+        description: Optional immutable source commit corresponding to the candidate
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      PGBASE_E2E_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+      PGBASE_E2E_EXPECTED_VERSION: ${{ inputs.expected_version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -31,33 +53,115 @@ jobs:
           cache-dependency-path: ui/admin/package-lock.json
 
       - name: Generate isolated Compose configuration
+        id: mode
         shell: bash
         run: |
-          echo "COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          echo "PGBASE_IMAGE=pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          echo "PGBASE_HTTP_PORT=18090" >> "$GITHUB_ENV"
-          echo "PGBASE_POSTGRES_PORT=15432" >> "$GITHUB_ENV"
-          echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090" >> "$GITHUB_ENV"
-          echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-          echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-          echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [[ -z "$PGBASE_E2E_CANDIDATE_IMAGE" && -z "$PGBASE_E2E_EXPECTED_VERSION" ]]; then
+            selected_image="pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            selected_version="e2e-workflow"
+            release=false
+          else
+            scripts/support/validate-release-candidate.sh \
+              "$PGBASE_E2E_CANDIDATE_IMAGE" "$PGBASE_E2E_EXPECTED_VERSION"
+            selected_image="$PGBASE_E2E_CANDIDATE_IMAGE"
+            selected_version="$PGBASE_E2E_EXPECTED_VERSION"
+            release=true
+          fi
+          {
+            echo "COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "PGBASE_IMAGE=$selected_image"
+            echo "PGBASE_VERSION=$selected_version"
+            echo "PGBASE_HTTP_PORT=18090"
+            echo "PGBASE_POSTGRES_PORT=15432"
+            echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090"
+            echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)"
+            echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
+            echo "PGBASE_AUTH_PROJECT_NAME=pgbase-ci-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "PGBASE_ADMIN_EMAIL=e2e-admin@pgbase.test"
+            echo "PGBASE_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')"
+          } >> "$GITHUB_ENV"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
-      - name: Build image
+      - name: Verify Compose shutdown policy
+        shell: bash
+        run: |
+          go test ./deployments ./internal/config -run 'ComposeShutdownGrace|ComposeInterpolationDefaults|ComposeStopGraceMargin' -count=1
+          go test -tags=compose ./tests/compose -count=1
+
+      - name: Authenticate and pull release candidate
+        if: steps.mode.outputs.release == 'true'
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PGBASE_E2E_CANDIDATE_IMAGE"
+
+      - name: Build image in local CI mode
+        if: steps.mode.outputs.release == 'false'
         run: docker compose -f deployments/docker-compose.yml build
 
       - name: Start isolated PostgreSQL 16.13 project
-        run: docker compose -f deployments/docker-compose.yml up -d --wait
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.mode.outputs.release }}" == "true" ]]; then
+            docker compose -f deployments/docker-compose.yml up -d --wait --no-build
+          else
+            docker compose -f deployments/docker-compose.yml up -d --wait
+          fi
+
+      # The onboarding specs need an instance with no administrator, so they
+      # cannot share a backend with the authenticated ones. A second Compose
+      # project with its own volumes is the only way both can be real.
+      - name: Start the authenticated browser backend
+        shell: bash
+        env:
+          BUILD_FLAG: ${{ steps.mode.outputs.release == 'true' && '--no-build' || '' }}
+        run: |
+          set -euo pipefail
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+          PGBASE_HTTP_PORT=18091 \
+          PGBASE_POSTGRES_PORT=15433 \
+          PGBASE_PUBLIC_URL=http://127.0.0.1:18091 \
+            docker compose -f deployments/docker-compose.yml up -d --wait $BUILD_FLAG
+
+      # Setup is same-origin protected, so the bootstrap request carries the
+      # Origin the instance was configured with.
+      - name: Create the authenticated backend's administrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/setup.json --write-out '%{http_code}' \
+            --request POST http://127.0.0.1:18091/api/admin/setup \
+            --header 'Content-Type: application/json' \
+            --header 'Origin: http://127.0.0.1:18091' \
+            --data "$(printf '{"setupToken":"%s","email":"%s","password":"%s"}' \
+              "$PGBASE_SETUP_TOKEN" "$PGBASE_ADMIN_EMAIL" "$PGBASE_ADMIN_PASSWORD")")"
+          if [[ "$status" != "200" && "$status" != "201" ]]; then
+            echo "administrator setup failed with $status" >&2
+            cat /tmp/setup.json >&2
+            exit 1
+          fi
 
       - name: Install browser test dependencies
         working-directory: ui/admin
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+        run: npm ci --ignore-scripts
 
-      - name: Verify empty-database browser onboarding
+      # Browser and system dependency installation is an explicit, auditable
+      # command rather than a side effect of an install hook.
+      - name: Install the Playwright browser and its system dependencies
+        working-directory: ui/admin
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify browser onboarding and authenticated workflows
         working-directory: ui/admin
         env:
-          PGBASE_BROWSER_BASE_URL: http://127.0.0.1:18090
+          PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090
+          PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091
         run: npm run test:e2e
 
       - name: Verify hardened runtime
@@ -79,7 +183,10 @@ jobs:
 
       - name: Capture service logs
         if: failure()
-        run: docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+        run: |
+          docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+            docker compose -f deployments/docker-compose.yml logs --no-color > compose-auth.log 2>&1
 
       - name: Upload failed E2E logs
         if: failure()
@@ -89,9 +196,13 @@ jobs:
           path: |
             e2e.log
             compose.log
+            compose-auth.log
           if-no-files-found: warn
           retention-days: 14
 
       - name: Remove isolated Compose resources
         if: always()
-        run: docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
+        run: |
+          docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
+          COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
+            docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans

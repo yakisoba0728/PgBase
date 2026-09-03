@@ -23,18 +23,66 @@ const (
 	maximumCollectionFields   = 1597
 )
 
-// PlanCreate validates a collection definition and produces its deterministic DDL plan.
-func (Planner) PlanCreate(baseVersion int64, input CreateCollectionInput) (Plan, error) {
-	return (Planner{}).planCreate(baseVersion, Catalog{}, input, false)
+// CompilePlan compiles one change in the pre-companion v1 format, for callers
+// holding a catalog and no database. Production issuance goes through
+// compilePlan: D2-2 makes the capability row the only source of that format.
+func CompilePlan(catalog Catalog, change Change) (Plan, error) {
+	return compilePlan(catalog, change, false)
 }
 
-// PlanCreateWithCatalog resolves relation targets against the same immutable
-// catalog snapshot that the schema service pins for plan/apply verification.
-func (Planner) PlanCreateWithCatalog(baseVersion int64, catalog Catalog, input CreateCollectionInput) (Plan, error) {
-	return (Planner{}).planCreate(baseVersion, catalog, input, true)
+// compilePlan stamps the generation once, here, so no plan is built in one
+// format and labelled the other. Only a create's statements differ; every
+// plan's checksum does.
+func compilePlan(catalog Catalog, change Change, companions bool) (Plan, error) {
+	var plan Plan
+	var err error
+	switch change.kind {
+	case changeCreate:
+		plan, err = planCreate(catalog, change.create, companions)
+	case changeUpdate:
+		current, ok := catalog.Collections[change.update.Name]
+		if !ok {
+			return Plan{}, ErrCollectionNotFound
+		}
+		plan, err = planUpdate(catalog, current, change.update)
+	case changeDelete:
+		current, ok := catalog.Collections[change.deleteName]
+		if !ok {
+			return Plan{}, ErrCollectionNotFound
+		}
+		plan, err = planDelete(catalog, current)
+	default:
+		return Plan{}, ErrConflict
+	}
+	if err != nil {
+		return Plan{}, err
+	}
+	compilerVersion := schemaPlanCompilerV1
+	if companions {
+		compilerVersion = schemaPlanCompilerV2
+	}
+	plan.Checksum, err = planChecksumWithCompilerVersion(plan, compilerVersion)
+	return plan, err
 }
 
-func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollectionInput, catalogAware bool) (Plan, error) {
+// compileMixedFleetPlan compiles the plan this binary would issue and, beside it,
+// the plan the other live generation produces for the same change. R5 requires dual
+// validation across the mixed-fleet window: a preview from a writer at the other
+// generation, or from this one before an activation moved the capability, must still
+// apply. Both carry the same definition, operation and base version, so neither admits
+// a catalog change the other would refuse — but their statement lists differ, which is
+// the whole point of the v2 generation. So the apply must execute the plan the caller's
+// checksum names, not this binary's preference; both are returned whole so it can.
+func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Plan, Plan, error) {
+	issued, err := compilePlan(catalog, change, companions)
+	if err != nil {
+		return Plan{}, Plan{}, err
+	}
+	alternate, err := compilePlan(catalog, change, !companions)
+	return issued, alternate, err
+}
+
+func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (Plan, error) {
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -53,7 +101,7 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 			return Plan{}, validation(namePath, "duplicate_name")
 		}
 		seenNames[field.Name] = struct{}{}
-		planned, err := planInputField(catalog, input.Name, uuid.Nil, field, ordinal, true, catalogAware)
+		planned, err := planInputField(catalog, input.Name, uuid.Nil, field, ordinal, true)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -61,35 +109,17 @@ func (Planner) planCreate(baseVersion int64, catalog Catalog, input CreateCollec
 	}
 
 	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields}
-	statements := makeCreateStatements(definition)
-	plan := Plan{
+	return Plan{
 		Operation:   createCollectionOperation,
-		BaseVersion: baseVersion,
+		BaseVersion: catalog.Version,
 		Definition:  definition,
-		Statements:  statements,
-	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
-	}
-	plan.Checksum = checksum
-	return plan, nil
+		Statements:  makeCreateStatements(definition, companions),
+	}, nil
 }
 
-// PlanUpdate diffs the desired field list against the current catalog state and
-// produces its deterministic DDL plan. Field renames are not supported: a name
-// that disappears is a drop and a name that appears is an add.
-func (Planner) PlanUpdate(baseVersion int64, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return (Planner{}).planUpdate(baseVersion, Catalog{}, current, input, false)
-}
-
-// PlanUpdateWithCatalog resolves desired and persisted relation targets against
-// a pinned catalog before comparing their semantic and physical bindings.
-func (Planner) PlanUpdateWithCatalog(baseVersion int64, catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
-	return (Planner{}).planUpdate(baseVersion, catalog, current, input, true)
-}
-
-func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection, input UpdateCollectionInput, catalogAware bool) (Plan, error) {
+// Field renames are not supported: a name that disappears is a drop and a name
+// that appears is an add.
+func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -98,6 +128,25 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 	}
 	if len(input.Fields) > maximumCollectionFields {
 		return Plan{}, validation("fields", "too_many_fields")
+	}
+
+	currentFields := make(map[string]PlannedField, len(current.Fields))
+	for _, field := range current.Fields {
+		planned, err := plannedFieldFromCatalog(catalog, field)
+		if err != nil {
+			return Plan{}, err
+		}
+		// Defaults are stored in a jsonb column whose text rendering differs
+		// from the Go-canonical form; re-normalize so an unchanged object or
+		// "now" default does not re-emit SET DEFAULT on every update.
+		if len(planned.Default) != 0 {
+			canonical, _, err := normalizeStoredDefault(planned.Type, planned.Default)
+			if err != nil {
+				return Plan{}, ErrConflict
+			}
+			planned.Default = canonical
+		}
+		currentFields[planned.Name] = planned
 	}
 
 	desired := make([]PlannedField, 0, len(input.Fields))
@@ -111,28 +160,22 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 			return Plan{}, validation(namePath, "duplicate_name")
 		}
 		desiredNames[field.Name] = struct{}{}
-		planned, err := planInputField(catalog, current.Name, current.ID, field, ordinal, false, catalogAware)
+
+		carriedDefault := json.RawMessage(nil)
+		if previous, exists := currentFields[field.Name]; exists {
+			carriedDefault = unchangedStoredDefault(previous, field)
+		}
+		if len(carriedDefault) != 0 {
+			field.Default = nil
+		}
+		planned, err := planInputField(catalog, current.Name, current.ID, field, ordinal, false)
 		if err != nil {
 			return Plan{}, err
+		}
+		if len(carriedDefault) != 0 {
+			planned.Default = append(json.RawMessage(nil), carriedDefault...)
 		}
 		desired = append(desired, planned)
-	}
-
-	currentFields := make(map[string]PlannedField, len(current.Fields))
-	for _, field := range current.Fields {
-		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
-		if err != nil {
-			return Plan{}, err
-		}
-		// Defaults are stored in a jsonb column whose text rendering differs
-		// from the Go-canonical form; re-normalize so an unchanged object or
-		// "now" default does not re-emit SET DEFAULT on every update.
-		if len(planned.Default) != 0 {
-			if canonical, _, err := normalizeDefault(planned.Type, planned.Default); err == nil {
-				planned.Default = canonical
-			}
-		}
-		currentFields[planned.Name] = planned
 	}
 
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
@@ -165,7 +208,7 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 			}
 			statements = append(statements, addColumnStatement(table, field))
 			// A brand-new field has no prior index state, so its flags must
-			// produce the same CREATE (UNIQUE) INDEX that PlanCreate emits.
+			// produce the same CREATE (UNIQUE) INDEX that a create plan emits.
 			statements = append(statements, indexChangeStatements(current.Name, table, PlannedField{}, field)...)
 			continue
 		}
@@ -185,43 +228,36 @@ func (Planner) planUpdate(baseVersion int64, catalog Catalog, current Collection
 		statements = append(statements, indexChangeStatements(current.Name, table, previous, field)...)
 	}
 
-	definition := PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired}
-	plan := Plan{
+	return Plan{
 		Operation:   updateCollectionOperation,
-		BaseVersion: baseVersion,
-		Definition:  definition,
+		BaseVersion: catalog.Version,
+		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired},
 		Statements:  statements,
+	}, nil
+}
+
+func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawMessage {
+	if previous.Type != desired.Type || len(previous.Default) == 0 || len(desired.Default) == 0 {
+		return nil
 	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
+	canonical, _, err := normalizeStoredDefault(desired.Type, desired.Default)
+	if err != nil || !bytes.Equal(previous.Default, canonical) {
+		return nil
 	}
-	plan.Checksum = checksum
-	return plan, nil
+	return previous.Default
 }
 
-// PlanDelete produces the deterministic plan that removes a collection and its
-// physical table. Dependent indexes are dropped with the table.
-func (Planner) PlanDelete(baseVersion int64, current Collection) (Plan, error) {
-	return (Planner{}).planDelete(baseVersion, Catalog{}, current, false)
-}
-
-// PlanDeleteWithCatalog prevents physical deletion while another collection
-// still has a relation targeting the requested collection.
-func (Planner) PlanDeleteWithCatalog(baseVersion int64, catalog Catalog, current Collection) (Plan, error) {
-	return (Planner{}).planDelete(baseVersion, catalog, current, true)
-}
-
-func (Planner) planDelete(baseVersion int64, catalog Catalog, current Collection, catalogAware bool) (Plan, error) {
+// Dependent indexes are dropped with the table.
+func planDelete(catalog Catalog, current Collection) (Plan, error) {
 	if current.Name == "" || current.TableName != current.Name {
 		return Plan{}, ErrConflict
 	}
-	if catalogAware && collectionHasIncomingRelation(catalog, current.ID) {
+	if collectionHasIncomingRelation(catalog, current.ID) {
 		return Plan{}, validation("name", "collection_referenced")
 	}
 	fields := make([]PlannedField, 0, len(current.Fields))
 	for _, field := range current.Fields {
-		planned, err := plannedFieldFromCatalog(catalog, field, catalogAware)
+		planned, err := plannedFieldFromCatalog(catalog, field)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -235,21 +271,15 @@ func (Planner) planDelete(baseVersion int64, catalog Catalog, current Collection
 		statements = append(statements, dropMultiRelationStatements(current.TableName, field.Name)...)
 	}
 	statements = append(statements, "DROP TABLE "+pgx.Identifier{"app", current.TableName}.Sanitize())
-	plan := Plan{
+	return Plan{
 		Operation:   deleteCollectionOperation,
-		BaseVersion: baseVersion,
+		BaseVersion: catalog.Version,
 		Definition:  PlannedCollection{Name: current.Name, TableName: current.TableName, Fields: fields},
 		Statements:  statements,
-	}
-	checksum, err := planChecksum(plan)
-	if err != nil {
-		return Plan{}, err
-	}
-	plan.Checksum = checksum
-	return plan, nil
+	}, nil
 }
 
-func plannedFieldFromCatalog(catalog Catalog, field Field, catalogAware bool) (PlannedField, error) {
+func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error) {
 	planned := PlannedField{
 		Name:     field.Name,
 		Type:     field.Type,
@@ -265,7 +295,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field, catalogAware bool) (P
 		}
 		return planned, nil
 	}
-	if field.Relation == nil || !catalogAware {
+	if field.Relation == nil {
 		return PlannedField{}, ErrConflict
 	}
 	targetName, ok := collectionNameByID(catalog, field.Relation.TargetCollectionID)
@@ -284,7 +314,6 @@ func planInputField(
 	field FieldInput,
 	ordinal int,
 	creating bool,
-	catalogAware bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
 	if !isSupportedType(field.Type) {
@@ -304,7 +333,7 @@ func planInputField(
 			case !creating && targetName == sourceCollection && sourceCollectionID != uuid.Nil:
 				target := sourceCollectionID
 				targetCollectionID = &target
-			case catalogAware:
+			default:
 				if target, ok := catalog.Collections[targetName]; ok {
 					targetID := target.ID
 					targetCollectionID = &targetID
@@ -363,22 +392,11 @@ func collectionNameByID(catalog Catalog, collectionID uuid.UUID) (string, bool) 
 }
 
 func collectionHasIncomingRelation(catalog Catalog, targetCollectionID uuid.UUID) bool {
+	// validateCatalogIntegrity refuses to compile a catalog whose incoming index
+	// disagrees with its collections, so the index alone is authoritative here.
 	for _, relation := range catalog.Incoming[targetCollectionID] {
 		if relation.SourceCollectionID != targetCollectionID {
 			return true
-		}
-	}
-	// Catalogs constructed by unit tests or older adapters may not have the
-	// derived incoming map yet. Scanning the immutable field specs preserves the
-	// guard without trusting a stale cache.
-	for _, collection := range catalog.Collections {
-		if collection.ID == targetCollectionID {
-			continue
-		}
-		for _, field := range collection.Fields {
-			if field.Relation != nil && field.Relation.TargetCollectionID == targetCollectionID {
-				return true
-			}
 		}
 	}
 	return false
@@ -491,7 +509,7 @@ func isSupportedType(typ FieldType) bool {
 	}
 }
 
-func makeCreateStatements(definition PlannedCollection) []string {
+func makeCreateStatements(definition PlannedCollection, companions bool) []string {
 	table := pgx.Identifier{"app", definition.TableName}.Sanitize()
 	columns := []string{
 		`"id" uuid primary key`,
@@ -545,310 +563,20 @@ func makeCreateStatements(definition PlannedCollection) []string {
 		}
 		statements = append(statements, createRelationStatements(definition.TableName, field, false)...)
 	}
+	// D2-4: a collection created while the capability is ready gets its companions here,
+	// in the apply transaction that creates the table, so the capability it was created
+	// under still describes the whole catalog and no operator step stands between the
+	// create and a nullable descending page. CONCURRENTLY is illegal in a transaction
+	// block and needless: the table is empty and unreadable until this commits.
+	for _, field := range definition.Fields {
+		if !companions || !nullableDescSortable(field.Required, field.Indexed || field.Unique,
+			field.Relation != nil && field.Relation.Cardinality == RelationSingle, field.Type) {
+			continue
+		}
+		statements = append(statements, createCompanionIndexStatement(
+			nullableDescCompanionSpec(definition.Name, definition.TableName, field.Name, field.Name), false))
+	}
 	return statements
-}
-
-func createRelationStatements(sourceTable string, field PlannedField, addColumn bool) []string {
-	if field.Relation == nil {
-		return nil
-	}
-	if field.Relation.Cardinality == RelationMultiple {
-		return createMultiRelationStatements(sourceTable, field)
-	}
-	return createSingleRelationStatements(sourceTable, field, addColumn)
-}
-
-func addRelationFieldStatements(sourceTable string, field PlannedField) []string {
-	return createRelationStatements(sourceTable, field, true)
-}
-
-func createSingleRelationStatements(sourceTable string, field PlannedField, addColumn bool) []string {
-	relation := field.Relation
-	if relation == nil {
-		return nil
-	}
-	names := NewRelationPhysicalNames(sourceTable, field.Name)
-	source := pgx.Identifier{"app", sourceTable}.Sanitize()
-	target := pgx.Identifier{"app", relation.TargetCollection}.Sanitize()
-	column := pgx.Identifier{field.Name}.Sanitize()
-	statements := make([]string, 0, 3)
-	if addColumn {
-		definition := column + " uuid"
-		if field.Required {
-			definition += " not null"
-		}
-		statements = append(statements, "ALTER TABLE "+source+" ADD COLUMN "+definition)
-	}
-	statements = append(statements,
-		"ALTER TABLE "+source+" ADD CONSTRAINT "+pgx.Identifier{names.SingleForeignKey}.Sanitize()+
-			" FOREIGN KEY ("+column+") REFERENCES "+target+" ("+pgx.Identifier{"id"}.Sanitize()+")"+
-			" ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED",
-	)
-	indexPrefix := "CREATE INDEX "
-	if field.Unique {
-		indexPrefix = "CREATE UNIQUE INDEX "
-	}
-	statements = append(statements,
-		indexPrefix+pgx.Identifier{names.SingleReverseIndex}.Sanitize()+" ON "+source+" ("+column+")",
-	)
-	return statements
-}
-
-func createMultiRelationStatements(sourceTable string, field PlannedField) []string {
-	relation := field.Relation
-	if relation == nil {
-		return nil
-	}
-	names := NewRelationPhysicalNames(sourceTable, field.Name)
-	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
-	source := pgx.Identifier{"app", sourceTable}.Sanitize()
-	target := pgx.Identifier{"app", relation.TargetCollection}.Sanitize()
-	sourceID := pgx.Identifier{"source_id"}.Sanitize()
-	targetID := pgx.Identifier{"target_id"}.Sanitize()
-	position := pgx.Identifier{"position"}.Sanitize()
-
-	createTable := "CREATE TABLE " + edge + " (" +
-		sourceID + " uuid NOT NULL, " +
-		targetID + " uuid NOT NULL, " +
-		position + " integer NOT NULL, " +
-		"CONSTRAINT " + pgx.Identifier{names.MultiPrimaryKey}.Sanitize() + " PRIMARY KEY (" + sourceID + ", " + targetID + "), " +
-		"CONSTRAINT " + pgx.Identifier{names.MultiPositionUnique}.Sanitize() + " UNIQUE (" + sourceID + ", " + position + "), " +
-		"CONSTRAINT " + pgx.Identifier{names.MultiPositionCheck}.Sanitize() + " CHECK (" + position + " >= 0), " +
-		"CONSTRAINT " + pgx.Identifier{names.MultiSourceForeignKey}.Sanitize() + " FOREIGN KEY (" + sourceID + ")" +
-		" REFERENCES " + source + " (" + pgx.Identifier{"id"}.Sanitize() + ") ON DELETE CASCADE, " +
-		"CONSTRAINT " + pgx.Identifier{names.MultiTargetForeignKey}.Sanitize() + " FOREIGN KEY (" + targetID + ")" +
-		" REFERENCES " + target + " (" + pgx.Identifier{"id"}.Sanitize() + ")" +
-		" ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED)"
-
-	return []string{
-		createTable,
-		"CREATE INDEX " + pgx.Identifier{names.MultiReverseIndex}.Sanitize() + " ON " + edge +
-			" (" + targetID + ", " + sourceID + ")",
-		positionFunctionStatement(sourceTable, field.Name),
-		"CREATE CONSTRAINT TRIGGER " + pgx.Identifier{names.PositionTrigger}.Sanitize() +
-			" AFTER INSERT OR UPDATE OR DELETE ON " + edge +
-			" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION " +
-			pgx.Identifier{"pgbase_relation", names.PositionFunction}.Sanitize() + "()",
-		cardinalityFunctionStatement(sourceTable, field.Name, relation.MinSelect, relation.MaxSelect, false),
-		"CREATE CONSTRAINT TRIGGER " + pgx.Identifier{names.SourceCardinalityTrigger}.Sanitize() +
-			" AFTER INSERT ON " + source +
-			" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION " +
-			pgx.Identifier{"pgbase_relation", names.CardinalityFunction}.Sanitize() + "()",
-		"CREATE CONSTRAINT TRIGGER " + pgx.Identifier{names.EdgeCardinalityTrigger}.Sanitize() +
-			" AFTER INSERT OR UPDATE OR DELETE ON " + edge +
-			" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION " +
-			pgx.Identifier{"pgbase_relation", names.CardinalityFunction}.Sanitize() + "()",
-	}
-}
-
-func positionFunctionStatement(sourceTable, fieldName string) string {
-	names := NewRelationPhysicalNames(sourceTable, fieldName)
-	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
-	function := pgx.Identifier{"pgbase_relation", names.PositionFunction}.Sanitize()
-	return "CREATE FUNCTION " + function + `() RETURNS trigger LANGUAGE plpgsql AS $pgbase_relation$
-DECLARE
-    affected_source uuid;
-    affected_sources uuid[];
-    relation_count bigint;
-    minimum_position integer;
-    maximum_position integer;
-BEGIN
-	IF TG_OP = 'INSERT' THEN
-		affected_sources := ARRAY[NEW.source_id];
-	ELSIF TG_OP = 'DELETE' THEN
-		affected_sources := ARRAY[OLD.source_id];
-	ELSE
-		affected_sources := ARRAY[OLD.source_id, NEW.source_id];
-	END IF;
-    FOR affected_source IN
-        SELECT DISTINCT candidate
-        FROM unnest(affected_sources) AS candidates(candidate)
-        WHERE candidate IS NOT NULL
-    LOOP
-        SELECT count(*), min(position), max(position)
-          INTO relation_count, minimum_position, maximum_position
-          FROM ` + edge + `
-         WHERE source_id = affected_source;
-        IF relation_count > 0 AND
-           (minimum_position <> 0 OR maximum_position::bigint <> relation_count - 1) THEN
-            RAISE EXCEPTION USING
-                ERRCODE = '23514',
-                MESSAGE = 'relation position constraint violated',
-                CONSTRAINT = '` + names.MultiPositionCheck + `';
-        END IF;
-    END LOOP;
-    RETURN NULL;
-END
-$pgbase_relation$`
-}
-
-func cardinalityFunctionStatement(sourceTable, fieldName string, minimum, maximum int, replace bool) string {
-	names := NewRelationPhysicalNames(sourceTable, fieldName)
-	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
-	source := pgx.Identifier{"app", sourceTable}.Sanitize()
-	function := pgx.Identifier{"pgbase_relation", names.CardinalityFunction}.Sanitize()
-	verb := "CREATE FUNCTION "
-	if replace {
-		verb = "CREATE OR REPLACE FUNCTION "
-	}
-	return verb + function + `() RETURNS trigger LANGUAGE plpgsql AS $pgbase_relation$
-DECLARE
-    affected_source uuid;
-    affected_sources uuid[];
-    relation_count bigint;
-BEGIN
-    IF TG_TABLE_SCHEMA = 'app' AND TG_TABLE_NAME = ` + postgresStringLiteral(sourceTable) + ` THEN
-        affected_source := NEW.id;
-        SELECT count(*) INTO relation_count
-          FROM ` + edge + `
-         WHERE source_id = affected_source;
-        IF relation_count < ` + fmt.Sprintf("%d", minimum) + ` OR relation_count > ` + fmt.Sprintf("%d", maximum) + ` THEN
-            RAISE EXCEPTION USING
-                ERRCODE = '23514',
-                MESSAGE = 'relation cardinality constraint violated',
-                CONSTRAINT = '` + names.CardinalityFunction + `';
-        END IF;
-        RETURN NULL;
-    END IF;
-
-	IF TG_OP = 'INSERT' THEN
-		affected_sources := ARRAY[NEW.source_id];
-	ELSIF TG_OP = 'DELETE' THEN
-		affected_sources := ARRAY[OLD.source_id];
-	ELSE
-		affected_sources := ARRAY[OLD.source_id, NEW.source_id];
-	END IF;
-    FOR affected_source IN
-        SELECT DISTINCT candidate
-        FROM unnest(affected_sources) AS candidates(candidate)
-        WHERE candidate IS NOT NULL
-    LOOP
-        IF EXISTS (SELECT 1 FROM ` + source + ` WHERE id = affected_source) THEN
-            SELECT count(*) INTO relation_count
-              FROM ` + edge + `
-             WHERE source_id = affected_source;
-            IF relation_count < ` + fmt.Sprintf("%d", minimum) + ` OR relation_count > ` + fmt.Sprintf("%d", maximum) + ` THEN
-                RAISE EXCEPTION USING
-                    ERRCODE = '23514',
-                    MESSAGE = 'relation cardinality constraint violated',
-                    CONSTRAINT = '` + names.CardinalityFunction + `';
-            END IF;
-        END IF;
-    END LOOP;
-    RETURN NULL;
-END
-$pgbase_relation$`
-}
-
-func postgresStringLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-func dropRelationFieldStatements(collection Collection, field Field) []string {
-	if field.Relation == nil {
-		return nil
-	}
-	if field.Relation.Storage.Kind == RelationStorageEdgeTableV1 {
-		return dropMultiRelationStatements(collection.TableName, field.Name)
-	}
-	names := NewRelationPhysicalNames(collection.TableName, field.Name)
-	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
-	return []string{
-		"ALTER TABLE " + table + " DROP CONSTRAINT " + pgx.Identifier{names.SingleForeignKey}.Sanitize(),
-		"DROP INDEX IF EXISTS " + pgx.Identifier{"app", names.SingleReverseIndex}.Sanitize(),
-		"ALTER TABLE " + table + " DROP COLUMN " + pgx.Identifier{field.ColumnName}.Sanitize(),
-	}
-}
-
-func dropMultiRelationStatements(sourceTable, fieldName string) []string {
-	names := NewRelationPhysicalNames(sourceTable, fieldName)
-	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
-	source := pgx.Identifier{"app", sourceTable}.Sanitize()
-	return []string{
-		"DROP TRIGGER IF EXISTS " + pgx.Identifier{names.PositionTrigger}.Sanitize() + " ON " + edge,
-		"DROP TRIGGER IF EXISTS " + pgx.Identifier{names.EdgeCardinalityTrigger}.Sanitize() + " ON " + edge,
-		"DROP TRIGGER IF EXISTS " + pgx.Identifier{names.SourceCardinalityTrigger}.Sanitize() + " ON " + source,
-		"DROP TABLE " + edge,
-		"DROP FUNCTION " + pgx.Identifier{"pgbase_relation", names.PositionFunction}.Sanitize() + "()",
-		"DROP FUNCTION " + pgx.Identifier{"pgbase_relation", names.CardinalityFunction}.Sanitize() + "()",
-	}
-}
-
-func alterRelationFieldStatements(sourceTable string, ordinal int, previous, desired PlannedField) ([]string, error) {
-	fieldPath := fmt.Sprintf("fields.%d", ordinal)
-	if previous.Type != TypeRelation || desired.Type != TypeRelation || previous.Relation == nil || desired.Relation == nil {
-		return nil, validation(fieldPath+".type", "relation_storage_migration_required")
-	}
-	before := previous.Relation
-	after := desired.Relation
-	if !samePlannedRelationTarget(before, after) ||
-		before.Cardinality != after.Cardinality ||
-		before.ValueCodecVersion != after.ValueCodecVersion ||
-		before.Storage != after.Storage {
-		return nil, validation(fieldPath+".relation", "relation_storage_migration_required")
-	}
-
-	if after.Cardinality == RelationSingle {
-		statements := make([]string, 0, 3)
-		table := pgx.Identifier{"app", sourceTable}.Sanitize()
-		column := pgx.Identifier{desired.Name}.Sanitize()
-		if previous.Required != desired.Required {
-			action := "DROP NOT NULL"
-			if desired.Required {
-				action = "SET NOT NULL"
-			}
-			statements = append(statements, "ALTER TABLE "+table+" ALTER COLUMN "+column+" "+action)
-		}
-		if previous.Unique != desired.Unique {
-			names := NewRelationPhysicalNames(sourceTable, desired.Name)
-			statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", names.SingleReverseIndex}.Sanitize())
-			prefix := "CREATE INDEX "
-			if desired.Unique {
-				prefix = "CREATE UNIQUE INDEX "
-			}
-			statements = append(statements, prefix+pgx.Identifier{names.SingleReverseIndex}.Sanitize()+" ON "+table+" ("+column+")")
-		}
-		return statements, nil
-	}
-
-	if before.MinSelect == after.MinSelect && before.MaxSelect == after.MaxSelect {
-		return nil, nil
-	}
-	return []string{
-		validateMultiBoundsStatement(sourceTable, desired.Name, after.MinSelect, after.MaxSelect),
-		cardinalityFunctionStatement(sourceTable, desired.Name, after.MinSelect, after.MaxSelect, true),
-	}, nil
-}
-
-func samePlannedRelationTarget(left, right *PlannedRelation) bool {
-	if left == nil || right == nil || left.TargetCollectionID == nil || right.TargetCollectionID == nil {
-		return left != nil && right != nil && left.TargetCollectionID == nil && right.TargetCollectionID == nil &&
-			left.TargetCollection == right.TargetCollection
-	}
-	return *left.TargetCollectionID == *right.TargetCollectionID
-}
-
-func validateMultiBoundsStatement(sourceTable, fieldName string, minimum, maximum int) string {
-	names := NewRelationPhysicalNames(sourceTable, fieldName)
-	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
-	source := pgx.Identifier{"app", sourceTable}.Sanitize()
-	return `DO $pgbase_relation$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-          FROM ` + source + ` AS source_record
-          LEFT JOIN ` + edge + ` AS relation_edge
-            ON relation_edge.source_id = source_record.id
-         GROUP BY source_record.id
-        HAVING count(relation_edge.target_id) < ` + fmt.Sprintf("%d", minimum) + `
-            OR count(relation_edge.target_id) > ` + fmt.Sprintf("%d", maximum) + `
-    ) THEN
-        RAISE EXCEPTION USING
-            ERRCODE = '23514',
-            MESSAGE = 'existing data violates relation cardinality';
-    END IF;
-END
-$pgbase_relation$`
 }
 
 func indexName(collection, field string) string {
@@ -860,11 +588,15 @@ func indexName(collection, field string) string {
 	return name
 }
 
-const schemaPlanCompilerVersion = "schema-plan-v1"
-
-func planChecksum(plan Plan) (string, error) {
-	return planChecksumWithCompilerVersion(plan, schemaPlanCompilerVersion)
-}
+// The two plan formats a live fleet can hold. v2 differs from v1 in exactly one
+// way — a create plan builds its companion indexes in the same transaction as
+// the table — and the label is part of the digest, so the two never collide.
+// Which one this binary issues is not a constant: migration 8 puts that in the
+// capability row, where only 'ready' means v2.
+const (
+	schemaPlanCompilerV1 = "schema-plan-v1"
+	schemaPlanCompilerV2 = "schema-plan-v2"
+)
 
 func planChecksumWithCompilerVersion(plan Plan, compilerVersion string) (string, error) {
 	if compilerVersion == "" {

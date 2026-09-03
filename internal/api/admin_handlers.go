@@ -22,12 +22,11 @@ import (
 
 const adminCookieName = "pgbase_admin"
 
-// AdminAuth supplies all administrator security state transitions used by HTTP.
 type AdminAuth interface {
 	SetupRequired(context.Context) (bool, error)
 	Setup(context.Context, string, string, string, string) (adminauth.Session, error)
 	Login(context.Context, string, string, string) (adminauth.Session, error)
-	Authenticate(context.Context, string) (adminauth.Administrator, time.Time, error)
+	Authenticate(context.Context, string) (adminauth.Principal, error)
 	Logout(context.Context, string) error
 }
 
@@ -41,7 +40,6 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, struct {
 		SetupRequired bool `json:"setupRequired"`
 	}{SetupRequired: setupRequired})
@@ -49,7 +47,6 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 
 type adminEndpoints struct {
 	auth           AdminAuth
-	tokenSecret    []byte
 	publicURL      *url.URL
 	trustedProxies []netip.Prefix
 	recorder       observability.Recorder
@@ -76,7 +73,6 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 	}
 	return adminEndpoints{
 		auth:           dependencies.AdminAuth,
-		tokenSecret:    append([]byte(nil), dependencies.TokenSecret...),
 		publicURL:      dependencies.PublicURL,
 		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
 		recorder:       recorder,
@@ -148,7 +144,7 @@ func (e adminEndpoints) recordOperation(ctx context.Context, operation observabi
 	if e.recorder == nil {
 		return
 	}
-	e.recorder.Record(ctx, observability.OperationEvent(observability.ComponentAdminAuth, operation, outcome, duration))
+	e.recorder.Record(ctx, observability.OperationEvent(operation, outcome, duration))
 }
 
 func adminAuthOutcome(err error) observability.Outcome {
@@ -186,8 +182,7 @@ func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, e.tokenSecret, principal.RawSession))
+	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken))
 }
 
 func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
@@ -210,7 +205,6 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
 		SameSite: http.SameSiteLaxMode,
 	})
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -224,11 +218,10 @@ func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Reques
 		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
 		SameSite: http.SameSiteLaxMode,
 	})
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, e.tokenSecret, session.RawToken))
+	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken))
 }
 
-func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, tokenSecret []byte, rawSession string) adminSessionResponse {
+func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, csrfToken string) adminSessionResponse {
 	return adminSessionResponse{
 		Administrator: administratorResponse{
 			ID:        administrator.ID,
@@ -237,7 +230,7 @@ func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time,
 			CreatedAt: administrator.CreatedAt.UTC(),
 			UpdatedAt: administrator.UpdatedAt.UTC(),
 		},
-		CSRFToken: adminauth.DeriveCSRFToken(tokenSecret, rawSession),
+		CSRFToken: csrfToken,
 		ExpiresAt: expiresAt.UTC(),
 	}
 }

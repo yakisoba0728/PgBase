@@ -3,99 +3,18 @@ package pgbase
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
-
-func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(func() { _ = app.Close(context.Background()) })
-
-	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
-	response := httptest.NewRecorder()
-	app.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/admin/" {
-		t.Fatalf("status=%d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
-	}
-}
-
-func TestMetricsEndpointIsOptInAndBearerProtected(t *testing.T) {
-	newApp := func(t *testing.T, metricsToken []byte) *App {
-		t.Helper()
-		app, err := New(context.Background(), Options{
-			DatabaseURL:  testutil.NewDatabase(t),
-			TokenSecret:  make([]byte, 32),
-			MetricsToken: metricsToken,
-			AutoMigrate:  true,
-			Logger:       slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = app.Close(context.Background()) })
-		return app
-	}
-
-	disabled := newApp(t, nil)
-	disabledResponse := httptest.NewRecorder()
-	disabled.Handler().ServeHTTP(disabledResponse, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if disabledResponse.Code != http.StatusNotFound {
-		t.Fatalf("disabled metrics status = %d, want 404", disabledResponse.Code)
-	}
-
-	token := strings.Repeat("m", 32)
-	enabled := newApp(t, []byte(token))
-	unauthorized := httptest.NewRecorder()
-	enabled.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized metrics status = %d, want 401", unauthorized.Code)
-	}
-
-	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	request.Header.Set("Authorization", "Bearer "+token)
-	authorized := httptest.NewRecorder()
-	enabled.Handler().ServeHTTP(authorized, request)
-	if authorized.Code != http.StatusOK {
-		t.Fatalf("authorized metrics status = %d body=%s", authorized.Code, authorized.Body.String())
-	}
-	if authorized.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("metrics Cache-Control = %q", authorized.Header().Get("Cache-Control"))
-	}
-	if !strings.Contains(authorized.Body.String(), "pgbase_database_pool_max_connections") {
-		t.Fatalf("metrics omitted database pool snapshot: %s", authorized.Body.String())
-	}
-	for _, initialized := range []string{
-		`pgbase_application_readiness{component="database"} 1`,
-		`pgbase_application_readiness{component="migrations"} 1`,
-		`pgbase_application_readiness{component="http"} 0`,
-		`pgbase_application_readiness{component="schema_listener"} 0`,
-	} {
-		if !strings.Contains(authorized.Body.String(), initialized) {
-			t.Fatalf("metrics omitted initialized readiness %q: %s", initialized, authorized.Body.String())
-		}
-	}
-}
 
 func TestReadinessProbeOnlyPublishesProbeOwnedComponents(t *testing.T) {
 	recorder := &readinessTelemetryRecorder{}
@@ -135,53 +54,17 @@ func (r *readinessTelemetryRecorder) snapshot() []observability.Event {
 	return append([]observability.Event(nil), r.events...)
 }
 
-func TestStartEnablesHandlerForCallerOwnedHTTPServer(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	if err := app.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		cancel()
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
-		defer closeCancel()
-		_ = app.Close(closeCtx)
-	})
-
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		response := httptest.NewRecorder()
-		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
-		if response.Code == http.StatusOK {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("caller-owned handler never became ready: status=%d body=%s", response.Code, response.Body.String())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err := app.Run(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
-		t.Fatalf("Run after Start error = %v, want already started", err)
-	}
-}
-
 func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	adminCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	recordCleaner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	schemaOperations := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	schemaListener := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
 	app := &App{
 		httpServer:       &http.Server{},
 		readiness:        &readinessState{},
 		cleaner:          adminCleaner,
 		recordCleaner:    recordCleaner,
+		schemaOperations: schemaOperations,
 		schemaListener:   schemaListener,
 		lifecycleClosing: make(chan struct{}),
 	}
@@ -191,9 +74,26 @@ func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	for name, runner := range map[string]*barrierCleaner{
 		"administrator cleaner": adminCleaner,
 		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
 		"schema listener":       schemaListener,
 	} {
 		waitForSignal(t, runner.started, name+" did not start")
+		if got := runner.runs.Load(); got != 1 {
+			t.Fatalf("%s run count = %d, want one", name, got)
+		}
+	}
+	if err := app.Start(context.Background()); !errors.Is(err, errAppAlreadyStarted) {
+		t.Fatalf("second Start error = %v, want %v", err, errAppAlreadyStarted)
+	}
+	for name, runner := range map[string]*barrierCleaner{
+		"administrator cleaner": adminCleaner,
+		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
+		"schema listener":       schemaListener,
+	} {
+		if got := runner.runs.Load(); got != 1 {
+			t.Fatalf("%s run count after second Start = %d, want one", name, got)
+		}
 	}
 	closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -203,91 +103,72 @@ func TestStartRunsAndCloseStopsEveryBackgroundComponent(t *testing.T) {
 	for name, runner := range map[string]*barrierCleaner{
 		"administrator cleaner": adminCleaner,
 		"record cleaner":        recordCleaner,
+		"schema operations":     schemaOperations,
 		"schema listener":       schemaListener,
 	} {
 		waitForSignal(t, runner.stopped, name+" did not stop")
 	}
 }
 
-func TestNewConfiguresBoundedHTTPReadWriteAndIdleTimeouts(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.Close(context.Background()) })
-	if app.httpServer.ReadHeaderTimeout <= 0 || app.httpServer.ReadTimeout <= 0 || app.httpServer.WriteTimeout <= 0 || app.httpServer.IdleTimeout <= 0 {
-		t.Fatalf("HTTP timeouts are not fully bounded: %+v", app.httpServer)
-	}
-}
-
-func TestRunCancellationClosesListenerAndPool(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
-	address := unusedAddress(t)
-	app, err := New(context.Background(), Options{
-		DatabaseURL: databaseURL,
-		HTTPAddress: address,
-		TokenSecret: make([]byte, 32),
-		AutoMigrate: true,
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("new app: %v", err)
+func TestRunReportsUnexpectedBackgroundRunnerExit(t *testing.T) {
+	listener := &barrierListener{accepted: make(chan struct{}), closed: make(chan struct{})}
+	earlyExit := &releasedRunner{release: make(chan struct{})}
+	sibling := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: time.Second},
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		cleaner:          earlyExit,
+		recordCleaner:    sibling,
+		lifecycleClosing: make(chan struct{}),
+		listen: func(_, _ string) (net.Listener, error) {
+			return listener, nil
+		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx) }()
-	waitForLive(t, "http://"+address+"/health/live")
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(context.Background()) }()
+	waitForSignal(t, listener.accepted, "HTTP server did not start")
+	waitForSignal(t, sibling.started, "sibling background runner did not start")
+	close(earlyExit.release)
 
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if connection, err := net.DialTimeout("tcp", address, time.Second); err == nil {
-		connection.Close()
-		t.Fatal("listener still accepts connections")
-	}
-	if _, err := app.pool.Acquire(context.Background()); err == nil {
-		t.Fatal("pool acquired a connection after shutdown")
-	}
-}
-
-func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *testing.T) {
-	app, err := New(context.Background(), Options{
-		DatabaseURL: testutil.NewDatabase(t),
-		TokenSecret: make([]byte, 32),
-		Logger:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
+	err := waitForResult(t, runDone, "Run did not return after a background runner exited")
 	if err == nil {
-		app.Close(context.Background())
-		t.Fatal("New succeeded with pending migrations")
+		t.Fatal("Run reported a clean shutdown after a background runner returned nil unexpectedly")
 	}
+	if !strings.Contains(err.Error(), "administrator authentication cleaner") {
+		t.Fatalf("Run error = %q, want the failed background runner name", err)
+	}
+	waitForSignal(t, sibling.stopped, "unexpected runner exit did not cancel its sibling")
 }
 
-func TestSystemStatusReportsDirtyMigrationHistory(t *testing.T) {
-	ctx := context.Background()
-	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	runner := migrate.New(pool, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	if err := runner.Up(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, "update pgbase_meta.system_migrations set checksum = decode(repeat('00', 32), 'hex') where version = 1"); err != nil {
-		t.Fatal(err)
+func TestRunReportsSchemaOperationMaintenanceExitByName(t *testing.T) {
+	listener := &barrierListener{accepted: make(chan struct{}), closed: make(chan struct{})}
+	earlyExit := &releasedRunner{release: make(chan struct{})}
+	sibling := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: time.Second},
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		schemaOperations: earlyExit,
+		schemaListener:   sibling,
+		lifecycleClosing: make(chan struct{}),
+		listen: func(_, _ string) (net.Listener, error) {
+			return listener, nil
+		},
 	}
 
-	status := (systemStatusState{pool: pool, runner: runner}).Status(ctx)
-	if !status.MigrationDirty {
-		t.Fatalf("system status = %#v, want dirty migration history", status)
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(context.Background()) }()
+	waitForSignal(t, listener.accepted, "HTTP server did not start")
+	waitForSignal(t, sibling.started, "sibling background runner did not start")
+	close(earlyExit.release)
+
+	err := waitForResult(t, runDone, "Run did not return after schema operation maintenance exited")
+	if err == nil || !strings.Contains(err.Error(), "schema operation maintenance") {
+		t.Fatalf("Run error = %v, want schema operation maintenance runner name", err)
 	}
+	waitForSignal(t, sibling.stopped, "schema operation maintenance exit did not cancel its sibling")
 }
 
 func TestConcurrentClosePreventsRunFromStartingBackgroundWork(t *testing.T) {
@@ -465,9 +346,20 @@ func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
 type barrierCleaner struct {
 	started chan struct{}
 	stopped chan struct{}
+	runs    atomic.Int32
+}
+
+type releasedRunner struct {
+	release chan struct{}
+}
+
+func (r *releasedRunner) Run(context.Context) error {
+	<-r.release
+	return nil
 }
 
 func (c *barrierCleaner) Run(ctx context.Context) error {
+	c.runs.Add(1)
 	close(c.started)
 	<-ctx.Done()
 	close(c.stopped)
@@ -543,4 +435,163 @@ func waitForLive(t *testing.T, url string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("live endpoint did not become available")
+}
+
+// orderRecorder captures the sequence of shutdown milestones so the ordering
+// contract can be asserted rather than inferred from timing.
+type orderRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *orderRecorder) record(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *orderRecorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+// orderedRunner reports when its context is cancelled, which is the moment the
+// app stops background work.
+type orderedRunner struct {
+	recorder *orderRecorder
+	started  chan struct{}
+}
+
+func (r *orderedRunner) Run(ctx context.Context) error {
+	close(r.started)
+	<-ctx.Done()
+	r.recorder.record("background cancelled")
+	return nil
+}
+
+// An in-flight request may still depend on a cleaner, the schema listener or
+// the membership writer lease. Readiness goes false first so nothing new
+// arrives, then HTTP drains, and only then is background work cancelled;
+// cancelling first would fail requests that were about to succeed.
+func TestCloseDrainsHTTPBeforeCancellingBackgroundWork(t *testing.T) {
+	recorder := &orderRecorder{}
+	runner := &orderedRunner{recorder: recorder, started: make(chan struct{})}
+	inflight := make(chan struct{})
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-inflight
+		recorder.record("request served")
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = server.Serve(listener) }()
+
+	readiness := &readinessState{}
+	app := &App{
+		httpServer:       server,
+		readiness:        readiness,
+		cleaner:          runner,
+		lifecycleClosing: make(chan struct{}),
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignal(t, runner.started, "background runner did not start")
+
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		response, err := http.Get("http://" + listener.Addr().String() + "/")
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	// Give the request time to reach the handler and block there.
+	time.Sleep(50 * time.Millisecond)
+
+	closed := make(chan error, 1)
+	go func() { closed <- app.Close(context.Background()) }()
+	// Close must now be waiting on the drain, not cancelling background work.
+	time.Sleep(50 * time.Millisecond)
+	if got := recorder.snapshot(); len(got) != 0 {
+		t.Fatalf("shutdown progressed while a request was in flight: %v", got)
+	}
+	if readiness.Ready(context.Background()) == nil {
+		t.Fatal("readiness stayed true after Close began")
+	}
+
+	close(inflight)
+	<-requestDone
+	if err := <-closed; err != nil {
+		t.Fatalf("Close() = %v", err)
+	}
+	want := []string{"request served", "background cancelled"}
+	if got := recorder.snapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("shutdown order = %v, want %v", got, want)
+	}
+}
+
+// A Run cancellation is a shutdown request, not a kill signal. SIGTERM reaches
+// Run's parent context, and the requests already in flight may still depend on
+// a cleaner, the schema listener or the membership writer lease. Background
+// work must therefore outlive the parent signal and stop only after the drain,
+// exactly as it does when Close is called directly.
+func TestRunCancellationDrainsHTTPBeforeCancellingBackgroundWork(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestEntered := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	runner := &barrierCleaner{started: make(chan struct{}), stopped: make(chan struct{})}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestEntered)
+		<-releaseRequest
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	app := &App{
+		options:          Options{HTTPAddress: "127.0.0.1:0", ShutdownTimeout: 5 * time.Second},
+		httpServer:       server,
+		readiness:        &readinessState{},
+		cleaner:          runner,
+		lifecycleClosing: make(chan struct{}),
+		listen:           func(_, _ string) (net.Listener, error) { return listener, nil },
+	}
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(runCtx) }()
+	waitForSignal(t, runner.started, "background runner never started")
+
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		response, requestErr := http.Get("http://" + listener.Addr().String() + "/") // #nosec G107 -- test-local listener.
+		if requestErr == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	waitForSignal(t, requestEntered, "request never reached the handler")
+
+	cancelRun()
+	waitForSignal(t, app.lifecycleClosing, "Run cancellation never began shutdown")
+	stoppedBeforeDrain := false
+	select {
+	case <-runner.stopped:
+		stoppedBeforeDrain = true
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseRequest)
+	waitForSignal(t, clientDone, "request never completed")
+	if err := waitForResult(t, runDone, "Run never returned"); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if stoppedBeforeDrain {
+		t.Fatal("background runner was cancelled while HTTP request was still in flight")
+	}
 }

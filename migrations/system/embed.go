@@ -6,7 +6,6 @@ import (
 	_ "embed"
 )
 
-// Migration is one ordered, embedded system schema change.
 type Migration struct {
 	Version int64
 	Name    string
@@ -28,6 +27,18 @@ var recordOperationsSQL string
 
 //go:embed 000005_relation_schema.sql
 var relationSchemaSQL string
+
+//go:embed 000006_schema_operations.sql
+var schemaOperationsSQL string
+
+//go:embed 000007_record_membership.sql
+var recordMembershipSQL string
+
+//go:embed 000008_schema_companion_indexes.sql
+var schemaCompanionIndexesSQL string
+
+//go:embed 000009_schema_compiler_generation.sql
+var schemaCompilerGenerationSQL string
 
 var migrations = []Migration{
 	{
@@ -59,6 +70,30 @@ var migrations = []Migration{
 		Name:    "relation_schema",
 		SQL:     relationSchemaSQL,
 		SHA256:  sha256.Sum256([]byte(relationSchemaSQL)),
+	},
+	{
+		Version: 6,
+		Name:    "schema_operations",
+		SQL:     schemaOperationsSQL,
+		SHA256:  sha256.Sum256([]byte(schemaOperationsSQL)),
+	},
+	{
+		Version: 7,
+		Name:    "record_membership",
+		SQL:     recordMembershipSQL,
+		SHA256:  sha256.Sum256([]byte(recordMembershipSQL)),
+	},
+	{
+		Version: 8,
+		Name:    "schema_companion_indexes",
+		SQL:     schemaCompanionIndexesSQL,
+		SHA256:  sha256.Sum256([]byte(schemaCompanionIndexesSQL)),
+	},
+	{
+		Version: 9,
+		Name:    "schema_compiler_generation",
+		SQL:     schemaCompilerGenerationSQL,
+		SHA256:  sha256.Sum256([]byte(schemaCompilerGenerationSQL)),
 	},
 }
 

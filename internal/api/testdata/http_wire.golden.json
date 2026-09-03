@@ -1,0 +1,288 @@
+{
+  "exchanges": [
+    {
+      "name": "login success",
+      "method": "POST",
+      "route": "/api/admin/auth/login",
+      "status": 200,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://pgbase.example"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Set-Cookie",
+          "values": [
+            "pgbase_admin=fixed-session-token; Path=/; Expires=<expiry>; HttpOnly; Secure; SameSite=Lax"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [
+        {
+          "name": "pgbase_admin",
+          "value": "fixed-session-token",
+          "path": "/",
+          "expires": "<expiry>",
+          "maxAge": 0,
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "Lax"
+        }
+      ],
+      "body": {
+        "administrator": {
+          "active": true,
+          "createdAt": "<time>",
+          "email": "admin@example.com",
+          "id": "12345678-1234-4567-8901-123456789abc",
+          "updatedAt": "<time>"
+        },
+        "csrfToken": "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo",
+        "expiresAt": "<expiry>"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/auth/login",
+        "status": 200,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "login internal error",
+      "method": "POST",
+      "route": "/api/admin/auth/login",
+      "status": 500,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://pgbase.example"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "internal_error",
+          "details": {},
+          "message": "Internal server error",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/auth/login",
+        "status": 500,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "logout success",
+      "method": "POST",
+      "route": "/api/admin/auth/logout",
+      "status": 204,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://pgbase.example"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Set-Cookie",
+          "values": [
+            "pgbase_admin=; Path=/; Expires=<expiry>; Max-Age=0; HttpOnly; Secure; SameSite=Lax"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [
+        {
+          "name": "pgbase_admin",
+          "value": "",
+          "path": "/",
+          "expires": "<expiry>",
+          "maxAge": -1,
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "Lax"
+        }
+      ],
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/auth/logout",
+        "status": 204,
+        "time": "<time>"
+      }
+    }
+  ]
+}

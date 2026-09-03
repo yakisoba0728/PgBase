@@ -1,3 +1,5 @@
+//go:build integration
+
 package recordops
 
 import (
@@ -9,13 +11,16 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -465,7 +470,7 @@ func TestRecordOperationsDeleteGraphReadCommittedSeesEdgeCommittedWhileWaiting(t
 		t.Fatal(err)
 	}
 	defer writerPool.Close()
-	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, schema.Planner{})
+	writerSchemas := schema.NewService(writerPool, &schema.Cache{}, nil)
 	writerCtx, cancelWriter := context.WithCancel(ctx)
 	defer cancelWriter()
 	writerReady := make(chan deleteWriterPreparation, 1)
@@ -601,11 +606,11 @@ func TestRecordOperationsDeleteGraphRetryKeepsDerivedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceCollection := catalog.Collections["null_survivors"]
-	digest, err := schemaDigest(sourceCollection)
+	digest, err := recordartifact.SchemaDigest(sourceCollection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantETag := revisionETag(sourceCollection.ID, survivorID, digest, firstValidator)
+	wantETag := recordartifact.RevisionETag(sourceCollection.ID, survivorID, digest, firstValidator)
 	var derivedEvent uuid.UUID
 	var gotETag string
 	if err := pool.QueryRow(ctx, `SELECT event_id, new_etag
@@ -667,8 +672,10 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 	}
 
 	var replacement MutationResult
-	ensurer := &deleteRetryCatalogEnsurer{inner: schemas}
-	ensurer.beforeSecond = func() error {
+	// database.Retry publishes the retry observation after the failed attempt
+	// has rolled back and before the next one begins, so the closure can only
+	// change in that window.
+	betweenAttempts := &deleteRetryClosureRecorder{change: func() error {
 		if _, err := records.Update(ctx, UpdateRequest{
 			Principal: principal, RequestID: "retry-closure-remove", Collection: "null_survivors", ID: staleID,
 			IfMatch: EntityTagSet{Present: true, Values: []string{stale.Record.ETag}},
@@ -684,8 +691,8 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 			},
 		})
 		return err
-	}
-	retrying := NewService(pool, ensurer, []byte("0123456789abcdef0123456789abcdef"))
+	}}
+	retrying := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, betweenAttempts, nil)
 	firstValidator := bytes.Repeat([]byte{0x31}, 32)
 	secondValidator := bytes.Repeat([]byte{0x32}, 32)
 	retrying.random = bytes.NewReader(append(append([]byte(nil), firstValidator...), secondValidator...))
@@ -696,6 +703,9 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		IfMatch: EntityTagSet{Present: true, Values: []string{target.Record.ETag}},
 	}); err != nil {
 		t.Fatalf("delete changing retry closure: %v", err)
+	}
+	if betweenAttempts.err != nil {
+		t.Fatalf("change the closure between attempts: %v", betweenAttempts.err)
 	}
 	if replacement.Record == nil {
 		t.Fatal("retry hook did not create the replacement source")
@@ -721,11 +731,11 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 		t.Fatal(err)
 	}
 	sourceCollection := catalog.Collections["null_survivors"]
-	digest, err := schemaDigest(sourceCollection)
+	digest, err := recordartifact.SchemaDigest(sourceCollection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantReplacementETag := revisionETag(sourceCollection.ID, replacementID, digest, secondValidator)
+	wantReplacementETag := recordartifact.RevisionETag(sourceCollection.ID, replacementID, digest, secondValidator)
 	if replacementAfter.Data["owner"] != nil || replacementAfter.ETag != wantReplacementETag {
 		t.Fatalf("replacement source identity/value = %#v", replacementAfter)
 	}
@@ -748,24 +758,17 @@ func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t
 	}
 }
 
-type deleteRetryCatalogEnsurer struct {
-	inner        CatalogEnsurer
-	calls        int
-	beforeSecond func() error
+type deleteRetryClosureRecorder struct {
+	once   sync.Once
+	change func() error
+	err    error
 }
 
-func (e *deleteRetryCatalogEnsurer) EnsureCurrent(ctx context.Context, tx database.DBTX) (schema.Catalog, error) {
-	catalog, err := e.inner.EnsureCurrent(ctx, tx)
-	if err != nil {
-		return schema.Catalog{}, err
+func (r *deleteRetryClosureRecorder) Record(_ context.Context, event observability.Event) {
+	if event.Kind() != observability.EventKindTransactionRetry || event.Exhausted() {
+		return
 	}
-	e.calls++
-	if e.calls == 2 && e.beforeSecond != nil {
-		if err := e.beforeSecond(); err != nil {
-			return schema.Catalog{}, err
-		}
-	}
-	return catalog, nil
+	r.once.Do(func() { r.err = r.change() })
 }
 
 type deleteRequestArtifact struct {
@@ -875,26 +878,26 @@ func applyDeleteCascadeGraphSchema(t *testing.T, ctx context.Context, schemas *s
 	}})
 	rootFields = append(rootFields, deleteRelationField("cycle", "graph_diamond", schema.RelationSingle, schema.RelationCascade))
 	input := schema.UpdateCollectionInput{Name: "graph_roots", Fields: rootFields}
-	plan, err := schemas.PlanUpdate(ctx, input)
+	plan, err := schemas.Preview(ctx, schema.NewUpdateChange(input))
 	if err != nil {
 		t.Fatalf("plan graph cycle field: %v", err)
 	}
-	if _, err := schemas.ApplyUpdate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID); err != nil {
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewUpdateChange(input), plan, administratorID)); err != nil {
 		t.Fatalf("apply graph cycle field: %v", err)
 	}
 }
 
 func applyDeleteCollection(t *testing.T, ctx context.Context, schemas *schema.Service, administratorID uuid.UUID, input schema.CreateCollectionInput) schema.Collection {
 	t.Helper()
-	plan, err := schemas.PlanCreate(ctx, input)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 	if err != nil {
 		t.Fatalf("plan collection %s: %v", input.Name, err)
 	}
-	collection, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administratorID)
+	applied, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administratorID))
 	if err != nil {
 		t.Fatalf("apply collection %s: %v", input.Name, err)
 	}
-	return collection
+	return applied.Collection
 }
 
 func deleteRelationField(name, target string, cardinality schema.RelationCardinality, action schema.RelationDeleteAction) schema.FieldInput {

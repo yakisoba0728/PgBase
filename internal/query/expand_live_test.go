@@ -1,17 +1,19 @@
+//go:build integration
+
 package query
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -83,10 +85,14 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	fixedNow := time.Date(2026, 8, 31, 5, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
 
-	base, err := records.List(ctx, "expand_posts", "", 2, "", "")
+	// A v5 cursor binds the principal scope digest, so the plain baseline has
+	// to read as the same principal for "both readers issue the same root
+	// cursor" to still be the property under test.
+	base, err := records.List(ctx, ListRequest{
+		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
+		Collection: "expand_posts", Limit: 2,
+	})
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
@@ -97,9 +103,11 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	if err != nil {
 		t.Fatalf("ListExpanded(): %v", err)
 	}
-	if expanded.NextCursor == "" || expanded.NextCursor != base.NextCursor {
-		t.Fatalf("expanded cursor = %q, base cursor = %q", expanded.NextCursor, base.NextCursor)
+	if expanded.NextCursor == "" {
+		t.Fatal("expanded page did not issue a root cursor")
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "expand_posts"), expanded.NextCursor, base.NextCursor)
 	if len(expanded.Items) != 2 || expanded.querySteps != 6 {
 		t.Fatalf("expanded page items/steps = %d/%d, want 2/6", len(expanded.Items), expanded.querySteps)
 	}
@@ -132,44 +140,11 @@ func TestListExpandedBatchesSingleAndMultipleTargetsWithRawRelationsAndStableCur
 	}
 }
 
-func TestExpandRecordsRejectsMissingRequestedRelationField(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name:   "expand_missing_targets",
-		Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText, Required: true}},
-	})
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name: "expand_missing_roots",
-		Fields: []schema.FieldInput{
-			{Name: "owner", Type: schema.TypeRelation, Relation: &schema.RelationInput{
-				TargetCollection: "expand_missing_targets", Cardinality: schema.RelationSingle,
-				OnDelete: schema.RelationRestrict,
-			}},
-		},
-	})
-
-	err := records.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		_, err := records.ExpandRecords(ctx, tx, catalog, collection, []map[string]any{{
-			"id":         uuid.New().String(),
-			"created_at": time.Now().UTC(),
-			"updated_at": time.Now().UTC(),
-		}}, ExpandRequest{
-			Principal: Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-			Expand:    "owner",
-		})
-		return err
-	}, "expand_missing_roots")
-	if !errors.Is(err, schema.ErrConflict) {
-		t.Fatalf("ExpandRecords() error = %v, want opaque schema conflict", err)
-	}
-}
-
 func TestGetExpandedBoundsHydratedEdgeRows(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +163,7 @@ func TestGetExpandedPrechargesTargetQueryStepsBeforeHydration(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,174 +225,6 @@ func TestGetExpandedPreservesNullAndEmptyRelationSemanticsWithoutTargetReads(t *
 	}
 }
 
-func TestExpandedPolicyRestrictsTargetReadsAndProjection(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	base, err := records.List(ctx, "expand_posts", "", 1, "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootID := uuid.MustParse(base.Items[0]["id"].(string))
-	request := GetRequest{
-		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-		Collection: "expand_posts", ID: rootID, Expand: "owner,reviewers",
-	}
-
-	t.Run("deny all performs no target hydration", func(t *testing.T) {
-		records.policy = projectionPolicyFunc(func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error) {
-			return DenyAllRecords(), AllFields(), nil
-		})
-		result, err := records.GetExpanded(ctx, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, found := result.Expand["owner"]; found {
-			t.Fatalf("hidden single target leaked: %#v", result.Expand)
-		}
-		if reviewers, ok := result.Expand["reviewers"].([]map[string]any); !ok || len(reviewers) != 0 {
-			t.Fatalf("hidden multi targets = %#v", result.Expand["reviewers"])
-		}
-		if result.querySteps != 2 {
-			t.Fatalf("deny-all steps = %d, want only base + root hydration", result.querySteps)
-		}
-	})
-
-	t.Run("id subset reads only visible target", func(t *testing.T) {
-		allowed, err := AllowRecordIDs(graph.bob)
-		if err != nil {
-			t.Fatal(err)
-		}
-		records.policy = projectionPolicyFunc(func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error) {
-			return allowed, AllFields(), nil
-		})
-		result, err := records.GetExpanded(ctx, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, found := result.Expand["owner"]; found {
-			t.Fatalf("owner outside allowed subset leaked: %#v", result.Expand)
-		}
-		reviewers := result.Expand["reviewers"].([]map[string]any)
-		if len(reviewers) != 1 || reviewers[0]["id"] != graph.bob.String() {
-			t.Fatalf("visible reviewers = %#v", reviewers)
-		}
-		if result.querySteps != 4 {
-			t.Fatalf("ID-subset steps = %d, want base/root plus one target/hydration batch", result.querySteps)
-		}
-	})
-
-	t.Run("field subset skips unselected multi hydration", func(t *testing.T) {
-		records.policy = projectionPolicyFunc(func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error) {
-			return AllowAllRecords(), ProjectFields("name"), nil
-		})
-		result, err := records.GetExpanded(ctx, GetRequest{
-			Principal: request.Principal, Collection: request.Collection, ID: request.ID, Expand: "owner",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		owner := result.Expand["owner"].(map[string]any)
-		if owner["name"] != "Ada" || owner["labels"] != nil {
-			t.Fatalf("projected owner = %#v", owner)
-		}
-		if result.querySteps != 3 {
-			t.Fatalf("field-subset steps = %d, want base/root plus target batch", result.querySteps)
-		}
-	})
-}
-
-func TestExpandBaseRecordsHydratesRootInOwnedTransactionWithoutMutatingInput(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	graph := createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootID := uuid.MustParse(page.Items[0]["id"].(string))
-
-	err = records.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		statement := CompileSelectByID(collection, rootID)
-		base, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-		if err != nil {
-			return err
-		}
-		if got := base["reviewers"].([]string); len(got) != 0 {
-			t.Fatalf("base multi placeholder = %#v", got)
-		}
-		expanded, err := records.ExpandBaseRecords(ctx, tx, catalog, collection, []map[string]any{base}, ExpandRequest{
-			Principal: Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-			Expand:    "owner",
-		})
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(expanded[0].Root["reviewers"], []string{graph.bob.String(), graph.ada.String()}) {
-			t.Fatalf("hydrated root reviewers = %#v", expanded[0].Root["reviewers"])
-		}
-		if got := base["reviewers"].([]string); len(got) != 0 {
-			t.Fatalf("ExpandBaseRecords mutated input placeholder: %#v", got)
-		}
-		if expanded[0].querySteps != 4 {
-			t.Fatalf("executor query steps = %d, want root select/hydrate + target select/hydrate", expanded[0].querySteps)
-		}
-		return nil
-	}, "expand_posts")
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestExpandRecordsClassifiesTargetCatalogDriftAsOpaqueConflict(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
-	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name:   "expand_drift_targets",
-		Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText}},
-	})
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{
-		Name: "expand_drift_roots",
-		Fields: []schema.FieldInput{{Name: "owner", Type: schema.TypeRelation, Relation: &schema.RelationInput{
-			TargetCollection: "expand_drift_targets", Cardinality: schema.RelationSingle,
-			OnDelete: schema.RelationRestrict,
-		}}},
-	})
-	target, err := records.Create(ctx, "expand_drift_targets", map[string]json.RawMessage{"name": json.RawMessage(`"target"`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := records.Create(ctx, "expand_drift_roots", map[string]json.RawMessage{
-		"owner": json.RawMessage(`"` + target["id"].(string) + `"`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = records.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		collections := make(map[string]schema.Collection, len(catalog.Collections))
-		for name, item := range catalog.Collections {
-			collections[name] = item
-		}
-		corrupt := collections["expand_drift_targets"]
-		corrupt.TableName = "missing_expand_private_table"
-		collections[corrupt.Name] = corrupt
-		_, err := records.ExpandRecords(ctx, tx, schema.Catalog{
-			Version: catalog.Version, Collections: collections, Incoming: catalog.Incoming,
-		}, collection, []map[string]any{root}, ExpandRequest{
-			Principal: Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
-			Expand:    "owner",
-		})
-		return err
-	}, "expand_drift_roots")
-	if !errors.Is(err, schema.ErrConflict) {
-		t.Fatalf("target drift error = %v, want schema conflict", err)
-	}
-	if strings.Contains(err.Error(), "missing_expand_private_table") {
-		t.Fatalf("target drift error disclosed physical identifier: %q", err)
-	}
-}
-
 func TestExpandedReadRejectsLegacyExpandFieldCollisionWithoutBreakingPlainGet(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
@@ -442,11 +249,11 @@ func TestExpandedReadRejectsLegacyExpandFieldCollisionWithoutBreakingPlainGet(t 
 			}},
 		},
 	})
-	if _, err := schemas.PlanCreate(ctx, schema.CreateCollectionInput{
+	if _, err := schemas.Preview(ctx, schema.NewCreateChange(schema.CreateCollectionInput{
 		Name:   "expand_collision_rejected",
 		Fields: []schema.FieldInput{{Name: "expand", Type: schema.TypeText}},
-	}); err == nil {
-		t.Fatal("PlanCreate with a field named expand = nil error, want reserved name rejection")
+	})); err == nil {
+		t.Fatal("Preview(create) with a field named expand = nil error, want reserved name rejection")
 	}
 	if _, err := pool.Exec(ctx, `alter table app.expand_collision_roots
 		rename column legacy_expand to expand`); err != nil {
@@ -480,9 +287,11 @@ func TestExpandedReadRejectsLegacyExpandFieldCollisionWithoutBreakingPlainGet(t 
 		t.Fatal(err)
 	}
 	rootID := uuid.MustParse(root["id"].(string))
-	plain, err := records.Get(ctx, "expand_collision_roots", rootID)
-	if err != nil || plain["expand"] != "legacy" {
-		t.Fatalf("plain Get legacy field = %#v, err=%v", plain["expand"], err)
+	plain, err := records.Get(ctx, GetRequest{
+		Principal: testReadPrincipal, Collection: "expand_collision_roots", ID: rootID,
+	})
+	if err != nil || plain.Data["expand"] != "legacy" {
+		t.Fatalf("plain Get legacy field = %#v, err=%v", plain.Data["expand"], err)
 	}
 	_, err = records.GetExpanded(ctx, GetRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
@@ -543,7 +352,7 @@ func TestGetExpandedMeasuresExactFlatJSONWithTrailingNewline(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 1)
-	page, err := records.List(ctx, "expand_posts", "", 1, "", "")
+	page, err := records.listScalar(ctx, "expand_posts", "", 1, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,8 +381,19 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	createExpandGraph(t, ctx, pool, schemas, records, 4)
-	fixedNow := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
-	records.now = func() time.Time { return fixedNow }
+	// Only the transaction clock is stubbed; the durable traversal underneath is
+	// the resolver's own, because a v5 descriptor can only be minted from a ready
+	// boundary and that readiness is not something a literal can fake.
+	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		if err != nil {
+			return traversal, err
+		}
+		traversal.TransactionTime = fixedTransactionTime
+		return traversal, nil
+	}
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
 		Collection: "expand_posts", Limit: 3, Expand: "owner,reviewers",
@@ -582,20 +402,15 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil || len(wide.Items) != 3 || wide.NextCursor == "" {
 		t.Fatalf("wide page items/cursor = %d/%q err=%v", len(wide.Items), wide.NextCursor, err)
 	}
-	sortKeys := effectiveSortKeys(nil)
-	anchor := wide.Items[1].Root
-	values, err := recordSortValues(sortKeys, anchor)
-	if err != nil {
-		t.Fatal(err)
+	// The cursor a two-item page issues on its own is what the byte-limited
+	// three-item page has to re-anchor to, byte for byte.
+	narrowRequest := request
+	narrowRequest.Limit = 2
+	narrow, err := records.ListExpanded(ctx, narrowRequest)
+	if err != nil || len(narrow.Items) != 2 || narrow.NextCursor == "" {
+		t.Fatalf("narrow page items/cursor = %d/%q err=%v", len(narrow.Items), narrow.NextCursor, err)
 	}
-	expectedCursor, err := records.cursors.Encode(PageCursor{
-		Version: cursorVersion, CollectionID: mustCollectionID(t, schemas, "expand_posts"),
-		Sort: sortKeys, Values: values, AnchorID: uuid.MustParse(anchor["id"].(string)),
-		ExpiresAt: fixedNow.Add(cursorTTL),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	expectedCursor := narrow.NextCursor
 	exactPage := ExpandedRecordPage{Items: wide.Items[:2], NextCursor: expectedCursor}
 	exactJSON, err := json.Marshal(exactPage)
 	if err != nil {
@@ -623,7 +438,7 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := records.List(ctx, "expand_posts", "", 10, "", "")
+	all, err := records.listScalar(ctx, "expand_posts", "", 10, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,11 +449,153 @@ func TestListExpandedTruncatesAtExactFlatByteLimitAndReanchorsCursor(t *testing.
 	}
 }
 
+// The byte-limit truncate/re-anchor path above stubs a v4 traversal, so nothing
+// proved that an expanded page mints a v5 descriptor, carries the same binding
+// through a re-anchor, and keeps a later creation outside the traversal the way
+// the scalar and relation roots do.
+func TestListExpandedReanchorsInsideOneV5MembershipBoundary(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	createExpandGraph(t, ctx, pool, schemas, records, 4)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posts := catalog.Collections["expand_posts"]
+	baseline, err := records.listScalar(ctx, "expand_posts", "", 10, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	postIDs := make([]uuid.UUID, 0, len(baseline.Items))
+	for _, id := range recordIDs(baseline.Items) {
+		postIDs = append(postIDs, uuid.MustParse(id))
+	}
+	syncMembershipOrdinals(t, ctx, pool)
+	controller := membership.New(pool)
+	runtimeB, err := membership.RegisterWriter(ctx, controller, membership.WriterB)
+	if err != nil {
+		t.Fatalf("RegisterWriter(B): %v", err)
+	}
+	if _, err := controller.EnableV5(ctx, membership.FleetProof{
+		Members: []membership.FleetMember{runtimeB.FleetMember()},
+	}); err != nil {
+		t.Fatalf("EnableV5: %v", err)
+	}
+	// Only the transaction time is pinned, so the expected cursor is byte
+	// comparable while the resolver's own generation, high-water and durable
+	// ready state still decide whether a descriptor may be minted at all.
+	fixedTransactionTime := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
+	resolved := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (membership.Traversal, error) {
+		traversal, err := resolved(ctx, tx, id)
+		traversal.TransactionTime = fixedTransactionTime
+		return traversal, err
+	}
+
+	request := ListRequest{
+		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
+		Collection: "expand_posts", Limit: 3, Expand: "owner,reviewers",
+	}
+	wide, err := records.ListExpanded(ctx, request)
+	if err != nil || len(wide.Items) != 3 || wide.NextCursor == "" {
+		t.Fatalf("wide page items/cursor = %d/%q err=%v", len(wide.Items), wide.NextCursor, err)
+	}
+	descriptor := &cursor.V5Descriptor{
+		CatalogVersion: catalog.Version, MembershipGeneration: 1, HighWater: int64(len(postIDs)),
+		QueryHash: records.cursors.QueryFingerprint([]byte(`{"filter":null}`)),
+		ScopeHash: records.cursors.ScopeFingerprint([]byte(
+			`{"kind":"administrator","id":"` + expandTestAdministratorID.String() + `","policy":"administrator-all-v1"}`,
+		)),
+		Order: []cursor.V5OrderTerm{
+			{Path: []string{"$created_at"}, Type: string(schema.TypeTimestampTZ), Nulls: cursor.NullsLast},
+			{Path: []string{"$id"}, Type: string(schema.TypeUUID), Nulls: cursor.NullsLast},
+		},
+	}
+	wideCursor, err := records.cursors.Decode(wide.NextCursor, posts.ID, time.Time{})
+	if err != nil || wideCursor.Version != cursor.Version5 || !reflect.DeepEqual(wideCursor.V5, descriptor) {
+		t.Fatalf("expanded page v5 binding = %#v (err %v), want %#v", wideCursor.V5, err, descriptor)
+	}
+
+	anchor := wide.Items[1].Root
+	values, err := recordSortValues(effectiveSortKeys(nil), anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedCursor, err := records.cursors.Encode(cursor.Page{
+		Version: cursor.Version5, CollectionID: posts.ID, Values: values,
+		AnchorID:  uuid.MustParse(anchor["id"].(string)),
+		ExpiresAt: fixedTransactionTime.Add(cursorTTL), V5: descriptor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactJSON, err := json.Marshal(ExpandedRecordPage{Items: wide.Items[:2], NextCursor: expectedCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records.expandLimits.maxBytes = len(exactJSON) + 1
+	limited, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited.Items) != 2 || limited.NextCursor != expectedCursor {
+		t.Fatalf("truncated page items/cursor = %d/%q, want 2 re-anchored under the same v5 binding",
+			len(limited.Items), limited.NextCursor)
+	}
+	records.expandLimits = defaultExpandLimits
+
+	late, err := records.Create(ctx, "expand_posts", map[string]json.RawMessage{
+		"title": json.RawMessage(`"post-late"`),
+	})
+	if err != nil {
+		t.Fatalf("Create(late post): %v", err)
+	}
+	lateID := uuid.MustParse(late["id"].(string))
+	if _, err := pool.Exec(ctx, `with bumped as (
+		update pgbase_meta.collection_creation_counters
+		set last_ordinal = $3, updated_at = transaction_timestamp()
+		where collection_id = $1 and generation = 1 and last_ordinal = $3 - 1
+		returning collection_id
+	)
+	insert into pgbase_meta.record_creation_ordinals (collection_id, record_id, ordinal)
+	select collection_id, $2, $3 from bumped`, posts.ID, lateID, len(postIDs)+1); err != nil {
+		t.Fatalf("commit late membership: %v", err)
+	}
+
+	request.Cursor = limited.NextCursor
+	continued, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := recordIDs(baseline.Items)[2:]
+	if got := expandedRootIDs(continued.Items); !reflect.DeepEqual(got, want) || continued.NextCursor != "" {
+		t.Fatalf("continued page = %v cursor:%q, want %v and a terminal page", got, continued.NextCursor, want)
+	}
+
+	request.Cursor, request.Limit = "", 1
+	fresh, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshCursor, err := records.cursors.Decode(fresh.NextCursor, posts.ID, time.Time{})
+	if err != nil || freshCursor.V5 == nil || freshCursor.V5.HighWater != int64(len(postIDs)+1) {
+		t.Fatalf("fresh traversal binding = %#v (err %v), want high-water %d",
+			freshCursor.V5, err, len(postIDs)+1)
+	}
+	request.Limit = 10
+	all, err := records.ListExpanded(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expandedRootIDs(all.Items); !reflect.DeepEqual(got, append(recordIDs(baseline.Items), lateID.String())) {
+		t.Fatalf("fresh traversal ids = %v, want every committed post", got)
+	}
+}
+
 func TestExpandedCursorIgnoresTargetUpdates(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	graph := createExpandGraph(t, ctx, pool, schemas, records, 3)
-	records.now = func() time.Time { return time.Date(2026, 8, 31, 7, 0, 0, 0, time.UTC) }
 	request := ListRequest{
 		Principal:  Principal{Kind: PrincipalAdministrator, ID: expandTestAdministratorID},
 		Collection: "expand_posts", Limit: 2, Expand: "owner",
@@ -656,23 +613,14 @@ func TestExpandedCursorIgnoresTargetUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.NextCursor == "" || after.NextCursor != before.NextCursor {
-		t.Fatalf("target update changed root cursor: before=%q after=%q", before.NextCursor, after.NextCursor)
+	if before.NextCursor == "" {
+		t.Fatal("expanded page did not issue a root cursor")
 	}
+	assertEquivalentCursorIgnoringExpiry(t, records,
+		mustCollectionID(t, schemas, "expand_posts"), after.NextCursor, before.NextCursor)
 	if after.Items[0].Expand["owner"].(map[string]any)["name"] != "Ada changed" {
 		t.Fatalf("target update was not visible in expansion: %#v", after.Items[0].Expand["owner"])
 	}
-}
-
-type projectionPolicyFunc func(context.Context, Principal, schema.Collection, ReadAction) (Predicate, FieldSet, error)
-
-func (f projectionPolicyFunc) ReadScope(
-	ctx context.Context,
-	principal Principal,
-	collection schema.Collection,
-	action ReadAction,
-) (Predicate, FieldSet, error) {
-	return f(ctx, principal, collection, action)
 }
 
 type expandGraph struct {

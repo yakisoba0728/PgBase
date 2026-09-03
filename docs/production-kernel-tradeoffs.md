@@ -61,6 +61,7 @@
 | distroless non-root runtime | shell·패키지 관리자·권한 공격면 축소 | 운영 중 컨테이너 내부 디버깅이 어려움 | 별도 debug image를 만들되 production image는 유지 |
 | base/runtime/service/BuildKit 이미지를 digest로 고정 | 같은 입력의 재현성과 tag 변조 방어 | 보안 업데이트가 자동 반영되지 않음 | Dependabot 제안 검토와 정기 rebuild를 운영 gate로 유지 |
 | 릴리스 tag 원문을 `VERSION` build arg로 전달 | `v1.2.3` 같은 배포 식별자가 `/api/admin/system`에 그대로 노출 | 로컬 build는 명시하지 않으면 `dev` | semver 정규화가 필요하면 표시 버전과 artifact tag 계약을 함께 변경 |
+| moving channel을 채널별로 직렬화하고 OCI version label의 단조 증가를 요구 | 늦게 끝난 과거 workflow가 `latest`/`alpha`/`beta`/`rc`를 역행시키지 못함 | label 없는 기존 channel은 immutable exact tag로 현재 버전을 한 번 bootstrap해야 하며, 없으면 승격이 멈춤 | registry가 조건부 tag 갱신이나 원자적 compare-and-swap을 제공할 때 외부 writer까지 포함한 fence로 확장 |
 | release workflow가 backend·frontend·E2E·security reusable workflow를 모두 선행 실행 | DB 없는 이미지 build에서 조용히 skip되는 테스트 대신 실제 PostgreSQL과 브라우저 검증이 publish를 차단 | tag release 시간이 늘고 검증 job이 일반 push와 중복 실행될 수 있음 | 동일 커밋의 검증 결과를 안전하게 재사용하는 immutable promotion 절차가 생길 때 |
 | release builder는 고정 digest의 `docker-container` driver 사용 | GitHub runner 기본 BuildKit 변화에 덜 의존 | digest 갱신과 builder bootstrap 시간이 필요 | 새 digest를 독립 inspect/bootstrap하고 provenance·SBOM 회귀를 통과할 때 |
 | system migration은 명시적 job, 개발 Compose만 auto-migrate | 다중 인스턴스 rollout에서 migration owner가 명확 | 배포 단계가 하나 늘고 무중단을 자동 보장하지 않음 | migration compatibility matrix와 expand/contract 절차가 구현될 때 |

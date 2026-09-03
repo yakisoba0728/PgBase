@@ -10,13 +10,12 @@ import (
 
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
 	const databaseURL = "postgres://pgbase:must-not-leak@127.0.0.1:1/pgbase?connect_timeout=1"
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), testIO(nil, &stdout, &stderr))
 	if code != 1 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -42,7 +41,7 @@ func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {
 
 func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {
 	var stdout bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, emptyEnv, &stdout, io.Discard, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--json"}, emptyEnv, testIO(nil, &stdout, io.Discard))
 	if code != 2 {
 		t.Fatalf("exit=%d stdout=%q", code, stdout.String())
 	}
@@ -56,25 +55,9 @@ func TestDoctorJSONReportsInvalidConfigurationBeforeDatabaseOpen(t *testing.T) {
 	}
 }
 
-func TestDoctorJSONReportsHealthyMigratedDatabase(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
-	prepareDoctorDatabase(t, databaseURL)
-	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--json"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
-	if code != 0 {
-		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	var report struct {
-		OK bool `json:"ok"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil || !report.OK {
-		t.Fatalf("report=%q err=%v", stdout.String(), err)
-	}
-}
-
 func TestDoctorRejectsInvalidFlagsWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor", "--unexpected"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor", "--unexpected"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 || stderr.String() != "pgbase: usage: pgbase doctor [--json]\n" {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}

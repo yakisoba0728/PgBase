@@ -11,15 +11,12 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
-// Store persists administrator authentication state through the shared database boundary.
 type Store struct {
 	db database.DBTX
 }
 
-// NewStore creates an authentication store over a pool or transaction.
 func NewStore(db database.DBTX) *Store { return &Store{db: db} }
 
-// AdministratorCount returns the number of configured administrators.
 func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	var count int
 	if err := s.db.QueryRow(ctx, "select count(*) from pgbase_meta.admins").Scan(&count); err != nil {
@@ -28,7 +25,6 @@ func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// CreateAdministrator persists an administrator and its password hash.
 func (s *Store) CreateAdministrator(ctx context.Context, administrator Administrator, passwordHash string) (Administrator, error) {
 	normalizedEmail, err := NormalizeEmail(administrator.Email)
 	if err != nil {
@@ -88,17 +84,29 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	return administratorUTC(administrator), nil
 }
 
-// AdministratorByEmailForUpdate locks and reads an active administrator and
-// its encoded password hash. The lock serializes password changes with session
-// issuance until the caller's transaction finishes.
+// AdministratorByEmail reads an active administrator and its password hash
+// without retaining a database resource across password verification.
+func (s *Store) AdministratorByEmail(ctx context.Context, email string) (Administrator, string, error) {
+	return s.administratorByEmail(ctx, email, false)
+}
+
+// AdministratorByEmailForUpdate fences session issuance against password and
+// active-state changes after a password was verified outside the transaction.
 func (s *Store) AdministratorByEmailForUpdate(ctx context.Context, email string) (Administrator, string, error) {
+	return s.administratorByEmail(ctx, email, true)
+}
+
+func (s *Store) administratorByEmail(ctx context.Context, email string, forUpdate bool) (Administrator, string, error) {
 	var administrator Administrator
 	var passwordHash string
-	err := s.db.QueryRow(ctx, `
+	query := `
 		select id, email, active, created_at, updated_at, password_hash
 		from pgbase_meta.admins
-		where email = $1 and active
-		for update`, email).Scan(
+		where email = $1 and active`
+	if forUpdate {
+		query += " for update"
+	}
+	err := s.db.QueryRow(ctx, query, email).Scan(
 		&administrator.ID, &administrator.Email, &administrator.Active,
 		&administrator.CreatedAt, &administrator.UpdatedAt, &passwordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -108,6 +116,50 @@ func (s *Store) AdministratorByEmailForUpdate(ctx context.Context, email string)
 		return Administrator{}, "", fmt.Errorf("read administrator: %w", err)
 	}
 	return administratorUTC(administrator), passwordHash, nil
+}
+
+// RateLimitFailures returns the current-window signal without interpreting it
+// as a pre-verification account block.
+func (s *Store) RateLimitFailures(ctx context.Context, subjectHash []byte, now time.Time) (int, error) {
+	var failures int
+	err := s.db.QueryRow(ctx, `
+		select case
+			when window_started_at > $2::timestamptz - interval '15 minutes' then failures
+			else 0
+		end
+		from pgbase_meta.admin_rate_limits
+		where subject_hash = $1`, subjectHash, now).Scan(&failures)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read administrator rate-limit failures: %w", err)
+	}
+	return failures, nil
+}
+
+// RecordRateLimitSignal records a post-verification failure. Email-scoped
+// history drives bounded delay and alerting only, never a hard rejection.
+func (s *Store) RecordRateLimitSignal(ctx context.Context, subjectHash []byte, now time.Time) error {
+	_, err := s.db.Exec(ctx, `
+		insert into pgbase_meta.admin_rate_limits as limits
+			(subject_hash, window_started_at, failures, blocked_until, updated_at)
+		values ($1, $2, 1, null, $2)
+		on conflict (subject_hash) do update set
+			window_started_at = case
+				when limits.window_started_at <= $2 - interval '15 minutes' then $2
+				else limits.window_started_at
+			end,
+			failures = case
+				when limits.window_started_at <= $2 - interval '15 minutes' then 1
+				else limits.failures + 1
+			end,
+			blocked_until = null,
+			updated_at = $2`, subjectHash, now)
+	if err != nil {
+		return fmt.Errorf("record administrator rate-limit signal: %w", err)
+	}
+	return nil
 }
 
 // CreateSession persists only a derived token hash for a new session.
@@ -173,7 +225,6 @@ func (s *Store) LockRateLimits(ctx context.Context, keys []int64) error {
 	return nil
 }
 
-// RateLimitBlocked reports whether a subject is currently blocked.
 func (s *Store) RateLimitBlocked(ctx context.Context, subjectHash []byte, now time.Time) (bool, error) {
 	var blocked bool
 	err := s.db.QueryRow(ctx, `
@@ -222,7 +273,6 @@ func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, 
 	return blocked, nil
 }
 
-// ClearRateLimit removes a subject's failure history after successful authentication.
 func (s *Store) ClearRateLimit(ctx context.Context, subjectHash []byte) error {
 	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_rate_limits where subject_hash = $1", subjectHash); err != nil {
 		return fmt.Errorf("clear administrator rate limit: %w", err)

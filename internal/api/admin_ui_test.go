@@ -12,7 +12,7 @@ func TestRouterDelegatesOnlyAdminPathsToEmbeddedUI(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte("embedded-admin-ui"))
 	})
-	handler := NewRouter(Dependencies{AdminUI: ui})
+	handler := mustRouter(t, Dependencies{AdminUI: ui})
 
 	for _, path := range []string{"/admin", "/admin/", "/admin/collections"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)

@@ -34,6 +34,13 @@ func (s *Store) PinnedSchemaVersion(ctx context.Context) (int64, error) {
 	return s.schemaVersion(ctx, " FOR SHARE")
 }
 
+// SnapshotSchemaVersion reads the catalog version without taking a row lock, so
+// a read-only diagnostic transaction can pin the version its own snapshot
+// already froze. A writer must use PinnedSchemaVersion instead.
+func (s *Store) SnapshotSchemaVersion(ctx context.Context) (int64, error) {
+	return s.schemaVersion(ctx, "")
+}
+
 // LockedSchemaVersion takes the exclusive side of the catalog/record lock
 // order and must be acquired before executing collection DDL.
 func (s *Store) LockedSchemaVersion(ctx context.Context) (int64, error) {
@@ -219,7 +226,10 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 		collection.ID, collection.Name, collection.TableName, createdAt); err != nil {
 		return fmt.Errorf("insert collection metadata: %w", err)
 	}
-	return s.insertFieldMetadata(ctx, collection, definition, createdAt)
+	if err := s.insertFieldMetadata(ctx, collection, definition, createdAt); err != nil {
+		return err
+	}
+	return s.insertMembershipMetadata(ctx, collection.ID, createdAt)
 }
 
 func (s *Store) UpdateCollection(ctx context.Context, collection Collection, definition PlannedCollection, updatedAt time.Time) error {
@@ -238,6 +248,63 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 func (s *Store) DeleteCollection(ctx context.Context, collectionID uuid.UUID) error {
 	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.collections where id = $1`, collectionID); err != nil {
 		return fmt.Errorf("delete collection metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) insertMembershipMetadata(ctx context.Context, collectionID uuid.UUID, createdAt time.Time) error {
+	var capabilityTable, counterTable, backfillTable bool
+	if err := s.db.QueryRow(ctx, `select
+		to_regclass('pgbase_meta.record_membership_capability') is not null,
+		to_regclass('pgbase_meta.collection_creation_counters') is not null,
+		to_regclass('pgbase_meta.record_membership_backfills') is not null`).Scan(
+		&capabilityTable, &counterTable, &backfillTable,
+	); err != nil {
+		return fmt.Errorf("inspect record membership metadata: %w", err)
+	}
+	if !capabilityTable && !counterTable && !backfillTable {
+		return nil
+	}
+	if !capabilityTable || !counterTable || !backfillTable {
+		return errCatalogIntegrity
+	}
+	var state string
+	var generation int64
+	if err := s.db.QueryRow(ctx, `select state, generation
+		from pgbase_meta.record_membership_capability where singleton for share`).Scan(&state, &generation); err != nil {
+		return fmt.Errorf("read record membership capability: %w", err)
+	}
+	backfillState := "off"
+	var cutoverCount, validatedCount, completedAt any
+	switch state {
+	case "off":
+		if generation != 0 {
+			return errCatalogIntegrity
+		}
+	case "dual_write", "ready":
+		if generation < 1 {
+			return errCatalogIntegrity
+		}
+		backfillState = "ready"
+		cutoverCount = int64(0)
+		validatedCount = int64(0)
+		completedAt = createdAt
+	default:
+		return errCatalogIntegrity
+	}
+	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collection_creation_counters
+		(collection_id, generation, last_ordinal, updated_at) values ($1, $2, 0, $3)`,
+		collectionID, generation, createdAt); err != nil {
+		return fmt.Errorf("insert record creation counter: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.record_membership_backfills
+		(collection_id, generation, state, cutover_count,
+		 cutover_last_created_at, cutover_last_record_id,
+		 checkpoint_created_at, checkpoint_record_id, last_assigned_ordinal,
+		 validated_base_count, validated_sidecar_count, updated_at, completed_at)
+		values ($1, $2, $3, $4, null, null, null, null, 0, $5, $5, $6, $7)`,
+		collectionID, generation, backfillState, cutoverCount, validatedCount, createdAt, completedAt); err != nil {
+		return fmt.Errorf("insert record membership backfill: %w", err)
 	}
 	return nil
 }

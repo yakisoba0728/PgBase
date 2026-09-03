@@ -21,7 +21,6 @@ const (
 	KindCanceled
 )
 
-// Classify maps PostgreSQL and context errors to pgBase error kinds.
 func Classify(err error) Kind {
 	if err == nil {
 		return KindUnknown

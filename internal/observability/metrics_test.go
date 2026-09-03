@@ -16,7 +16,7 @@ import (
 
 func TestEventConstructorsExposeReadOnlyValues(t *testing.T) {
 	duration := 125 * time.Millisecond
-	operation := OperationEvent(ComponentSchema, OperationSchemaUpdate, OutcomeConflict, duration)
+	operation := OperationEvent(OperationSchemaUpdate, OutcomeConflict, duration)
 	if operation.Kind() != EventKindOperation || operation.Component() != ComponentSchema ||
 		operation.Operation() != OperationSchemaUpdate || operation.Outcome() != OutcomeConflict ||
 		operation.Duration() != duration {
@@ -36,8 +36,8 @@ func TestEventConstructorsExposeReadOnlyValues(t *testing.T) {
 
 func TestMetricsRecordsOnlyBoundedEvents(t *testing.T) {
 	metrics := NewMetrics(nil)
-	metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationSchemaCreate, OutcomeSuccess, 250*time.Millisecond))
-	metrics.Record(context.Background(), OperationEvent(ComponentRelation, OperationRelationExpand, OutcomeBudget, 10*time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(OperationSchemaCreate, OutcomeSuccess, 250*time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(OperationRelationExpand, OutcomeBudget, 10*time.Millisecond))
 	metrics.Record(context.Background(), TransactionRetryEvent(RetryCauseDeadlock, true))
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessDatabase, false))
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessDatabase, true))
@@ -45,10 +45,10 @@ func TestMetricsRecordsOnlyBoundedEvents(t *testing.T) {
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessDatabase, false))
 
 	invalidLabels := []string{"raw-email@example.test", "secret-token-sentinel", "unbounded-readiness"}
-	metrics.Record(context.Background(), OperationEvent(Component(invalidLabels[0]), OperationSchemaCreate, OutcomeSuccess, time.Second))
-	metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationMigrationUp, OutcomeSuccess, time.Second))
-	metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationSchemaCreate, Outcome(invalidLabels[1]), time.Second))
-	metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationSchemaCreate, OutcomeSuccess, -time.Second))
+	metrics.Record(context.Background(), OperationEvent(Operation(invalidLabels[0]), OutcomeSuccess, time.Second))
+	metrics.Record(context.Background(), OperationEvent(OperationSchemaCreate, Outcome(invalidLabels[1]), time.Second))
+	metrics.Record(context.Background(), OperationEvent(OperationSchemaCreate, OutcomeSuccess, -time.Second))
+	metrics.Record(context.Background(), Event{kind: EventKindOperation, component: ComponentSchema, operation: OperationMigrationUp, outcome: OutcomeSuccess})
 	metrics.Record(context.Background(), TransactionRetryEvent(RetryCause(invalidLabels[1]), false))
 	metrics.Record(context.Background(), ReadinessEvent(ReadinessComponent(invalidLabels[2]), true))
 	metrics.Record(context.Background(), Event{})
@@ -77,9 +77,9 @@ func TestMetricsRecordsOnlyBoundedEvents(t *testing.T) {
 func TestRelationReadOperationIsInsideTheClosedWhitelist(t *testing.T) {
 	metrics := NewMetrics(nil)
 	unlisted := "relation_sort_sentinel"
-	metrics.Record(context.Background(), OperationEvent(ComponentRelation, OperationRelationRead, OutcomeBudget, 10*time.Millisecond))
-	metrics.Record(context.Background(), OperationEvent(ComponentRelation, OperationRelationRead, OutcomeValidation, time.Millisecond))
-	metrics.Record(context.Background(), OperationEvent(ComponentRelation, Operation(unlisted), OutcomeBudget, time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(OperationRelationRead, OutcomeBudget, 10*time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(OperationRelationRead, OutcomeValidation, time.Millisecond))
+	metrics.Record(context.Background(), OperationEvent(Operation(unlisted), OutcomeBudget, time.Millisecond))
 
 	body := scrape(t, metrics, "metrics-access-token")
 	if strings.Contains(body, unlisted) {
@@ -189,7 +189,7 @@ func TestMetricsHandlerRequiresOneWellFormedBearerAndDisablesCaching(t *testing.
 func TestMetricsRegistriesArePrivatePerApplication(t *testing.T) {
 	first := NewMetrics(nil)
 	second := NewMetrics(nil)
-	first.Record(context.Background(), OperationEvent(ComponentAdminAuth, OperationAdminLogin, OutcomeSuccess, time.Millisecond))
+	first.Record(context.Background(), OperationEvent(OperationAdminLogin, OutcomeSuccess, time.Millisecond))
 
 	firstBody := scrape(t, first, "first-token")
 	secondBody := scrape(t, second, "second-token")
@@ -264,7 +264,7 @@ func TestMetricsRecordWrapAndScrapeAreConcurrentSafe(t *testing.T) {
 		go func(worker int) {
 			defer wait.Done()
 			for iteration := range iterations {
-				metrics.Record(context.Background(), OperationEvent(ComponentSchema, OperationSchemaUpdate, OutcomeSuccess, time.Microsecond))
+				metrics.Record(context.Background(), OperationEvent(OperationSchemaUpdate, OutcomeSuccess, time.Microsecond))
 				metrics.Record(context.Background(), TransactionRetryEvent(RetryCauseCachedPlan, false))
 				metrics.Record(context.Background(), ReadinessEvent(ReadinessSchemaListener, (worker+iteration)%2 == 0))
 				request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/items/%d", worker*iterations+iteration), nil)

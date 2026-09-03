@@ -1,0 +1,1469 @@
+{
+  "exchanges": [
+    {
+      "name": "operation status committed",
+      "method": "GET",
+      "route": "/api/admin/schema-operations/{id}",
+      "status": 200,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "baseVersion": 7,
+        "collectionId": "019551d0-e9c0-7000-8000-0000000000bb",
+        "committedVersion": 8,
+        "createdAt": "<time>",
+        "operation": "collection_create",
+        "operationId": "019551d0-e9c0-7000-8000-0000000000aa",
+        "status": "committed",
+        "updatedAt": "<time>"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations/{id}",
+        "status": 200,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation status not found",
+      "method": "GET",
+      "route": "/api/admin/schema-operations/{id}",
+      "status": 404,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "not_found",
+          "details": {},
+          "message": "Not found",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations/{id}",
+        "status": 404,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation status malformed id",
+      "method": "GET",
+      "route": "/api/admin/schema-operations/{id}",
+      "status": 404,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "not_found",
+          "details": {},
+          "message": "Not found",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations/{id}",
+        "status": 404,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation status unauthorized",
+      "method": "GET",
+      "route": "/api/admin/schema-operations/{id}",
+      "status": 401,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "authentication_required",
+          "details": {},
+          "message": "Administrator authentication is required",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations/{id}",
+        "status": 401,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation history page",
+      "method": "GET",
+      "route": "/api/admin/schema-operations",
+      "status": 200,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "items": [
+          {
+            "baseVersion": 7,
+            "collectionId": "019551d0-e9c0-7000-8000-0000000000bb",
+            "committedVersion": 8,
+            "createdAt": "<time>",
+            "operation": "collection_create",
+            "operationId": "019551d0-e9c0-7000-8000-0000000000aa",
+            "status": "committed",
+            "updatedAt": "<time>"
+          }
+        ],
+        "nextCursor": "opaque-owner-scoped-cursor"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations",
+        "status": 200,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation history limit rejected",
+      "method": "GET",
+      "route": "/api/admin/schema-operations",
+      "status": 400,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "details": {},
+          "message": "Invalid request",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations",
+        "status": 400,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "operation history cursor rejected",
+      "method": "GET",
+      "route": "/api/admin/schema-operations",
+      "status": 400,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "invalid_cursor",
+          "details": {},
+          "message": "Cursor is invalid",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "GET",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/schema-operations",
+        "status": 400,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "legacy apply keeps its body and gains the compatibility header",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 201,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Pgbase-Compatibility",
+          "values": [
+            "missing-idempotency-key"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "createdAt": "<time>",
+        "fields": [],
+        "id": "019551d0-e9c0-7000-8000-000000000010",
+        "name": "posts",
+        "tableName": "posts"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 201,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply created",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 201,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Idempotency-Replayed",
+          "values": [
+            "false"
+          ]
+        },
+        {
+          "name": "Pgbase-Operation-Id",
+          "values": [
+            "019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "createdAt": "<time>",
+        "fields": [],
+        "id": "019551d0-e9c0-7000-8000-000000000010",
+        "name": "posts",
+        "tableName": "posts"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 201,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply replayed",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 200,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Idempotency-Replayed",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Pgbase-Operation-Id",
+          "values": [
+            "019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "operationId": "019551d0-e9c0-7000-8000-0000000000aa",
+        "receipt": {
+          "baseVersion": 7,
+          "collectionId": "019551d0-e9c0-7000-8000-0000000000bb",
+          "committedVersion": 8,
+          "createdAt": "<time>",
+          "operation": "collection_create",
+          "operationId": "019551d0-e9c0-7000-8000-0000000000aa",
+          "status": "committed",
+          "updatedAt": "<time>"
+        },
+        "status": "committed",
+        "statusUrl": "/api/admin/schema-operations/019551d0-e9c0-7000-8000-0000000000aa"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 200,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply identity bound to a different request",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 409,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Pgbase-Operation-Id",
+          "values": [
+            "019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "schema_operation_conflict",
+          "details": {},
+          "message": "Schema operation identity is already bound to a different request",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 409,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply terminal failure",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 409,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Pgbase-Operation-Id",
+          "values": [
+            "019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "schema_operation_failed",
+          "details": {
+            "operation": [
+              "apply_failed"
+            ]
+          },
+          "message": "Schema operation did not apply",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 409,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply outcome undecided",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 202,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Location",
+          "values": [
+            "/api/admin/schema-operations/019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Pgbase-Operation-Id",
+          "values": [
+            "019551d0-e9c0-7000-8000-0000000000aa"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Retry-After",
+          "values": [
+            "1"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "operationId": "019551d0-e9c0-7000-8000-0000000000aa",
+        "status": "unknown",
+        "statusUrl": "/api/admin/schema-operations/019551d0-e9c0-7000-8000-0000000000aa"
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 202,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply duplicate operation id",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 400,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "details": {},
+          "message": "Invalid request",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 400,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "guarded apply malformed idempotency key",
+      "method": "POST",
+      "route": "/api/admin/collections/apply",
+      "status": 400,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Content-Type",
+          "values": [
+            "application/json; charset=utf-8"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "details": {},
+          "message": "Invalid request",
+          "requestId": "<request-id>"
+        }
+      },
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "POST",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "/api/admin/collections/apply",
+        "status": 400,
+        "time": "<time>"
+      }
+    },
+    {
+      "name": "apply preflight advertises the identity headers",
+      "method": "OPTIONS",
+      "route": "unmatched",
+      "status": 204,
+      "headers": [
+        {
+          "name": "Access-Control-Allow-Credentials",
+          "values": [
+            "true"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Headers",
+          "values": [
+            "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Methods",
+          "values": [
+            "GET, POST, PUT, PATCH, DELETE"
+          ]
+        },
+        {
+          "name": "Access-Control-Allow-Origin",
+          "values": [
+            "https://admin.example.com"
+          ]
+        },
+        {
+          "name": "Access-Control-Expose-Headers",
+          "values": [
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+          ]
+        },
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-store"
+          ]
+        },
+        {
+          "name": "Content-Security-Policy",
+          "values": [
+            "default-src 'none'"
+          ]
+        },
+        {
+          "name": "Referrer-Policy",
+          "values": [
+            "no-referrer"
+          ]
+        },
+        {
+          "name": "Vary",
+          "values": [
+            "Origin"
+          ]
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "values": [
+            "nosniff"
+          ]
+        },
+        {
+          "name": "X-Request-Id",
+          "values": [
+            "<request-id>"
+          ]
+        }
+      ],
+      "cookies": [],
+      "accessLog": {
+        "duration_ms": "<duration>",
+        "level": "INFO",
+        "method": "OPTIONS",
+        "msg": "http request",
+        "request_id": "<request-id>",
+        "route": "unmatched",
+        "status": 204,
+        "time": "<time>"
+      }
+    }
+  ]
+}

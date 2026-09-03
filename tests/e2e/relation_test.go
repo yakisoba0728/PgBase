@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
 
 type relationE2ERecord struct {
@@ -440,26 +442,20 @@ func assertRelationE2ENestedExpansion(
 
 func waitForE2ECollections(t *testing.T, ctx context.Context, client *apiClient, names ...string) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
+	if err := testsupport.Poll(ctx, 15*time.Second, 100*time.Millisecond, 3*time.Second, func(attemptCtx context.Context) (bool, error) {
 		var catalog struct {
 			Collections map[string]json.RawMessage `json:"collections"`
 		}
-		lastErr = client.request(ctx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog)
-		if lastErr == nil {
-			complete := true
-			for _, name := range names {
-				if _, ok := catalog.Collections[name]; !ok {
-					complete = false
-					break
-				}
-			}
-			if complete {
-				return
+		if err := client.request(attemptCtx, http.MethodGet, "/api/admin/collections", nil, http.StatusOK, &catalog); err != nil {
+			return false, err
+		}
+		for _, name := range names {
+			if _, ok := catalog.Collections[name]; !ok {
+				return false, nil
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		return true, nil
+	}); err != nil {
+		t.Fatalf("replica did not observe relation collections %v: %v", names, err)
 	}
-	t.Fatalf("replica did not observe relation collections %v: %v", names, lastErr)
 }

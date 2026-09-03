@@ -1,0 +1,89 @@
+name: Digest-pinned release gate
+
+on:
+  workflow_call:
+    inputs:
+      candidate_image:
+        description: Digest-pinned candidate image
+        required: true
+        type: string
+      expected_version:
+        description: Canonical release version
+        required: true
+        type: string
+      source_commit:
+        description: Optional immutable source commit corresponding to the candidate
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+
+      - name: Reject a mutable or malformed candidate
+        shell: bash
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          scripts/support/validate-release-candidate.sh "$CANDIDATE_IMAGE" "$EXPECTED_VERSION"
+          if [[ -n "$SOURCE_COMMIT" ]]; then
+            if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "source commit must be a full lowercase commit object ID" >&2
+              exit 2
+            fi
+            test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          fi
+
+  backend:
+    needs: contract
+    uses: ./.github/workflows/backend.yml
+    with:
+      candidate_image: ${{ inputs.candidate_image }}
+      expected_version: ${{ inputs.expected_version }}
+      source_commit: ${{ inputs.source_commit }}
+
+  frontend:
+    needs: contract
+    uses: ./.github/workflows/frontend.yml
+    with:
+      candidate_image: ${{ inputs.candidate_image }}
+      expected_version: ${{ inputs.expected_version }}
+      source_commit: ${{ inputs.source_commit }}
+
+  e2e:
+    needs: contract
+    uses: ./.github/workflows/e2e.yml
+    with:
+      candidate_image: ${{ inputs.candidate_image }}
+      expected_version: ${{ inputs.expected_version }}
+      source_commit: ${{ inputs.source_commit }}
+
+  security:
+    needs: contract
+    uses: ./.github/workflows/security.yml
+    with:
+      candidate_image: ${{ inputs.candidate_image }}
+      expected_version: ${{ inputs.expected_version }}
+      source_commit: ${{ inputs.source_commit }}
+
+  backup_restore:
+    needs: contract
+    uses: ./.github/workflows/backup-restore.yml
+    with:
+      candidate_image: ${{ inputs.candidate_image }}
+      expected_version: ${{ inputs.expected_version }}
+      source_commit: ${{ inputs.source_commit }}

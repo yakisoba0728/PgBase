@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 const benchmarkSeedRows = 10_000
@@ -49,36 +50,6 @@ func BenchmarkCompileInsert20Fields(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-}
-
-func BenchmarkRecordServiceCRUD20Fields10000Rows(b *testing.B) {
-	records, input, seededID := benchmarkRecordService(b)
-	ctx := context.Background()
-
-	b.Run("get", func(b *testing.B) {
-		b.ReportAllocs()
-		for range b.N {
-			if _, err := records.Get(ctx, "benchmark_records", seededID); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-	b.Run("list_50", func(b *testing.B) {
-		b.ReportAllocs()
-		for range b.N {
-			if _, err := records.List(ctx, "benchmark_records", "", 50, "", ""); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-	b.Run("create", func(b *testing.B) {
-		b.ReportAllocs()
-		for range b.N {
-			if _, err := records.Create(ctx, "benchmark_records", input); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
 }
 
 func benchmarkCollectionAndInput(fieldCount int) (schema.Collection, map[string]json.RawMessage) {
@@ -166,23 +137,24 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 		})
 	}
 	definition := schema.CreateCollectionInput{Name: collection.Name, Fields: fieldInputs}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
-	plan, err := schemas.PlanCreate(ctx, definition)
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
 		b.Fatalf("plan benchmark collection: %v", err)
 	}
-	applied, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administratorID)
+	applied, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administratorID))
 	if err != nil {
 		b.Fatalf("apply benchmark collection: %v", err)
 	}
-	seedBenchmarkRecords(b, pool, applied)
+	seedBenchmarkRecords(b, pool, applied.Collection)
+	testutil.RetireRecordMembershipV4(b, ctx, pool)
 
 	var seededID uuid.UUID
-	table := pgx.Identifier{"app", applied.TableName}.Sanitize()
+	table := pgx.Identifier{"app", applied.Collection.TableName}.Sanitize()
 	if err := pool.QueryRow(ctx, "select id from "+table+` order by created_at, id limit 1`).Scan(&seededID); err != nil {
 		b.Fatalf("read seeded benchmark record: %v", err)
 	}
-	return NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef")), input, seededID
+	return NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil), input, seededID
 }
 
 func benchmarkDatabase(b *testing.B) *database.Pool {

@@ -63,7 +63,6 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, page)
 }
 
@@ -93,7 +92,6 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("ETag", record.ETag)
 	writeJSON(w, http.StatusOK, record.Data)
 }
@@ -134,7 +132,6 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service returned an invalid created record id"))
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("ETag", result.Record.ETag)
 	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
 	w.Header().Set("Location", "/api/v1/collections/"+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
@@ -179,7 +176,6 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, errors.New("record service returned no updated record"))
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("ETag", result.Record.ETag)
 	writeCompatibilityHeaders(w, result.Compatibility)
 	writeJSON(w, http.StatusOK, result.Record.Data)
@@ -212,7 +208,6 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeCompatibilityHeaders(w, result.Compatibility)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -379,7 +374,6 @@ func writeRecordOperationError(w http.ResponseWriter, r *http.Request, err error
 	if !errors.As(err, &operationError) {
 		return false
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	apiError := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
 	switch operationError.Code {
 	case recordops.CodeInvalidPrincipal:
@@ -399,6 +393,9 @@ func writeRecordOperationError(w http.ResponseWriter, r *http.Request, err error
 		if operationError.CurrentETag != "" {
 			w.Header().Set("ETag", operationError.CurrentETag)
 		}
+	case recordops.CodeUnavailable:
+		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "record_unavailable", Message: "Record service is unavailable"}
+		w.Header().Set("Retry-After", "1")
 	default:
 		writeAPIError(w, r, apiError)
 		return true

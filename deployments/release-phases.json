@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "rollouts": [
+    {
+      "name": "record-membership-v7",
+      "migration": 7,
+      "operator": {
+        "commit": "f7ec0ff54953417dd0b41331f0b9d02b023195d8",
+        "version": "v0.0.7-rc.1"
+      },
+      "artifacts": [
+        {
+          "phase": "A0",
+          "commit": "9672d695c315dbcf36f993cec78eebe9fa5faac9",
+          "version": "v0.0.7-alpha.0",
+          "writerVersion": 0,
+          "issuesCursor": 4,
+          "decodesCursors": [4, 5]
+        },
+        {
+          "phase": "A",
+          "commit": "451e715938e9d58f50970080d34142776ef256b2",
+          "version": "v0.0.7-alpha.1",
+          "writerVersion": 1,
+          "issuesCursor": 4,
+          "decodesCursors": [4, 5]
+        },
+        {
+          "phase": "B",
+          "commit": "4676b81e3c940d9a65da11837093686379457d0f",
+          "version": "v0.0.7-beta.0",
+          "writerVersion": 2,
+          "issuesCursor": 5,
+          "decodesCursors": [4, 5]
+        },
+        {
+          "phase": "C",
+          "commit": "07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4",
+          "version": "v0.0.7-rc.0",
+          "writerVersion": 3,
+          "issuesCursor": 5,
+          "decodesCursors": [5]
+        }
+      ]
+    },
+    {
+      "name": "schema-compiler-v9",
+      "migration": 9,
+      "predecessor": {
+        "commit": "d3fb5eb9e5480ea1fdba30fcd81ff85608e2755b",
+        "version": "v0.0.8-rc.1"
+      },
+      "artifacts": [
+        {
+          "phase": "P0",
+          "commit": "f93c2c755848dc4757ad76c469bf8aa24bf9b63d",
+          "version": "v0.0.9-alpha.0",
+          "schemaCompilerGeneration": 2,
+          "acceptedMigrations": [8, 9],
+          "companionEnabled": false
+        },
+        {
+          "phase": "F",
+          "commit": "87a89145958c6716662e03137328fba5e1dc39f3",
+          "version": "v0.0.9-rc.0",
+          "schemaCompilerGeneration": 3,
+          "acceptedMigrations": [9],
+          "companionEnabled": true
+        }
+      ]
+    }
+  ]
+}

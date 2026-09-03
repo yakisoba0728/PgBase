@@ -13,7 +13,6 @@ import (
 type materializedRecord struct {
 	root   map[string]any
 	expand map[string]materializedExpandValue
-	fields FieldSet
 }
 
 type materializedExpandValue struct {
@@ -32,13 +31,12 @@ func (s *Service) executeMaterializedExpandPlan(
 	tx pgx.Tx,
 	catalog schema.Catalog,
 	roots []map[string]any,
-	request ExpandRequest,
 	plan expandPlan,
 	usage *expansionUsage,
 ) ([]ExpandedRecord, error) {
 	materials := make([]*materializedRecord, len(roots))
 	for index, root := range roots {
-		materials[index] = &materializedRecord{root: cloneRecord(root), fields: AllFields()}
+		materials[index] = &materializedRecord{root: cloneRecord(root)}
 	}
 	if len(plan.nodes) != 0 && len(materials) != 0 {
 		jobs := make([]expandLevelJob, 0, len(plan.nodes))
@@ -52,9 +50,9 @@ func (s *Service) executeMaterializedExpandPlan(
 				var err error
 				switch job.node.kind {
 				case expandNodeForward:
-					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, request.Principal, usage)
+					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, usage)
 				case expandNodeReverse:
-					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, request.Principal, usage)
+					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, usage)
 				default:
 					err = schema.ErrConflict
 				}
@@ -123,21 +121,10 @@ func (s *Service) executeForwardExpandNode(
 	tx pgx.Tx,
 	catalog schema.Catalog,
 	job expandLevelJob,
-	principal Principal,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
 		return nil, nil
-	}
-	if !fieldSetAllows(job.parents[0].fields, job.node.field.Name) {
-		return nil, nil
-	}
-	predicate, fields, err := s.policy.ReadScope(ctx, principal, job.node.target, ReadActionExpand)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateProjection(job.node.target, predicate, fields); err != nil {
-		return nil, err
 	}
 
 	references := make([]relationReferences, len(job.parents))
@@ -150,17 +137,17 @@ func (s *Service) executeForwardExpandNode(
 		references[index] = reference
 		allIDs = append(allIDs, reference.ids...)
 	}
-	ids := visibleCandidateIDs(uniqueSortedIDs(allIDs), predicate)
+	ids := uniqueSortedIDs(allIDs)
 	if err := usage.takeRows(len(ids)); err != nil {
 		return nil, err
 	}
-	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, predicate, fields, usage)
+	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, usage)
 	if err != nil {
 		return nil, err
 	}
 	targets := make(map[uuid.UUID]*materializedRecord, len(targetRecords))
 	for id, record := range targetRecords {
-		targets[id] = &materializedRecord{root: record, fields: fields}
+		targets[id] = &materializedRecord{root: record}
 	}
 
 	for index, reference := range references {
@@ -202,14 +189,6 @@ func (r *materializedRecord) attach(name string, value materializedExpandValue) 
 		r.expand = make(map[string]materializedExpandValue)
 	}
 	r.expand[name] = value
-}
-
-func fieldSetAllows(fields FieldSet, name string) bool {
-	if fields.all {
-		return true
-	}
-	_, ok := fields.fields[name]
-	return ok
 }
 
 func flattenMaterializedExpand(values map[string]materializedExpandValue) (map[string]any, error) {

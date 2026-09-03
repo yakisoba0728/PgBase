@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -12,13 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// NewDatabase creates an isolated PostgreSQL database and drops it when t ends.
-func NewDatabase(t *testing.T) string {
+func NewDatabase(t testing.TB) string {
 	t.Helper()
 
-	adminURL := os.Getenv("PGBASE_TEST_ADMIN_URL")
-	if adminURL == "" {
-		t.Skip("PGBASE_TEST_ADMIN_URL is required for PostgreSQL integration tests")
+	adminURL, err := requiredAdminURL(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	databaseName := "pgbase_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -30,12 +30,18 @@ func NewDatabase(t *testing.T) string {
 	}
 
 	if _, err := adminConn.Exec(ctx, "create database "+databaseIdentifier); err != nil {
-		adminConn.Close(ctx)
+		if closeErr := adminConn.Close(ctx); closeErr != nil {
+			t.Fatalf("create PostgreSQL test database: %v; close admin connection: %v", err, closeErr)
+		}
 		t.Fatalf("create PostgreSQL test database: %v", err)
 	}
 
 	t.Cleanup(func() {
-		defer adminConn.Close(ctx)
+		defer func() {
+			if err := adminConn.Close(ctx); err != nil {
+				t.Errorf("close PostgreSQL test admin connection: %v", err)
+			}
+		}()
 		if _, err := adminConn.Exec(ctx, `select pg_terminate_backend(pid)
 			from pg_stat_activity
 			where datname = $1 and pid <> pg_backend_pid()`, databaseName); err != nil {
@@ -47,6 +53,15 @@ func NewDatabase(t *testing.T) string {
 	})
 
 	return withDatabaseName(adminURL, databaseName)
+}
+
+func requiredAdminURL(lookup func(string) string) (string, error) {
+	const name = "PGBASE_TEST_ADMIN_URL"
+	value := lookup(name)
+	if value == "" {
+		return "", errors.New(name + " is required for PostgreSQL integration tests")
+	}
+	return value, nil
 }
 
 func withDatabaseName(adminURL, databaseName string) string {

@@ -60,10 +60,20 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 }
 
 func CompileSelectByID(collection schema.Collection, id uuid.UUID) Statement {
-	return Statement{
+	return compileSelectByIDWithMembership(collection, id, nil)
+}
+
+func compileSelectByIDWithMembership(collection schema.Collection, id uuid.UUID, membership *int64) Statement {
+	statement := Statement{
 		SQL:  "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection) + " WHERE " + quoted("id") + " = $1",
 		Args: []any{id},
 	}
+	if membership != nil {
+		builder := &statementBuilder{args: statement.Args}
+		statement.SQL += " AND " + rootMembershipPredicate(collection, collection.TableName, membership, builder)
+		statement.Args = builder.args
+	}
+	return statement
 }
 
 func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
@@ -96,21 +106,9 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	}, nil
 }
 
-func CompileDelete(collection schema.Collection, id uuid.UUID) Statement {
-	return Statement{
-		SQL:  "DELETE FROM " + quotedTable(collection) + " WHERE " + quoted("id") + " = $1",
-		Args: []any{id},
-	}
-}
-
-func CompileList(collection schema.Collection, query ListQuery) (Statement, error) {
-	sortKeys := effectiveSortKeys(query.Sort)
-	columns, err := resolveSortColumns(collection, sortKeys)
-	if err != nil {
-		return Statement{}, err
-	}
+func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
-	filterSQL, err := compileFilter(collection, query.Filter, builder)
+	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
 		return Statement{}, err
 	}
@@ -118,30 +116,30 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
 	}
-	if query.After != nil {
-		keysetSQL, err := compileKeyset(columns, query.After, builder)
+	if membership := after.membershipBoundary(); membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(order.root, order.root.TableName, membership, builder))
+	}
+	if after != nil && !after.membershipOnly {
+		keysetSQL, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
 		}
 		conditions = append(conditions, keysetSQL)
 	}
-	order := compileOrder(columns)
-	limit := builder.placeholder(normalizedFetchLimit(query.Limit))
-	statement := "SELECT " + selectedColumns(collection) + " FROM " + quotedTable(collection)
+	limit := builder.placeholder(fetchLimit)
+	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += order + " LIMIT " + limit
+	statement += order.orderBy() + " LIMIT " + limit
 	return Statement{SQL: statement, Args: builder.args}, nil
 }
 
-// ListQuery carries the parsed list request into compilation. Sort keys are
-// logical field names; the compiler resolves them against the catalog.
-type ListQuery struct {
-	Filter filterNode
-	Sort   []SortKey
-	After  *PageCursor
-	Limit  int
+func rootMembershipPredicate(collection schema.Collection, rootAlias string, membership *int64, builder *statementBuilder) string {
+	return "EXISTS (SELECT 1 FROM pgbase_meta.record_creation_ordinals AS " + quoted("rq_membership") +
+		" WHERE " + qualified("rq_membership", "collection_id") + " = " + builder.placeholder(collection.ID) +
+		" AND " + qualified("rq_membership", "record_id") + " = " + qualified(rootAlias, systemFieldID) +
+		" AND " + qualified("rq_membership", "ordinal") + " <= " + builder.placeholder(*membership) + ")"
 }
 
 type statementBuilder struct {
@@ -153,37 +151,25 @@ func (b *statementBuilder) placeholder(value any) string {
 	return fmt.Sprintf("$%d", len(b.args))
 }
 
-type sortColumn struct {
-	name       string
-	desc       bool
-	nullsFirst bool
-	field      schema.Field
-}
-
-// resolveSortColumns maps logical sort keys to physical columns. Cursor-driven
-// resolution reports failures as invalid cursors instead of input validation.
-func resolveSortColumns(collection schema.Collection, keys []SortKey) ([]sortColumn, error) {
-	columns := make([]sortColumn, 0, len(keys))
-	for _, key := range keys {
-		field, ok := filterField(collection, key.Field)
-		if !ok || field.Type == schema.TypeJSONB {
-			if !ok {
-				return nil, validation("sort", "unknown_field")
-			}
-			return nil, validation("sort", "unsupported_type")
-		}
-		if isMultipleRelation(field) {
-			return nil, validation("sort", "relation_sort_unsupported")
-		}
-		if !field.Indexed && !field.Unique {
-			return nil, validation("sort", "unindexed_field")
-		}
-		columns = append(columns, sortColumn{
-			name: field.ColumnName, desc: key.Desc,
-			nullsFirst: key.Desc && notNullColumn(field), field: field,
-		})
+// rootOrderTerm maps one logical sort key to the ordering term for the root
+// table's own column. Every page compiler shares it, so a sort cannot get one
+// null placement when a request touches a relation and another when it does
+// not -- a cursor issued by either path anchors against the same ordering.
+func rootOrderTerm(key SortKey, field schema.Field) (orderTerm, error) {
+	if field.Type == schema.TypeJSONB {
+		return orderTerm{}, validation("sort", "unsupported_type")
 	}
-	return columns, nil
+	indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
+	if !indexed {
+		return orderTerm{}, validation("sort", "unindexed_field")
+	}
+	term := orderTerm{
+		key: key, expression: quoted(field.ColumnName), cursorField: field, indexHint: indexHint,
+	}
+	if key.Desc && notNullColumn(field) {
+		term.nulls = orderNullsFirst
+	}
+	return term, nil
 }
 
 // notNullColumn reports whether the physical column can never hold NULL. The
@@ -351,51 +337,6 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 	}
 }
 
-// compileKeyset builds the null-safe keyset predicate for the sort order. Every
-// sort column carries the NULLS placement compileOrder emits for it, and the
-// extra disjunct names exactly the rows that placement puts after the NULL
-// boundary: under NULLS LAST a non-NULL cursor value is followed by the NULL
-// rows and a NULL value has no successors on its own key, while under NULLS
-// FIRST a NULL cursor value is followed by the non-NULL rows and a non-NULL
-// value has none. Changing compileOrder without changing this predicate
-// silently duplicates or drops rows across a page boundary.
-func compileKeyset(columns []sortColumn, cursor *PageCursor, builder *statementBuilder) (string, error) {
-	if len(cursor.Values) != len(columns) {
-		return "", invalidCursor()
-	}
-	placeholders := make([]string, len(columns))
-	for index, raw := range cursor.Values {
-		value, err := decodeCursorValue(columns[index].field, raw)
-		if err != nil {
-			return "", err
-		}
-		placeholders[index] = builder.placeholder(value)
-	}
-	disjunctions := make([]string, 0, len(columns))
-	for index := range columns {
-		conjuncts := make([]string, 0, index+1)
-		for prior := 0; prior < index; prior++ {
-			conjuncts = append(conjuncts, "("+quoted(columns[prior].name)+" IS NOT DISTINCT FROM "+placeholders[prior]+")")
-		}
-		operator := ">"
-		if columns[index].desc {
-			operator = "<"
-		}
-		column := quoted(columns[index].name)
-		boundary := "(" + placeholders[index] + " IS NOT NULL AND " + column + " IS NULL)"
-		if columns[index].nullsFirst {
-			boundary = "(" + placeholders[index] + " IS NULL AND " + column + " IS NOT NULL)"
-		}
-		conjuncts = append(conjuncts, "("+column+" "+operator+" "+placeholders[index]+" OR "+boundary+")")
-		conjunction := strings.Join(conjuncts, " AND ")
-		if len(conjuncts) > 1 {
-			conjunction = "(" + conjunction + ")"
-		}
-		disjunctions = append(disjunctions, conjunction)
-	}
-	return "(" + strings.Join(disjunctions, " OR ") + ")", nil
-}
-
 // decodeCursorValue decodes a signed cursor position against the sort column's
 // declared type. Values that no longer decode — for example after a schema
 // change — invalidate the whole cursor.
@@ -408,22 +349,6 @@ func decodeCursorValue(field schema.Field, raw json.RawMessage) (any, error) {
 		return nil, invalidCursor()
 	}
 	return value, nil
-}
-
-func compileOrder(columns []sortColumn) string {
-	segments := make([]string, 0, len(columns))
-	for _, column := range columns {
-		direction := "ASC"
-		if column.desc {
-			direction = "DESC"
-		}
-		nulls := "NULLS LAST"
-		if column.nullsFirst {
-			nulls = "NULLS FIRST"
-		}
-		segments = append(segments, quoted(column.name)+" "+direction+" "+nulls)
-	}
-	return " ORDER BY " + strings.Join(segments, ", ")
 }
 
 func normalizedFetchLimit(limit int) int {

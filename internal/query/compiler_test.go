@@ -142,17 +142,6 @@ func TestCompileUpdateRejectsEmptyAndUnknownFieldsBeforeConstructingSQL(t *testi
 	assertValidationDetail(t, err, malicious, "unknown_field")
 }
 
-func TestCompileDeleteUsesOnlyCatalogTableAndIDParameter(t *testing.T) {
-	t.Parallel()
-
-	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	got := CompileDelete(compilerCollection(), id)
-	want := Statement{SQL: `DELETE FROM "app"."physical_records" WHERE "id" = $1`, Args: []any{id}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("CompileDelete() = %#v, want %#v", got, want)
-	}
-}
-
 func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) {
 	t.Parallel()
 
@@ -169,11 +158,8 @@ func TestCompileListBuildsStableFirstAndNextPagesWithLimitPlusOne(t *testing.T) 
 		t.Fatalf("CompileList(first) = %#v, want %#v", first, wantFirst)
 	}
 
-	after := &PageCursor{
-		Version:   cursorVersion,
-		Sort:      []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
-		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
-		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	next, err := CompileList(collection, ListQuery{After: after, Limit: 200})
 	if err != nil {
@@ -220,10 +206,8 @@ func TestCompileListNormalizesPageLimitBeforeAddingLookahead(t *testing.T) {
 				t.Fatalf("CompileList(nil, %d) args = %#v, want [%d]", test.limit, first.Args, test.want)
 			}
 
-			after := &PageCursor{
-				Version: cursorVersion,
-				Sort:    []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}},
-				Values:  []json.RawMessage{json.RawMessage(`"2026-08-28T12:00:00Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+			after := &pageBoundary{
+				Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:00:00Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 			}
 			next, err := CompileList(compilerCollection(), ListQuery{After: after, Limit: test.limit})
 			if err != nil {
@@ -263,11 +247,8 @@ func TestCompileListOrdersDescendingPagesAlongOneIndexDirection(t *testing.T) {
 	t.Parallel()
 
 	collection := compilerCollection()
-	after := &PageCursor{
-		Version:   cursorVersion,
-		Sort:      []SortKey{{Field: systemFieldCreatedAt, Desc: true}, {Field: systemFieldID}},
-		Values:    []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
-		ExpiresAt: time.Date(2026, 8, 28, 12, 49, 56, 0, time.UTC),
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`"2026-08-28T12:34:56.123456789Z"`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	statement, err := CompileList(collection, ListQuery{
 		Sort: []SortKey{{Field: systemFieldCreatedAt, Desc: true}}, After: after, Limit: 50,
@@ -306,10 +287,12 @@ func TestCompileListKeepsNullsLastForNullableSortColumnsAndExplicitTiebreakers(t
 		TableName: "physical_records",
 		Fields:    []schema.Field{{Name: "note", ColumnName: "note", Type: schema.TypeText, Indexed: true}},
 	}
-	after := &PageCursor{
-		Version: cursorVersion,
-		Sort:    []SortKey{{Field: "note", Desc: true}, {Field: systemFieldID}},
-		Values:  []json.RawMessage{json.RawMessage(`null`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
+	order, err := scalarOrderSpec(collection, []SortKey{{Field: "note", Desc: true}})
+	if err != nil || order.terms[0].indexHint != orderIndexRoot {
+		t.Fatalf("scalar order index hint = %v, err=%v", order.terms[0].indexHint, err)
+	}
+	after := &pageBoundary{
+		Values: []json.RawMessage{json.RawMessage(`null`), json.RawMessage(`"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"`)},
 	}
 	statement, err := CompileList(collection, ListQuery{
 		Sort: []SortKey{{Field: "note", Desc: true}}, After: after, Limit: 10,
@@ -598,6 +581,55 @@ func TestEverySortEntryPointSharesTheTiebreakerDirection(t *testing.T) {
 				if got[index] != test.want[index] {
 					t.Fatalf("effectiveSortKeys(%v)[%d] = %+v, want %+v", test.requested, index, got[index], test.want[index])
 				}
+			}
+		})
+	}
+}
+
+// A boundary carrying a membership high-water and no keyset values is the legal
+// first page of a v5 traversal. A boundary carrying no values for any other
+// reason is a bug, and both page compilers must surface it as an invalid cursor
+// rather than silently emit the unbounded page 1 statement a second time.
+func TestPageStatementsRejectKeysetlessBoundariesOutsideTheV5FirstPage(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	highWater := int64(7)
+	firstPage, err := CompileList(collection, ListQuery{
+		After: &pageBoundary{membership: &highWater, membershipOnly: true}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("CompileList(v5 first page) error = %v", err)
+	}
+	if !strings.Contains(firstPage.SQL, "pgbase_meta.record_creation_ordinals") ||
+		strings.Contains(firstPage.SQL, "IS NOT DISTINCT FROM") {
+		t.Fatalf("v5 first page SQL = %q, want a membership predicate and no keyset", firstPage.SQL)
+	}
+
+	catalog, posts := relationFilterSortCatalog()
+	requested, err := parseSort("owner.name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relationPlan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
+	if err != nil {
+		t.Fatalf("compileRelationListPlan() error = %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		after *pageBoundary
+	}{
+		{name: "zero boundary", after: &pageBoundary{}},
+		{name: "membership without the first-page marker", after: &pageBoundary{membership: &highWater}},
+		{name: "empty value list", after: &pageBoundary{Values: []json.RawMessage{}, membership: &highWater}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := CompileList(collection, ListQuery{After: test.after, Limit: 10}); !IsInvalidCursor(err) {
+				t.Fatalf("CompileList(%s) error = %v, want an invalid cursor", test.name, err)
+			}
+			if _, err := relationPlan.statement(test.after, 10); !IsInvalidCursor(err) {
+				t.Fatalf("relation pageStatement(%s) error = %v, want an invalid cursor", test.name, err)
 			}
 		})
 	}

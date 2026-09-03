@@ -1,6 +1,7 @@
 package recordops
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,20 +9,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 type deleteRecordSnapshot struct {
-	ref             relation.RecordRef
-	collection      schema.Collection
 	record          map[string]any
-	schemaVersion   int64
-	schemaDigest    [32]byte
 	previousVersion int64
 	previousETag    string
 	revisionPresent bool
+}
+
+// deleteGroup is one collection's slice of the delete closure. Groups keep the
+// plan's global (collection, record) order, so batching per collection commits
+// artifacts in the same audit sequence the per-record path produced.
+type deleteGroup struct {
+	collection schema.Collection
+	digest     [32]byte
+	deletes    []uuid.UUID
+	updates    []relation.Update
+	snapshots  map[uuid.UUID]deleteRecordSnapshot
 }
 
 type deleteArtifactIdentity struct {
@@ -54,6 +63,7 @@ func (s *Service) deleteGraphInTransaction(
 	identityCache *deleteArtifactIdentityCache,
 	inputHash [32]byte,
 	compatibility Compatibility,
+	writeFence membership.WriteFence,
 ) (MutationResult, error) {
 	graph, err := relation.BindDeleteGraph(catalog)
 	if err != nil {
@@ -70,11 +80,18 @@ func (s *Service) deleteGraphInTransaction(
 
 	deletes := plan.Deletes()
 	updates := plan.Updates()
-	snapshots, err := captureDeleteSnapshots(ctx, tx, catalog, root, deletes, updates)
+	groups, err := groupDeleteClosure(catalog, root, deletes, updates)
 	if err != nil {
 		return MutationResult{}, err
 	}
-	rootSnapshot, ok := snapshots[root]
+	if err := captureDeleteSnapshots(ctx, tx, catalog, groups); err != nil {
+		return MutationResult{}, err
+	}
+	rootGroup, ok := findDeleteGroup(groups, root.CollectionID)
+	if !ok {
+		return MutationResult{}, schema.ErrConflict
+	}
+	rootSnapshot, ok := rootGroup.snapshots[root.RecordID]
 	if !ok {
 		return MutationResult{}, schema.ErrConflict
 	}
@@ -89,67 +106,83 @@ func (s *Service) deleteGraphInTransaction(
 	if err := plan.ExecuteStorage(ctx); err != nil {
 		return MutationResult{}, normalizeRelationError(err)
 	}
-	if err := touchDeleteGraphUpdates(ctx, tx, snapshots, updates); err != nil {
-		return MutationResult{}, err
-	}
-	updateRefs := make([]relation.RecordRef, len(updates))
-	for index, update := range updates {
-		updateRefs[index] = update.Source
-	}
-	afterRecords, err := readDeleteGraphRecords(ctx, tx, catalog, updateRefs)
+	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities)
 	if err != nil {
 		return MutationResult{}, err
 	}
-
-	for _, update := range updates {
-		snapshot, ok := snapshots[update.Source]
-		if !ok || len(update.ChangedFields) == 0 || !sortedUniqueStrings(update.ChangedFields) {
-			return MutationResult{}, schema.ErrConflict
-		}
-		identity, ok := identities[update.Source]
-		if !ok || len(identity.validator) != 32 {
-			return MutationResult{}, schema.ErrConflict
-		}
-		after, ok := afterRecords[update.Source]
-		if !ok {
-			return MutationResult{}, schema.ErrConflict
-		}
-		if err := applyDeleteGraphUpdate(ctx, tx, request, snapshot, after, update, identity, inputHash); err != nil {
-			return MutationResult{}, err
-		}
+	if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], updateBatches...); err != nil {
+		return MutationResult{}, err
 	}
 
-	for _, deleted := range deletes {
-		snapshot, ok := snapshots[deleted]
-		if !ok {
-			return MutationResult{}, schema.ErrConflict
+	removedMembership := make([]membership.Record, 0, len(deletes))
+	for _, group := range groups {
+		if len(group.deletes) == 0 {
+			continue
 		}
-		identity, ok := identities[deleted]
-		if !ok {
-			return MutationResult{}, schema.ErrConflict
-		}
-		deleteCompatibility := CompatibilityNone
-		if deleted == root {
-			deleteCompatibility = compatibility
-		}
-		if err := applyDeleteGraphDelete(ctx, tx, request, snapshot, identity.eventID, inputHash, deleteCompatibility); err != nil {
+		tag, err := tx.Exec(ctx, "DELETE FROM "+quotedRecordCollection(group.collection)+
+			" WHERE id = ANY($1::uuid[])", group.deletes)
+		if err != nil {
 			return MutationResult{}, err
 		}
+		if err := expectRows(tag, len(group.deletes), schema.ErrConflict); err != nil {
+			return MutationResult{}, err
+		}
+		for _, recordID := range group.deletes {
+			removedMembership = append(removedMembership, membership.Record{
+				CollectionID: group.collection.ID, RecordID: recordID,
+			})
+		}
+	}
+	// Membership rows are removed only after every base record in the closure
+	// is gone. WriteFence.Delete verifies that ordering again against the base
+	// tables before deleting any sidecar.
+	if err := writeFence.Delete(ctx, removedMembership); err != nil {
+		return MutationResult{}, transactionalMembership(err)
 	}
 
+	deleteBatches, err := deleteArtifactBatches(catalog, root, groups, identities, compatibility)
+	if err != nil {
+		return MutationResult{}, err
+	}
+	if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], deleteBatches...); err != nil {
+		return MutationResult{}, err
+	}
 	return MutationResult{EventID: identityCache.rootEventID, Compatibility: compatibility}, nil
 }
 
-func captureDeleteSnapshots(
-	ctx context.Context,
-	tx pgx.Tx,
+// groupDeleteClosure splits the plan's closure into per-collection batches
+// while re-verifying the disjointness the plan promises. deletes and updates
+// arrive sorted by (collection, record), so first appearance is already the
+// global collection order.
+func groupDeleteClosure(
 	catalog schema.Catalog,
 	root relation.RecordRef,
 	deletes []relation.RecordRef,
 	updates []relation.Update,
-) (map[relation.RecordRef]deleteRecordSnapshot, error) {
-	refs := make([]relation.RecordRef, 0, len(deletes)+len(updates))
+) ([]deleteGroup, error) {
+	collections := catalogCollectionsByID(catalog)
+	byCollection := make(map[uuid.UUID]*deleteGroup, len(collections))
+	order := make([]uuid.UUID, 0, len(collections))
+	group := func(collectionID uuid.UUID) (*deleteGroup, error) {
+		if existing, ok := byCollection[collectionID]; ok {
+			return existing, nil
+		}
+		collection, ok := collections[collectionID]
+		if !ok {
+			return nil, schema.ErrConflict
+		}
+		digest, err := recordartifact.SchemaDigest(collection)
+		if err != nil {
+			return nil, err
+		}
+		created := &deleteGroup{collection: collection, digest: digest}
+		byCollection[collectionID] = created
+		order = append(order, collectionID)
+		return created, nil
+	}
+
 	seen := make(map[relation.RecordRef]struct{}, len(deletes)+len(updates))
+	rootFound := false
 	for _, ref := range deletes {
 		if ref.CollectionID == uuid.Nil || ref.RecordID == uuid.Nil {
 			return nil, schema.ErrConflict
@@ -158,65 +191,84 @@ func captureDeleteSnapshots(
 			return nil, schema.ErrConflict
 		}
 		seen[ref] = struct{}{}
-		refs = append(refs, ref)
+		rootFound = rootFound || ref == root
+		current, err := group(ref.CollectionID)
+		if err != nil {
+			return nil, err
+		}
+		current.deletes = append(current.deletes, ref.RecordID)
 	}
-	if _, found := seen[root]; !found {
+	if !rootFound {
 		return nil, schema.ErrConflict
 	}
 	for _, update := range updates {
 		if update.Source.CollectionID == uuid.Nil || update.Source.RecordID == uuid.Nil {
 			return nil, schema.ErrConflict
 		}
-		if _, deleted := seen[update.Source]; deleted {
-			return nil, schema.ErrConflict
-		}
 		if _, duplicate := seen[update.Source]; duplicate {
 			return nil, schema.ErrConflict
 		}
+		if len(update.ChangedFields) == 0 || !sortedUniqueStrings(update.ChangedFields) {
+			return nil, schema.ErrConflict
+		}
 		seen[update.Source] = struct{}{}
-		refs = append(refs, update.Source)
+		current, err := group(update.Source.CollectionID)
+		if err != nil {
+			return nil, err
+		}
+		current.updates = append(current.updates, update)
 	}
-	sort.Slice(refs, func(i, j int) bool { return relationRecordRefLess(refs[i], refs[j]) })
 
-	records, err := readDeleteGraphRecords(ctx, tx, catalog, refs)
-	if err != nil {
-		return nil, err
+	sort.Slice(order, func(i, j int) bool { return bytes.Compare(order[i][:], order[j][:]) < 0 })
+	groups := make([]deleteGroup, 0, len(order))
+	for _, collectionID := range order {
+		groups = append(groups, *byCollection[collectionID])
 	}
-	collections := catalogCollectionsByID(catalog)
-	digests := make(map[uuid.UUID][32]byte, len(collections))
-	snapshots := make(map[relation.RecordRef]deleteRecordSnapshot, len(refs))
-	for _, ref := range refs {
-		collection, ok := collections[ref.CollectionID]
-		if !ok {
-			return nil, schema.ErrConflict
+	return groups, nil
+}
+
+func findDeleteGroup(groups []deleteGroup, collectionID uuid.UUID) (deleteGroup, bool) {
+	for _, group := range groups {
+		if group.collection.ID == collectionID {
+			return group, true
 		}
-		digest, ok := digests[ref.CollectionID]
-		if !ok {
-			var err error
-			digest, err = schemaDigest(collection)
+	}
+	return deleteGroup{}, false
+}
+
+// captureDeleteSnapshots reads the closure's pre-images with two statements per
+// collection plus one per multiple-relation field, instead of two per record.
+func captureDeleteSnapshots(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, groups []deleteGroup) error {
+	for index := range groups {
+		group := &groups[index]
+		ids := make([]uuid.UUID, 0, len(group.deletes)+len(group.updates))
+		ids = append(ids, group.deletes...)
+		for _, update := range group.updates {
+			ids = append(ids, update.Source.RecordID)
+		}
+		records, err := readRecordBatch(ctx, tx, catalog, group.collection, ids)
+		if err != nil {
+			return err
+		}
+		revisions, err := readRevisionBatch(ctx, tx, group.collection.ID, ids)
+		if err != nil {
+			return err
+		}
+		group.snapshots = make(map[uuid.UUID]deleteRecordSnapshot, len(ids))
+		for _, id := range ids {
+			revision, present := revisions[id]
+			etag, err := recordartifact.ETag(
+				group.collection.ID, id, group.digest, records[id], revision.validator, present)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			digests[ref.CollectionID] = digest
-		}
-		record, ok := records[ref]
-		if !ok {
-			return nil, schema.ErrConflict
-		}
-		version, validator, revisionPresent, err := readRevision(ctx, tx, ref.CollectionID, ref.RecordID)
-		if err != nil {
-			return nil, err
-		}
-		etag, err := recordETag(ref.CollectionID, ref.RecordID, digest, record, version, validator, revisionPresent)
-		if err != nil {
-			return nil, err
-		}
-		snapshots[ref] = deleteRecordSnapshot{
-			ref: ref, collection: collection, record: record, schemaVersion: catalog.Version, schemaDigest: digest,
-			previousVersion: version, previousETag: etag, revisionPresent: revisionPresent,
+			group.snapshots[id] = deleteRecordSnapshot{
+				record: records[id], previousVersion: revision.version,
+				previousETag: etag, revisionPresent: present,
+			}
 		}
 	}
-	return snapshots, nil
+	return nil
 }
 
 func (c *deleteArtifactIdentityCache) identitiesFor(
@@ -271,169 +323,114 @@ func (c *deleteArtifactIdentityCache) identitiesFor(
 	return identities, nil
 }
 
-func applyDeleteGraphUpdate(
+// touchDeleteSurvivors stamps every surviving source and reads back the record
+// its cleared relations produced, then describes the derived update artifacts.
+func touchDeleteSurvivors(
 	ctx context.Context,
 	tx pgx.Tx,
-	request DeleteRequest,
-	snapshot deleteRecordSnapshot,
-	after map[string]any,
-	update relation.Update,
-	identity deleteArtifactIdentity,
-	inputHash [32]byte,
-) error {
-	newVersion := snapshot.previousVersion + 1
-	newETag := revisionETag(snapshot.ref.CollectionID, snapshot.ref.RecordID, snapshot.schemaDigest, identity.validator)
-	previousVersion := snapshot.previousVersion
-	if err := writeAudit(ctx, tx, auditWrite{
-		EventID: identity.eventID, Principal: request.Principal, RequestID: request.RequestID,
-		Collection: snapshot.collection, RecordID: snapshot.ref.RecordID, Operation: "update",
-		SchemaVersion: snapshot.schemaVersion, SchemaDigest: snapshot.schemaDigest,
-		PreviousVersion: &previousVersion, NewVersion: newVersion,
-		PreviousETag: snapshot.previousETag, NewETag: newETag,
-		ChangedFields: append([]string(nil), update.ChangedFields...), InputHash: inputHash[:],
-		Compatibility: CompatibilityNone,
-	}); err != nil {
-		return err
-	}
-	if err := writeRevision(ctx, tx, snapshot.ref.CollectionID, snapshot.ref.RecordID,
-		snapshot.previousVersion, newVersion, identity.validator, identity.eventID); err != nil {
-		return err
-	}
-	return writeOutbox(ctx, tx, identity.eventID, snapshot.collection, snapshot.ref.RecordID,
-		"update", newVersion, mutationChanges(after, update.ChangedFields), false)
-}
-
-func touchDeleteGraphUpdates(
-	ctx context.Context,
-	tx pgx.Tx,
-	snapshots map[relation.RecordRef]deleteRecordSnapshot,
-	updates []relation.Update,
-) error {
-	for _, update := range updates {
-		snapshot, ok := snapshots[update.Source]
-		if !ok {
-			return schema.ErrConflict
+	catalog schema.Catalog,
+	groups []deleteGroup,
+	identities map[relation.RecordRef]deleteArtifactIdentity,
+) ([]artifactBatch, error) {
+	batches := make([]artifactBatch, 0, len(groups))
+	for _, group := range groups {
+		if len(group.updates) == 0 {
+			continue
+		}
+		ids := make([]uuid.UUID, len(group.updates))
+		for index, update := range group.updates {
+			ids[index] = update.Source.RecordID
 		}
 		// updated_at uses statement_timestamp() like every other record write so a
 		// derived update never stamps a time older than a PATCH that committed
 		// while this delete waited on the collection locks.
-		tag, err := tx.Exec(ctx, "UPDATE "+quotedRecordCollection(snapshot.collection)+
-			" SET updated_at = statement_timestamp() WHERE id = $1", snapshot.ref.RecordID)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return schema.ErrConflict
-		}
-	}
-	return nil
-}
-
-// readDeleteGraphRecords reuses one relation binding per collection and
-// hydrates all source IDs in a single query per multi field. Base-row reads
-// remain one per record because query owns their catalog-shaped scan codec;
-// the expensive edge-table side is bounded by collection/field, not record.
-func readDeleteGraphRecords(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	refs []relation.RecordRef,
-) (map[relation.RecordRef]map[string]any, error) {
-	result := make(map[relation.RecordRef]map[string]any, len(refs))
-	if len(refs) == 0 {
-		return result, nil
-	}
-	collections := catalogCollectionsByID(catalog)
-	byCollection := make(map[uuid.UUID][]uuid.UUID)
-	for _, ref := range refs {
-		if _, ok := collections[ref.CollectionID]; !ok || ref.RecordID == uuid.Nil {
-			return nil, schema.ErrConflict
-		}
-		byCollection[ref.CollectionID] = append(byCollection[ref.CollectionID], ref.RecordID)
-	}
-	collectionIDs := make([]uuid.UUID, 0, len(byCollection))
-	for collectionID := range byCollection {
-		collectionIDs = append(collectionIDs, collectionID)
-	}
-	sort.Slice(collectionIDs, func(i, j int) bool { return collectionIDs[i].String() < collectionIDs[j].String() })
-	for _, collectionID := range collectionIDs {
-		collection := collections[collectionID]
-		ids := append([]uuid.UUID(nil), byCollection[collectionID]...)
-		sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
-		for index := 1; index < len(ids); index++ {
-			if ids[index] == ids[index-1] {
-				return nil, schema.ErrConflict
-			}
-		}
-		bindings, err := bindRecordRelations(catalog, collection)
+		tag, err := tx.Exec(ctx, "UPDATE "+quotedRecordCollection(group.collection)+
+			" SET updated_at = statement_timestamp() WHERE id = ANY($1::uuid[])", ids)
 		if err != nil {
 			return nil, err
 		}
-		records := make(map[uuid.UUID]map[string]any, len(ids))
-		for _, id := range ids {
-			record, err := readRecord(ctx, tx, collection, id, false)
-			if err != nil {
-				if errors.Is(err, query.ErrRecordNotFound) {
-					return nil, schema.ErrConflict
-				}
-				return nil, err
+		if err := expectRows(tag, len(ids), schema.ErrConflict); err != nil {
+			return nil, err
+		}
+		after, err := readRecordBatch(ctx, tx, catalog, group.collection, ids)
+		if err != nil {
+			return nil, err
+		}
+
+		batch := artifactBatch{
+			collection: group.collection, operation: "update",
+			schemaVersion: catalog.Version, schemaDigest: group.digest,
+			rows: make([]artifactRow, 0, len(group.updates)),
+		}
+		for _, update := range group.updates {
+			snapshot, ok := group.snapshots[update.Source.RecordID]
+			if !ok {
+				return nil, schema.ErrConflict
 			}
-			records[id] = record
-		}
-		if bindings != nil && bindings.HasMultiple() {
-			if err := bindings.Hydrate(ctx, tx, ids, records); err != nil {
-				return nil, normalizeRelationError(err)
+			identity, ok := identities[update.Source]
+			if !ok || len(identity.validator) != 32 {
+				return nil, schema.ErrConflict
 			}
+			previousVersion := snapshot.previousVersion
+			batch.rows = append(batch.rows, artifactRow{
+				eventID: identity.eventID, recordID: update.Source.RecordID,
+				previousVersion: &previousVersion, newVersion: previousVersion + 1,
+				previousETag: snapshot.previousETag,
+				newETag: recordartifact.RevisionETag(
+					group.collection.ID, update.Source.RecordID, group.digest, identity.validator),
+				changedFields: append([]string(nil), update.ChangedFields...),
+				changes:       after[update.Source.RecordID],
+				validator:     identity.validator,
+			})
 		}
-		for _, id := range ids {
-			result[relation.RecordRef{CollectionID: collectionID, RecordID: id}] = records[id]
-		}
+		batches = append(batches, batch)
 	}
-	return result, nil
+	return batches, nil
 }
 
-func applyDeleteGraphDelete(
-	ctx context.Context,
-	tx pgx.Tx,
-	request DeleteRequest,
-	snapshot deleteRecordSnapshot,
-	eventID uuid.UUID,
-	inputHash [32]byte,
+func deleteArtifactBatches(
+	catalog schema.Catalog,
+	root relation.RecordRef,
+	groups []deleteGroup,
+	identities map[relation.RecordRef]deleteArtifactIdentity,
 	compatibility Compatibility,
-) error {
-	statement := query.CompileDelete(snapshot.collection, snapshot.ref.RecordID)
-	tag, err := tx.Exec(ctx, statement.SQL, statement.Args...)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return schema.ErrConflict
-	}
-	newVersion := snapshot.previousVersion + 1
-	previousVersion := snapshot.previousVersion
-	if err := writeAudit(ctx, tx, auditWrite{
-		EventID: eventID, Principal: request.Principal, RequestID: request.RequestID,
-		Collection: snapshot.collection, RecordID: snapshot.ref.RecordID, Operation: "delete",
-		SchemaVersion: snapshot.schemaVersion, SchemaDigest: snapshot.schemaDigest,
-		PreviousVersion: &previousVersion, NewVersion: newVersion,
-		PreviousETag: snapshot.previousETag, ChangedFields: []string{}, InputHash: inputHash[:],
-		Compatibility: compatibility,
-	}); err != nil {
-		return err
-	}
-	if snapshot.revisionPresent {
-		tag, err := tx.Exec(ctx, `DELETE FROM pgbase_meta.record_revisions
-			WHERE collection_id = $1 AND record_id = $2 AND version = $3`,
-			snapshot.ref.CollectionID, snapshot.ref.RecordID, snapshot.previousVersion)
-		if err != nil {
-			return err
+) ([]artifactBatch, error) {
+	batches := make([]artifactBatch, 0, len(groups))
+	for _, group := range groups {
+		if len(group.deletes) == 0 {
+			continue
 		}
-		if tag.RowsAffected() != 1 {
-			return errors.New("record revision changed outside the transaction kernel")
+		batch := artifactBatch{
+			collection: group.collection, operation: "delete",
+			schemaVersion: catalog.Version, schemaDigest: group.digest,
+			rows: make([]artifactRow, 0, len(group.deletes)),
 		}
+		for _, recordID := range group.deletes {
+			ref := relation.RecordRef{CollectionID: group.collection.ID, RecordID: recordID}
+			snapshot, ok := group.snapshots[recordID]
+			if !ok {
+				return nil, schema.ErrConflict
+			}
+			identity, ok := identities[ref]
+			if !ok {
+				return nil, schema.ErrConflict
+			}
+			deleteCompatibility := CompatibilityNone
+			if ref == root {
+				deleteCompatibility = compatibility
+			}
+			previousVersion := snapshot.previousVersion
+			batch.rows = append(batch.rows, artifactRow{
+				eventID: identity.eventID, recordID: recordID,
+				previousVersion: &previousVersion, newVersion: previousVersion + 1,
+				previousETag: snapshot.previousETag, changedFields: []string{},
+				tombstone: true, compatibility: deleteCompatibility,
+				revisionPresent: snapshot.revisionPresent,
+			})
+		}
+		batches = append(batches, batch)
 	}
-	return writeOutbox(ctx, tx, eventID, snapshot.collection, snapshot.ref.RecordID,
-		"delete", newVersion, nil, true)
+	return batches, nil
 }
 
 func catalogCollectionsByID(catalog schema.Catalog) map[uuid.UUID]schema.Collection {
@@ -442,13 +439,6 @@ func catalogCollectionsByID(catalog schema.Catalog) map[uuid.UUID]schema.Collect
 		collections[collection.ID] = collection
 	}
 	return collections
-}
-
-func relationRecordRefLess(left, right relation.RecordRef) bool {
-	if left.CollectionID != right.CollectionID {
-		return left.CollectionID.String() < right.CollectionID.String()
-	}
-	return left.RecordID.String() < right.RecordID.String()
 }
 
 func sortedUniqueStrings(values []string) bool {

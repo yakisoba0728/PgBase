@@ -26,6 +26,7 @@ type fieldBinding struct {
 // relation fields. Its zero value is invalid.
 type Bindings struct {
 	source       collectionBinding
+	sourceFields []schema.Field
 	fields       []fieldBinding
 	fieldsByName map[string]int
 	collections  map[uuid.UUID]collectionBinding
@@ -62,9 +63,19 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 
 	bound := &Bindings{
 		source:       collections[canonical.ID],
+		sourceFields: make([]schema.Field, len(canonical.Fields)),
 		fieldsByName: make(map[string]int),
 		collections:  collections,
 	}
+	for index, field := range canonical.Fields {
+		bound.sourceFields[index] = cloneField(field)
+	}
+	sort.Slice(bound.sourceFields, func(left, right int) bool {
+		if bound.sourceFields[left].Ordinal != bound.sourceFields[right].Ordinal {
+			return bound.sourceFields[left].Ordinal < bound.sourceFields[right].Ordinal
+		}
+		return bound.sourceFields[left].Name < bound.sourceFields[right].Name
+	})
 	seenFieldIDs := make(map[uuid.UUID]struct{}, len(canonical.Fields))
 	seenFieldNames := make(map[string]struct{}, len(canonical.Fields))
 	for ordinal, field := range canonical.Fields {
@@ -135,7 +146,6 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 	return bound, nil
 }
 
-// HasMultiple reports whether Hydrate has any work for this collection.
 func (b *Bindings) HasMultiple() bool {
 	if b == nil {
 		return false
@@ -161,7 +171,7 @@ func cloneField(field schema.Field) schema.Field {
 	return field
 }
 
-func (b *Bindings) accepts(input Input) bool {
+func (b *Bindings) accepts(input writeInput) bool {
 	if b == nil || input.sourceCollectionID != b.source.id || len(input.relations) != len(b.fields) {
 		return false
 	}

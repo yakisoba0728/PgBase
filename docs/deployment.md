@@ -21,6 +21,8 @@ For each deployment:
 5. Start or roll out `pgbase serve` instances.
 6. Require `/health/ready` to return HTTP 200 before adding each instance to load balancing.
 
+If the release declares a single optional compatibility migration, replace step 3 with the checksum-pinned `pgbase migrate up --through TARGET_VERSION` job and retain its JSON receipt. Follow the [P0 -> M -> F procedure and rollback matrix](upgrades.md#one-migration-compatibility-rollout); the ordinary `migrate up` sequence is not a substitute for that release gate.
+
 The bundled Compose stack is for development and has `PGBASE_AUTO_MIGRATE=true`. To exercise an explicit migration with that image, start PostgreSQL first and override the setting for the one-off command:
 
 ```console
@@ -30,6 +32,61 @@ docker compose --env-file deployments/.env -f deployments/docker-compose.yml run
 ```
 
 Do not use `docker compose ... up pgbase` as a production migration job unless the Compose service is overridden to `PGBASE_AUTO_MIGRATE=false`.
+
+## Release image verification
+
+Deploy immutable `image@sha256:...` references rather than relying on a mutable tag.
+
+A release tag runs a tag/version preflight first. Only after it accepts the tag does the workflow build and push exactly one candidate image, and that candidate's digest is the sole input to the five release gates: backend, frontend, Docker E2E, security scanning, and the backup/restore drill. The E2E and restore gates refuse to start without a digest-pinned candidate and have no source-build or local-tag fallback, and security scans the same digest instead of building its own audit image. Promotion adds tags to that verified digest and never rebuilds. The published digest is therefore the artifact that passed the gates.
+
+The candidate is built for `linux/amd64` only. There is no multi-architecture release image; running pgBase on another architecture means building from source and validating it yourself.
+
+Before any gate consumes the digest, the workflow verifies that the provenance and SBOM attestations it just published can actually be retrieved and verified from the registry:
+
+```console
+gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
+  --repo webisnoteasy/PgBase --predicate-type https://slsa.dev/provenance/v1
+gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
+  --repo webisnoteasy/PgBase --predicate-type https://spdx.dev/Document/v2.3
+```
+
+Run the same two commands against the digest you intend to deploy, and retain that digest with the deployment record.
+
+### Historical rollout-phase images
+
+Migration rollouts use the immutable source commits in
+`deployments/release-phases.json`, not a current binary with a version constant
+overridden. Dispatch the **Release phase image gate** workflow with the exact
+`rollout` and `phase`. It resolves exactly one manifest entry, builds that
+commit's real `cmd/pgbase` binary with Go 1.26.7, and copies only that binary and
+the pinned CA bundle into the current hardened distroless runtime. The candidate
+is built and pushed once as `linux/amd64`; its digest is then passed unchanged to
+the backend, frontend, E2E, security, and backup/restore gates. This workflow
+does not promote a tag.
+
+In addition to the ordinary provenance and SPDX 2.3 SBOM, the phase workflow
+publishes and verifies a custom predicate that binds the candidate to the
+rollout, phase, source repository and commit, packaging-workflow commit,
+canonical version, and raw binary SHA-256. Retain that verification evidence
+with the deployment record. The manifest's `operator` and audit-only
+`predecessor` entries are built by the backend process gate but cannot be
+selected as deployable phases by this workflow.
+
+### Release tag policy
+
+| Release tag | Immutable exact tag | Moving channel tag | Untouched |
+| --- | --- | --- | --- |
+| `vMAJOR.MINOR.PATCH` | created when absent, no-op when it already points at the candidate digest | `latest` | `alpha`, `beta`, `rc` |
+| `vMAJOR.MINOR.PATCH-alpha.N` | same | `alpha` | `latest`, `beta`, `rc` |
+| `vMAJOR.MINOR.PATCH-beta.N` | same | `beta` | `latest`, `alpha`, `rc` |
+| `vMAJOR.MINOR.PATCH-rc.N` | same | `rc` | `latest`, `alpha`, `beta` |
+| anything else, including build metadata and unsupported channels | rejected in preflight | none | all |
+
+Only a stable SemVer release moves `latest`. Each channel has its own promotion concurrency group, and the promotion reads the current channel image's `org.opencontainers.image.version` label before it mutates either tag. The candidate must be strictly newer within that same channel; an older version, an equal version at another digest, a malformed/cross-channel label, or an unreadable label fails before every registry mutation. Numeric SemVer components and prerelease ordinals are compared as canonical decimal strings rather than machine integers, so their length is not bounded by shell arithmetic.
+
+The final runtime image carries the canonical release version in both the binary and its OCI version label. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. After promotion, both the exact tag and channel are read back for the candidate digest and version label. Promotion deletes no tags, and the before/after digest and version evidence is retained as a build artifact.
+
+An older channel created before OCI version labels were added fails closed. For a one-time migration only, set the repository variable `PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION` to the channel's current canonical exact version (for example `v1.2.2`) before releasing a strictly newer version. Promotion proceeds only when that immutable exact tag exists and has exactly the channel's current digest. Remove the variable immediately after the successful promotion; never use it to guess a missing version or bypass a missing exact tag.
 
 ## Configuration
 
@@ -49,6 +106,7 @@ The production binary reads configuration from environment variables:
 | `PGBASE_ADMIN_SESSION_TTL` | Go duration; positive and no greater than `12h`; default `12h`. |
 | `PGBASE_STATEMENT_TIMEOUT` | Go duration; default `5s`. Applies to ordinary request and diagnostic SQL. System migrations and approved collection DDL disable this statement limit locally so large schema work can finish; they retain a 5-second lock-acquisition timeout and remain cancelable through the command/request context. |
 | `PGBASE_SHUTDOWN_TIMEOUT` | Go duration; default `15s`. |
+| `PGBASE_STOP_GRACE_PERIOD` | Compose stop grace Go duration; default `20s`. When set, it must be at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`; pgBase refuses startup when the margin is smaller. |
 
 Never put secret values in command arguments, source control, images, support bundles, or logs. Supply them through a secret manager or protected environment injection. The JSON logger redacts known credentials, but redaction is not a substitute for avoiding secret-bearing log messages.
 
@@ -122,7 +180,15 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 
 Use liveness only to detect a stuck process. Use readiness for load-balancer admission and rollout gates. The container health check invokes `/pgbase healthcheck --url http://127.0.0.1:8090/health/ready` and requires no shell or curl.
 
-On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. Set the orchestrator termination grace period longer than that timeout. Requests exceeding the grace period can be interrupted.
+On SIGTERM, pgBase marks readiness false, stops accepting new requests, cancels background work, and drains HTTP requests for up to `PGBASE_SHUTDOWN_TIMEOUT`. The bundled Compose profile applies `PGBASE_STOP_GRACE_PERIOD` to both the container `stop_grace_period` and the application, so one variable moves both, and requires at least a five-second margin over the application timeout. Keep the equivalent margin in other orchestrators. Requests exceeding the grace period can be interrupted.
+
+A correct shutdown ends with exit code 0. Exit code 137 means the orchestrator's grace period expired and the container was killed mid-drain; treat it as a configuration fault rather than a normal stop. Verify a rendered profile before deploying it:
+
+```console
+docker compose --env-file deployments/.env -f deployments/docker-compose.yml config
+```
+
+and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`. pgBase refuses to start when the margin is smaller, so a profile that renders is not automatically a profile that runs.
 
 ## Secret rotation
 

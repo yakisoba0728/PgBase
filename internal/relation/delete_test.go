@@ -65,15 +65,16 @@ func TestDeletePlanViewsAreDeterministicAndOwned(t *testing.T) {
 	secondCollection := uuid.MustParse("0199aa22-0000-7000-8000-000000000002")
 	firstRecord := uuid.MustParse("0199aa22-0000-7000-8000-000000000011")
 	secondRecord := uuid.MustParse("0199aa22-0000-7000-8000-000000000012")
+	survivor := RecordRef{CollectionID: secondCollection, RecordID: secondRecord}
 	plan := DeletePlan{
 		owner: graph,
 		deletes: []RecordRef{
 			{CollectionID: firstCollection, RecordID: firstRecord},
 			{CollectionID: secondCollection, RecordID: secondRecord},
 		},
-		clears: []Clear{
-			{Source: RecordRef{CollectionID: secondCollection, RecordID: secondRecord}, FieldName: "zeta", TargetIDs: []uuid.UUID{firstRecord}},
-			{Source: RecordRef{CollectionID: secondCollection, RecordID: secondRecord}, FieldName: "alpha", TargetIDs: []uuid.UUID{secondRecord}},
+		clears: []deleteClear{
+			{source: survivor, targetIDs: []uuid.UUID{firstRecord}, relation: deleteRelationBinding{field: schema.Field{Name: "zeta"}}},
+			{source: survivor, targetIDs: []uuid.UUID{secondRecord}, relation: deleteRelationBinding{field: schema.Field{Name: "alpha"}}},
 		},
 	}
 
@@ -82,13 +83,9 @@ func TestDeletePlanViewsAreDeterministicAndOwned(t *testing.T) {
 	if reflect.DeepEqual(deletes, plan.Deletes()) {
 		t.Fatal("Deletes exposed mutable plan state")
 	}
-	clears := plan.Clears()
-	clears[0].TargetIDs[0] = uuid.New()
-	if reflect.DeepEqual(clears, plan.Clears()) {
-		t.Fatal("Clears exposed mutable plan state")
-	}
 	updates := plan.Updates()
-	if len(updates) != 1 || !reflect.DeepEqual(updates[0].ChangedFields, []string{"alpha", "zeta"}) {
+	if len(updates) != 1 || updates[0].Source != survivor ||
+		!reflect.DeepEqual(updates[0].ChangedFields, []string{"alpha", "zeta"}) {
 		t.Fatalf("unexpected grouped updates: %#v", updates)
 	}
 	updates[0].ChangedFields[0] = "changed"

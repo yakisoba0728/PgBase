@@ -2,7 +2,6 @@ package api
 
 import "net/http"
 
-// APIError is a safe, client-facing API failure.
 type APIError struct {
 	Status  int
 	Code    string

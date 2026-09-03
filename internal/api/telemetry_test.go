@@ -94,7 +94,7 @@ func TestAdminEndpointsRecordBoundedAuthenticationEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := &captureRecorder{}
-			endpoint := adminEndpoints{auth: tt.auth, tokenSecret: testTokenSecret, recorder: recorder}
+			endpoint := adminEndpoints{auth: tt.auth, recorder: recorder}
 			response := httptest.NewRecorder()
 			tt.endpoint(endpoint, response, tt.request())
 			if response.Code != tt.wantStatus {
@@ -132,7 +132,8 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewRouter(Dependencies{Metrics: tt.metrics, MetricsToken: tt.metricsToken})
+			handler := mustRouter(t, Dependencies{Metrics: tt.metrics,
+				MetricsExposition: metricsExposition(tt.metrics, tt.metricsToken)})
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 			if response.Code != http.StatusNotFound {
@@ -153,7 +154,8 @@ func TestMetricsEndpointIsOptIn(t *testing.T) {
 
 func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken)})
 	tests := []struct {
 		name           string
 		authorizations []string
@@ -187,7 +189,8 @@ func TestMetricsEndpointRequiresExactlyOneCorrectBearerCredential(t *testing.T) 
 
 func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{Metrics: metrics, MetricsToken: testMetricsToken})
+	handler := mustRouter(t, Dependencies{Metrics: metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken)})
 	const (
 		collectionSentinel = "raw_collection_sentinel"
 		idSentinel         = "raw_id_sentinel"
@@ -212,37 +215,41 @@ func TestHTTPMetricsUseRouteTemplatesWithoutRawRequestData(t *testing.T) {
 	}
 }
 
+// The panic runs on an atomic route, because that is where a recovered panic
+// can still produce a clean 500: the route's buffer is dropped unwritten. A
+// passthrough route has already streamed its bytes by then, which is why this
+// property belongs to the atomic response policy rather than to recovery.
 func TestHTTPMetricsObserveRecoveredPanicAndBalanceInFlight(t *testing.T) {
 	metrics := observability.NewMetrics(nil)
-	handler := NewRouter(Dependencies{
-		Metrics:      metrics,
-		MetricsToken: testMetricsToken,
-		AdminUI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte("partial-sensitive-response"))
-			panic("panic-sensitive-message")
-		}),
+	handler := mustRouter(t, Dependencies{
+		Metrics:           metrics,
+		MetricsExposition: metricsExposition(metrics, testMetricsToken),
+		Readiness:         panickingReadiness{},
 	})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/panic", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("panic status = %d, want %d; body = %s", response.Code, http.StatusInternalServerError, response.Body.String())
 	}
-	if strings.Contains(response.Body.String(), "partial-sensitive-response") || strings.Contains(response.Body.String(), "panic-sensitive-message") {
+	if strings.Contains(response.Body.String(), "panic-sensitive-message") {
 		t.Fatalf("panic response leaked partial content: %s", response.Body.String())
 	}
 
 	body := scrapeMetrics(t, handler)
-	if !strings.Contains(body, `pgbase_http_requests_total{method="GET",route="/admin/",status="5xx"} 1`) {
+	if !strings.Contains(body, `pgbase_http_requests_total{method="GET",route="/health/ready",status="5xx"} 1`) {
 		t.Fatalf("metrics did not observe recovered 500: %s", body)
 	}
-	if !strings.Contains(body, `pgbase_http_requests_in_flight{method="GET",route="/admin/"} 0`) {
+	if !strings.Contains(body, `pgbase_http_requests_in_flight{method="GET",route="/health/ready"} 0`) {
 		t.Fatalf("panic left in-flight gauge unbalanced: %s", body)
 	}
-	if strings.Contains(body, "partial-sensitive-response") || strings.Contains(body, "panic-sensitive-message") {
+	if strings.Contains(body, "panic-sensitive-message") {
 		t.Fatalf("metrics leaked panic content: %s", body)
 	}
 }
+
+type panickingReadiness struct{}
+
+func (panickingReadiness) Ready(context.Context) error { panic("panic-sensitive-message") }
 
 func scrapeMetrics(t *testing.T, handler http.Handler) string {
 	t.Helper()
@@ -254,4 +261,14 @@ func scrapeMetrics(t *testing.T, handler http.Handler) string {
 		t.Fatalf("metrics status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
 	return response.Body.String()
+}
+
+// metricsExposition mirrors what composition does: build the authenticated
+// exposition handler outside the router so the bearer secret never becomes a
+// router dependency.
+func metricsExposition(metrics *observability.Metrics, token []byte) http.Handler {
+	if metrics == nil || len(token) == 0 {
+		return nil
+	}
+	return metrics.Handler(token)
 }

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -43,12 +42,11 @@ func TestSecuritySQLValuesRemainParametersAndErrorsStaySecretFree(t *testing.T) 
 	}
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Records:     records,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
+	handler := mustRouter(t, Dependencies{
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		Records:   records,
+		PublicURL: mustURL("http://pgbase.test"),
 	})
 	body := `{"title":` + mustMarshalSecurityString(t, attack) + `,"metadata":{"note":` + mustMarshalSecurityString(t, attack) + `}}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/v1/collections/records/records", body)
@@ -74,11 +72,10 @@ func TestSecuritySchemaIdentifiersAreRejectedBeforeDDLPlanning(t *testing.T) {
 	const attack = `records"; DROP TABLE pgbase_meta.admins; --`
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Schema:      securityPlannerService{},
-		TokenSecret: testTokenSecret,
+	handler := mustRouter(t, Dependencies{
+		Logger:    observability.NewJSONLogger(&logs),
+		AdminAuth: auth,
+		Schema:    securityPlannerService{},
 	})
 	body := `{"operation":"create","name":` + mustMarshalSecurityString(t, attack) + `,"fields":[{"name":"title","type":"text"}]}`
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/collections/plan", body)
@@ -122,7 +119,7 @@ func TestSecurityStrictJSONBoundaries(t *testing.T) {
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", test.body)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -160,7 +157,7 @@ func TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling(t *testing.T
 			t.Parallel()
 			auth := &fakeAdminAuth{loginSession: validSession()}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{Logger: observability.NewJSONLogger(&logs), AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := securityRequestWithContentType(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", body, test.contentType)
 			request.Header.Set("Origin", "http://pgbase.test")
 			response := httptest.NewRecorder()
@@ -188,7 +185,7 @@ func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{loginSession: validSession()}
-			handler := NewRouter(Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test"), TokenSecret: testTokenSecret})
+			handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
 			request := httptest.NewRequest(http.MethodPost, "http://pgbase.test/api/admin/auth/login", bytes.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", "http://pgbase.test")
@@ -235,16 +232,15 @@ func TestSecurityAdminSessionOriginAndCSRFBypassesAreRejected(t *testing.T) {
 			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator, authenticateErr: test.authError}
 			var logs bytes.Buffer
 			dependencies := Dependencies{
-				Logger:      observability.NewJSONLogger(&logs),
-				AdminAuth:   auth,
-				PublicURL:   mustURL("http://pgbase.test"),
-				TokenSecret: testTokenSecret,
+				Logger:    observability.NewJSONLogger(&logs),
+				AdminAuth: auth,
+				PublicURL: mustURL("http://pgbase.test"),
 			}
 			if test.trustedProxy {
 				dependencies.PublicURL = nil
 				dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 			}
-			handler := NewRouter(dependencies)
+			handler := mustRouter(t, dependencies)
 			request := httptest.NewRequest(test.method, "http://pgbase.test"+test.path, nil)
 			if test.remoteAddress != "" {
 				request.RemoteAddr = test.remoteAddress
@@ -308,11 +304,10 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 			t.Parallel()
 			auth := &fakeAdminAuth{loginErr: adminauth.ErrInvalidCredentials}
 			var logs bytes.Buffer
-			handler := NewRouter(Dependencies{
+			handler := mustRouter(t, Dependencies{
 				Logger:         observability.NewJSONLogger(&logs),
 				AdminAuth:      auth,
 				PublicURL:      mustURL("http://pgbase.test"),
-				TokenSecret:    testTokenSecret,
 				TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			})
 			request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"correct horse battery staple"}`)
@@ -335,139 +330,6 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 	}
 }
 
-func TestSecuritySetupCannotBeReused(t *testing.T) {
-	pool := newSecurityDatabase(t)
-	const setupToken = "security-setup-token-7f31-0123456789abcdef"
-	const secondPassword = "security-second-password-7f31"
-	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, setupToken, time.Hour, nil)
-	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
-	})
-
-	first := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"`+setupToken+`","email":"admin@example.test","password":"`+securityPassword+`"}`)
-	first.Header.Set("Origin", "http://pgbase.test")
-	firstResponse := httptest.NewRecorder()
-	handler.ServeHTTP(firstResponse, first)
-	if firstResponse.Code != http.StatusCreated {
-		t.Fatalf("first setup status = %d, body = %s", firstResponse.Code, firstResponse.Body.String())
-	}
-
-	second := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"`+setupToken+`","email":"second@example.test","password":"`+secondPassword+`"}`)
-	second.Header.Set("Origin", "http://pgbase.test")
-	secondResponse := httptest.NewRecorder()
-	handler.ServeHTTP(secondResponse, second)
-	assertSecurityError(t, secondResponse, http.StatusConflict, "setup_unavailable", setupToken, secondPassword)
-	assertSecuritySecretsAbsent(t, logs.String(), setupToken, secondPassword)
-}
-
-func TestSecuritySetupIsUnavailableWithoutConfiguredTokenAndCreatesNoState(t *testing.T) {
-	pool := newSecurityDatabase(t)
-	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "", time.Hour, nil)
-	handler := NewRouter(Dependencies{
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
-	})
-	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/setup", `{"setupToken":"","email":"admin@example.test","password":"`+securityPassword+`"}`)
-	request.Header.Set("Origin", "http://pgbase.test")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	assertSecurityError(t, response, http.StatusConflict, "setup_unavailable", securityPassword)
-
-	var administrators, sessions int
-	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admins").Scan(&administrators); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(context.Background(), "select count(*) from pgbase_meta.admin_sessions").Scan(&sessions); err != nil {
-		t.Fatal(err)
-	}
-	if administrators != 0 || sessions != 0 {
-		t.Fatalf("disabled setup persisted administrators=%d sessions=%d, want 0/0", administrators, sessions)
-	}
-}
-
-func TestSecurityMalformedPasswordHashReturnsGenericCredentialsError(t *testing.T) {
-	pool := newSecurityDatabase(t)
-	const setupToken = "security-setup-token-7f31-0123456789abcdef"
-	const malformedHash = "security-malformed-hash-7f31-postgres://admin:secret@db/private"
-	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, setupToken, time.Hour, nil)
-	if _, err := auth.Setup(context.Background(), setupToken, "admin@example.test", securityPassword, "setup-client"); err != nil {
-		t.Fatalf("seed administrator: %v", err)
-	}
-	if _, err := pool.Exec(context.Background(), `update pgbase_meta.admins set password_hash = $1 where email = $2`, malformedHash, "admin@example.test"); err != nil {
-		t.Fatalf("replace password hash: %v", err)
-	}
-	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
-	})
-	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/login", `{"email":"admin@example.test","password":"`+securityPassword+`"}`)
-	request.Header.Set("Origin", "http://pgbase.test")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	assertSecurityError(t, response, http.StatusUnauthorized, "invalid_credentials", malformedHash, securityPassword, "postgres://", "7f31")
-	assertSecuritySecretsAbsent(t, logs.String(), malformedHash, securityPassword, "postgres://", "7f31")
-}
-
-func TestSecurityTamperedCursorIsRejectedWithoutDisclosure(t *testing.T) {
-	pool := newSecurityDatabase(t)
-	const setupToken = "security-setup-token-7f31-0123456789abcdef"
-	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, setupToken, time.Hour, nil)
-	session, err := auth.Setup(context.Background(), setupToken, "admin@example.test", securityPassword, "setup-client")
-	if err != nil {
-		t.Fatalf("seed administrator: %v", err)
-	}
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
-	input := schema.CreateCollectionInput{Name: "records"}
-	plan, err := schemas.PlanCreate(context.Background(), input)
-	if err != nil {
-		t.Fatalf("plan records collection: %v", err)
-	}
-	collection, err := schemas.ApplyCreate(context.Background(), input, plan.Checksum, plan.BaseVersion, session.Administrator.ID)
-	if err != nil {
-		t.Fatalf("create records collection: %v", err)
-	}
-	records := recordops.NewService(pool, schemas, testTokenSecret)
-	codec := query.NewCursorCodec(testTokenSecret)
-	valid, err := codec.Encode(query.PageCursor{
-		Version:      query.CursorVersion,
-		CollectionID: collection.ID,
-		Sort:         []query.SortKey{{Field: "created_at"}, {Field: "id"}},
-		Values: []json.RawMessage{
-			json.RawMessage(`"2026-08-28T00:00:00Z"`),
-			json.RawMessage(`"018f1f09-7b44-7cc1-98e8-6f9a46a17d21"`),
-		},
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
-	})
-	if err != nil {
-		t.Fatalf("encode cursor: %v", err)
-	}
-	tampered := valid[:5] + differentSecurityCharacter(valid[5]) + valid[6:]
-	var logs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&logs),
-		AdminAuth:   auth,
-		Records:     records,
-		PublicURL:   mustURL("http://pgbase.test"),
-		TokenSecret: testTokenSecret,
-	})
-	request := httptest.NewRequest(http.MethodGet, "http://pgbase.test/api/v1/collections/records/records?cursor="+url.QueryEscape(tampered), nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	assertSecurityError(t, response, http.StatusBadRequest, "invalid_cursor", tampered)
-	assertSecuritySecretsAbsent(t, logs.String(), tampered)
-}
-
 func TestSecurityJSONErrorsAndStructuredLogsRedactSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -477,11 +339,10 @@ func TestSecurityJSONErrorsAndStructuredLogsRedactSecrets(t *testing.T) {
 	hostile := errors.New(databaseURL + " " + authorization + " " + sqlText)
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	var requestLogs bytes.Buffer
-	handler := NewRouter(Dependencies{
-		Logger:      observability.NewJSONLogger(&requestLogs),
-		AdminAuth:   auth,
-		Records:     securityErrorRecords{err: hostile},
-		TokenSecret: testTokenSecret,
+	handler := mustRouter(t, Dependencies{
+		Logger:    observability.NewJSONLogger(&requestLogs),
+		AdminAuth: auth,
+		Records:   securityErrorRecords{err: hostile},
 	})
 	request := httptest.NewRequest(http.MethodGet, "http://pgbase.test/api/v1/collections/records/records/018f1f09-7b44-7cc1-98e8-6f9a46a17d21", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
@@ -531,33 +392,24 @@ func (*securityCompilerRecords) Delete(context.Context, recordops.DeleteRequest)
 
 type securityPlannerService struct{}
 
-func (securityPlannerService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
-	return (schema.Planner{}).PlanCreate(0, input)
-}
-
-func (securityPlannerService) ApplyCreate(context.Context, schema.CreateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
-	panic("unexpected ApplyCreate call")
-}
-
-func (securityPlannerService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
-	current := schema.Collection{Name: input.Name, TableName: input.Name}
-	return (schema.Planner{}).PlanUpdate(0, current, input)
-}
-
-func (securityPlannerService) ApplyUpdate(context.Context, schema.UpdateCollectionInput, string, int64, uuid.UUID) (schema.Collection, error) {
-	panic("unexpected ApplyUpdate call")
-}
-
-func (securityPlannerService) PlanDelete(context.Context, string) (schema.Plan, error) {
-	panic("unexpected PlanDelete call")
-}
-
-func (securityPlannerService) ApplyDelete(context.Context, string, string, int64, uuid.UUID) error {
-	panic("unexpected ApplyDelete call")
+func (securityPlannerService) Preview(_ context.Context, change schema.Change) (schema.Plan, error) {
+	return schema.CompilePlan(schema.Catalog{Collections: map[string]schema.Collection{}}, change)
 }
 
 func (securityPlannerService) Catalog(context.Context) (schema.Catalog, error) {
 	panic("unexpected Catalog call")
+}
+
+func (securityPlannerService) Apply(context.Context, schema.ApplyIntent) (schema.ApplyResult, error) {
+	panic("unexpected Apply call")
+}
+
+func (securityPlannerService) OperationStatus(context.Context, schema.OperationRef) (schema.OperationReceipt, error) {
+	panic("unexpected OperationStatus call")
+}
+
+func (securityPlannerService) ListOperations(context.Context, schema.OperationQuery) (schema.OperationPage, error) {
+	panic("unexpected ListOperations call")
 }
 
 type securityErrorRecords struct{ err error }

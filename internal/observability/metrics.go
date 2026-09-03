@@ -78,12 +78,12 @@ const (
 )
 
 // RetryCause is a bounded transaction retry cause label.
-type RetryCause string
+type RetryCause = database.RetryCause
 
 const (
-	RetryCauseCachedPlan    RetryCause = "cached_plan"
-	RetryCauseSerialization RetryCause = "serialization"
-	RetryCauseDeadlock      RetryCause = "deadlock"
+	RetryCauseCachedPlan    = database.RetryCauseCachedPlan
+	RetryCauseSerialization = database.RetryCauseSerialization
+	RetryCauseDeadlock      = database.RetryCauseDeadlock
 )
 
 // ReadinessComponent is a bounded readiness dependency label.
@@ -110,53 +110,66 @@ type Event struct {
 	ready              bool
 }
 
-// OperationEvent constructs an operation event. Invalid enum combinations are
-// rejected by Recorder and counted only as dropped events.
-func OperationEvent(component Component, operation Operation, outcome Outcome, duration time.Duration) Event {
+// OperationEvent constructs an operation event. The component is derived from
+// the operation rather than supplied, because an operation belongs to exactly
+// one subsystem and letting a caller name it is a way to mislabel a metric
+// series. An operation outside the closed set, or an invalid outcome or
+// duration, is rejected by Recorder and counted only as a dropped event.
+func OperationEvent(operation Operation, outcome Outcome, duration time.Duration) Event {
 	return Event{
 		kind:      EventKindOperation,
-		component: component,
+		component: componentForOperation(operation),
 		operation: operation,
 		outcome:   outcome,
 		duration:  duration,
 	}
 }
 
-// TransactionRetryEvent constructs a transaction retry event.
+// componentForOperation is the single operation-to-component mapping. Its zero
+// value for an unlisted operation is what makes such an event invalid, so the
+// mapping and the validity rule cannot disagree.
+func componentForOperation(operation Operation) Component {
+	switch operation {
+	case OperationMigrationUp, OperationMigrationStatus:
+		return ComponentMigration
+	case OperationSchemaCreate, OperationSchemaUpdate, OperationSchemaDelete:
+		return ComponentSchema
+	case OperationListenerConnect, OperationListenerReload:
+		return ComponentSchemaListener
+	case OperationAdminSetup, OperationAdminLogin:
+		return ComponentAdminAuth
+	case OperationRelationSchema, OperationRelationWrite, OperationRelationDelete,
+		OperationRelationExpand, OperationRelationRead:
+		return ComponentRelation
+	default:
+		return ""
+	}
+}
+
 func TransactionRetryEvent(cause RetryCause, exhausted bool) Event {
 	return Event{kind: EventKindTransactionRetry, retryCause: cause, exhausted: exhausted}
 }
 
-// ReadinessEvent constructs a readiness state observation.
 func ReadinessEvent(component ReadinessComponent, ready bool) Event {
 	return Event{kind: EventKindReadiness, readinessComponent: component, ready: ready}
 }
 
-// Kind returns the event's closed shape discriminator.
 func (e Event) Kind() EventKind { return e.kind }
 
-// Component returns the operation component, or the zero value for other event kinds.
 func (e Event) Component() Component { return e.component }
 
-// Operation returns the operation name, or the zero value for other event kinds.
 func (e Event) Operation() Operation { return e.operation }
 
-// Outcome returns the operation outcome, or the zero value for other event kinds.
 func (e Event) Outcome() Outcome { return e.outcome }
 
-// Duration returns the operation duration, or zero for other event kinds.
 func (e Event) Duration() time.Duration { return e.duration }
 
-// RetryCause returns the retry cause, or the zero value for other event kinds.
 func (e Event) RetryCause() RetryCause { return e.retryCause }
 
-// Exhausted reports whether a retry event exhausted its retry budget.
 func (e Event) Exhausted() bool { return e.exhausted }
 
-// ReadinessComponent returns the readiness dependency, or the zero value for other event kinds.
 func (e Event) ReadinessComponent() ReadinessComponent { return e.readinessComponent }
 
-// Ready returns the readiness state carried by a readiness event.
 func (e Event) Ready() bool { return e.ready }
 
 // Metrics owns an application-private Prometheus registry. No collector is
@@ -328,22 +341,8 @@ func validOperationEvent(event Event) bool {
 	if event.duration < 0 || !validOutcome(event.outcome) {
 		return false
 	}
-	switch event.component {
-	case ComponentMigration:
-		return event.operation == OperationMigrationUp || event.operation == OperationMigrationStatus
-	case ComponentSchema:
-		return event.operation == OperationSchemaCreate || event.operation == OperationSchemaUpdate || event.operation == OperationSchemaDelete
-	case ComponentSchemaListener:
-		return event.operation == OperationListenerConnect || event.operation == OperationListenerReload
-	case ComponentAdminAuth:
-		return event.operation == OperationAdminSetup || event.operation == OperationAdminLogin
-	case ComponentRelation:
-		return event.operation == OperationRelationSchema || event.operation == OperationRelationWrite ||
-			event.operation == OperationRelationDelete || event.operation == OperationRelationExpand ||
-			event.operation == OperationRelationRead
-	default:
-		return false
-	}
+	component := componentForOperation(event.operation)
+	return component != "" && component == event.component
 }
 
 func validOutcome(outcome Outcome) bool {

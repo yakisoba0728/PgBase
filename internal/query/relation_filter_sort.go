@@ -1,7 +1,7 @@
 package query
 
 import (
-	"context"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,9 +11,6 @@ import (
 )
 
 const (
-	ReadActionRelationFilter ReadAction = "relation_filter"
-	ReadActionRelationSort   ReadAction = "relation_sort"
-
 	maximumRelationFilterDepth  = 3
 	maximumRelationFilterJoins  = 8
 	maximumRelationSortDepth    = 2
@@ -21,23 +18,9 @@ const (
 	relationRootAlias           = "rq_root"
 )
 
-// RelationListRequest is the narrow authenticated seam for relation-aware
-// list queries. List keeps its positional compatibility contract; callers
-// which can supply an authenticated principal opt into this request instead.
-type RelationListRequest struct {
-	Principal  Principal
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-}
-
 type relationListPlan struct {
-	root          schema.Collection
-	filter        *plannedRelationFilter
-	sort          []plannedRelationSort
-	privateCursor bool
+	filter *plannedRelationFilter
+	order  orderSpec
 }
 
 type plannedRelationFilter struct {
@@ -52,13 +35,6 @@ type plannedRelationComparison struct {
 	path      *plannedRelationPath
 }
 
-type plannedRelationSort struct {
-	key       SortKey
-	rootField *schema.Field
-	path      *plannedRelationPath
-	field     schema.Field
-}
-
 type plannedRelationPath struct {
 	hops               []plannedRelationHop
 	terminal           schema.Field
@@ -66,20 +42,15 @@ type plannedRelationPath struct {
 }
 
 type plannedRelationHop struct {
-	field     schema.Field
-	target    schema.Collection
-	predicate Predicate
+	field  schema.Field
+	target schema.Collection
 }
 
-// compileRelationListPlan resolves every path against one pinned catalog,
-// enforces all static budgets, and asks the typed policy for every hop before
-// any record query is built or executed.
+// compileRelationListPlan resolves every path against one pinned catalog and
+// enforces all static budgets before any record query is built or executed.
 func compileRelationListPlan(
-	ctx context.Context,
 	catalog schema.Catalog,
 	root schema.Collection,
-	principal Principal,
-	policy ProjectionPolicy,
 	filter filterNode,
 	sortKeys []SortKey,
 ) (relationListPlan, error) {
@@ -91,26 +62,11 @@ func compileRelationListPlan(
 		return relationListPlan{}, relationFilterUnsupported()
 	}
 
-	plannedSort, err := planRelationSort(catalog, root, sortKeys)
+	order, err := planRelationSort(catalog, root, sortKeys)
 	if err != nil {
 		return relationListPlan{}, err
 	}
-	// Authorization deliberately follows structural validation and budgets so
-	// an oversized request cannot turn policy calls into unbounded pre-query I/O.
-	if err := authorizePlannedFilter(ctx, principal, policy, plannedFilter); err != nil {
-		return relationListPlan{}, err
-	}
-	privateCursor := false
-	for index := range plannedSort {
-		if plannedSort[index].path == nil {
-			continue
-		}
-		privateCursor = true
-		if err := authorizeRelationPath(ctx, principal, policy, plannedSort[index].path, ReadActionRelationSort); err != nil {
-			return relationListPlan{}, err
-		}
-	}
-	return relationListPlan{root: root, filter: plannedFilter, sort: plannedSort, privateCursor: privateCursor}, nil
+	return relationListPlan{filter: plannedFilter, order: order}, nil
 }
 
 func planRelationFilter(catalog schema.Catalog, root schema.Collection, node filterNode) (*plannedRelationFilter, int, error) {
@@ -125,6 +81,13 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 	case filterComparison:
 		field, ok := filterField(root, value.field)
 		if ok && field.Type != schema.TypeRelation && !strings.Contains(value.field, ".") {
+			// Reject here rather than only at statement compilation: the cursor
+			// v5 query fingerprint also walks the planned filter, and a field
+			// this plan cannot compile must not reach two decoders that
+			// disagree about which validation detail the caller gets.
+			if field.Type == schema.TypeJSONB {
+				return nil, 0, validation("filter", "unsupported_type")
+			}
 			copy := field
 			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, rootField: &copy}}, 0, nil
 		}
@@ -170,41 +133,66 @@ func planRelationFilterGroup(
 	return planned, joins, nil
 }
 
-func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []SortKey) ([]plannedRelationSort, error) {
-	planned := make([]plannedRelationSort, 0, len(keys))
+func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []SortKey) (orderSpec, error) {
+	terms := make([]orderTerm, 0, len(keys))
 	for _, key := range keys {
 		field, ok := filterField(root, key.Field)
-		if ok && field.Type != schema.TypeRelation && !strings.Contains(key.Field, ".") {
-			if field.Type == schema.TypeJSONB {
-				return nil, validation("sort", "unsupported_type")
+		inline, isRoot := rootSortField(field)
+		if ok && isRoot && !strings.Contains(key.Field, ".") {
+			term, err := rootOrderTerm(key, inline)
+			if err != nil {
+				return orderSpec{}, err
 			}
-			if !field.Indexed && !field.Unique {
-				return nil, validation("sort", "unindexed_field")
-			}
-			copy := field
-			planned = append(planned, plannedRelationSort{key: key, rootField: &copy, field: field})
+			terms = append(terms, term)
 			continue
 		}
+		if ok && isMultipleRelation(field) && !strings.Contains(key.Field, ".") {
+			// Cardinality alone decides this, and the target is never read, so
+			// the rejection must not depend on resolving it.
+			return orderSpec{}, relationSortUnsupported()
+		}
 		if !ok && !strings.Contains(key.Field, ".") {
-			return nil, validation("sort", "unknown_field")
+			return orderSpec{}, validation("sort", "unknown_field")
 		}
 		path, err := resolveRelationPath(catalog, root, key.Field, "sort")
 		if err != nil {
-			return nil, err
+			return orderSpec{}, err
 		}
-		if len(path.hops) == 0 || len(path.hops) > maximumRelationSortDepth || path.terminal.Type == schema.TypeJSONB ||
-			(!path.terminal.Indexed && !path.terminal.Unique) {
-			return nil, relationSortUnsupported()
+		indexHint, indexed := indexedOrderHint(path.terminal, orderIndexRelationTarget)
+		if len(path.hops) == 0 || len(path.hops) > maximumRelationSortDepth || path.terminal.Type == schema.TypeJSONB || !indexed {
+			return orderSpec{}, relationSortUnsupported()
 		}
 		for _, hop := range path.hops {
 			if hop.field.Relation == nil || hop.field.Relation.Cardinality != schema.RelationSingle {
-				return nil, relationSortUnsupported()
+				return orderSpec{}, relationSortUnsupported()
 			}
 		}
 		copy := path
-		planned = append(planned, plannedRelationSort{key: key, path: &copy, field: path.terminal})
+		terms = append(terms, orderTerm{
+			key: key, cursorField: path.terminal, relationPath: &copy, indexHint: indexHint,
+		})
 	}
-	return planned, nil
+	return orderSpec{root: root, terms: terms}, nil
+}
+
+// rootSortField reports whether a dot-free sort key orders on the root table
+// alone, and returns the field as that ordering has to describe it. A single
+// relation column holds its target's id under a deferred foreign key and always
+// carries its own index, so the LEFT JOIN that ordering by target.id used to
+// need is redundant -- the root column is the same value, NULL for NULL. The
+// term therefore has to describe the uuid the column physically is, so the
+// cursor decodes a uuid and the v5 descriptor encodes "uuid" rather than
+// "relation". A multi relation and a relation missing its catalog binding are
+// not root work; the path resolver keeps owning their errors.
+func rootSortField(field schema.Field) (schema.Field, bool) {
+	if field.Type != schema.TypeRelation {
+		return field, true
+	}
+	if field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle {
+		return field, false
+	}
+	field.Type = schema.TypeUUID
+	return field, true
 }
 
 func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, operation string) (plannedRelationPath, error) {
@@ -270,73 +258,6 @@ func validSortFieldSegment(segment string) bool {
 	return true
 }
 
-func authorizePlannedFilter(ctx context.Context, principal Principal, policy ProjectionPolicy, node *plannedRelationFilter) error {
-	if node == nil {
-		return nil
-	}
-	if node.comparison != nil && node.comparison.path != nil {
-		return authorizeRelationPath(ctx, principal, policy, node.comparison.path, ReadActionRelationFilter)
-	}
-	for _, child := range node.children {
-		if err := authorizePlannedFilter(ctx, principal, policy, child); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func authorizeRelationPath(
-	ctx context.Context,
-	principal Principal,
-	policy ProjectionPolicy,
-	path *plannedRelationPath,
-	action ReadAction,
-) error {
-	for index := range path.hops {
-		hop := &path.hops[index]
-		predicate, fields, err := relationReadScope(ctx, policy, principal, hop.target, action)
-		if err != nil {
-			return err
-		}
-		if err := validateProjection(hop.target, predicate, fields); err != nil {
-			return err
-		}
-		required := path.terminal.Name
-		if index+1 < len(path.hops) {
-			required = path.hops[index+1].field.Name
-		}
-		if !projectionAllowsField(fields, required) {
-			return ErrProjectionDenied
-		}
-		hop.predicate = predicate
-	}
-	return nil
-}
-
-func relationReadScope(
-	ctx context.Context,
-	policy ProjectionPolicy,
-	principal Principal,
-	collection schema.Collection,
-	action ReadAction,
-) (Predicate, FieldSet, error) {
-	if policy == nil {
-		return Predicate{}, FieldSet{}, ErrProjectionDenied
-	}
-	return policy.ReadScope(ctx, principal, collection, action)
-}
-
-func projectionAllowsField(fields FieldSet, name string) bool {
-	if name == systemFieldID || name == systemFieldCreatedAt || name == systemFieldUpdatedAt {
-		return true
-	}
-	if fields.all {
-		return true
-	}
-	_, ok := fields.fields[name]
-	return ok
-}
-
 func relationPathUnsupported(operation string) error {
 	if operation == "sort" {
 		return relationSortUnsupported()
@@ -357,33 +278,17 @@ type relationSQLRenderer struct {
 
 func (r *relationSQLRenderer) alias(prefix string) string {
 	r.next++
-	return prefix + "_" + strconvItoa(r.next)
+	return prefix + "_" + strconv.Itoa(r.next)
 }
 
-// strconvItoa is kept local to avoid exposing aliases to caller input.
-func strconvItoa(value int) string {
-	const digits = "0123456789"
-	if value == 0 {
-		return "0"
-	}
-	var buffer [20]byte
-	position := len(buffer)
-	for value > 0 {
-		position--
-		buffer[position] = digits[value%10]
-		value /= 10
-	}
-	return string(buffer[position:])
-}
-
-func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, error) {
+func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
 	if err != nil {
 		return Statement{}, err
 	}
-	columns, joins, err := p.renderSortColumns(renderer, relationRootAlias, "rq_sort")
+	order, joins, err := p.order.renderRelation(renderer, relationRootAlias, "rq_sort")
 	if err != nil {
 		return Statement{}, err
 	}
@@ -391,89 +296,70 @@ func (p relationListPlan) statement(after *PageCursor, limit int) (Statement, er
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
 	}
-	if after != nil {
-		keyset, err := compileRelationKeyset(columns, after, builder)
+	if membership := after.membershipBoundary(); membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(p.order.root, relationRootAlias, membership, builder))
+	}
+	if after != nil && !after.membershipOnly {
+		keyset, err := order.keyset(after, builder)
 		if err != nil {
 			return Statement{}, err
 		}
 		conditions = append(conditions, keyset)
 	}
 
-	selects := []string{selectedRelationRootColumns(p.root, relationRootAlias)}
-	for _, column := range columns {
-		if column.relation {
-			selects = append(selects, column.cursorExpression)
-		}
-	}
-	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.root) + " AS " + quoted(relationRootAlias)
+	selects := []string{selectedRelationRootColumns(p.order.root, relationRootAlias)}
+	selects = order.appendHiddenCursorSelects(selects)
+	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.order.root) + " AS " + quoted(relationRootAlias)
 	sql += strings.Join(joins, "")
 	if len(conditions) != 0 {
 		sql += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	sql += compileRelationOrder(columns)
-	sql += " LIMIT " + builder.placeholder(normalizedFetchLimit(limit))
+	sql += order.orderBy()
+	sql += " LIMIT " + builder.placeholder(fetchLimit)
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 
-type compiledRelationSort struct {
-	expression       string
-	cursorExpression string
-	desc             bool
-	field            schema.Field
-	relation         bool
-}
-
-func (p relationListPlan) renderSortColumns(
+func (s orderSpec) renderRelation(
 	renderer *relationSQLRenderer,
 	rootAlias string,
 	prefix string,
-) ([]compiledRelationSort, []string, error) {
-	columns := make([]compiledRelationSort, 0, len(p.sort))
-	joins := make([]string, 0, len(p.sort)*maximumRelationSortDepth)
-	for index := range p.sort {
-		planned := &p.sort[index]
-		if planned.rootField != nil {
-			expression := qualified(rootAlias, planned.rootField.ColumnName)
-			columns = append(columns, compiledRelationSort{
-				expression:       expression,
-				cursorExpression: relationCursorExpression(expression, *planned.rootField),
-				desc:             planned.key.Desc,
-				field:            *planned.rootField,
-			})
+) (orderSpec, []string, error) {
+	terms := append([]orderTerm(nil), s.terms...)
+	joins := make([]string, 0, len(terms)*maximumRelationSortDepth)
+	for index := range terms {
+		term := &terms[index]
+		if term.relationPath == nil {
+			term.expression = qualified(rootAlias, term.cursorField.ColumnName)
 			continue
 		}
-		expression, pathJoins, err := renderRelationSortJoins(planned.path, renderer, rootAlias, prefix)
+		expression, pathJoins, err := renderRelationSortJoins(term.relationPath, renderer, rootAlias, prefix)
 		if err != nil {
-			return nil, nil, err
+			return orderSpec{}, nil, err
 		}
 		joins = append(joins, pathJoins...)
-		columns = append(columns, compiledRelationSort{
-			expression:       expression,
-			cursorExpression: relationCursorExpression(expression, planned.field),
-			desc:             planned.key.Desc,
-			field:            planned.field,
-			relation:         true,
-		})
+		term.expression = expression
 	}
-	return columns, joins, nil
+	s.terms = terms
+	return s, joins, nil
 }
 
-func (p relationListPlan) anchorStatement(id uuid.UUID) (Statement, error) {
+func (s orderSpec) anchorStatement(id uuid.UUID, membership *int64) (Statement, error) {
 	if id == uuid.Nil {
 		return Statement{}, invalidCursor()
 	}
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
-	columns, joins, err := p.renderSortColumns(renderer, relationRootAlias, "rq_anchor")
+	order, joins, err := s.renderRelation(renderer, relationRootAlias, "rq_anchor")
 	if err != nil {
 		return Statement{}, err
 	}
-	selects := make([]string, 0, len(columns))
-	for _, column := range columns {
-		selects = append(selects, column.cursorExpression)
+	selects := order.cursorSelects()
+	conditions := []string{qualified(relationRootAlias, systemFieldID) + " = " + builder.placeholder(id)}
+	if membership != nil {
+		conditions = append(conditions, rootMembershipPredicate(s.root, relationRootAlias, membership, builder))
 	}
-	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.root) + " AS " + quoted(relationRootAlias) +
-		strings.Join(joins, "") + " WHERE " + qualified(relationRootAlias, systemFieldID) + " = " + builder.placeholder(id)
+	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(s.root) + " AS " + quoted(relationRootAlias) +
+		strings.Join(joins, "") + " WHERE " + strings.Join(conditions, " AND ")
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 
@@ -556,9 +442,6 @@ func renderRelationExists(
 		default:
 			return "", schema.ErrConflict
 		}
-		if policySQL := compileRelationPredicate(hop.predicate, targetAlias, renderer.builder); policySQL != "" {
-			conditions = append(conditions, policySQL)
-		}
 		var inner string
 		var err error
 		if index+1 == len(path.hops) {
@@ -596,9 +479,6 @@ func renderRelationSortJoins(
 		}
 		targetAlias := renderer.alias(prefix)
 		conditions := []string{qualified(targetAlias, systemFieldID) + " = " + qualified(parentAlias, hop.field.ColumnName)}
-		if policySQL := compileRelationPredicate(hop.predicate, targetAlias, renderer.builder); policySQL != "" {
-			conditions = append(conditions, policySQL)
-		}
 		joins = append(joins, " LEFT JOIN "+quotedTable(hop.target)+" AS "+quoted(targetAlias)+
 			" ON "+strings.Join(conditions, " AND "))
 		parentAlias = targetAlias
@@ -625,81 +505,4 @@ func selectedRelationRootColumns(collection schema.Collection, alias string) str
 	return strings.Join(columns, ", ")
 }
 
-func relationCursorExpression(expression string, field schema.Field) string {
-	if field.Type == schema.TypeNumeric {
-		return expression + "::text"
-	}
-	return expression
-}
-
-func compileRelationPredicate(predicate Predicate, alias string, builder *statementBuilder) string {
-	switch predicate.kind {
-	case predicateAllowAll:
-		return ""
-	case predicateDenyAll:
-		return "FALSE"
-	case predicateRecordIDs:
-		return qualified(alias, systemFieldID) + " = ANY(" + builder.placeholder(append([]uuid.UUID(nil), predicate.ids...)) + "::uuid[])"
-	default:
-		return "FALSE"
-	}
-}
-
-func compileRelationKeyset(columns []compiledRelationSort, cursor *PageCursor, builder *statementBuilder) (string, error) {
-	if cursor == nil || len(cursor.Values) != len(columns) {
-		return "", invalidCursor()
-	}
-	placeholders := make([]string, len(columns))
-	for index, raw := range cursor.Values {
-		value, err := decodeCursorValue(columns[index].field, raw)
-		if err != nil {
-			return "", err
-		}
-		placeholders[index] = builder.placeholder(value)
-	}
-	disjunctions := make([]string, 0, len(columns))
-	for index := range columns {
-		conjuncts := make([]string, 0, index+1)
-		for prior := 0; prior < index; prior++ {
-			conjuncts = append(conjuncts, "("+columns[prior].expression+" IS NOT DISTINCT FROM "+placeholders[prior]+")")
-		}
-		operator := ">"
-		if columns[index].desc {
-			operator = "<"
-		}
-		expression := columns[index].expression
-		conjuncts = append(conjuncts, "("+expression+" "+operator+" "+placeholders[index]+" OR ("+
-			placeholders[index]+" IS NOT NULL AND "+expression+" IS NULL))")
-		conjunction := strings.Join(conjuncts, " AND ")
-		if len(conjuncts) > 1 {
-			conjunction = "(" + conjunction + ")"
-		}
-		disjunctions = append(disjunctions, conjunction)
-	}
-	return "(" + strings.Join(disjunctions, " OR ") + ")", nil
-}
-
-func compileRelationOrder(columns []compiledRelationSort) string {
-	parts := make([]string, 0, len(columns))
-	for _, column := range columns {
-		direction := "ASC"
-		if column.desc {
-			direction = "DESC"
-		}
-		parts = append(parts, column.expression+" "+direction+" NULLS LAST")
-	}
-	return " ORDER BY " + strings.Join(parts, ", ")
-}
-
 func qualified(alias, column string) string { return quoted(alias) + "." + quoted(column) }
-
-// relationPlanningErrorForCursor returns plan compilation errors unchanged.
-// Planning never reads the cursor: an unknown filter field or an unsortable
-// field is a request shape error whatever the caller paginates with, and a
-// stale or tampered cursor is still rejected where it is decoded and its
-// anchor hash is verified. Rewriting every planning failure into invalid_cursor
-// told the client to restart pagination instead of naming what it got wrong,
-// and disagreed with the scalar kernel on the same input.
-func relationPlanningErrorForCursor(err error, _ bool) error {
-	return err
-}

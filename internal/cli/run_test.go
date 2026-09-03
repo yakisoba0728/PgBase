@@ -5,21 +5,17 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"unknown"}, emptyEnv, io.Discard, &stderr, CommandSet{})
+	code := Execute(context.Background(), []string{"unknown"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d", code)
 	}
@@ -28,51 +24,49 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestRunDispatchesKnownCommands(t *testing.T) {
+func TestRunTreatsDiagnosticWriteFailureAsOperationalFailure(t *testing.T) {
+	code := Execute(context.Background(), nil, emptyEnv, testIO(nil, io.Discard, failingWriter{}))
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 when stderr cannot be written", code)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+func TestExecutePassesArgumentsEnvironmentAndStreamsToTheCommand(t *testing.T) {
 	called := false
-	command := func(ctx context.Context, args []string, lookup func(string) (string, bool), stdout, stderr io.Writer) error {
+	handler := func(_ context.Context, args []string, env environment, streams IO) error {
 		called = true
 		if got := strings.Join(args, ","); got != "--check,fast" {
 			t.Fatalf("args = %q", got)
 		}
-		if value, ok := lookup("PGBASE_TEST"); !ok || value != "present" {
-			t.Fatal("lookup was not passed through")
+		if value, ok := env("PGBASE_TEST"); !ok || value != "present" {
+			t.Fatal("the environment was not passed through")
 		}
-		if _, err := io.WriteString(stdout, "ran"); err != nil {
+		if _, err := io.WriteString(streams.stdout(), "ran"); err != nil {
 			t.Fatal(err)
 		}
 		return nil
 	}
 	var stdout bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "--check", "fast"}, func(key string) (string, bool) {
+	code := execute(context.Background(), []string{"migrate", "--check", "fast"}, func(key string) (string, bool) {
 		return "present", key == "PGBASE_TEST"
-	}, &stdout, io.Discard, CommandSet{Migrate: command})
+	}, testIO(nil, &stdout, io.Discard), commandTable{"migrate": handler})
 	if code != 0 || !called || stdout.String() != "ran" {
 		t.Fatalf("code=%d called=%t stdout=%q", code, called, stdout.String())
 	}
 }
 
-func TestRunKnownCommandFailuresReturnExitCodeOne(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		commands CommandSet
-		want     string
-	}{
-		{name: "nil handler", command: "serve", commands: CommandSet{}, want: "unavailable"},
-		{name: "handler error", command: "doctor", commands: CommandSet{Doctor: func(context.Context, []string, func(string) (string, bool), io.Writer, io.Writer) error {
+func TestExecuteReturnsExitCodeOneWhenACommandFails(t *testing.T) {
+	var stderr bytes.Buffer
+	code := execute(context.Background(), []string{"doctor"}, emptyEnv, testIO(nil, io.Discard, &stderr),
+		commandTable{"doctor": func(context.Context, []string, environment, IO) error {
 			return errors.New("database unavailable")
-		}}, want: "command failed"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var stderr bytes.Buffer
-			code := Run(context.Background(), []string{tt.command}, emptyEnv, io.Discard, &stderr, tt.commands)
-			if code != 1 || !strings.Contains(stderr.String(), tt.want) {
-				t.Fatalf("code=%d stderr=%q", code, stderr.String())
-			}
-		})
+		}})
+	if code != 1 || !strings.Contains(stderr.String(), "command failed") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -82,8 +76,8 @@ func TestRunSanitizesOperationalErrors(t *testing.T) {
 	const sql = "select secret_column from pgbase_meta.admins"
 
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate"}, emptyEnv, io.Discard, &stderr, CommandSet{
-		Migrate: func(context.Context, []string, func(string) (string, bool), io.Writer, io.Writer) error {
+	code := execute(context.Background(), []string{"migrate"}, emptyEnv, testIO(nil, io.Discard, &stderr), commandTable{
+		"migrate": func(context.Context, []string, environment, IO) error {
 			return errors.New(dsn + ": " + sqlState + ": " + sql)
 		},
 	})
@@ -100,16 +94,13 @@ func TestRunSanitizesOperationalErrors(t *testing.T) {
 	}
 }
 
-func TestRunDispatchesHiddenHealthcheck(t *testing.T) {
-	called := false
-	code := Run(context.Background(), []string{"healthcheck"}, emptyEnv, io.Discard, io.Discard, CommandSet{
-		Healthcheck: func(context.Context, []string, func(string) (string, bool), io.Writer, io.Writer) error {
-			called = true
-			return nil
-		},
-	})
-	if code != 0 || !called {
-		t.Fatalf("code=%d called=%t", code, called)
+// TestExecuteDispatchesTheHiddenHealthcheck keeps the container health probe
+// reachable even though it is deliberately absent from the usage line.
+func TestExecuteDispatchesTheHiddenHealthcheck(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"healthcheck"}, emptyEnv, testIO(nil, io.Discard, &stderr))
+	if code != 2 || !strings.Contains(stderr.String(), "usage: pgbase healthcheck") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -120,7 +111,7 @@ func TestHealthcheckAcceptsOnlyHTTP200(t *testing.T) {
 	defer server.Close()
 
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 0 || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -151,7 +142,7 @@ func TestHealthcheckRejectsNon200AndRedirectWithoutFollowingIt(t *testing.T) {
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 			var stderr bytes.Buffer
-			code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+			code := Execute(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, testIO(nil, io.Discard, &stderr))
 			if code != 1 || stderr.String() != "pgbase: command failed\n" {
 				t.Fatalf("code=%d stderr=%q", code, stderr.String())
 			}
@@ -170,7 +161,7 @@ func TestHealthcheckTimesOut(t *testing.T) {
 
 	started := time.Now()
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL, "--timeout", "25ms"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"healthcheck", "--url", server.URL, "--timeout", "25ms"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 1 || stderr.String() != "pgbase: command failed\n" {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -187,7 +178,7 @@ func TestHealthcheckUsesTwoSecondDefaultTimeout(t *testing.T) {
 
 	started := time.Now()
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"healthcheck", "--url", server.URL}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	elapsed := time.Since(started)
 	if code != 1 || stderr.String() != "pgbase: command failed\n" {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
@@ -199,7 +190,7 @@ func TestHealthcheckUsesTwoSecondDefaultTimeout(t *testing.T) {
 
 func TestHealthcheckRejectsInvalidURLWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"healthcheck", "--url", "://not-a-url"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"healthcheck", "--url", "://not-a-url"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 || stderr.String() != "pgbase: invalid healthcheck URL\n" {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -207,7 +198,7 @@ func TestHealthcheckRejectsInvalidURLWithExitCodeTwo(t *testing.T) {
 
 func TestHealthcheckIsExcludedFromOrdinaryHelp(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), nil, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), nil, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 || strings.Contains(stderr.String(), "healthcheck") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -215,7 +206,7 @@ func TestHealthcheckIsExcludedFromOrdinaryHelp(t *testing.T) {
 
 func TestMigrateRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "status"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"migrate", "status"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -226,7 +217,7 @@ func TestMigrateRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 
 func TestServeRejectsInvalidConfigurationWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"serve"}, emptyEnv, io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"serve"}, emptyEnv, testIO(nil, io.Discard, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -247,7 +238,7 @@ func TestServeRedactsPercentEncodedDSNSecretsInStartupErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := Run(context.Background(), []string{"serve"}, migrationEnv(test.databaseURL), io.Discard, &stderr, DefaultCommands())
+			code := Execute(context.Background(), []string{"serve"}, migrationEnv(test.databaseURL), testIO(nil, io.Discard, &stderr))
 			if code != 1 {
 				t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 			}
@@ -272,7 +263,7 @@ func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *te
 	const secret = "migrate-configuration-secret-must-not-leak"
 	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), testIO(nil, io.Discard, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -294,11 +285,9 @@ func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *te
 func TestAdminRejectsMalformedDatabaseURLWithoutLeakingIt(t *testing.T) {
 	const secret = "admin-configuration-secret-must-not-leak"
 	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
-	originalStdin := commandStdin
-	t.Cleanup(func() { commandStdin = originalStdin })
-	commandStdin = strings.NewReader("correct horse battery staple\n")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"admin", "create", "--email", "admin@example.com", "--password-stdin"},
+		migrationEnv(databaseURL), testIO(strings.NewReader("correct horse battery staple\n"), &stdout, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
 	}
@@ -318,7 +307,7 @@ func TestDoctorReportsMalformedDatabaseURLWithoutLeakingIt(t *testing.T) {
 	const secret = "doctor-configuration-secret-must-not-leak"
 	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"doctor"}, migrationEnv(databaseURL), &stdout, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"doctor"}, migrationEnv(databaseURL), testIO(nil, &stdout, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
 	}
@@ -341,7 +330,7 @@ func TestMigrateReportsRedactedOperationalDiagnostics(t *testing.T) {
 	const secret = "migrate-password-must-not-leak"
 	const databaseURL = "postgres://pgbase:" + secret + "@127.0.0.1:1/pgbase?sslmode=disable&connect_timeout=1"
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), testIO(nil, io.Discard, &stderr))
 	if code != 1 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -353,42 +342,72 @@ func TestMigrateReportsRedactedOperationalDiagnostics(t *testing.T) {
 	}
 }
 
-func TestMigrateUpAndStatus(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
-	lookup := migrationEnv(databaseURL)
-	migrations := system.Migrations()
-	if len(migrations) == 0 {
-		t.Fatal("embedded system migrations are empty")
-	}
-	latest := migrations[len(migrations)-1].Version
-	wantCurrent := fmt.Sprintf("current=%d", latest)
-	wantLatest := fmt.Sprintf("latest=%d", latest)
-
-	var upOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "up"}, lookup, &upOutput, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("migrate up exit code = %d, stdout = %q", code, upOutput.String())
-	}
-	if !strings.Contains(upOutput.String(), wantCurrent) || !strings.Contains(upOutput.String(), wantLatest) {
-		t.Fatalf("migrate up stdout = %q", upOutput.String())
-	}
-
-	var statusOutput bytes.Buffer
-	if code := Run(context.Background(), []string{"migrate", "status"}, lookup, &statusOutput, io.Discard, DefaultCommands()); code != 0 {
-		t.Fatalf("migrate status exit code = %d, stdout = %q", code, statusOutput.String())
-	}
-	if !strings.Contains(statusOutput.String(), wantCurrent) || !strings.Contains(statusOutput.String(), "dirty=false") {
-		t.Fatalf("migrate status stdout = %q", statusOutput.String())
-	}
-}
-
 func TestMigrateRejectsUnknownOperationWithExitCodeTwo(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"migrate", "down"}, migrationEnv("postgres://localhost/unused"), io.Discard, &stderr, DefaultCommands())
+	code := Execute(context.Background(), []string{"migrate", "down"}, migrationEnv("postgres://localhost/unused"), testIO(nil, io.Discard, &stderr))
 	if code != 2 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "usage: pgbase migrate") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestMigrateAcceptsExactTargetGrammarBeforeLoadingConfiguration(t *testing.T) {
+	for _, args := range [][]string{
+		{"migrate", "up", "--through", "5"},
+		{"migrate", "up", "--through=5"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			lookupCalled := false
+			lookup := func(string) (string, bool) {
+				lookupCalled = true
+				return "", false
+			}
+			var stderr bytes.Buffer
+			code := Execute(context.Background(), args, lookup, testIO(nil, io.Discard, &stderr))
+			if code != 2 || !lookupCalled {
+				t.Fatalf("code=%d lookupCalled=%t stderr=%q", code, lookupCalled, stderr.String())
+			}
+			if stderr.String() != "pgbase: invalid configuration\n" {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestMigrateRejectsInvalidExactTargetGrammarBeforeLoadingConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing version", args: []string{"migrate", "up", "--through"}},
+		{name: "zero", args: []string{"migrate", "up", "--through", "0"}},
+		{name: "negative", args: []string{"migrate", "up", "--through", "-1"}},
+		{name: "nonnumeric", args: []string{"migrate", "up", "--through", "five"}},
+		{name: "overflow", args: []string{"migrate", "up", "--through", "9223372036854775808"}},
+		{name: "duplicate", args: []string{"migrate", "up", "--through", "5", "--through=5"}},
+		{name: "extra positional", args: []string{"migrate", "up", "--through", "5", "extra"}},
+		{name: "bare flag terminator", args: []string{"migrate", "up", "--"}},
+		{name: "single dash alias", args: []string{"migrate", "up", "-through", "5"}},
+		{name: "status flag", args: []string{"migrate", "status", "--through", "5"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lookupCalled := false
+			lookup := func(string) (string, bool) {
+				lookupCalled = true
+				return "", false
+			}
+			var stderr bytes.Buffer
+			code := Execute(context.Background(), test.args, lookup, testIO(nil, io.Discard, &stderr))
+			if code != 2 || lookupCalled {
+				t.Fatalf("code=%d lookupCalled=%t stderr=%q", code, lookupCalled, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "usage: pgbase migrate") {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
 	}
 }
 

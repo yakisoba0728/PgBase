@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -360,14 +361,12 @@ func numericCollection() schema.Collection {
 	return schema.Collection{Fields: []schema.Field{{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric}}}
 }
 
-// The two tests below cover query package seams whose own source files carry no
-// unit test file: finalizeRecordPage in service.go and the relation planning
-// error mapping in relation_filter_sort.go.
+// The two tests below cover page assembly and relation planning error mapping.
 
 func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testing.T) {
 	t.Parallel()
 
-	service := &Service{cursors: NewCursorCodec(bytes.Repeat([]byte("k"), 32))}
+	service := &Service{cursors: cursor.NewCodec(bytes.Repeat([]byte("k"), 32))}
 	collectionID := uuid.MustParse("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")
 	sortKeys := effectiveSortKeys(nil)
 	expiresAt := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
@@ -382,8 +381,9 @@ func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testi
 			"payload":    strings.Repeat("x", 512*1024),
 		})
 	}
-	if err := service.finalizeRecordPage(&page, collectionID, sortKeys, expiresAt, true); err != nil {
-		t.Fatalf("finalizeRecordPage() error = %v", err)
+	page, err := assembleRecordPageForTest(service, page.Items, collectionID, sortKeys, expiresAt, true)
+	if err != nil {
+		t.Fatalf("pageAssembler.finish() error = %v", err)
 	}
 	if len(page.Items) == 0 || len(page.Items) >= 10 {
 		t.Fatalf("kept %d items, want the tail trimmed", len(page.Items))
@@ -418,25 +418,36 @@ func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testi
 		"created_at": time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
 		"payload":    strings.Repeat("x", maximumRecordPageBytes),
 	}}}
-	err = service.finalizeRecordPage(&single, collectionID, sortKeys, expiresAt, true)
+	_, err = assembleRecordPageForTest(service, single.Items, collectionID, sortKeys, expiresAt, true)
 	assertValidationDetail(t, err, "response", "response_too_large")
 }
 
-func TestRelationPlanningErrorKeepsValidationFailuresWhenACursorIsPresent(t *testing.T) {
-	t.Parallel()
-
-	planningErr := validation("filter", "unknown_field")
-	for _, hasCursor := range []bool{false, true} {
-		got := relationPlanningErrorForCursor(planningErr, hasCursor)
-		var cursorErr *InvalidCursorError
-		if errors.As(got, &cursorErr) {
-			t.Fatalf("planning error with cursor=%v became %T, want the validation error", hasCursor, got)
+func assembleRecordPageForTest(
+	service *Service,
+	items []map[string]any,
+	collectionID uuid.UUID,
+	sortKeys []SortKey,
+	expiresAt time.Time,
+	hasMore bool,
+) (RecordPage, error) {
+	candidates := make([]pageCandidate, len(items))
+	for index, item := range items {
+		values, err := recordSortValues(sortKeys, item)
+		if err != nil {
+			return RecordPage{}, err
 		}
-		assertValidationDetail(t, got, "filter", "unknown_field")
+		candidates[index] = pageCandidate{id: uuid.MustParse(item[systemFieldID].(string)), root: item, wire: item, cursorValues: values}
 	}
-	if got := relationPlanningErrorForCursor(nil, true); got != nil {
-		t.Fatalf("relationPlanningErrorForCursor(nil, true) = %v, want nil", got)
+	assembler := pageAssembler{
+		cursors: service.cursors, order: pageOrderForTest(collectionID, sortKeys),
+		expiresAt: expiresAt, maximumBytes: maximumRecordPageBytes,
+		cursorV5: pageDescriptorForTest(sortKeys),
 	}
+	keep, cursor, err := assembler.finish(candidates, hasMore)
+	if err != nil {
+		return RecordPage{}, err
+	}
+	return RecordPage{Items: items[:keep], NextCursor: cursor}, nil
 }
 
 func TestEncodeRecordReturnsOpaqueCategorizedScanFailure(t *testing.T) {

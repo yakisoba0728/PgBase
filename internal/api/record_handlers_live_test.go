@@ -1,3 +1,5 @@
+//go:build integration
+
 package api
 
 import (
@@ -34,23 +36,23 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	definition := schema.CreateCollectionInput{Name: "nullable_api_records", Fields: []schema.FieldInput{
 		{Name: "title", Type: schema.TypeText, Required: true},
 		{Name: "active", Type: schema.TypeBoolean},
 		{Name: "note", Type: schema.TypeText},
 		{Name: "metadata", Type: schema.TypeJSONB, Required: true},
 	}}
-	plan, err := schemas.PlanCreate(ctx, definition)
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := schemas.ApplyCreate(ctx, definition, plan.Checksum, plan.BaseVersion, administrator.ID); err != nil {
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administrator.ID)); err != nil {
 		t.Fatal(err)
 	}
 
-	records := recordops.NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"))
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
+	records := recordops.NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
 	create := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/nullable_api_records/records",
 		`{"title":"kept","active":false,"note":"","metadata":null}`, true)
 	createdResponse := httptest.NewRecorder()
@@ -233,14 +235,14 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemas := schema.NewService(pool, &schema.Cache{}, schema.Planner{})
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
-		plan, err := schemas.PlanCreate(ctx, input)
+		plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := schemas.ApplyCreate(ctx, input, plan.Checksum, plan.BaseVersion, administrator.ID); err != nil {
+		if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(input), plan, administrator.ID)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -260,7 +262,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 	}})
 
 	const cursorSecret = "0123456789abcdef0123456789abcdef"
-	records := recordops.NewService(pool, schemas, []byte(cursorSecret))
+	records := recordops.NewService(pool, schemas, []byte(cursorSecret), nil, nil, nil)
 	principal := recordops.Principal{Kind: recordops.PrincipalAdministrator, ID: administrator.ID}
 	createPerson := func(requestID, name string) recordops.MutationResult {
 		t.Helper()
@@ -293,7 +295,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		articleIDs = append(articleIDs, created.Record.Data["id"].(string))
 	}
 
-	handler := NewRouter(recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: administrator}, records))
 	serve := func(path string) *httptest.ResponseRecorder {
 		t.Helper()
 		response := httptest.NewRecorder()
@@ -346,6 +348,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		t.Fatalf("expanded target did not refresh: %#v", updatedBody["expand"])
 	}
 
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	firstPage := serve("/api/v1/collections/api_expand_articles/records?limit=1&expand=owner%2Ctags")
 	var page struct {
 		Items      []map[string]any `json:"items"`

@@ -1,0 +1,109 @@
+# HELP pgbase_application_operation_duration_seconds Bounded application operation duration in seconds.
+# TYPE pgbase_application_operation_duration_seconds histogram
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.005"} 0
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.01"} 0
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.025"} 0
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.05"} 0
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.1"} 0
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.25"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="0.5"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="1"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="2.5"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="5"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="10"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="30"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="60"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="120"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="300"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="600"} 1
+pgbase_application_operation_duration_seconds_bucket{component="schema",operation="schema_create",outcome="success",le="+Inf"} 1
+pgbase_application_operation_duration_seconds_sum{component="schema",operation="schema_create",outcome="success"} 0.25
+pgbase_application_operation_duration_seconds_count{component="schema",operation="schema_create",outcome="success"} 1
+# HELP pgbase_application_operations_total Total bounded application operations by component, operation, and outcome.
+# TYPE pgbase_application_operations_total counter
+pgbase_application_operations_total{component="schema",operation="schema_create",outcome="success"} 1
+# HELP pgbase_application_readiness Most recently observed readiness state of each bounded dependency (1 ready, 0 not ready).
+# TYPE pgbase_application_readiness gauge
+pgbase_application_readiness{component="database"} 1
+pgbase_application_readiness{component="http"} 0
+pgbase_application_readiness{component="migrations"} 0
+pgbase_application_readiness{component="schema_listener"} 0
+# HELP pgbase_application_readiness_transitions_total Total observed readiness state transitions by dependency and destination state.
+# TYPE pgbase_application_readiness_transitions_total counter
+pgbase_application_readiness_transitions_total{component="database",ready="false"} 0
+pgbase_application_readiness_transitions_total{component="database",ready="true"} 1
+pgbase_application_readiness_transitions_total{component="http",ready="false"} 0
+pgbase_application_readiness_transitions_total{component="http",ready="true"} 0
+pgbase_application_readiness_transitions_total{component="migrations",ready="false"} 0
+pgbase_application_readiness_transitions_total{component="migrations",ready="true"} 0
+pgbase_application_readiness_transitions_total{component="schema_listener",ready="false"} 0
+pgbase_application_readiness_transitions_total{component="schema_listener",ready="true"} 0
+# HELP pgbase_database_pool_acquire_count_total Total successful connection acquisitions.
+# TYPE pgbase_database_pool_acquire_count_total counter
+pgbase_database_pool_acquire_count_total 11
+# HELP pgbase_database_pool_acquire_duration_seconds_total Cumulative duration of successful connection acquisitions in seconds.
+# TYPE pgbase_database_pool_acquire_duration_seconds_total counter
+pgbase_database_pool_acquire_duration_seconds_total 2.5
+# HELP pgbase_database_pool_acquired_connections Current number of acquired connections.
+# TYPE pgbase_database_pool_acquired_connections gauge
+pgbase_database_pool_acquired_connections 2
+# HELP pgbase_database_pool_canceled_acquire_count_total Total connection acquisitions canceled by context.
+# TYPE pgbase_database_pool_canceled_acquire_count_total counter
+pgbase_database_pool_canceled_acquire_count_total 3
+# HELP pgbase_database_pool_constructing_connections Current number of connections being constructed.
+# TYPE pgbase_database_pool_constructing_connections gauge
+pgbase_database_pool_constructing_connections 4
+# HELP pgbase_database_pool_empty_acquire_count_total Total acquisitions that waited because the pool was empty.
+# TYPE pgbase_database_pool_empty_acquire_count_total counter
+pgbase_database_pool_empty_acquire_count_total 5
+# HELP pgbase_database_pool_empty_acquire_wait_seconds_total Cumulative time waiting because the pool was empty in seconds.
+# TYPE pgbase_database_pool_empty_acquire_wait_seconds_total counter
+pgbase_database_pool_empty_acquire_wait_seconds_total 0.75
+# HELP pgbase_database_pool_idle_connections Current number of idle connections.
+# TYPE pgbase_database_pool_idle_connections gauge
+pgbase_database_pool_idle_connections 6
+# HELP pgbase_database_pool_max_connections Configured maximum pool connections.
+# TYPE pgbase_database_pool_max_connections gauge
+pgbase_database_pool_max_connections 20
+# HELP pgbase_database_pool_max_idle_destroy_count_total Total connections destroyed after exceeding maximum idle time.
+# TYPE pgbase_database_pool_max_idle_destroy_count_total counter
+pgbase_database_pool_max_idle_destroy_count_total 7
+# HELP pgbase_database_pool_max_lifetime_destroy_count_total Total connections destroyed after exceeding maximum lifetime.
+# TYPE pgbase_database_pool_max_lifetime_destroy_count_total counter
+pgbase_database_pool_max_lifetime_destroy_count_total 8
+# HELP pgbase_database_pool_new_connections_count_total Total connections constructed by the pool.
+# TYPE pgbase_database_pool_new_connections_count_total counter
+pgbase_database_pool_new_connections_count_total 9
+# HELP pgbase_database_pool_total_connections Current total pool connections.
+# TYPE pgbase_database_pool_total_connections gauge
+pgbase_database_pool_total_connections 10
+# HELP pgbase_database_transaction_retries_total Total transaction retries by bounded cause and exhausted state.
+# TYPE pgbase_database_transaction_retries_total counter
+pgbase_database_transaction_retries_total{cause="deadlock",exhausted="true"} 1
+# HELP pgbase_http_request_duration_seconds HTTP request duration in seconds by route template, method, and status class.
+# TYPE pgbase_http_request_duration_seconds histogram
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.005"} 0
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.01"} 0
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.025"} 0
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.05"} 0
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.1"} 0
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.25"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="0.5"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="1"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="2.5"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="5"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="10"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="15"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="30"} 1
+pgbase_http_request_duration_seconds_bucket{method="GET",route="/health/live",status="2xx",le="+Inf"} 1
+pgbase_http_request_duration_seconds_sum{method="GET",route="/health/live",status="2xx"} 0.25
+pgbase_http_request_duration_seconds_count{method="GET",route="/health/live",status="2xx"} 1
+# HELP pgbase_http_requests_in_flight Current in-flight HTTP requests by route template and method.
+# TYPE pgbase_http_requests_in_flight gauge
+pgbase_http_requests_in_flight{method="GET",route="/health/live"} 0
+# HELP pgbase_http_requests_total Total HTTP requests handled by route template, method, and status class.
+# TYPE pgbase_http_requests_total counter
+pgbase_http_requests_total{method="GET",route="/health/live",status="2xx"} 1
+# HELP pgbase_observability_dropped_events_total Total invalid telemetry events dropped before labels were created.
+# TYPE pgbase_observability_dropped_events_total counter
+pgbase_observability_dropped_events_total 1

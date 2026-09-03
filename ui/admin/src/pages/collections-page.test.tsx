@@ -1,61 +1,52 @@
-import { render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
-import { App } from "../app";
-import { activeSessionExpiresAt } from "../test/fixtures";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
+import type { FieldDefinition } from "../backend/ports";
+import { collection, renderAdmin, scriptedAdmin, textField } from "../test/harness";
 
-function response(status: number, body?: unknown): Response {
-  return { ok: status >= 200 && status < 300, status, headers: new Headers({ "content-type": "application/json" }), text: vi.fn().mockResolvedValue(body === undefined ? "" : JSON.stringify(body)) } as unknown as Response;
-}
+const owner: FieldDefinition = {
+  name: "owner", type: "relation", required: false, unique: false, indexed: true, ordinal: 1,
+  relation: { targetCollectionId: "users-id", cardinality: "single", minSelect: 0, maxSelect: 1, onDelete: "restrict" },
+};
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  window.history.replaceState(null, "", "/admin/");
-});
-
-it("shows relation field counts in the collection catalog", async () => {
-  window.history.replaceState(null, "", "/admin/collections");
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(response(200, {
-      administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
-      csrfToken: "csrf-token",
-      expiresAt: activeSessionExpiresAt(),
-    }))
-    .mockResolvedValueOnce(response(200, {
-      version: 5,
-      collections: {
-        posts: {
-          id: "posts-id", name: "posts", tableName: "posts",
-          fields: [
-            { id: "title-id", name: "title", columnName: "title", type: "text", required: false, unique: false, indexed: false, ordinal: 0 },
-            {
-              id: "owner-id", name: "owner", columnName: "owner", type: "relation", required: false, unique: false, indexed: true, ordinal: 1,
-              relation: {
-                targetCollectionId: "users-id", cardinality: "single", minSelect: 0, maxSelect: 1,
-                onDelete: "restrict", valueCodecVersion: 1, storage: { kind: "inline_fk_v1", name: "owner" },
-              },
-            },
-          ],
-        },
+describe("collections page", () => {
+  it("lists collections in name order with their field and relation counts", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    harness.script.catalog.push({
+      value: {
+        version: 5,
+        collections: [
+          collection("users", "users-id", [textField("name", 0)]),
+          collection("posts", "posts-id", [textField("title", 0), owner]),
+        ],
       },
-    }));
-  vi.stubGlobal("fetch", fetchMock);
-  render(<App />);
+    });
+    const user = userEvent.setup();
+    renderAdmin(harness);
 
-  expect(await screen.findByText("2 fields · 1 relation")).toBeVisible();
-});
+    expect(await screen.findByText("Catalog version 5")).toBeVisible();
+    expect(screen.getByText("2 fields · 1 relation")).toBeVisible();
+    expect(screen.getByText("1 fields")).toBeVisible();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent?.slice(0, 5))).toEqual(["posts", "users"]);
 
-it("ends the loading state when the collections request fails at the network boundary", async () => {
-  window.history.replaceState(null, "", "/admin/collections");
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(response(200, {
-      administrator: { id: "admin-id", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
-      csrfToken: "csrf-token",
-      expiresAt: activeSessionExpiresAt(),
-    }))
-    .mockRejectedValueOnce(new TypeError("Failed to fetch"));
-  vi.stubGlobal("fetch", fetchMock);
-  render(<App />);
+    await user.click(screen.getByRole("link", { name: "posts" }));
+    expect(harness.history.path()).toBe("/admin/collections/posts/records");
+  });
 
-  expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load collections.");
-  expect(screen.queryByText("Loading collections…")).not.toBeInTheDocument();
+  it("ends the loading state when the catalog cannot be read", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    harness.script.catalog.push({ fault: { kind: "unreachable" } });
+    renderAdmin(harness);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load collections.");
+    expect(screen.queryByText("Loading collections…")).not.toBeInTheDocument();
+  });
+
+  it("says so when the instance has no collections yet", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    harness.script.catalog.push({ value: { version: 0, collections: [] } });
+    renderAdmin(harness);
+
+    expect(await screen.findByText("No collections yet.")).toBeVisible();
+  });
 });

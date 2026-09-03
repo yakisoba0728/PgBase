@@ -2,7 +2,6 @@
 package migrate
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -26,25 +25,29 @@ CREATE TABLE IF NOT EXISTS pgbase_meta.system_migrations (
     execution_ms bigint NOT NULL CHECK (execution_ms >= 0)
 );`
 
-// Runner applies the system schema migrations using the shared database pool.
 type Runner struct {
-	pool       *database.Pool
-	logger     *slog.Logger
-	migrations []system.Migration
-	recorder   observability.Recorder
+	pool          *database.Pool
+	logger        *slog.Logger
+	migrations    []system.Migration
+	compatibility *historyCompatibilityPolicy
+	recorder      observability.Recorder
 }
 
-// New creates a system migration runner.
 func New(pool *database.Pool, logger *slog.Logger) *Runner {
 	return NewWithRecorder(pool, logger, nil)
 }
 
-// NewWithRecorder creates a system migration runner with bounded telemetry.
 func NewWithRecorder(pool *database.Pool, logger *slog.Logger, recorder observability.Recorder) *Runner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Runner{pool: pool, logger: logger, migrations: system.Migrations(), recorder: recorder}
+	return &Runner{
+		pool:          pool,
+		logger:        logger,
+		migrations:    system.Migrations(),
+		compatibility: schemaCompilerGenerationPreparationPolicy(system.Migrations()),
+		recorder:      recorder,
+	}
 }
 
 // Up applies every pending embedded migration atomically.
@@ -53,6 +56,9 @@ func (r *Runner) Up(ctx context.Context) (err error) {
 	defer r.finishOperation(ctx, observability.OperationMigrationUp, started, &err)
 	if r == nil || r.pool == nil {
 		return fmt.Errorf("migration pool is nil")
+	}
+	if err := validateMigrationManifest(r.migrations); err != nil {
+		return err
 	}
 
 	type appliedMigration struct {
@@ -79,31 +85,15 @@ func (r *Runner) Up(ctx context.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		known := make(map[int64]system.Migration, len(r.migrations))
-		for _, migration := range r.migrations {
-			known[migration.Version] = migration
+		history := inspectHistory(r.migrations, applied)
+		if history.err != nil {
+			return history.err
 		}
-		for version := range applied {
-			if _, ok := known[version]; !ok {
-				return fmt.Errorf("system migration history contains unknown version %d", version)
-			}
-		}
-		missingKnownMigration := false
-		for _, migration := range r.migrations {
-			checksum, ok := applied[migration.Version]
-			if !ok {
-				missingKnownMigration = true
-				continue
-			}
-			if missingKnownMigration {
-				return fmt.Errorf("system migration history is out of order at applied version %d", migration.Version)
-			}
-			if !bytes.Equal(checksum, migration.SHA256[:]) {
-				return fmt.Errorf("system migration %d (%s) checksum mismatch", migration.Version, migration.Name)
-			}
+		if history.issue != nil {
+			return history.issue
 		}
 		for _, migration := range r.migrations {
-			if _, ok := applied[migration.Version]; ok {
+			if _, ok := history.applied[migration.Version]; ok {
 				continue
 			}
 
@@ -138,14 +128,14 @@ func (r *Runner) record(ctx context.Context, event observability.Event) {
 
 func (r *Runner) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
 	if recovered := recover(); recovered != nil {
-		r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, observability.OutcomeFailure, time.Since(started)))
+		r.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
 	}
 	var err error
 	if operationErr != nil {
 		err = *operationErr
 	}
-	r.record(ctx, observability.OperationEvent(observability.ComponentMigration, operation, migrationOperationOutcome(err), time.Since(started)))
+	r.record(ctx, observability.OperationEvent(operation, migrationOperationOutcome(err), time.Since(started)))
 }
 
 func migrationOperationOutcome(err error) observability.Outcome {
@@ -174,16 +164,50 @@ func readApplied(ctx context.Context, db database.DBTX) (map[int64][]byte, error
 	defer rows.Close()
 
 	applied := make(map[int64][]byte)
+	var duplicateVersion, latestVersion int64
+	var duplicateFound bool
 	for rows.Next() {
 		var version int64
 		var checksum []byte
 		if err := rows.Scan(&version, &checksum); err != nil {
 			return nil, fmt.Errorf("scan applied system migration: %w", err)
 		}
+		if version > latestVersion {
+			latestVersion = version
+		}
+		if _, exists := applied[version]; exists {
+			if !duplicateFound || version < duplicateVersion {
+				duplicateVersion = version
+			}
+			duplicateFound = true
+			continue
+		}
 		applied[version] = checksum
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate applied system migrations: %w", err)
 	}
+	if duplicateFound {
+		return nil, &HistoryIssue{
+			Kind:           HistoryIssueDuplicateVersion,
+			Version:        duplicateVersion,
+			appliedVersion: latestVersion,
+		}
+	}
 	return applied, nil
+}
+
+func readAppliedIfPresent(ctx context.Context, db database.DBTX) (map[int64][]byte, bool, error) {
+	var historyTable *string
+	if err := db.QueryRow(ctx, "select to_regclass('pgbase_meta.system_migrations')::text").Scan(&historyTable); err != nil {
+		return nil, false, fmt.Errorf("check system migration history: %w", err)
+	}
+	if historyTable == nil {
+		return nil, false, nil
+	}
+	applied, err := readApplied(ctx, db)
+	if err != nil {
+		return nil, true, err
+	}
+	return applied, true, nil
 }

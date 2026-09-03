@@ -1,3 +1,5 @@
+//go:build integration
+
 package relation
 
 import (
@@ -33,10 +35,10 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		if err := fixture.bindings.LockCollections(ctx, tx, input); err != nil {
+		if err := fixture.bindings.lockCollections(ctx, tx, input); err != nil {
 			t.Fatalf("lock collections: %v", err)
 		}
-		err = fixture.bindings.LockRows(ctx, tx, fixture.sourceOne, SourceStored, input)
+		err = fixture.bindings.lockRows(ctx, tx, fixture.sourceOne, sourceStored, input)
 		assertValidation(t, err, "labels", "relation_target_invalid")
 		if strings.Contains(err.Error(), missing.String()) || strings.Contains(err.Error(), "targets") {
 			t.Fatalf("missing-target error disclosed existence details: %q", err)
@@ -65,11 +67,11 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		}
 		defer tx.Rollback(ctx)
 		tracer.Reset()
-		if err := fixture.bindings.LockRows(ctx, tx, fixture.sourceOne, SourceStored, input); err != nil {
+		if err := fixture.bindings.lockRows(ctx, tx, fixture.sourceOne, sourceStored, input); err != nil {
 			t.Fatalf("lock batched rows: %v", err)
 		}
 		if got := tracer.RowLockQueries(); got != 2 {
-			t.Fatalf("LockRows issued %d row-lock queries; want source UPDATE + one target batch", got)
+			t.Fatalf("lockRows issued %d row-lock queries; want source UPDATE + one target batch", got)
 		}
 	})
 
@@ -83,13 +85,13 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := fixture.bindings.LockCollections(ctx, tx, input); err != nil {
+		if err := fixture.bindings.lockCollections(ctx, tx, input); err != nil {
 			t.Fatal(err)
 		}
-		if err := fixture.bindings.LockRows(ctx, tx, fixture.sourceOne, SourceStored, input); err != nil {
+		if err := fixture.bindings.lockRows(ctx, tx, fixture.sourceOne, sourceStored, input); err != nil {
 			t.Fatal(err)
 		}
-		if err := fixture.bindings.ReplaceMulti(ctx, tx, fixture.sourceOne, input); err != nil {
+		if err := fixture.bindings.replaceMulti(ctx, tx, fixture.sourceOne, input); err != nil {
 			t.Fatalf("replace multi: %v", err)
 		}
 		if got := readTargets(t, ctx, tx, fixture.labelTable, fixture.sourceOne); !reflect.DeepEqual(got, []uuid.UUID{fixture.targetTwo, fixture.targetOne}) {
@@ -520,7 +522,11 @@ func newLiveFixture(t *testing.T, ctx context.Context, databaseURL string) *live
 		"create schema app",
 		"create schema pgbase_relation",
 		`create table app.targets (id uuid primary key)`,
-		`create table app.sources (id uuid primary key)`,
+		`create table app.sources (
+			id uuid primary key,
+			created_at timestamptz not null default statement_timestamp(),
+			updated_at timestamptz not null default statement_timestamp()
+		)`,
 		createLiveEdgeSQL(fixture.labelTable, "sources", "targets"),
 		createLiveEdgeSQL(fixture.groupTable, "sources", "targets"),
 	}
@@ -540,9 +546,9 @@ func newLiveFixture(t *testing.T, ctx context.Context, databaseURL string) *live
 	return fixture
 }
 
-func (f *liveFixture) decode(t *testing.T, payload map[string]json.RawMessage) Input {
+func (f *liveFixture) decode(t *testing.T, payload map[string]json.RawMessage) writeInput {
 	t.Helper()
-	input, err := f.bindings.Decode(PatchInput, payload)
+	input, err := f.bindings.decode(PatchWrite, payload)
 	if err != nil {
 		t.Fatalf("decode live input: %v", err)
 	}
@@ -779,7 +785,7 @@ func (f *liveFixture) testPendingSelf(t *testing.T, ctx context.Context) {
 	if _, err := f.conn.Exec(ctx, createLiveEdgeSQL(table, "nodes", "nodes")); err != nil {
 		t.Fatal(err)
 	}
-	input, err := bindings.Decode(CreateInput, map[string]json.RawMessage{
+	input, err := bindings.decode(CreateWrite, map[string]json.RawMessage{
 		"peers": json.RawMessage(`["` + recordID.String() + `"]`),
 	})
 	if err != nil {
@@ -790,16 +796,16 @@ func (f *liveFixture) testPendingSelf(t *testing.T, ctx context.Context) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if err := bindings.LockCollections(ctx, tx, input); err != nil {
+	if err := bindings.lockCollections(ctx, tx, input); err != nil {
 		t.Fatal(err)
 	}
-	if err := bindings.LockRows(ctx, tx, recordID, SourcePending, input); err != nil {
+	if err := bindings.lockRows(ctx, tx, recordID, sourcePending, input); err != nil {
 		t.Fatalf("pending self target was rejected: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `insert into app.nodes (id) values ($1)`, recordID); err != nil {
 		t.Fatal(err)
 	}
-	if err := bindings.ReplaceMulti(ctx, tx, recordID, input); err != nil {
+	if err := bindings.replaceMulti(ctx, tx, recordID, input); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -818,7 +824,7 @@ func (f *liveFixture) testPendingSelf(t *testing.T, ctx context.Context) {
 	if _, err := f.conn.Exec(ctx, `insert into app.nodes (id) values ($1), ($2)`, lower, upper); err != nil {
 		t.Fatal(err)
 	}
-	storedInput, err := bindings.Decode(PatchInput, map[string]json.RawMessage{
+	storedInput, err := bindings.decode(PatchWrite, map[string]json.RawMessage{
 		"peers": json.RawMessage(`["` + upper.String() + `","` + recordID.String() + `","` + lower.String() + `"]`),
 	})
 	if err != nil {
@@ -830,7 +836,7 @@ func (f *liveFixture) testPendingSelf(t *testing.T, ctx context.Context) {
 	}
 	defer storedTx.Rollback(ctx)
 	counted := &countingTx{Tx: storedTx}
-	if err := bindings.LockRows(ctx, counted, recordID, SourceStored, storedInput); err != nil {
+	if err := bindings.lockRows(ctx, counted, recordID, sourceStored, storedInput); err != nil {
 		t.Fatalf("lock stored self relation: %v", err)
 	}
 	if counted.rowLockQueries != 3 {
@@ -873,11 +879,11 @@ func (f *liveFixture) testOppositeCollectionLocks(t *testing.T, ctx context.Cont
 	if _, err := f.conn.Exec(ctx, `insert into app.beta (id) values ($1)`, bRecord); err != nil {
 		t.Fatal(err)
 	}
-	aInput, err := aBindings.Decode(PatchInput, map[string]json.RawMessage{"beta": json.RawMessage(`"` + bRecord.String() + `"`)})
+	aInput, err := aBindings.decode(PatchWrite, map[string]json.RawMessage{"beta": json.RawMessage(`"` + bRecord.String() + `"`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	bInput, err := bBindings.Decode(PatchInput, map[string]json.RawMessage{"alpha": json.RawMessage(`"` + aRecord.String() + `"`)})
+	bInput, err := bBindings.decode(PatchWrite, map[string]json.RawMessage{"alpha": json.RawMessage(`"` + aRecord.String() + `"`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,11 +923,11 @@ func (f *liveFixture) testOppositeCollectionLocks(t *testing.T, ctx context.Cont
 	results := make(chan result, 2)
 	go func() {
 		<-start
-		results <- result{first: true, err: aBindings.LockCollections(ctx, firstTx, aInput)}
+		results <- result{first: true, err: aBindings.lockCollections(ctx, firstTx, aInput)}
 	}()
 	go func() {
 		<-start
-		results <- result{first: false, err: bBindings.LockCollections(ctx, secondTx, bInput)}
+		results <- result{first: false, err: bBindings.lockCollections(ctx, secondTx, bInput)}
 	}()
 	close(start)
 

@@ -11,6 +11,100 @@ import (
 	"github.com/google/uuid"
 )
 
+// planTestCatalog builds the catalog shape the compiled cache guarantees:
+// keyed by collection name, with the derived incoming-relation index present.
+func planTestCatalog(version int64, collections ...Collection) Catalog {
+	byName := make(map[string]Collection, len(collections))
+	for _, collection := range collections {
+		byName[collection.Name] = collection
+	}
+	return Catalog{Version: version, Collections: byName, Incoming: buildIncomingIndex(byName)}
+}
+
+func planCreateAt(version int64, input CreateCollectionInput) (Plan, error) {
+	return CompilePlan(planTestCatalog(version), NewCreateChange(input))
+}
+
+func planUpdateAt(version int64, current Collection, input UpdateCollectionInput) (Plan, error) {
+	return CompilePlan(planTestCatalog(version, current), NewUpdateChange(input))
+}
+
+func planDeleteAt(version int64, current Collection) (Plan, error) {
+	return CompilePlan(planTestCatalog(version, current), NewDeleteChange(current.Name))
+}
+
+func TestPlannerPlanCopiesTheInputOutOfTheCallersReach(t *testing.T) {
+	current := updateTestCollection()
+	catalog := planTestCatalog(7, current)
+	createInput := CreateCollectionInput{Name: "comments", Fields: []FieldInput{{
+		Name: "body", Type: TypeText, Default: json.RawMessage(`"draft"`),
+	}}}
+	updateInput := UpdateCollectionInput{Name: current.Name, Fields: planInputFields(Plan{Definition: PlannedCollection{Fields: []PlannedField{
+		{Name: "title", Type: TypeText, Required: true, Indexed: true},
+		{Name: "views", Type: TypeBigInt},
+	}}})}
+
+	tests := []struct {
+		name   string
+		change Change
+	}{
+		{name: "create", change: NewCreateChange(createInput)},
+		{name: "update", change: NewUpdateChange(updateInput)},
+		{name: "delete", change: NewDeleteChange(current.Name)},
+	}
+	want := make([]Plan, len(tests))
+	for index, test := range tests {
+		plan, err := CompilePlan(catalog, test.change)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[index] = plan
+	}
+
+	createInput.Name = "mutated"
+	createInput.Fields[0].Name = "mutated"
+	updateInput.Name = "mutated"
+	updateInput.Fields[0].Name = "mutated"
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := CompilePlan(catalog, test.change)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want[index]) {
+				t.Fatalf("Plan() = %#v, want %#v", got, want[index])
+			}
+		})
+	}
+}
+
+func TestPlannerPlanRejectsACatalogEntryFiledUnderAnotherName(t *testing.T) {
+	current := updateTestCollection()
+	catalog := Catalog{Version: 7, Collections: map[string]Collection{"others": current}}
+	_, err := CompilePlan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "others"}))
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Plan(mis-keyed catalog) error = %v, want ErrConflict", err)
+	}
+}
+
+func TestPlannerPlanRejectsAChangeForAnAbsentCollection(t *testing.T) {
+	catalog := planTestCatalog(7)
+	if _, err := CompilePlan(catalog, NewUpdateChange(UpdateCollectionInput{Name: "posts"})); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("Plan(update absent) error = %v, want ErrCollectionNotFound", err)
+	}
+	if _, err := CompilePlan(catalog, NewDeleteChange("posts")); !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("Plan(delete absent) error = %v, want ErrCollectionNotFound", err)
+	}
+}
+
+func TestPlannerPlanRejectsUnconstructedChange(t *testing.T) {
+	_, err := CompilePlan(Catalog{Collections: map[string]Collection{}}, Change{})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Plan(zero Change) error = %v, want ErrConflict", err)
+	}
+}
+
 func TestPlanCreateIsDeterministic(t *testing.T) {
 	input := CreateCollectionInput{
 		Name: "posts",
@@ -19,12 +113,11 @@ func TestPlanCreateIsDeterministic(t *testing.T) {
 			{Name: "views", Type: TypeBigInt, Default: json.RawMessage(`"0"`)},
 		},
 	}
-	planner := Planner{}
-	first, err := planner.PlanCreate(7, input)
+	first, err := planCreateAt(7, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := planner.PlanCreate(7, input)
+	second, err := planCreateAt(7, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +157,7 @@ func TestPlanChecksumIncludesCompilerVersion(t *testing.T) {
 }
 
 func TestPlanCreateValidatesFieldsAndAvoidsRedundantIndexes(t *testing.T) {
-	planner := Planner{}
-	_, err := planner.PlanCreate(0, CreateCollectionInput{
+	_, err := planCreateAt(0, CreateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
 			{Name: "title", Type: TypeText},
@@ -77,7 +169,7 @@ func TestPlanCreateValidatesFieldsAndAvoidsRedundantIndexes(t *testing.T) {
 		t.Fatalf("duplicate fields error = %#v, want fields.1.name -> duplicate_name", err)
 	}
 
-	plan, err := planner.PlanCreate(0, CreateCollectionInput{
+	plan, err := planCreateAt(0, CreateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "slug", Type: TypeText, Unique: true, Indexed: true}},
 	})
@@ -90,12 +182,11 @@ func TestPlanCreateValidatesFieldsAndAvoidsRedundantIndexes(t *testing.T) {
 }
 
 func TestPlanCreateRejectsDefinitionsBeyondPostgreSQLLimits(t *testing.T) {
-	planner := Planner{}
 	fields := make([]FieldInput, maximumCollectionFields+1)
 	for index := range fields {
 		fields[index] = FieldInput{Name: fmt.Sprintf("field_%d", index), Type: TypeText}
 	}
-	_, err := planner.PlanCreate(0, CreateCollectionInput{Name: "too_wide", Fields: fields})
+	_, err := planCreateAt(0, CreateCollectionInput{Name: "too_wide", Fields: fields})
 	var validation *ValidationError
 	if !errors.As(err, &validation) || !reflect.DeepEqual(validation.Details, []ValidationDetail{{Field: "fields", Code: "too_many_fields"}}) {
 		t.Fatalf("wide collection error = %#v", err)
@@ -110,7 +201,7 @@ func TestPlanCreateRejectsDefinitionsBeyondPostgreSQLLimits(t *testing.T) {
 		{name: "jsonb exponent", typ: TypeJSONB, raw: json.RawMessage(`{"value":1e131072}`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := planner.PlanCreate(0, CreateCollectionInput{Name: "limits", Fields: []FieldInput{{Name: "value", Type: test.typ, Default: test.raw}}})
+			_, err := planCreateAt(0, CreateCollectionInput{Name: "limits", Fields: []FieldInput{{Name: "value", Type: test.typ, Default: test.raw}}})
 			if !errors.As(err, &validation) || validation.Details[0].Code != "invalid_default" {
 				t.Fatalf("limit error = %#v", err)
 			}
@@ -119,7 +210,7 @@ func TestPlanCreateRejectsDefinitionsBeyondPostgreSQLLimits(t *testing.T) {
 }
 
 func TestPlanCreateRejectsTimestampYearZeroAtTheDefaultField(t *testing.T) {
-	_, err := (Planner{}).PlanCreate(0, CreateCollectionInput{
+	_, err := planCreateAt(0, CreateCollectionInput{
 		Name:   "events",
 		Fields: []FieldInput{{Name: "starts_at", Type: TypeTimestampTZ, Default: json.RawMessage(`"0000-01-01T00:00:00Z"`)}},
 	})
@@ -131,8 +222,7 @@ func TestPlanCreateRejectsTimestampYearZeroAtTheDefaultField(t *testing.T) {
 }
 
 func TestPlanCreateRejectsInjectionShapedMetadata(t *testing.T) {
-	planner := Planner{}
-	_, err := planner.PlanCreate(0, CreateCollectionInput{
+	_, err := planCreateAt(0, CreateCollectionInput{
 		Name:   `posts; DROP TABLE pgbase_meta.collections`,
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Default: json.RawMessage(`{"sql":"'x'; DROP TABLE app.posts"}`)}},
 	})
@@ -143,7 +233,7 @@ func TestPlanCreateRejectsInjectionShapedMetadata(t *testing.T) {
 		t.Fatalf("validation error leaked untrusted SQL: %v", err)
 	}
 
-	_, err = planner.PlanCreate(0, CreateCollectionInput{
+	_, err = planCreateAt(0, CreateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Default: json.RawMessage(`{"sql":"'x'; DROP TABLE app.posts"}`)}},
 	})
@@ -154,8 +244,7 @@ func TestPlanCreateRejectsInjectionShapedMetadata(t *testing.T) {
 }
 
 func TestPlanCreateCanonicalizesJSONDefaultsAndSupportsEveryFieldType(t *testing.T) {
-	planner := Planner{}
-	plan, err := planner.PlanCreate(3, CreateCollectionInput{
+	plan, err := planCreateAt(3, CreateCollectionInput{
 		Name: "all_types",
 		Fields: []FieldInput{
 			{Name: "flag", Type: TypeBoolean, Default: json.RawMessage("false")},
@@ -185,7 +274,7 @@ func TestPlanCreateCanonicalizesJSONDefaultsAndSupportsEveryFieldType(t *testing
 		t.Errorf("index name is not a PostgreSQL-safe length: %q", plan.Statements[2])
 	}
 
-	changedVersion, err := planner.PlanCreate(4, CreateCollectionInput{Name: "all_types", Fields: planInputFields(plan)})
+	changedVersion, err := planCreateAt(4, CreateCollectionInput{Name: "all_types", Fields: planInputFields(plan)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +306,6 @@ func updateTestCollection() Collection {
 }
 
 func TestPlanUpdateIsDeterministicWithGoldenStatements(t *testing.T) {
-	planner := Planner{}
 	input := UpdateCollectionInput{
 		Name: "posts",
 		Fields: []FieldInput{
@@ -226,11 +314,11 @@ func TestPlanUpdateIsDeterministicWithGoldenStatements(t *testing.T) {
 			{Name: "extra", Type: TypeBoolean, Default: json.RawMessage("false")},
 		},
 	}
-	first, err := planner.PlanUpdate(7, updateTestCollection(), input)
+	first, err := planUpdateAt(7, updateTestCollection(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := planner.PlanUpdate(7, updateTestCollection(), input)
+	second, err := planUpdateAt(7, updateTestCollection(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,12 +340,11 @@ func TestPlanUpdateIsDeterministicWithGoldenStatements(t *testing.T) {
 }
 
 func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing.T) {
-	planner := Planner{}
 	drop := UpdateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}},
 	}
-	plan, err := planner.PlanUpdate(7, updateTestCollection(), drop)
+	plan, err := planUpdateAt(7, updateTestCollection(), drop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +359,7 @@ func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "views", Type: TypeBigInt}, {Name: "title", Type: TypeText, Required: true, Indexed: true}},
 	}
-	plan, err = planner.PlanUpdate(7, updateTestCollection(), reorder)
+	plan, err = planUpdateAt(7, updateTestCollection(), reorder)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,9 +372,8 @@ func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing
 }
 
 func TestPlanUpdateCreatesIndexesForAddedFields(t *testing.T) {
-	planner := Planner{}
 	base := Collection{Name: "pages", TableName: "pages", Fields: []Field{{Name: "body", ColumnName: "body", Type: TypeText, Ordinal: 0}}}
-	plan, err := planner.PlanUpdate(4, base, UpdateCollectionInput{
+	plan, err := planUpdateAt(4, base, UpdateCollectionInput{
 		Name: "pages",
 		Fields: []FieldInput{
 			{Name: "body", Type: TypeText},
@@ -309,12 +395,11 @@ func TestPlanUpdateCreatesIndexesForAddedFields(t *testing.T) {
 }
 
 func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
-	planner := Planner{}
 	promote := UpdateCollectionInput{
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Unique: true}, {Name: "views", Type: TypeBigInt, Indexed: true}},
 	}
-	plan, err := planner.PlanUpdate(7, updateTestCollection(), promote)
+	plan, err := planUpdateAt(7, updateTestCollection(), promote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +415,7 @@ func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
 		Name:   "posts",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true}, {Name: "views", Type: TypeBigInt}},
 	}
-	plan, err = planner.PlanUpdate(7, updateTestCollection(), demote)
+	plan, err = planUpdateAt(7, updateTestCollection(), demote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +425,6 @@ func TestPlanUpdateManagesFieldIndexes(t *testing.T) {
 }
 
 func TestPlanUpdateRejectsUnsupportedTypeChangesAndUnsafeAdds(t *testing.T) {
-	planner := Planner{}
 	cases := []struct {
 		name  string
 		input UpdateCollectionInput
@@ -373,7 +457,7 @@ func TestPlanUpdateRejectsUnsupportedTypeChangesAndUnsafeAdds(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := planner.PlanUpdate(7, updateTestCollection(), test.input)
+			_, err := planUpdateAt(7, updateTestCollection(), test.input)
 			var validation *ValidationError
 			if !errors.As(err, &validation) || !reflect.DeepEqual(validation.Details, []ValidationDetail{test.want}) {
 				t.Fatalf("error = %#v, want %#v", err, test.want)
@@ -386,12 +470,11 @@ func TestPlanUpdateRejectsUnsupportedTypeChangesAndUnsafeAdds(t *testing.T) {
 }
 
 func TestPlanUpdateAllowsWhitelistedWideningChanges(t *testing.T) {
-	planner := Planner{}
 	base := Collection{
 		Name: "measurements", TableName: "measurements",
 		Fields: []Field{{Name: "amount", ColumnName: "amount", Type: TypeInteger, Ordinal: 0}},
 	}
-	plan, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+	plan, err := planUpdateAt(2, base, UpdateCollectionInput{
 		Name:   "measurements",
 		Fields: []FieldInput{{Name: "amount", Type: TypeNumeric}},
 	})
@@ -406,22 +489,22 @@ func TestPlanUpdateAllowsWhitelistedWideningChanges(t *testing.T) {
 }
 
 func TestPlanUpdateRejectsNameAndStateMismatches(t *testing.T) {
-	planner := Planner{}
-	if _, err := planner.PlanUpdate(7, updateTestCollection(), UpdateCollectionInput{Name: "others", Fields: nil}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("mismatched name error = %v, want ErrConflict", err)
+	renamed := updateTestCollection()
+	renamed.TableName = "posts_v2"
+	if _, err := planUpdateAt(7, renamed, UpdateCollectionInput{Name: "posts", Fields: nil}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("table name drift error = %v, want ErrConflict", err)
 	}
-	if _, err := planner.PlanUpdate(7, updateTestCollection(), UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}, {Name: "views", Type: TypeBigInt}, {Name: "extra", Type: TypeBoolean}}}); err != nil {
+	if _, err := planUpdateAt(7, updateTestCollection(), UpdateCollectionInput{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Required: true, Indexed: true}, {Name: "views", Type: TypeBigInt}, {Name: "extra", Type: TypeBoolean}}}); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestPlanUpdateEmitsSingleDefaultChangeWithTypeChange(t *testing.T) {
-	planner := Planner{}
 	base := Collection{
 		Name: "measurements", TableName: "measurements",
 		Fields: []Field{{Name: "amount", ColumnName: "amount", Type: TypeInteger, Default: json.RawMessage(`"5"`), Ordinal: 0}},
 	}
-	plan, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+	plan, err := planUpdateAt(2, base, UpdateCollectionInput{
 		Name:   "measurements",
 		Fields: []FieldInput{{Name: "amount", Type: TypeBigInt, Default: json.RawMessage(`"7"`)}},
 	})
@@ -434,7 +517,7 @@ func TestPlanUpdateEmitsSingleDefaultChangeWithTypeChange(t *testing.T) {
 		t.Fatalf("statements = %#v, want %#v", got, want)
 	}
 
-	kept, err := planner.PlanUpdate(2, base, UpdateCollectionInput{
+	kept, err := planUpdateAt(2, base, UpdateCollectionInput{
 		Name:   "measurements",
 		Fields: []FieldInput{{Name: "amount", Type: TypeBigInt, Default: json.RawMessage(`"5"`)}},
 	})
@@ -448,13 +531,59 @@ func TestPlanUpdateEmitsSingleDefaultChangeWithTypeChange(t *testing.T) {
 	}
 }
 
+func TestPlanUpdateCarriesOnlyAnUnchangedLegacyOversizedDefault(t *testing.T) {
+	legacy := json.RawMessage(`"` + strings.Repeat("x", MaximumTextBytes+1) + `"`)
+	base := Collection{
+		Name: "legacy_defaults", TableName: "legacy_defaults",
+		Fields: []Field{{
+			Name: "body", ColumnName: "body", Type: TypeText, Default: legacy, Ordinal: 0,
+		}},
+	}
+	input := UpdateCollectionInput{
+		Name:   "legacy_defaults",
+		Fields: []FieldInput{{Name: "body", Type: TypeText, Default: append(json.RawMessage(nil), legacy...)}},
+	}
+
+	first, err := planUpdateAt(7, base, input)
+	if err != nil {
+		t.Fatalf("PlanUpdate unchanged legacy default: %v", err)
+	}
+	second, err := planUpdateAt(7, base, input)
+	if err != nil {
+		t.Fatalf("PlanUpdate unchanged legacy default again: %v", err)
+	}
+	if len(first.Statements) != 0 {
+		t.Fatalf("unchanged legacy default emitted DDL: %#v", first.Statements)
+	}
+	if got := string(first.Definition.Fields[0].Default); got != string(legacy) {
+		t.Fatalf("carried default changed bytes: got %d bytes, want %d", len(got), len(legacy))
+	}
+	if first.Checksum == "" || first.Checksum != second.Checksum || !reflect.DeepEqual(first, second) {
+		t.Fatalf("unchanged legacy plan is not byte-stable: first=%#v second=%#v", first, second)
+	}
+
+	changed := input
+	changed.Fields = append([]FieldInput(nil), input.Fields...)
+	changed.Fields[0].Default = json.RawMessage(`"` + strings.Repeat("y", MaximumTextBytes+1) + `"`)
+	if _, err := planUpdateAt(7, base, changed); err == nil {
+		t.Fatal("PlanUpdate accepted a changed oversized default")
+	}
+
+	added := input
+	added.Fields = append(append([]FieldInput(nil), input.Fields...), FieldInput{
+		Name: "other", Type: TypeText, Default: legacy,
+	})
+	if _, err := planUpdateAt(7, base, added); err == nil {
+		t.Fatal("PlanUpdate accepted a new oversized default")
+	}
+}
+
 func TestPlanDeleteProducesSingleDropStatement(t *testing.T) {
-	planner := Planner{}
-	first, err := planner.PlanDelete(9, updateTestCollection())
+	first, err := planDeleteAt(9, updateTestCollection())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := planner.PlanDelete(9, updateTestCollection())
+	second, err := planDeleteAt(9, updateTestCollection())
 	if err != nil {
 		t.Fatal(err)
 	}

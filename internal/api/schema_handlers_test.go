@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testi
 		},
 		Statements: []string{`CREATE TABLE "app"."posts" (...)`},
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 		"operation":"create","name":"posts","fields":[{"name":"title","type":"text","required":true}]
 	}`))
@@ -54,8 +55,11 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testi
 	if body.BaseVersion != 7 || body.Checksum != "fixed-checksum" || body.Definition.Name != "posts" || len(body.SQL) != 1 {
 		t.Fatalf("plan response = %+v", body)
 	}
-	if schemas.planCalls != 1 || schemas.planInput.Name != "posts" || auth.authenticateCalls != 1 {
-		t.Fatalf("plan calls=%d input=%+v auth calls=%d", schemas.planCalls, schemas.planInput, auth.authenticateCalls)
+	wantChange := schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Required: true},
+	}})
+	if schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, wantChange) || auth.authenticateCalls != 1 {
+		t.Fatalf("plan calls=%d change=%+v auth calls=%d", schemas.planCalls, schemas.planChange, auth.authenticateCalls)
 	}
 }
 
@@ -63,7 +67,7 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 	t.Run("complete relation request reaches schema service", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{plan: schema.Plan{Definition: schema.PlannedCollection{Name: "posts", TableName: "posts"}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 			"operation":"create",
 			"name":"posts",
@@ -90,25 +94,23 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
-		if schemas.planCalls != 1 || len(schemas.planInput.Fields) != 1 {
-			t.Fatalf("plan calls=%d input=%+v", schemas.planCalls, schemas.planInput)
-		}
-		field := schemas.planInput.Fields[0]
-		if field.Type != schema.TypeRelation || !field.Required || field.Relation == nil {
-			t.Fatalf("relation field input=%+v", field)
-		}
-		if field.Relation.TargetCollection != "tags" || field.Relation.Cardinality != schema.RelationMultiple ||
-			field.Relation.MinSelect == nil || *field.Relation.MinSelect != 1 ||
-			field.Relation.MaxSelect == nil || *field.Relation.MaxSelect != 20 ||
-			field.Relation.OnDelete != schema.RelationCascade {
-			t.Fatalf("relation input=%+v", field.Relation)
+		minSelect, maxSelect := 1, 20
+		wantChange := schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{{
+			Name: "tags", Type: schema.TypeRelation, Required: true,
+			Relation: &schema.RelationInput{
+				TargetCollection: "tags", Cardinality: schema.RelationMultiple,
+				MinSelect: &minSelect, MaxSelect: &maxSelect, OnDelete: schema.RelationCascade,
+			},
+		}}})
+		if schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, wantChange) {
+			t.Fatalf("plan calls=%d change=%+v", schemas.planCalls, schemas.planChange)
 		}
 	})
 
 	t.Run("unknown nested member is rejected before schema service", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{
 			"operation":"create",
 			"name":"posts",
@@ -162,7 +164,7 @@ func TestSchemaPlanRouteReturnsNormalizedRelationDTOs(t *testing.T) {
 			},
 		},
 	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"nodes","fields":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	protectSchemaMutationRequest(request)
@@ -239,7 +241,7 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 			schemas := &fakeSchemaService{}
-			handler := NewRouter(schemaTestDependencies(auth, schemas))
+			handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 			request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts","fields":[]}`))
 			request.Host = "admin.example.com"
 			request.Header.Set("Content-Type", "application/json")
@@ -266,7 +268,7 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 func TestSchemaPlanRejectsDuplicateDefaultAfterLargeNumberBeforeServiceCall(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 	schemas := &fakeSchemaService{}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(
 		`{"operation":"create","name":"posts","fields":[{"name":"metadata","type":"jsonb","default":1e400,"default":"last"}]}`,
 	))
@@ -288,10 +290,10 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	administrator := validSession().Administrator
 	auth := &fakeAdminAuth{authenticateAdmin: administrator}
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{applied: schema.Collection{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
-	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	}}}
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	body := `{"operation":"create","name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"fixed-checksum","baseVersion":7}`
 
 	missingCSRF := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(body))
@@ -331,8 +333,15 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
 	}
-	if schemas.applyCalls != 1 || schemas.applyInput.Name != "posts" || schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 7 || schemas.applyAdministratorID != administrator.ID {
-		t.Fatalf("apply call input=%+v checksum=%q baseVersion=%d administrator=%s", schemas.applyInput, schemas.applyChecksum, schemas.applyBaseVersion, schemas.applyAdministratorID)
+	wantIntent := schema.LegacyApply(
+		schema.NewCreateChange(schema.CreateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+			{Name: "title", Type: schema.TypeText},
+		}}),
+		schema.Plan{Checksum: "fixed-checksum", BaseVersion: 7},
+		administrator.ID,
+	)
+	if schemas.applyCalls != 1 || !reflect.DeepEqual(schemas.applyIntent, wantIntent) {
+		t.Fatalf("apply calls=%d intent=%+v, want %+v", schemas.applyCalls, schemas.applyIntent, wantIntent)
 	}
 	var responseBody struct {
 		ID   uuid.UUID `json:"id"`
@@ -341,7 +350,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	if err := json.Unmarshal(response.Body.Bytes(), &responseBody); err != nil {
 		t.Fatal(err)
 	}
-	if responseBody.ID != schemas.applied.ID || responseBody.Name != "posts" {
+	if responseBody.ID != schemas.applyResult.Collection.ID || responseBody.Name != "posts" {
 		t.Fatalf("apply response = %+v", responseBody)
 	}
 }
@@ -351,7 +360,7 @@ func TestSchemaCatalogRouteReturnsVersionAndDefinitions(t *testing.T) {
 	schemas := &fakeSchemaService{catalog: schema.Catalog{Version: 3, Collections: map[string]schema.Collection{
 		"posts": {Name: "posts", TableName: "posts", Fields: []schema.Field{{Name: "title", ColumnName: "title", Type: schema.TypeText}}},
 	}}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -395,7 +404,7 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 			},
 		},
 	}}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 	response := httptest.NewRecorder()
@@ -440,12 +449,28 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 	}
 }
 
+func TestSchemaCatalogRouteMapsCatalogLimitToStableUnprocessableError(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	schemas := &fakeSchemaService{catalogErr: schema.ErrCatalogLimitExceeded}
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "catalog_limit_exceeded")
+}
+
 func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *testing.T) {
 	requestPlan := func(t *testing.T, planErr error, operation string) *httptest.ResponseRecorder {
 		t.Helper()
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: planErr}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"`+operation+`","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -512,7 +537,7 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 
 func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("all routes require authentication", func(t *testing.T) {
-		handler := NewRouter(schemaTestDependencies(&fakeAdminAuth{}, &fakeSchemaService{}))
+		handler := mustRouter(t, schemaTestDependencies(&fakeAdminAuth{}, &fakeSchemaService{}))
 		for _, test := range []struct {
 			method string
 			path   string
@@ -539,7 +564,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("validation details are safe", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.default", Code: "invalid_default"}}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -568,7 +593,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("conflicts are stable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrConflict}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"create","name":"posts","checksum":"x","baseVersion":0}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
@@ -586,7 +611,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 	t.Run("retryable database errors are service unavailable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{catalogErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
 		response := httptest.NewRecorder()
@@ -602,10 +627,10 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 	administrator := validSession().Administrator
 	auth := &fakeAdminAuth{authenticateAdmin: administrator}
 	createdAt := time.Date(2026, time.August, 28, 4, 5, 6, 0, time.UTC)
-	schemas := &fakeSchemaService{applied: schema.Collection{
+	schemas := &fakeSchemaService{applyResult: schema.ApplyResult{Collection: schema.Collection{
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
-	}}
-	handler := NewRouter(schemaTestDependencies(auth, schemas))
+	}}}
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token")
 	authenticated := func(method, path, body string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -621,26 +646,32 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 		return response
 	}
 
+	updateChange := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "posts", Fields: []schema.FieldInput{
+		{Name: "views", Type: schema.TypeNumeric},
+	}})
+	deleteChange := schema.NewDeleteChange("posts")
+	approved := schema.Plan{Checksum: "fixed-checksum", BaseVersion: 3}
+
 	response := authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}]}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 1 || schemas.planUpdateInput.Name != "posts" ||
-		len(schemas.planUpdateInput.Fields) != 1 || schemas.planUpdateInput.Fields[0].Type != schema.TypeNumeric {
-		t.Fatalf("update plan status=%d calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 1 || !reflect.DeepEqual(schemas.planChange, updateChange) {
+		t.Fatalf("update plan status=%d calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"update","name":"posts","fields":[{"name":"views","type":"numeric"}],"checksum":"fixed-checksum","baseVersion":3}`)
-	if response.Code != http.StatusOK || schemas.applyCalls != 1 || schemas.applyUpdateInput.Name != "posts" ||
-		schemas.applyChecksum != "fixed-checksum" || schemas.applyBaseVersion != 3 || schemas.applyAdministratorID != administrator.ID {
-		t.Fatalf("update apply status=%d calls=%d input=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.applyCalls != 1 ||
+		!reflect.DeepEqual(schemas.applyIntent, schema.LegacyApply(updateChange, approved, administrator.ID)) {
+		t.Fatalf("update apply status=%d calls=%d intent=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyIntent, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"delete","name":"posts"}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 2 || schemas.planDeleteName != "posts" {
-		t.Fatalf("delete plan status=%d calls=%d name=%q body=%s", response.Code, schemas.planCalls, schemas.planDeleteName, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 2 || !reflect.DeepEqual(schemas.planChange, deleteChange) {
+		t.Fatalf("delete plan status=%d calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 
 	response = authenticated(http.MethodPost, "/api/admin/collections/apply", `{"operation":"delete","name":"posts","checksum":"fixed-checksum","baseVersion":3}`)
-	if response.Code != http.StatusOK || schemas.applyCalls != 2 || schemas.deletedName != "posts" {
-		t.Fatalf("delete apply status=%d calls=%d name=%q body=%s", response.Code, schemas.applyCalls, schemas.deletedName, response.Body.String())
+	if response.Code != http.StatusOK || schemas.applyCalls != 2 ||
+		!reflect.DeepEqual(schemas.applyIntent, schema.LegacyApply(deleteChange, approved, administrator.ID)) {
+		t.Fatalf("delete apply status=%d calls=%d intent=%+v body=%s", response.Code, schemas.applyCalls, schemas.applyIntent, response.Body.String())
 	}
 	var deleted struct {
 		Name    string `json:"name"`
@@ -677,9 +708,13 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 	}
 	assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 
+	// An explicit empty fields array is not the same intent as an omitted key:
+	// it asks for a collection with no fields, so it has to reach the kernel as
+	// an empty, non-nil slice.
+	emptyFields := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "posts", Fields: []schema.FieldInput{}})
 	response = authenticated(http.MethodPost, "/api/admin/collections/plan", `{"operation":"update","name":"posts","fields":[]}`)
-	if response.Code != http.StatusOK || schemas.planCalls != 3 || len(schemas.planUpdateInput.Fields) != 0 {
-		t.Fatalf("explicit empty fields status=%d plan calls=%d input=%+v body=%s", response.Code, schemas.planCalls, schemas.planUpdateInput, response.Body.String())
+	if response.Code != http.StatusOK || schemas.planCalls != 3 || !reflect.DeepEqual(schemas.planChange, emptyFields) {
+		t.Fatalf("explicit empty fields status=%d plan calls=%d change=%+v body=%s", response.Code, schemas.planCalls, schemas.planChange, response.Body.String())
 	}
 }
 
@@ -687,7 +722,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("unsupported schema change is unprocessable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields.0.type", Code: "unsupported_schema_change"}}}}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -703,7 +738,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("data constraints are unprocessable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{applyErr: schema.ErrDataConstraint}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"update","name":"posts","fields":[],"checksum":"x","baseVersion":3}`))
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
@@ -721,7 +756,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 	t.Run("unknown collections are not found", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{planErr: schema.ErrCollectionNotFound}
-		handler := NewRouter(schemaTestDependencies(auth, schemas))
+		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"delete","name":"ghosts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
@@ -736,73 +771,48 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 }
 
 type fakeSchemaService struct {
-	plan                 schema.Plan
-	planErr              error
-	applied              schema.Collection
-	applyErr             error
-	catalog              schema.Catalog
-	catalogErr           error
-	planCalls            int
-	applyCalls           int
-	catalogCalls         int
-	planInput            schema.CreateCollectionInput
-	applyInput           schema.CreateCollectionInput
-	applyChecksum        string
-	applyBaseVersion     int64
-	applyAdministratorID uuid.UUID
-	planUpdateInput      schema.UpdateCollectionInput
-	applyUpdateInput     schema.UpdateCollectionInput
-	planDeleteName       string
-	applyDeleteName      string
-	deletedName          string
-	applyDeleted         bool
+	plan       schema.Plan
+	planErr    error
+	catalog    schema.Catalog
+	catalogErr error
+
+	planCalls    int
+	planChange   schema.Change
+	catalogCalls int
+
+	// One Apply records both wire shapes, because the handler picks between
+	// them by intent and not by method. A test tells the paths apart by
+	// comparing applyIntent against LegacyApply or GuardedApply of the same
+	// change, which pins the payload in the same assertion.
+	applyResult schema.ApplyResult
+	applyErr    error
+	applyHook   func(context.Context) (schema.ApplyResult, error)
+	applyCalls  int
+	applyIntent schema.ApplyIntent
+
+	statusReceipt schema.OperationReceipt
+	statusErr     error
+	statusCalls   int
+	statusRef     schema.OperationRef
+	listPage      schema.OperationPage
+	listErr       error
+	listCalls     int
+	listQuery     schema.OperationQuery
 }
 
-func (f *fakeSchemaService) PlanCreate(_ context.Context, input schema.CreateCollectionInput) (schema.Plan, error) {
+func (f *fakeSchemaService) Preview(_ context.Context, change schema.Change) (schema.Plan, error) {
 	f.planCalls++
-	f.planInput = input
+	f.planChange = change
 	return f.plan, f.planErr
 }
 
-func (f *fakeSchemaService) ApplyCreate(_ context.Context, input schema.CreateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
+func (f *fakeSchemaService) Apply(ctx context.Context, intent schema.ApplyIntent) (schema.ApplyResult, error) {
 	f.applyCalls++
-	f.applyInput = input
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	return f.applied, f.applyErr
-}
-
-func (f *fakeSchemaService) PlanUpdate(_ context.Context, input schema.UpdateCollectionInput) (schema.Plan, error) {
-	f.planCalls++
-	f.planUpdateInput = input
-	return f.plan, f.planErr
-}
-
-func (f *fakeSchemaService) ApplyUpdate(_ context.Context, input schema.UpdateCollectionInput, checksum string, baseVersion int64, administratorID uuid.UUID) (schema.Collection, error) {
-	f.applyCalls++
-	f.applyUpdateInput = input
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	return f.applied, f.applyErr
-}
-
-func (f *fakeSchemaService) PlanDelete(_ context.Context, name string) (schema.Plan, error) {
-	f.planCalls++
-	f.planDeleteName = name
-	return f.plan, f.planErr
-}
-
-func (f *fakeSchemaService) ApplyDelete(_ context.Context, name string, checksum string, baseVersion int64, administratorID uuid.UUID) error {
-	f.applyCalls++
-	f.applyDeleteName = name
-	f.applyChecksum = checksum
-	f.applyBaseVersion = baseVersion
-	f.applyAdministratorID = administratorID
-	f.deletedName = name
-	f.applyDeleted = true
-	return f.applyErr
+	f.applyIntent = intent
+	if f.applyHook != nil {
+		return f.applyHook(ctx)
+	}
+	return f.applyResult, f.applyErr
 }
 
 func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {
@@ -810,12 +820,23 @@ func (f *fakeSchemaService) Catalog(context.Context) (schema.Catalog, error) {
 	return f.catalog, f.catalogErr
 }
 
+func (f *fakeSchemaService) OperationStatus(_ context.Context, ref schema.OperationRef) (schema.OperationReceipt, error) {
+	f.statusCalls++
+	f.statusRef = ref
+	return f.statusReceipt, f.statusErr
+}
+
+func (f *fakeSchemaService) ListOperations(_ context.Context, query schema.OperationQuery) (schema.OperationPage, error) {
+	f.listCalls++
+	f.listQuery = query
+	return f.listPage, f.listErr
+}
+
 func schemaTestDependencies(auth AdminAuth, schemas SchemaService) Dependencies {
 	return Dependencies{
-		AdminAuth:   auth,
-		Schema:      schemas,
-		PublicURL:   mustURL("https://admin.example.com"),
-		TokenSecret: testTokenSecret,
+		AdminAuth: auth,
+		Schema:    schemas,
+		PublicURL: mustURL("https://admin.example.com"),
 	}
 }
 

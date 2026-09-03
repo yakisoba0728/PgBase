@@ -1,0 +1,291 @@
+name: Release phase image gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollout:
+        description: Exact rollout name from deployments/release-phases.json
+        required: true
+        type: string
+      phase:
+        description: Exact phase name within the selected rollout
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: release-phase-${{ inputs.rollout }}-${{ inputs.phase }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source_commit: ${{ steps.artifact.outputs.source_commit }}
+      expected_version: ${{ steps.artifact.outputs.expected_version }}
+    steps:
+      - name: Check out the release phase manifest
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve one immutable release phase
+        id: artifact
+        shell: bash
+        env:
+          ROLLOUT: ${{ inputs.rollout }}
+          PHASE: ${{ inputs.phase }}
+        run: |
+          set -euo pipefail
+          matches="$(jq --compact-output \
+            --arg rollout "$ROLLOUT" \
+            --arg phase "$PHASE" \
+            '[.rollouts[] | select(.name == $rollout) | .artifacts[] | select(.phase == $phase)]' \
+            deployments/release-phases.json)"
+          count="$(jq 'length' <<< "$matches")"
+          if [[ "$count" != "1" ]]; then
+            echo "release phase must resolve exactly once: rollout=$ROLLOUT phase=$PHASE matches=$count" >&2
+            exit 2
+          fi
+          source_commit="$(jq --exit-status --raw-output \
+            '.[0].commit | strings | select(test("^[0-9a-f]{40}$"))' <<< "$matches")"
+          expected_version="$(jq --exit-status --raw-output \
+            '.[0].version | strings | select(length > 0)' <<< "$matches")"
+          scripts/support/release-tag-policy.sh "$expected_version" "$expected_version" >/dev/null
+          git cat-file -e "$source_commit^{commit}"
+          if ! git merge-base --is-ancestor "$source_commit" "$GITHUB_SHA"; then
+            echo "selected release phase is not an ancestor of the dispatched revision" >&2
+            exit 2
+          fi
+          {
+            echo "source_commit=$source_commit"
+            echo "expected_version=$expected_version"
+          } >> "$GITHUB_OUTPUT"
+
+  candidate:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    outputs:
+      candidate_image: ${{ steps.candidate.outputs.candidate_image }}
+      image: ${{ steps.candidate.outputs.image }}
+      digest: ${{ steps.candidate.outputs.digest }}
+      binary_digest: ${{ steps.candidate.outputs.binary_digest }}
+    steps:
+      - name: Check out the gate and full artifact history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up the pinned artifact toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build the immutable release phase bundle
+        env:
+          RELEASE_PHASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: |
+          scripts/support/build-release-phase-artifacts.sh record-membership-v7 \
+            "$RELEASE_PHASE_ARTIFACT_DIRECTORY"
+          scripts/support/build-release-phase-artifacts.sh schema-compiler-v9 \
+            "$RELEASE_PHASE_ARTIFACT_DIRECTORY"
+
+      - name: Run the current composite rollout oracle against the candidate bundle
+        env:
+          PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+          PGBASE_MEMBERSHIP_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+          PGBASE_SCHEMA_COMPILER_RELEASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+        run: go test -race -tags='integration releaseartifacts' ./tests/release -count=1
+
+      - name: Package and push the tested phase candidate once
+        id: candidate
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PHASE_ARTIFACT_DIRECTORY: ${{ runner.temp }}/release-phase-artifacts
+          ROLLOUT: ${{ inputs.rollout }}
+          PHASE: ${{ inputs.phase }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
+        run: |
+          set -euo pipefail
+          artifact_directory="$RELEASE_PHASE_ARTIFACT_DIRECTORY"
+          packaging_context="$RUNNER_TEMP/release-phase-package"
+          metadata="$artifact_directory/$ROLLOUT-artifacts.json"
+          selected="$(jq --exit-status --compact-output --arg phase "$PHASE" \
+            '[.artifacts[] | select(.phase == $phase)] | select(length == 1) | .[0]' "$metadata")"
+          test "$(jq --raw-output '.commit' <<< "$selected")" = "$SOURCE_COMMIT"
+          test "$(jq --raw-output '.version' <<< "$selected")" = "$EXPECTED_VERSION"
+          artifact_path="$(jq --exit-status --raw-output '.path | select(test("^[A-Za-z0-9._-]+$"))' <<< "$selected")"
+          binary_digest="$(jq --exit-status --raw-output '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<< "$selected")"
+          test "sha256:$(sha256sum "$artifact_directory/$artifact_path" | awk '{print $1}')" = "$binary_digest"
+          mkdir "$packaging_context"
+          install -m 0755 "$artifact_directory/$artifact_path" "$packaging_context/pgbase"
+          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          candidate_tag="phase-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          metadata_file="$RUNNER_TEMP/phase-candidate-metadata.json"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx create \
+            --use \
+            --name "pgbase-phase-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --driver docker-container \
+            --driver-opt "image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
+          docker buildx build \
+            --file deployments/release-phase.Dockerfile \
+            --platform linux/amd64 \
+            --build-arg "SOURCE_COMMIT=$SOURCE_COMMIT" \
+            --build-arg "VERSION=$EXPECTED_VERSION" \
+            --tag "$image:$candidate_tag" \
+            --metadata-file "$metadata_file" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push "$packaging_context"
+          digest="$(jq --exit-status --raw-output \
+            '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "$metadata_file")"
+          candidate_image="$image@$digest"
+          scripts/support/validate-release-candidate.sh "$candidate_image" "$EXPECTED_VERSION"
+          {
+            echo "candidate_image=$candidate_image"
+            echo "image=$image"
+            echo "digest=$digest"
+            echo "binary_digest=$binary_digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate phase candidate SBOM
+        uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
+        with:
+          image: ${{ steps.candidate.outputs.candidate_image }}
+          format: spdx-json
+          output-file: pgbase-release-phase.spdx.json
+          artifact-name: pgbase-release-phase-sbom
+
+      - name: Attest phase build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.candidate.outputs.image }}
+          subject-digest: ${{ steps.candidate.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest phase SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.candidate.outputs.image }}
+          subject-digest: ${{ steps.candidate.outputs.digest }}
+          sbom-path: pgbase-release-phase.spdx.json
+          push-to-registry: true
+
+      # GitHub's standard workflow provenance identifies the commit containing
+      # this dispatcher. A phase build deliberately checks out an older commit,
+      # so a second signed predicate records that actual source dependency.
+      - name: Describe the selected phase source
+        shell: bash
+        env:
+          ROLLOUT: ${{ inputs.rollout }}
+          PHASE: ${{ inputs.phase }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
+          BINARY_DIGEST: ${{ steps.candidate.outputs.binary_digest }}
+        run: |
+          set -euo pipefail
+          jq --null-input \
+            --arg rollout "$ROLLOUT" \
+            --arg phase "$PHASE" \
+            --arg repository "https://github.com/$GITHUB_REPOSITORY" \
+            --arg sourceCommit "$SOURCE_COMMIT" \
+            --arg workflowCommit "$GITHUB_SHA" \
+            --arg version "$EXPECTED_VERSION" \
+            --arg binaryDigest "$BINARY_DIGEST" \
+            '{schemaVersion: 1, rollout: $rollout, phase: $phase, source: {repository: $repository, commit: $sourceCommit}, packaging: {workflowCommit: $workflowCommit}, version: $version, binaryDigest: $binaryDigest}' \
+            > "$RUNNER_TEMP/release-phase-source.json"
+
+      - name: Attest the selected phase source
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.candidate.outputs.image }}
+          subject-digest: ${{ steps.candidate.outputs.digest }}
+          predicate-type: https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1
+          predicate-path: ${{ runner.temp }}/release-phase-source.json
+          push-to-registry: true
+
+      - name: Verify the published provenance and SBOM attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
+          ROLLOUT: ${{ inputs.rollout }}
+          PHASE: ${{ inputs.phase }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
+          BINARY_DIGEST: ${{ steps.candidate.outputs.binary_digest }}
+        run: |
+          set -euo pipefail
+          while read -r evidence predicate; do
+            gh attestation verify "oci://$CANDIDATE_IMAGE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --predicate-type "$predicate" \
+              --format json > "$RUNNER_TEMP/phase-attestation-$evidence.json"
+            jq --exit-status 'length > 0' \
+              "$RUNNER_TEMP/phase-attestation-$evidence.json" >/dev/null
+          done <<'PREDICATES'
+          provenance https://slsa.dev/provenance/v1
+          sbom https://spdx.dev/Document/v2.3
+          source https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1
+          PREDICATES
+          jq --exit-status \
+            --arg rollout "$ROLLOUT" \
+            --arg phase "$PHASE" \
+            --arg sourceRepository "https://github.com/$GITHUB_REPOSITORY" \
+            --arg sourceCommit "$SOURCE_COMMIT" \
+            --arg workflowCommit "$GITHUB_SHA" \
+            --arg version "$EXPECTED_VERSION" \
+            --arg binaryDigest "$BINARY_DIGEST" \
+            '[.[] | .verificationResult.statement.predicate |
+              select(.schemaVersion == 1 and .rollout == $rollout and .phase == $phase and
+                .source.repository == $sourceRepository and .source.commit == $sourceCommit and
+                .packaging.workflowCommit == $workflowCommit and
+                .version == $version and .binaryDigest == $binaryDigest)] | length > 0' \
+            "$RUNNER_TEMP/phase-attestation-source.json" >/dev/null
+
+      - name: Upload phase attestation verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-phase-attestation-verification
+          path: |
+            ${{ runner.temp }}/phase-attestation-*.json
+            ${{ runner.temp }}/release-phase-source.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  gate:
+    needs: [resolve, candidate]
+    uses: ./.github/workflows/release-gate.yml
+    with:
+      candidate_image: ${{ needs.candidate.outputs.candidate_image }}
+      expected_version: ${{ needs.resolve.outputs.expected_version }}
+      source_commit: ${{ needs.resolve.outputs.source_commit }}
+    secrets: inherit

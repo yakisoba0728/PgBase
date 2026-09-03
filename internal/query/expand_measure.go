@@ -61,7 +61,7 @@ func (m *materializedMeasurement) expandSize(values map[string]materializedExpan
 	size := 2 // braces
 	entries := 0
 	for name, value := range values {
-		valueSize := 0
+		var valueSize int
 		if value.plural {
 			valueSize = 2 // brackets
 			for index, record := range value.many {

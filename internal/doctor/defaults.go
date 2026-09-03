@@ -1,10 +1,8 @@
 package doctor
 
 import (
-	"bytes"
 	"encoding/json"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,97 +11,79 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-var (
-	physicalIntegerDefault = regexp.MustCompile(`^-?[0-9]+$`)
-	physicalDecimalDefault = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
-)
+var physicalDecimalDefault = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 
-// physicalDefaultMatchesCatalog compares the catalog's typed JSON default with
-// PostgreSQL's deparsed column default without executing the physical
-// expression. Unknown expressions fail closed as drift instead of allowing a
-// function-bearing default to run during a read-only diagnostic.
-func physicalDefaultMatchesCatalog(fieldType, catalogJSON, physical string) bool {
-	raw := json.RawMessage(catalogJSON)
-	switch schema.FieldType(fieldType) {
-	case schema.TypeBoolean:
-		var expected bool
-		if json.Unmarshal(raw, &expected) != nil {
-			return false
+// physicalDefaultsEquivalent compares the column default the schema planner
+// requires with the expression PostgreSQL deparsed from the live column. Both
+// sides are canonicalized by the column's own type rather than compared as
+// text, because a default written by hand, by an older planner, or under a
+// different deparse style renders the same value differently. Nothing is
+// executed: an expression this file cannot decode falls back to a whitespace
+// insensitive text comparison, so a function-bearing default is reported as
+// drift instead of being run during a read-only diagnostic.
+func physicalDefaultsEquivalent(dataType, expected, observed string) bool {
+	if strings.TrimSpace(expected) == "" || strings.TrimSpace(observed) == "" {
+		return strings.TrimSpace(expected) == strings.TrimSpace(observed)
+	}
+	canonicalExpected, expectedOK := canonicalDefaultValue(dataType, expected)
+	canonicalObserved, observedOK := canonicalDefaultValue(dataType, observed)
+	if expectedOK && observedOK {
+		return canonicalExpected == canonicalObserved
+	}
+	return compactSQL(expected) == compactSQL(observed)
+}
+
+func canonicalDefaultValue(dataType, expression string) (string, bool) {
+	switch dataType {
+	case "boolean":
+		trimmed := strings.ToLower(strings.TrimSpace(trimOuterParentheses(strings.TrimSpace(expression))))
+		if trimmed == "true" || trimmed == "false" {
+			return trimmed, true
 		}
-		return strings.EqualFold(strings.TrimSpace(physical), strconv.FormatBool(expected))
-	case schema.TypeInteger:
-		return integerDefaultMatches(raw, physical, 32)
-	case schema.TypeBigInt:
-		return integerDefaultMatches(raw, physical, 64)
-	case schema.TypeNumeric:
-		expected, err := jsonvalue.String(raw)
-		if err != nil {
-			return false
-		}
-		actual, ok := numericExpressionValue(physical)
+		return "", false
+	case "integer", "bigint", "numeric":
+		value, ok := numericExpressionValue(expression)
 		if !ok {
-			return false
+			return "", false
 		}
-		expected, ok = canonicalDecimal(expected)
+		return canonicalDecimal(value)
+	case "text":
+		return postgresLiteralCastValue(expression, "text")
+	case "timestamp with time zone":
+		if strings.EqualFold(strings.TrimSpace(expression), "CURRENT_TIMESTAMP") {
+			return "current_timestamp", true
+		}
+		text, ok := postgresLiteralCastValue(expression, "timestamp with time zone", "timestamptz")
 		if !ok {
-			return false
+			return "", false
 		}
-		actual, ok = canonicalDecimal(actual)
-		return ok && actual == expected
-	case schema.TypeText:
-		expected, err := jsonvalue.String(raw)
-		if err != nil {
-			return false
-		}
-		actual, ok := postgresLiteralCastValue(physical, "text")
-		return ok && actual == expected
-	case schema.TypeTimestampTZ:
-		canonical, err := jsonvalue.Canonical(raw)
-		if err == nil && bytes.Equal(canonical, []byte(`{"kind":"now"}`)) {
-			return strings.EqualFold(strings.TrimSpace(physical), "CURRENT_TIMESTAMP")
-		}
-		expectedText, err := jsonvalue.String(raw)
-		if err != nil {
-			return false
-		}
-		expected, err := time.Parse(time.RFC3339Nano, expectedText)
-		if err != nil {
-			return false
-		}
-		actualText, ok := postgresLiteralCastValue(physical, "timestamp with time zone")
+		value, ok := parsePostgresTimestamp(text)
 		if !ok {
-			return false
+			return "", false
 		}
-		actual, ok := parsePostgresTimestamp(actualText)
-		return ok && actual.Equal(postgresTimestampPrecision(expected))
-	case schema.TypeUUID:
-		expectedText, err := jsonvalue.String(raw)
-		if err != nil {
-			return false
-		}
-		expected, err := uuid.Parse(expectedText)
-		if err != nil {
-			return false
-		}
-		actualText, ok := postgresLiteralCastValue(physical, "uuid")
+		return postgresTimestampPrecision(value).UTC().Format(time.RFC3339Nano), true
+	case "uuid":
+		text, ok := postgresLiteralCastValue(expression, "uuid")
 		if !ok {
-			return false
+			return "", false
 		}
-		actual, err := uuid.Parse(actualText)
-		return err == nil && actual == expected
-	case schema.TypeJSONB:
-		expected, err := jsonvalue.Canonical(raw)
+		value, err := uuid.Parse(text)
 		if err != nil {
-			return false
+			return "", false
 		}
-		actualText, ok := postgresLiteralCastValue(physical, "jsonb")
+		return value.String(), true
+	case "jsonb":
+		text, ok := postgresLiteralCastValue(expression, "jsonb")
 		if !ok {
-			return false
+			return "", false
 		}
-		actual, err := jsonvalue.Canonical([]byte(actualText))
-		return err == nil && bytes.Equal(actual, expected)
+		value, err := jsonvalue.Canonical([]byte(text))
+		if err != nil {
+			return "", false
+		}
+		return string(value), true
 	default:
-		return false
+		return "", false
 	}
 }
 
@@ -119,23 +99,6 @@ func postgresTimestampPrecision(value time.Time) time.Time {
 	}
 	wholeSecond := value.Add(-time.Duration(nanoseconds))
 	return wholeSecond.Add(time.Duration(microseconds) * time.Microsecond)
-}
-
-func integerDefaultMatches(raw json.RawMessage, physical string, bits int) bool {
-	expectedText, err := jsonvalue.String(raw)
-	if err != nil {
-		return false
-	}
-	expected, err := strconv.ParseInt(expectedText, 10, bits)
-	if err != nil {
-		return false
-	}
-	actualText, ok := numericExpressionValue(physical)
-	if !ok || !physicalIntegerDefault.MatchString(actualText) {
-		return false
-	}
-	actual, err := strconv.ParseInt(actualText, 10, bits)
-	return err == nil && actual == expected
 }
 
 func numericExpressionValue(expression string) (string, bool) {
@@ -193,13 +156,20 @@ func canonicalDecimal(value string) (string, bool) {
 	return value, true
 }
 
-func postgresLiteralCastValue(expression, cast string) (string, bool) {
+// postgresLiteralCastValue accepts every spelling of the same cast. The schema
+// planner renders "::timestamptz" while PostgreSQL deparses the identical
+// column default as "::timestamp with time zone", and neither is more correct
+// than the other.
+func postgresLiteralCastValue(expression string, casts ...string) (string, bool) {
 	value := strings.TrimSpace(expression)
-	suffix := "::" + cast
-	if len(value) <= len(suffix) || !strings.EqualFold(value[len(value)-len(suffix):], suffix) {
-		return "", false
+	for _, cast := range casts {
+		suffix := "::" + cast
+		if len(value) <= len(suffix) || !strings.EqualFold(value[len(value)-len(suffix):], suffix) {
+			continue
+		}
+		return parsePostgresStringLiteral(strings.TrimSpace(value[:len(value)-len(suffix)]))
 	}
-	return parsePostgresStringLiteral(strings.TrimSpace(value[:len(value)-len(suffix)]))
+	return "", false
 }
 
 func parsePostgresStringLiteral(literal string) (string, bool) {
@@ -277,10 +247,13 @@ func trimOuterParentheses(value string) string {
 	return value
 }
 
+// parsePostgresTimestamp reads both the ISO form PostgreSQL deparses under the
+// styles doctor pins and the RFC 3339 form the schema planner stores.
 func parsePostgresTimestamp(value string) (time.Time, bool) {
 	for _, layout := range []string{
 		"2006-01-02 15:04:05.999999999Z07:00",
 		"2006-01-02 15:04:05.999999999Z07",
+		time.RFC3339Nano,
 	} {
 		parsed, err := time.Parse(layout, value)
 		if err == nil {

@@ -164,7 +164,7 @@ func TestFinalizeRecordPageRejectsOneOversizedHydratedRelationRecord(t *testing.
 	}
 
 	service := &Service{}
-	err = service.finalizeRecordPage(&page, uuid.New(), effectiveSortKeys(nil), time.Now().Add(cursorTTL), false)
+	_, err = assembleRecordPageForTest(service, page.Items, uuid.New(), effectiveSortKeys(nil), time.Now().Add(cursorTTL), false)
 	assertValidationDetail(t, err, "response", "response_too_large")
 }
 

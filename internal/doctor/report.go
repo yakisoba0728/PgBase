@@ -9,7 +9,6 @@ type Finding struct {
 	Message  string `json:"message"`
 }
 
-// Report is the complete result of a doctor run.
 type Report struct {
 	OK       bool      `json:"ok"`
 	Findings []Finding `json:"findings"`
