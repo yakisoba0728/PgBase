@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
 const benchmarkSeedRows = 10_000
@@ -146,6 +147,7 @@ func benchmarkRecordService(b *testing.B) (*Service, map[string]json.RawMessage,
 		b.Fatalf("apply benchmark collection: %v", err)
 	}
 	seedBenchmarkRecords(b, pool, applied.Collection)
+	testutil.RetireRecordMembershipV4(b, ctx, pool)
 
 	var seededID uuid.UUID
 	table := pgx.Identifier{"app", applied.Collection.TableName}.Sanitize()
