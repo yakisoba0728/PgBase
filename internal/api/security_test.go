@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -172,6 +173,62 @@ func TestSecurityOversizedBodyIsRejectedForEveryContentTypeSpelling(t *testing.T
 	}
 }
 
+func TestSecurityCredentialRoutesReadNoMoreThanTheSmallBodyBudget(t *testing.T) {
+	t.Parallel()
+
+	body := `{"setupToken":"secret","email":"admin@example.test","password":"` +
+		strings.Repeat("x", maximumCredentialRequestBytes) + `"}`
+	contentTypes := []string{
+		"application/json",
+		"\u00a0application/json",
+		"\u0085application/json",
+		"\vapplication/json",
+	}
+	for _, path := range []string{
+		"/api/admin/setup",
+		"/api/admin/auth/login",
+		"/api/admin/login",
+	} {
+		for _, contentType := range contentTypes {
+			path, contentType := path, contentType
+			t.Run(path+"/"+contentType, func(t *testing.T) {
+				t.Parallel()
+				auth := &fakeAdminAuth{setupSession: validSession(), loginSession: validSession()}
+				handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
+				counter := &countingReadCloser{ReadCloser: io.NopCloser(strings.NewReader(body))}
+				request := httptest.NewRequest(http.MethodPost, "http://pgbase.test"+path, nil)
+				request.Body = counter
+				request.ContentLength = int64(len(body))
+				request.Header.Set("Content-Type", contentType)
+				request.Header.Set("Origin", "http://pgbase.test")
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+
+				assertSecurityError(t, response, http.StatusBadRequest, "invalid_request")
+				if auth.setupCalls != 0 || auth.loginCalls != 0 {
+					t.Fatalf("credential service calls setup=%d login=%d", auth.setupCalls, auth.loginCalls)
+				}
+				// MaxBytesReader consumes at most one sentinel byte past the public
+				// budget in order to prove that the body is oversized.
+				if counter.read > maximumCredentialRequestBytes+1 {
+					t.Fatalf("underlying body reads = %d, want at most %d", counter.read, maximumCredentialRequestBytes+1)
+				}
+			})
+		}
+	}
+}
+
+type countingReadCloser struct {
+	io.ReadCloser
+	read int64
+}
+
+func (r *countingReadCloser) Read(buffer []byte) (int, error) {
+	read, err := r.ReadCloser.Read(buffer)
+	r.read += int64(read)
+	return read, err
+}
+
 func TestSecurityStrictJSONRejectsPostgreSQLIncompatibleUnicode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -274,6 +331,9 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 		remoteAddress string
 		forwardedFor  string
 		wantSubject   string
+		wantStatus    int
+		wantCode      string
+		wantCalls     int
 		sensitive     []string
 	}{
 		{
@@ -281,6 +341,9 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 			remoteAddress: "198.51.100.8:4000",
 			forwardedFor:  "203.0.113.99",
 			wantSubject:   "198.51.100.8",
+			wantStatus:    http.StatusUnauthorized,
+			wantCode:      "invalid_credentials",
+			wantCalls:     1,
 			sensitive:     []string{"203.0.113.99"},
 		},
 		{
@@ -288,13 +351,17 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 			remoteAddress: "10.0.0.9:4000",
 			forwardedFor:  "203.0.113.50, 10.0.0.5",
 			wantSubject:   "203.0.113.50",
+			wantStatus:    http.StatusUnauthorized,
+			wantCode:      "invalid_credentials",
+			wantCalls:     1,
 			sensitive:     []string{"203.0.113.50", "10.0.0.5"},
 		},
 		{
-			name:          "malformed trusted proxy chain falls back to the peer",
+			name:          "malformed trusted proxy chain is rejected",
 			remoteAddress: "10.0.0.9:4000",
 			forwardedFor:  "203.0.113.50, security-malformed-forwarded-7f31",
-			wantSubject:   "10.0.0.9",
+			wantStatus:    http.StatusBadRequest,
+			wantCode:      "invalid_request",
 			sensitive:     []string{"203.0.113.50", "security-malformed-forwarded-7f31"},
 		},
 	}
@@ -318,10 +385,10 @@ func TestSecurityForwardedAddressesRespectTrustedProxyBoundaries(t *testing.T) {
 			handler.ServeHTTP(response, request)
 
 			sensitive := append([]string{"security-", test.forwardedFor}, test.sensitive...)
-			assertSecurityError(t, response, http.StatusUnauthorized, "invalid_credentials", sensitive...)
+			assertSecurityError(t, response, test.wantStatus, test.wantCode, sensitive...)
 			assertSecuritySecretsAbsent(t, logs.String(), sensitive...)
-			if auth.loginCalls != 1 {
-				t.Fatalf("Login() calls = %d, want 1", auth.loginCalls)
+			if auth.loginCalls != test.wantCalls {
+				t.Fatalf("Login() calls = %d, want %d", auth.loginCalls, test.wantCalls)
 			}
 			if auth.loginSubject != test.wantSubject {
 				t.Fatalf("Login() subject = %q, want %q", auth.loginSubject, test.wantSubject)

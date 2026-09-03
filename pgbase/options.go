@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -11,7 +12,13 @@ import (
 	"unicode/utf8"
 )
 
-const maximumAdminSessionTTL = 12 * time.Hour
+const (
+	maximumAdminSessionTTL = 12 * time.Hour
+	// The setup endpoint has a 16 KiB body ceiling. Capping the configured
+	// token at 1 KiB leaves room for a maximum-size password, email, and JSON
+	// escaping, so every configuration accepted here remains usable over HTTP.
+	maximumSetupTokenBytes = 1 << 10
+)
 
 // maximumStatementTimeout is PostgreSQL's own statement_timeout ceiling: the
 // GUC is a signed 32-bit millisecond count. internal/database.postgresDuration
@@ -31,10 +38,14 @@ const (
 
 type Options struct {
 	DatabaseURL string
-	HTTPAddress string
-	PublicURL   *url.URL
-	SetupToken  string
-	TokenSecret []byte
+	// AllowInsecureDatabase permits an unverified or plaintext PostgreSQL
+	// connection. It is only for an explicitly trusted local development
+	// network such as the bundled Compose stack.
+	AllowInsecureDatabase bool
+	HTTPAddress           string
+	PublicURL             *url.URL
+	SetupToken            string
+	TokenSecret           []byte
 	// MetricsToken enables the protected Prometheus-compatible GET /metrics
 	// endpoint when non-empty. It is copied during normalization so callers
 	// cannot change the live credential after constructing an App.
@@ -55,7 +66,7 @@ type Options struct {
 
 func (o Options) Normalized() (Options, error) {
 	if o.HTTPAddress == "" {
-		o.HTTPAddress = ":8090"
+		o.HTTPAddress = "127.0.0.1:8090"
 	}
 	if o.AdminSessionTTL == 0 {
 		o.AdminSessionTTL = 12 * time.Hour
@@ -81,7 +92,7 @@ func (o Options) Normalized() (Options, error) {
 }
 
 func validateOptions(o Options) error {
-	if err := validateDatabaseURL(o.DatabaseURL); err != nil {
+	if err := validateDatabaseURL(o.DatabaseURL, o.AllowInsecureDatabase); err != nil {
 		return fmt.Errorf("DatabaseURL: %w", err)
 	}
 	if len(o.TokenSecret) < 32 {
@@ -102,12 +113,23 @@ func validateOptions(o Options) error {
 			}
 		}
 	}
-	if o.SetupToken != "" && utf8.RuneCountInString(o.SetupToken) < 32 {
-		return fmt.Errorf("SetupToken: must contain at least 32 characters")
+	if o.SetupToken != "" {
+		if !utf8.ValidString(o.SetupToken) {
+			return fmt.Errorf("SetupToken: must be valid UTF-8")
+		}
+		if utf8.RuneCountInString(o.SetupToken) < 32 {
+			return fmt.Errorf("SetupToken: must contain at least 32 characters")
+		}
+		if len(o.SetupToken) > maximumSetupTokenBytes {
+			return fmt.Errorf("SetupToken: must contain no more than %d bytes", maximumSetupTokenBytes)
+		}
 	}
 	if o.PublicURL != nil {
 		if err := validateOrigin(o.PublicURL); err != nil {
 			return fmt.Errorf("PublicURL: %w", err)
+		}
+		if o.PublicURL.Scheme == "http" && !loopbackHostname(o.PublicURL.Hostname()) {
+			return fmt.Errorf("PublicURL: plaintext HTTP is allowed only for a loopback host")
 		}
 	}
 	for _, origin := range o.CORSAllowedOrigins {
@@ -120,7 +142,7 @@ func validateOptions(o Options) error {
 		}
 	}
 	for _, prefix := range o.TrustedProxies {
-		if !prefix.IsValid() || prefix != prefix.Masked() {
+		if !prefix.IsValid() || prefix != prefix.Masked() || prefix.Bits() == 0 {
 			return fmt.Errorf("TrustedProxies: must contain valid CIDR prefixes")
 		}
 	}
@@ -140,18 +162,56 @@ func validateOptions(o Options) error {
 	return nil
 }
 
-func validateDatabaseURL(value string) error {
+func validateDatabaseURL(value string, allowInsecure bool) error {
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("must be a valid PostgreSQL URL")
 	}
 	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
 		return fmt.Errorf("must use postgres or postgresql scheme")
 	}
-	if parsed.Host == "" {
+	hosts, ok := databaseURLHosts(parsed)
+	if !ok {
 		return fmt.Errorf("must include a host")
 	}
+	if !allowInsecure && parsed.Query().Get("sslmode") != "verify-full" {
+		for _, host := range hosts {
+			if !strings.HasPrefix(host, "/") && !loopbackHostname(host) {
+				return fmt.Errorf("remote PostgreSQL must use sslmode=verify-full")
+			}
+		}
+	}
 	return nil
+}
+
+func databaseURLHosts(parsed *url.URL) ([]string, bool) {
+	queryHosts, specified := parsed.Query()["host"]
+	if !specified {
+		if parsed.Host == "" || parsed.Hostname() == "" {
+			return nil, false
+		}
+		return []string{parsed.Hostname()}, true
+	}
+	if len(queryHosts) != 1 {
+		return nil, false
+	}
+	hosts := strings.Split(queryHosts[0], ",")
+	for index := range hosts {
+		hosts[index] = strings.TrimSpace(hosts[index])
+		if hosts[index] == "" {
+			return nil, false
+		}
+	}
+	return hosts, true
+}
+
+func loopbackHostname(hostname string) bool {
+	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
+		return true
+	}
+	address := net.ParseIP(hostname)
+	return address != nil && address.IsLoopback()
 }
 
 func validateOrigin(origin *url.URL) error {

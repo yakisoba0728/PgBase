@@ -841,6 +841,7 @@ func (s e2eSuite) startInstance(t *testing.T, ctx context.Context, suffix string
 		"--read-only", "--tmpfs", "/tmp:size=16m,mode=1777",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--env", "PGBASE_DATABASE_URL=postgres://pgbase:" + s.databasePass + "@postgres:5432/pgbase?sslmode=disable",
+		"--env", "PGBASE_ALLOW_INSECURE_DATABASE=true",
 		"--env", "PGBASE_HTTP_ADDRESS=:8090",
 		"--env", "PGBASE_PUBLIC_URL=" + baseURL,
 		"--env", "PGBASE_SETUP_TOKEN=" + s.setupToken,

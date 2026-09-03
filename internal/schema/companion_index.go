@@ -498,66 +498,6 @@ func (s *Service) MaintainCompanionIndexes(ctx context.Context) (CompanionIndexR
 	return s.promoteCompanionIndexes(ctx)
 }
 
-func (s *Service) buildCompanionIndexes(ctx context.Context, companions []IndexSpec) error {
-	connection, err := s.pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire schema companion index maintenance connection: %w", err)
-	}
-	defer connection.Release()
-
-	var acquired bool
-	if err := connection.QueryRow(ctx,
-		"select pg_try_advisory_lock($1)", companionIndexAdvisoryKey).Scan(&acquired); err != nil {
-		return fmt.Errorf("acquire schema companion index maintenance lock: %w", err)
-	}
-	if !acquired {
-		return ErrConflict
-	}
-	// A concurrent build is bounded by the table, not by the request timeout it
-	// inherited, and it must not abandon an index half-built on a slow lock. The
-	// pool applies its timeout per connection at session scope, so the previous
-	// value has to be captured and put back by hand: RESET would fall through to
-	// the server default and quietly leave the next borrower with no timeout.
-	var inheritedTimeout string
-	if err := connection.QueryRow(ctx, "show statement_timeout").Scan(&inheritedTimeout); err != nil {
-		return fmt.Errorf("read statement timeout for companion index maintenance: %w", err)
-	}
-	defer func() {
-		// Best effort: a lost connection drops both settings with the session.
-		restore := context.WithoutCancel(ctx)
-		_, _ = connection.Exec(restore,
-			"select set_config('statement_timeout', $1, false)", inheritedTimeout)
-		_, _ = connection.Exec(restore,
-			"select pg_advisory_unlock($1)", companionIndexAdvisoryKey)
-	}()
-	if _, err := connection.Exec(ctx, "set statement_timeout = 0"); err != nil {
-		return fmt.Errorf("disable statement timeout for companion index maintenance: %w", err)
-	}
-
-	observed, err := loadCompanionIndexes(ctx, connection, companions)
-	if err != nil {
-		return err
-	}
-	for _, companion := range companions {
-		found, present := observed[companionKey(companion)]
-		if present && found.valid && companionShapeMatches(companion, found) {
-			continue
-		}
-		if present {
-			// IF NOT EXISTS would silently accept invalid residue, so the drop is
-			// unconditional once the catalog says this name is not usable.
-			if _, err := connection.Exec(ctx, "drop index concurrently "+
-				pgx.Identifier{companion.Namespace, companion.Name}.Sanitize()); err != nil {
-				return fmt.Errorf("drop invalid companion index: %w", err)
-			}
-		}
-		if _, err := connection.Exec(ctx, createCompanionIndexStatement(companion, true)); err != nil {
-			return fmt.Errorf("build companion index: %w", err)
-		}
-	}
-	return nil
-}
-
 // createCompanionIndexStatement renders the exact key order a nullable
 // descending page needs: NULLS LAST on the column, as the public contract
 // promises, and PostgreSQL's DESC default on the id tiebreaker. Maintenance builds
@@ -738,7 +678,9 @@ func ReadCompanionIndexDiagnostics(ctx context.Context, db database.DBTX) (Compa
 	if !status.Installed {
 		return CompanionIndexDiagnostics{Status: status}, nil
 	}
-	version, err := NewStore(db).SnapshotSchemaVersion(ctx)
+	// This read runs inside the caller's read-only snapshot; no row lock is
+	// needed because that snapshot already pins the catalog version.
+	version, err := NewStore(db).SchemaVersion(ctx)
 	if err != nil {
 		return CompanionIndexDiagnostics{}, err
 	}

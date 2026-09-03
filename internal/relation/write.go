@@ -3,6 +3,7 @@ package relation
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -127,12 +128,7 @@ func (b *Bindings) hydrateRecord(ctx context.Context, querier RowsQuerier, recor
 }
 
 func declaresRelation(collection schema.Collection) bool {
-	for _, field := range collection.Fields {
-		if field.Type == schema.TypeRelation {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(collection.Fields, func(field schema.Field) bool { return field.Type == schema.TypeRelation })
 }
 
 func cloneRawJSON(input map[string]json.RawMessage) map[string]json.RawMessage {

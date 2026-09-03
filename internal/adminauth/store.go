@@ -179,7 +179,7 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now t
 	var administrator Administrator
 	var expiresAt time.Time
 	err := s.db.QueryRow(ctx, `
-		with matched as (
+		with refreshed as (
 			update pgbase_meta.admin_sessions as sessions
 			set last_seen_at = $2
 			from pgbase_meta.admins as admins
@@ -188,9 +188,19 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now t
 			  and sessions.revoked_at is null
 			  and sessions.expires_at > $2
 			  and admins.active
+			  and sessions.last_seen_at <= $2 - interval '5 minutes'
 			returning admins.id, admins.email, admins.active, admins.created_at, admins.updated_at, sessions.expires_at
 		)
-		select id, email, active, created_at, updated_at, expires_at from matched`, tokenHash, now).Scan(
+		select id, email, active, created_at, updated_at, expires_at from refreshed
+		union all
+		select admins.id, admins.email, admins.active, admins.created_at, admins.updated_at, sessions.expires_at
+		from pgbase_meta.admin_sessions as sessions
+		join pgbase_meta.admins as admins on admins.id = sessions.admin_id
+		where sessions.token_hash = $1
+		  and sessions.revoked_at is null
+		  and sessions.expires_at > $2
+		  and admins.active
+		  and not exists (select 1 from refreshed)`, tokenHash, now).Scan(
 		&administrator.ID, &administrator.Email, &administrator.Active,
 		&administrator.CreatedAt, &administrator.UpdatedAt, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -213,13 +223,17 @@ func (s *Store) RevokeSession(ctx context.Context, tokenHash []byte, now time.Ti
 	return nil
 }
 
-// LockRateLimits serializes decisions for multiple rate-limit subjects in a
-// stable order so concurrent requests cannot deadlock while taking the same
-// set of account and network locks.
+// LockRateLimits serializes decisions for multiple rate-limit subjects in the
+// caller-supplied stable order. Contention fails closed without waiting; callers
+// must return the error from their transaction so any earlier locks roll back.
 func (s *Store) LockRateLimits(ctx context.Context, keys []int64) error {
 	for _, key := range keys {
-		if _, err := s.db.Exec(ctx, "select pg_advisory_xact_lock($1)", key); err != nil {
+		var acquired bool
+		if err := s.db.QueryRow(ctx, "select pg_try_advisory_xact_lock($1)", key).Scan(&acquired); err != nil {
 			return fmt.Errorf("lock administrator rate limit: %w", err)
+		}
+		if !acquired {
+			return ErrRateLimited
 		}
 	}
 	return nil

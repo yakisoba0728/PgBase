@@ -35,7 +35,7 @@ func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testi
 	}`))
 	request.Header.Set("Content-Type", "application/json")
 	protectSchemaMutationRequest(request)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -86,7 +86,7 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 		}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 
 		handler.ServeHTTP(response, request)
@@ -118,7 +118,7 @@ func TestSchemaPlanRouteStrictlyDecodesNestedRelationInput(t *testing.T) {
 		}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 
 		handler.ServeHTTP(response, request)
@@ -168,7 +168,7 @@ func TestSchemaPlanRouteReturnsNormalizedRelationDTOs(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"nodes","fields":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	protectSchemaMutationRequest(request)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -232,8 +232,8 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 		wantCode   string
 		wantStatus int
 	}{
-		{name: "missing origin", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
-		{name: "mismatched origin", origin: "https://evil.example.com", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
+		{name: "missing origin", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
+		{name: "mismatched origin", origin: "https://evil.example.com", csrf: adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), wantCode: "origin_rejected", wantStatus: http.StatusForbidden},
 		{name: "missing CSRF", origin: "https://admin.example.com", wantCode: "csrf_rejected", wantStatus: http.StatusForbidden},
 		{name: "invalid CSRF", origin: "https://admin.example.com", csrf: "wrong", wantCode: "csrf_rejected", wantStatus: http.StatusForbidden},
 	}
@@ -251,7 +251,7 @@ func TestSchemaPlanRouteRequiresOriginAndCSRF(t *testing.T) {
 			if test.csrf != "" {
 				request.Header.Set("X-PgBase-CSRF", test.csrf)
 			}
-			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != test.wantStatus {
@@ -274,7 +274,7 @@ func TestSchemaPlanRejectsDuplicateDefaultAfterLargeNumberBeforeServiceCall(t *t
 	))
 	request.Header.Set("Content-Type", "application/json")
 	protectSchemaMutationRequest(request)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -300,7 +300,7 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	missingCSRF.Host = "admin.example.com"
 	missingCSRF.Header.Set("Content-Type", "application/json")
 	missingCSRF.Header.Set("Origin", "https://admin.example.com")
-	missingCSRF.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	missingCSRF.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	missingResponse := httptest.NewRecorder()
 	handler.ServeHTTP(missingResponse, missingCSRF)
 	if missingResponse.Code != http.StatusForbidden || schemas.applyCalls != 0 {
@@ -312,8 +312,8 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	missingBaseVersion.Host = "admin.example.com"
 	missingBaseVersion.Header.Set("Content-Type", "application/json")
 	missingBaseVersion.Header.Set("Origin", "https://admin.example.com")
-	missingBaseVersion.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
-	missingBaseVersion.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	missingBaseVersion.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
+	missingBaseVersion.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	missingBaseResponse := httptest.NewRecorder()
 	handler.ServeHTTP(missingBaseResponse, missingBaseVersion)
 	if missingBaseResponse.Code != http.StatusBadRequest || schemas.applyCalls != 0 {
@@ -325,8 +325,8 @@ func TestSchemaApplyRouteRequiresCSRFAndUsesAuthenticatedAdministrator(t *testin
 	request.Host = "admin.example.com"
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "https://admin.example.com")
-	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -362,7 +362,7 @@ func TestSchemaCatalogRouteReturnsVersionAndDefinitions(t *testing.T) {
 	}}}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -406,7 +406,7 @@ func TestSchemaCatalogRouteReturnsResolvedRelationDTOAndOmitsScalarRelation(t *t
 	}}}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -454,7 +454,7 @@ func TestSchemaCatalogRouteMapsCatalogLimitToStableUnprocessableError(t *testing
 	schemas := &fakeSchemaService{catalogErr: schema.ErrCatalogLimitExceeded}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -474,7 +474,7 @@ func TestSchemaRoutesPreserveStableRelationErrorsWithoutLeakingInternals(t *test
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"`+operation+`","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -568,7 +568,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"create","name":"posts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusUnprocessableEntity {
@@ -598,8 +598,8 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://admin.example.com")
-		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusConflict {
@@ -613,7 +613,7 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		schemas := &fakeSchemaService{catalogErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}}
 		handler := mustRouter(t, schemaTestDependencies(auth, schemas))
 		request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
@@ -631,7 +631,7 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 		ID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000010"), Name: "posts", TableName: "posts", CreatedAt: createdAt,
 	}}}
 	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
-	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token")
+	csrfToken := adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	authenticated := func(method, path, body string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, path, strings.NewReader(body))
 		if method != http.MethodGet {
@@ -640,7 +640,7 @@ func TestSchemaRoutesDispatchUpdateAndDeleteOperations(t *testing.T) {
 			request.Header.Set("Origin", "https://admin.example.com")
 			request.Header.Set("X-PgBase-CSRF", csrfToken)
 		}
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -726,7 +726,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"posts","fields":[]}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusUnprocessableEntity {
@@ -743,8 +743,8 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		request.Host = "admin.example.com"
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://admin.example.com")
-		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusUnprocessableEntity {
@@ -760,7 +760,7 @@ func TestSchemaRoutesMapUnsupportedChangesAndMissingCollections(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"delete","name":"ghosts"}`))
 		request.Header.Set("Content-Type", "application/json")
 		protectSchemaMutationRequest(request)
-		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusNotFound {
@@ -843,5 +843,5 @@ func schemaTestDependencies(auth AdminAuth, schemas SchemaService) Dependencies 
 func protectSchemaMutationRequest(request *http.Request) {
 	request.Host = "admin.example.com"
 	request.Header.Set("Origin", "https://admin.example.com")
-	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"))
+	request.Header.Set("X-PgBase-CSRF", adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
 }

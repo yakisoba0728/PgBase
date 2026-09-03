@@ -103,6 +103,36 @@ func TestReleaseWorkflowGatesEveryPromotionBehindPreflightAndOneCandidate(t *tes
 	}
 }
 
+func TestPublicationWorkflowsRequireProtectedSourcesAndScopedWritePermissions(t *testing.T) {
+	release := workflowSource(t, "release-image.yml")
+	phase := workflowSource(t, "release-phase-image.yml")
+	for name, source := range map[string]string{"release-image.yml": release, "release-phase-image.yml": phase} {
+		if !strings.Contains(source, "permissions:\n  contents: read\n") {
+			t.Errorf("%s does not default to read-only contents", name)
+		}
+		if strings.Contains(source, "secrets: inherit") {
+			t.Errorf("%s inherits secrets into its reusable gate", name)
+		}
+		candidate := strings.Join(workflowJobs(t, name)["candidate"], "\n")
+		for _, contract := range []string{"environment: release-publish", "packages: write", "id-token: write", "attestations: write"} {
+			if !strings.Contains(candidate, contract) {
+				t.Errorf("%s candidate is missing %q", name, contract)
+			}
+		}
+	}
+	if got := jobField(t, workflowJobs(t, "release-image.yml"), "preflight", "if"); got != "${{ github.ref_protected }}" {
+		t.Errorf("release preflight condition = %q", got)
+	}
+	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
+	if !strings.Contains(promotion, "environment: release-publish") || !strings.Contains(promotion, "packages: write") {
+		t.Error("release promotion is not scoped to the protected publication environment")
+	}
+	resolveCondition := jobField(t, workflowJobs(t, "release-phase-image.yml"), "resolve", "if")
+	if !strings.Contains(resolveCondition, "github.event.repository.default_branch") || !strings.Contains(resolveCondition, "github.ref_protected") {
+		t.Errorf("release phase source condition = %q", resolveCondition)
+	}
+}
+
 func TestReleasePromotionSerializesAndLabelsEachMovingChannel(t *testing.T) {
 	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
 	for _, contract := range []string{

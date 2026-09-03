@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { backendScript, deferredStep, scriptedHealth } from "../test/backend-script";
+import { backendScript, deferredStep } from "../test/backend-script";
 import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin } from "../test/harness";
 
 afterEach(() => vi.useRealTimers());
@@ -32,7 +32,6 @@ describe("session lifecycle", () => {
     const oldLogout = deferredStep<void>();
     script.logout.push(oldLogout.step);
     script.status.push({ fault: { kind: "unauthorized" } });
-    script.health.push({ value: scriptedHealth() });
     script.login.push({ value: { administrator, expiresAt: activeSessionExpiresAt() } });
     const harness = scriptedAdmin("/admin/collections", script);
     const user = userEvent.setup();
@@ -40,7 +39,7 @@ describe("session lifecycle", () => {
 
     await screen.findByRole("heading", { name: "pgBase administration" });
     await user.click(screen.getByRole("button", { name: "Sign out" }));
-    await user.click(screen.getByRole("link", { name: "System" }));
+    await expect(harness.backend.system.status()).rejects.toThrow();
     await screen.findByRole("heading", { name: "Sign in to pgBase" });
     await user.type(screen.getByLabelText("Email"), administrator.email);
     await user.type(screen.getByLabelText("Password"), "fresh password");

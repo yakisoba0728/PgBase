@@ -29,7 +29,7 @@ func driftedHealth() SchemaHealth {
 
 func schemaHealthRequest(origin string) *http.Request {
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/system/health", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	if origin != "" {
 		request.Header.Set("Origin", origin)
 	}

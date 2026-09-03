@@ -99,10 +99,17 @@ func (s *Service) applyClaimedOperation(
 	if err != nil {
 		return s.failClaimedOperation(claim, fmt.Errorf("acquire schema operation connection: %w", err))
 	}
-	defer connection.Release()
+	releaseConnection := func() {
+		if connection != nil {
+			connection.Release()
+			connection = nil
+		}
+	}
+	defer releaseConnection()
 
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
+		releaseConnection()
 		return s.failClaimedOperation(claim, fmt.Errorf("begin schema operation: %w", err))
 	}
 	txClosed := false
@@ -117,6 +124,7 @@ func (s *Service) applyClaimedOperation(
 		rollbackOperationTx(tx)
 		txClosed = true
 		s.cache.discardPrepared(nextCatalog)
+		releaseConnection()
 		return s.failClaimedOperation(claim, err)
 	}
 
@@ -127,6 +135,7 @@ func (s *Service) applyClaimedOperation(
 	if err := commit(ctx, tx); err != nil {
 		rollbackOperationTx(tx)
 		txClosed = true
+		releaseConnection()
 		if schemaCommitDefinitelyFailed(err) {
 			s.cache.discardPrepared(nextCatalog)
 			return s.failClaimedOperation(claim, fmt.Errorf("commit schema operation: %w", err))
@@ -134,6 +143,7 @@ func (s *Service) applyClaimedOperation(
 		return s.resolveAmbiguousSchemaCommit(claim, result, nextCatalog)
 	}
 	txClosed = true
+	releaseConnection()
 	result.Receipt = operationReceipt(committedRow)
 	s.cache.publish(nextCatalog)
 	return result, nil
@@ -462,7 +472,7 @@ func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedColle
 	if collectionID == uuid.Nil {
 		return Collection{}, ErrConflict
 	}
-	fields, err := newFieldMetadata(collectionID, definition)
+	fields, err := fieldMetadata(collectionID, nil, definition)
 	if err != nil {
 		return Collection{}, err
 	}

@@ -17,6 +17,9 @@ services:
       timeout: 3s
       retries: 30
       start_period: 5s
+    cpus: ${PGBASE_POSTGRES_CPUS:-2.0}
+    mem_limit: ${PGBASE_POSTGRES_MEMORY_LIMIT:-1g}
+    pids_limit: ${PGBASE_POSTGRES_PIDS_LIMIT:-256}
     restart: unless-stopped
 
   pgbase:
@@ -29,6 +32,7 @@ services:
     command: ["serve"]
     environment:
       PGBASE_DATABASE_URL: postgres://pgbase:${PGBASE_POSTGRES_PASSWORD}@postgres:5432/pgbase?sslmode=disable
+      PGBASE_ALLOW_INSECURE_DATABASE: "true"
       PGBASE_HTTP_ADDRESS: :8090
       PGBASE_PUBLIC_URL: ${PGBASE_PUBLIC_URL:-http://127.0.0.1:8090}
       PGBASE_SETUP_TOKEN: ${PGBASE_SETUP_TOKEN:?copy deployments/.env.example to deployments/.env and generate a setup token}
@@ -36,6 +40,7 @@ services:
       PGBASE_METRICS_TOKEN: ${PGBASE_METRICS_TOKEN:-}
       PGBASE_AUTO_MIGRATE: "true"
       PGBASE_STATEMENT_TIMEOUT: ${PGBASE_STATEMENT_TIMEOUT:-5s}
+      PGBASE_SCHEMA_APPLY_TIMEOUT: ${PGBASE_SCHEMA_APPLY_TIMEOUT:-10m}
       PGBASE_SHUTDOWN_TIMEOUT: ${PGBASE_SHUTDOWN_TIMEOUT:-15s}
       PGBASE_STOP_GRACE_PERIOD: ${PGBASE_STOP_GRACE_PERIOD:-20s}
     depends_on:
@@ -57,6 +62,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    cpus: ${PGBASE_APP_CPUS:-2.0}
+    mem_limit: ${PGBASE_APP_MEMORY_LIMIT:-1g}
+    pids_limit: ${PGBASE_APP_PIDS_LIMIT:-256}
     restart: unless-stopped
 
 volumes:

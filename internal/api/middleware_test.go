@@ -242,15 +242,15 @@ func TestCORSAnswersListedOriginPreflight(t *testing.T) {
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://admin.example" {
 		t.Fatalf("allow origin = %q", got)
 	}
-	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
-		t.Fatalf("allow credentials = %q", got)
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("allow credentials = %q, want no credentialed CORS", got)
 	}
 	if got := response.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Idempotency-Key") || !strings.Contains(got, "If-Match") {
 		t.Fatalf("allow headers = %q", got)
 	}
 	if got := response.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "ETag") ||
 		!strings.Contains(got, "Idempotency-Replayed") || !strings.Contains(got, "PgBase-Compatibility") ||
-		!strings.Contains(got, "Location") || strings.Contains(got, "Deprecation") {
+		!strings.Contains(got, "Location") || !strings.Contains(got, "Retry-After") || strings.Contains(got, "Deprecation") {
 		t.Fatalf("expose headers = %q", got)
 	}
 }
@@ -284,6 +284,34 @@ func TestCORSAllowlistDoesNotGrantCrossOriginMutationAuthority(t *testing.T) {
 	assertErrorCode(t, mutationResponse.Body.Bytes(), "origin_rejected")
 	if auth.logoutCalls != 0 {
 		t.Fatalf("Logout() calls = %d, want 0", auth.logoutCalls)
+	}
+}
+
+func TestCORSAllowlistDoesNotGrantCookieAuthenticatedReadAuthority(t *testing.T) {
+	session := validSession()
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
+	dependencies := testDependencies(auth, mustURL("https://api.example.com"))
+	dependencies.CORSAllowedOrigins = []string{"https://reports.example.com"}
+	handler := mustRouter(t, dependencies)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
+	request.Header.Set("Origin", "https://reports.example.com")
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "origin_rejected")
+	if auth.authenticateCalls != 0 {
+		t.Fatalf("Authenticate() calls = %d, want 0 before origin rejection", auth.authenticateCalls)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://reports.example.com" {
+		t.Fatalf("allow origin = %q", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("allow credentials = %q, want empty", got)
 	}
 }
 

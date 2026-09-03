@@ -170,7 +170,7 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	}
 }
 
-func TestReleaseADirectConstructorConcurrentFirstUseFitsTwoConnectionPool(t *testing.T) {
+func TestReleaseADirectConstructorConcurrentFirstUseFitsMinimumConnectionPool(t *testing.T) {
 	databaseURL, _, _, _, principal := newRecordOperationsTestWithURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -179,7 +179,7 @@ func TestReleaseADirectConstructorConcurrentFirstUseFitsTwoConnectionPool(t *tes
 		t.Fatal(err)
 	}
 	parameters := parsed.Query()
-	parameters.Set("pool_max_conns", "2")
+	parameters.Set("pool_max_conns", "4")
 	parsed.RawQuery = parameters.Encode()
 	limitedPool, err := database.Open(ctx, parsed.String(), 5*time.Second)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestReleaseADirectConstructorConcurrentFirstUseFitsTwoConnectionPool(t *tes
 				t.Fatalf("concurrent first-use Create %d: %v", index, err)
 			}
 		case <-ctx.Done():
-			t.Fatalf("concurrent first-use Create deadlocked with two connections: %v", ctx.Err())
+			t.Fatalf("concurrent first-use Create deadlocked with the minimum pool: %v", ctx.Err())
 		}
 	}
 }

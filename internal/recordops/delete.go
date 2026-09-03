@@ -22,6 +22,14 @@ type deleteRecordSnapshot struct {
 	revisionPresent bool
 }
 
+const (
+	maximumDeleteMaterializedBytes int64 = 32 << 20
+	maximumDeleteHydrationRows     int64 = 100_000
+	maximumDeleteHydrationFields   int64 = 256
+)
+
+type deleteReadBudget struct{ bytes, rows, fields int64 }
+
 // deleteGroup is one collection's slice of the delete closure. Groups keep the
 // plan's global (collection, record) order, so batching per collection commits
 // artifacts in the same audit sequence the per-record path produced.
@@ -84,7 +92,8 @@ func (s *Service) deleteGraphInTransaction(
 	if err != nil {
 		return MutationResult{}, err
 	}
-	if err := captureDeleteSnapshots(ctx, tx, catalog, groups); err != nil {
+	readBudget := deleteReadBudget{bytes: maximumDeleteMaterializedBytes, rows: maximumDeleteHydrationRows, fields: maximumDeleteHydrationFields}
+	if err := captureDeleteSnapshots(ctx, tx, catalog, groups, &readBudget); err != nil {
 		return MutationResult{}, err
 	}
 	rootGroup, ok := findDeleteGroup(groups, root.CollectionID)
@@ -106,7 +115,7 @@ func (s *Service) deleteGraphInTransaction(
 	if err := plan.ExecuteStorage(ctx); err != nil {
 		return MutationResult{}, normalizeRelationError(err)
 	}
-	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities)
+	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities, &readBudget)
 	if err != nil {
 		return MutationResult{}, err
 	}
@@ -238,7 +247,7 @@ func findDeleteGroup(groups []deleteGroup, collectionID uuid.UUID) (deleteGroup,
 
 // captureDeleteSnapshots reads the closure's pre-images with two statements per
 // collection plus one per multiple-relation field, instead of two per record.
-func captureDeleteSnapshots(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, groups []deleteGroup) error {
+func captureDeleteSnapshots(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, groups []deleteGroup, budget *deleteReadBudget) error {
 	for index := range groups {
 		group := &groups[index]
 		ids := make([]uuid.UUID, 0, len(group.deletes)+len(group.updates))
@@ -246,7 +255,7 @@ func captureDeleteSnapshots(ctx context.Context, tx pgx.Tx, catalog schema.Catal
 		for _, update := range group.updates {
 			ids = append(ids, update.Source.RecordID)
 		}
-		records, err := readRecordBatch(ctx, tx, catalog, group.collection, ids)
+		records, err := readRecordBatch(ctx, tx, catalog, group.collection, ids, budget)
 		if err != nil {
 			return err
 		}
@@ -331,6 +340,7 @@ func touchDeleteSurvivors(
 	catalog schema.Catalog,
 	groups []deleteGroup,
 	identities map[relation.RecordRef]deleteArtifactIdentity,
+	budget *deleteReadBudget,
 ) ([]artifactBatch, error) {
 	batches := make([]artifactBatch, 0, len(groups))
 	for _, group := range groups {
@@ -352,7 +362,7 @@ func touchDeleteSurvivors(
 		if err := expectRows(tag, len(ids), schema.ErrConflict); err != nil {
 			return nil, err
 		}
-		after, err := readRecordBatch(ctx, tx, catalog, group.collection, ids)
+		after, err := readRecordBatch(ctx, tx, catalog, group.collection, ids, budget)
 		if err != nil {
 			return nil, err
 		}

@@ -76,7 +76,7 @@ func TestHydrateFieldsBoundedChargesOnlySelectedMultiRelations(t *testing.T) {
 	legacyRecords := map[uuid.UUID]map[string]any{fixture.sourceOne: {}}
 	used, err = withSingle.HydrateBounded(ctx, legacyCounter,
 		[]uuid.UUID{fixture.sourceOne}, legacyRecords, 2)
-	if err != nil || used != 2 || legacyCounter.queries != 2 ||
+	if err != nil || used != 2 || legacyCounter.queries != 1 ||
 		!reflect.DeepEqual(legacyRecords[fixture.sourceOne]["labels"], []string{fixture.targetOne.String()}) ||
 		!reflect.DeepEqual(legacyRecords[fixture.sourceOne]["groups"], []string{fixture.targetThree.String()}) {
 		t.Fatalf("legacy all-field hydration with single binding used/error/queries/record = %d/%v/%d/%#v",

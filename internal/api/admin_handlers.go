@@ -20,7 +20,11 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
-const adminCookieName = "pgbase_admin"
+const (
+	adminCookieName          = "__Host-pgbase_admin"
+	adminDevelopmentCookie   = "pgbase_admin"
+	authenticationRetryAfter = "1"
+)
 
 type AdminAuth interface {
 	SetupRequired(context.Context) (bool, error)
@@ -35,7 +39,13 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	setupRequired, err := e.auth.SetupRequired(r.Context())
+	var setupRequired bool
+	var err error
+	if e.statusCache == nil {
+		setupRequired, err = e.auth.SetupRequired(r.Context())
+	} else {
+		setupRequired, err = e.statusCache.get(r.Context(), e.auth.SetupRequired)
+	}
 	if err != nil {
 		writeAdminAuthError(w, r, err)
 		return
@@ -50,6 +60,7 @@ type adminEndpoints struct {
 	publicURL      *url.URL
 	trustedProxies []netip.Prefix
 	recorder       observability.Recorder
+	statusCache    *setupStatusCache
 }
 
 type administratorResponse struct {
@@ -76,6 +87,7 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 		publicURL:      dependencies.PublicURL,
 		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
 		recorder:       recorder,
+		statusCache:    newSetupStatusCache(),
 	}
 }
 
@@ -100,12 +112,19 @@ func (e adminEndpoints) setup(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	session, err := e.auth.Setup(r.Context(), input.SetupToken, input.Email, input.Password, clientAddress(r, e.trustedProxies))
+	subject, ok := clientAddress(r, e.trustedProxies)
+	if !ok {
+		outcome = observability.OutcomeValidation
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	session, err := e.auth.Setup(r.Context(), input.SetupToken, input.Email, input.Password, subject)
 	if err != nil {
 		outcome = adminAuthOutcome(err)
 		writeAdminAuthError(w, r, err)
 		return
 	}
+	e.statusCache.invalidate()
 	outcome = observability.OutcomeSuccess
 	e.writeIssuedSession(w, r, http.StatusCreated, session)
 }
@@ -130,7 +149,13 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	session, err := e.auth.Login(r.Context(), input.Email, input.Password, clientAddress(r, e.trustedProxies))
+	subject, ok := clientAddress(r, e.trustedProxies)
+	if !ok {
+		outcome = observability.OutcomeValidation
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	session, err := e.auth.Login(r.Context(), input.Email, input.Password, subject)
 	if err != nil {
 		outcome = adminAuthOutcome(err)
 		writeAdminAuthError(w, r, err)
@@ -196,7 +221,7 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieName,
+		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(1, 0).UTC(),
@@ -210,7 +235,7 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 
 func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Request, status int, session adminauth.Session) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieName,
+		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
 		Value:    session.RawToken,
 		Path:     "/",
 		Expires:  session.ExpiresAt.UTC(),
@@ -337,9 +362,10 @@ func writeAdminAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, adminauth.ErrSetupUnavailable):
 		apiError = APIError{Status: http.StatusConflict, Code: "setup_unavailable", Message: "Administrator setup is unavailable"}
 	case errors.Is(err, adminauth.ErrRateLimited):
+		w.Header().Set("Retry-After", authenticationRetryAfter)
 		apiError = APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Too many authentication attempts"}
 	case database.Classify(err) == database.KindUnavailable:
-		w.Header().Set("Retry-After", "1")
+		w.Header().Set("Retry-After", authenticationRetryAfter)
 		apiError = APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Administrator authentication is unavailable"}
 	}
 	writeAPIError(w, r, apiError)

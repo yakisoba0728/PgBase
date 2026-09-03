@@ -55,12 +55,15 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		{method: "GET", pattern: "/api/admin/status", access: accessPublic,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(admin.status)},
 		{method: "POST", pattern: "/api/admin/setup", access: accessSameOrigin,
-			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(admin.setup)},
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(admin.setup)},
 		{method: "POST", pattern: "/api/admin/auth/login", access: accessSameOrigin,
-			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: login},
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, handler: login},
 		{method: "POST", pattern: "/api/admin/login", access: accessSameOrigin,
-			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: login},
-		{method: "GET", pattern: "/api/admin/session", access: accessAdminSession,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, handler: login},
+		{method: "GET", pattern: "/api/admin/session", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(admin.currentSession)},
 		{method: "POST", pattern: "/api/admin/auth/logout", access: accessAdminSession,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: logout},
@@ -75,25 +78,24 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		// The recovery surface for a guarded apply. Both routes verify the
 		// current administrator and the operation owner, so a receipt is only
 		// ever readable by the administrator who created it.
-		{method: "GET", pattern: "/api/admin/schema-operations", access: accessAdminSession,
+		{method: "GET", pattern: "/api/admin/schema-operations", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumOperationPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationHistory)},
-		{method: "GET", pattern: "/api/admin/schema-operations/{id}", access: accessAdminSession,
+		{method: "GET", pattern: "/api/admin/schema-operations/{id}", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationStatus)},
-		{method: "GET", pattern: "/api/admin/collections", access: accessAdminBearer,
+		{method: "GET", pattern: "/api/admin/collections", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
-		{method: "GET", pattern: "/api/admin/system", access: accessAdminBearer,
+		{method: "GET", pattern: "/api/admin/system", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: systemStatus(dependencies.System)},
-		// The diagnostic report describes the operator's own schema, so it is
-		// the one read that refuses a cross-origin caller outright instead of
-		// relying on the deployment having configured no CORS allowance.
+		// Cookie-authenticated reads reject a presented foreign Origin even when
+		// it appears in the public CORS allowlist.
 		{method: "GET", pattern: "/api/admin/system/health", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumSchemaHealthResponseBytes), deadline: deadlineDefault,
 			handler: schemaHealth(dependencies.SchemaHealth)},
-		{method: "GET", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSession,
+		{method: "GET", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
 		{method: "POST", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.create)},
-		{method: "GET", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
+		{method: "GET", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.get)},
 		{method: "PATCH", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.update)},
@@ -146,6 +148,9 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		// never allocates a buffer for a body it will not produce.
 		handler := applyResponseMode(declared.response, declared.handler)
 		handler = applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, handler)
+		if declared.maximumRequestBytes > 0 {
+			handler = requestBodyLimitMiddleware(declared.maximumRequestBytes, handler)
+		}
 		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, handler))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

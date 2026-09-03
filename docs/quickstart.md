@@ -4,7 +4,7 @@ This path runs the development Compose stack: PostgreSQL 16.13 plus the locally 
 
 ## 1. Create the local environment file
 
-The stack requires a PostgreSQL password, a setup token of at least 32 characters, and a base64 token secret that decodes to at least 32 bytes. Never commit `deployments/.env` or reuse these development values in production.
+The stack requires a PostgreSQL password, a valid UTF-8 setup token of 32–1,024 bytes (and at least 32 characters), and a base64 token secret that decodes to at least 32 bytes. Never commit `deployments/.env` or reuse these development values in production.
 
 POSIX shell with OpenSSL:
 

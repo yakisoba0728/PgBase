@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const maxJSONBodyBytes = 1 << 20
+const (
+	maxJSONBodyBytes              = 1 << 20
+	maximumCredentialRequestBytes = 16 << 10
+)
 
 type requestIDKey struct{}
 
@@ -240,9 +243,13 @@ func requestRoute(request *http.Request) string {
 // into memory. No route accepts a body larger than maxJSONBodyBytes, so one
 // unconditional limit keeps the two decisions from drifting apart again.
 func bodyLimitMiddleware(next http.Handler) http.Handler {
+	return requestBodyLimitMiddleware(maxJSONBodyBytes, next)
+}
+
+func requestBodyLimitMiddleware(maximumBytes int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+			r.Body = http.MaxBytesReader(w, r.Body, maximumBytes)
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -309,8 +316,7 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 
 func setCORSHeaders(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Expose-Headers", "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID")
+	w.Header().Set("Access-Control-Expose-Headers", "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After")
 }
 
 func allowedCORSMethod(method string) bool {

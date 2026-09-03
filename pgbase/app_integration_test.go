@@ -155,6 +155,9 @@ func TestNewConfiguresBoundedHTTPReadWriteAndIdleTimeouts(t *testing.T) {
 	if app.httpServer.ReadHeaderTimeout <= 0 || app.httpServer.ReadTimeout <= 0 || app.httpServer.WriteTimeout <= 0 || app.httpServer.IdleTimeout <= 0 {
 		t.Fatalf("HTTP timeouts are not fully bounded: %+v", app.httpServer)
 	}
+	if app.httpServer.MaxHeaderBytes != 64<<10 {
+		t.Fatalf("MaxHeaderBytes = %d, want 65536", app.httpServer.MaxHeaderBytes)
+	}
 }
 
 func TestRunCancellationClosesListenerAndPool(t *testing.T) {
@@ -351,9 +354,13 @@ func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T
 					_ = app.Close(context.Background())
 					t.Fatal(err)
 				}
-				if err := app.readiness.Ready(context.Background()); err == nil {
-					_ = app.Close(context.Background())
-					t.Fatalf("readiness accepted history drift after v%d startup", testCase.through)
+				driftDeadline := time.Now().Add(readinessProbeCacheTTL + time.Second)
+				for app.readiness.Ready(context.Background()) == nil {
+					if time.Now().After(driftDeadline) {
+						_ = app.Close(context.Background())
+						t.Fatalf("readiness accepted history drift beyond its bounded cache after v%d startup", testCase.through)
+					}
+					time.Sleep(10 * time.Millisecond)
 				}
 				if closeErr := app.Close(context.Background()); closeErr != nil {
 					t.Fatal(closeErr)

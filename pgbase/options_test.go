@@ -17,7 +17,7 @@ func TestOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.HTTPAddress != ":8090" {
+	if opts.HTTPAddress != "127.0.0.1:8090" {
 		t.Fatalf("HTTPAddress = %q", opts.HTTPAddress)
 	}
 	if opts.AdminSessionTTL != 12*time.Hour {
@@ -28,6 +28,9 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 	if opts.ShutdownTimeout != 15*time.Second {
 		t.Fatalf("ShutdownTimeout = %s", opts.ShutdownTimeout)
+	}
+	if opts.SchemaApplyTimeout != 10*time.Minute {
+		t.Fatalf("SchemaApplyTimeout = %s", opts.SchemaApplyTimeout)
 	}
 	if opts.Logger == nil {
 		t.Fatal("Logger is nil")
@@ -62,6 +65,43 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			want: "DatabaseURL",
 		},
 		{
+			name: "remote database requires verified TLS",
+			opts: Options{DatabaseURL: "postgres://postgres:postgres@db.example/pgbase?sslmode=require", TokenSecret: validSecret},
+			want: "sslmode=verify-full",
+		},
+		{
+			name: "remote database accepts verified TLS",
+			opts: Options{DatabaseURL: "postgres://postgres:postgres@db.example/pgbase?sslmode=verify-full", TokenSecret: validSecret},
+		},
+		{
+			name: "Unix socket database is trusted-local",
+			opts: Options{DatabaseURL: "postgres:///pgbase?host=/var/run/postgresql&sslmode=disable&pool_max_conns=4", TokenSecret: validSecret},
+		},
+		{
+			name: "database URL without an authority or query host is rejected",
+			opts: Options{DatabaseURL: "postgres:///pgbase", TokenSecret: validSecret},
+			want: "host",
+		},
+		{
+			name: "empty query host is rejected",
+			opts: Options{DatabaseURL: "postgres:///pgbase?host=&sslmode=disable", TokenSecret: validSecret},
+			want: "host",
+		},
+		{
+			name: "query host cannot hide a remote database behind loopback authority",
+			opts: Options{DatabaseURL: "postgres://postgres:postgres@127.0.0.1/pgbase?host=db.example&sslmode=disable", TokenSecret: validSecret},
+			want: "sslmode=verify-full",
+		},
+		{
+			name: "every query host must be trusted-local without verified TLS",
+			opts: Options{DatabaseURL: "postgres:///pgbase?host=/var/run/postgresql,db.example&sslmode=disable", TokenSecret: validSecret},
+			want: "sslmode=verify-full",
+		},
+		{
+			name: "explicit development policy accepts insecure database transport",
+			opts: Options{DatabaseURL: "postgres://postgres:postgres@postgres/pgbase?sslmode=disable", AllowInsecureDatabase: true, TokenSecret: validSecret},
+		},
+		{
 			name: "token secret requires 32 bytes",
 			opts: Options{DatabaseURL: validURL, TokenSecret: make([]byte, 31)},
 			want: "TokenSecret",
@@ -69,6 +109,16 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 		{
 			name: "setup token requires 32 characters",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, SetupToken: strings.Repeat("x", 31)},
+			want: "SetupToken",
+		},
+		{
+			name: "setup token must be valid UTF-8",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, SetupToken: strings.Repeat("\xff", 32)},
+			want: "SetupToken",
+		},
+		{
+			name: "setup token must fit the credential request budget",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, SetupToken: strings.Repeat("x", maximumSetupTokenBytes+1)},
 			want: "SetupToken",
 		},
 		{
@@ -92,6 +142,19 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			want: "PublicURL",
 		},
 		{
+			name: "public HTTP URL must be loopback",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, PublicURL: &url.URL{Scheme: "http", Host: "pgbase.example"}},
+			want: "PublicURL",
+		},
+		{
+			name: "loopback public HTTP URL is accepted",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, PublicURL: &url.URL{Scheme: "http", Host: "[::1]:8090"}},
+		},
+		{
+			name: "wildcard private backend with public HTTPS URL is accepted",
+			opts: Options{DatabaseURL: validURL, HTTPAddress: ":8090", TokenSecret: validSecret, PublicURL: publicURL},
+		},
+		{
 			name: "CORS origin cannot include a wildcard",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, CORSAllowedOrigins: []string{"https://*.example"}},
 			want: "CORSAllowedOrigins",
@@ -99,6 +162,16 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 		{
 			name: "trusted proxy must be a CIDR prefix",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, TrustedProxies: []netip.Prefix{{}}},
+			want: "TrustedProxies",
+		},
+		{
+			name: "trusted proxy cannot cover every IPv4 address",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}},
+			want: "TrustedProxies",
+		},
+		{
+			name: "trusted proxy cannot cover every IPv6 address",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("::/0")}},
 			want: "TrustedProxies",
 		},
 		{
@@ -150,6 +223,20 @@ func TestOptionsCopiesMetricsToken(t *testing.T) {
 	token[0] = 'x'
 	if opts.MetricsToken[0] != 'm' {
 		t.Fatal("Normalized retained caller-owned metrics token storage")
+	}
+}
+
+func TestOptionsMalformedDatabaseURLDoesNotEchoCredentials(t *testing.T) {
+	const secret = "options-database-secret-must-not-leak"
+	_, err := (Options{
+		DatabaseURL: "postgres://admin:" + secret + "%zz@localhost/pgbase",
+		TokenSecret: make([]byte, 32),
+	}).Normalized()
+	if err == nil {
+		t.Fatal("Normalized() error = nil, want malformed database URL rejection")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "postgres://") {
+		t.Fatalf("database URL validation error leaked connection details: %q", err)
 	}
 }
 

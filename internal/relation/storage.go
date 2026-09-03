@@ -244,16 +244,15 @@ func recordColumns(alias string, fields []schema.Field) []string {
 }
 
 // ReadRecords reads a bounded set of base rows for one collection in a single
-// ordered query. decode must consume the record projection above and return
-// the record it encodes; records come back in ascending id order, which is
-// stable regardless of how the caller ordered ids.
+// ordered query. The returned map is keyed from a separately scanned ID, so a
+// decoder cannot make the record body disagree with its batch identity.
 func ReadRecords(
 	ctx context.Context,
 	querier RowsQuerier,
 	collection schema.Collection,
 	ids []uuid.UUID,
 	decode func(pgx.Row) (map[string]any, error),
-) ([]map[string]any, error) {
+) (map[uuid.UUID]map[string]any, error) {
 	if querier == nil || decode == nil {
 		return nil, ErrInvalidBinding
 	}
@@ -273,6 +272,7 @@ func ReadRecords(
 	})
 	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
 	statement := "select " + strings.Join(recordColumns(collection.TableName, fields), ", ") +
+		", " + relationQualified(collection.TableName, "id") +
 		" from " + table + " as " + pgx.Identifier{collection.TableName}.Sanitize() +
 		" where " + relationQualified(collection.TableName, "id") +
 		" = any($1::uuid[]) order by " + relationQualified(collection.TableName, "id")
@@ -281,13 +281,17 @@ func ReadRecords(
 		return nil, err
 	}
 	defer rows.Close()
-	records := make([]map[string]any, 0, len(unique))
+	records := make(map[uuid.UUID]map[string]any, len(unique))
 	for rows.Next() {
-		record, decodeErr := decode(rows)
+		var id uuid.UUID
+		record, decodeErr := decode(trailingRowScanner{row: rows, trailing: []any{&id}})
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		records = append(records, record)
+		if id == uuid.Nil || record == nil || records[id] != nil {
+			return nil, ErrInvalidStoredValue
+		}
+		records[id] = record
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -300,8 +304,8 @@ func relationQualified(alias, column string) string {
 }
 
 // Hydrate fills every multi-relation field in records with []string values.
-// It executes exactly one ordered query per multi field (and none when there
-// are no source IDs), avoiding both N+1 reads and accidental null arrays.
+// All bound junctions are combined into one ordered query, so a wide catalog
+// cannot turn one record operation into hundreds of database round trips.
 func (b *Bindings) Hydrate(
 	ctx context.Context,
 	querier RowsQuerier,
@@ -314,10 +318,8 @@ func (b *Bindings) Hydrate(
 
 // HydrateBounded fills multi-relation fields while reading at most remaining
 // junction rows plus one overflow probe. Used is the number of observed rows,
-// including that probe when ErrHydrationBudgetExceeded is returned. It
-// executes one ordered query per multi field and callers can account for those
-// query steps from the bound catalog field count. Records may be partially
-// hydrated on any error and must then be discarded by the caller.
+// including that probe when ErrHydrationBudgetExceeded is returned. Records
+// may be partially hydrated on any error and must then be discarded.
 func (b *Bindings) HydrateBounded(
 	ctx context.Context,
 	querier RowsQuerier,
@@ -378,15 +380,12 @@ func (b *Bindings) hydrate(
 			records[id] = make(map[string]any)
 		}
 	}
-
-	requested := make(map[uuid.UUID]struct{}, len(ids))
-	for _, id := range ids {
-		requested[id] = struct{}{}
-	}
 	fields := selected
 	if fields == nil {
 		fields = b.fields
 	}
+	multiple := make([]fieldBinding, 0, len(fields))
+	selects := make([]string, 0, len(fields))
 	for _, field := range fields {
 		if field.spec.Cardinality != schema.RelationMultiple {
 			continue
@@ -394,51 +393,62 @@ func (b *Bindings) hydrate(
 		for _, id := range ids {
 			records[id][field.field.Name] = []string{}
 		}
-
-		statement := "select source_id, target_id, position from " + field.storageSQL +
-			" where source_id = any($1::uuid[]) order by source_id, position"
-		arguments := []any{ids}
-		if remaining >= 0 {
-			available := remaining - used
-			if available < int(^uint(0)>>1) {
-				statement += " limit $2"
-				arguments = append(arguments, available+1)
-			}
+		selects = append(selects, "select "+strconv.Itoa(len(multiple))+" as field_index, source_id, target_id, position from "+
+			field.storageSQL+" where source_id = any($1::uuid[])")
+		multiple = append(multiple, field)
+	}
+	if len(multiple) == 0 {
+		return 0, nil
+	}
+	statement := strings.Join(selects, " union all ")
+	arguments := []any{ids}
+	if remaining >= 0 && remaining < int(^uint(0)>>1) {
+		// Limit the Append before sorting so PostgreSQL sorts only the bounded probe.
+		statement = "select field_index, source_id, target_id, position from (" + statement +
+			" limit $2) as bounded_hydration order by field_index, source_id, position"
+		arguments = append(arguments, remaining+1)
+	} else {
+		statement += " order by field_index, source_id, position"
+	}
+	rows, err := querier.Query(ctx, statement, arguments...)
+	if err != nil {
+		return 0, fmt.Errorf("hydrate relation values: %w", err)
+	}
+	defer rows.Close()
+	expectedPositions := make([]map[uuid.UUID]int, len(multiple))
+	for rows.Next() {
+		used++
+		if remaining >= 0 && used > remaining {
+			return used, ErrHydrationBudgetExceeded
 		}
-		rows, err := querier.Query(ctx, statement, arguments...)
-		if err != nil {
+		var fieldIndex, position int
+		var sourceID, targetID uuid.UUID
+		if err := rows.Scan(&fieldIndex, &sourceID, &targetID, &position); err != nil {
 			return used, fmt.Errorf("hydrate relation values: %w", err)
 		}
-		expectedPosition := make(map[uuid.UUID]int, len(ids))
-		for rows.Next() {
-			used++
-			if remaining >= 0 && used > remaining {
-				rows.Close()
-				return used, ErrHydrationBudgetExceeded
-			}
-			var sourceID, targetID uuid.UUID
-			var position int
-			if err := rows.Scan(&sourceID, &targetID, &position); err != nil {
-				rows.Close()
-				return used, fmt.Errorf("hydrate relation values: %w", err)
-			}
-			if _, ok := requested[sourceID]; !ok || targetID == uuid.Nil || position != expectedPosition[sourceID] {
-				rows.Close()
-				return used, ErrInvalidStoredValue
-			}
-			values, ok := records[sourceID][field.field.Name].([]string)
-			if !ok {
-				rows.Close()
-				return used, ErrInvalidStoredValue
-			}
-			records[sourceID][field.field.Name] = append(values, targetID.String())
-			expectedPosition[sourceID]++
+		if fieldIndex < 0 || fieldIndex >= len(multiple) || targetID == uuid.Nil || records[sourceID] == nil {
+			return used, ErrInvalidStoredValue
 		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return used, fmt.Errorf("hydrate relation values: %w", err)
+		expected := expectedPositions[fieldIndex]
+		if expected == nil {
+			expected = make(map[uuid.UUID]int, len(ids))
+			expectedPositions[fieldIndex] = expected
 		}
-		rows.Close()
+		if position != expected[sourceID] {
+			return used, ErrInvalidStoredValue
+		}
+		field := multiple[fieldIndex]
+		values, ok := records[sourceID][field.field.Name].([]string)
+		if !ok {
+			return used, ErrInvalidStoredValue
+		}
+		records[sourceID][field.field.Name] = append(values, targetID.String())
+		expected[sourceID]++
+	}
+	if err := rows.Err(); err != nil {
+		return used, fmt.Errorf("hydrate relation values: %w", err)
+	}
+	for _, field := range multiple {
 		for _, id := range ids {
 			values, ok := records[id][field.field.Name].([]string)
 			if !ok || len(values) < field.spec.MinSelect || len(values) > field.spec.MaxSelect {
@@ -479,10 +489,5 @@ func uniqueSortedUUIDs(values []uuid.UUID) []uuid.UUID {
 	for _, value := range values {
 		unique[value] = struct{}{}
 	}
-	result := make([]uuid.UUID, 0, len(unique))
-	for value := range unique {
-		result = append(result, value)
-	}
-	sortUUIDs(result)
-	return result
+	return sortedMapKeys(unique, sortUUIDs)
 }

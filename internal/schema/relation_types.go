@@ -226,7 +226,7 @@ func NormalizeRelationField(
 	normalized.Indexed = true
 	planned := &PlannedRelation{
 		TargetCollection:   relation.TargetCollection,
-		TargetCollectionID: cloneUUIDPointer(targetCollectionID),
+		TargetCollectionID: clonePointer(targetCollectionID),
 		Cardinality:        relation.Cardinality,
 		MinSelect:          minSelect,
 		MaxSelect:          maxSelect,
@@ -377,20 +377,16 @@ func cloneRelationInput(relation RelationInput) RelationInput {
 	return relation
 }
 
-func cloneRelationSpec(spec *RelationSpec) *RelationSpec {
-	if spec == nil {
-		return nil
-	}
-	clone := *spec
-	return &clone
-}
-
-func cloneUUIDPointer(value *uuid.UUID) *uuid.UUID {
+func clonePointer[T any](value *T) *T {
 	if value == nil {
 		return nil
 	}
 	clone := *value
 	return &clone
+}
+
+func pointerEqual[T comparable](left, right *T) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func intPointer(value int) *int { return &value }

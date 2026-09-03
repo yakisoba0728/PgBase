@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	deleteMaximumDepth   = 32
-	deleteMaximumRecords = 10_000
-	deleteMaximumEdges   = 100_000
-	deleteMaximumScans   = 100_000
+	deleteMaximumDepth       = 32
+	deleteMaximumRecords     = 10_000
+	deleteMaximumEdges       = 100_000
+	deleteMaximumScans       = 100_000
+	deleteMaximumCollections = 256
 )
 
 // ErrDeleteIsolation prevents a snapshot established before the advisory lock
@@ -133,11 +134,7 @@ func bindDeleteGraph(catalog schema.Catalog) (*DeleteGraph, error) {
 		limits:         productionDeleteLimits,
 	}
 
-	names := make([]string, 0, len(catalog.Collections))
-	for name := range catalog.Collections {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := sortedMapKeys(catalog.Collections, sort.Strings)
 	outgoing := make(map[deleteRelationKey]deleteRelationBinding)
 	for _, name := range names {
 		collection := catalog.Collections[name]
@@ -217,6 +214,9 @@ func (g *DeleteGraph) Plan(ctx context.Context, tx pgx.Tx, root RecordRef) (Dele
 	}
 
 	participants := g.participatingCollections(root.CollectionID)
+	if len(participants) == 0 {
+		return DeletePlan{}, deleteValidation("relation_delete_budget_exceeded")
+	}
 	for _, collectionID := range participants {
 		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", collectionAdvisoryKey(collectionID)); err != nil {
 			return DeletePlan{}, newDeleteOperationError(err)
@@ -273,6 +273,9 @@ func (g *DeleteGraph) participatingCollections(root uuid.UUID) []uuid.UUID {
 		queue = queue[1:]
 		for _, relation := range g.incoming[target] {
 			participants[relation.source.id] = struct{}{}
+			if len(participants) > deleteMaximumCollections {
+				return nil
+			}
 			if relation.spec.OnDelete != schema.RelationCascade {
 				continue
 			}
@@ -283,12 +286,7 @@ func (g *DeleteGraph) participatingCollections(root uuid.UUID) []uuid.UUID {
 			queue = append(queue, relation.source.id)
 		}
 	}
-	ids := make([]uuid.UUID, 0, len(participants))
-	for id := range participants {
-		ids = append(ids, id)
-	}
-	sortUUIDs(ids)
-	return ids
+	return sortedMapKeys(participants, sortUUIDs)
 }
 
 type deleteHit struct {
@@ -312,11 +310,7 @@ func (g *DeleteGraph) discover(ctx context.Context, tx pgx.Tx, root RecordRef) (
 			}
 			byCollection[record.CollectionID] = append(byCollection[record.CollectionID], record.RecordID)
 		}
-		collectionIDs := make([]uuid.UUID, 0, len(byCollection))
-		for collectionID := range byCollection {
-			collectionIDs = append(collectionIDs, collectionID)
-		}
-		sortUUIDs(collectionIDs)
+		collectionIDs := sortedMapKeys(byCollection, sortUUIDs)
 		nextSet := make(map[RecordRef]struct{})
 		for _, targetCollectionID := range collectionIDs {
 			targetIDs := uniqueSortedUUIDs(byCollection[targetCollectionID])
@@ -351,17 +345,9 @@ func (g *DeleteGraph) discover(ctx context.Context, tx pgx.Tx, root RecordRef) (
 				}
 			}
 		}
-		frontier = frontier[:0]
-		for record := range nextSet {
-			frontier = append(frontier, record)
-		}
-		sortRecordRefs(frontier)
+		frontier = sortedMapKeys(nextSet, sortRecordRefs)
 	}
-	deletes := make([]RecordRef, 0, len(visited))
-	for record := range visited {
-		deletes = append(deletes, record)
-	}
-	sortRecordRefs(deletes)
+	deletes := sortedMapKeys(visited, sortRecordRefs)
 	return deletes, hits, nil
 }
 
@@ -494,11 +480,7 @@ func (g *DeleteGraph) lockAffectedRows(
 	for record := range affected {
 		byCollection[record.CollectionID] = append(byCollection[record.CollectionID], record.RecordID)
 	}
-	collectionIDs := make([]uuid.UUID, 0, len(byCollection))
-	for id := range byCollection {
-		collectionIDs = append(collectionIDs, id)
-	}
-	sortUUIDs(collectionIDs)
+	collectionIDs := sortedMapKeys(byCollection, sortUUIDs)
 	for _, collectionID := range collectionIDs {
 		collection, ok := g.collections[collectionID]
 		if !ok {

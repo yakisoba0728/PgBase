@@ -37,6 +37,156 @@ func TestReadinessProbeOnlyPublishesProbeOwnedComponents(t *testing.T) {
 	}
 }
 
+func TestReadinessProbeCoalescesConcurrentCallers(t *testing.T) {
+	var calls atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	state := &readinessState{dependencies: []api.Readiness{readinessFunc(func(context.Context) error {
+		if calls.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		return nil
+	})}}
+	state.accepting.Store(true)
+
+	const workers = 32
+	start := make(chan struct{})
+	errorsByWorker := make(chan error, workers)
+	var workersDone sync.WaitGroup
+	workersDone.Add(workers)
+	for range workers {
+		go func() {
+			defer workersDone.Done()
+			<-start
+			errorsByWorker <- state.Ready(context.Background())
+		}()
+	}
+	close(start)
+	<-entered
+	close(release)
+	workersDone.Wait()
+	close(errorsByWorker)
+	for err := range errorsByWorker {
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("dependency calls = %d, want 1", got)
+	}
+}
+
+func TestReadinessProbeCachesErrorsOnlyUntilTheBoundedTTL(t *testing.T) {
+	now := time.Unix(10, 0)
+	var calls atomic.Int32
+	state := &readinessState{
+		probeNow: func() time.Time { return now },
+		dependencies: []api.Readiness{readinessFunc(func(context.Context) error {
+			if calls.Add(1) == 1 {
+				return errors.New("database unavailable")
+			}
+			return nil
+		})},
+	}
+	state.accepting.Store(true)
+
+	for range 2 {
+		if err := state.Ready(context.Background()); err == nil {
+			t.Fatal("cached failed readiness probe returned nil")
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("dependency calls inside TTL = %d, want 1", got)
+	}
+	now = now.Add(readinessProbeCacheTTL)
+	if err := state.Ready(context.Background()); err != nil {
+		t.Fatalf("readiness after TTL: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("dependency calls after TTL = %d, want 2", got)
+	}
+}
+
+func TestReadinessShutdownOverridesACachedSuccessImmediately(t *testing.T) {
+	var calls atomic.Int32
+	state := &readinessState{dependencies: []api.Readiness{readinessFunc(func(context.Context) error {
+		calls.Add(1)
+		return nil
+	})}}
+	state.accepting.Store(true)
+	if err := state.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state.setAccepting(context.Background(), false)
+	err := state.Ready(context.Background())
+	var failure readinessFailure
+	if !errors.As(err, &failure) || !reflect.DeepEqual(failure.Components(), []string{"http"}) {
+		t.Fatalf("shutdown readiness = %#v, want HTTP not ready", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("dependency calls after shutdown = %d, want 1", got)
+	}
+}
+
+func TestReadinessProbeDoesNotPublishRequestCancellation(t *testing.T) {
+	var calls atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	state := &readinessState{dependencies: []api.Readiness{readinessFunc(func(context.Context) error {
+		calls.Add(1)
+		close(entered)
+		<-release
+		return nil
+	})}}
+	state.accepting.Store(true)
+
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- state.Ready(requestContext) }()
+	<-entered
+	cancelRequest()
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- state.Ready(context.Background()) }()
+	close(release)
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled caller error = %v, want context.Canceled", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("dependency calls = %d, want the surviving shared probe only", got)
+	}
+}
+
+func TestReadinessProbePanicPropagatesAndDoesNotWedgeCache(t *testing.T) {
+	var calls atomic.Int32
+	state := &readinessState{dependencies: []api.Readiness{readinessFunc(func(context.Context) error {
+		if calls.Add(1) == 1 {
+			panic("readiness probe panic")
+		}
+		return nil
+	})}}
+	state.accepting.Store(true)
+
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_ = state.Ready(context.Background())
+	}()
+	if recovered != "readiness probe panic" {
+		t.Fatalf("recovered value = %#v, want readiness probe panic", recovered)
+	}
+
+	if err := state.Ready(context.Background()); err != nil {
+		t.Fatalf("readiness after panic: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("dependency calls = %d, want 2", got)
+	}
+}
+
 type readinessTelemetryRecorder struct {
 	mu     sync.Mutex
 	events []observability.Event

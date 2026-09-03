@@ -1,7 +1,11 @@
-import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { scriptedHealth, scriptedStatus } from "../test/backend-script";
+import { act, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SchemaHealth, SystemStatus } from "../backend/ports";
+import { callsTo, deferredStep, scriptedHealth, scriptedStatus } from "../test/backend-script";
 import { renderAdmin, scriptedAdmin } from "../test/harness";
+
+afterEach(() => vi.useRealTimers());
 
 describe("system page", () => {
   it("renders the operational status the backend reports and nothing else", async () => {
@@ -29,11 +33,91 @@ describe("system page", () => {
   it("reports a status it cannot read instead of loading forever", async () => {
     const harness = scriptedAdmin("/admin/system");
     harness.script.status.push({ fault: { kind: "unreachable" } });
-    harness.script.health.push({ fault: { kind: "unreachable" } });
+    harness.script.health.push(deferredStep<SchemaHealth>().step);
+    const health = harness.backend.system.health;
+    const aborted = vi.fn();
+    harness.backend.system.health = (signal) => {
+      signal?.addEventListener("abort", aborted);
+      return health(signal);
+    };
     renderAdmin(harness);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load system status.");
+    expect(aborted).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Loading system status…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry system status" })).toBeEnabled();
+  });
+
+  it("turns a transport that never settles into a retryable failure", async () => {
+    vi.useFakeTimers();
+    const harness = scriptedAdmin("/admin/system");
+    harness.script.status.push(deferredStep<SystemStatus>().step);
+    harness.script.health.push(deferredStep<SchemaHealth>().step);
+    renderAdmin(harness);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("button", { name: "Loading system status…" })).toHaveAttribute("aria-disabled", "true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to load system status.");
+    expect(screen.getByRole("button", { name: "Retry system status" })).toBeEnabled();
+  });
+
+  it("recovers a complete system view after a transient load failure", async () => {
+    const harness = scriptedAdmin("/admin/system");
+    const nextStatus = deferredStep<SystemStatus>();
+    const nextHealth = deferredStep<SchemaHealth>();
+    harness.script.status.push(
+      { fault: { kind: "unreachable" } },
+      nextStatus.step,
+    );
+    harness.script.health.push(
+      { fault: { kind: "unreachable" } },
+      nextHealth.step,
+    );
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "Retry system status" }));
+    expect(screen.getByRole("button", { name: "Loading system status…" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Loading system status…" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Loading system status…" }));
+    expect(callsTo(harness.script, "status")).toHaveLength(2);
+    expect(callsTo(harness.script, "health")).toHaveLength(2);
+    await act(async () => {
+      nextStatus.settle({ value: scriptedStatus({ version: "v1.2.4" }) });
+      nextHealth.settle({ value: scriptedHealth({ lastSuccessAt: "2026-09-01T00:06:00Z" }) });
+    });
+
+    expect(await screen.findByText("v1.2.4")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Refresh system status" })).toHaveFocus();
+    expect(screen.getByText("2026-09-01T00:06:00Z")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(callsTo(harness.script, "status")).toHaveLength(2);
+    expect(callsTo(harness.script, "health")).toHaveLength(2);
+  });
+
+  it("refreshes an already loaded system view on request", async () => {
+    const harness = scriptedAdmin("/admin/system");
+    harness.script.status.push(
+      { value: scriptedStatus({ version: "v1.2.3" }) },
+      { value: scriptedStatus({ version: "v1.2.4" }) },
+    );
+    harness.script.health.push(
+      { value: scriptedHealth() },
+      { value: scriptedHealth({ retries: 2 }) },
+    );
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await screen.findByText("v1.2.3");
+    await user.click(screen.getByRole("button", { name: "Refresh system status" }));
+
+    expect(await screen.findByText("v1.2.4")).toBeVisible();
+    expect(screen.queryByText("v1.2.3")).not.toBeInTheDocument();
+    expect(callsTo(harness.script, "status")).toHaveLength(2);
+    expect(callsTo(harness.script, "health")).toHaveLength(2);
   });
 
   // The reading a probe could not confirm is the one an operator must not read

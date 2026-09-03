@@ -39,7 +39,7 @@ func TestSystemStatusReturnsInjectedRedactedReadOnlyStatus(t *testing.T) {
 	dependencies.System = fakeSystemStatus{status: status}
 	handler := mustRouter(t, dependencies)
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/system", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

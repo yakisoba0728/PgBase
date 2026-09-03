@@ -409,7 +409,7 @@ func requireMigrateUp(t *testing.T, databaseURL string) {
 // startup. The release is a parameter of registration, so one test process can
 // hold the mixed fleet the fence exists for without a historical binary.
 //
-// The pool is held at its two-connection minimum on purpose. These runtimes
+// The pool is held at its four-connection minimum on purpose. These runtimes
 // register and then wait out a lease, and a default-sized pool for each of them
 // would hold a large share of the server's connections for the whole of a drain
 // while the rest of the suite runs against the same server.
@@ -435,7 +435,7 @@ func rolloutWriterDatabaseURL(databaseURL string) (string, error) {
 		return "", err
 	}
 	query := parsed.Query()
-	query.Set("pool_max_conns", "2")
+	query.Set("pool_max_conns", "4")
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
 }
@@ -454,7 +454,7 @@ func TestRolloutWriterDatabaseURLAddsPoolLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if parsed.Path != "/postgres" || parsed.Query().Get("pool_max_conns") != "2" {
+		if parsed.Path != "/postgres" || parsed.Query().Get("pool_max_conns") != "4" {
 			t.Fatalf("rollout writer URL = %q", got)
 		}
 	}

@@ -39,11 +39,7 @@ func (g *DeleteGraph) executeStorage(ctx context.Context, tx pgx.Tx, plan Delete
 	for _, record := range plan.deletes {
 		byCollection[record.CollectionID] = append(byCollection[record.CollectionID], record.RecordID)
 	}
-	collectionIDs := make([]uuid.UUID, 0, len(byCollection))
-	for id := range byCollection {
-		collectionIDs = append(collectionIDs, id)
-	}
-	sortUUIDs(collectionIDs)
+	collectionIDs := sortedMapKeys(byCollection, sortUUIDs)
 	for _, collectionID := range collectionIDs {
 		collection, ok := g.collections[collectionID]
 		if !ok {

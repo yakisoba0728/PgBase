@@ -92,12 +92,12 @@ func validSession() adminauth.Session {
 	}
 	return adminauth.Session{
 		Administrator: administrator,
-		RawToken:      "fixed-session-token",
+		RawToken:      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 		ExpiresAt:     createdAt.Add(12 * time.Hour),
 		// The real service derives this inside adminauth, so the fake has to
 		// as well or the transport would be tested against a session shape it
 		// can never receive.
-		CSRFToken: adminauth.DeriveCSRFToken(testTokenSecret, "fixed-session-token"),
+		CSRFToken: adminauth.DeriveCSRFToken(testTokenSecret, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
 	}
 }
 

@@ -28,6 +28,9 @@ func Classify(err error) Kind {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return KindCanceled
 	}
+	if errors.Is(err, errPoolConfiguration) {
+		return KindValidation
+	}
 
 	var postgresError *pgconn.PgError
 	if !errors.As(err, &postgresError) {

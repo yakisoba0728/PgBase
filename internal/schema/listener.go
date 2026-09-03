@@ -66,14 +66,21 @@ func (l *Listener) Run(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if err := waitForContext(ctx, backoff); err != nil {
 			return ctx.Err()
-		case <-timer.C:
 		}
 		backoff = min(backoff*2, l.retryMax)
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

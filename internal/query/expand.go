@@ -17,10 +17,22 @@ import (
 )
 
 type expansionUsage struct {
-	limits     expandLimits
-	rows       int
-	querySteps int
-	pageResult bool
+	limits                              expandLimits
+	rows, querySteps, materializedBytes int
+	pageResult                          bool
+}
+
+func (u *expansionUsage) takeMaterializedRecord(record map[string]any) error {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	count := len(encoded)
+	if count < 0 || count > u.limits.maxBytes || u.materializedBytes > u.limits.maxBytes-count {
+		return validation("response", "response_too_large")
+	}
+	u.materializedBytes += count
+	return nil
 }
 
 func (u *expansionUsage) takeRows(count int) error {
@@ -85,7 +97,14 @@ func (s *Service) readGetInTx(
 
 	var response map[string]any
 	if request.Expand == "" {
-		if err := hydrateRelationRecords(ctx, tx, catalog, collection, []map[string]any{root}); err != nil {
+		usage := &expansionUsage{limits: s.expandLimits}
+		if err := usage.takeQuerySteps(1 + multipleRelationFieldCount(collection)); err != nil {
+			return err
+		}
+		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, usage); err != nil {
+			return err
+		}
+		if err := validateExpandedRecordSize(ExpandedRecord{Root: root}, usage.limits.maxBytes); err != nil {
 			return err
 		}
 		response = root
@@ -209,7 +228,7 @@ func (s *Service) readListInTx(
 		operationTime: traversal.TransactionTime, traversal: traversal,
 	}
 	if usage == nil {
-		if collectionHasMultipleRelation(collection) {
+		if multipleRelationFieldCount(collection) != 0 {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection)
 		}
 	} else {
@@ -371,6 +390,10 @@ func (s *Service) fetchExpansionTargets(
 			rows.Close()
 			return nil, expansionTargetFailure(err)
 		}
+		if err := usage.takeMaterializedRecord(record); err != nil {
+			rows.Close()
+			return nil, err
+		}
 		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
@@ -410,7 +433,7 @@ func (s *Service) fetchExpansionTargets(
 		if _, duplicate := targets[id]; duplicate {
 			return nil, errors.New("read expanded targets: duplicate record id")
 		}
-		targets[id] = cloneRecord(record)
+		targets[id] = record
 	}
 	return targets, nil
 }

@@ -102,25 +102,39 @@ func normalizedClock(clock Clock) Clock {
 }
 
 type Service struct {
-	pool        *database.Pool
-	passwords   Passwords
-	tokenSecret []byte
-	setupToken  string
-	sessionTTL  time.Duration
-	clock       Clock
-	verifySlots chan struct{}
+	pool            *database.Pool
+	passwords       Passwords
+	tokenSecret     []byte
+	setupToken      string
+	sessionTTL      time.Duration
+	clock           Clock
+	credentialSlots chan struct{}
+	sessionSlots    chan struct{}
+	probeSlots      chan struct{}
+	passwordSlots   chan struct{}
 }
 
-const passwordVerificationConcurrency = 2
+const passwordWorkConcurrency = 2
+
+// Credential and session work have independent budgets so a password-KDF
+// backlog cannot starve established sessions. The HTTP layer coalesces probes.
+const (
+	credentialAdmissionConcurrency = 16
+	sessionAdmissionConcurrency    = 16
+	setupProbeAdmissionConcurrency = 1
+)
 
 func NewService(pool *database.Pool, passwords Passwords, tokenSecret []byte, setupToken string, sessionTTL time.Duration, clock Clock) *Service {
 	return &Service{
-		pool:        pool,
-		passwords:   passwords,
-		tokenSecret: append([]byte(nil), tokenSecret...),
-		setupToken:  setupToken,
-		sessionTTL:  sessionTTL,
-		clock:       normalizedClock(clock),
-		verifySlots: make(chan struct{}, passwordVerificationConcurrency),
+		pool:            pool,
+		passwords:       passwords,
+		tokenSecret:     append([]byte(nil), tokenSecret...),
+		setupToken:      setupToken,
+		sessionTTL:      sessionTTL,
+		clock:           normalizedClock(clock),
+		credentialSlots: make(chan struct{}, credentialAdmissionConcurrency),
+		sessionSlots:    make(chan struct{}, sessionAdmissionConcurrency),
+		probeSlots:      make(chan struct{}, setupProbeAdmissionConcurrency),
+		passwordSlots:   make(chan struct{}, passwordWorkConcurrency),
 	}
 }

@@ -185,7 +185,7 @@ Expand는 4 KiB expression, depth 6, unique node 20, 전체 fetched row 10,000, 
 
 ## 6. 관리자 보안 계약
 
-- setup token과 token secret은 최소 길이를 검증하며, token secret은 디코딩 후 32바이트 이상이어야 한다.
+- setup token은 유효한 UTF-8 32자 이상, 1,024바이트 이하인지 검증해 HTTP 설정 요청 한도 안에 들어가게 하며, token secret은 디코딩 후 32바이트 이상이어야 한다.
 - 관리자 암호는 Argon2id로 해시한다. 로그인 실패 제한 상태는 PostgreSQL에 있어 다중 인스턴스가 공유한다.
 - 세션 원문은 쿠키에만 전달하고 DB에는 HMAC 해시만 저장한다. 쿠키는 `HttpOnly`, `SameSite=Lax`이며 외부 origin이 HTTPS이면 `Secure`다.
 - 브라우저 mutation은 정확한 origin 검증과 세션 결합 CSRF 검증을 통과해야 한다.
@@ -232,7 +232,7 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 - `/health/ready`는 HTTP가 요청을 받고 있고 DB가 연결되며 시스템 migration이 최신이고 schema listener가 동기화될 때만 200이다.
 - `PGBASE_METRICS_TOKEN`을 설정한 인스턴스만 bearer-protected `/metrics`를 제공한다. HTTP route template, pool, retry, migration/schema/listener/auth outcome과 readiness는 무제한 사용자 값을 label로 사용하지 않으며 dashboard와 초기 alert rule이 함께 제공된다.
 - SIGTERM 또는 context 취소 시 readiness를 먼저 내리고 새 요청을 차단한 뒤 HTTP, schema listener, admin cleaner와 record-idempotency cleaner를 `PGBASE_SHUTDOWN_TIMEOUT` 안에 drain하고 풀을 닫는다.
-- 컨테이너는 Go 1.26.7로 정적 빌드하며 distroless `nonroot` 런타임을 사용한다. shell을 포함하지 않는다.
+- 컨테이너는 Go 1.26.8로 정적 빌드하며 distroless `nonroot` 런타임을 사용한다. shell을 포함하지 않는다.
 - 개발 Compose는 PostgreSQL 16.13을 사용하고 loopback port, read-only pgBase filesystem, 제한된 tmpfs, all-capability drop과 no-new-privileges를 적용한다.
 - 개발 Compose만 `PGBASE_AUTO_MIGRATE=true`다. 운영에서는 false 또는 unset 상태에서 별도 migration job을 사용한다.
 - tag release는 digest로 고정한 BuildKit `docker-container` builder를 사용하고 tag 원문을 binary `VERSION`에 주입한다. `/api/admin/system`에서 실행 중인 이미지 버전을 확인할 수 있다.
@@ -248,7 +248,7 @@ Go에 임베드할 때는 `pgbase.Options`를 구성해 `pgbase.New(ctx, options
 | Go unit | live PostgreSQL 없이 `scripts/test-go-unit.sh -count=1` |
 | Go integration | live PostgreSQL을 사용한 `scripts/test-go-integration.sh -count=1` |
 | 정적 검사 | `go vet ./...` |
-| 동시성 | Linux / Go 1.26.7에서 `scripts/test-go-integration.sh -race -count=1` |
+| 동시성 | Linux / Go 1.26.8에서 `scripts/test-go-integration.sh -race -count=1` |
 | Frontend | integrity-bound `npm ci`, typecheck, unit/contract test, production build |
 | Embedded UI | 재빌드한 `ui/admin/dist`와 커밋 결과가 동일 |
 | Black-box E2E | source-built pgBase Compose 이미지와 digest-pinned PostgreSQL 16.13에서 `-count=2 -shuffle=on` 실행 |
@@ -326,7 +326,7 @@ git switch main
 git pull --ff-only
 ```
 
-새 환경은 Go 1.26.7, Node 24, npm 11, Docker Engine/Compose/Buildx, 그리고 데이터베이스를 만들 수 있는 superuser 계정을 가진 PostgreSQL 16 이상을 준비한다. Go unit suite는 live PostgreSQL 파일을 build하지 않으며, PostgreSQL integration suite는 `PGBASE_TEST_ADMIN_URL`이 없으면 `go test`를 시작하기 전에 실패한다. 두 명령 모두 JSON test event를 skip allowlist와 대조한다. CI는 같은 integration suite를 PostgreSQL 16.13, 17.9, 18.3에서 각각 실행한다. clone 직후 다음 순서로 전달 상태를 확인한다.
+새 환경은 Go 1.26.8, Node 24, npm 11, Docker Engine/Compose/Buildx, 그리고 데이터베이스를 만들 수 있는 superuser 계정을 가진 PostgreSQL 16 이상을 준비한다. Go unit suite는 live PostgreSQL 파일을 build하지 않으며, PostgreSQL integration suite는 `PGBASE_TEST_ADMIN_URL`이 없으면 `go test`를 시작하기 전에 실패한다. 두 명령 모두 JSON test event를 skip allowlist와 대조한다. CI는 같은 integration suite를 PostgreSQL 16.13, 17.9, 18.3에서 각각 실행한다. clone 직후 다음 순서로 전달 상태를 확인한다.
 
 ```console
 scripts/test-go-unit.sh -count=1

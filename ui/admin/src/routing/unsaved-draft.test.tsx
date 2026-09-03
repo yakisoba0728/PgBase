@@ -39,6 +39,18 @@ describe("unsaved drafts", () => {
     expect(ledger.mayLeave()).toBe(true);
   });
 
+  it("can confirm a fallible departure without releasing its draft guard", () => {
+    const confirmLeave = vi.fn(() => true);
+    const ledger = draftLedger(confirmLeave);
+
+    ledger.hold("record posts id:one", true);
+    expect(ledger.confirmLeave()).toBe(true);
+    expect(ledger.held()).toBe(true);
+
+    expect(ledger.confirmLeave()).toBe(true);
+    expect(confirmLeave).toHaveBeenCalledTimes(2);
+  });
+
   it("lets the browser offer to keep a draft a reload would drop", () => {
     const ledger = draftLedger(() => true);
     render(<UnsavedDrafts ledger={ledger}><span /></UnsavedDrafts>);

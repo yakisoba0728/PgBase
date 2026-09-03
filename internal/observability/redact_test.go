@@ -20,6 +20,10 @@ func TestRedactRemovesSecrets(t *testing.T) {
 		{name: "Set-Cookie", input: "Set-Cookie: sid=def", secret: "sid=def"},
 		{name: "setup token", input: "setup token=setup-secret", secret: "setup-secret"},
 		{name: "session token", input: "session_token=session-secret", secret: "session-secret"},
+		{name: "generic secret", input: "client_secret=oauth-secret", secret: "oauth-secret"},
+		{name: "API key", input: "api_key=provider-key", secret: "provider-key"},
+		{name: "prefixed API key", input: "provider_api_key=provider-prefixed-key", secret: "provider-prefixed-key"},
+		{name: "private key", input: "private-key=signing-key", secret: "signing-key"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -37,8 +41,8 @@ func TestRedactRemovesSecrets(t *testing.T) {
 func TestJSONLoggerRedactsTypedSecretAttributes(t *testing.T) {
 	var output bytes.Buffer
 	logger := NewJSONLogger(&output)
-	logger.Info("request", slog.String("authorization", "Bearer bearer-secret"), slog.String("database_url", "postgres://admin:secret@db.example/app"), slog.String("method", "GET"))
-	if got := output.String(); strings.Contains(got, "bearer-secret") || strings.Contains(got, "admin:secret") {
+	logger.Info("request", slog.String("authorization", "Bearer bearer-secret"), slog.String("database_url", "postgres://admin:secret@db.example/app"), slog.String("client_secret", "oauth-client-secret"), slog.String("provider_api_key", "provider-key"), slog.String("method", "GET"))
+	if got := output.String(); strings.Contains(got, "bearer-secret") || strings.Contains(got, "admin:secret") || strings.Contains(got, "oauth-client-secret") || strings.Contains(got, "provider-key") {
 		t.Fatalf("log leaked secret: %q", got)
 	}
 	if !strings.Contains(output.String(), "[REDACTED]") {
@@ -117,6 +121,24 @@ func TestJSONLoggerRedactsCredentialsInErrorAttributes(t *testing.T) {
 			name:   "escaped space in unquoted keyword DSN password",
 			error:  errors.New(`cannot parse host=db.example password=prefix\ escaped-space-secret sslmode=invalid`),
 			secret: "escaped-space-secret",
+			keep:   "host=db.example",
+		},
+		{
+			name:   "single-quoted URL query password with whitespace",
+			error:  errors.New("cannot parse postgres://db.example/app?password='prefix secret-suffix'&sslmode=invalid"),
+			secret: "secret-suffix",
+			keep:   "sslmode=invalid",
+		},
+		{
+			name:   "backtick URL query TLS password with whitespace",
+			error:  errors.New("cannot parse postgres://db.example/app?sslpassword=`prefix secret-suffix`&sslmode=invalid"),
+			secret: "secret-suffix",
+			keep:   "sslmode=invalid",
+		},
+		{
+			name:   "backtick keyword DSN password with whitespace",
+			error:  errors.New("cannot parse host=db.example password=`prefix secret-suffix` sslmode=invalid"),
+			secret: "secret-suffix",
 			keep:   "host=db.example",
 		},
 	}

@@ -176,6 +176,27 @@ func TestCatalogCacheReplacesDifferentRolledBackCandidateBeforeDiscard(t *testin
 	}
 }
 
+func TestSameCatalogContentComparesValuesNotOwnedRepresentations(t *testing.T) {
+	left := cacheTestCatalog(8, "posts")
+	collection := left.Collections["posts"]
+	collection.CreatedAt = time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	left.Collections["posts"] = collection
+	right := cloneCatalog(left)
+	collection = right.Collections["posts"]
+	collection.CreatedAt = collection.CreatedAt.In(time.FixedZone("fixture", 9*60*60))
+	collection.Fields = []Field{}
+	right.Collections["posts"] = collection
+	right.wire = []byte("cached representation")
+	right.deleteGraph = &catalogDeleteGraph{}
+	if !sameCatalogContent(left, right) {
+		t.Fatal("equivalent catalog values were treated as different")
+	}
+	right.Version++
+	if sameCatalogContent(left, right) {
+		t.Fatal("different catalog versions were treated as equal")
+	}
+}
+
 func TestCatalogWireLimitIsExactlySixteenMiB(t *testing.T) {
 	const sixteenMiB = 16 * 1024 * 1024
 	if maximumCatalogWireBytes != sixteenMiB {

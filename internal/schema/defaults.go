@@ -59,14 +59,12 @@ func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (
 			return json.RawMessage("true"), "TRUE", nil
 		}
 		return json.RawMessage("false"), "FALSE", nil
-	case TypeInteger:
-		value, ok := parseInteger(raw, 32)
-		if !ok {
-			return nil, "", validation("", "invalid_default")
+	case TypeInteger, TypeBigInt:
+		bits := 64
+		if typ == TypeInteger {
+			bits = 32
 		}
-		return jsonString(value), value, nil
-	case TypeBigInt:
-		value, ok := parseInteger(raw, 64)
+		value, ok := parseInteger(raw, bits)
 		if !ok {
 			return nil, "", validation("", "invalid_default")
 		}

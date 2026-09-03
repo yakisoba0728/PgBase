@@ -2,8 +2,12 @@ package database
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +21,10 @@ type Pool struct {
 	closeOnce sync.Once
 	closeDone chan struct{}
 }
+
+const minimumPoolConnections int32 = 4
+
+var errPoolConfiguration = errors.New("parse PostgreSQL pool configuration")
 
 // PoolStats is a point-in-time snapshot of every statistic exposed by pgxpool.
 // Keeping this type independent of pgx lets observability code collect pool
@@ -37,27 +45,26 @@ type PoolStats struct {
 	TotalConns              int32
 }
 
-func Open(ctx context.Context, databaseURL string, statementTimeout time.Duration) (*Pool, error) {
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse PostgreSQL pool configuration: %w", err)
+// Open constructs a pool under the secure transport policy. Existing callers
+// omit allowInsecureTransport and get the fail-closed default; the optional
+// fourth argument is only for the explicit development policy loaded by the
+// application boundary.
+func Open(
+	ctx context.Context,
+	databaseURL string,
+	statementTimeout time.Duration,
+	allowInsecureTransport ...bool,
+) (*Pool, error) {
+	if len(allowInsecureTransport) > 1 {
+		return nil, fmt.Errorf("%w: at most one insecure-transport policy may be supplied", errPoolConfiguration)
 	}
-	if config.MaxConns < 2 {
-		return nil, fmt.Errorf("parse PostgreSQL pool configuration: pool_max_conns must be at least 2")
+	allowInsecure := len(allowInsecureTransport) == 1 && allowInsecureTransport[0]
+	config, err := parsePoolConfig(databaseURL, allowInsecure)
+	if err != nil {
+		return nil, err
 	}
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if _, err := conn.Exec(ctx, "set application_name = 'pgbase'"); err != nil {
-			return fmt.Errorf("set application name: %w", err)
-		}
-		if _, err := conn.Exec(ctx, "set timezone = 'UTC'"); err != nil {
-			return fmt.Errorf("set timezone: %w", err)
-		}
-		// Apply the caller's request timeout last so an intentionally tiny
-		// value cannot cancel the remaining connection initialization commands.
-		if _, err := conn.Exec(ctx, "select set_config('statement_timeout', $1, false)", postgresDuration(statementTimeout)); err != nil {
-			return fmt.Errorf("set statement timeout: %w", err)
-		}
-		return nil
+		return configureSession(ctx, conn.Exec, statementTimeout)
 	}
 
 	inner, err := pgxpool.NewWithConfig(ctx, config)
@@ -70,6 +77,77 @@ func Open(ctx context.Context, databaseURL string, statementTimeout time.Duratio
 		return nil, fmt.Errorf("ping PostgreSQL pool: %w", err)
 	}
 	return pool, nil
+}
+
+func configureSession(
+	ctx context.Context,
+	exec func(context.Context, string, ...any) (pgconn.CommandTag, error),
+	statementTimeout time.Duration,
+) error {
+	// Pin object resolution before running any SQL that resolves a function or
+	// relation. All application relations are schema-qualified; pg_catalog is
+	// the only implicit namespace a pooled session needs.
+	if _, err := exec(ctx, "set search_path = pg_catalog"); err != nil {
+		return fmt.Errorf("set safe search path: %w", err)
+	}
+	if _, err := exec(ctx, "set application_name = 'pgbase'"); err != nil {
+		return fmt.Errorf("set application name: %w", err)
+	}
+	if _, err := exec(ctx, "set timezone = 'UTC'"); err != nil {
+		return fmt.Errorf("set timezone: %w", err)
+	}
+	// Apply the caller's request timeout last so an intentionally tiny value
+	// cannot cancel the remaining connection initialization commands.
+	if _, err := exec(ctx, "select pg_catalog.set_config('statement_timeout', $1, false)", postgresDuration(statementTimeout)); err != nil {
+		return fmt.Errorf("set statement timeout: %w", err)
+	}
+	return nil
+}
+
+func parsePoolConfig(databaseURL string, allowInsecure bool) (*pgxpool.Config, error) {
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errPoolConfiguration, err)
+	}
+	if config.MaxConns < minimumPoolConnections {
+		return nil, fmt.Errorf("%w: pool_max_conns must be at least %d", errPoolConfiguration, minimumPoolConnections)
+	}
+	if err := validateDatabaseTransport(config, allowInsecure); err != nil {
+		return nil, fmt.Errorf("%w: %w", errPoolConfiguration, err)
+	}
+	return config, nil
+}
+
+func validateDatabaseTransport(config *pgxpool.Config, allowInsecure bool) error {
+	if allowInsecure {
+		return nil
+	}
+	if config == nil || config.ConnConfig == nil {
+		return fmt.Errorf("database connection configuration is missing")
+	}
+	if !databaseTargetUsesVerifiedTLS(config.ConnConfig.Host, config.ConnConfig.Port, config.ConnConfig.TLSConfig) {
+		return fmt.Errorf("remote PostgreSQL must use sslmode=verify-full; insecure transport is allowed only by explicit development policy")
+	}
+	for _, fallback := range config.ConnConfig.Fallbacks {
+		if fallback == nil || !databaseTargetUsesVerifiedTLS(fallback.Host, fallback.Port, fallback.TLSConfig) {
+			return fmt.Errorf("every remote PostgreSQL fallback must use sslmode=verify-full; insecure transport is allowed only by explicit development policy")
+		}
+	}
+	return nil
+}
+
+func databaseTargetUsesVerifiedTLS(host string, port uint16, tlsConfig *tls.Config) bool {
+	if network, _ := pgconn.NetworkAddress(host, port); network == "unix" {
+		return true
+	}
+	hostname := strings.TrimSuffix(strings.ToLower(host), ".")
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
+		return true
+	}
+	if address, err := netip.ParseAddr(hostname); err == nil && address.Unmap().IsLoopback() {
+		return true
+	}
+	return tlsConfig != nil && !tlsConfig.InsecureSkipVerify && tlsConfig.ServerName != ""
 }
 
 // postgresDuration avoids Go's duration units (for example "1m30s" and

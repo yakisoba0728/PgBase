@@ -98,19 +98,19 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"POST /api/admin/setup":                                accessSameOrigin,
 		"POST /api/admin/auth/login":                           accessSameOrigin,
 		"POST /api/admin/login":                                accessSameOrigin,
-		"GET /api/admin/session":                               accessAdminSession,
+		"GET /api/admin/session":                               accessAdminSameOriginRead,
 		"POST /api/admin/auth/logout":                          accessAdminSession,
 		"DELETE /api/admin/session":                            accessAdminSession,
 		"POST /api/admin/collections/plan":                     accessAdminSession,
 		"POST /api/admin/collections/apply":                    accessAdminSession,
-		"GET /api/admin/schema-operations":                     accessAdminSession,
-		"GET /api/admin/schema-operations/{id}":                accessAdminSession,
-		"GET /api/admin/collections":                           accessAdminBearer,
-		"GET /api/admin/system":                                accessAdminBearer,
+		"GET /api/admin/schema-operations":                     accessAdminSameOriginRead,
+		"GET /api/admin/schema-operations/{id}":                accessAdminSameOriginRead,
+		"GET /api/admin/collections":                           accessAdminSameOriginRead,
+		"GET /api/admin/system":                                accessAdminSameOriginRead,
 		"GET /api/admin/system/health":                         accessAdminSameOriginRead,
-		"GET /api/v1/collections/{collection}/records":         accessAdminSession,
+		"GET /api/v1/collections/{collection}/records":         accessAdminSameOriginRead,
 		"POST /api/v1/collections/{collection}/records":        accessAdminSession,
-		"GET /api/v1/collections/{collection}/records/{id}":    accessAdminSession,
+		"GET /api/v1/collections/{collection}/records/{id}":    accessAdminSameOriginRead,
 		"PATCH /api/v1/collections/{collection}/records/{id}":  accessAdminSession,
 		"DELETE /api/v1/collections/{collection}/records/{id}": accessAdminSession,
 		"/admin":  accessEmbeddedUI,
@@ -156,6 +156,30 @@ func TestBufferedRoutesNameACapAndOnlySchemaApplyRunsLong(t *testing.T) {
 		if declared.deadline != wantDeadline {
 			t.Fatalf("route %q deadline = %d, want %d", key, declared.deadline, wantDeadline)
 		}
+	}
+}
+
+func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
+	want := map[string]bool{
+		"POST /api/admin/setup":      true,
+		"POST /api/admin/auth/login": true,
+		"POST /api/admin/login":      true,
+	}
+	for _, declared := range declaredTestRoutes(t) {
+		key := declared.muxPattern()
+		if want[key] {
+			if declared.maximumRequestBytes != maximumCredentialRequestBytes {
+				t.Fatalf("route %q request cap = %d, want %d", key, declared.maximumRequestBytes, maximumCredentialRequestBytes)
+			}
+			delete(want, key)
+			continue
+		}
+		if declared.maximumRequestBytes != 0 {
+			t.Fatalf("route %q unexpectedly narrows the global request cap to %d", key, declared.maximumRequestBytes)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("credential routes without a pinned request cap: %v", want)
 	}
 }
 
@@ -259,6 +283,13 @@ func TestValidateRoutesRejectsIncompleteDuplicateAndUncappedEntries(t *testing.T
 			routes: []route{{method: "GET", pattern: "/a", access: accessPublic,
 				response: responseMode{maximumBytes: 1}, deadline: deadlineDefault, handler: handler}},
 			want: errRouteIncomplete,
+		},
+		{
+			name: "request cap exceeds the global cap",
+			routes: []route{{method: "POST", pattern: "/a", access: accessPublic,
+				response: atomicJSON(1 << 10), deadline: deadlineDefault,
+				maximumRequestBytes: maxJSONBodyBytes + 1, handler: handler}},
+			want: errRouteRequestCap,
 		},
 		{
 			name: "missing access policy",

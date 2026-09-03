@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/internal/adminauth"
 )
 
 func TestAdminMutationsRejectAbsentOrMismatchedOrigin(t *testing.T) {
@@ -80,17 +81,66 @@ func TestAdminSessionMiddlewareRequiresOriginAndCSRFForEveryMutationMethod(t *te
 	}
 }
 
-func TestAdminSessionMiddlewareAllowsReadWithoutOriginOrCSRF(t *testing.T) {
+func TestAdminSameOriginReadAllowsBrowserAndNonBrowserClients(t *testing.T) {
+	for _, origin := range []string{"", "https://pgbase.example"} {
+		t.Run(origin, func(t *testing.T) {
+			session := validSession()
+			auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+			handler := adminSameOriginReadMiddleware(auth, mustURL("https://pgbase.example"), nil, next)
+			request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/resource", nil)
+			if origin != "" {
+				request.Header.Set("Origin", origin)
+			}
+			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminAuthenticationRejectsMalformedSessionTokensBeforeDatabase(t *testing.T) {
+	for _, token := range []string{
+		"",
+		"fixed-session-token",
+		validSession().RawToken + "=",
+		strings.Repeat("A", 42) + "*",
+		strings.Repeat("A", 42) + "B", // decodable with non-zero trailing bits unless strict decoding is used
+	} {
+		t.Run(token, func(t *testing.T) {
+			auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+			handler := authenticateAdminMiddleware(auth, mustURL("https://pgbase.example"), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/session", nil)
+			request.AddCookie(&http.Cookie{Name: adminCookieName, Value: token})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if auth.authenticateCalls != 0 {
+				t.Fatalf("Authenticate() calls = %d, want 0", auth.authenticateCalls)
+			}
+		})
+	}
+}
+
+func TestProductionSessionIgnoresShadowableDevelopmentCookie(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator}
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := adminSessionMiddleware(auth, mustURL("https://pgbase.example"), nil, next)
-	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/resource", nil)
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
+	handler := authenticateAdminMiddleware(auth, mustURL("https://pgbase.example"), nil,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/session", nil)
+	request.AddCookie(&http.Cookie{Name: adminDevelopmentCookie, Value: strings.Repeat("A", 43), Path: "/api"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken, Path: "/"})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	if response.Code != http.StatusNoContent || auth.authenticateToken != session.RawToken {
+		t.Fatalf("status=%d token=%q", response.Code, auth.authenticateToken)
 	}
 }
 
@@ -101,7 +151,7 @@ func TestAdminSessionMiddlewareMapsDatabaseUnavailable(t *testing.T) {
 		nextCalled = true
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := authenticateAdminMiddleware(auth, next)
+	handler := authenticateAdminMiddleware(auth, mustURL("https://pgbase.example"), nil, next)
 	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/session", nil)
 	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
 	response := httptest.NewRecorder()
@@ -112,6 +162,26 @@ func TestAdminSessionMiddlewareMapsDatabaseUnavailable(t *testing.T) {
 	assertErrorCode(t, response.Body.Bytes(), "authentication_unavailable")
 	if nextCalled {
 		t.Fatal("next handler called after authentication database failure")
+	}
+}
+
+func TestAdminSessionMiddlewareMapsAuthenticationAdmissionSaturation(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateErr: adminauth.ErrRateLimited}
+	nextCalled := false
+	handler := authenticateAdminMiddleware(auth, mustURL("https://pgbase.example"), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "https://pgbase.example/api/admin/session", nil)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != authenticationRetryAfter {
+		t.Fatalf("status=%d retry-after=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+	}
+	assertErrorCode(t, response.Body.Bytes(), "rate_limited")
+	if nextCalled {
+		t.Fatal("next handler called after authentication admission saturation")
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/config"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
@@ -53,14 +52,17 @@ func openDatabase(ctx context.Context, env environment, streams IO) (*databaseRu
 		return nil, bootstrapError{configuration: true, err: configurationError{err: err}}
 	}
 	options.Logger = observability.NewJSONLogger(streams.stderr())
-	if _, err := pgxpool.ParseConfig(options.DatabaseURL); err != nil {
-		return nil, bootstrapError{configuration: true, err: configurationError{
-			err: operationError(options.Logger, "parse PostgreSQL pool configuration", err),
-		}}
-	}
-	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout)
+	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
 	if err != nil {
-		return nil, bootstrapError{err: operationError(options.Logger, "open PostgreSQL pool", err)}
+		configuration := database.Classify(err) == database.KindValidation
+		var reported error = operationError(options.Logger, "open PostgreSQL pool", err)
+		if configuration {
+			reported = configurationError{err: reported}
+		}
+		return nil, bootstrapError{
+			configuration: configuration,
+			err:           reported,
+		}
 	}
 	return &databaseRuntime{options: options, logger: options.Logger, pool: pool}, nil
 }

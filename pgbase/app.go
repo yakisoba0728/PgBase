@@ -107,16 +107,72 @@ var (
 	errAppClosed         = errors.New("pgbase app is closing or closed")
 )
 
+const readinessProbeCacheTTL = 250 * time.Millisecond
+
 type readinessState struct {
 	accepting    atomic.Bool
 	dependencies []api.Readiness
 	recorder     observability.Recorder
+	probeMu      sync.Mutex
+	probeNow     func() time.Time
+	probeValid   bool
+	probeErr     error
+	probeExpires time.Time
+	probeRunning bool
+	probeWait    chan struct{}
+	probeVersion uint64
 }
 
 func (s *readinessState) Ready(ctx context.Context) error {
-	if !s.accepting.Load() {
-		return readinessFailure{components: []string{"http"}}
+	for {
+		if !s.accepting.Load() {
+			return readinessFailure{components: []string{"http"}}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		s.probeMu.Lock()
+		if s.probeValid && s.probeTime().Before(s.probeExpires) {
+			err := s.probeErr
+			s.probeMu.Unlock()
+			if !s.accepting.Load() {
+				return readinessFailure{components: []string{"http"}}
+			}
+			return err
+		}
+		if !s.probeRunning {
+			s.probeRunning = true
+			s.probeWait = make(chan struct{})
+			version := s.probeVersion
+			s.probeMu.Unlock()
+			s.runProbe(ctx, version)
+			continue
+		}
+		wait := s.probeWait
+		s.probeMu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-wait:
+		}
 	}
+}
+
+func (s *readinessState) runProbe(ctx context.Context, version uint64) {
+	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			s.abortProbe()
+			panic(recovered)
+		}
+	}()
+	s.finishProbe(version, s.probeDependencies(probeContext))
+}
+
+func (s *readinessState) probeDependencies(ctx context.Context) error {
 	for _, dependency := range s.dependencies {
 		name := "dependency"
 		if named, ok := dependency.(interface{ Component() string }); ok {
@@ -136,11 +192,53 @@ func (s *readinessState) Ready(ctx context.Context) error {
 	return nil
 }
 
+func (s *readinessState) finishProbe(version uint64, err error) {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if version == s.probeVersion {
+		s.probeValid = true
+		s.probeErr = err
+		s.probeExpires = s.probeTime().Add(readinessProbeCacheTTL)
+	}
+	s.probeRunning = false
+	close(s.probeWait)
+	s.probeWait = nil
+}
+
+func (s *readinessState) abortProbe() {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	s.probeValid = false
+	s.probeRunning = false
+	close(s.probeWait)
+	s.probeWait = nil
+}
+
+func (s *readinessState) probeTime() time.Time {
+	if s.probeNow != nil {
+		return s.probeNow()
+	}
+	return time.Now()
+}
+
+func (s *readinessState) invalidateProbe() {
+	s.probeMu.Lock()
+	s.probeVersion++
+	s.probeValid = false
+	s.probeMu.Unlock()
+}
+
 func (s *readinessState) setAccepting(ctx context.Context, accepting bool) {
 	if s == nil {
 		return
 	}
-	s.accepting.Store(accepting)
+	if accepting {
+		s.invalidateProbe()
+		s.accepting.Store(true)
+	} else {
+		s.accepting.Store(false)
+		s.invalidateProbe()
+	}
 	s.recordReadiness(ctx, observability.ReadinessHTTP, accepting)
 }
 
@@ -198,7 +296,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
-	pool, err := database.Open(ctx, normalized.DatabaseURL, normalized.StatementTimeout)
+	pool, err := database.Open(ctx, normalized.DatabaseURL, normalized.StatementTimeout, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
@@ -335,6 +433,7 @@ func newWithCatalogPreflight(
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
 	keepPool = true
 	return app, nil

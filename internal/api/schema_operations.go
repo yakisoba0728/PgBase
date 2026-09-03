@@ -122,6 +122,10 @@ func (e schemaEndpoints) operationHistory(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
+	if duplicateSingleton(values, "limit", "cursor") {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
 	limit := 0
 	if raw := values.Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)

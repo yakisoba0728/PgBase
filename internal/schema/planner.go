@@ -203,7 +203,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 				}
 			}
 			if field.Type == TypeRelation {
-				statements = append(statements, addRelationFieldStatements(current.TableName, field)...)
+				statements = append(statements, createRelationStatements(current.TableName, field, true)...)
 				continue
 			}
 			statements = append(statements, addColumnStatement(table, field))
