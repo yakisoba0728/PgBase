@@ -12,6 +12,12 @@ prometheus_image="prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44
 work_directory="$(mktemp -d)"
 trap 'rm -rf "$work_directory"' EXIT
 
+# The pinned Prometheus image runs promtool as a non-root user. mktemp creates
+# the host directory with mode 0700, so a Linux bind mount otherwise leaves the
+# container unable to traverse /rules (Docker Desktop does not expose this in
+# the same way). The generated file contains only public dashboard expressions.
+chmod 0755 "$work_directory"
+
 # Grafana template variables are dashboard syntax, not PromQL. Substituting the
 # selectors the dashboard declares keeps the parser checking the query shape
 # instead of rejecting the templating.
@@ -37,6 +43,7 @@ fi
     printf '          %s\n' "$expression"
   done <<< "$expressions"
 } > "$work_directory/dashboard-expressions.yml"
+chmod 0644 "$work_directory/dashboard-expressions.yml"
 
 docker run --rm --entrypoint=/bin/promtool \
   --volume "$work_directory:/rules:ro" \
