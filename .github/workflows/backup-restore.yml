@@ -1,6 +1,7 @@
 name: Backup restore drill
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
       candidate_image:
@@ -18,41 +19,6 @@ on:
         required: false
         default: ""
         type: string
-  push:
-    branches: ["**"]
-    paths:
-      - "migrations/**"
-      - "cmd/pgbase/**"
-      - "pgbase/**"
-      - "internal/migrate/**"
-      - "internal/cli/**"
-      - "internal/doctor/**"
-      - "internal/api/**"
-      - "internal/query/**"
-      - "internal/recordops/**"
-      - "internal/relation/**"
-      - "internal/schema/**"
-      - "tests/restore/**"
-      - "scripts/support/**"
-      - "docs/backup-restore.md"
-      - ".github/workflows/backup-restore.yml"
-  pull_request:
-    paths:
-      - "migrations/**"
-      - "cmd/pgbase/**"
-      - "pgbase/**"
-      - "internal/migrate/**"
-      - "internal/cli/**"
-      - "internal/doctor/**"
-      - "internal/api/**"
-      - "internal/query/**"
-      - "internal/recordops/**"
-      - "internal/relation/**"
-      - "internal/schema/**"
-      - "tests/restore/**"
-      - "scripts/support/**"
-      - "docs/backup-restore.md"
-      - ".github/workflows/backup-restore.yml"
   schedule:
     - cron: "41 4 * * 3"
 

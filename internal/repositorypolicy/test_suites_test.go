@@ -36,7 +36,7 @@ func TestIntegrationSuiteRejectsMissingAdminURLBeforeInvokingGo(t *testing.T) {
 	}
 }
 
-func TestBackendWorkflowRunsUnitOnceAndLiveTestsAcrossSupportedPostgres(t *testing.T) {
+func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "backend.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -46,13 +46,46 @@ func TestBackendWorkflowRunsUnitOnceAndLiveTestsAcrossSupportedPostgres(t *testi
 		"name: Go unit",
 		"scripts/test-go-unit.sh -race -count=1",
 		"name: PostgreSQL integration / ${{ matrix.postgres.version }}",
-		`version: "16.13"`,
-		`version: "17.9"`,
-		`version: "18.3"`,
+		"fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch')",
+		`{"version":"16.13"`,
+		`{"version":"17.9"`,
+		`{"version":"18.3"`,
+		`|| '[{"version":"17.9"`,
 		"scripts/test-go-integration.sh -race -count=1",
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("backend workflow is missing %q", marker)
+		}
+	}
+}
+
+func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestSHA(t *testing.T) {
+	const guardedRunner = "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04'"
+	for _, name := range []string{"backend.yml", "frontend.yml", "security.yml"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflow := string(raw)
+		if !strings.Contains(workflow, guardedRunner) {
+			t.Errorf("%s does not bind self-hosted execution to an exact same-repository PR SHA", name)
+		}
+		if !strings.Contains(workflow, "branches: [main]") || !strings.Contains(workflow, "pull_request:") {
+			t.Errorf("%s does not separate main pushes from PR validation", name)
+		}
+	}
+
+	for _, name := range []string{"e2e.yml", "backup-restore.yml"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflow := string(raw)
+		if strings.Contains(workflow, "vars.PGBASE_CI_RUNNER") {
+			t.Errorf("%s routes a release-strength Docker job to the developer runner", name)
+		}
+		if !strings.Contains(workflow, "workflow_dispatch:") || !strings.Contains(workflow, "workflow_call:") {
+			t.Errorf("%s is not available to explicit or release-gate execution", name)
 		}
 	}
 }

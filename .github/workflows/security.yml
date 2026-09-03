@@ -2,7 +2,9 @@ name: Security and supply chain
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
     inputs:
       candidate_image:
@@ -27,9 +29,13 @@ permissions:
   contents: read
   packages: read
 
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   audit:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 40
     env:
       PGBASE_SECURITY_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
@@ -54,7 +60,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.26.8
-          cache: true
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
 
       - name: Scan reachable Go vulnerabilities
         run: |
@@ -65,7 +71,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
-          cache: npm
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' && 'npm' || '' }}
           cache-dependency-path: ui/admin/package-lock.json
 
       - name: Audit pinned frontend dependencies
@@ -76,6 +82,7 @@ jobs:
 
       - name: Select the image under test
         id: image
+        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         shell: bash
         run: |
           set -euo pipefail
@@ -104,6 +111,7 @@ jobs:
         run: docker build --file deployments/Dockerfile --tag pgbase:audit .
 
       - name: Generate SPDX SBOM
+        if: steps.image.outputs.image_ref != ''
         uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
         with:
           image: ${{ steps.image.outputs.image_ref }}
@@ -115,6 +123,7 @@ jobs:
       # leaves a machine-readable report to triage rather than only console
       # output in a red job.
       - name: Record image findings as SARIF
+        if: steps.image.outputs.image_ref != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
@@ -129,6 +138,7 @@ jobs:
       # what lets someone see a MEDIUM becoming a HIGH between releases rather
       # than discovering it the day it breaks the build.
       - name: Record every severity as SARIF
+        if: steps.image.outputs.image_ref != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
@@ -139,7 +149,7 @@ jobs:
           trivyignores: ${{ inputs.source_commit != '' && '.release-gate-policy/deployments/security/trivy-allowlist.yaml' || 'deployments/security/trivy-allowlist.yaml' }}
 
       - name: Upload image scan SARIF
-        if: always()
+        if: ${{ always() && steps.image.outputs.image_ref != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pgbase-image-scan-sarif
@@ -153,6 +163,7 @@ jobs:
       # CRITICAL is still something an operator would ship, so the scan fails
       # unless a dated, owned allowlist entry accepts that advisory by name.
       - name: Scan production image
+        if: steps.image.outputs.image_ref != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}

@@ -289,8 +289,15 @@ func TestImageDependentWorkflowsRefuseAHalfConfiguredCandidate(t *testing.T) {
 
 func TestRestoreDrillWorkflowWatchesItsOwnTestSources(t *testing.T) {
 	source := workflowSource(t, "backup-restore.yml")
-	if count := strings.Count(source, `"tests/restore/**"`); count != 2 {
-		t.Errorf("backup-restore.yml push/pull_request path filters cover tests/restore/** %d times, want 2", count)
+	for _, trigger := range []string{"workflow_call:", "workflow_dispatch:", "schedule:"} {
+		if !strings.Contains(source, trigger) {
+			t.Errorf("backup-restore.yml is missing the %s trigger", trigger)
+		}
+	}
+	for _, costlyTrigger := range []string{"\n  push:", "\n  pull_request:"} {
+		if strings.Contains(source, costlyTrigger) {
+			t.Errorf("backup-restore.yml restores every supported database on routine %s events", strings.TrimSpace(costlyTrigger))
+		}
 	}
 	if !strings.Contains(source, "go test -tags=restore ./tests/restore") {
 		t.Error("backup-restore.yml no longer drives the RestoreDrill through its Go entry point")
