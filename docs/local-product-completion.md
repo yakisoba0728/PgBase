@@ -49,11 +49,11 @@ This is explicitly approved new product scope. The staged report against `35af64
 ## Validation
 
 - Go 1.26.8 full unit suite with the race detector and skip policy passed.
-- Full PostgreSQL 18 integration/race feature packages passed; the updated measured structural-budget gate was rerun separately and passed. PR CI also runs the complete PostgreSQL 17 suite.
+- The full PostgreSQL 18 integration suite with the race detector and skip policy passed, including the measured structural budgets. PR CI also runs the complete PostgreSQL 17 suite.
 - Pinned Go lint: zero issues; integration-build vet passed.
 - Admin typecheck, 34 Vitest files / 450 tests, and all 8 authenticated Chromium workflows passed. Browser coverage includes preserved drafts, actual export JSON, rename with retained data, allowed-value rejection, authentication settings, and a 390px viewport.
 - SDK tests, generated example compilation, live PostgreSQL/HTTP SDK conformance, and local npm packaging passed.
 - Six local binaries built: Linux, macOS and Windows on amd64/arm64.
-- A protected backup was retained before upgrading the existing local project from v21 to v23; readiness is healthy and doctor reports no findings.
+- A protected backup was retained before upgrading the existing local project from v21 to v23; readiness is healthy and doctor reports no findings. Restoring the pre-upgrade backup into a separate temporary database also passed the original binary’s doctor check.
 
 The full source comparison remains in `pocketbase-source-audit-2026-09-09/`. Passing this increment means the approved local workflows are implemented and verified; it does not turn the remaining PocketBase differences into completed features.

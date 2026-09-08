@@ -202,7 +202,7 @@ jobs:
           tools_directory="$RUNNER_TEMP/pgbase-postgres-tools"
           scripts/install-test-pg-tools.sh "$tools_directory"
           echo "$tools_directory" >> "$GITHUB_PATH"
-          echo "PGBASE_TEST_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
+          echo "TEST_PGBASE_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
 
       - name: Vet integration build
         run: go vet -tags=integration ./...

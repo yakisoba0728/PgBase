@@ -60,7 +60,7 @@
 - [x] OpenAPI·migration manifest·측정 기반 구조 예산과 문서 갱신.
 - [x] 리뷰 문제 재현·수정·재검증.
 - [x] PR 준비: 구현·검증·문서·로컬 실행 상태 확인.
-- [ ] PR 생성·원격 CI 확인·병합 (아래 결과 기록에서 갱신).
+- [x] [PR #29](https://github.com/yakisoba0728/PgBase/pull/29) 생성. 원격 CI·병합 결과는 해당 PR에서 확인.
 
 ### P1–P5 검증 중 발견한 회귀 수정
 - [x] 필드 수정 시 file metadata 삭제를 유발하던 전체 field 재생성 제거; stable ID upsert로 보존.
@@ -72,7 +72,7 @@
 - [x] 백업 중 exclusive gate 연결 손실 시 작업 중단 검증.
 
 ### P1–P5 결과 기록
-- 2026-09-09: Go unit/race, PostgreSQL 18 기능 통합/race, 구조 예산 재검증, lint 0 issues, vet, UI 450/450, 실제 인증 브라우저 8/8 통과. SDK 패키징·HTTP conformance와 6개 OS/아키텍처 빌드 통과.
+- 2026-09-09: Go unit/race, 전체 PostgreSQL 18 통합/race·skip 정책·구조 예산, lint 0 issues, vet, UI 450/450, 실제 인증 브라우저 8/8 통과. SDK 패키징·HTTP conformance와 6개 OS/아키텍처 빌드 통과.
 - 2026-09-09: 기존 로컬 DB·파일 백업 후 v21→v23 오프라인 업그레이드. `http://127.0.0.1:8090` readiness 정상, doctor `ok: true`, migrations current=latest=23.
 
 ## 이전 M2–M6 실행 보드
