@@ -111,13 +111,14 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 }
 
 type userResponse struct {
+	Verified  bool      `json:"verified"`
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 func publicUser(user userauth.User) userResponse {
-	return userResponse{ID: user.ID.String(), Email: user.Email, CreatedAt: user.CreatedAt}
+	return userResponse{ID: user.ID.String(), Email: user.Email, Verified: user.Verified, CreatedAt: user.CreatedAt}
 }
 
 type userSessionResponse struct {
@@ -181,6 +182,11 @@ func (e userEndpoints) access(w http.ResponseWriter, r *http.Request) {
 
 func writeUserAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("Cache-Control", "no-store")
+	var challenge *userauth.MFARequiredError
+	if errors.As(err, &challenge) {
+		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "mfa_required", Message: "Additional authentication is required", Details: map[string][]string{"challengeToken": {challenge.ChallengeToken}, "expiresAt": {challenge.ExpiresAt.Format(time.RFC3339)}}})
+		return
+	}
 	response := APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Authentication is unavailable"}
 	switch {
 	case errors.Is(err, userauth.ErrValidation):

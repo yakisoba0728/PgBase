@@ -23,6 +23,7 @@ func (e userEndpoints) lifecycleRoutes() []route {
 // The transport enumerates fields rather than serializing a persistence model,
 // keeping future credential/session fields outside the administrator response.
 type managedUserResponse struct {
+	Verified  bool      `json:"verified"`
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
 	Active    bool      `json:"active"`
@@ -31,7 +32,7 @@ type managedUserResponse struct {
 }
 
 func managedUser(user userauth.ManagedUser) managedUserResponse {
-	return managedUserResponse{ID: user.ID.String(), Email: user.Email, Active: user.Active, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
+	return managedUserResponse{ID: user.ID.String(), Email: user.Email, Verified: user.Verified, Active: user.Active, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
 }
 
 func (e userEndpoints) listUsers(w http.ResponseWriter, r *http.Request) {

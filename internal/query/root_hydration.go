@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -21,11 +22,17 @@ type rootHydrator struct {
 	bindings   *relation.Bindings
 	collection schema.Collection
 	bindErr    error
+	catalog    schema.Catalog
+	principal  Principal
 }
 
-func newRootHydrator(querier relation.RowsQuerier, catalog schema.Catalog, collection schema.Collection) *rootHydrator {
+func newRootHydrator(querier relation.RowsQuerier, catalog schema.Catalog, collection schema.Collection, principals ...Principal) *rootHydrator {
 	bindings, err := relation.Bind(catalog, collection)
-	return &rootHydrator{querier: querier, bindings: bindings, collection: collection, bindErr: err}
+	principal := Principal{Kind: identity.Administrator, ID: uuid.MustParse("00000000-0000-0000-0000-000000000001")}
+	if len(principals) == 1 {
+		principal = principals[0]
+	}
+	return &rootHydrator{querier: querier, bindings: bindings, collection: collection, bindErr: err, catalog: catalog, principal: principal}
 }
 func compactRootCandidate(candidate pageCandidate) (rootStub, error) {
 	if candidate.id == uuid.Nil || candidate.root == nil {
@@ -51,8 +58,35 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 	for index, stub := range stubs {
 		ids[index] = stub.id
 	}
+	// Administrators need no target visibility rewrite. Keep the replay callback
+	// streaming so the assembler can stop at its one lookahead without
+	// materializing or validating later speculative relation rows in the batch.
+	if h.principal.Kind == identity.Administrator {
+		index := 0
+		var callbackErr error
+		visited, replayErr := h.bindings.ReplayHydratedSequential(ctx, h.querier, ids,
+			func(row pgx.Row) (uuid.UUID, map[string]any, error) {
+				record, decodeErr := EncodeRecord(h.collection, row)
+				if decodeErr != nil {
+					return uuid.Nil, nil, decodeErr
+				}
+				id, decodeErr := canonicalRecordID(record)
+				return id, record, decodeErr
+			},
+			func(id uuid.UUID, record map[string]any) bool {
+				candidate := pageCandidate{id: id, root: record, wire: record, cursorValues: cloneCursorValues(stubs[index].cursorValues), hydrated: true}
+				index++
+				keep, visitErr := visit(candidate)
+				callbackErr = visitErr
+				return visitErr == nil && keep
+			})
+		if callbackErr != nil {
+			return visited, callbackErr
+		}
+		return visited, relationHydrationFailure(replayErr)
+	}
 	index := 0
-	var visitErr error
+	collected := make([]pageCandidate, 0, len(stubs))
 	visited, err := h.bindings.ReplayHydratedSequential(ctx, h.querier, ids,
 		func(row pgx.Row) (uuid.UUID, map[string]any, error) {
 			record, decodeErr := EncodeRecord(h.collection, row)
@@ -63,19 +97,34 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 			return id, record, decodeErr
 		},
 		func(id uuid.UUID, record map[string]any) bool {
-			candidate := pageCandidate{id: id, root: record, wire: record, cursorValues: cloneCursorValues(stubs[index].cursorValues), hydrated: true}
+			collected = append(collected, pageCandidate{id: id, root: record, wire: record, cursorValues: cloneCursorValues(stubs[index].cursorValues), hydrated: true})
 			index++
-			var keepGoing bool
-			keepGoing, visitErr = visit(candidate)
-			return keepGoing && visitErr == nil
+			return true
 		})
-	if visitErr != nil {
-		return visited, visitErr
-	}
 	if err != nil {
 		return visited, relationHydrationFailure(err)
 	}
-	return visited, nil
+	tx, ok := h.querier.(pgx.Tx)
+	if !ok {
+		return 0, relationHydrationFailure(relation.ErrInvalidBinding)
+	}
+	records := make([]map[string]any, len(collected))
+	for i := range collected {
+		records[i] = collected[i].root
+	}
+	if err := filterRelationValues(ctx, tx, h.catalog, h.collection, records, h.principal); err != nil {
+		return 0, err
+	}
+	for i := range collected {
+		keep, err := visit(collected[i])
+		if err != nil {
+			return i, err
+		}
+		if !keep {
+			return i + 1, nil
+		}
+	}
+	return len(collected), nil
 }
 func (h *rootHydrator) release(candidate *pageCandidate) {
 	if h == nil || candidate == nil || !candidate.hydrated {

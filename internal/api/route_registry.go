@@ -20,6 +20,8 @@ const (
 	accessMetricsToken
 	accessEmbeddedUI
 	accessUserSession
+	accessServiceSession
+	accessAnonymous
 )
 
 // responseMode separates a response the router buffers whole from one it
@@ -54,6 +56,7 @@ type route struct {
 	response            responseMode
 	deadline            deadlinePolicy
 	maximumRequestBytes int64
+	streamedUpload      bool
 	handler             http.Handler
 }
 
@@ -81,7 +84,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 40
+	maximumRegisteredRoutes     = 99
 	maximumMethodAgnosticRoutes = 3
 )
 
@@ -99,7 +102,13 @@ func validateRoutes(routes []route) error {
 		if !declared.response.atomic && declared.response.maximumBytes != 0 {
 			return fmt.Errorf("%w: %q", errRouteIncomplete, declared)
 		}
-		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > maxJSONBodyBytes {
+		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > 100<<20+64<<10 {
+			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
+		}
+		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload {
+			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
+		}
+		if declared.streamedUpload && (declared.maximumRequestBytes == 0 || declared.method != "POST") {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
 		if declared.method == "" {
@@ -133,6 +142,10 @@ func (p accessPolicy) String() string {
 		return "metrics-token"
 	case accessEmbeddedUI:
 		return "embedded-ui"
+	case accessServiceSession:
+		return "service-session"
+	case accessAnonymous:
+		return "anonymous"
 	case accessUserSession:
 		return "user-session"
 	}
@@ -145,6 +158,10 @@ func (p accessPolicy) String() string {
 // through a different call shape.
 func (d Dependencies) admit(policy accessPolicy, handler http.Handler) http.Handler {
 	switch policy {
+	case accessServiceSession:
+		return serviceSessionMiddleware(d.ServiceTokens, handler)
+	case accessAnonymous:
+		return anonymousSessionMiddleware(handler)
 	case accessUserSession:
 		return userSessionMiddleware(d.UserAuth, handler)
 	case accessSameOrigin:

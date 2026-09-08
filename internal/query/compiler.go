@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/webisnoteasy/PgBase/internal/accessrule"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -106,7 +108,7 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	}, nil
 }
 
-func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int, ownerID *uuid.UUID) (Statement, error) {
+func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -127,7 +129,15 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 		conditions = append(conditions, keysetSQL)
 	}
 	if ownerID != nil {
-		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(order.root.ID)+` AND "rq_owner".record_id = `+quoted(order.root.TableName)+`.`+quoted("id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(order.root.AccessCollectionID())+` AND "rq_owner".record_id = `+quoted(order.root.TableName)+`.`+quoted("id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
+	}
+	if len(policy) > 0 && policy[0].rule != nil {
+		predicate, args, err := compilePolicyPredicate(*policy[0].rule, order.root, policy[0].collection, order.root.TableName, policy[0].principal, len(builder.args))
+		if err != nil {
+			return Statement{}, err
+		}
+		conditions = append(conditions, "("+predicate+")")
+		builder.args = append(builder.args, args...)
 	}
 	limit := builder.placeholder(fetchLimit)
 	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)
@@ -140,9 +150,30 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 
 func rootMembershipPredicate(collection schema.Collection, rootAlias string, membership *int64, builder *statementBuilder) string {
 	return "EXISTS (SELECT 1 FROM pgbase_meta.record_creation_ordinals AS " + quoted("rq_membership") +
-		" WHERE " + qualified("rq_membership", "collection_id") + " = " + builder.placeholder(collection.ID) +
+		" WHERE " + qualified("rq_membership", "collection_id") + " = " + builder.placeholder(collection.AccessCollectionID()) +
 		" AND " + qualified("rq_membership", "record_id") + " = " + qualified(rootAlias, systemFieldID) +
 		" AND " + qualified("rq_membership", "ordinal") + " <= " + builder.placeholder(*membership) + ")"
+}
+
+type ruleBinding struct {
+	rule       *accessrule.Rule
+	principal  identity.Subject
+	collection schema.Collection
+}
+
+func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int) (string, []any, error) {
+	if !visible.IsView() {
+		return accessrule.Compile(rule, policyCollection(visible), alias, principal, offset, false)
+	}
+	if policy.ID == uuid.Nil {
+		return "", nil, schema.ErrConflict
+	}
+	policyAlias := alias + "_policy"
+	predicate, args, err := accessrule.Compile(rule, policy, policyAlias, principal, offset, false)
+	if err != nil {
+		return "", nil, err
+	}
+	return "EXISTS (SELECT 1 FROM " + quotedTable(policy) + " AS " + quoted(policyAlias) + " WHERE " + qualified(policyAlias, systemFieldID) + "=" + qualified(alias, systemFieldID) + " AND (" + predicate + "))", args, nil
 }
 
 type statementBuilder struct {
@@ -159,7 +190,7 @@ func (b *statementBuilder) placeholder(value any) string {
 // null placement when a request touches a relation and another when it does
 // not -- a cursor issued by either path anchors against the same ordering.
 func rootOrderTerm(key SortKey, field schema.Field) (orderTerm, error) {
-	if field.Type == schema.TypeJSONB {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
 		return orderTerm{}, validation("sort", "unsupported_type")
 	}
 	indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
@@ -222,7 +253,7 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	if !ok {
 		return "", validation("filter", "unknown_field")
 	}
-	if field.Type == schema.TypeJSONB {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
 		return "", validation("filter", "unsupported_type")
 	}
 	if isMultipleRelation(field) {
@@ -366,7 +397,7 @@ func normalizedFetchLimit(limit int) int {
 func selectedColumns(collection schema.Collection) string {
 	columns := []string{quoted("id"), quoted("created_at"), quoted("updated_at")}
 	for _, field := range fieldsByOrdinal(collection) {
-		if isMultipleRelation(field) {
+		if field.Type == schema.TypeFile || isMultipleRelation(field) {
 			continue
 		}
 		column := quoted(field.ColumnName)

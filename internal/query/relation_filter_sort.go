@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/accessrule"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -19,8 +20,9 @@ const (
 )
 
 type relationListPlan struct {
-	filter *plannedRelationFilter
-	order  orderSpec
+	filter  *plannedRelationFilter
+	order   orderSpec
+	catalog schema.Catalog
 }
 
 type plannedRelationFilter struct {
@@ -42,8 +44,12 @@ type plannedRelationPath struct {
 }
 
 type plannedRelationHop struct {
-	field  schema.Field
-	target schema.Collection
+	field        schema.Field
+	target       schema.Collection
+	policyTarget schema.Collection
+	rule         *accessrule.Rule
+	ruleRevision int64
+	principal    Principal
 }
 
 // compileRelationListPlan resolves every path against one pinned catalog and
@@ -66,7 +72,7 @@ func compileRelationListPlan(
 	if err != nil {
 		return relationListPlan{}, err
 	}
-	return relationListPlan{filter: plannedFilter, order: order}, nil
+	return relationListPlan{filter: plannedFilter, order: order, catalog: catalog}, nil
 }
 
 func planRelationFilter(catalog schema.Catalog, root schema.Collection, node filterNode) (*plannedRelationFilter, int, error) {
@@ -85,7 +91,7 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			// v5 query fingerprint also walks the planned filter, and a field
 			// this plan cannot compile must not reach two decoders that
 			// disagree about which validation detail the caller gets.
-			if field.Type == schema.TypeJSONB {
+			if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
 				return nil, 0, validation("filter", "unsupported_type")
 			}
 			copy := field
@@ -281,7 +287,7 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 	return prefix + "_" + strconv.Itoa(r.next)
 }
 
-func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
+func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
@@ -295,6 +301,16 @@ func (p relationListPlan) pageStatement(after *pageBoundary, fetchLimit int) (St
 	conditions := make([]string, 0, 2)
 	if filterSQL != "" {
 		conditions = append(conditions, filterSQL)
+	}
+	if ownerID != nil {
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(p.order.root.AccessCollectionID())+` AND "rq_owner".record_id = `+qualified(relationRootAlias, "id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
+	} else if root.rule != nil {
+		predicate, args, err := compilePolicyPredicate(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args))
+		if err != nil {
+			return Statement{}, err
+		}
+		conditions = append(conditions, predicate)
+		builder.args = append(builder.args, args...)
 	}
 	if membership := after.membershipBoundary(); membership != nil {
 		conditions = append(conditions, rootMembershipPredicate(p.order.root, relationRootAlias, membership, builder))
@@ -388,7 +404,7 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 }
 
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
-	if field.Type == schema.TypeJSONB || field.Type == schema.TypeRelation {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeRelation || field.Type == schema.TypeFile {
 		return "", relationFilterUnsupported()
 	}
 	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
@@ -429,6 +445,14 @@ func renderRelationExists(
 		from := quotedTable(hop.target) + " AS " + quoted(targetAlias)
 		if hop.field.Relation == nil {
 			return "", schema.ErrConflict
+		}
+		if hop.rule != nil {
+			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+			if err != nil {
+				return "", err
+			}
+			renderer.builder.args = append(renderer.builder.args, args...)
+			conditions = append(conditions, predicate)
 		}
 		switch hop.field.Relation.Cardinality {
 		case schema.RelationSingle:
@@ -479,6 +503,14 @@ func renderRelationSortJoins(
 		}
 		targetAlias := renderer.alias(prefix)
 		conditions := []string{qualified(targetAlias, systemFieldID) + " = " + qualified(parentAlias, hop.field.ColumnName)}
+		if hop.rule != nil {
+			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+			if err != nil {
+				return "", nil, err
+			}
+			renderer.builder.args = append(renderer.builder.args, args...)
+			conditions = append(conditions, predicate)
+		}
 		joins = append(joins, " LEFT JOIN "+quotedTable(hop.target)+" AS "+quoted(targetAlias)+
 			" ON "+strings.Join(conditions, " AND "))
 		parentAlias = targetAlias

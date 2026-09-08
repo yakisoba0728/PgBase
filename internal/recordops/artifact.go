@@ -9,7 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -22,6 +24,7 @@ var errRevisionChanged = errors.New("record revision changed outside the transac
 var errArtifactCountMismatch = errors.New("record artifact batch wrote an unexpected row count")
 
 type artifactRow struct {
+	ownerID            *uuid.UUID
 	eventID            uuid.UUID
 	recordID           uuid.UUID
 	previousVersion    *int64
@@ -65,6 +68,25 @@ func commitMutation(
 	for _, batch := range batches {
 		if len(batch.rows) == 0 {
 			continue
+		}
+		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
+			ids := make([]uuid.UUID, len(batch.rows))
+			for index, row := range batch.rows {
+				ids[index] = row.recordID
+			}
+			allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return recordaccess.ErrDenied
+			}
+		}
+		if err := beforeMutationHooks(ctx, principal, batch); err != nil {
+			return err
+		}
+		if err := captureOutboxOwners(ctx, tx, principal, batch); err != nil {
+			return err
 		}
 		if err := writeAuditBatch(ctx, tx, principal, requestID, inputHash, batch); err != nil {
 			return err
@@ -210,6 +232,8 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error
 	recordIDs := make([]uuid.UUID, count)
 	versions := make([]int64, count)
 	envelopes := make([]string, count)
+	owners := make([]*uuid.UUID, count)
+	snapshots := make([]string, count)
 	for index, row := range batch.rows {
 		envelope, err := json.Marshal(outboxEnvelope{
 			Version: outboxEnvelopeVersion, EventID: row.eventID, CollectionID: batch.collection.ID,
@@ -224,16 +248,22 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error
 		recordIDs[index] = row.recordID
 		versions[index] = row.newVersion
 		envelopes[index] = string(envelope)
+		owners[index] = row.ownerID
+		snapshot, err := outboxSnapshot(batch.collection, row.changes)
+		if err != nil {
+			return err
+		}
+		snapshots[index] = string(snapshot)
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox
 		(event_id, topic, collection_id, collection_name, record_id, operation,
-		 record_version, envelope, created_at)
+		 record_version, envelope, created_at, owner_user_id, record_snapshot)
 		SELECT event_id, 'record.mutation.v1', $1, $2, record_id, $3, record_version,
-			envelope::jsonb, transaction_timestamp()
-		FROM unnest($4::uuid[], $5::uuid[], $6::bigint[], $7::text[])
-			AS rows(event_id, record_id, record_version, envelope)`,
+			envelope::jsonb, transaction_timestamp(), owner_user_id, record_snapshot::jsonb
+		FROM unnest($4::uuid[], $5::uuid[], $6::bigint[], $7::text[], $8::uuid[], $9::text[])
+			AS rows(event_id, record_id, record_version, envelope, owner_user_id, record_snapshot)`,
 		batch.collection.ID, batch.collection.Name, batch.operation,
-		eventIDs, recordIDs, versions, envelopes)
+		eventIDs, recordIDs, versions, envelopes, owners, snapshots)
 	if err != nil {
 		return err
 	}
@@ -378,4 +408,20 @@ func nonNilFields(fields []string) []string {
 		return []string{}
 	}
 	return fields
+}
+
+// Snapshot keys use physical column names so PostgreSQL can reconstruct a
+// typed row for current rule evaluation after the source row is deleted.
+func outboxSnapshot(collection schema.Collection, data map[string]any) ([]byte, error) {
+	if data == nil {
+		return []byte("null"), nil
+	}
+	snapshot := map[string]any{"id": data["id"], "created_at": data["created_at"], "updated_at": data["updated_at"]}
+	for _, field := range collection.Fields {
+		if field.Type == schema.TypeFile || field.Type == schema.TypeRelation {
+			continue
+		}
+		snapshot[field.ColumnName] = data[field.Name]
+	}
+	return json.Marshal(snapshot)
 }

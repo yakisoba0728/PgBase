@@ -22,6 +22,12 @@ import {
   type SchemaHealth,
 	type SystemStatus,
 	type ManagedUser, type UserPage,
+	type FileInfo,
+	type RecordRules,
+	type RulePreview,
+	type AuthCollection,
+	type ServiceToken,
+	type IssuedServiceToken,
 } from "../backend/ports";
 import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedApply, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
 
@@ -160,6 +166,29 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 		list: (after, signal) => guard(signal, () => take<UserPage>("users", after ? { after } : {}, "system")),
 		setActive: (id, active) => guard(undefined, () => take<ManagedUser>("setUserActive", { id, active }, "system")),
 		revokeSessions: (id) => guard(undefined, () => take<number>("revokeUserSessions", { id }, "system")),
+	},
+	files: {
+		listFiles: (collection, recordID, field, signal) => guard(signal, () => take<FileInfo[]>("listFiles", { collection, recordID, field }, "record")),
+		uploadFile: (collection, recordID, field, file, signal) => guard(signal, () => take<FileInfo>("uploadFile", { collection, recordID, field, filename: file.name, size: file.size, type: file.type }, "record")),
+		deleteFile: (id, signal) => guard(signal, () => take<void>("deleteFile", { id }, "record")),
+		createDownloadToken: (id, variant, signal) => guard(signal, () => take<string>("createDownloadToken", { id, variant: variant ?? "original" }, "record")),
+		downloadBlob: (id, token, variant, signal) => guard(signal, () => take<Blob>("downloadBlob", { id, token, variant: variant ?? "original" }, "record")),
+	},
+	rules: {
+		getRules: (collection, signal) => guard(signal, () => take<RecordRules>("getRules", { collection }, "schema")),
+		setRules: (collection, rules, revision, signal) => guard(signal, () => take<RecordRules>("setRules", { collection, rules, revision }, "schema")),
+		previewRule: (collection, value, signal) => guard(signal, () => take<RulePreview>("previewRule", { collection, value }, "schema")),
+	},
+	authCollections: {
+		listAuthCollections: (signal) => guard(signal, () => take<AuthCollection[]>("listAuthCollections", {}, "schema")),
+		createAuthCollection: (value, signal) => guard(signal, () => take<AuthCollection>("createAuthCollection", { value }, "schema")),
+		updateAuthCollection: (id, value, signal) => guard(signal, () => take<AuthCollection>("updateAuthCollection", { id, value }, "schema")),
+		deleteAuthCollection: (id, signal) => guard(signal, () => take<void>("deleteAuthCollection", { id }, "schema")),
+	},
+	serviceTokens: {
+		listServiceTokens: (signal) => guard(signal, () => take<ServiceToken[]>("listServiceTokens", {}, "schema")),
+		issueServiceToken: (value, signal) => guard(signal, () => take<IssuedServiceToken>("issueServiceToken", { value }, "schema")),
+		revokeServiceToken: (id, signal) => guard(signal, () => take<void>("revokeServiceToken", { id }, "schema")),
 	},
   };
 }

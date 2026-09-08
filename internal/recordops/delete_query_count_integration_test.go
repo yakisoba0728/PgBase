@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	cascadeDeleteOwnerSnapshot  = "owner_snapshot"
 	cascadeDeleteIsolation      = "isolation"
 	cascadeDeleteAdvisory       = "advisory_lock"
 	cascadeDeleteReverseRead    = "reverse_read"
@@ -86,6 +87,8 @@ func (t *cascadeDeleteTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, dat
 
 func cascadeDeleteStatementCategory(statement string) string {
 	switch {
+	case strings.HasPrefix(statement, "select record_id,user_id from pgbase_meta.record_owners"):
+		return cascadeDeleteOwnerSnapshot
 	case statement == "show transaction_isolation":
 		return cascadeDeleteIsolation
 	case strings.HasPrefix(statement, "select pg_advisory_xact_lock("):
@@ -131,6 +134,7 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 	large := measureCascadeDelete(t, 64)
 
 	wantStatements := map[string]int{
+		cascadeDeleteOwnerSnapshot:  1,
 		cascadeDeleteIsolation:      1,
 		cascadeDeleteAdvisory:       1,
 		cascadeDeleteReverseRead:    2,

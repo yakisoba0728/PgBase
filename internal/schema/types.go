@@ -21,6 +21,9 @@ const (
 	TypeUUID        FieldType = "uuid"
 	TypeJSONB       FieldType = "jsonb"
 	TypeRelation    FieldType = "relation"
+	// TypeFile is metadata-only. File bytes and attachment metadata live in
+	// pgbase_meta.record_files, so dynamic record tables have no file column.
+	TypeFile FieldType = "file"
 )
 
 type FieldInput struct {
@@ -33,14 +36,36 @@ type FieldInput struct {
 	Relation *RelationInput  `json:"relation,omitempty"`
 }
 
+type IndexInput struct {
+	Name   string   `json:"name"`
+	Fields []string `json:"fields"`
+	Unique bool     `json:"unique"`
+}
+
 type CreateCollectionInput struct {
-	Name   string       `json:"name"`
-	Fields []FieldInput `json:"fields"`
+	Name    string       `json:"name"`
+	Fields  []FieldInput `json:"fields"`
+	Indexes []IndexInput `json:"indexes,omitempty"`
+	View    *ViewInput   `json:"view,omitempty"`
+}
+
+type ViewInput struct {
+	Source     string      `json:"source"`
+	Projection []string    `json:"projection"`
+	Filter     *ViewFilter `json:"filter,omitempty"`
+}
+
+type ViewFilter struct {
+	Op    string          `json:"op"`
+	Args  []ViewFilter    `json:"args,omitempty"`
+	Field string          `json:"field,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
 }
 
 type UpdateCollectionInput struct {
-	Name   string       `json:"name"`
-	Fields []FieldInput `json:"fields"`
+	Name    string        `json:"name"`
+	Fields  []FieldInput  `json:"fields"`
+	Indexes *[]IndexInput `json:"indexes,omitempty"`
 }
 
 type changeKind uint8
@@ -63,12 +88,45 @@ type Change struct {
 
 func NewCreateChange(input CreateCollectionInput) Change {
 	input.Fields = cloneFieldInputs(input.Fields)
+	input.Indexes = cloneIndexInputs(input.Indexes)
+	if input.View != nil {
+		view := *input.View
+		view.Projection = append([]string(nil), view.Projection...)
+		view.Filter = cloneViewFilter(view.Filter)
+		input.View = &view
+	}
 	return Change{kind: changeCreate, create: input}
+}
+
+func cloneViewFilter(filter *ViewFilter) *ViewFilter {
+	if filter == nil {
+		return nil
+	}
+	cloned := *filter
+	cloned.Value = append(json.RawMessage(nil), filter.Value...)
+	cloned.Args = append([]ViewFilter(nil), filter.Args...)
+	for i := range cloned.Args {
+		child := cloneViewFilter(&filter.Args[i])
+		cloned.Args[i] = *child
+	}
+	return &cloned
 }
 
 func NewUpdateChange(input UpdateCollectionInput) Change {
 	input.Fields = cloneFieldInputs(input.Fields)
+	if input.Indexes != nil {
+		cloned := cloneIndexInputs(*input.Indexes)
+		input.Indexes = &cloned
+	}
 	return Change{kind: changeUpdate, update: input}
+}
+
+func cloneIndexInputs(indexes []IndexInput) []IndexInput {
+	cloned := append([]IndexInput(nil), indexes...)
+	for index := range cloned {
+		cloned[index].Fields = append([]string(nil), indexes[index].Fields...)
+	}
+	return cloned
 }
 
 func NewDeleteChange(name string) Change {
@@ -136,7 +194,32 @@ type Collection struct {
 	Name      string    `json:"name"`
 	TableName string    `json:"tableName"`
 	Fields    []Field   `json:"fields"`
+	Indexes   []Index   `json:"indexes,omitempty"`
+	View      *ViewSpec `json:"view,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+type ViewSpec struct {
+	SourceCollectionID uuid.UUID   `json:"sourceCollectionId"`
+	Source             string      `json:"source"`
+	Projection         []string    `json:"projection"`
+	Filter             *ViewFilter `json:"filter,omitempty"`
+}
+
+func (c Collection) IsView() bool { return c.View != nil }
+func (c Collection) AccessCollectionID() uuid.UUID {
+	if c.View != nil {
+		return c.View.SourceCollectionID
+	}
+	return c.ID
+}
+
+type Index struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Fields    []string  `json:"fields"`
+	IndexName string    `json:"indexName"`
+	Unique    bool      `json:"unique"`
 }
 
 type PlannedField struct {
@@ -154,6 +237,20 @@ type PlannedCollection struct {
 	Name      string
 	TableName string
 	Fields    []PlannedField
+	Indexes   []PlannedIndex
+	View      *PlannedView `json:"view,omitempty"`
+}
+type PlannedView struct {
+	SourceCollectionID uuid.UUID   `json:"sourceCollectionId"`
+	Source             string      `json:"source"`
+	Projection         []string    `json:"projection"`
+	Filter             *ViewFilter `json:"filter,omitempty"`
+}
+
+type PlannedIndex struct {
+	Name   string   `json:"name"`
+	Fields []string `json:"fields"`
+	Unique bool     `json:"unique"`
 }
 
 type Plan struct {

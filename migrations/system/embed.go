@@ -46,6 +46,36 @@ var publicUsersSQL string
 //go:embed 000011_owner_access.sql
 var ownerAccessSQL string
 
+//go:embed 000012_user_email_actions.sql
+var userEmailActionsSQL string
+
+//go:embed 000013_record_files.sql
+var recordFilesSQL string
+
+//go:embed 000014_realtime_delivery.sql
+var realtimeDeliverySQL string
+
+//go:embed 000015_scheduled_jobs.sql
+var scheduledJobsSQL string
+
+//go:embed 000016_user_auth_factors.sql
+var userAuthFactorsSQL string
+
+//go:embed 000017_auth_collections.sql
+var authCollectionsSQL string
+
+//go:embed 000018_record_rules.sql
+var recordRulesSQL string
+
+//go:embed 000019_compound_indexes.sql
+var compoundIndexesSQL string
+
+//go:embed 000020_service_tokens.sql
+var serviceTokensSQL string
+
+//go:embed 000021_collection_views.sql
+var collectionViewsSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -103,6 +133,16 @@ var migrations = []Migration{
 	},
 	{Version: 10, Name: "public_users", SQL: publicUsersSQL, SHA256: sha256.Sum256([]byte(publicUsersSQL))},
 	{Version: 11, Name: "owner_access", SQL: ownerAccessSQL, SHA256: sha256.Sum256([]byte(ownerAccessSQL))},
+	{Version: 12, Name: "user_email_actions", SQL: userEmailActionsSQL, SHA256: sha256.Sum256([]byte(userEmailActionsSQL))},
+	{Version: 13, Name: "record_files", SQL: recordFilesSQL, SHA256: sha256.Sum256([]byte(recordFilesSQL))},
+	{Version: 14, Name: "realtime_delivery", SQL: realtimeDeliverySQL, SHA256: sha256.Sum256([]byte(realtimeDeliverySQL))},
+	{Version: 15, Name: "scheduled_jobs", SQL: scheduledJobsSQL, SHA256: sha256.Sum256([]byte(scheduledJobsSQL))},
+	{Version: 16, Name: "user_auth_factors", SQL: userAuthFactorsSQL, SHA256: sha256.Sum256([]byte(userAuthFactorsSQL))},
+	{Version: 17, Name: "auth_collections", SQL: authCollectionsSQL, SHA256: sha256.Sum256([]byte(authCollectionsSQL))},
+	{Version: 18, Name: "record_rules", SQL: recordRulesSQL, SHA256: sha256.Sum256([]byte(recordRulesSQL))},
+	{Version: 19, Name: "compound_indexes", SQL: compoundIndexesSQL, SHA256: sha256.Sum256([]byte(compoundIndexesSQL))},
+	{Version: 20, Name: "service_tokens", SQL: serviceTokensSQL, SHA256: sha256.Sum256([]byte(serviceTokensSQL))},
+	{Version: 21, Name: "collection_views", SQL: collectionViewsSQL, SHA256: sha256.Sum256([]byte(collectionViewsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

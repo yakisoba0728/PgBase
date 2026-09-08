@@ -16,6 +16,8 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/realtime"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
@@ -29,6 +31,9 @@ type App struct {
 	readiness        *readinessState
 	cleaner          backgroundRunner
 	recordCleaner    backgroundRunner
+	realtimeWorker   backgroundRunner
+	jobWorker        backgroundRunner
+	fileWorker       backgroundRunner
 	schemaOperations backgroundRunner
 	schemaListener   backgroundRunner
 	membershipWriter backgroundRunner
@@ -392,7 +397,15 @@ func newWithCatalogPreflight(
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	schemaHealth := newSchemaHealthSampler(pool, runner)
-	handler, err := api.NewRouter(withUserServices(api.Dependencies{
+	recordService.SetHooks(normalized.MutationHooks)
+	jobService, err := newJobService(ctx, pool, normalized)
+	if err != nil {
+		return nil, err
+	}
+	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
+	dependencies, err := withUserServices(api.Dependencies{
+		Realtime:           realtimeService,
+		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
@@ -407,7 +420,16 @@ func newWithCatalogPreflight(
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
-	}, pool, normalized))
+	}, pool, normalized)
+	if err != nil {
+		return nil, err
+	}
+	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
+	if err != nil {
+		return nil, err
+	}
+	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
+	handler, err := api.NewRouter(dependencies)
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +440,8 @@ func newWithCatalogPreflight(
 		readiness:        readiness,
 		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
+		realtimeWorker:   realtimeService,
+		jobWorker:        jobService,
 		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
 		membershipWriter: membershipRuntime,
@@ -425,6 +449,9 @@ func newWithCatalogPreflight(
 		schemaHealth:     schemaHealth,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
+	}
+	if fileService != nil {
+		app.fileWorker = fileService
 	}
 	app.httpServer = &http.Server{
 		Addr:              normalized.HTTPAddress,
@@ -596,56 +623,6 @@ func (a *App) completeStartupLocked(startupDone chan struct{}) {
 	}
 	close(startupDone)
 	a.startupDone = nil
-}
-
-func (a *App) startBackground(ctx context.Context) <-chan struct{} {
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	a.closeMu.Lock()
-	a.backgroundCancel = cancel
-	a.backgroundDone = done
-	a.closeMu.Unlock()
-	go func() {
-		runners := make([]namedBackgroundRunner, 0, 7)
-		for _, candidate := range []namedBackgroundRunner{
-			{"administrator authentication cleaner", a.cleaner},
-			{"record idempotency cleaner", a.recordCleaner},
-			{"schema operation maintenance", a.schemaOperations},
-			{"schema listener", a.schemaListener},
-			{"record membership writer", a.membershipWriter},
-			{"system status sampler", a.systemStatus},
-			{"schema health sampler", a.schemaHealth},
-		} {
-			if candidate.runner != nil {
-				runners = append(runners, candidate)
-			}
-		}
-		results := make(chan backgroundResult, len(runners))
-		for _, runner := range runners {
-			go func(runner namedBackgroundRunner) {
-				err := runner.runner.Run(runCtx)
-				results <- backgroundResult{name: runner.name, err: err, cancellationErr: runCtx.Err()}
-			}(runner)
-		}
-		var backgroundErr error
-		for index := range runners {
-			result := <-results
-			switch {
-			case result.err == nil && result.cancellationErr == nil:
-				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s stopped unexpectedly", result.name))
-			case result.err != nil && !(result.cancellationErr != nil && errors.Is(result.err, result.cancellationErr)):
-				backgroundErr = errors.Join(backgroundErr, fmt.Errorf("%s: %w", result.name, result.err))
-			}
-			if index == 0 {
-				cancel()
-			}
-		}
-		a.closeMu.Lock()
-		a.backgroundErr = backgroundErr
-		close(done)
-		a.closeMu.Unlock()
-	}()
-	return done
 }
 
 // Close stops accepting HTTP requests, drains active requests, and closes the

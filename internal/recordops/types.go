@@ -86,6 +86,34 @@ type DeleteRequest struct {
 	IfMatch    EntityTagSet
 }
 
+// BatchRequest is an atomic, ordered group of record mutations. Batch is
+// intentionally limited at the API boundary to 50 operations and one MiB of
+// decoded JSON; callers should not use it for bulk import workloads.
+type BatchRequest struct {
+	Principal  Principal
+	RequestID  string
+	Operations []BatchOperation
+}
+
+type BatchOperation struct {
+	Create *CreateRequest
+	Update *UpdateRequest
+	Delete *DeleteRequest
+}
+
+func (operation BatchOperation) kind() string {
+	switch {
+	case operation.Create != nil:
+		return "create"
+	case operation.Update != nil:
+		return "update"
+	case operation.Delete != nil:
+		return "delete"
+	default:
+		return ""
+	}
+}
+
 type RecordPage = query.RecordPage
 
 type ErrorCode string

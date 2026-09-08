@@ -1,0 +1,304 @@
+package userauth
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/mailer"
+)
+
+const maximumEmailActionTTL = 24 * time.Hour
+
+type emailAction struct {
+	id             uuid.UUID
+	userID         uuid.UUID
+	purpose        string
+	payloadEmail   *string
+	credentialHash []byte
+	expiresAt      time.Time
+}
+
+func (s *Service) ConfigureEmailActions(sender mailer.Sender, baseURL string, ttl time.Duration) error {
+	if s == nil || sender == nil || ttl <= 0 || ttl > maximumEmailActionTTL {
+		return ErrValidation
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return ErrValidation
+	}
+	s.mailer, s.emailBaseURL, s.emailActionTTL = sender, strings.TrimRight(baseURL, "/"), ttl
+	return nil
+}
+
+func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return ErrValidation
+	}
+	user, passwordHash, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if !user.Active {
+		return ErrNotFound
+	}
+	if user.Verified {
+		return nil
+	}
+	raw, err := s.issueEmailAction(ctx, user.ID, "verify", nil, passwordHash)
+	if err != nil {
+		return err
+	}
+	return s.sendAction(ctx, user.Email, "Verify your email", "verify", raw)
+}
+
+func (s *Service) ConfirmVerification(ctx context.Context, rawToken string) error {
+	return s.consumeEmailAction(ctx, "verify", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
+		_, err := tx.Exec(ctx, `update pgbase_meta.users set verified=true,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID)
+		return err
+	})
+}
+
+func (s *Service) RequestPasswordReset(ctx context.Context, email, clientAddress string) error {
+	return s.RequestPasswordResetInCollection(ctx, DefaultCollectionID, email, clientAddress)
+}
+
+func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collectionID uuid.UUID, email, clientAddress string) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	normalized, emailErr := normalizeEmail(email)
+	if err := validateClientAddress(clientAddress); err != nil {
+		return err
+	}
+	account := normalized
+	if emailErr != nil {
+		account = "<invalid>"
+	}
+	now, err := s.databaseNow(ctx)
+	if err != nil {
+		return err
+	}
+	account = collectionID.String() + "\x00" + account
+	buckets := []rateLimitBucket{{s.subjectHash("password-reset", "account", account), loginAccountLimit}, {s.subjectHash("password-reset", "network", clientAddress), loginNetworkLimit}}
+	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+		return err
+	}
+	if err := s.recordFailures(ctx, buckets, now); err != nil {
+		return err
+	}
+	if emailErr != nil {
+		return nil
+	}
+	user, passwordHash, lookupErr := userByEmailDB(ctx, s.pool, collectionID, normalized, false)
+	if errors.Is(lookupErr, ErrInvalidCredentials) {
+		return nil
+	}
+	if lookupErr != nil {
+		return lookupErr
+	}
+	raw, err := s.issueEmailAction(ctx, user.ID, "password_reset", nil, passwordHash)
+	if err != nil {
+		return err
+	}
+	// Reset requests deliberately do not disclose delivery or account state.
+	// The token remains bounded by expiry and cleanup if delivery fails.
+	_ = s.sendAction(ctx, user.Email, "Reset your password", "reset", raw)
+	return nil
+}
+
+func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	if validateToken(rawToken) != nil {
+		return ErrInvalidCredentials
+	}
+	release, err := admit(s.passwordSlots)
+	if err != nil {
+		return err
+	}
+	newHash, err := s.passwords.Hash(newPassword)
+	release()
+	if err != nil {
+		return err
+	}
+	return s.consumeEmailAction(ctx, "password_reset", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
+		if _, err := tx.Exec(ctx, `update pgbase_meta.users set password_hash=$2,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID, newHash); err != nil {
+			return err
+		}
+		_, err := revokeSessionsInTx(ctx, tx, action.userID)
+		return err
+	})
+}
+
+func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, currentPassword, newEmail string) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return ErrValidation
+	}
+	normalized, err := normalizeEmail(newEmail)
+	if err != nil {
+		return err
+	}
+	now, err := s.databaseNow(ctx)
+	if err != nil {
+		return err
+	}
+	buckets := []rateLimitBucket{{s.subjectHash("email-change", "account", userID.String()), loginAccountLimit}}
+	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+		return err
+	}
+	user, hash, lookupErr := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
+		return lookupErr
+	}
+	release, err := admit(s.passwordSlots)
+	if err != nil {
+		return err
+	}
+	shapeValid := validatePassword(currentPassword) == nil && lookupErr == nil && user.Active
+	verifyHash, verifyPassword := hash, currentPassword
+	if !shapeValid {
+		verifyHash, verifyPassword = dummyPasswordHash, dummyPassword
+	}
+	verifyErr := s.passwords.Verify(verifyHash, verifyPassword)
+	release()
+	if verifyErr != nil && !isPasswordMismatch(verifyErr) {
+		return verifyErr
+	}
+	if !shapeValid || verifyErr != nil {
+		if err := s.recordFailures(ctx, buckets, now); err != nil {
+			return err
+		}
+		return ErrInvalidCredentials
+	}
+	var existing bool
+	if err := s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=(select auth_collection_id from pgbase_meta.users where id=$2) and email=$1 and id<>$2)`, normalized, userID).Scan(&existing); err != nil {
+		return fmt.Errorf("check changed user email: %w", err)
+	}
+	if existing {
+		return ErrConflict
+	}
+	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash)
+	if database.Classify(err) == database.KindConflict {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	return s.sendAction(ctx, normalized, "Confirm your email change", "email-change", raw)
+}
+
+func (s *Service) ConfirmEmailChange(ctx context.Context, rawToken string) error {
+	return s.consumeEmailAction(ctx, "email_change", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
+		if action.payloadEmail == nil {
+			return ErrInvalidCredentials
+		}
+		tag, err := tx.Exec(ctx, `update pgbase_meta.users set email=$2,verified=true,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID, *action.payloadEmail)
+		if database.Classify(err) == database.KindConflict {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrInvalidCredentials
+		}
+		_, err = revokeSessionsInTx(ctx, tx, action.userID)
+		return err
+	})
+}
+
+func (s *Service) emailReady() error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if s.mailer == nil || s.emailBaseURL == "" || s.emailActionTTL <= 0 {
+		return errors.New("user email actions unavailable")
+	}
+	return nil
+}
+
+func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash string) (string, error) {
+	rawBytes := make([]byte, 32)
+	if _, err := rand.Read(rawBytes); err != nil {
+		return "", fmt.Errorf("generate email action token: %w", err)
+	}
+	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
+	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, s.actionTokenHash(purpose, raw), payload, s.credentialHash(passwordHash), postgresInterval(s.emailActionTTL))
+	if err != nil {
+		return "", fmt.Errorf("create user email action: %w", err)
+	}
+	return raw, nil
+}
+
+func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken string, mutate func(context.Context, pgx.Tx, emailAction) error) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	if validateToken(rawToken) != nil {
+		return ErrInvalidCredentials
+	}
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var action emailAction
+		var currentHash string
+		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, s.actionTokenHash(purpose, rawToken), purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrInvalidCredentials
+		}
+		if err != nil {
+			return fmt.Errorf("read user email action: %w", err)
+		}
+		if !hmac.Equal(action.credentialHash, s.credentialHash(currentHash)) {
+			return ErrInvalidCredentials
+		}
+		if err := mutate(ctx, tx, action); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `update pgbase_meta.user_email_actions set consumed_at=CURRENT_TIMESTAMP where id=$1 and consumed_at is null`, action.id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrInvalidCredentials
+		}
+		return nil
+	})
+}
+
+func (s *Service) sendAction(ctx context.Context, to, subject, action, raw string) error {
+	message := mailer.Message{To: to, Subject: subject, Text: s.emailBaseURL + "/auth/action#action=" + action + "&token=" + url.QueryEscape(raw)}
+	if err := s.mailer.Send(ctx, message); err != nil {
+		return errors.New("send user email action")
+	}
+	return nil
+}
+
+func (s *Service) actionTokenHash(purpose, raw string) []byte {
+	return s.digest("user-email-action\x00"+purpose+"\x00", raw)
+}
+func (s *Service) credentialHash(hash string) []byte {
+	return s.digest("user-credential-version\x00", hash)
+}
+func postgresInterval(ttl time.Duration) string { return fmt.Sprintf("%f seconds", ttl.Seconds()) }

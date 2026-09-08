@@ -175,12 +175,16 @@ func TestPublicUsersOwnOnlyRecordHTTPContract(t *testing.T) {
 }
 
 func newPublicUsersApp(t *testing.T, registrationEnabled bool) *publicUsersFixture {
+	return newPublicUsersAppOptions(t, registrationEnabled, nil)
+}
+
+func newPublicUsersAppOptions(t *testing.T, registrationEnabled bool, configure func(*Options)) *publicUsersFixture {
 	t.Helper()
 	publicURL, err := url.Parse(publicUsersOrigin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(context.Background(), Options{
+	options := Options{
 		DatabaseURL:             testutil.NewDatabase(t),
 		HTTPAddress:             unusedAddress(t),
 		PublicURL:               publicURL,
@@ -189,7 +193,11 @@ func newPublicUsersApp(t *testing.T, registrationEnabled bool) *publicUsersFixtu
 		AutoMigrate:             true,
 		UserRegistrationEnabled: registrationEnabled,
 		Logger:                  slog.New(slog.NewJSONHandler(io.Discard, nil)),
-	})
+	}
+	if configure != nil {
+		configure(&options)
+	}
+	app, err := New(context.Background(), options)
 	if err != nil {
 		t.Fatalf("create app: %v", err)
 	}

@@ -7,12 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/accessrule"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/serviceauth"
 )
 
 type userAccessFixture struct {
@@ -128,7 +132,7 @@ func TestUserCreateOwnershipReplayCursorAndRollback(t *testing.T) {
 	_ = second
 }
 
-func TestUserAccessRejectsOutgoingAndIncomingRelations(t *testing.T) {
+func TestUserAccessRelationsRequireVisibleTargets(t *testing.T) {
 	f := newUserAccessFixture(t)
 	ctx := context.Background()
 	apply := func(input schema.CreateCollectionInput) {
@@ -144,10 +148,77 @@ func TestUserAccessRejectsOutgoingAndIncomingRelations(t *testing.T) {
 	apply(schema.CreateCollectionInput{Name: "owner_sources", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText, Required: true}, {Name: "target", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "owner_targets", Cardinality: schema.RelationSingle, OnDelete: schema.RelationCascade}}}})
 	f.enable(t, "owner_targets")
 	f.enable(t, "owner_sources")
-	for _, collection := range []string{"owner_targets", "owner_sources"} {
-		_, err := f.records.Create(ctx, CreateRequest{Principal: f.first, RequestID: "owner-relation-" + collection, Collection: collection, Input: map[string]json.RawMessage{"name": json.RawMessage(`"blocked"`)}})
-		if !errors.Is(err, recordaccess.ErrUnsupported) {
-			t.Fatalf("user create %s = %v", collection, err)
-		}
+	own, err := f.records.Create(ctx, CreateRequest{Principal: f.first, RequestID: "owner-relation-target-own", Collection: "owner_targets", Input: map[string]json.RawMessage{"name": json.RawMessage(`"own"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := f.records.Create(ctx, CreateRequest{Principal: f.second, RequestID: "owner-relation-target-foreign", Collection: "owner_targets", Input: map[string]json.RawMessage{"name": json.RawMessage(`"foreign"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownID := own.Record.Data["id"].(string)
+	foreignID := foreign.Record.Data["id"].(string)
+	if _, err := f.records.Create(ctx, CreateRequest{Principal: f.first, RequestID: "owner-relation-source-own", Collection: "owner_sources", Input: map[string]json.RawMessage{"name": json.RawMessage(`"allowed"`), "target": json.RawMessage(`"` + ownID + `"`)}}); err != nil {
+		t.Fatalf("visible target relation=%v", err)
+	}
+	if _, err := f.records.Create(ctx, CreateRequest{Principal: f.first, RequestID: "owner-relation-source-foreign", Collection: "owner_sources", Input: map[string]json.RawMessage{"name": json.RawMessage(`"denied"`), "target": json.RawMessage(`"` + foreignID + `"`)}}); !errors.Is(err, query.ErrRecordNotFound) {
+		t.Fatalf("foreign target relation=%v", err)
+	}
+
+	// A source row that is visible to the caller must not disclose a raw
+	// relation ID when the target row is hidden by its own View policy.
+	adminSource, err := f.records.Create(ctx, CreateRequest{Principal: f.admin, RequestID: "owner-relation-admin-source", Collection: "owner_sources", Input: map[string]json.RawMessage{"name": json.RawMessage(`"raw-id"`), "target": json.RawMessage(`"` + foreignID + `"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminSourceID := uuid.MustParse(adminSource.Record.Data["id"].(string))
+	if _, err := f.pool.Exec(ctx, `insert into pgbase_meta.record_owners(collection_id,record_id,user_id) select id,$2,$3 from pgbase_meta.collections where name=$1`, "owner_sources", adminSourceID, f.first.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.records.Get(ctx, GetRequest{Principal: f.first, RequestID: "owner-relation-hidden-raw", Collection: "owner_sources", ID: adminSourceID})
+	if err != nil || got.Data["target"] != nil {
+		t.Fatalf("hidden raw target = %#v, %v", got.Data["target"], err)
+	}
+
+	allow := accessrule.Rule{Op: "allow"}
+	deny := accessrule.Rule{Op: "deny"}
+	allAllow := accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow}
+	if _, err := recordaccess.NewRuleService(f.pool, f.schemas).Set(ctx, "owner_sources", allAllow); err != nil {
+		t.Fatal(err)
+	}
+	deniedTarget := allAllow
+	deniedTarget.View = deny
+	if _, err := recordaccess.NewRuleService(f.pool, f.schemas).Set(ctx, "owner_targets", deniedTarget); err != nil {
+		t.Fatal(err)
+	}
+	anonymous := Principal{Kind: identity.Anonymous}
+	got, err = f.records.Get(ctx, GetRequest{Principal: anonymous, RequestID: "anonymous-hidden-raw", Collection: "owner_sources", ID: adminSourceID})
+	if err != nil || got.Data["target"] != nil {
+		t.Fatalf("anonymous hidden raw target = %#v, %v", got.Data["target"], err)
+	}
+
+	catalog, err := f.schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	tokens := serviceauth.NewService(f.pool, secret)
+	sourceID := catalog.Collections["owner_sources"].ID
+	targetID := catalog.Collections["owner_targets"].ID
+	sourceOnly, err := tokens.Issue(ctx, "source-only", time.Hour, []serviceauth.Scope{{CollectionID: sourceID, Action: "read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	servicePrincipal := Principal{Kind: identity.Service, ID: sourceOnly.ID}
+	if _, err := f.records.Get(ctx, GetRequest{Principal: servicePrincipal, RequestID: "service-missing-target-scope", Collection: "owner_sources", ID: adminSourceID}); !errors.Is(err, recordaccess.ErrDenied) {
+		t.Fatalf("service missing target scope = %v", err)
+	}
+	both, err := tokens.Issue(ctx, "source-and-target", time.Hour, []serviceauth.Scope{{CollectionID: sourceID, Action: "read"}, {CollectionID: targetID, Action: "read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = f.records.Get(ctx, GetRequest{Principal: Principal{Kind: identity.Service, ID: both.ID}, RequestID: "service-target-scope", Collection: "owner_sources", ID: adminSourceID})
+	if err != nil || got.Data["target"] != foreignID {
+		t.Fatalf("service visible raw target = %#v, %v", got.Data["target"], err)
 	}
 }

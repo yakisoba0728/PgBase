@@ -83,13 +83,14 @@ func majorFromReference(reference string) string {
 // image and has no source-build fallback at all; local mode builds from the
 // working tree so the drill stays runnable during development.
 type candidate struct {
-	release     bool
-	image       string
-	version     string
-	binary      string
-	network     string
-	password    string
-	tokenSecret string
+	release       bool
+	image         string
+	version       string
+	binary        string
+	network       string
+	password      string
+	tokenSecret   string
+	fileDirectory string
 }
 
 var (
@@ -189,6 +190,13 @@ func (c *candidate) environment(databaseURL, httpAddress, publicURL string) []st
 		"PGBASE_PUBLIC_URL=" + publicURL,
 		"PGBASE_USER_REGISTRATION=true",
 	}
+	if c.fileDirectory != "" {
+		directory := c.fileDirectory
+		if c.release {
+			directory = "/restore-files"
+		}
+		environment = append(environment, "PGBASE_FILES_DRIVER=local", "PGBASE_FILES_LOCAL_DIRECTORY="+directory)
+	}
 	if c.release {
 		// The release candidate reaches the drill database over the dedicated,
 		// disposable Docker network. Production-like remote targets remain on
@@ -239,6 +247,9 @@ func (c *candidate) serve(t *testing.T, ctx context.Context, databaseURL, name s
 		arguments := []string{
 			"run", "--detach", "--name", name, "--network", c.network,
 			"--publish", fmt.Sprintf("127.0.0.1:%d:8090", port),
+		}
+		if c.fileDirectory != "" {
+			arguments = append(arguments, "--volume", c.fileDirectory+":/restore-files")
 		}
 		for _, value := range c.environment(databaseURL, ":8090", baseURL) {
 			arguments = append(arguments, "--env", value)

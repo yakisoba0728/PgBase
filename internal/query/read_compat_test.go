@@ -46,7 +46,7 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 }
 
 func (p relationListPlan) statement(after *pageBoundary, limit int) (Statement, error) {
-	return p.pageStatement(after, normalizedFetchLimit(limit))
+	return p.pageStatementWithPolicy(after, normalizedFetchLimit(limit), nil, ruleBinding{})
 }
 
 type RelationListRequest struct {

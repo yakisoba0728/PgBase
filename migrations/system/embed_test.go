@@ -26,14 +26,24 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		9:  "19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6",
 		10: "7b8f592b013ddac0030fd0c86502895ea6aad2985b841cd72ff1ca8371d242d6",
 		11: "495ebb9be48ca51a4bbf551dbc7227e090dade8d99e99e11626928dfa2005f46",
+		12: "be38595641afed3679625e82aca681e5bfc3eaf9a456598f533fdca1f7fa03e5",
+		13: "86cb31bfe2eb5395c8c9ce9cbaa0995f5cc691e8a3f63584836fda8283263d96",
+		14: "a6b10d7298eaa5b50f9ec38d1d905aaec1bd2b3a8db028be7258acfd87bacee2",
+		15: "e1d6c22dc0956bdd629454b3998f06ddeab3f5dfb0c03dc20012d389a86bbae8",
+		16: "be29348f64030d2f8f6b7a3d34ab40ee53b5cedb530d11a5f4254e8a634b5f39",
+		17: "32c70d1b44e5cb71984b7f52b6267636cb331cba9742887bcf9ee67b3dbc95f6",
+		18: "f9ebb300d2cebb3240718102fe7b46bf4de7a43dd90bf3bc117f769a9f29316c",
+		19: "54b98e728f384ec299adba736d3377510223ade4759663d3e765da8d06ec3fbc",
+		20: "c3e73309d202eee4831dcd51b8236805a19687dc0dcf1ec9a701bbcb96a4aa7e",
+		21: "11799b1af659bac9bf2bb7aa018bbb0107b48a63a04021860af834d8947d2047",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 11 || migrations[7].Version != 8 ||
+	if len(migrations) != 21 || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||
 		migrations[10].Version != 11 || migrations[10].Name != "owner_access" {
-		t.Fatalf("migration ordering=%+v", migrations)
+		t.Fatalf("migration ordering invalid; count=%d", len(migrations))
 	}
 	// Every applied migration is pinned, so adding one without its checksum
 	// fails here instead of at the runner of an already migrated database.

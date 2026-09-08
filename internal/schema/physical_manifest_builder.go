@@ -15,6 +15,14 @@ type physicalManifestBuilder struct {
 }
 
 func (builder *physicalManifestBuilder) addCollection(collection Collection, tableByCollectionID map[uuid.UUID]string) error {
+	if collection.View != nil {
+		builder.required.Tables = append(builder.required.Tables, TableSpec{Namespace: applicationPhysicalNamespace, Name: collection.TableName, Kind: physicalTableView, Persistence: physicalTablePermanent})
+		builder.required.Columns = append(builder.required.Columns, ColumnSpec{Namespace: applicationPhysicalNamespace, Table: collection.TableName, Name: "id", DataType: "uuid"}, ColumnSpec{Namespace: applicationPhysicalNamespace, Table: collection.TableName, Name: "created_at", DataType: "timestamp with time zone"}, ColumnSpec{Namespace: applicationPhysicalNamespace, Table: collection.TableName, Name: "updated_at", DataType: "timestamp with time zone"})
+		for _, field := range collection.Fields {
+			builder.required.Columns = append(builder.required.Columns, ColumnSpec{Namespace: applicationPhysicalNamespace, Table: collection.TableName, Name: field.ColumnName, DataType: physicalColumnType(field.Type)})
+		}
+		return nil
+	}
 	builder.required.Tables = append(builder.required.Tables, TableSpec{
 		Namespace:   applicationPhysicalNamespace,
 		Name:        collection.TableName,
@@ -41,6 +49,9 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 		return fields[i].Name < fields[j].Name
 	})
 	for _, field := range fields {
+		if field.Type == TypeFile {
+			continue
+		}
 		if field.Type != TypeRelation {
 			defaultSQL := ""
 			if len(field.Default) != 0 {
@@ -95,6 +106,21 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 		default:
 			return ErrConflict
 		}
+	}
+	fieldColumns := make(map[string]string, len(collection.Fields))
+	for _, field := range collection.Fields {
+		fieldColumns[field.Name] = field.ColumnName
+	}
+	for _, index := range collection.Indexes {
+		columns := make([]string, len(index.Fields))
+		for position, name := range index.Fields {
+			column, ok := fieldColumns[name]
+			if !ok {
+				return ErrConflict
+			}
+			columns[position] = column
+		}
+		builder.addIndex(applicationPhysicalNamespace, collection.TableName, index.IndexName, columns, index.Unique, false, "")
 	}
 	return nil
 }

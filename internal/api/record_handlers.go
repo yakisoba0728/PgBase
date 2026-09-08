@@ -227,6 +227,9 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func recordPrincipal(w http.ResponseWriter, r *http.Request) (recordops.Principal, bool) {
+	if principal, ok := r.Context().Value(publicRecordPrincipalKey{}).(recordops.Principal); ok && principal.Valid() {
+		return principal, true
+	}
 	if user, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
 		return recordops.Principal{Kind: identity.User, ID: user.principal.User.ID}, true
 	}

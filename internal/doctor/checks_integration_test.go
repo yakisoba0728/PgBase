@@ -32,7 +32,7 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 
 func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 11 || migrations[10].Version != 11 {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != int64(len(migrations)) {
 		t.Fatalf("preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -47,8 +47,9 @@ func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 		{name: "v8 rejected", through: 8, wantCode: "migration_not_current"},
 		{name: "v9 rejected", through: 9, wantCode: "migration_not_current"},
 		{name: "v10 rejected", through: 10, wantCode: "migration_not_current"},
-		{name: "v11 accepted", through: 11},
-		{name: "dirty v11 rejected", through: 11, dirty: true, wantCode: "migration_checksum_mismatch"},
+		{name: "v11 rejected", through: 11, wantCode: "migration_not_current"},
+		{name: "latest accepted", through: len(migrations)},
+		{name: "dirty latest rejected", through: len(migrations), dirty: true, wantCode: "migration_checksum_mismatch"},
 		{name: "dirty v9 rejected", through: 9, dirty: true, wantCode: "migration_checksum_mismatch"},
 	}
 	for _, testCase := range tests {

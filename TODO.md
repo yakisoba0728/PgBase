@@ -1,17 +1,18 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-08, v0.1.0 이후. 현재 작업 브랜치: `codex/user-management-lifecycle`. M1은 PR #26 / `52af13d`에 병합 완료.
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-m2-m6`. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
 ## 현재 실행 보드
 
 | 작업 | 담당 | 상태 | 완료 기준 |
 | --- | --- | --- | --- |
-| M2-A 사용자 수명주기 서비스 | GPT 5.6 Sol / public_auth | 구현·DB·경쟁 조건 검사 완료 | 목록·활성 상태·전체 세션 폐기·암호 변경 및 DB 동시성 검증 |
-| M2-A 관리자 UI | GPT 5.6 Terra / owner_access + Root | 구현·416 UI 테스트·실제 브라우저 확인 완료 | Users 화면, 페이지 이동, 활성화/비활성화·세션 폐기·컬렉션 접근 설정 |
-| M2-A HTTP·통합 | Root | 구현·입력/오류 단위 검사 완료 | 관리자 쿠키/CSRF와 사용자 Bearer 경계, 엄격한 입력·오류 계약 |
-| M2-A 실제 HTTP 검증 | GPT 5.6 Sol / private_release_review | 실제 HTTP 수명주기 검사 통과 | 비활성화·재활성화·폐기·암호 변경을 실제 앱으로 검증 |
-| M2-A 인수인계 | Root | 로컬 검증 완료, [PR #27](https://github.com/yakisoba0728/PgBase/pull/27)에서 CI·병합 추적 | 전체 검사·문서·PR·CI·병합, 릴리스와 구분 |
+| M2-B 메일 기반 계정 흐름 | GPT 5.6 Sol / public_auth | 로컬 통합 통과 | 로컬 SMTP, 검증·복구·이메일 변경 토큰의 소비·만료·경쟁 검증 |
+| M3 TypeScript SDK·예제 | GPT 5.6 Terra / owner_access | 로컬 패키징·Node·브라우저 통과 | auth/CRUD/취소/ETag/재시도, 로컬 npm pack·브라우저 예제 |
+| M4 파일·스토리지 | GPT 5.6 Sol / private_release_review | DB·MinIO·브라우저 통과 | 파일 수명주기·로컬/S3·정리·권한·실제 로컬 스토리지 검사 |
+| M5 outbox·realtime | Root | DB/HTTP·실패 경로 통과 | commit 순서 재생, fencing worker, 사용자별 SSE·폐기 반영 |
+| M2-C 정책/Auth/OAuth/MFA | Root + Sol/Terra | DB·HTTP·관리 UI 통과 | 기능별 실제 API·관계 권한·로컬 mock provider/OTP 검사 |
+| M6 확장·운영 로컬 검증 | Root + Sol | 로컬 검증 통과 | View/batch/index/hooks/cron·로컬 부하/복구·플랫폼 빌드 |
 
 ## M0 — 기준점과 작업 관리
 
@@ -181,76 +182,164 @@
 
 ## M2 — 사용자 수명주기와 유연한 권한
 
-- [ ] Auth 컬렉션 모델과 기존 프로젝트 사용자 업그레이드 설계.
-- [x] 관리자 UI에서 사용자 목록·비활성화·세션 폐기 (M2-A 검증 중, PR 반영 추적).
-- [x] 암호 변경과 기존 세션 폐기 정책 (M2-A 검증 중, PR 반영 추적).
-- [ ] SMTP/메일 어댑터와 테스트 전송.
-- [ ] 이메일 검증 토큰·만료·일회성 소비.
-- [ ] 비밀번호 재설정 요청·완료·재사용 거부.
-- [ ] 이메일 변경과 계정 재인증.
-- [ ] OAuth2 provider 계약 및 state/PKCE 테스트.
-- [ ] OTP와 MFA 흐름.
-- [ ] 타입 있는 CRUD 규칙 AST 및 검증기.
-- [ ] list/view/create/update/delete 규칙별 저장·평가.
-- [ ] 익명/인증 사용자/서비스 계정 구분.
-- [ ] 관계 ID·expand·역방향·filter·sort의 모든 hop 권한.
-- [ ] 관계 삭제 전파의 대상별 변경 권한.
-- [ ] 규칙 변경 후 커서·캐시·구독의 재검증.
-- [ ] 정책 편집 UI·미리보기·오류 복구.
-- [ ] 서비스 토큰 scope·회수·감사 기록.
+- [x] Auth 컬렉션 모델과 기존 프로젝트 사용자 업그레이드 설계.
+- [x] 관리자 UI에서 사용자 목록·비활성화·세션 폐기 (PR #27 병합·검증 완료).
+- [x] 암호 변경과 기존 세션 폐기 정책 (PR #27 병합·검증 완료).
+- [x] SMTP/메일 어댑터와 테스트 전송.
+- [x] 이메일 검증 토큰·만료·일회성 소비.
+- [x] 비밀번호 재설정 요청·완료·재사용 거부.
+- [x] 이메일 변경과 계정 재인증.
+- [x] OAuth2 provider 계약 및 state/PKCE 테스트.
+- [x] OTP와 MFA 흐름.
+- [x] 타입 있는 CRUD 규칙 AST 및 검증기.
+- [x] list/view/create/update/delete 규칙별 저장·평가.
+- [x] 익명/인증 사용자/서비스 계정 구분.
+- [x] 관계 ID·expand·역방향·filter·sort의 모든 hop 권한.
+- [x] 관계 삭제 전파의 대상별 변경 권한.
+- [x] 규칙 변경 후 커서·캐시·구독의 재검증.
+- [x] 정책 편집 UI·미리보기·오류 복구.
+- [x] 서비스 토큰 scope·회수·감사 기록.
 
 ## M3 — API 계약과 TypeScript SDK
 
-- [ ] 공개 API 경로/입력/오류/상태 코드 문서.
-- [ ] 버전 호환성 및 폐기 정책.
-- [ ] OpenAPI 생성 경로 검토·결정.
-- [ ] SDK auth store 및 토큰 lifecycle.
-- [ ] SDK list/get/create/update/delete.
-- [ ] 커서 순회·요청 취소·ETag·idempotency 지원.
-- [ ] 브라우저/Node 환경의 conformance 테스트.
-- [ ] SDK 배포 패키지·버전·릴리스.
-- [ ] 작은 예제 앱에서 회원가입과 개인 데이터 관리.
-- [ ] Dart SDK 수요 및 구현 범위 검토.
+- [x] 공개 API 경로/입력/오류/상태 코드 문서.
+- [x] 버전 호환성 및 폐기 정책.
+- [x] OpenAPI 생성 경로 검토·결정.
+- [x] SDK auth store 및 토큰 lifecycle.
+- [x] SDK list/get/create/update/delete.
+- [x] 커서 순회·요청 취소·ETag·idempotency 지원.
+- [x] 브라우저/Node 환경의 conformance 테스트.
+- [x] SDK 로컬 버전·타입·exports·실제 npm pack 및 별도 프로젝트 설치.
+- [ ] SDK 공개 npm 릴리스 (외부 배포 보류).
+- [x] 작은 예제 앱에서 회원가입과 개인 데이터 관리.
+- [x] Dart SDK 수요 및 구현 범위 검토.
 
 ## M4 — 파일과 스토리지
 
-- [ ] file 필드와 blob 메타데이터 모델.
-- [ ] 업로드 대기/완료/record commit/삭제 상태 머신.
-- [ ] 로컬·S3-compatible storage 어댑터.
-- [ ] 크기·유형·파일명·checksum 검증.
-- [ ] 사용자 규칙과 결합한 업로드/읽기/삭제.
-- [ ] 보호 파일 URL·만료 토큰.
-- [ ] 썸네일 작업과 변환 자원 제한.
-- [ ] 레코드 실패 시 미참조 blob 정리.
-- [ ] 재시도·장애 중 파일 정합성 테스트.
-- [ ] 파일 포함 백업/복원 검증과 관리자 UI.
+- [x] file 필드와 blob 메타데이터 모델.
+- [x] 업로드 대기/완료/record commit/삭제 상태 머신.
+- [x] 로컬·S3-compatible storage 어댑터.
+- [x] 크기·유형·파일명·checksum 검증.
+- [x] 사용자 규칙과 결합한 업로드/읽기/삭제.
+- [x] 보호 파일 URL·만료 토큰.
+- [x] 썸네일 작업과 변환 자원 제한.
+- [x] 레코드 실패 시 미참조 blob 정리.
+- [x] 재시도·장애 중 파일 정합성 테스트.
+- [x] 파일 포함 백업/복원 검증과 관리자 UI.
 
 ## M5 — Outbox와 realtime
 
-- [ ] outbox claim/lease/fencing 및 병렬 worker.
-- [ ] retry/backoff/dead-letter 및 운영 진단.
-- [ ] subscriber·checkpoint·replay 계약.
-- [ ] SSE 구독/해지와 연결 자원 제한.
-- [ ] 구독·전달 시 사용자 및 record 규칙 검사.
-- [ ] 정책 변경/로그아웃/비활성화 즉시 반영 계약.
-- [ ] 여러 인스턴스의 전달·중복·재연결 테스트.
-- [ ] slow consumer·DB 장애·network partition 검증.
-- [ ] SDK subscribe/unsubscribe와 예제 앱.
+- [x] outbox claim/lease/fencing 및 병렬 worker.
+- [x] retry/backoff/dead-letter 및 운영 진단.
+- [x] subscriber·checkpoint·replay 계약.
+- [x] SSE 구독/해지와 연결 자원 제한.
+- [x] 구독·전달 시 사용자 및 record 규칙 검사.
+- [x] 정책 변경/로그아웃/비활성화 즉시 반영 계약.
+- [x] 여러 인스턴스의 전달·중복·재연결 테스트.
+- [x] 연결 수·쓰기 제한·disconnect·DB 실패 주입·재시도 검증.
+- [ ] 실제 여러 호스트 간 network partition 검증 (외부 환경 대기).
+- [x] SDK subscribe/unsubscribe와 예제 앱.
 
 ## M6 — 나머지 제품 경험과 운영
 
-- [ ] View 컬렉션과 읽기 전용 query 모델.
-- [ ] batch CRUD의 원자성·권한·크기 제한.
-- [ ] 복합 인덱스와 고급 필드·쿼리 요구 검토.
-- [ ] 공개 Go event hook과 transaction 범위.
-- [ ] JavaScript 확장 runtime 여부·자원 경계 결정.
-- [ ] 사용자 정의 cron과 여러 인스턴스 실행 계약.
-- [ ] 관리자 UI 기능 전체 탐색·접근성 회귀.
-- [ ] 여러 플랫폼의 사전 빌드 배포.
+- [x] View 컬렉션과 읽기 전용 query 모델.
+- [x] batch CRUD의 원자성·권한·크기 제한.
+- [x] 복합 인덱스와 고급 필드·쿼리 요구 검토.
+- [x] 공개 Go event hook과 transaction 범위.
+- [x] JavaScript 확장 runtime 여부·자원 경계 결정.
+- [x] 사용자 정의 cron과 여러 인스턴스 실행 계약.
+- [x] 관리자 UI 기존·신규 주요 흐름 브라우저 회귀, label·모바일 overflow 검사 (전체 접근성 인증은 아님).
+- [x] 6개 OS/architecture 로컬 사전 빌드와 checksum 생성.
+- [ ] 플랫폼별 실제 실행·서명·공개 배포 (외부 배포 보류).
 - [ ] 실제 staging TLS/proxy/외부 PostgreSQL 배포.
 - [ ] 목표 트래픽 기준 load/soak/spike 및 SLO 측정.
-- [ ] PITR·장애 복구·RPO/RTO 검증.
-- [ ] 기능 비교표를 구현·검증 완료 시점에 갱신.
+- [x] 로컬 WAL checkpoint PITR·파일 포함 논리 복원 및 관측 시간 기록.
+- [ ] 운영 RPO/RTO·외부 스토리지 시점 복구 보증 (운영 환경 대기).
+- [x] 기능 비교표를 구현·검증 완료 시점에 갱신.
+
+## 전체 로컬 작업의 완료 기준과 세부 추적
+
+- [x] 사용자 범위 확인: M2–M6 중 로컬에서 개발·검증 가능한 전체 기능.
+- [x] 클라우드/도메인 미정 확인. 실제 스테이징·외부 계정 연결·공개 배포는 완료로 표시하지 않고 별도 대기.
+- [x] 병합 기준 main `09d6b7d`와 구현 브랜치 생성.
+- [x] migration 12–21의 순서·체크섬·이전 DB upgrade 검증.
+- [x] feature 설정의 기본 off/구성 검증·readiness·shutdown 연결.
+- [x] 각 module의 API·SDK·UI 연결 후 실제 앱 end-to-end 검사.
+- [x] docs/API 계약·OpenAPI·예제·README를 실제 구현과 일치시킴.
+- [x] 최종 변경 범위의 독립 검토·unit/race·DB·UI·SDK·로컬서비스 통합 검사.
+- [ ] 단계별 PR/최신 CI/main 병합 결과 기록, 소스와 릴리스 구분.
+
+### M2-B 계정 메일 상세
+
+- [x] SMTP sender, timeout, TLS/STARTTLS/auth, 로컬 테스트용 명시적 plaintext 설정.
+- [x] local SMTP sink에서 실제 메일 수신·링크·헤더 검사.
+- [x] verified 저장과 사용자 DTO·UI 표시.
+- [x] 용도별 HMAC 토큰, 원문 미저장, 만료·일회성 소비.
+- [x] 사용자 존재를 숨기는 복구 요청 응답·요청 제한.
+- [x] 복구 완료의 암호 변경·세션 폐기·기존 credential 비교.
+- [x] 이메일 검증 요청·완료 API와 사용자 표시.
+- [x] 이메일 변경의 현재 암호·고유성·재인증·확인 링크 처리.
+- [x] 메일 전달 실패·DB 실패·동시 확인·토큰 재사용 회귀.
+- [x] 로컬 메일 inbox·실제 SMTP 전송 검사·관리 UI verified 표시·공개 예제 복구 화면.
+
+### M2-C 인증·권한 상세
+
+- [x] Auth 컬렉션 설정 모델과 기존 users의 기본 컬렉션 이관.
+- [x] OAuth provider 설정/시작/callback, state·PKCE·issuer/sub binding.
+- [x] 로컬 mock OAuth provider의 성공·취소·재생·계정 충돌 검사.
+- [x] OTP/TOTP 등록·확인·해제·복구 코드·MFA 단계 세션.
+- [x] 제한된 규칙 AST parser/type checker/SQL binding과 모호한 규칙 거부.
+- [x] action별 규칙 저장·수정 및 schema/policy revision 캐시 무효화.
+- [x] relation filter/sort/expand/reverse·변경·삭제 전파 전체 권한 검사.
+- [x] 익명·사용자·서비스 계정 scope, service token 발급·폐기·검증.
+- [x] 정책 편집기·미리보기와 허용/거부 실제 데이터 행렬 테스트.
+
+### M3 SDK·예제 상세
+
+- [x] ESM·타입 선언·exports·Node/브라우저 fetch 주입. (SDK 로컬 HTTP 테스트 통과; 실제 PgBase 통합 별도 추적)
+- [x] 메모리/명시적 브라우저 auth store, session generation fencing. (SDK 로컬 HTTP 테스트 통과; 실제 PgBase 통합 별도 추적)
+- [x] auth/CRUD 에러·page iterator·AbortSignal·ETag·idempotency 재시도. (SDK 로컬 HTTP 테스트 통과; 실제 PgBase 통합 별도 추적)
+- [x] 메일 action·파일 업로드/다운로드·SSE subscribe 래퍼 연결.
+- [x] Node HTTP server·실제 브라우저 conformance와 로컬 pack 설치 검사.
+- [x] 로컬 예제: 가입/로그인/암호·이메일/개인 데이터/파일/구독.
+- [x] SDK 버전 호환성·OpenAPI 경로 검증·Dart 범위 결정 기록.
+
+### M4 파일 상세
+
+- [x] file 필드 스키마·검증·관리 UI 편집/업로드 연결.
+- [x] record/field별 metadata pending→ready→delete 수명주기.
+- [x] opaque object key·크기/MIME/파일명/SHA256 검증·streaming.
+- [x] 로컬 스토리지 traversal·경합·중단·오류 정리 검사.
+- [x] S3-compatible adapter와 로컬 MinIO 실제 업로드/읽기/삭제 검사.
+- [x] 현재 읽기/쓰기 권한 검사와 사용자/파일/만료 바인딩 다운로드 토큰.
+- [x] JPEG/PNG 썸네일 디코드 크기 제한·원본과 동일한 접근 권한.
+- [x] 삭제 queue의 lease/retry·DB rollback·dangling object 정리.
+- [x] record 삭제/컬렉션 삭제 후 파일정리·파일 포함 백업/복원.
+
+### M5 realtime 상세
+
+- [x] outbox event의 owner snapshot, 삭제 이벤트 권한 유지.
+- [x] durable delivery sequence의 commit 순서와 event 중복 방지.
+- [x] worker claim/lease fencing, retry/backoff/dead-letter/운영 상태.
+- [x] 구독 요청·매 전달의 사용자 session/active/policy 확인.
+- [x] SSE event ID·Last-Event-ID 재생·heartbeat·연결/쓰기 제한.
+- [x] 느린 소비자·disconnect·재연결·DB 오류와 다중 인스턴스 테스트.
+- [x] worker/subscription shutdown·SDK/예제 subscription 연결.
+
+### M6 로컬 상세
+
+- [x] View 컬렉션의 선언·읽기 전용 query·관리 UI·권한.
+- [x] batch operation 입력·크기 제한·단일 transaction·실패 rollback.
+- [x] 복합 인덱스 설계·plan/apply·삭제·조회 계획 검사.
+- [x] Go hooks의 등록·before/after/commit·실패 처리·명확한 tx 범위.
+- [x] JavaScript runtime 포함 여부와 비용/자원 제한 결정.
+- [x] cron 등록·스케줄·DB lease·중복 실행/실패 재시도 검사.
+- [x] Linux/macOS/Windows·amd64/arm64 로컬 cross-build 및 checksum.
+- [x] 로컬 load/soak/spike 측정과 환경·처리량·실패율 보고 (운영 SLO로 주장하지 않음).
+- [x] 로컬 WAL archive/PITR marker 복구·파일 포함 논리 복구·측정 한계 기록 (운영 RPO/RTO·S3 시점 복구는 외부 검증 대기).
+- [x] 관리자 UI 접근성·페이지 탐색·실제 브라우저 회귀.
+- [x] 구현된 기능과 아직 외부 검증되지 않은 부분의 비교표 갱신.
+
 
 ## 변경 기록
 
@@ -275,3 +364,19 @@
 - 2026-09-08: M2-A 전체 Go unit/race·PG17 integration/race 및 skip 정책, pinned lint/vet 통과. UI 25개 파일 416개 테스트·typecheck·build 통과. 실제 브라우저에서 비활성화→재활성화·세션 폐기를 확인하고, 데스크톱 버튼 가시성 및 모바일 페이지 overflow를 검증. 최종 런타임 증가 +656줄은 설계 문서와 제한에 반영.
 
 - 2026-09-08: M2-A PR #27 생성. Backend/Frontend/Security CI 실행 시작. 구현·로컬 검사와 CI·병합·배포 상태를 분리해 추적.
+
+- 2026-09-08: 사용자 지시로 M2–M6 전체를 진행하되 로컬 개발 가능한 범위로 확정. 단계별 세부 TODO와 완료 기준을 확장. Sol 계정 메일, Terra SDK/예제, Sol 파일/스토리지, Root realtime 병렬 착수.
+
+- 2026-09-08: M2-B 메일 서비스·단일 사용/경합 PostgreSQL 검사 통과, HTTP 연결 진행. M3 기본 SDK 및 메일/SSE 래퍼 로컬 HTTP 검사·pack 통과. M5 delivery/owner snapshot/SSE 구현 후 DB·HTTP 검증 진행. Sol OAuth/MFA, Terra cron 후속 착수.
+
+- 2026-09-08: 실제 앱+로컬 SMTP 가입→이메일검증→암호복구→이메일변경→기존세션폐기 HTTP 검사 통과. 실제 SSE owner 격리·삭제이벤트 재연결·로그아웃종료 통과 (`pgbase` 통합 테스트). MFA/OAuth 서비스 PG 검증 통과, Auth collection 후속 구현 중. Batch 원자성 및 파일 API 연결 검증 진행.
+
+- 2026-09-08: M2 typed rule CRUD/페이지커서갱신/쓰기rollback 실제 HTTP 통과; M5 현재rules 기반cross-owner 이벤트 및 삭제snapshot·규칙폐기 SSE 통과. 서비스토큰scope/폐기·익명거부 HTTP 통과. M4 MinIO와HTTPfile검증 완료 및파일UI집중테스트추가. M6 batch성공/rollback/권한·hook검증 및SDKwrapper 통과. 현재 Auth collections UI, relation 모든hop권한, compoundindex/View 작업 중.
+
+- 2026-09-08: 로컬 개발 스크립트로 PG17/PgBase/SMTP inbox 기동 및 readiness 통과. Auth 컬렉션 관리 UI·규칙 미리보기 UI 및 423개 UI 테스트·typecheck/build 통과. 실제 DB publish 실패 10회→backoff→dead-letter→운영 retry→event ID 보존 검사 통과. 파일 포함 dump/restore 및 6개 플랫폼 빌드 진행.
+
+- 2026-09-08: PG17 파일 포함 dump/restore·인증 다운로드 통과. 6개 OS/architecture 빌드와 checksum 생성 통과. 30초 로컬 HTTP baseline/steady/spike/recovery 42,331건 오류0; p95 2.27–8.52ms. 독립 WAL named checkpoint 복구 성공(대상 이전 marker 유실0, 이후marker 제외, 기동관측1초). 운영보증으로 계산하지 않음.
+
+- 2026-09-09: Auth/OAuth/MFA·관계 모든 hop·서비스 토큰·View/복합 인덱스·파일·SSE 독립 검토 및 회귀 완료. SDK 실제 tarball 설치와 PgBase HTTP conformance 통과. 브라우저에서 기본 fetch 바인딩 오류와 토큰 폼 입력 실패 후 잠김을 발견·수정. UI 431개 테스트 통과. 전체 Go/PG 및 PG16/17/18 복원 최종 재검증 중.
+
+- 2026-09-09: 서비스 토큰 scope의 컬렉션 삭제 방해를 실제 브라우저에서 재현해 guarded schema transaction에서 정리하도록 수정. active/revoked 토큰 HTTP 회귀 및 브라우저 4개 통과. UI 431개, 기존 browser 1+7개, Go race·PG17/MinIO 기능 및 skip 정책, PG16/17/18 파일 포함 복원 통과. 최종 구조 제한 재측정·회귀 통과, PR 준비.

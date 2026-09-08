@@ -1,0 +1,9 @@
+{
+  "name": "pgbase-user-notes-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-sdk": "npm --prefix ../../sdk/typescript run build",
+    "serve": "node server.js"
+  }
+}

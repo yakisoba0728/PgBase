@@ -354,7 +354,7 @@ func TestBodyLimitAppliesToEveryContentTypeSpelling(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var read int
 			var readErr error
-			handler := bodyLimitMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			handler := requestBodyLimitMiddleware(maxJSONBodyBytes, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				raw, err := io.ReadAll(r.Body)
 				read, readErr = len(raw), err
 			}))

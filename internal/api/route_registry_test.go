@@ -61,6 +61,7 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"POST /api/admin/collections/plan",
 		"POST /api/admin/login",
 		"POST /api/admin/setup",
+		"POST /api/v1/collections/batch",
 		"POST /api/v1/collections/{collection}/records",
 	}
 	got := registeredPatterns(declaredTestRoutes(t))
@@ -109,6 +110,7 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"GET /api/admin/system":                                accessAdminSameOriginRead,
 		"GET /api/admin/system/health":                         accessAdminSameOriginRead,
 		"GET /api/v1/collections/{collection}/records":         accessAdminSameOriginRead,
+		"POST /api/v1/collections/batch":                       accessAdminSession,
 		"POST /api/v1/collections/{collection}/records":        accessAdminSession,
 		"GET /api/v1/collections/{collection}/records/{id}":    accessAdminSameOriginRead,
 		"PATCH /api/v1/collections/{collection}/records/{id}":  accessAdminSession,
@@ -174,7 +176,7 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 			delete(want, key)
 			continue
 		}
-		if declared.maximumRequestBytes != 0 {
+		if declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
 			t.Fatalf("route %q unexpectedly narrows the global request cap to %d", key, declared.maximumRequestBytes)
 		}
 	}

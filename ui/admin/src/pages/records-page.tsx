@@ -27,9 +27,11 @@ function displayCell(value: RecordData[string], field: FieldDefinition | undefin
 export function RecordsPage({ collectionName, navigate }: { collectionName: string; navigate(route: AdminRoute): void }) {
   const list = useRecordList(collectionName);
   const page = list.page;
+  const readOnly = list.collection?.view !== undefined;
 
   return <section>
-    <div className="page-heading"><h2>{collectionName} records</h2><AdminLink className="link-button" navigate={navigate} route={{ kind: "record", collection: collectionName }}>Create record</AdminLink></div>
+    <div className="page-heading"><h2>{collectionName} records</h2>{!readOnly && <AdminLink className="link-button" navigate={navigate} route={{ kind: "record", collection: collectionName }}>Create record</AdminLink>}</div>
+    {readOnly && <p>This view is read-only.</p>}
     <form className="filter-form" onSubmit={(event) => { event.preventDefault(); list.applyFilter(); }}>
       <label htmlFor="record-filter">Filter</label>
       <input id="record-filter" onChange={(event) => list.setFilterText(event.target.value)} placeholder={`e.g. title = 'value' && rank >= 2`} value={list.filterText} />
@@ -43,7 +45,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     {page && page.items.length > 0 && <div className="table-scroll"><table><thead><tr>{list.columns.map((column) => <th aria-sort={list.sortDirection(column)} key={column}>{list.sortable(column) ? <button className="text-button" onClick={() => list.toggleSort(column)} type="button">{column}{list.sortDirection(column) === "ascending" ? " ↑" : list.sortDirection(column) === "descending" ? " ↓" : ""}</button> : column}</th>)}</tr></thead><tbody>
       {page.items.map((record, index) => <tr key={String(record.id ?? index)}>{list.columns.map((column) => <td key={column}>
         {column === "id"
-          ? <AdminLink className="text-button" navigate={navigate} route={{ kind: "record", collection: collectionName, id: String(record.id) }}>{display(record[column])}</AdminLink>
+          ? readOnly ? display(record[column]) : <AdminLink className="text-button" navigate={navigate} route={{ kind: "record", collection: collectionName, id: String(record.id) }}>{display(record[column])}</AdminLink>
           : displayCell(record[column], list.fieldFor(column))}
       </td>)}</tr>)}
     </tbody></table></div>}

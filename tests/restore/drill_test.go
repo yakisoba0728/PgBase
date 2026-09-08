@@ -40,9 +40,21 @@ func TestRestoreDrill(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancel()
 			postgres := startPostgres(t, ctx, drill, image)
+			drill.fileDirectory = t.TempDir()
+			if err := os.Chmod(drill.fileDirectory, 0777); err != nil {
+				t.Fatal(err)
+			}
 			expected := seedSourceProject(t, ctx, drill, postgres)
 			sentinel := insertReconciliationSentinel(t, ctx, postgres)
 			dumpAndRestore(t, ctx, postgres)
+			restoredFiles := filepath.Join(t.TempDir(), "files")
+			if err := os.CopyFS(restoredFiles, os.DirFS(drill.fileDirectory)); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(restoredFiles, 0777); err != nil {
+				t.Fatal(err)
+			}
+			drill.fileDirectory = restoredFiles
 			verifyRestoredDatabase(t, ctx, postgres, expected)
 			verifyRestoredDoctor(t, ctx, drill, postgres)
 			verifyRestoredService(t, ctx, drill, postgres, expected, sentinel)
@@ -135,6 +147,7 @@ type sourceProject struct {
 	publicRecord    record
 	users           int
 	owners          int
+	fileID          string
 }
 
 func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, postgres *postgresServer) sourceProject {
@@ -201,6 +214,9 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 	}
 	project.publicRecord = record{id: identifier}
 
+	if version := mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select max(version) from pgbase_meta.system_migrations")); version >= 13 {
+		project.fileID = seedRestoreFile(t, ctx, client)
+	}
 	// The source instance must be drained before the dump so the snapshot never
 	// races the schema-operation maintenance loop.
 	instance.stop(t)
@@ -317,7 +333,11 @@ func verifyRestoredDatabase(t *testing.T, ctx context.Context, postgres *postgre
 	}
 	assertCount(t, postgres, ctx, "system migrations", "select count(*) from pgbase_meta.system_migrations", expected.systemMigration)
 	assertCount(t, postgres, ctx, "administrators", "select count(*) from pgbase_meta.admins", 1)
-	assertCount(t, postgres, ctx, "collections", "select count(*) from pgbase_meta.collections", 3)
+	expectedCollections := 3
+	if expected.fileID != "" {
+		expectedCollections++
+	}
+	assertCount(t, postgres, ctx, "collections", "select count(*) from pgbase_meta.collections", expectedCollections)
 	assertCount(t, postgres, ctx, "field relations", "select count(*) from pgbase_meta.field_relations", 2)
 	assertCount(t, postgres, ctx, "people", "select count(*) from app."+peopleCollection, 2)
 	assertCount(t, postgres, ctx, "articles", "select count(*) from app."+articleCollection, 1)
@@ -365,8 +385,8 @@ func verifyRestoredDatabase(t *testing.T, ctx context.Context, postgres *postgre
 		 and migrations.operation = operations.operation
 		 and migrations.checksum = operations.plan_checksum
 		 and migrations.applied_by = operations.actor_id
-		where operations.status = 'committed'`); committed != "3" {
-		t.Errorf("restored committed schema operation receipts = %s, want 3", committed)
+		where operations.status = 'committed'`); committed != strconv.Itoa(expectedCollections) {
+		t.Errorf("restored committed schema operation receipts = %s, want %d", committed, expectedCollections)
 	}
 	if unresolved := postgres.query(t, ctx, restoredDatabase,
 		"select count(*) from pgbase_meta.schema_operations where status in ('running','unknown')"); unresolved != "1" {
@@ -398,6 +418,9 @@ func verifyRestoredService(t *testing.T, ctx context.Context, drill *candidate, 
 	instance := drill.serve(t, ctx, restoredURL, "pgbase-restore-target-"+randomHex(t, 6))
 	client := newAdminClient(instance.baseURL)
 	client.login(t, ctx, administratorEmail, administratorPassword)
+	if expected.fileID != "" {
+		verifyRestoreFile(t, ctx, client, expected.fileID)
+	}
 	if drill.release {
 		if reported := client.reportedVersion(t, ctx); reported != drill.version {
 			t.Fatalf("restored candidate reported version %q, want %q", reported, drill.version)

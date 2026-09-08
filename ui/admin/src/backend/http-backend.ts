@@ -27,6 +27,12 @@ import {
   type SystemStatus,
   type ManagedUser,
   type UserPage,
+  type FileInfo,
+  type RecordRules,
+  type RulePreview,
+  type AuthCollection,
+  type IssuedServiceToken,
+  type ServiceToken, type ServiceTokenScope,
 } from "./ports";
 
 interface Wire {
@@ -306,6 +312,72 @@ class HTTPBackend implements AdminBackend {
     revokeSessions: async (id: string): Promise<number> =>
       Number(((await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, method: "POST", csrf: true })).data as { revokedSessions: number }).revokedSessions),
   };
+
+  readonly files = {
+    listFiles: async (collection: string, recordID: string, field: string, signal?: AbortSignal): Promise<FileInfo[]> => {
+      const reply = await this.#recordCall({ path: this.#fieldFilePath(collection, recordID, field), signal });
+      return (reply.data as { items: FileInfo[] }).items;
+    },
+    uploadFile: async (collection: string, recordID: string, field: string, file: File, signal?: AbortSignal): Promise<FileInfo> => {
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+      const body = new FormData();
+      body.append("file", file, file.name);
+      return this.#fileCall(this.#fieldFilePath(collection, recordID, field), { method: "POST", body, headers: {
+        "X-PgBase-CSRF": this.#csrfToken,
+        "X-PgBase-File-Size": String(file.size),
+        "X-PgBase-File-SHA256": Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join(""),
+      }, signal });
+    },
+    deleteFile: async (id: string, signal?: AbortSignal): Promise<void> => {
+      await this.#fileCall(this.#filePath(id), { method: "DELETE", headers: { "X-PgBase-CSRF": this.#csrfToken }, signal });
+    },
+    createDownloadToken: async (id: string, variant = "original", signal?: AbortSignal): Promise<string> =>
+      (await this.#fileCall(this.#filePath(id) + "/token", { method: "POST", body: { variant }, csrf: true, signal }) as { token: string }).token,
+    downloadBlob: async (id: string, token: string, variant = "original", signal?: AbortSignal): Promise<Blob> => {
+      const path = new URL(this.#filePath(id), window.location.origin);
+      path.searchParams.set("token", token); if (variant !== "original") path.searchParams.set("variant", variant);
+      const response = await fetch(path, { credentials: "include", signal });
+      if (!response.ok) throw new RecordError(response.status === 404 ? "not-found" : "failed");
+      return response.blob();
+    },
+  };
+  readonly rules = {
+    getRules: async (collection: string, signal?: AbortSignal): Promise<RecordRules> =>
+      (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/rules`, signal })).data as RecordRules,
+    setRules: async (collection: string, rules: Record<string, unknown>, revision: number, signal?: AbortSignal): Promise<RecordRules> =>
+      (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/rules`, method: "PUT", body: { rules, revision }, csrf: true, signal })).data as RecordRules,
+    previewRule: async (collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview> =>
+      (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/rules/preview`, method: "POST", body: value, csrf: true, signal })).data as RulePreview,
+  };
+  readonly authCollections = {
+    listAuthCollections: async (signal?: AbortSignal): Promise<AuthCollection[]> =>
+      ((await this.#schemaCall({ path: "/api/admin/auth-collections", signal })).data as { items: AuthCollection[] }).items,
+    createAuthCollection: async (value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection> =>
+      (await this.#schemaCall({ path: "/api/admin/auth-collections", method: "POST", body: value, csrf: true, signal })).data as AuthCollection,
+    updateAuthCollection: async (id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection> =>
+      (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}`, method: "PATCH", body: value, csrf: true, signal })).data as AuthCollection,
+    deleteAuthCollection: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}`, method: "DELETE", csrf: true, signal }); },
+  };
+  readonly serviceTokens = {
+    listServiceTokens: async (signal?: AbortSignal): Promise<ServiceToken[]> =>
+      ((await this.#schemaCall({ path: "/api/admin/service-tokens", signal })).data as { items: ServiceToken[] }).items,
+    issueServiceToken: async (value: { name: string; ttlSeconds: number; scopes: ServiceTokenScope[] }, signal?: AbortSignal): Promise<IssuedServiceToken> =>
+      (await this.#schemaCall({ path: "/api/admin/service-tokens", method: "POST", body: value, csrf: true, signal })).data as IssuedServiceToken,
+    revokeServiceToken: async (id: string, signal?: AbortSignal): Promise<void> => {
+      await this.#schemaCall({ path: `/api/admin/service-tokens/${encodeURIComponent(id)}/revoke`, method: "POST", csrf: true, signal });
+    },
+  };
+
+  #fieldFilePath(collection: string, recordID: string, field: string): string { return `/api/admin/collections/${encodeURIComponent(collection)}/records/${encodeURIComponent(recordID)}/files/${encodeURIComponent(field)}`; }
+  #filePath(id: string): string { return `/api/admin/files/${encodeURIComponent(id)}`; }
+  async #fileCall(path: string, request: Omit<Request, "path">): Promise<any> {
+    if (request.body instanceof FormData) {
+      const response = await fetch(path, { method: request.method, headers: request.headers, body: request.body, credentials: "include", signal: request.signal });
+      if (!response.ok) throw new RecordError(response.status === 404 ? "not-found" : "failed");
+      return response.status === 204 ? undefined : decode(response);
+    }
+    return (await this.#recordCall({ ...request, path })).data;
+  }
 
   #adopt(reply: Reply): AuthenticatedSession {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };

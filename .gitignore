@@ -10,3 +10,6 @@ coverage/
 ui/admin/node_modules/
 ui/admin/playwright-report/
 ui/admin/test-results/
+.local/
+sdk/typescript/node_modules/
+sdk/typescript/*.tgz

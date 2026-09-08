@@ -245,9 +245,13 @@ func (s *Service) executeClaimedOperation(
 		if err != nil {
 			return ApplyResult{}, nil, operationRow{}, err
 		}
+		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		if err != nil {
+			return ApplyResult{}, nil, operationRow{}, err
+		}
 		result.Collection = Collection{
 			ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName,
-			Fields: fields, CreatedAt: current.CreatedAt,
+			Fields: fields, Indexes: indexes, CreatedAt: current.CreatedAt,
 		}
 	case changeDelete:
 		current = catalog.Collections[intent.change.deleteName]
@@ -474,8 +478,20 @@ func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedColle
 	if err != nil {
 		return Collection{}, err
 	}
+	indexes, err := updatedIndexMetadata(definition.Name, nil, definition)
+	if err != nil {
+		return Collection{}, err
+	}
 	return Collection{
 		ID: collectionID, Name: definition.Name, TableName: definition.TableName,
-		Fields: fields,
+		Fields: fields, Indexes: indexes,
+		View: resolvedViewSpec(definition.View),
 	}, nil
+}
+
+func resolvedViewSpec(view *PlannedView) *ViewSpec {
+	if view == nil {
+		return nil
+	}
+	return &ViewSpec{SourceCollectionID: view.SourceCollectionID, Source: view.Source, Projection: append([]string(nil), view.Projection...), Filter: cloneViewFilter(view.Filter)}
 }

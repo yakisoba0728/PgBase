@@ -3,9 +3,12 @@ package query
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -20,6 +23,7 @@ func (s *Service) executeReverseExpandNode(
 	tx pgx.Tx,
 	catalog schema.Catalog,
 	job expandLevelJob,
+	principal Principal,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
@@ -52,7 +56,7 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeQuerySteps(1); err != nil {
 		return nil, err
 	}
-	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, discoveryLimit)
+	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, discoveryLimit, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +76,7 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeRows(len(sourceIDs)); err != nil {
 		return nil, err
 	}
-	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, usage)
+	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, principal, usage)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +116,7 @@ func discoverReverseExpand(
 	node expandNode,
 	parentIDs []uuid.UUID,
 	maximumRows int,
+	principal Principal,
 ) ([]reverseExpandPair, error) {
 	if maximumRows < 0 {
 		return nil, expandBudgetError()
@@ -119,9 +124,31 @@ func discoverReverseExpand(
 	if _, err := relation.Bind(catalog, node.target); err != nil {
 		return nil, relationHydrationFailure(err)
 	}
+	if err := recordaccess.AuthorizeSubject(ctx, tx, node.target.AccessCollectionID(), principal, "view"); err != nil {
+		return nil, err
+	}
 	statement, err := compileReverseExpandDiscovery(node, parentIDs, maximumRows+1)
 	if err != nil {
 		return nil, err
+	}
+	if principal.Kind == identity.User || principal.Kind == identity.Anonymous {
+		rules, _, err := recordaccess.LoadRules(ctx, tx, node.target.AccessCollectionID())
+		if err != nil {
+			return nil, err
+		}
+		policyTarget, err := sourcePolicyCollection(catalog, node.target)
+		if err != nil {
+			return nil, err
+		}
+		predicate, args, err := compilePolicyPredicate(rules.View, node.target, policyTarget, "source_records", principal, len(statement.Args)-1)
+		if err != nil {
+			return nil, err
+		}
+		limit := statement.Args[len(statement.Args)-1]
+		statement.Args = append(statement.Args[:len(statement.Args)-1], args...)
+		statement.Args = append(statement.Args, limit)
+		statement.SQL = strings.Replace(statement.SQL, " LIMIT $2", fmt.Sprintf(" LIMIT $%d", len(statement.Args)), 1)
+		statement.SQL = injectBeforeOrder(statement.SQL, " AND ("+predicate+")")
 	}
 	rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 	if err != nil {
@@ -160,6 +187,14 @@ func discoverReverseExpand(
 	}
 	rows.Close()
 	return pairs, nil
+}
+
+func injectBeforeOrder(sql, predicate string) string {
+	index := strings.LastIndex(sql, " ORDER BY ")
+	if index < 0 {
+		return sql + predicate
+	}
+	return sql[:index] + predicate + sql[index:]
 }
 
 func compileReverseExpandDiscovery(node expandNode, parentIDs []uuid.UUID, limit int) (Statement, error) {

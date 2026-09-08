@@ -41,6 +41,17 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 }
 
+func TestOptionsRejectFileSettingsWithoutDriver(t *testing.T) {
+	_, err := (Options{
+		DatabaseURL: "postgres://postgres:postgres@localhost/pgbase",
+		TokenSecret: make([]byte, 32),
+		Files:       FileOptions{MaximumBytes: 1024},
+	}).Normalized()
+	if err == nil || !strings.Contains(err.Error(), "Files.Driver") {
+		t.Fatalf("Normalized error = %v, want Files.Driver", err)
+	}
+}
+
 func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 	validURL := "postgres://postgres:postgres@localhost/pgbase"
 	validSecret := make([]byte, 32)

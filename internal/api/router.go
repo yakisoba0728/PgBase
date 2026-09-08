@@ -13,12 +13,20 @@ import (
 )
 
 type Dependencies struct {
+	ServiceTokens           ServiceTokens
+	RecordRules             RecordRules
+	AuthCollections         AuthCollections
+	Files                   FileService
+	MaximumFileUploadBytes  int64
 	Readiness               Readiness
 	Logger                  *slog.Logger
 	CORSAllowedOrigins      []string
 	AdminAuth               AdminAuth
 	UserAuth                UserAuth
 	RecordAccess            RecordAccess
+	Realtime                Realtime
+	EmailActions            EmailActions
+	AuthFactors             AuthFactors
 	UserRegistrationEnabled bool
 	Schema                  SchemaService
 	Records                 RecordService
@@ -108,6 +116,8 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	if dependencies.UserAuth != nil {
 		users := userEndpoints{dependencies: dependencies}
 		routes = append(routes, users.lifecycleRoutes()...)
+		routes = append(routes, users.emailRoutes()...)
+		routes = append(routes, users.factorRoutes()...)
 		routes = append(routes,
 			route{method: "POST", pattern: "/api/v1/auth/register", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(true)},
 			route{method: "POST", pattern: "/api/v1/auth/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(false)},
@@ -121,6 +131,20 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			route{method: "GET", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
 			route{method: "PUT", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
 		)
+	}
+	routes = append(routes, route{method: "POST", pattern: "/api/v1/collections/batch", access: accessAdminSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumBatchRequestBytes, handler: http.HandlerFunc(records.batch)})
+	if dependencies.UserAuth != nil {
+		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumBatchRequestBytes, handler: http.HandlerFunc(records.batch)})
+	}
+	routes = append(routes, authCollectionRoutes(dependencies)...)
+	routes = append(routes, serviceTokenRoutes(dependencies)...)
+	routes = append(routes, serviceRecordRoutes(dependencies)...)
+	routes = append(routes, realtimeOperationRoutes(dependencies)...)
+	routes = append(routes, ruleRoutes(dependencies)...)
+	routes = append(routes, fileRoutes(dependencies)...)
+	if dependencies.Realtime != nil && dependencies.UserAuth != nil {
+		routes = append(routes, route{method: "GET", pattern: "/api/v1/user/collections/{collection}/events",
+			access: accessUserSession, response: passthrough(), deadline: deadlineDefault, handler: realtimeHandler(dependencies)})
 	}
 	if metricsEnabled {
 		// Prometheus exposition streams and is not a JSON envelope, so it is
@@ -168,9 +192,11 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		// never allocates a buffer for a body it will not produce.
 		handler := applyResponseMode(declared.response, declared.handler)
 		handler = applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, handler)
-		if declared.maximumRequestBytes > 0 {
-			handler = requestBodyLimitMiddleware(declared.maximumRequestBytes, handler)
+		requestLimit := declared.maximumRequestBytes
+		if requestLimit == 0 {
+			requestLimit = maxJSONBodyBytes
 		}
+		handler = requestBodyLimitMiddleware(requestLimit, handler)
 		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, handler))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -180,7 +206,6 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	var handler http.Handler = mux
 	handler = corsMiddleware(dependencies.CORSAllowedOrigins, handler)
 	handler = securityHeadersMiddleware(handler)
-	handler = bodyLimitMiddleware(handler)
 	handler = accessLogMiddleware(logger, handler)
 	handler = requestIDMiddleware(handler)
 	handler = recoveryMiddleware(logger, handler)

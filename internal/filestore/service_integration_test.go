@@ -1,0 +1,200 @@
+//go:build integration
+
+package filestore
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"errors"
+	"io"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/webisnoteasy/PgBase/internal/testutil"
+)
+
+func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	userID, collectionID, recordID := uuid.New(), uuid.New(), uuid.New()
+	eventID := uuid.New()
+	_, err = pool.Exec(ctx, `INSERT INTO pgbase_meta.users(id,email,password_hash,active,created_at,updated_at)
+		VALUES($1,'files@example.test','fixture-hash',true,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO pgbase_meta.collections(id,name,table_name,status,created_at,updated_at)
+		VALUES($1,'files','files','active',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, collectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO pgbase_meta.fields
+		(id,collection_id,name,column_name,field_type,required,is_unique,is_indexed,has_default,default_json,ordinal,created_at)
+		VALUES($1,$2,'attachment','attachment','file',false,false,false,false,NULL,0,CURRENT_TIMESTAMP)`, uuid.New(), collectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO pgbase_meta.record_audit_events
+		(event_id,actor_kind,actor_id,request_id,collection_id,collection_name,record_id,operation,schema_version,schema_digest,previous_version,new_version,previous_etag,new_etag,changed_fields,input_hash,idempotency_key_hash,compatibility,committed_at)
+		VALUES($1,'user',$2,'file-test-request',$3,'files',$4,'create',1,decode(repeat('11',32),'hex'),NULL,1,NULL,'"etag"',ARRAY['attachment'],decode(repeat('22',32),'hex'),decode(repeat('33',32),'hex'),'none',CURRENT_TIMESTAMP)`, eventID, userID, collectionID, recordID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO pgbase_meta.record_revisions(collection_id,record_id,version,validator,last_event_id,updated_at)
+		VALUES($1,$2,1,decode(repeat('44',32),'hex'),$3,CURRENT_TIMESTAMP)`, collectionID, recordID, eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	objects, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize := func(_ context.Context, _ pgx.Tx, principal identity.Subject, collection, record uuid.UUID, field string, operation Operation) error {
+		if principal.ID != userID || collection != collectionID || record != recordID || field != "attachment" || (operation != OperationRead && operation != OperationWrite) {
+			return ErrDenied
+		}
+		return nil
+	}
+	service, err := NewService(pool, objects, authorize, Options{MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := identity.Subject{Kind: identity.User, ID: userID}
+	data := []byte("private attachment")
+	digest := sha256.Sum256(data)
+	file, err := service.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "notes.txt", ContentType: "text/plain", Size: int64(len(data)), SHA256: digest, Body: bytes.NewReader(data)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := service.List(ctx, principal, collectionID, recordID, "attachment")
+	if err != nil || len(listed) != 1 || listed[0].ID != file.ID {
+		t.Fatalf("List = %#v, %v", listed, err)
+	}
+	token, err := service.MintDownloadToken(ctx, principal, file.ID, Original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reader, err := service.Open(ctx, principal, file.ID, Original, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("Open = %q, %v", got, err)
+	}
+	other := identity.Subject{Kind: identity.User, ID: uuid.New()}
+	if _, _, err := service.Open(ctx, other, file.ID, Original, token); !errors.Is(err, ErrDenied) {
+		t.Fatalf("cross-user token Open = %v", err)
+	}
+	if err := service.Delete(ctx, principal, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Open(ctx, principal, file.ID, Original, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Open deleted = %v", err)
+	}
+	worked, err := service.DrainOne(ctx)
+	if err != nil || !worked {
+		t.Fatalf("DrainOne = %t, %v", worked, err)
+	}
+	if _, err := objects.Open(ctx, file.ObjectKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted object Open = %v", err)
+	}
+
+	overflow := bytes.Repeat([]byte("x"), 33)
+	overflowHash := sha256.Sum256(overflow)
+	_, err = service.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "overflow.txt", ContentType: "text/plain", Size: 32, SHA256: overflowHash, Body: bytes.NewReader(overflow)})
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("overflow Upload = %v, want ErrTooLarge", err)
+	}
+	var overflowKey, overflowStatus string
+	if err := pool.QueryRow(ctx, `SELECT object_key,status FROM pgbase_meta.record_files WHERE filename='overflow.txt'`).Scan(&overflowKey, &overflowStatus); err != nil {
+		t.Fatal(err)
+	}
+	if overflowStatus != "deleted" {
+		t.Fatalf("overflow status = %q", overflowStatus)
+	}
+	if _, err := objects.Open(ctx, overflowKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("overflow left object: %v", err)
+	}
+
+	writes := 0
+	rejectPublish := func(_ context.Context, _ pgx.Tx, current identity.Subject, collection, record uuid.UUID, field string, operation Operation) error {
+		if current.ID != userID || collection != collectionID || record != recordID || field != "attachment" {
+			return ErrDenied
+		}
+		if operation == OperationWrite {
+			writes++
+			if writes == 2 {
+				return ErrDenied
+			}
+		}
+		return nil
+	}
+	rejecting, err := NewService(pool, objects, rejectPublish, service.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectedData := []byte("publish rejected")
+	rejectedHash := sha256.Sum256(rejectedData)
+	_, err = rejecting.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "rejected.txt", ContentType: "text/plain", Size: int64(len(rejectedData)), SHA256: rejectedHash, Body: bytes.NewReader(rejectedData)})
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("reauthorization Upload = %v, want ErrDenied", err)
+	}
+	var rejectedKey, rejectedStatus string
+	if err := pool.QueryRow(ctx, `SELECT object_key,status FROM pgbase_meta.record_files WHERE filename='rejected.txt'`).Scan(&rejectedKey, &rejectedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedStatus != "deleted" {
+		t.Fatalf("rejected publish status = %q", rejectedStatus)
+	}
+	if _, err := objects.Open(ctx, rejectedKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rejected publish left object: %v", err)
+	}
+
+	fieldData := []byte("deleted with field")
+	fieldHash := sha256.Sum256(fieldData)
+	fieldFile, err := service.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "field.txt", ContentType: "text/plain", Size: int64(len(fieldData)), SHA256: fieldHash, Body: bytes.NewReader(fieldData)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM pgbase_meta.fields WHERE collection_id=$1 AND name='attachment'`, collectionID); err != nil {
+		t.Fatal(err)
+	}
+	var metadataCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pgbase_meta.record_files WHERE id=$1`, fieldFile.ID).Scan(&metadataCount); err != nil || metadataCount != 0 {
+		t.Fatalf("field deletion metadata count = %d, %v", metadataCount, err)
+	}
+	// Deleting the field also queues prior deleted metadata. Drain every queued
+	// key; one claim has no promise to select fieldFile before those tombstones.
+	for attempt := 0; attempt < 10; attempt++ {
+		worked, err := service.DrainOne(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !worked {
+			break
+		}
+		if attempt == 9 {
+			t.Fatal("file deletion queue did not drain")
+		}
+	}
+	if _, err := objects.Open(ctx, fieldFile.ObjectKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("field deletion left object: %v", err)
+	}
+}

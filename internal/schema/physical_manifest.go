@@ -11,6 +11,7 @@ const (
 	applicationPhysicalNamespace = "app"
 	relationPhysicalNamespace    = "pgbase_relation"
 	physicalTableOrdinary        = "r"
+	physicalTableView            = "v"
 	physicalTablePermanent       = "p"
 	physicalConstraintPrimaryKey = "p"
 	physicalConstraintUnique     = "u"

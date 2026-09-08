@@ -1,0 +1,63 @@
+# Public API additions
+
+The source branch implements the contracts below. Use `Content-Type: application/json` for JSON writes. User routes use `Authorization: Bearer <session-token>`; administrative writes use the administrator session cookie, same-origin validation and `X-PgBase-CSRF`. Service tokens use their own route namespace. User routes never accept an administrator cookie as user identity.
+
+## Authentication
+
+| Method and route | JSON request / result |
+| --- | --- |
+| POST `/api/v1/auth/register` or `/login` | `{email,password}` → `{token,user,expiresAt}` |
+| GET `/api/v1/auth/session` | Current bearer identity; any auth collection |
+| POST `/api/v1/auth/logout` | Revoke current bearer session |
+| POST `/api/v1/auth/change-password` | `{currentPassword,newPassword}`; revokes sessions and pending MFA challenges |
+| POST `/api/v1/auth/request-verification` | Authenticated request, `{}` |
+| POST `/api/v1/auth/confirm-verification` | `{token}` |
+| POST `/api/v1/auth/request-password-reset` | `{email}`; same response for unknown users |
+| POST `/api/v1/auth/confirm-password-reset` | `{token,newPassword}` |
+| POST `/api/v1/auth/request-email-change` | `{currentPassword,newEmail}` with bearer |
+| POST `/api/v1/auth/confirm-email-change` | `{token}` |
+| POST `/api/v1/auth/totp/enroll` | `{currentPassword}` → secret/enrollment URI |
+| POST `/api/v1/auth/totp/confirm` | `{code}` → one-time recovery codes |
+| POST `/api/v1/auth/totp/disable` | `{currentPassword,code}` |
+| POST `/api/v1/auth/mfa/complete` | `{challengeToken,code}` → user session |
+| POST `/api/v1/auth/oauth/start` | `{provider,redirectUri}` → authorization URL and expiry |
+| POST `/api/v1/auth/oauth/link` | `{currentPassword,provider,redirectUri}` with bearer |
+| POST `/api/v1/auth/oauth/complete` | `{provider,state,code}` → user session |
+
+A login requiring MFA returns HTTP 401 with `mfa_required` and challenge fields in `error.details`. The TypeScript SDK exposes `MFAChallengeError`. OAuth uses configured providers and allowlisted redirect URIs; callback completion consumes state, validates PKCE through the token exchange and preserves the auth collection stored at initiation. Matching email alone never links an existing account. Email action links use a URL fragment and an explicit confirmation page at `/auth/action`.
+
+Named auth collections use `/api/v1/auth/{authCollection}/register`, `/login`, `/session`, `/logout`, `/request-password-reset` and `/oauth/start`. Named session/logout/profile routes reject a token from a different collection. The generic session/logout routes operate on the presented bearer identity. GET/PATCH `/api/v1/auth/{authCollection}/profile` returns `{attributes:...}` and PATCH accepts the profile attribute object. The SDK's `realm(name).profile()` and `updateProfile()` unwrap that response.
+
+Admin auth-collection management is GET/POST `/api/admin/auth-collections` and PATCH/DELETE `/api/admin/auth-collections/{id}`. Creation takes `{id,name,registrationEnabled,profileSchema}`. PATCH replaces settings and requires both `registrationEnabled` and `profileSchema`; omission is rejected. Profiles are typed scalar/JSON fields. There are at most 100 auth collections, including `users`; the default cannot be deleted.
+
+Administrator user lifecycle routes are GET `/api/admin/users?after={uuid}&limit=1..100`, PATCH `/api/admin/users/{id}` with `{active}`, and POST `/api/admin/users/{id}/revoke-sessions`. The list result is `{items:[{id,email,verified,active,createdAt,updatedAt}],nextAfter?}`. Deactivation and explicit revocation also invalidate pending MFA challenges; activation does not restore old sessions.
+
+## Records and permissions
+
+User CRUD is `/api/v1/user/collections/{collection}/records[/{id}]`. Anonymous and service-scoped variants use `/api/v1/public/collections/...` and `/api/v1/service/collections/...`. Collection opt-in and typed action rules govern user/anonymous access. Service tokens carry explicit collection/action grants. Target view permission applies to relation IDs, filters, sorting and expansion; cascade writes require each affected target's write permission. Rules apply before pagination. A changed policy invalidates dependent cursors and subscription delivery.
+
+List query parameters are `filter`, `sort`, `expand`, `cursor` and `limit`. API system fields use `created_at`, `updated_at` and `id`; they are not camel-cased sort identifiers. Records and mutation responses carry strong ETag headers. Use `If-Match` for update/delete and a stable `Idempotency-Key` for create retries. The SDK's `getWithETag`, `createWithETag` and `updateWithETag` return `{record,etag}`.
+
+Declarative views are created through the existing schema plan/apply endpoints with a typed `view` specification containing a source collection, projection and optional static filter. View reads use source admission, ownership and action rules even when a rule field is not projected. Views reject create, update, delete and relation-target use.
+
+Batch POST `/api/v1/user/collections/batch` accepts `{operations:[...]}`: tagged create/update/delete entries with `collection`, `input` where applicable, `id`, `ifMatch`, and `idempotencyKey`. The limit is 50 operations and a 1 MiB request. All operations commit or roll back together; results are `{eventId,record?,etag?,version?}`. The corresponding routes are `/api/v1/collections/batch` for administrators, `/api/v1/service/collections/batch` for service tokens and `/api/v1/public/collections/batch` for anonymous access.
+
+Admin GET/PUT `/api/admin/collections/{collection}/rules` uses `{rules:{list,view,create,update,delete}}`. The bounded typed AST supports `allow`, `deny`, `owner`, `authenticated`, boolean groups, typed comparisons and selected auth references. It accepts no SQL or scripts. POST `/rules/preview` accepts `{rule,action,userId?,recordIds}` for 1–50 existing IDs and returns `{items:[{recordId,allowed}]}` without saving the rule. Omitted user ID previews anonymous access. Create validation is exercised through actual record mutation tests, not this existing-row preview.
+
+## Files and events
+
+File fields are virtual metadata fields. GET/POST `/api/v1/user/collections/{collection}/records/{id}/files/{field}` lists/uploads. Upload has exactly one multipart part named `file`, plus `X-PgBase-File-Size` and `X-PgBase-File-SHA256`. Files must be attached to an existing record. POST `/api/v1/user/files/{fileId}/token` takes `{variant:"original"|"thumbnail"}`. GET `/api/v1/user/files/{fileId}?token=...&variant=...` requires both the bound bearer and the download token; possession of the URL alone grants nothing. DELETE uses the same file path. Admin equivalents start `/api/admin`.
+
+SSE subscription is GET `/api/v1/user/collections/{collection}/events`. See [realtime](realtime.md) for replay IDs, retention, failure handling and limits.
+
+Admin service-token issuance takes `{name,ttlSeconds,scopes:[{collectionId,action}]}` at POST `/api/admin/service-tokens`. Actions are `read`, `create`, `update`, `delete`; the returned secret is shown only on issuance. GET lists metadata. POST `/api/admin/service-tokens/{id}/revoke` revokes it. Store tokens only in trusted server environments.
+
+## Compatibility and errors
+
+These source additions are pre-release; the locally packable SDK is `0.1.0-local` and is private. The existing `v0.1.0` release is unchanged. Consumers should pin source/package versions together until a compatible release is published. Additive fields may appear; clients should ignore unknown response fields. Removing a supported public route or changing its semantics requires an explicit documented release change, compatibility tests and a migration path; no deprecation is announced here.
+
+Errors use `{error:{code,message,details?},requestId?...}` according to the common HTTP envelope. Validation generally returns 400, invalid credentials 401, denied collection admission 403, hidden/missing records 404, mutation conflicts 409/412, oversized bodies 413, rate/connection limits 429 and unavailable dependencies 503. Inspect the error code rather than matching message prose. Complete path/admission coverage is checked against [the generated OpenAPI route contract](openapi.routes.json); that artifact intentionally does not replace dynamic record schemas.
+
+## Local validation boundary
+
+These additions have been exercised with source builds, disposable PostgreSQL instances, local HTTP clients, a local SMTP sink and local OAuth fixtures. The TypeScript SDK is buildable and packable locally; it is not published as a supported npm release. No real external OAuth account or external mail delivery was used. Cloud deployment behavior, production SLOs, multi-hour soak results and public package or image publication remain unverified and are not claimed by this document.

@@ -68,6 +68,30 @@ func TestGuardedApplyCommitsAndReplaysOneExactLedgerReceipt(t *testing.T) {
 	}
 }
 
+func TestGuardedApplyAddsCompoundIndexToExistingCollection(t *testing.T) {
+	_, service, administratorID := newSchemaServiceTest(t)
+	ctx := context.Background()
+	fields := []FieldInput{{Name: "category", Type: TypeText}, {Name: "title", Type: TypeText}}
+	created := applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "guarded_compound", Fields: fields}), administratorID)
+	indexes := []IndexInput{{Name: "by_category_title", Fields: []string{"category", "title"}}}
+	change := NewUpdateChange(UpdateCollectionInput{Name: created.Collection.Name, Fields: fields, Indexes: &indexes})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := GuardedApply(change, plan, administratorID, uuid.New(), "guarded-compound-key-0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Apply(ctx, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Collection.Indexes) != 1 || result.Collection.Indexes[0].Name != "by_category_title" {
+		t.Fatalf("indexes = %#v", result.Collection.Indexes)
+	}
+}
+
 func TestGuardedApplyRejectsTheSameIdentityForADifferentRequest(t *testing.T) {
 	pool, service, administratorID := newSchemaServiceTest(t)
 	ctx := context.Background()

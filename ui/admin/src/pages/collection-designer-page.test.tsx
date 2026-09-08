@@ -47,6 +47,7 @@ describe("collection designer page", () => {
     expect(callsTo(harness.script, "plan")[0].detail.change).toEqual({
       operation: "create",
       name: "nodes",
+      indexes: [],
       fields: [{
         name: "parent", type: "relation", required: false, unique: false, indexed: true,
         relation: { targetCollection: "nodes", cardinality: "single", minSelect: 0, maxSelect: 1, onDelete: "set_null" },
@@ -208,9 +209,7 @@ describe("collection designer page", () => {
     await waitFor(() => expect(recovery).toHaveTextContent(/committed\./));
     // Without the alert the page reports a commit next to a draft that never
     // went with it, which reads as if this draft were saved too.
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The change was applied. The edits you made after sending it are not saved yet",
-    );
+    expect(await screen.findByText(/The change was applied\. The edits you made after sending it are not saved yet/)).toHaveAttribute("role", "alert");
     expect(screen.getByLabelText("Field 1 name")).toHaveValue("new_unsaved_title");
   });
 });
