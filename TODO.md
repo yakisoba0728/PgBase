@@ -70,6 +70,7 @@
 - [x] 인증 설정의 빈 provider/template 목록을 배열로 반환.
 - [x] DDL 없는 필드 rename의 SQL 목록을 배열로 반환하고 브라우저 적용까지 재검증.
 - [x] 백업 중 exclusive gate 연결 손실 시 작업 중단 검증.
+- [x] 백업 URL 연결 대상 override 거절 및 애플리케이션 pool 옵션을 포함한 실제 DB 백업·복원 회귀 검증.
 
 ### P1–P5 결과 기록
 - 2026-09-09: Go unit/race, 전체 PostgreSQL 18 통합/race·skip 정책·구조 예산, lint 0 issues, vet, UI 450/450, 실제 인증 브라우저 8/8 통과. SDK 패키징·HTTP conformance와 6개 OS/아키텍처 빌드 통과.

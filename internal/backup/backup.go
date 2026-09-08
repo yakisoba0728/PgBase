@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const FormatVersion = 1
@@ -202,8 +203,18 @@ func toolMajor(ctx context.Context, name string) (int, error) {
 	return strconv.Atoi(string(match[1]))
 }
 
+// Parse through pgxpool so application pool options are not sent to PostgreSQL
+// as session settings by these short-lived inspection connections.
+func connectDatabase(ctx context.Context, databaseURL string) (*pgx.Conn, error) {
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.ConnectConfig(ctx, config.ConnConfig)
+}
+
 func serverState(ctx context.Context, databaseURL string) (major int, idle bool, err error) {
-	conn, err := pgx.Connect(ctx, databaseURL)
+	conn, err := connectDatabase(ctx, databaseURL)
 	if err != nil {
 		return 0, false, err
 	}
@@ -214,7 +225,7 @@ func serverState(ctx context.Context, databaseURL string) (major int, idle bool,
 }
 
 func databaseEmpty(ctx context.Context, databaseURL string) (empty bool, resultErr error) {
-	conn, err := pgx.Connect(ctx, databaseURL)
+	conn, err := connectDatabase(ctx, databaseURL)
 	if err != nil {
 		return false, err
 	}

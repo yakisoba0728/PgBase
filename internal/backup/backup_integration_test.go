@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ import (
 
 func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	ctx := context.Background()
-	sourceURL := testutil.NewDatabase(t)
+	sourceURL := withPoolOption(t, testutil.NewDatabase(t))
 	pool, err := database.Open(ctx, sourceURL, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -76,12 +77,12 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	if _, statErr := os.Stat(failedFiles); !os.IsNotExist(statErr) {
 		t.Fatalf("failed restore retained installed files: %v", statErr)
 	}
-	targetURL := testutil.NewDatabase(t)
+	targetURL := withPoolOption(t, testutil.NewDatabase(t))
 	targetFiles := filepath.Join(t.TempDir(), "restored-files")
 	if err = Restore(ctx, backupDirectory, targetURL, targetFiles); err != nil {
 		t.Fatal(err)
 	}
-	conn, err := pgx.Connect(ctx, targetURL)
+	conn, err := connectDatabase(ctx, targetURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,4 +101,16 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	if _, err = Verify(backupDirectory); err != nil {
 		t.Fatalf("source backup after restore = %v", err)
 	}
+}
+
+func withPoolOption(t *testing.T, raw string) string {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("pool_max_conns", "5")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
