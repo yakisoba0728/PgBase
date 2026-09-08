@@ -124,6 +124,13 @@ func TestPrivateReleaseAttestationRejectsWrongTrustAndBinding(t *testing.T) {
 	})
 }
 
+func TestPrivateReleaseAttestationCommandReturnsOnlyStdout(t *testing.T) {
+	output := runCommand(t, nil, "sh", "-c", `printf 'container-id\n'; printf 'pull progress\n' >&2`)
+	if output != "container-id" {
+		t.Fatalf("runCommand output = %q, want stdout without stderr diagnostics", output)
+	}
+}
+
 func assertCommandFails(t *testing.T, environment []string, name string, arguments ...string) {
 	t.Helper()
 	if output, err := command(environment, name, arguments...).CombinedOutput(); err == nil {
@@ -133,11 +140,16 @@ func assertCommandFails(t *testing.T, environment []string, name string, argumen
 
 func runCommand(t *testing.T, environment []string, name string, arguments ...string) string {
 	t.Helper()
-	output, err := command(environment, name, arguments...).CombinedOutput()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := command(environment, name, arguments...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		t.Fatalf("%s failed: %v\n%s", name, err, output)
+		t.Fatalf("%s failed: %v\nstdout:\n%s\nstderr:\n%s", name, err, stdout.String(), stderr.String())
 	}
-	return strings.TrimSpace(string(output))
+	return strings.TrimSpace(stdout.String())
 }
 
 func command(environment []string, name string, arguments ...string) *exec.Cmd {
