@@ -17,6 +17,7 @@ const (
 	errorInvalidCredentials
 	errorConflict
 	errorRateLimited
+	errorNotFound
 )
 
 type authError struct{ kind errorKind }
@@ -31,6 +32,8 @@ func (e *authError) Error() string {
 		return "user already exists"
 	case errorRateLimited:
 		return "user authentication rate limit exceeded"
+	case errorNotFound:
+		return "user not found"
 	default:
 		return "user authentication failed"
 	}
@@ -46,6 +49,7 @@ var (
 	ErrInvalidCredentials = &authError{kind: errorInvalidCredentials}
 	ErrConflict           = &authError{kind: errorConflict}
 	ErrRateLimited        = &authError{kind: errorRateLimited}
+	ErrNotFound           = &authError{kind: errorNotFound}
 )
 
 type Passwords interface {
@@ -68,6 +72,17 @@ type Session struct {
 type Principal struct {
 	User      User
 	ExpiresAt time.Time
+}
+
+type ManagedUser struct {
+	User
+	Active    bool
+	UpdatedAt time.Time
+}
+
+type UserPage struct {
+	Items     []ManagedUser
+	NextAfter uuid.UUID
 }
 
 type Service struct {

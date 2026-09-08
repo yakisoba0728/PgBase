@@ -25,6 +25,8 @@ import {
   type SchemaHealth,
   type SetupInput,
   type SystemStatus,
+  type ManagedUser,
+  type UserPage,
 } from "./ports";
 
 interface Wire {
@@ -231,6 +233,8 @@ class HTTPBackend implements AdminBackend {
       if (page.items.length > maximumHistoryPageSize) throw new SchemaError("failed", "invalid_response_body");
       return { items: page.items.map(receipt), ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }) };
     },
+    userAccess: async (collection: string, signal?: AbortSignal) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/user-access`, signal })).data as { collection: string; enabled: boolean },
+    setUserAccess: async (collection: string, enabled: boolean) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/user-access`, method: "PUT", body: { enabled }, csrf: true })).data as { collection: string; enabled: boolean },
   };
 
   readonly records = {
@@ -289,6 +293,18 @@ class HTTPBackend implements AdminBackend {
         throw this.#systemFailure(caught);
       }
     },
+  };
+
+  readonly users = {
+    list: async (after?: string, signal?: AbortSignal): Promise<UserPage> => {
+      const query = new URLSearchParams({ limit: "50" });
+      if (after) query.set("after", after);
+      return (await this.#send({ path: `/api/admin/users?${query}`, signal })).data as UserPage;
+    },
+    setActive: async (id: string, active: boolean): Promise<ManagedUser> =>
+      (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}`, method: "PATCH", body: { active }, csrf: true })).data as ManagedUser,
+    revokeSessions: async (id: string): Promise<number> =>
+      Number(((await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, method: "POST", csrf: true })).data as { revokedSessions: number }).revokedSessions),
   };
 
   #adopt(reply: Reply): AuthenticatedSession {

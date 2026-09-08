@@ -242,6 +242,8 @@ export interface SchemaPort {
   // History is read one bounded page at a time. There is deliberately no limit
   // to pass: a caller that cannot ask for a larger page cannot be handed one.
   operations(cursor?: string, signal?: AbortSignal): Promise<OperationHistory>;
+	userAccess(collection: string, signal?: AbortSignal): Promise<{ collection: string; enabled: boolean }>;
+	setUserAccess(collection: string, enabled: boolean): Promise<{ collection: string; enabled: boolean }>;
 }
 
 export interface RecordPort {
@@ -257,9 +259,18 @@ export interface SystemPort {
   health(signal?: AbortSignal): Promise<SchemaHealth>;
 }
 
+export interface ManagedUser { id: string; email: string; active: boolean; createdAt: string; updatedAt: string }
+export interface UserPage { items: ManagedUser[]; nextAfter?: string }
+export interface UsersPort {
+  list(after?: string, signal?: AbortSignal): Promise<UserPage>;
+  setActive(id: string, active: boolean): Promise<ManagedUser>;
+  revokeSessions(id: string): Promise<number>;
+}
+
 export interface AdminBackend {
   session: SessionPort;
   schema: SchemaPort;
   records: RecordPort;
   system: SystemPort;
+  users: UsersPort;
 }

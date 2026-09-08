@@ -49,4 +49,24 @@ describe("collections page", () => {
 
     expect(await screen.findByText("No collections yet.")).toBeVisible();
   });
+
+  it("blocks user access for a scalar collection targeted by an incoming relation", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    const targets = collection("targets", "targets-id", [textField("name", 0)]);
+    const sources = collection("sources", "sources-id", [{ ...owner, relation: { ...owner.relation!, targetCollectionId: "targets-id" } }]);
+    harness.script.catalog.push({ value: { version: 4, collections: [targets, sources] } });
+    renderAdmin(harness);
+    expect((await screen.findAllByText("Public user records are blocked while this collection has incoming or outgoing relations.")).length).toBeGreaterThan(1);
+  });
+
+  it("retries an initial user access policy read", async () => {
+    const harness = scriptedAdmin("/admin/collections");
+    harness.script.catalog.push({ value: { version: 4, collections: [collection("notes", "notes-id", [textField("title", 0)])] } });
+    harness.script.userAccess.push({ fault: { kind: "unreachable" } }, { value: { collection: "notes", enabled: false } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load user access.");
+    await user.click(screen.getByRole("button", { name: "Retry user access" }));
+    expect(await screen.findByRole("button", { name: "Enable user access" })).toBeEnabled();
+  });
 });

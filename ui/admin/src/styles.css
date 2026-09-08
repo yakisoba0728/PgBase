@@ -66,3 +66,9 @@ th, td { border-bottom: 1px solid #e4e9f1; padding: .75rem; text-align: left; ve
 .system-status dt { font-weight: 600; }
 .system-status dd { margin: 0; }
 @media (max-width: 40rem) { .shell { margin: 1rem auto; width: min(100% - 2rem, 60rem); } .shell header { align-items: flex-start; gap: 1rem; } .system-status div { grid-template-columns: 1fr; gap: .25rem; } .operation-list li, .finding-list li { grid-template-columns: 1fr; } }
+
+.users-table td { white-space: normal; }
+.users-table .user-identity { display: block; max-width: 17rem; overflow-wrap: anywhere; }
+.users-table small { color: #53627a; }
+.users-table time { display: block; white-space: nowrap; font-size: .85rem; margin-bottom: .4rem; }
+.user-actions { display: flex; flex-wrap: wrap; gap: .5rem; min-width: 9rem; }

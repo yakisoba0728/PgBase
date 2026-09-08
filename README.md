@@ -17,6 +17,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [Public user management and password changes](docs/user-management.md)
 - [Production Kernel final handoff and current status](docs/production-kernel-handoff.md)
 - [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)
 - [Codebase audit findings and remediation evidence](docs/codebase-audit-2026-08-28.md)

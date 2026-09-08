@@ -7,7 +7,8 @@ export type AdminRoute =
   | { kind: "records"; collection: string }
   | { kind: "record"; collection: string; id?: string }
   | { kind: "operations" }
-  | { kind: "system" };
+  | { kind: "system" }
+  | { kind: "users" };
 
 type SessionScreen = "setup" | "login" | "shell";
 
@@ -42,7 +43,8 @@ function segment(value: string): string | null {
 export function parseAdminRoute(path: string): AdminRoute {
   if (path === `${collectionsPath}/new`) return { kind: "collection-create" };
   if (path === operationsPath) return { kind: "operations" };
-  if (path === "/admin/system") return { kind: "system" };
+	if (path === "/admin/system") return { kind: "system" };
+	if (path === "/admin/users") return { kind: "users" };
   const edit = editPattern.exec(path);
   if (edit) {
     const collection = segment(edit[1]);
@@ -65,7 +67,8 @@ export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "collections") return collectionsPath;
   if (route.kind === "collection-create") return `${collectionsPath}/new`;
   if (route.kind === "operations") return operationsPath;
-  if (route.kind === "system") return "/admin/system";
+	if (route.kind === "system") return "/admin/system";
+	if (route.kind === "users") return "/admin/users";
   const base = `${collectionsPath}/${encodeURIComponent(route.collection)}`;
   if (route.kind === "collection-edit") return `${base}/edit`;
   if (route.kind === "records") return `${base}/records`;
