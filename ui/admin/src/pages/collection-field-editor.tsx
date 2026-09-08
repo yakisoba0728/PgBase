@@ -1,3 +1,4 @@
+import { FieldOptionsEditor } from "./field-options-editor";
 import { fieldTypes, relationCardinalities, relationDeleteActions, type FieldType, type RelationCardinality, type RelationDeleteAction } from "../backend/ports";
 import type { DraftEdit, DraftField, RelationTargetOption } from "../designer/collection-designer";
 
@@ -39,6 +40,8 @@ export function CollectionFieldEditor({
       {fieldTypes.map((type) => <option key={type}>{type}</option>)}
     </select>
 
+    {field.id && <p>Renaming keeps this field’s identity and stored data.</p>}
+    <FieldOptionsEditor field={field} index={index} onEdit={onEdit} />
     {isRelation && relation !== undefined && <fieldset aria-label={`Field ${fieldNumber} relation settings`}>
       <legend>Relation</legend>
       <label htmlFor={`field-${index}-relation-target`}>Field {fieldNumber} relation target</label>
@@ -92,6 +95,7 @@ export function CollectionFieldEditor({
     <label htmlFor={`field-${index}-default`}>Field {fieldNumber} default</label>
     {field.type === "boolean" ? <select disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} value={field.defaultText}><option value="">Choose…</option><option value="true">true</option><option value="false">false</option></select> :
       <input disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} placeholder={field.type === "timestamptz" ? "now or RFC 3339 timestamp" : field.type === "jsonb" ? "Valid JSON" : undefined} value={field.defaultText} />}
+    <p>Required rejects SQL NULL. False, zero and empty text remain valid unless constrained below. JSON null is a JSON value; relation minimums control required selections.</p>
     <div className="checks">
       <label><input aria-label={`Field ${fieldNumber} required`} checked={field.required} disabled={setNull} onChange={(event) => onEdit({ set: "required", value: event.target.checked })} type="checkbox" /> required</label>
       <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple || isFile} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>

@@ -1,9 +1,82 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-m2-m6`. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/local-product-completion`. 직전 M2–M6 구현은 PR #28 / main `35af64c`에 병합 완료. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
-## 현재 실행 보드
+## P1–P5 — PocketBase 소스 감사 후 로컬 제품 완성 (구현·로컬 검증 완료)
+
+승인 범위: 아래 다섯 영역의 구현과 로컬 검증. JSVM·Dart·임의 SQL 콘솔과 외부 배포는 이번 범위에서 제외한다. 기준 소스 감사는 `docs/pocketbase-source-audit-2026-09-09/assessment.md`를 따른다.
+
+| 영역 | 담당 | 현재 상태 |
+| --- | --- | --- |
+| P1 필드·스키마 계약 | Sol / schema_fields + Root UI/SDK | DB·브라우저 검증 완료 |
+| P2 레코드 관리 생산성 | Sol / record_productivity | 전체 로컬 회귀 통과 |
+| P3 인증 관리 | Sol / auth_administration + Sol 교차 검토 | 전체 로컬 회귀 통과 |
+| P4 운영 콘솔 | Root + Sol / auth_administration | 구현·복원·취소·연결 손실 회귀 통과 |
+| P5 컬렉션 API 예제·SDK | Root | 구현·SDK 타입/재시도 테스트 통과 |
+
+### P1 필드·스키마
+- [x] 필드 ID를 이용한 이름 변경과 기존 데이터 보존.
+- [x] 인덱스·뷰·규칙의 필드 참조를 일관되게 갱신하거나 안전하게 거절.
+- [x] Required = SQL NOT NULL 계약을 UI·문서에 명시.
+- [x] 텍스트 길이·패턴, email/URL·도메인, select 값·수량 검증.
+- [x] metadata·DDL·plan checksum·dry-run·apply·실제 레코드 입력 검증 연결.
+- [x] 기존 데이터와 충돌하는 제약 강화의 원자적 거절.
+- [x] 관리자 스키마 편집 UI와 TypeScript SDK 타입 연결.
+- [x] PostgreSQL 데이터 보존·rollback·검증 통합 테스트 및 UI 테스트.
+
+### P2 레코드 관리
+- [x] 현재 목록에서 다중 선택 및 ETag 기반 일괄 삭제·부분 실패 표시.
+- [x] 현재 필터·정렬의 페이지네이션 JSON 내보내기와 상한 표시.
+- [x] 시스템·파일 필드를 제외한 새 ID 레코드 복제.
+- [x] 컬렉션·관리자 단위 열 표시 설정 유지.
+- [x] 비밀 입력을 제외한 로컬 초안 복구와 저장·로그아웃 정리.
+- [x] 관계 선택기에서 연결 레코드 생성·수정.
+- [x] 취소·오류·응답 역전·모바일·접근성 회귀 검증.
+
+### P3 인증 관리
+- [x] realm OAuth 설정 저장·실제 런타임 적용 및 비밀 값 비반환.
+- [x] 가입·암호·MFA 정책 저장과 런타임 적용.
+- [x] 제한된 인증 메일 템플릿 편집·검증·실제 메일 적용.
+- [x] 관리자 SMTP 테스트 발송 및 사용자 인증·복구 메일 발송.
+- [x] 관리 UI·same-origin API·앱 의존성 연결.
+- [x] PostgreSQL·로컬 OAuth/SMTP·UI 통합 검증.
+
+### P4 운영 콘솔
+- [x] 관리자가 최근 요청 로그를 제한된 페이지로 조회·필터링.
+- [x] 자격 증명·요청 본문·쿼리값을 로그에 저장하지 않는 계약 검증.
+- [x] 등록된 작업 목록·실행 상태·간격·활성 상태 조회/변경.
+- [x] 수동 실행 요청과 기존 lease/fencing 경계 보존.
+- [x] 로컬 DB+파일 백업과 새로운 대상에 복원하는 실행 가능한 흐름.
+- [x] 백업·복원 전제와 결과를 관리 UI·문서에서 확인 가능.
+- [x] 운영 API 권한·작업 동시성·복원 무결성 검증.
+
+### P5 API 예제·SDK 및 전체 완료
+- [x] 컬렉션 필드·접근 방식에 맞춘 CRUD·필터·정렬·페이지 예제.
+- [x] ETag·인증·관계·파일의 실제 API 계약 설명.
+- [x] SDK에서 새 필드 옵션·ID 및 필요한 관리 API 지원.
+- [x] SDK 예제 타입 검사·테스트·로컬 패키징.
+- [x] 전체 Go unit/integration·UI·브라우저·빌드 검증.
+- [x] OpenAPI·migration manifest·측정 기반 구조 예산과 문서 갱신.
+- [x] 리뷰 문제 재현·수정·재검증.
+- [x] PR 준비: 구현·검증·문서·로컬 실행 상태 확인.
+- [x] [PR #29](https://github.com/yakisoba0728/PgBase/pull/29) 생성. 원격 CI·병합 결과는 해당 PR에서 확인.
+
+### P1–P5 검증 중 발견한 회귀 수정
+- [x] 필드 수정 시 file metadata 삭제를 유발하던 전체 field 재생성 제거; stable ID upsert로 보존.
+- [x] 기존 v21 DB의 새 필드 옵션 열 부재를 migration preflight에서 처리.
+- [x] PostgreSQL 18의 auth collection RESTRICT 오류를 409 충돌로 매핑.
+- [x] 이메일 변경 링크의 action 값과 저장된 메일 템플릿 purpose 분리.
+- [x] 인증 설정의 빈 provider/template 목록을 배열로 반환.
+- [x] DDL 없는 필드 rename의 SQL 목록을 배열로 반환하고 브라우저 적용까지 재검증.
+- [x] 백업 중 exclusive gate 연결 손실 시 작업 중단 검증.
+- [x] 백업 URL 연결 대상 override 거절 및 애플리케이션 pool 옵션을 포함한 실제 DB 백업·복원 회귀 검증.
+
+### P1–P5 결과 기록
+- 2026-09-09: Go unit/race, 전체 PostgreSQL 18 통합/race·skip 정책·구조 예산, lint 0 issues, vet, UI 450/450, 실제 인증 브라우저 8/8 통과. SDK 패키징·HTTP conformance와 6개 OS/아키텍처 빌드 통과.
+- 2026-09-09: 기존 로컬 DB·파일 백업 후 v21→v23 오프라인 업그레이드. `http://127.0.0.1:8090` readiness 정상, doctor `ok: true`, migrations current=latest=23.
+
+## 이전 M2–M6 실행 보드
 
 | 작업 | 담당 | 상태 | 완료 기준 |
 | --- | --- | --- | --- |
@@ -385,3 +458,44 @@
 - 2026-09-09: PR #28 생성, 최신 HEAD에 Backend/Frontend/Security CI 실행. 로컬 기능과 검증 항목은 완료했으며 외부 인프라·공개 릴리스 항목만 대기로 유지한다. 병합 결과는 PR 타임라인에서 확인한다.
 
 - 2026-09-09: 첫 CI의 gofmt 검사에서 View 파일 포맷 누락 발견·수정. 형식 변경 3줄을 구조 측정에 반영하고 최신 HEAD 검증 재실행.
+
+## PocketBase 전체 소스 대조 감사 (2026-09-09)
+
+- [x] 공식 전체 Git 저장소 다운로드, v0.40.3/commit 고정.
+- [x] 추적 파일 923개 전수 inventory와 체크섬·담당 작성.
+- [x] GPT 5.6 Sol API/core 병렬 독해 시작.
+- [x] API/forms/mails 전체 소스·테스트 90개 독해와 PgBase 대조.
+- [x] core/migrations 전체 소스·테스트 독해와 PgBase 대조.
+- [x] core/field* 32개 구현·테스트 전체 본문 판독과 필드 계약 비교.
+- [x] 관리자 UI 전체 handwritten source 독해와 화면별 대조.
+- [x] UI handwritten CSS 35개 전체 판독 및 icon vendor 연계 확인.
+- [x] Upstream cron 실패·relation picker 로딩 상태를 원본 함수+stub로 좁게 재현.
+- [x] tools 전체 소스·테스트 독해와 공통 동작 대조.
+- [x] archive/cron/dbutils 16개 전체 판독 및 PgBase 계약 비교.
+- [x] plugins/CLI/build/release/test fixtures 및 생성물 검토 (82 본문 / 22 artifact / 3 역사 참고 문서).
+- [x] 파일별 ledger 누락·중복·정확한 읽기 범위 교차 확인.
+- [x] 기존 65–70% 추정 재평가, 실제 공백·우선순위·완료 기준 보고.
+
+진행 기록: [전체 소스 감사](docs/pocketbase-source-audit-2026-09-09/README.md). 본문 734개·생성물/자산 186개·역사 참고 3개를 구분해 검토 완료. 미판독 소스 0개이며, inventory 등록만으로 본문 판독 처리하지 않았다.
+
+
+### 소스 감사에서 도출한 후속 구현 후보 — 미착수
+
+현재 소스 감사의 완료 표시와 아래 제품 구현 완료를 구분한다. 계약 차이와 상세 완료 기준은 [통합 평가](docs/pocketbase-source-audit-2026-09-09/assessment.md)에 기록한다.
+
+- [ ] PB-A01: Required·빈 값·숫자 정밀도·ID·relation 중복에 대한 PgBase 호환 정책과 wire 예제 확정.
+- [ ] PB-A02: 필드 ID 기반 데이터 보존 rename 계획/API/UI 및 관계·view·index 보존 검증.
+- [ ] PB-A03: text 길이/pattern, email/URL 형식·도메인, select 선택 수 검증을 스키마/API/UI/SDK에 연결.
+- [ ] PB-A04: editor·geoPoint·사용자 autodate 지원 범위와 전용 입력/조회 UI 결정 및 구현.
+- [ ] PB-A05: Hidden/Presentable/Help 등 필드 메타데이터의 API 응답·relation 표시 계약 구현.
+- [ ] PB-A06: 레코드 bulk 선택·삭제·export·duplicate와 부분 실패/동시 갱신 표시.
+- [ ] PB-A07: relation picker의 즉석 생성·수정 및 column preference·draft 복구.
+- [ ] PB-A08: auth realm별 OAuth provider/정책/메일 템플릿 설정과 로컬 inbox 시험.
+- [ ] PB-A09: 이메일 OTP·impersonation 필요 여부 및 세션/토큰 무효화 계약 확정 후 구현.
+- [ ] PB-A10: 파일 필드별 MIME·크기·개수·Required 설정과 기존 첨부 처리 정책.
+- [ ] PB-A11: 여러 썸네일 crop/fit·크기 설정 및 권한·캐시·저장 비용 검증.
+- [ ] PB-A12: 관리자 로그 검색/통계와 cron 목록·실행 상태·수동 실행 API/UI.
+- [ ] PB-A13: 로컬 PostgreSQL+파일 백업 작업 추적·다운로드·복원 UI와 일관성 검증.
+- [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI.
+- [ ] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증.
+- [ ] PB-A16: custom routes·hook 확대·migration authoring·JSVM/Dart의 제품 범위 결정; 구현 전 재시도/트랜잭션 계약 명시.

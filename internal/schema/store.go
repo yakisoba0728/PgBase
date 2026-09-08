@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
@@ -120,8 +121,16 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		fieldIndex     int
 	}
 	fieldLocations := make(map[uuid.UUID]fieldLocation)
+	var hasFieldOptions bool
+	if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='fields' and column_name='options_json')`).Scan(&hasFieldOptions); err != nil {
+		return Catalog{}, fmt.Errorf("inspect field options: %w", err)
+	}
+	optionsExpression := "'{}'::jsonb"
+	if hasFieldOptions {
+		optionsExpression = "options_json"
+	}
 	fieldRows, err := s.db.Query(ctx, `select id, collection_id, name, column_name, field_type,
-		required, is_unique, is_indexed, has_default, default_json, ordinal
+		required, is_unique, is_indexed, has_default, default_json, ordinal, `+optionsExpression+`
 		from pgbase_meta.fields order by collection_id, ordinal`)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read collection fields: %w", err)
@@ -131,15 +140,20 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		var collectionID uuid.UUID
 		var hasDefault bool
 		var defaultJSON []byte
+		var optionsJSON []byte
 		if err := fieldRows.Scan(
 			&field.ID, &collectionID, &field.Name, &field.ColumnName, &field.Type,
-			&field.Required, &field.Unique, &field.Indexed, &hasDefault, &defaultJSON, &field.Ordinal,
+			&field.Required, &field.Unique, &field.Indexed, &hasDefault, &defaultJSON, &field.Ordinal, &optionsJSON,
 		); err != nil {
 			fieldRows.Close()
 			return Catalog{}, fmt.Errorf("scan collection field: %w", err)
 		}
 		if hasDefault {
 			field.Default = append(json.RawMessage(nil), defaultJSON...)
+		}
+		if err := json.Unmarshal(optionsJSON, &field.Options); err != nil {
+			fieldRows.Close()
+			return Catalog{}, errCatalogIntegrity
 		}
 		name, ok := collectionNames[collectionID]
 		if !ok {
@@ -312,15 +326,69 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 		collection.ID, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
 	}
-	if len(collection.Indexes) > 0 || len(definition.Indexes) > 0 {
+	var hasCompoundIndexes bool
+	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.compound_indexes') is not null`).Scan(&hasCompoundIndexes); err != nil {
+		return err
+	}
+	if hasCompoundIndexes {
 		if _, err := s.db.Exec(ctx, `delete from pgbase_meta.compound_indexes where collection_id = $1`, collection.ID); err != nil {
 			return fmt.Errorf("clear compound index metadata: %w", err)
 		}
 	}
-	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.fields where collection_id = $1`, collection.ID); err != nil {
-		return fmt.Errorf("clear field metadata: %w", err)
+	if err := s.renameFieldReferences(ctx, collection); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.collection_indexes where collection_id=$1`, collection.ID); err != nil {
+		return fmt.Errorf("clear field indexes: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.field_relations where source_collection_id=$1`, collection.ID); err != nil {
+		return fmt.Errorf("clear field relations: %w", err)
+	}
+	retained := make([]uuid.UUID, len(collection.Fields))
+	for i, field := range collection.Fields {
+		retained[i] = field.ID
+	}
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.fields where collection_id=$1 and not(id=any($2::uuid[]))`, collection.ID, retained); err != nil {
+		return fmt.Errorf("delete removed field metadata: %w", err)
+	}
+	if len(retained) > 0 {
+		if _, err := s.db.Exec(ctx, `update pgbase_meta.fields set ordinal=ordinal+2000 where collection_id=$1 and id=any($2::uuid[])`, collection.ID, retained); err != nil {
+			return fmt.Errorf("stage field ordinals: %w", err)
+		}
 	}
 	return s.insertFieldMetadata(ctx, collection, definition, updatedAt)
+}
+
+func (s *Store) renameFieldReferences(ctx context.Context, collection Collection) error {
+	for _, field := range collection.Fields {
+		var oldName string
+		err := s.db.QueryRow(ctx, `select name from pgbase_meta.fields where id=$1 and collection_id=$2`, field.ID, collection.ID).Scan(&oldName)
+		if errors.Is(err, pgx.ErrNoRows) || oldName == field.Name {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read prior field name: %w", err)
+		}
+		if _, err = s.db.Exec(ctx, `update pgbase_meta.collection_views set projection=array(select case when value=$2 then $3 else value end from unnest(projection) value), filter_json=case when filter_json is null then null else pgbase_meta.rename_field_references(filter_json,$2,$3) end where source_collection_id=$1`, collection.ID, oldName, field.Name); err != nil {
+			return fmt.Errorf("rename view references: %w", err)
+		}
+		if _, err = s.db.Exec(ctx, `update pgbase_meta.fields set name=$3 where name=$2 and collection_id in(select collection_id from pgbase_meta.collection_views where source_collection_id=$1)`, collection.ID, oldName, field.Name); err != nil {
+			return fmt.Errorf("rename view fields: %w", err)
+		}
+		if _, err = s.db.Exec(ctx, `update pgbase_meta.collection_rules set rules=pgbase_meta.rename_field_references(rules,$2,$3),revision=revision+1,updated_at=clock_timestamp() where collection_id=$1`, collection.ID, oldName, field.Name); err != nil {
+			return fmt.Errorf("rename rule references: %w", err)
+		}
+		var hasFiles bool
+		if err = s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.record_files') is not null`).Scan(&hasFiles); err != nil {
+			return err
+		}
+		if hasFiles {
+			if _, err = s.db.Exec(ctx, `update pgbase_meta.record_files set field_name=$3 where collection_id=$1 and field_name=$2`, collection.ID, oldName, field.Name); err != nil {
+				return fmt.Errorf("rename file references: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) DeleteCollection(ctx context.Context, collectionID uuid.UUID) error {
@@ -410,16 +478,21 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 			return fmt.Errorf("insert field metadata: invalid definition")
 		}
 		var defaultJSON any
+		optionsJSON, err := json.Marshal(plannedField.Options)
+		if err != nil {
+			return fmt.Errorf("encode field options: %w", err)
+		}
 		if len(plannedField.Default) != 0 {
 			defaultJSON = string(plannedField.Default)
 		}
 		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.fields
 			(id, collection_id, name, column_name, field_type, required, is_unique, is_indexed,
-			 has_default, default_json, ordinal, created_at)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)`,
+			 has_default, default_json, ordinal, created_at, options_json)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::jsonb)
+			on conflict(id) do update set name=excluded.name,column_name=excluded.column_name,field_type=excluded.field_type,required=excluded.required,is_unique=excluded.is_unique,is_indexed=excluded.is_indexed,has_default=excluded.has_default,default_json=excluded.default_json,ordinal=excluded.ordinal,options_json=excluded.options_json`,
 			field.ID, collection.ID, field.Name, field.ColumnName, field.Type,
 			field.Required, field.Unique, field.Indexed, len(plannedField.Default) != 0,
-			defaultJSON, field.Ordinal, createdAt); err != nil {
+			defaultJSON, field.Ordinal, createdAt, string(optionsJSON)); err != nil {
 			return fmt.Errorf("insert field metadata: %w", err)
 		}
 	}

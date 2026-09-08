@@ -1,3 +1,4 @@
+import { OperationsConsole } from "./operations-console";
 import { useEffect, useState } from "react";
 import type { SchemaHealth, SystemStatus, SystemStatusProbe } from "../backend/ports";
 import { useBackend } from "../auth/session";
@@ -39,7 +40,7 @@ function Reading({ label, probes, component, children }: {
 }
 
 export function SystemPage() {
-  const { system } = useBackend();
+  const { system, operations } = useBackend();
   const [load, setLoad] = useState<SystemLoad>({ phase: "loading" });
   const [reloads, setReloads] = useState(0);
   // Both reads answer from a background sample rather than from PostgreSQL, so
@@ -66,7 +67,7 @@ export function SystemPage() {
 
   return <section>
     <h2>System</h2>
-    <p>Read-only operational state reported by pgBase.</p>
+    <p>Operational state reported by pgBase.</p>
     {load.phase === "failed" && <p role="alert">Unable to load system status.</p>}
     {load.phase === "loading" && <p aria-live="polite">Loading system status…</p>}
     <button aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh} type="button">
@@ -108,5 +109,6 @@ export function SystemPage() {
       {view.health.findingCount > view.health.findings.length &&
         <p>Showing {view.health.findings.length} of {view.health.findingCount} findings. Run pgbase doctor for the full report.</p>}
     </>}
+    {operations && <OperationsConsole port={operations} />}
   </section>;
 }

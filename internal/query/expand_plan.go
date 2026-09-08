@@ -172,7 +172,7 @@ func buildReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error)
 	for _, source := range catalog.Collections {
 		fieldNames := make(map[string]struct{}, len(source.Fields))
 		for ordinal, field := range source.Fields {
-			if field.ID == uuid.Nil || field.Ordinal != ordinal || field.ColumnName != field.Name ||
+			if field.ID == uuid.Nil || field.Ordinal != ordinal ||
 				!validExpandCatalogName(field.Name) || !supportedExpandFieldType(field.Type) {
 				return nil, schema.ErrConflict
 			}
@@ -204,7 +204,7 @@ func buildReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error)
 					return nil, schema.ErrConflict
 				}
 			case schema.RelationStorageEdgeTableV1:
-				if field.Relation.Storage.Name != schema.NewRelationPhysicalNames(source.TableName, field.Name).MultiTable {
+				if field.Relation.Storage.Name != schema.NewRelationPhysicalNames(source.TableName, field.ColumnName).MultiTable {
 					return nil, schema.ErrConflict
 				}
 			default:

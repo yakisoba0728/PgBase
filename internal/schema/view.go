@@ -33,7 +33,7 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 			return Plan{}, validation(fmt.Sprintf("view.projection.%d", i), "invalid_field")
 		}
 		seen[name] = true
-		fields = append(fields, PlannedField{Name: name, Type: field.Type, Required: field.Required, Ordinal: i})
+		fields = append(fields, PlannedField{Name: name, ColumnName: name, Type: field.Type, Required: field.Required, Options: cloneFieldOptions(field.Options), Ordinal: i})
 	}
 	predicate := "TRUE"
 	var err error

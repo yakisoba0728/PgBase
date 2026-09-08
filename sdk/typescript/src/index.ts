@@ -1,3 +1,4 @@
+export * from "./admin.js";
 export type User = { id: string; email: string; createdAt: string; verified?: boolean; authCollectionId?: string; authCollection?: string };
 export type UserSession = { token?: string; user: User; expiresAt: string };
 export type RecordData = Record<string, unknown>;

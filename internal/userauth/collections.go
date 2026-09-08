@@ -122,8 +122,7 @@ func (s *Service) DeleteAuthCollection(ctx context.Context, id uuid.UUID) error 
 		return ErrConflict
 	}
 	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.auth_collections where id=$1`, id)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if isAuthCollectionDeleteConflict(err) {
 		return ErrConflict
 	}
 	if database.Classify(err) == database.KindConflict {
@@ -136,6 +135,11 @@ func (s *Service) DeleteAuthCollection(ctx context.Context, id uuid.UUID) error 
 		return ErrNotFound
 	}
 	return nil
+}
+
+func isAuthCollectionDeleteConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001")
 }
 
 func (s *Service) ListAuthCollections(ctx context.Context) ([]AuthCollection, error) {

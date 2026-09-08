@@ -97,6 +97,18 @@ export function UsersPage() {
     }, "Unable to revoke sessions. Try again.");
   }
 
+  function verification(user: ManagedUser, verified: boolean) {
+    void mutate(() => users.setVerified(user.id, verified), (updated) => {
+      setPage((current) => current && ({ ...current, items: current.items.map((item) => item.id === updated.id ? updated : item) }));
+      setNotice(`${updated.email} is now ${updated.verified ? "verified" : "unverified"}.`);
+    }, "Unable to update verification state.");
+  }
+
+  function sendAction(user: ManagedUser, kind: "verification" | "reset") {
+    const action = kind === "verification" ? users.sendVerification(user.id) : users.sendPasswordReset(user.id);
+    void mutate(() => action, () => setNotice(`${kind === "verification" ? "Verification" : "Password reset"} email requested for ${user.email}.`), "Unable to request email action.");
+  }
+
   const busy = pending || loading;
   return <section>
     <div className="page-heading">
@@ -119,6 +131,9 @@ export function UsersPage() {
           <td><div className="user-actions">
             <button type="button" disabled={busy} onClick={() => change(user, !user.active)}>{user.active ? "Deactivate" : "Activate"}</button>
             <button type="button" disabled={busy} onClick={() => revoke(user)}>Revoke sessions</button>
+            <button type="button" disabled={busy} onClick={() => verification(user, !user.verified)}>{user.verified ? "Mark unverified" : "Mark verified"}</button>
+            {!user.verified && <button type="button" disabled={busy} onClick={() => sendAction(user, "verification")}>Send verification</button>}
+            <button type="button" disabled={busy} onClick={() => sendAction(user, "reset")}>Send password reset</button>
           </div></td>
         </tr>)}</tbody>
       </table></div>

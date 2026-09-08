@@ -1,0 +1,1972 @@
+[
+  {
+    "path": "ui/.env",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (1-17 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/.env.development",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (18-20 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/.gitignore",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (21-44 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/README.md",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (45-71 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/dist/assets/docsAuthRefresh-Cq3xTY6M.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsAuthWithOAuth2-qI6si9uJ.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsAuthWithOTP-75iz1Xmg.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsAuthWithPassword-NXiq7pZI.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsBatch-CQUyIsim.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsCreate-Ap21j9FE.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsDelete-CeK6pY9P.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsEmailChange-VWbqXOVy.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsList-DsIHfo2q.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsListAuthMethods-CYETXzX7.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsPasswordReset-UqmNW8HA.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsRealtime-BR9-cDED.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsUpdate-DAnNYWFv.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsVerification-CIbF1DIL.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/docsView-oyuvqZP8.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/expandInfo-CJ9aeAaN.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/fieldsInfo-CiLcXgNq.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/index-VdywtJWb.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/index-kt0ysE3i.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageConfirmEmailChange-CL83yU_3.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageConfirmPasswordReset-D1ms_2ce.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageConfirmVerification-BGAA0TUZ.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageInstaller-1JgM1ovU.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageOAuth2RedirectFailure-CRvz4PXa.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageOAuth2RedirectSuccess-DmZV1eyz.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/assets/pageRequestSuperuserPasswordReset-C39AMhGf.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-mono/ibm-plex-mono-v20-latin-600.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-mono/ibm-plex-mono-v20-latin-regular.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-600.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-600italic.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-italic.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-regular.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/fonts/remixicon/remixicon.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/favicon.png",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/favicon_prod.png",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/logo.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/logo_white.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/apple.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/bitbucket.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/box.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/discord.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/facebook.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/gitea.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/gitee.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/github.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/gitlab.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/google.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/instagram.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/kakao.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/lark.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/linear.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/livechat.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/mailcow.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/microsoft.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/monday.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/notion.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/oidc.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/patreon.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/planningcenter.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/spotify.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/strava.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/trakt.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/twitch.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/twitter.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/vk.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/wakatime.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/images/oauth2/yandex.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/index.html",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/prism/prism.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/shablon/shablon.iife.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/icons/default/icons.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/models/dom/model.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/autolink/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/autoresize/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/code/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/codesample/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/directionality/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/fullscreen/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/image/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/link/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/lists/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/media/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/table/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/plugins/wordcount/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/content/default/content.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/content/default/content.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/ui/oxide/content.inline.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/ui/oxide/content.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/ui/oxide/skin.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/skins/ui/oxide/skin.shadowdom.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/themes/silver/theme.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/tinymce/tinymce.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/uplot/uplot.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dist/libs/uplot/uplot.iife.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dprint-typescript-0.95.15.wasm",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/dprint.json",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (72-86 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/embed.go",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (87-103 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/embed_no_ui.go",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (104-113 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/index.html",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (114-135 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/package-lock.json",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/package.json",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (136-154 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-mono/ibm-plex-mono-v20-latin-600.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-mono/ibm-plex-mono-v20-latin-regular.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-600.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-600italic.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-italic.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/ibm-plex-sans/ibm-plex-sans-v23-cyrillic_latin_latin-ext-regular.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/fonts/remixicon/remixicon.woff2",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/favicon.png",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/favicon_prod.png",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/logo.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/logo_white.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/apple.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/bitbucket.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/box.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/discord.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/facebook.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/gitea.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/gitee.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/github.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/gitlab.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/google.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/instagram.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/kakao.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/lark.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/linear.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/livechat.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/mailcow.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/microsoft.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/monday.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/notion.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/oidc.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/patreon.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/planningcenter.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/spotify.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/strava.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/trakt.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/twitch.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/twitter.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/vk.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/wakatime.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/images/oauth2/yandex.svg",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/prism/prism.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/shablon/shablon.iife.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/icons/default/icons.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/models/dom/model.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/autolink/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/autoresize/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/code/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/codesample/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/directionality/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/fullscreen/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/image/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/link/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/lists/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/media/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/table/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/plugins/wordcount/plugin.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/content/default/content.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/content/default/content.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/ui/oxide/content.inline.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/ui/oxide/content.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/ui/oxide/skin.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/skins/ui/oxide/skin.shadowdom.min.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/themes/silver/theme.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/tinymce/tinymce.min.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/uplot/uplot.css",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/public/libs/uplot/uplot.iife.js",
+    "status": "inspected_artifact",
+    "note": "생성 dist, 잠금파일, vendored 라이브러리, 폰트/이미지 또는 생성 아이콘 매핑으로 메타데이터와 source association 검사."
+  },
+  {
+    "path": "ui/src/apiPreview/apiPreviewModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (155-384 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsAuthRefresh.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (385-565 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsAuthWithOAuth2.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (566-828 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsAuthWithOTP.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (829-1158 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsAuthWithPassword.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (1159-1385 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsBatch.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (1386-1650 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsCreate.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (1651-2066 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsDelete.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (2067-2215 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsEmailChange.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (2216-2506 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsList.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (2507-2785 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsListAuthMethods.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (2786-2931 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsPasswordReset.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (2932-3198 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsRealtime.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (3199-3390 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsUpdate.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (3391-3634 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsVerification.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (3635-3870 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/docsView.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (3871-4052 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/expandInfo.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4053-4079 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/fieldsInfo.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4080-4106 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/apiPreview/filterSyntax.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4107-4273 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageConfirmEmailChange.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4274-4405 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageConfirmPasswordReset.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4406-4576 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageConfirmVerification.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4577-4690 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageInstaller.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4691-4960 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageOAuth2RedirectFailure.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4961-4982 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageOAuth2RedirectSuccess.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (4983-5001 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageRequestSuperuserPasswordReset.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5002-5095 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/auth/pageSuperuserLogin.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5096-5514 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/appHeader.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5515-5666 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/autoAccordionOpenOnError.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5667-5682 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/codeBlock.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5683-5762 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/codeBlockTabs.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5763-5860 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/codeEditor.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (5861-6395 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/colorPicker.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6396-6540 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/confirm.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6541-6699 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/copyButton.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6700-6762 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/credits.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6763-6800 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/dragline.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6801-6925 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/dropdownKeyboardNav.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (6926-7031 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/erd.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (7032-7501 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/fieldSettings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (7502-7943 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/filePreviewModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (7944-8064 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/formattedDate.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8065-8120 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/leaflet.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8121-8436 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/modal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8437-8707 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/pageSidebar.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8708-8879 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/refreshButton.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8880-8952 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/ruleField.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (8953-9119 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/s3ConfigFields.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (9120-9337 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/s3Test.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (9338-9464 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/searchHistoryButton.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (9465-9621 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/searchbar.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (9622-9751 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/select.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (9752-10102 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/slide.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (10103-10142 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/sortable.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (10143-10344 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/tinymce.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (10345-10915 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/toast.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (10916-11076 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/tooltip.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11077-11239 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/base/uploadedFileThumb.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11240-11327 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/addCollectionFieldButton.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11328-11433 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/autocomplete.utils.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11434-11681 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionAuthOptionsTab.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11682-11772 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionChangesConfirmationModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (11773-12124 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionFieldsTab.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (12125-12208 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionRulesTab.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (12209-12485 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionUpsertModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (12486-13483 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionViewQueryTab.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (13484-13679 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionsOverviewModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (13680-13965 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/collectionsSidebar.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (13966-14240 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/emailTemplateAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (14241-14355 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/indexUpsertModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (14356-14630 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/mfaAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (14631-14772 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2/appleOptions.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (14773-15010 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2/larkOptions.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15011-15086 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2/microsoftOptions.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15087-15255 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2/oidcOptions.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15256-15491 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2/selfhostOptions.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15492-15608 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/oauth2Accordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15609-15926 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/otpAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (15927-16054 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/pageCollections.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (16055-16405 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/passwordAuthAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (16406-16519 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/providerPickerModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (16520-16696 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/providerSettingsModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (16697-16898 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/collections/tokenOptionsAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (16899-16978 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/css/_main.css",
+    "status": "read",
+    "note": "Ordered stylesheet composition including fonts/icons, theme/base components, domain editors and SQL console."
+  },
+  {
+    "path": "ui/src/css/accordion.css",
+    "status": "read",
+    "note": "Native details content height/discrete transitions, sibling border joining, open spacing and noanimation escape."
+  },
+  {
+    "path": "ui/src/css/animations.css",
+    "status": "read",
+    "note": "Rotate/halfRotate/fade/slide/scale keyframes used by spinners and entry transitions."
+  },
+  {
+    "path": "ui/src/css/apiPreviewModal.css",
+    "status": "read",
+    "note": "Two-column SDK preview and alert layout; <=550px sidebar stacks while code content retains a horizontal scroll width."
+  },
+  {
+    "path": "ui/src/css/base.css",
+    "status": "read",
+    "note": "Reset, focus-visible, typographic/spacing utilities, loaders, alerts, labels, breadcrumbs, file thumbnails and drag handles."
+  },
+  {
+    "path": "ui/src/css/bulkbar.css",
+    "status": "read",
+    "note": "Fixed or sticky-wrapper bulk actions, hidden transitions, narrow-screen wrapping and pointer-event delegation."
+  },
+  {
+    "path": "ui/src/css/collectionModal.css",
+    "status": "read",
+    "note": "Field type grid, schema change labels, OIDC group and view query sample panel."
+  },
+  {
+    "path": "ui/src/css/collectionsOverview.css",
+    "status": "read",
+    "note": "Large ERD/rule matrix modal, avoids scale for graph geometry, responsive rule columns."
+  },
+  {
+    "path": "ui/src/css/colorPicker.css",
+    "status": "read",
+    "note": "Native color control overlay with text result, predefined swatches and focus feedback."
+  },
+  {
+    "path": "ui/src/css/dropdown.css",
+    "status": "read",
+    "note": "Popover anchor positioning and flip fallback, Safari workaround, disabled/selected/autocomplete items."
+  },
+  {
+    "path": "ui/src/css/erd.css",
+    "status": "read",
+    "note": "Absolute table nodes, SVG relationship paths, drag/pan state and active dimming; pointer behavior delegated to JS."
+  },
+  {
+    "path": "ui/src/css/export.css",
+    "status": "read",
+    "note": "Schema export list/code preview with responsive stacking and old/new import diff cells."
+  },
+  {
+    "path": "ui/src/css/fonts.css",
+    "status": "read",
+    "note": "Local WOFF2 font-face declarations: Remix icons, IBM Plex Sans/Mono, block vs swap policies."
+  },
+  {
+    "path": "ui/src/css/form.css",
+    "status": "read",
+    "note": "Button states, grouped controls, autofill workarounds, autoexpand fallback, checkbox/radio/switch focus, selects, validation labels and code editor overlay."
+  },
+  {
+    "path": "ui/src/css/grid.css",
+    "status": "read",
+    "note": "12-column flex grid with container-query breakpoints 380/550/650px."
+  },
+  {
+    "path": "ui/src/css/hideControls.css",
+    "status": "read",
+    "note": "Hides collection settings/create and Sync settings group under app.hide-controls; presentation only."
+  },
+  {
+    "path": "ui/src/css/layout.css",
+    "status": "read",
+    "note": "Header and sidebar navigation, resizable/responsive sidebar, scroll-state shadows, footer and mobile actions."
+  },
+  {
+    "path": "ui/src/css/list.css",
+    "status": "read",
+    "note": "Scrollable list, selected/deleted/disabled styles, hover/focus actions with touch visibility override."
+  },
+  {
+    "path": "ui/src/css/logs.css",
+    "status": "read",
+    "note": "uPlot visibility/zoom/load styling, severity labels, responsive log rows and bulk selection."
+  },
+  {
+    "path": "ui/src/css/map.css",
+    "status": "read",
+    "note": "Flex map area and overlaid search field/dropdown."
+  },
+  {
+    "path": "ui/src/css/modal.css",
+    "status": "read",
+    "note": "Side panel/popup/media preview variants, open/close transitions, overlays, sticky scroll shadows and TinyMCE fullscreen."
+  },
+  {
+    "path": "ui/src/css/prism.css",
+    "status": "read",
+    "note": "Small locally adapted Prism token theme using surface color variables."
+  },
+  {
+    "path": "ui/src/css/providers.css",
+    "status": "read",
+    "note": "OAuth logo/card placeholders, focus/active feedback and validation errors."
+  },
+  {
+    "path": "ui/src/css/ratelimit.css",
+    "status": "read",
+    "note": "Editable rule table with focused/error cells, audience width and overflow wrapper."
+  },
+  {
+    "path": "ui/src/css/recordFields.css",
+    "status": "read",
+    "note": "Field setting accordion, reorder affordance, per-type rendering, hidden-field blur and record editor widths."
+  },
+  {
+    "path": "ui/src/css/recordFilePicker.css",
+    "status": "read",
+    "note": "Responsive 7/5/3-column file thumbnail grid with collection/variant controls."
+  },
+  {
+    "path": "ui/src/css/recordSummary.css",
+    "status": "read",
+    "note": "Nested relation summaries, bounded text cells and anchored JSON preview dropdown."
+  },
+  {
+    "path": "ui/src/css/recordsPicker.css",
+    "status": "read",
+    "note": "Bounded selection list and wrapping mobile relation-picker header/search."
+  },
+  {
+    "path": "ui/src/css/remixicon.css",
+    "status": "inspected_artifact",
+    "note": "Vendored Remix Icon v4.6.0 generated glyph selector map; license/version header and WOFF2 association inspected, not full semantic reading."
+  },
+  {
+    "path": "ui/src/css/ruleField.css",
+    "status": "read",
+    "note": "Rule code overlay, superuser/locked affordances and focus/disabled feedback."
+  },
+  {
+    "path": "ui/src/css/sqlConsole.css",
+    "status": "read",
+    "note": "Resizable SQL input height and bounded multiline history snippets."
+  },
+  {
+    "path": "ui/src/css/table.css",
+    "status": "read",
+    "note": "Sticky bulk/meta/header cells, field-specific sizing, scroll shadows, large-table transition disable and mobile card rows."
+  },
+  {
+    "path": "ui/src/css/tabs.css",
+    "status": "read",
+    "note": "Focused/active/equal-width tab controls and code block seams."
+  },
+  {
+    "path": "ui/src/css/toast.css",
+    "status": "read",
+    "note": "Stacked transient notifications, success/error variants, collapse animation and pointer-event wrapper."
+  },
+  {
+    "path": "ui/src/css/tooltip.css",
+    "status": "read",
+    "note": "Fixed popover tooltip, bounded text/code widths and entry transition."
+  },
+  {
+    "path": "ui/src/css/vars.css",
+    "status": "read",
+    "note": "Light/dark/accent palettes, typography/spacing/motion tokens and <=900px density adjustment."
+  },
+  {
+    "path": "ui/src/fields/autodate/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24255-24276 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/autodate/onrecordduplicate.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24277-24286 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/autodate/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24287-24362 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/autodate/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24363-24378 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/bool/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24379-24396 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/bool/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24397-24429 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/bool/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24430-24484 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/bool/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24485-24500 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/date/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24501-24518 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/date/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24519-24568 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/date/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24569-24657 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/date/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24658-24673 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/editor/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24674-24694 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/editor/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24695-24748 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/editor/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24749-24861 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/editor/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24862-24892 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/email/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24893-24913 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/email/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24914-24951 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/email/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (24952-25058 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/email/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25059-25086 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25087-25139 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25140-25415 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/onrecordduplicate.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25416-25426 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/onrecordsave.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25427-25451 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25452-25820 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/file/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25821-25856 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/geoPoint/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25857-25877 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/geoPoint/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25878-25984 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/geoPoint/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (25985-26039 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/geoPoint/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26040-26055 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/json/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26056-26075 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/json/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26076-26199 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/json/onrecordsave.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26200-26231 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/json/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26232-26375 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/json/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26376-26398 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/number/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26399-26416 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/number/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26417-26471 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/number/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26472-26586 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/number/view.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26587-26599 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/password/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26600-26610 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/password/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26611-26808 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/relation/init.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26809-26829 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/relation/input.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (26830-27046 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/relation/settings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (27047-27254 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/fields/relation/view.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/select/init.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/select/input.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/select/settings.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/select/view.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/text/init.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/text/input.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/text/settings.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/text/view.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/url/init.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/url/input.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/url/settings.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/fields/url/view.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/defaultLogLevels.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/logLevel.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/logPreviewModal.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/logsChart.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/logsList.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/logsSettingsModal.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/logs/pageLogs.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/main.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/mimeTypes.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/pb.js",
+    "status": "read",
+    "note": "Full handwritten source body directly reviewed in bounded tool output; behavior and UI integration noted."
+  },
+  {
+    "path": "ui/src/records/recordFilePickerModal.js",
+    "status": "read",
+    "note": "443줄 전체 직접 판독; public-file collection 필터, 검색+file-length 필터, 100개 페이지 로드, 선택/thumbnail 크기 반환, record event 재로드를 확인."
+  },
+  {
+    "path": "ui/src/records/recordFileThumb.js",
+    "status": "read",
+    "note": "150줄 전체 직접 판독; 최대 10개 이미지 URL 해석 semaphore, 보호 파일 token, image/audio/video/PDF preview 및 기타 download 경로를 확인."
+  },
+  {
+    "path": "ui/src/records/recordImpersonateModal.js",
+    "status": "read",
+    "note": "203줄 전체 직접 판독; auth record impersonation duration, nonrenewable token 표시/copy 및 JS/Dart SDK 예제를 확인."
+  },
+  {
+    "path": "ui/src/records/recordPreviewModal.js",
+    "status": "read",
+    "note": "235줄 전체 직접 판독; 최신 record와 1단계 relation expand 로드, password 제외 field-type view, JSON copy/download를 확인."
+  },
+  {
+    "path": "ui/src/records/recordSummary.js",
+    "status": "read",
+    "note": "219줄 전체 직접 판독; presentable field priority/fallback, hover popover, relation 편집 링크와 truncate된 ordered JSON을 확인."
+  },
+  {
+    "path": "ui/src/records/recordUpsertModal.js",
+    "status": "read",
+    "note": "1,470줄 전체를 300줄 이하 독립 청크로 직접 판독; create/update, field save hooks, localStorage draft, duplicate/delete, auth mail/token/impersonation/provider unlink를 확인. onbeforeopen 확장 callback 경로의 미정의 el 참조도 식별."
+  },
+  {
+    "path": "ui/src/records/recordsList.js",
+    "status": "read",
+    "note": "840줄 전체를 280줄 독립 청크로 직접 판독; 40개 cursorless page append, relation expand/sort, persisted columns, shift bulk select, bulk delete/JSON export와 document event 동기화를 확인."
+  },
+  {
+    "path": "ui/src/records/recordsPickerModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (34285-34771 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/records/recordsSearchbar.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (34772-34835 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/router.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (34836-35011 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/batchAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (35012-35134 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/pageApplicationSettings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (35135-35502 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/rateLimitAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (35503-36036 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/rateLimitInfoModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36037-36190 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/superuserAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36191-36350 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/application/trustedProxyAccordion.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36351-36597 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/backupCreateModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36598-36750 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/backupRestoreModal.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36751-36933 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/backupUploadButton.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (36934-37024 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/backupsForm.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (37025-37314 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/backupsList.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (37315-37545 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/backups/pageBackupsSettings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (37546-37609 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/crons/cronsList.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (37610-37724 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/crons/pageCronsSettings.js",
+    "status": "read",
+    "note": "전체 본문을 600줄 이하 독립 출력으로 직접 판독; 역할·상태·API 연계를 검토함 (37725-37789 결합 스트림 줄)."
+  },
+  {
+    "path": "ui/src/settings/mail/mailTestModal.js",
+    "status": "read",
+    "note": "203줄 전체 직접 판독; 5종 auth mail template test, auth collection 선택, 수신자 기억, 15초 request cancel/timeout을 확인."
+  },
+  {
+    "path": "ui/src/settings/mail/pageMailSettings.js",
+    "status": "read",
+    "note": "386줄 전체 직접 판독; sender, SMTP host/port/credentials, TLS/auth/EHLO 옵션, redacted secret update와 test-mail 진입을 확인."
+  },
+  {
+    "path": "ui/src/settings/settingsSidebar.js",
+    "status": "read",
+    "note": "54줄 전체 직접 판독; settingsNavGroups 기반 접이식 그룹, local/external link 처리와 route active 표시를 확인."
+  },
+  {
+    "path": "ui/src/settings/sql/pageSQLConsole.js",
+    "status": "read",
+    "note": "484줄 전체를 독립 청크로 직접 판독; mutation keyword 확인, 3분/1000행 caveat, 250행 초기 표시, client sort, 10-query history, CSV export를 확인."
+  },
+  {
+    "path": "ui/src/settings/storage/pageStorageSettings.js",
+    "status": "read",
+    "note": "187줄 전체 직접 판독; S3-compatible 설정, redacted secret save와 local/S3 전환 시 수동 migration 안내를 확인."
+  },
+  {
+    "path": "ui/src/settings/sync/collectionsDiffTable.js",
+    "status": "read",
+    "note": "320줄 전체 직접 판독; collection/field added-changed-deleted side-by-side diff와 deleteMissing에 따른 destructive data 경고를 확인."
+  },
+  {
+    "path": "ui/src/settings/sync/importCollectionsReviewModal.js",
+    "status": "read",
+    "note": "180줄 전체 직접 판독; 변경 pair 생성, 삭제 collection/field 목록 재확인, import 후 collection reload 및 modal lock을 확인."
+  },
+  {
+    "path": "ui/src/settings/sync/pageExportCollections.js",
+    "status": "read",
+    "note": "213줄 전체 직접 판독; timestamp/provider 제거, type/name 정렬, shift selection, JSON preview/copy/download를 확인."
+  },
+  {
+    "path": "ui/src/settings/sync/pageImportCollections.js",
+    "status": "read",
+    "note": "537줄 전체를 독립 청크로 직접 판독; JSON parse/dedupe, add/update/delete 감지, merge/deleteMissing, collection/field ID 및 relation/index 참조 치환, review 흐름을 확인."
+  },
+  {
+    "path": "ui/src/store.js",
+    "status": "read",
+    "note": "478줄 전체를 240줄 이하 독립 청크로 직접 판독; settings/collections/OAuth providers, title/theme/favicon/accent, API field error 투영, BroadcastChannel 탭 동기화를 확인."
+  },
+  {
+    "path": "ui/src/utils.js",
+    "status": "read",
+    "note": "1,850줄 전체를 300줄 이하 독립 청크로 직접 판독; object/path/string/date/download/search helpers, collection diff/identifier/dummy data, SQL index parse/build를 확인."
+  },
+  {
+    "path": "ui/vite.config.js",
+    "status": "read",
+    "note": "15줄 전체 직접 판독; PB env prefix, relative base, 1MB chunk warning 및 @→src alias를 확인."
+  }
+]

@@ -194,6 +194,16 @@ jobs:
           cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
           cache-dependency-path: go.sum
 
+      - name: Provision matching PostgreSQL client tools
+        shell: bash
+        env:
+          POSTGRES_IMAGE: ${{ matrix.postgres.image }}
+        run: |
+          tools_directory="$RUNNER_TEMP/pgbase-postgres-tools"
+          scripts/install-test-pg-tools.sh "$tools_directory"
+          echo "$tools_directory" >> "$GITHUB_PATH"
+          echo "TEST_PGBASE_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
+
       - name: Vet integration build
         run: go vet -tags=integration ./...
 

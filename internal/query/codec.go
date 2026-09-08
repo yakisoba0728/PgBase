@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -94,6 +95,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return invalid()
 		}
+		if code := fieldvalue.ValidateNumeric(strconv.FormatInt(value, 10), codecOptions(field)); code != "" {
+			return nil, validation(field.Name, code)
+		}
 		return int32(value), nil
 	case schema.TypeBigInt:
 		value, ok := jsonString(raw)
@@ -104,6 +108,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return invalid()
 		}
+		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
+			return nil, validation(field.Name, code)
+		}
 		return parsed, nil
 	case schema.TypeNumeric:
 		value, ok := jsonString(raw)
@@ -113,6 +120,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		var numeric pgtype.Numeric
 		if err := numeric.Scan(value); err != nil || !numeric.Valid || numeric.NaN || numeric.InfinityModifier != pgtype.Finite {
 			return invalid()
+		}
+		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
+			return nil, validation(field.Name, code)
 		}
 		return numeric, nil
 	case schema.TypeText:
@@ -125,6 +135,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		}
 		if len(value) > maximumUnindexedTextBytes {
 			return nil, validation(field.Name, "value_too_long")
+		}
+		if code := fieldvalue.ValidateText(value, codecOptions(field)); code != "" {
+			return nil, validation(field.Name, code)
 		}
 		return value, nil
 	case schema.TypeTimestampTZ:
@@ -153,10 +166,24 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !validJSON(raw) {
 			return invalid()
 		}
+		if len(field.Options.AllowedValues) > 0 {
+			var values []string
+			if json.Unmarshal(raw, &values) != nil || values == nil {
+				return nil, validation(field.Name, "select_invalid_value")
+			}
+			if code := fieldvalue.ValidateSelection(values, codecOptions(field)); code != "" {
+				return nil, validation(field.Name, code)
+			}
+		}
 		return append(json.RawMessage(nil), raw...), nil
 	default:
 		return nil, validation(field.Name, "unsupported_type")
 	}
+}
+
+func codecOptions(field schema.Field) fieldvalue.Options {
+	o := field.Options
+	return fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, AllowedValues: o.AllowedValues, Min: o.Min, Max: o.Max}
 }
 
 func decodeRelationFieldValue(field schema.Field, raw json.RawMessage) (any, error) {

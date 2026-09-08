@@ -16,6 +16,7 @@ import {
   type RelationDeleteAction,
   type ViewDefinition,
 } from "../backend/ports";
+import { fieldOptionsInput, draftFieldOptions, type DraftFieldOptions } from "./field-options";
 import { operationFailureMessage, useOperationRecovery, type OperationRecovery } from "../operations/operation-recovery";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
@@ -26,6 +27,7 @@ interface DraftRelation {
 }
 
 export interface DraftField {
+  id?: string; options?: DraftFieldOptions;
   name: string; type: FieldType;
   required: boolean; unique: boolean; indexed: boolean;
   hasDefault: boolean; defaultText: string; relation?: DraftRelation;
@@ -36,6 +38,7 @@ export interface DraftField {
 export interface RelationTargetOption { name: string; label: string }
 
 export type DraftEdit =
+  | { set: "options"; value: DraftFieldOptions }
   | { set: "name" | "defaultText" | "target" | "minSelect" | "maxSelect"; value: string }
   | { set: "required" | "unique" | "indexed" | "hasDefault"; value: boolean }
   | { set: "type"; value: FieldType }
@@ -117,6 +120,8 @@ export function buildInput(operation: "create" | "update", name: string, fields:
     name,
     fields: view === undefined ? fields.map((field, index) => {
       const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
+      if (operation === "update" && field.id) base.id = field.id;
+      base.options = fieldOptionsInput(field.options) ?? (field.id ? {} : undefined);
       if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
       return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
     }) : [], ...(indexes === undefined ? {} : { indexes }), ...(view === undefined ? {} : { view }),
@@ -139,6 +144,7 @@ export function previewField(field: PlannedField): string {
       `on delete: ${field.relation.onDelete}`,
     );
   }
+  if (field.options && Object.keys(field.options).length) flags.push(`validation: ${JSON.stringify(field.options)}`);
   return `${field.name} · ${field.type}${flags.length > 0 ? ` · ${flags.join(" · ")}` : ""}`;
 }
 
@@ -155,6 +161,7 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
     .slice()
     .sort((left, right) => left.ordinal - right.ordinal)
     .map((field) => ({
+      id: field.id, options: draftFieldOptions(field.options),
       name: field.name,
       type: field.type,
       required: field.required,
@@ -173,11 +180,12 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
 }
 
 function withType(field: DraftField, type: FieldType): DraftField {
-  if (type !== "relation") return { ...field, type, relation: undefined, selfRelation: false };
+  if (type !== "relation") return { ...field, type, options: undefined, relation: undefined, selfRelation: false };
   const relation = field.relation ?? newRelation();
   return {
     ...field,
     type,
+    options: undefined,
     indexed: true,
     hasDefault: false,
     defaultText: "",
@@ -190,6 +198,7 @@ function withType(field: DraftField, type: FieldType): DraftField {
 
 function applyEdit(field: DraftField, edit: DraftEdit, collectionName: string): DraftField {
   const relation = field.relation;
+  if (edit.set === "options") return { ...field, options: edit.value };
   if (edit.set === "name") return { ...field, name: edit.value };
   if (edit.set === "defaultText") return { ...field, defaultText: edit.value };
   if (edit.set === "hasDefault") return { ...field, hasDefault: edit.value };
@@ -239,7 +248,7 @@ function relationTargets(catalog: CollectionCatalog | null, sourceCollection: st
 }
 
 function draftMessage(error: unknown, fallback: string): string {
-  return error instanceof DraftError ? error.message : fallback;
+  return error instanceof Error ? error.message : fallback;
 }
 
 function schemaMessage(error: unknown, fallback: string, validationFallback = "Collection input is invalid."): string {
@@ -470,8 +479,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const preview = state.plan !== null && input !== null && state.plan.matches(input) ? state.plan : null;
   const removedFields = useMemo(() => {
     if (preview === null || state.definition === null) return [];
-    const planned = new Set(preview.fields.map((field) => field.name));
-    return state.definition.fields.filter((field) => !planned.has(field.name)).sort((left, right) => left.ordinal - right.ordinal).map((field) => field.name);
+    const planned = new Set(preview.fields.map((field) => field.id ?? field.name));
+    return state.definition.fields.filter((field) => !planned.has(field.id ?? field.name)).sort((left, right) => left.ordinal - right.ordinal).map((field) => field.name);
   }, [preview, state.definition]);
   const existing = useMemo(() => new Set(state.definition?.fields.map((field) => field.name) ?? []), [state.definition]);
 

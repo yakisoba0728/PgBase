@@ -60,7 +60,7 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
     await page.getByRole("button", { name: "Clear" }).click();
     await expect(page.getByText("edited post")).toBeVisible();
 
-    const titles = page.locator("tbody tr td:nth-child(4)");
+    const titles = page.locator("tbody tr td:nth-child(5)");
     await page.getByRole("button", { name: /^title/ }).click();
     await expect(page.getByRole("columnheader", { name: "title ↑" })).toHaveAttribute("aria-sort", "ascending");
     await expect(titles).toHaveText(["edited post", "second post"]);
@@ -76,7 +76,8 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
 
 async function ownerID(page: import("@playwright/test").Page, collection: string): Promise<string> {
   await page.goto(`/admin/collections/${collection}/records`);
-  const id = await page.locator("tbody tr td:first-child a").first().innerText();
+  await expect(page.getByRole("heading", { name: `${collection} records` })).toBeVisible();
+  const id = await page.locator("tbody").getByRole("link").first().innerText();
   expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   return id;
 }

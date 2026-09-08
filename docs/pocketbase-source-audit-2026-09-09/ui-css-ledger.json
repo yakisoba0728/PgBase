@@ -1,0 +1,182 @@
+[
+  {
+    "path": "ui/src/css/_main.css",
+    "status": "read",
+    "note": "Ordered stylesheet composition including fonts/icons, theme/base components, domain editors and SQL console."
+  },
+  {
+    "path": "ui/src/css/accordion.css",
+    "status": "read",
+    "note": "Native details content height/discrete transitions, sibling border joining, open spacing and noanimation escape."
+  },
+  {
+    "path": "ui/src/css/animations.css",
+    "status": "read",
+    "note": "Rotate/halfRotate/fade/slide/scale keyframes used by spinners and entry transitions."
+  },
+  {
+    "path": "ui/src/css/apiPreviewModal.css",
+    "status": "read",
+    "note": "Two-column SDK preview and alert layout; <=550px sidebar stacks while code content retains a horizontal scroll width."
+  },
+  {
+    "path": "ui/src/css/base.css",
+    "status": "read",
+    "note": "Reset, focus-visible, typographic/spacing utilities, loaders, alerts, labels, breadcrumbs, file thumbnails and drag handles."
+  },
+  {
+    "path": "ui/src/css/bulkbar.css",
+    "status": "read",
+    "note": "Fixed or sticky-wrapper bulk actions, hidden transitions, narrow-screen wrapping and pointer-event delegation."
+  },
+  {
+    "path": "ui/src/css/collectionModal.css",
+    "status": "read",
+    "note": "Field type grid, schema change labels, OIDC group and view query sample panel."
+  },
+  {
+    "path": "ui/src/css/collectionsOverview.css",
+    "status": "read",
+    "note": "Large ERD/rule matrix modal, avoids scale for graph geometry, responsive rule columns."
+  },
+  {
+    "path": "ui/src/css/colorPicker.css",
+    "status": "read",
+    "note": "Native color control overlay with text result, predefined swatches and focus feedback."
+  },
+  {
+    "path": "ui/src/css/dropdown.css",
+    "status": "read",
+    "note": "Popover anchor positioning and flip fallback, Safari workaround, disabled/selected/autocomplete items."
+  },
+  {
+    "path": "ui/src/css/erd.css",
+    "status": "read",
+    "note": "Absolute table nodes, SVG relationship paths, drag/pan state and active dimming; pointer behavior delegated to JS."
+  },
+  {
+    "path": "ui/src/css/export.css",
+    "status": "read",
+    "note": "Schema export list/code preview with responsive stacking and old/new import diff cells."
+  },
+  {
+    "path": "ui/src/css/fonts.css",
+    "status": "read",
+    "note": "Local WOFF2 font-face declarations: Remix icons, IBM Plex Sans/Mono, block vs swap policies."
+  },
+  {
+    "path": "ui/src/css/form.css",
+    "status": "read",
+    "note": "Button states, grouped controls, autofill workarounds, autoexpand fallback, checkbox/radio/switch focus, selects, validation labels and code editor overlay."
+  },
+  {
+    "path": "ui/src/css/grid.css",
+    "status": "read",
+    "note": "12-column flex grid with container-query breakpoints 380/550/650px."
+  },
+  {
+    "path": "ui/src/css/hideControls.css",
+    "status": "read",
+    "note": "Hides collection settings/create and Sync settings group under app.hide-controls; presentation only."
+  },
+  {
+    "path": "ui/src/css/layout.css",
+    "status": "read",
+    "note": "Header and sidebar navigation, resizable/responsive sidebar, scroll-state shadows, footer and mobile actions."
+  },
+  {
+    "path": "ui/src/css/list.css",
+    "status": "read",
+    "note": "Scrollable list, selected/deleted/disabled styles, hover/focus actions with touch visibility override."
+  },
+  {
+    "path": "ui/src/css/logs.css",
+    "status": "read",
+    "note": "uPlot visibility/zoom/load styling, severity labels, responsive log rows and bulk selection."
+  },
+  {
+    "path": "ui/src/css/map.css",
+    "status": "read",
+    "note": "Flex map area and overlaid search field/dropdown."
+  },
+  {
+    "path": "ui/src/css/modal.css",
+    "status": "read",
+    "note": "Side panel/popup/media preview variants, open/close transitions, overlays, sticky scroll shadows and TinyMCE fullscreen."
+  },
+  {
+    "path": "ui/src/css/prism.css",
+    "status": "read",
+    "note": "Small locally adapted Prism token theme using surface color variables."
+  },
+  {
+    "path": "ui/src/css/providers.css",
+    "status": "read",
+    "note": "OAuth logo/card placeholders, focus/active feedback and validation errors."
+  },
+  {
+    "path": "ui/src/css/ratelimit.css",
+    "status": "read",
+    "note": "Editable rule table with focused/error cells, audience width and overflow wrapper."
+  },
+  {
+    "path": "ui/src/css/recordFields.css",
+    "status": "read",
+    "note": "Field setting accordion, reorder affordance, per-type rendering, hidden-field blur and record editor widths."
+  },
+  {
+    "path": "ui/src/css/recordFilePicker.css",
+    "status": "read",
+    "note": "Responsive 7/5/3-column file thumbnail grid with collection/variant controls."
+  },
+  {
+    "path": "ui/src/css/recordSummary.css",
+    "status": "read",
+    "note": "Nested relation summaries, bounded text cells and anchored JSON preview dropdown."
+  },
+  {
+    "path": "ui/src/css/recordsPicker.css",
+    "status": "read",
+    "note": "Bounded selection list and wrapping mobile relation-picker header/search."
+  },
+  {
+    "path": "ui/src/css/remixicon.css",
+    "status": "inspected_artifact",
+    "note": "Vendored Remix Icon v4.6.0 generated glyph selector map; license/version header and WOFF2 association inspected, not full semantic reading."
+  },
+  {
+    "path": "ui/src/css/ruleField.css",
+    "status": "read",
+    "note": "Rule code overlay, superuser/locked affordances and focus/disabled feedback."
+  },
+  {
+    "path": "ui/src/css/sqlConsole.css",
+    "status": "read",
+    "note": "Resizable SQL input height and bounded multiline history snippets."
+  },
+  {
+    "path": "ui/src/css/table.css",
+    "status": "read",
+    "note": "Sticky bulk/meta/header cells, field-specific sizing, scroll shadows, large-table transition disable and mobile card rows."
+  },
+  {
+    "path": "ui/src/css/tabs.css",
+    "status": "read",
+    "note": "Focused/active/equal-width tab controls and code block seams."
+  },
+  {
+    "path": "ui/src/css/toast.css",
+    "status": "read",
+    "note": "Stacked transient notifications, success/error variants, collapse animation and pointer-event wrapper."
+  },
+  {
+    "path": "ui/src/css/tooltip.css",
+    "status": "read",
+    "note": "Fixed popover tooltip, bounded text/code widths and entry transition."
+  },
+  {
+    "path": "ui/src/css/vars.css",
+    "status": "read",
+    "note": "Light/dark/accent palettes, typography/spacing/motion tokens and <=900px density adjustment."
+  }
+]

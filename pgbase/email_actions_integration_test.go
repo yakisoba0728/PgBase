@@ -65,10 +65,15 @@ func localMailSink(t *testing.T) (string, <-chan string) {
 	return listener.Addr().String(), messages
 }
 
-func mailActionToken(t *testing.T, messages <-chan string, action string) string {
+func mailActionToken(t *testing.T, messages <-chan string, action string, contains ...string) string {
 	t.Helper()
 	select {
 	case message := <-messages:
+		for _, fragment := range contains {
+			if !strings.Contains(message, fragment) {
+				t.Fatalf("mail for %s missing %q: %s", action, fragment, message)
+			}
+		}
 		for _, field := range strings.Fields(message) {
 			if strings.HasPrefix(field, "https://") {
 				parsed, err := url.Parse(field)
@@ -97,6 +102,7 @@ func TestEmailActionsThroughHTTPAndLocalSMTP(t *testing.T) {
 	app := newPublicUsersAppOptions(t, true, func(options *Options) {
 		options.SMTP = SMTPOptions{Address: address, From: "local@example.com", AllowInsecure: true}
 	})
+	adminCookie, csrf := setupPublicUsersAdministrator(t, app)
 	session := registerPublicUser(t, app, "mail@example.com", publicUserOnePass)
 	post := func(path string, body any, token string, want int) {
 		t.Helper()
@@ -118,8 +124,13 @@ func TestEmailActionsThroughHTTPAndLocalSMTP(t *testing.T) {
 	post("confirm-password-reset", map[string]any{"token": reset, "newPassword": newPassword}, "", 204)
 	assertUserManagementSessionStatus(t, app, session.Token, 401)
 	session = userManagementLogin(t, app, "mail@example.com", newPassword)
+	template := publicUsersRequest(t, app, http.MethodPut,
+		"/api/admin/auth-collections/00000000-0000-0000-0000-000000000001/mail-templates/email_change",
+		map[string]any{"subject": "Custom email change", "body": "Open custom link: {{action_url}}"}, "", adminCookie,
+		map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, template, http.StatusOK)
 	post("request-email-change", map[string]any{"currentPassword": newPassword, "newEmail": "changed@example.com"}, session.Token, 204)
-	change := mailActionToken(t, messages, "email-change")
+	change := mailActionToken(t, messages, "email-change", "Subject: Custom email change", "Open custom link:")
 	post("confirm-email-change", map[string]any{"token": change}, "", 204)
 	assertUserManagementSessionStatus(t, app, session.Token, 401)
 	session = userManagementLogin(t, app, "changed@example.com", newPassword)

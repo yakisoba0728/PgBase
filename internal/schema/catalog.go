@@ -96,6 +96,16 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 		if err != nil {
 			return Catalog{}, err
 		}
+		renames := map[string]string{}
+		oldByID := map[uuid.UUID]string{}
+		for _, field := range current.Fields {
+			oldByID[field.ID] = field.Name
+		}
+		for _, field := range fields {
+			if old := oldByID[field.ID]; old != "" && old != field.Name {
+				renames[old] = field.Name
+			}
+		}
 		current.Fields = fields
 		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
 		if err != nil {
@@ -103,6 +113,23 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 		}
 		current.Indexes = indexes
 		next.Collections[current.Name] = current
+		for name, dependent := range next.Collections {
+			if dependent.View == nil || dependent.View.SourceCollectionID != current.ID {
+				continue
+			}
+			for i, value := range dependent.View.Projection {
+				if renamed := renames[value]; renamed != "" {
+					dependent.View.Projection[i] = renamed
+				}
+			}
+			renameViewFilterFields(dependent.View.Filter, renames)
+			for i, field := range dependent.Fields {
+				if renamed := renames[field.Name]; renamed != "" {
+					dependent.Fields[i].Name = renamed
+				}
+			}
+			next.Collections[name] = dependent
+		}
 	case changeDelete:
 		if _, ok := next.Collections[change.deleteName]; !ok {
 			return Catalog{}, ErrCollectionNotFound
@@ -113,6 +140,18 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 	}
 	next.Incoming = buildIncomingIndex(next.Collections)
 	return next, nil
+}
+
+func renameViewFilterFields(filter *ViewFilter, renames map[string]string) {
+	if filter == nil {
+		return
+	}
+	if renamed := renames[filter.Field]; renamed != "" {
+		filter.Field = renamed
+	}
+	for i := range filter.Args {
+		renameViewFilterFields(&filter.Args[i], renames)
+	}
 }
 
 func buildIncomingIndex(collections map[string]Collection) map[uuid.UUID][]RelationRef {
@@ -172,6 +211,7 @@ func cloneCatalog(source Catalog) Catalog {
 		for index := range collection.Fields {
 			collection.Fields[index].Default = append([]byte(nil), collection.Fields[index].Default...)
 			collection.Fields[index].Relation = clonePointer(collection.Fields[index].Relation)
+			collection.Fields[index].Options = cloneFieldOptions(collection.Fields[index].Options)
 		}
 		collection.Indexes = append([]Index(nil), collection.Indexes...)
 		for index := range collection.Indexes {

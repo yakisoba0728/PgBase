@@ -360,6 +360,11 @@ func relationValidationError(details []ValidationDetail) error {
 
 func cloneFieldInput(field FieldInput) FieldInput {
 	field.Default = append(json.RawMessage(nil), field.Default...)
+	field.ID = clonePointer(field.ID)
+	if field.Options != nil {
+		cloned := cloneFieldOptions(*field.Options)
+		field.Options = &cloned
+	}
 	if field.Relation != nil {
 		relation := cloneRelationInput(*field.Relation)
 		field.Relation = &relation

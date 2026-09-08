@@ -53,6 +53,10 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if err := validatePassword(password); err != nil {
 		return Session{}, err
 	}
+	policy, err := s.authPolicy(ctx, collectionID)
+	if err != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+		return Session{}, ErrValidation
+	}
 	if err := validateClientAddress(clientAddress); err != nil {
 		return Session{}, err
 	}
@@ -103,6 +107,10 @@ func (s *Service) Login(ctx context.Context, email, password, clientAddress stri
 func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID, email, password, clientAddress string) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
+	}
+	policy, policyErr := s.authPolicy(ctx, collectionID)
+	if policyErr != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+		return Session{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.credentialSlots)
 	if err != nil {

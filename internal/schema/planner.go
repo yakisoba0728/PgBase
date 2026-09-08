@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 )
 
 const (
@@ -97,6 +97,9 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 	seenNames := make(map[string]struct{}, len(input.Fields))
 	for ordinal, field := range input.Fields {
 		namePath := fmt.Sprintf("fields.%d.name", ordinal)
+		if field.ID != nil {
+			return Plan{}, validation(fmt.Sprintf("fields.%d.id", ordinal), "not_allowed")
+		}
 		if err := validateInputName(namePath, field.Name); err != nil {
 			return Plan{}, err
 		}
@@ -141,6 +144,8 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 
 	currentFields := make(map[string]PlannedField, len(current.Fields))
+	currentFieldsByID := make(map[uuid.UUID]PlannedField, len(current.Fields))
+	currentColumns := make(map[string]PlannedField, len(current.Fields))
 	for _, field := range current.Fields {
 		planned, err := plannedFieldFromCatalog(catalog, field)
 		if err != nil {
@@ -157,10 +162,13 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			planned.Default = canonical
 		}
 		currentFields[planned.Name] = planned
+		currentFieldsByID[planned.ID] = planned
+		currentColumns[planned.ColumnName] = planned
 	}
 
 	desired := make([]PlannedField, 0, len(input.Fields))
 	desiredNames := make(map[string]struct{}, len(input.Fields))
+	desiredIDs := make(map[uuid.UUID]struct{}, len(input.Fields))
 	for ordinal, field := range input.Fields {
 		namePath := fmt.Sprintf("fields.%d.name", ordinal)
 		if err := validateInputName(namePath, field.Name); err != nil {
@@ -171,8 +179,28 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		desiredNames[field.Name] = struct{}{}
 
+		previous, exists := currentFields[field.Name]
+		if field.ID != nil {
+			previous, exists = currentFieldsByID[*field.ID]
+			if !exists {
+				return Plan{}, validation(namePath, "unknown_id")
+			}
+			if occupied, ok := currentFields[field.Name]; ok && occupied.ID != previous.ID {
+				return Plan{}, validation(namePath, "rename_target_exists")
+			}
+		}
+		if exists && previous.ID != uuid.Nil {
+			if _, duplicate := desiredIDs[previous.ID]; duplicate {
+				return Plan{}, validation(namePath, "duplicate_id")
+			}
+		} else if !exists {
+			_, occupied := currentColumns[field.Name]
+			if occupied {
+				return Plan{}, validation(namePath, "physical_name_exists")
+			}
+		}
 		carriedDefault := json.RawMessage(nil)
-		if previous, exists := currentFields[field.Name]; exists {
+		if exists {
 			carriedDefault = unchangedStoredDefault(previous, field)
 		}
 		if len(carriedDefault) != 0 {
@@ -184,6 +212,19 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		if len(carriedDefault) != 0 {
 			planned.Default = append(json.RawMessage(nil), carriedDefault...)
+		}
+		if exists {
+			planned.ID = previous.ID
+			planned.ColumnName = previous.ColumnName
+			if previous.ID != uuid.Nil {
+				desiredIDs[previous.ID] = struct{}{}
+			}
+			if field.Options == nil {
+				planned.Options = cloneFieldOptions(previous.Options)
+			}
+			if previous.Relation != nil && planned.Relation != nil {
+				planned.Relation.Storage = previous.Relation.Storage
+			}
 		}
 		desired = append(desired, planned)
 	}
@@ -198,7 +239,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 				var desiredField PlannedField
 				found := false
 				for _, field := range desired {
-					if field.Name == name {
+					if field.Name == name || (currentFields[name].ID != uuid.Nil && field.ID == currentFields[name].ID) {
 						desiredField = field
 						found = true
 						break
@@ -214,6 +255,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
 	statements := make([]string, 0, len(desired))
 	for _, field := range current.Fields {
+		if _, kept := desiredIDs[field.ID]; kept {
+			continue
+		}
 		if _, kept := desiredNames[field.Name]; kept {
 			continue
 		}
@@ -228,6 +272,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 	for ordinal, field := range desired {
 		previous, exists := currentFields[field.Name]
+		if field.ID != uuid.Nil {
+			previous, exists = currentFieldsByID[field.ID]
+		}
 		if !exists {
 			if field.Type == TypeFile {
 				continue
@@ -300,17 +347,6 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}, nil
 }
 
-func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawMessage {
-	if previous.Type != desired.Type || len(previous.Default) == 0 || len(desired.Default) == 0 {
-		return nil
-	}
-	canonical, _, err := normalizeStoredDefault(desired.Type, desired.Default)
-	if err != nil || !bytes.Equal(previous.Default, canonical) {
-		return nil
-	}
-	return previous.Default
-}
-
 // Dependent indexes are dropped with the table.
 func planDelete(catalog Catalog, current Collection) (Plan, error) {
 	if current.Name == "" || current.TableName != current.Name {
@@ -353,6 +389,7 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 
 func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error) {
 	planned := PlannedField{
+		ID: field.ID, ColumnName: field.ColumnName,
 		Name:     field.Name,
 		Type:     field.Type,
 		Required: field.Required,
@@ -360,6 +397,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error)
 		Indexed:  field.Indexed,
 		Default:  field.Default,
 		Ordinal:  field.Ordinal,
+		Options:  cloneFieldOptions(field.Options),
 	}
 	if field.Type != TypeRelation {
 		if field.Relation != nil {
@@ -388,6 +426,9 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
+	if err := fieldvalue.ValidateDefinition(string(field.Type), fieldInputValueOptions(field.Options)); err != nil {
+		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
+	}
 	if !isSupportedType(field.Type) {
 		return PlannedField{}, validation(fieldPath+".type", "unsupported_type")
 	}
@@ -432,13 +473,15 @@ func planInputField(
 	}
 
 	planned := PlannedField{
-		Name:     normalized.Name,
-		Type:     normalized.Type,
-		Required: normalized.Required,
-		Unique:   normalized.Unique,
-		Indexed:  normalized.Indexed,
-		Relation: relation,
-		Ordinal:  ordinal,
+		ColumnName: normalized.Name,
+		Name:       normalized.Name,
+		Type:       normalized.Type,
+		Required:   normalized.Required,
+		Unique:     normalized.Unique,
+		Indexed:    normalized.Indexed,
+		Relation:   relation,
+		Ordinal:    ordinal,
+		Options:    clonedInputOptions(normalized.Options),
 	}
 	if len(normalized.Default) != 0 {
 		canonical, _, err := normalizeDefault(normalized.Type, normalized.Default)
@@ -446,42 +489,15 @@ func planInputField(
 			return PlannedField{}, validation(fieldPath+".default", "invalid_default")
 		}
 		planned.Default = append(json.RawMessage(nil), canonical...)
+		if !defaultSatisfiesOptions(planned.Type, canonical, planned.Options) {
+			return PlannedField{}, validation(fieldPath+".default", "invalid_default")
+		}
 	}
 	return planned, nil
 }
 
-func relationStorageName(sourceCollection string, field FieldInput) string {
-	if field.Relation != nil && field.Relation.Cardinality == RelationMultiple {
-		return NewRelationPhysicalNames(sourceCollection, field.Name).MultiTable
-	}
-	return field.Name
-}
-
-func collectionNameByID(catalog Catalog, collectionID uuid.UUID) (string, bool) {
-	if collectionID == uuid.Nil {
-		return "", false
-	}
-	for name, collection := range catalog.Collections {
-		if collection.ID == collectionID {
-			return name, true
-		}
-	}
-	return "", false
-}
-
-func collectionHasIncomingRelation(catalog Catalog, targetCollectionID uuid.UUID) bool {
-	// validateCatalogIntegrity refuses to compile a catalog whose incoming index
-	// disagrees with its collections, so the index alone is authoritative here.
-	for _, relation := range catalog.Incoming[targetCollectionID] {
-		if relation.SourceCollectionID != targetCollectionID {
-			return true
-		}
-	}
-	return false
-}
-
 func addColumnStatement(table string, field PlannedField) string {
-	column := pgx.Identifier{field.Name}.Sanitize() + " " + string(field.Type)
+	column := pgx.Identifier{field.ColumnName}.Sanitize() + " " + string(field.Type)
 	if field.Required {
 		column += " not null"
 	}
@@ -497,7 +513,7 @@ func alterColumnStatements(table string, ordinal int, previous, field PlannedFie
 		if !isSupportedTypeChange(previous.Type, field.Type) {
 			return nil, validation(fmt.Sprintf("fields.%d.type", ordinal), "unsupported_schema_change")
 		}
-		column := pgx.Identifier{field.Name}.Sanitize()
+		column := pgx.Identifier{field.ColumnName}.Sanitize()
 		changes = append(changes, "TYPE "+string(field.Type)+" USING "+column+"::"+string(field.Type))
 		// Default changes are handled by the shared comparison below so a type
 		// change plus default change emits exactly one SET DEFAULT.
@@ -519,7 +535,7 @@ func alterColumnStatements(table string, ordinal int, previous, field PlannedFie
 	if len(changes) == 0 {
 		return nil, nil
 	}
-	column := pgx.Identifier{field.Name}.Sanitize()
+	column := pgx.Identifier{field.ColumnName}.Sanitize()
 	joined := make([]string, 0, len(changes))
 	for _, change := range changes {
 		joined = append(joined, "ALTER COLUMN "+column+" "+change)
@@ -531,31 +547,23 @@ func indexChangeStatements(collection, table string, previous, field PlannedFiel
 	currentHasIndex := previous.Unique || previous.Indexed
 	desiredHasIndex := field.Unique || field.Indexed
 	uniquenessChanged := previous.Unique != field.Unique
+	renamed := previous.ID != uuid.Nil && previous.Name != field.Name
 	statements := make([]string, 0, 2)
-	if currentHasIndex && (!desiredHasIndex || uniquenessChanged) {
+	if currentHasIndex && (!desiredHasIndex || uniquenessChanged || renamed) {
 		// The connection search_path does not include "app", so the drop is
 		// schema-qualified; IF EXISTS tolerates metadata that drifted ahead
 		// of the physical index.
 		statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", indexName(collection, previous.Name)}.Sanitize())
 	}
-	if desiredHasIndex && (!currentHasIndex || uniquenessChanged) {
+	if desiredHasIndex && (!currentHasIndex || uniquenessChanged || renamed) {
 		prefix := "CREATE INDEX "
 		if field.Unique {
 			prefix = "CREATE UNIQUE INDEX "
 		}
 		statements = append(statements, prefix+pgx.Identifier{indexName(collection, field.Name)}.Sanitize()+
-			" ON "+table+" ("+pgx.Identifier{field.Name}.Sanitize()+")")
+			" ON "+table+" ("+pgx.Identifier{field.ColumnName}.Sanitize()+")")
 	}
 	return statements
-}
-
-func isSupportedTypeChange(from, to FieldType) bool {
-	return (from == TypeInteger && to == TypeBigInt) ||
-		((from == TypeInteger || from == TypeBigInt) && to == TypeNumeric)
-}
-
-func sameCanonicalDefault(previous, desired json.RawMessage) bool {
-	return bytes.Equal(previous, desired)
 }
 
 func renderValidatedDefault(field PlannedField) string {
@@ -564,15 +572,6 @@ func renderValidatedDefault(field PlannedField) string {
 		panic("validated default became invalid")
 	}
 	return rendered
-}
-
-func isSupportedType(typ FieldType) bool {
-	switch typ {
-	case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeTimestampTZ, TypeUUID, TypeJSONB, TypeRelation, TypeFile:
-		return true
-	default:
-		return false
-	}
 }
 
 func makeCreateStatements(definition PlannedCollection, companions bool) []string {

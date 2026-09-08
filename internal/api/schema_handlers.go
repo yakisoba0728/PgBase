@@ -31,6 +31,8 @@ type schemaEndpoints struct {
 }
 
 type plannedFieldResponse struct {
+	ID       uuid.UUID                `json:"id,omitzero"`
+	Options  schema.FieldOptions      `json:"options,omitzero"`
 	Name     string                   `json:"name"`
 	Type     schema.FieldType         `json:"type"`
 	Required bool                     `json:"required"`
@@ -73,16 +75,17 @@ type schemaPlanResponse struct {
 }
 
 type fieldResponse struct {
-	ID         uuid.UUID         `json:"id"`
-	Name       string            `json:"name"`
-	ColumnName string            `json:"columnName"`
-	Type       schema.FieldType  `json:"type"`
-	Required   bool              `json:"required"`
-	Unique     bool              `json:"unique"`
-	Indexed    bool              `json:"indexed"`
-	Default    json.RawMessage   `json:"default,omitempty"`
-	Relation   *relationResponse `json:"relation,omitempty"`
-	Ordinal    int               `json:"ordinal"`
+	Options    schema.FieldOptions `json:"options,omitzero"`
+	ID         uuid.UUID           `json:"id"`
+	Name       string              `json:"name"`
+	ColumnName string              `json:"columnName"`
+	Type       schema.FieldType    `json:"type"`
+	Required   bool                `json:"required"`
+	Unique     bool                `json:"unique"`
+	Indexed    bool                `json:"indexed"`
+	Default    json.RawMessage     `json:"default,omitempty"`
+	Relation   *relationResponse   `json:"relation,omitempty"`
+	Ordinal    int                 `json:"ordinal"`
 }
 
 type relationResponse struct {
@@ -146,7 +149,7 @@ func (e schemaEndpoints) plan(w http.ResponseWriter, r *http.Request) {
 		BaseVersion: plan.BaseVersion,
 		Checksum:    plan.Checksum,
 		Definition:  plannedCollectionDTO(plan.Definition),
-		SQL:         append([]string(nil), plan.Statements...),
+		SQL:         append([]string{}, plan.Statements...),
 	})
 }
 
@@ -302,6 +305,7 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 	fields := make([]plannedFieldResponse, 0, len(collection.Fields))
 	for _, field := range collection.Fields {
 		fields = append(fields, plannedFieldResponse{
+			ID: field.ID, Options: field.Options,
 			Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique,
 			Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...),
 			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal,
@@ -314,7 +318,8 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 	fields := make([]fieldResponse, 0, len(collection.Fields))
 	for _, field := range collection.Fields {
 		fields = append(fields, fieldResponse{
-			ID: field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: field.Type,
+			Options: field.Options,
+			ID:      field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: field.Type,
 			Required: field.Required, Unique: field.Unique, Indexed: field.Indexed,
 			Default:  append(json.RawMessage(nil), field.Default...),
 			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal,

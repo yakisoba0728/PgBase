@@ -1,0 +1,82 @@
+[
+  {
+    "path": "tools/archive/create.go",
+    "status": "read",
+    "note": "ZIP BestSpeed recursive creation with relative skip prefixes and archive removal after walk/write failure."
+  },
+  {
+    "path": "tools/archive/create_test.go",
+    "status": "read",
+    "note": "Missing source cleanup and excluded tree archive size; fixture includes a symlink."
+  },
+  {
+    "path": "tools/archive/extract.go",
+    "status": "read",
+    "note": "Sequential regular-file/directory extraction with normalized destination prefix guard; nonregular entries skipped."
+  },
+  {
+    "path": "tools/archive/extract_test.go",
+    "status": "read",
+    "note": "Missing archive failure and round-trip exact file set; symlink and excluded files omitted."
+  },
+  {
+    "path": "tools/cron/cron.go",
+    "status": "read",
+    "note": "UTC minute-aligned ticker, configurable interval/timezone, ID replacement, start/stop/resume and fire-and-forget jobs; no persisted distributed ownership."
+  },
+  {
+    "path": "tools/cron/cron_test.go",
+    "status": "read",
+    "note": "Schedule CRUD/replacement and Jobs copy; synctest tick counts on duplicate start/stop and resume."
+  },
+  {
+    "path": "tools/cron/job.go",
+    "status": "read",
+    "note": "Immutable job identity/expression wrapper, nil-safe Run, JSON limited to ID and expression."
+  },
+  {
+    "path": "tools/cron/job_test.go",
+    "status": "read",
+    "note": "Job identity/expression/optional callable and deterministic JSON export."
+  },
+  {
+    "path": "tools/cron/schedule.go",
+    "status": "read",
+    "note": "Five space-separated calendar fields with wildcard/list/range/step and macros; due requires all five dimensions including both day-of-month and weekday."
+  },
+  {
+    "path": "tools/cron/schedule_test.go",
+    "status": "read",
+    "note": "Full calendar field boundaries, exact expanded slot maps, macros and combined due checks; reread truncated middle interval separately."
+  },
+  {
+    "path": "tools/dbutils/index.go",
+    "status": "read",
+    "note": "Loose CREATE INDEX parse/build preserving expressions/collation/sort/where; single-column unique lookup ignores WHERE for existence."
+  },
+  {
+    "path": "tools/dbutils/index_test.go",
+    "status": "read",
+    "note": "Invalid/simple/quoted/multiline expression index parsing, min-valid/build and partial unique index discovery."
+  },
+  {
+    "path": "tools/dbutils/json.go",
+    "status": "read",
+    "note": "SQLite scalar-to-array and invalid-JSON wrappers for JSONEach, length and path extraction."
+  },
+  {
+    "path": "tools/dbutils/json_test.go",
+    "status": "read",
+    "note": "Exact generated JSON SQL contract including empty path, array-first and named-key paths."
+  },
+  {
+    "path": "tools/dbutils/select.go",
+    "status": "read",
+    "note": "DBx-compatible regex returns final alias or unchanged identifier."
+  },
+  {
+    "path": "tools/dbutils/select_test.go",
+    "status": "read",
+    "note": "Explicit/implicit aliases, dotted names, no-alias whitespace and loose invalid-identifier consistency."
+  }
+]

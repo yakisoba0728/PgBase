@@ -19,6 +19,33 @@ const tagsCollection = collection("tags", "tags-id", [textField("label", 0, { un
 afterEach(() => vi.restoreAllMocks());
 
 describe("record editor page", () => {
+  it("duplicates into a fresh create attempt without copying system identity", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } }, { value: { version: 4, collections: [posts, tagsCollection] } });
+    harness.script.read.push({ value: { data: { id: recordID, created_at: "old", title: "copy me", tags: [] }, etag: '"pgb1.one"' } });
+    harness.script.create.push({ value: { data: { id: otherTargetID, title: "copy me", tags: [] }, etag: '"pgb1.new"' } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await user.click(await screen.findByRole("button", { name: "Duplicate record" }));
+    expect(await screen.findByRole("heading", { name: "Create posts record" })).toBeVisible();
+    expect(screen.getByLabelText("title")).toHaveValue("copy me");
+    await user.click(screen.getByRole("button", { name: "Create record" }));
+    await waitFor(() => expect(callsTo(harness.script, "create")).toHaveLength(1));
+    expect(callsTo(harness.script, "create")[0].detail.input).toEqual({ title: "copy me", tags: [] });
+  });
+
+  it("renders allowed text and JSON values as constrained selectors", async () => {
+    const constrained = collection("settings", "settings-id", [
+      textField("theme", 0, { options: { allowedValues: ["light", "dark"] } }),
+      { name: "channels", type: "jsonb", required: false, unique: false, indexed: false, ordinal: 1, options: { allowedValues: ["email", "sms"] } },
+    ]);
+    const harness = scriptedAdmin("/admin/collections/settings/records/new");
+    harness.script.catalog.push({ value: { version: 4, collections: [constrained] } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await user.selectOptions(await screen.findByLabelText("theme state"), "value");
+    await user.selectOptions(screen.getByLabelText("channels state"), "value");
+    expect(screen.getByRole("combobox", { name: "theme" })).toBeVisible();
+    expect(screen.getByRole("listbox", { name: "channels" })).toHaveAttribute("multiple");
+  });
   it("keeps edit actions hidden until the requested record has loaded", async () => {
     const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
     harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } });
@@ -64,6 +91,22 @@ describe("record editor page", () => {
 
     await waitFor(() => expect(screen.getByLabelText("tags")).toHaveValue(targetID));
     expect(callsTo(harness.script, "list")[0].detail).toEqual({ collection: "tags", filter: "label = 'release'", sort: "label" });
+  });
+
+  it("creates a relation target inline through the normal record create contract", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "loaded", tags: [] }, etag: '"pgb1.one"' } });
+    harness.script.create.push({ value: { data: { id: targetID, label: "new tag" }, etag: '"pgb1.tag"' } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await user.click(await screen.findByText("Create tags inline"));
+    await user.type(screen.getByLabelText("New tags label"), "new tag");
+    await user.click(screen.getByRole("button", { name: "Create and select" }));
+
+    await waitFor(() => expect(screen.getByLabelText("tags")).toHaveValue(targetID));
+    expect(callsTo(harness.script, "create")[0].detail).toMatchObject({ collection: "tags", input: { label: "new tag" } });
   });
 
   it("picks a relation target with the keyboard alone", async () => {

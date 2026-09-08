@@ -1,0 +1,452 @@
+[
+  {
+    "path": "apis/api_error_aliases.go",
+    "status": "read",
+    "note": "Implements ToApiError, NewApiError, NewBadRequestError, NewNotFoundError, NewForbiddenError, NewUnauthorizedError."
+  },
+  {
+    "path": "apis/backup.go",
+    "status": "read",
+    "note": "Implements bindBackupApi, backupsList, backupDownload, backupDelete, backupRestore; routes GET , POST , POST /upload, GET /{key}, DELETE /{key}, POST /{key}/restore; covers superuser admission."
+  },
+  {
+    "path": "apis/backup_create.go",
+    "status": "read",
+    "note": "Implements backupCreate, validate, checkUniqueName."
+  },
+  {
+    "path": "apis/backup_test.go",
+    "status": "read",
+    "note": "Integration/unit coverage for BackupsList, BackupsCreate, BackupUpload, BackupsDownload, BackupsDelete; asserts HTTP statuses, hook events, persisted side effects, multipart handling."
+  },
+  {
+    "path": "apis/backup_upload.go",
+    "status": "read",
+    "note": "Implements backupUpload, validate, checkUniqueName."
+  },
+  {
+    "path": "apis/base.go",
+    "status": "read",
+    "note": "Implements NewRouter, WrapStdHandler, WrapStdMiddleware, MustSubFS, Static, safeRedirectPath; routes GET /files/{path...}; covers rate limiting."
+  },
+  {
+    "path": "apis/base_test.go",
+    "status": "read",
+    "note": "Integration/unit coverage for WrapStdHandler, WrapStdMiddleware, Static, MustSubFS."
+  },
+  {
+    "path": "apis/batch.go",
+    "status": "read",
+    "note": "Implements bindBatchApi, validate, batchTransaction, Process, process, processInternalRequest; routes POST ; covers transaction behavior, multipart input."
+  },
+  {
+    "path": "apis/batch_test.go",
+    "status": "read",
+    "note": "Integration/unit coverage for BatchRequest; asserts HTTP statuses, hook events, persisted side effects, multipart handling."
+  },
+  {
+    "path": "apis/collection.go",
+    "status": "read",
+    "note": "Superuser collection list/view/create/update/delete/truncate/import/scaffold/provider/dry-run handlers; view truncate rejected, dry-run query required and capped at 5000 characters."
+  },
+  {
+    "path": "apis/collection_import.go",
+    "status": "read",
+    "note": "Validates nonempty collection payload and runs hook-aware ImportCollections with optional deleteMissing; validation and raw import failures use distinct nested errors."
+  },
+  {
+    "path": "apis/collection_import_test.go",
+    "status": "read",
+    "note": "Covers 401/403, empty and invalid imports, transactional rollback, create/update/delete with deleteMissing, index creation, and hook transaction response rollback."
+  },
+  {
+    "path": "apis/collection_test.go",
+    "status": "read",
+    "note": "Covers collection paging/filtering, CRUD, system/reference deletion constraints, reserved/system fields, auth defaults and secret redaction, view inference, indexes, truncate cascades, provider metadata redaction, and view dry-run limits."
+  },
+  {
+    "path": "apis/cron.go",
+    "status": "read",
+    "note": "Superuser-only cron list sorts user jobs before __pb jobs; POST by id fire-and-forgets an existing job and returns 204, missing ids return 404."
+  },
+  {
+    "path": "apis/cron_test.go",
+    "status": "read",
+    "note": "Confirms guest 401, regular user 403, built-in job metadata listing, missing job 404, and asynchronous manual run invocation."
+  },
+  {
+    "path": "apis/extensions.go",
+    "status": "read",
+    "note": "Mounts UI extension static files under /_/extensions, applies CSP/cache/gzip, and concatenates optional main.js files in isolated async closures without memory caching."
+  },
+  {
+    "path": "apis/extensions_test.go",
+    "status": "read",
+    "note": "Covers no_ui 404, empty/combined extensions.js, missing files, escaped extension names, and static extension file delivery."
+  },
+  {
+    "path": "apis/file.go",
+    "status": "read",
+    "note": "Issues authenticated file tokens; downloads originals/view-backed files, hides protected denial as 404, applies view rules/IP whitelist, and singleflight/semaphore-bounds thumbnail generation with original fallback."
+  },
+  {
+    "path": "apis/file_test.go",
+    "status": "read",
+    "note": "Covers file tokens, HEAD parity, missing/protected/view files, IP whitelist, rule-based access, thumbnail modes/fallback, file rate-limit labels, hooks, and concurrent thumbnail deduplication."
+  },
+  {
+    "path": "apis/health.go",
+    "status": "read",
+    "note": "Public health returns an empty data object; superuser response additionally reports backup availability, real IP, and possible proxy header."
+  },
+  {
+    "path": "apis/health_test.go",
+    "status": "read",
+    "note": "Verifies guest/user health redaction and superuser-only canBackup, realIP, and possibleProxyHeader fields."
+  },
+  {
+    "path": "apis/installer.go",
+    "status": "read",
+    "note": "Detects absence of non-installer superusers, creates a temporary random-password installer record, and launches/prints a 30-minute static-token UI URL or CLI fallback."
+  },
+  {
+    "path": "apis/logs.go",
+    "status": "read",
+    "note": "Superuser-only searchable log list/view/stats/truncate; truncate bypasses model hooks then attempts auxiliary DB vacuum, logging vacuum failure without failing the 204."
+  },
+  {
+    "path": "apis/logs_test.go",
+    "status": "read",
+    "note": "Confirms 401/403 boundaries, nested data filtering, daily stats filters, 404 lookup, and destructive truncate side effect."
+  },
+  {
+    "path": "apis/middlewares.go",
+    "status": "read",
+    "note": "Defines guest/auth/superuser/owner/same-collection guards, permissive token loading, IP whitelist, security headers, panic recovery, activity logging with bounded fields, and async log writes."
+  },
+  {
+    "path": "apis/middlewares_body_limit.go",
+    "status": "read",
+    "note": "Applies eager Content-Length and lazy reader limits, defaults to 32 MiB plus collection field maxima, and preserves reread semantics with sticky 413 errors."
+  },
+  {
+    "path": "apis/middlewares_body_limit_test.go",
+    "status": "read",
+    "note": "Exercises exact/over-limit eager and unknown-length reads, repeated body binding, custom limits, and io.ReadAll EOF behavior."
+  },
+  {
+    "path": "apis/middlewares_cors.go",
+    "status": "read",
+    "note": "Echo-compatible configurable CORS with wildcard/subdomain patterns, credentials safeguard, origin-length bound, reflected requested headers, and preflight before logging/rate limit."
+  },
+  {
+    "path": "apis/middlewares_gzip.go",
+    "status": "read",
+    "note": "Pooled gzip response wrapper delays headers, honors minimum length, handles Flush/Hijack/Push/unwrapping, and restores uncompressed responses below threshold."
+  },
+  {
+    "path": "apis/middlewares_rate_limit.go",
+    "status": "read",
+    "note": "In-memory per-real-IP fixed-window limiter selects method/path and collection action labels plus auth/guest audience; skips superusers/excluded IPs and cron-cleans stale clients."
+  },
+  {
+    "path": "apis/middlewares_rate_limit_test.go",
+    "status": "read",
+    "note": "Uses synthetic time to verify fixed-window reset and label precedence for path/method and auth/guest audiences; confirms disabled, superuser, and excluded-IP bypasses."
+  },
+  {
+    "path": "apis/middlewares_test.go",
+    "status": "read",
+    "note": "Covers panic recovery; guest/auth/superuser/owner/same-collection status distinctions; raw or case-insensitive Bearer tokens; expired tokens treated as guest; and superuser IP whitelist behavior."
+  },
+  {
+    "path": "apis/realtime.go",
+    "status": "read",
+    "note": "SSE connect emits PB_CONNECT, bounds idle/max lifetime and subscription count/topic size, binds subscription changes to client IP/current auth, applies list/view rules and client filters, enriches/picks payloads, and invalidates auth on token/collection changes."
+  },
+  {
+    "path": "apis/realtime_test.go",
+    "status": "read",
+    "note": "Covers connect cleanup, subscription replacement and bounds, IP/auth transition checks, hidden fields, auth invalidation on record/token/collection changes, custom model resolution, and create/update/delete broadcasts."
+  },
+  {
+    "path": "apis/record_auth.go",
+    "status": "read",
+    "note": "Registers per-auth-collection password/OAuth/OTP/refresh/reset/verification/email-change and superuser impersonation routes with action labels and same-collection guards; OAuth redirect supports GET/form POST with success logging skipped."
+  },
+  {
+    "path": "apis/record_auth_email_change_confirm.go",
+    "status": "read",
+    "note": "Validates purpose/expiry/collection/new-email uniqueness and current password, rejects superuser flow, then changes email, marks verified, and returns 204 through request hooks."
+  },
+  {
+    "path": "apis/record_auth_email_change_confirm_test.go",
+    "status": "read",
+    "note": "Confirms malformed/expired/wrong-purpose/cross-collection token and password errors, successful email+verified mutation with external-auth unlinking, transactional hook rollback, and action rate labels."
+  },
+  {
+    "path": "apis/record_auth_email_change_request.go",
+    "status": "read",
+    "note": "Same-collection authenticated email-change request validates 1..255 email, differs from current, is unique within collection, sends mail through hooks, and rejects superusers."
+  },
+  {
+    "path": "apis/record_auth_email_change_request_test.go",
+    "status": "read",
+    "note": "Covers 401/403 collection binding, malformed/empty/existing/new email cases, mail contents and hooks, transaction response behavior, and collection/wildcard rate labels."
+  },
+  {
+    "path": "apis/record_auth_impersonate.go",
+    "status": "read",
+    "note": "Superuser-only impersonation finds target auth record and issues optionally duration-bounded static auth token through normal auth response enrichment."
+  },
+  {
+    "path": "apis/record_auth_impersonate_test.go",
+    "status": "read",
+    "note": "Verifies user/self denial, missing target, negative duration rejection, static token response, and hidden credential fields remaining hidden from impersonation response."
+  },
+  {
+    "path": "apis/record_auth_methods.go",
+    "status": "read",
+    "note": "Reports enabled password identity fields, OAuth provider state/PKCE/auth URL, MFA and OTP durations, plus v0.22 legacy fields; skips providers that fail initialization."
+  },
+  {
+    "path": "apis/record_auth_methods_test.go",
+    "status": "read",
+    "note": "Covers missing/non-auth collections, disabled/all-enabled methods, provider metadata and redirect suffix, legacy fields, and collection/wildcard rate labels."
+  },
+  {
+    "path": "apis/record_auth_otp_request.go",
+    "status": "read",
+    "note": "Implements collection-scoped OTP request: validates email, returns eager nondisclosing 200 for unknown users, reuses the newest OTP after 10 recent tokens in non-dev, otherwise persists an OTP and sends asynchronously with delete-on-mail-failure."
+  },
+  {
+    "path": "apis/record_auth_otp_request_test.go",
+    "status": "read",
+    "note": "Exercises disabled OTP, body bounds, unknown-email nondisclosure, real and fake otpId response shapes, reuse threshold, async mail failure cleanup, hooks, and collection/global auth rate-limit labels."
+  },
+  {
+    "path": "apis/record_auth_password_reset_confirm.go",
+    "status": "read",
+    "note": "Confirms a password-reset token against purpose, collection and token key, changes password, conditionally verifies when token email still matches, and removes external auth links on an unverified-to-verified upgrade."
+  },
+  {
+    "path": "apis/record_auth_password_reset_confirm_test.go",
+    "status": "read",
+    "note": "Covers malformed/expired/wrong-collection tokens, password validation, changed-email behavior, verification and external-link cleanup, token invalidation, hooks, and rate limits."
+  },
+  {
+    "path": "apis/record_auth_password_reset_request.go",
+    "status": "read",
+    "note": "Provides nondisclosing 204 reset requests for unknown email, gates on password auth, sends asynchronously, and suppresses per-record resends for two minutes in the process store."
+  },
+  {
+    "path": "apis/record_auth_password_reset_request_test.go",
+    "status": "read",
+    "note": "Tests disabled password auth, input validation, unknown-email 204, mail event/error behavior, two-minute resend suppression, and collection/global rate-limit tags."
+  },
+  {
+    "path": "apis/record_auth_refresh.go",
+    "status": "read",
+    "note": "Refreshes same-collection auth JWTs through the common auth response path; returns static impersonation tokens unchanged and still applies MFA/rules/enrichment to refreshable tokens."
+  },
+  {
+    "path": "apis/record_auth_refresh_test.go",
+    "status": "read",
+    "note": "Tests missing/wrong-collection auth, expired or nonrefreshable token behavior, static impersonation preservation, MFA challenge on refresh, enrichment, hooks and rate limits."
+  },
+  {
+    "path": "apis/record_auth_verification_confirm.go",
+    "status": "read",
+    "note": "Confirms verification token only when collection and email still match; already-verified is idempotent, password-disabled collections randomize password, and external auth links are removed on upgrade."
+  },
+  {
+    "path": "apis/record_auth_verification_confirm_test.go",
+    "status": "read",
+    "note": "Covers token purpose/expiry/collection/email mismatch, idempotency, password randomization, external-auth cleanup, transactional hooks and rate limits."
+  },
+  {
+    "path": "apis/record_auth_verification_request.go",
+    "status": "read",
+    "note": "Returns nondisclosing 204 for missing/already verified users, sends verification asynchronously, and suppresses duplicate sends for two minutes per record."
+  },
+  {
+    "path": "apis/record_auth_verification_request_test.go",
+    "status": "read",
+    "note": "Tests validation, missing/already-verified nondisclosure, async mail errors/events, resend suppression and rate-limit labels."
+  },
+  {
+    "path": "apis/record_auth_with_oauth2.go",
+    "status": "read",
+    "note": "Exchanges OAuth code with a 30-second context and PKCE, resolves linked/current/email-matched/new records, maps provider fields and bounded safe avatar downloads, mutates verification/password/link state transactionally, then issues auth/MFA response."
+  },
+  {
+    "path": "apis/record_auth_with_oauth2_redirect.go",
+    "status": "read",
+    "note": "OAuth redirect relay uses an IP-bound realtime client id as state, publishes code/error/state to @oauth2 then unsubscribes, returns 307 for GET or 303 for POST, and temporarily stores bounded Apple names by code."
+  },
+  {
+    "path": "apis/record_auth_with_oauth2_redirect_test.go",
+    "status": "read",
+    "note": "Exercises missing and invalid state, IP mismatch, provider errors, GET/POST redirect status, SSE payload and subscription removal, Apple form-name truncation and fallback HTML redirects."
+  },
+  {
+    "path": "apis/record_auth_with_oauth2_test.go",
+    "status": "read",
+    "note": "Covers disabled/invalid providers, existing external links, current-user and email auto-link paths, unverified credential/link changes, new-record createData and field mapping, SSRF-safe avatar handling, Apple name pickup, hooks and rate limits."
+  },
+  {
+    "path": "apis/record_auth_with_otp.go",
+    "status": "read",
+    "note": "Validates purpose-bound collection OTP id/password with generic 400s and a per-record five-attempt/180-second limiter, eagerly consumes the OTP, may verify matching email and reset password, then enters common MFA/auth response."
+  },
+  {
+    "path": "apis/record_auth_with_otp_test.go",
+    "status": "read",
+    "note": "Covers cross-collection/expired/wrong OTPs, fixed manual attempt lockout including a later correct code, MFA and direct success paths, verification/external-link cleanup and transaction hooks."
+  },
+  {
+    "path": "apis/record_auth_with_password.go",
+    "status": "read",
+    "note": "Authenticates against configured unique identity fields with index collation semantics, optional explicit identityField, email-first compatibility ordering and a dummy password check for absent users before common MFA/auth response."
+  },
+  {
+    "path": "apis/record_auth_with_password_test.go",
+    "status": "read",
+    "note": "Tests multiple identity fields and collations, explicit identity selection, only-verified denial, uniform invalid credentials, MFA first/second steps, rule bypass conditions, hooks and rate limits."
+  },
+  {
+    "path": "apis/record_crud.go",
+    "status": "read",
+    "note": "Defines list/view/create/patch/delete record endpoints; injects collection rules into SQL, hides restricted fields, supports multipart modifiers and enrichment, rejects writes to views, applies dynamic limits/rate labels and transactional finalizers."
+  },
+  {
+    "path": "apis/record_crud_auth_origin_test.go",
+    "status": "read",
+    "note": "Verifies auth-origin list/view/delete owner rules while create/update remain superuser-only, including exact hook activity."
+  },
+  {
+    "path": "apis/record_crud_external_auth_test.go",
+    "status": "read",
+    "note": "Verifies external-auth owner-scoped list/view/delete and superuser-only create/update semantics."
+  },
+  {
+    "path": "apis/record_crud_mfa_test.go",
+    "status": "read",
+    "note": "Verifies MFA rows are owner-visible for list/view but all mutations remain superuser-only."
+  },
+  {
+    "path": "apis/record_crud_otp_test.go",
+    "status": "read",
+    "note": "Verifies OTP rows are owner-visible for list/view while create/update/delete are superuser-only."
+  },
+  {
+    "path": "apis/record_crud_superuser_test.go",
+    "status": "read",
+    "note": "Verifies the _superusers collection is entirely superuser-only, forces created superusers verified, cascades auth origins on delete, and refuses deletion of the last superuser."
+  },
+  {
+    "path": "apis/record_crud_test.go",
+    "status": "read",
+    "note": "Full CRUD matrix: nil/public/filtered rules, hidden fields, relation expansion visibility, auth email visibility, view reads and write rejection, multipart JSON payloads, modifier fields, fixed 15-character ids, uniqueness, dynamic body limits, hooks, cascade delete and per-action rate labels."
+  },
+  {
+    "path": "apis/record_helpers.go",
+    "status": "read",
+    "note": "Central auth/enrichment helpers enforce superuser IP allowlists and auth rules, implement method-pairing MFA via persisted mfaId, filter expansions by target ViewRule, batch-resolve auth email visibility, defer responses until transaction success and track at most five login origins with alert mail."
+  },
+  {
+    "path": "apis/record_helpers_test.go",
+    "status": "read",
+    "note": "Tests recursive expansion rule filtering, owner/manager/superuser email visibility, auth-rule denial, login-origin alert/retention behavior, MFA rule and different-method completion, expiry/cross-user isolation, and superuser IP allowlists."
+  },
+  {
+    "path": "apis/serve.go",
+    "status": "read",
+    "note": "Starts migrated HTTP/HTTPS server with CORS, optional embedded dashboard/CSP/cache, ACME TLS and www redirects, five-minute I/O timeouts, cancellable SSE base context and bounded graceful shutdown hooks."
+  },
+  {
+    "path": "apis/settings.go",
+    "status": "read",
+    "note": "Superuser settings GET/PATCH clone and persist configuration; test endpoints validate S3 by upload/delete and send selected mail templates; Apple endpoint returns a generated client secret."
+  },
+  {
+    "path": "apis/settings_test.go",
+    "status": "read",
+    "note": "Verifies settings auth boundaries, secret persistence without response disclosure, validation/transaction hooks, S3 and every test-mail template, and Apple secret generation inputs."
+  },
+  {
+    "path": "apis/sql.go",
+    "status": "read",
+    "note": "Superuser-only arbitrary SQL accepts at most 5000 chars, uses a three-minute background timeout, transaction-wraps recognized write prefixes, returns affected rows, or caps result rows at 1000 with column metadata."
+  },
+  {
+    "path": "apis/sql_test.go",
+    "status": "read",
+    "note": "Tests auth, query length/errors, SELECT result shape, single/multiple writes with rollback, and last-result behavior for multiple reads."
+  },
+  {
+    "path": "forms/apple_client_secret_create.go",
+    "status": "read",
+    "note": "Validates Apple client/team/key/private-key/duration fields and signs an ES256 client-secret JWT with Apple audience, issuer, subject, kid and maximum six-month duration."
+  },
+  {
+    "path": "forms/apple_client_secret_create_test.go",
+    "status": "read",
+    "note": "Builds a real P-256 key and verifies validation plus ES256/kid output claims."
+  },
+  {
+    "path": "forms/record_upsert.go",
+    "status": "read",
+    "note": "Deep record form loads known fields/modifiers, shields hidden fields by access level, separates auth password/current-password/verification rules, supports manager and superuser capabilities, and offers hook-free transactional DrySubmit rollback."
+  },
+  {
+    "path": "forms/record_upsert_test.go",
+    "status": "read",
+    "note": "Covers field normalization/hidden access, auth form-vs-record validation ordering, current-password and manager paths, unique errors, dry create/update rollback including files, persistence failures/success and programmatic password synchronization."
+  },
+  {
+    "path": "forms/test_email_send.go",
+    "status": "read",
+    "note": "Validates recipient/template/optional auth collection, constructs a synthetic record with nonhidden placeholders, and dispatches verification/reset/change/OTP/login-alert mail for configuration testing."
+  },
+  {
+    "path": "forms/test_email_send_test.go",
+    "status": "read",
+    "note": "Exercises invalid collections/templates/emails and confirms one matching rendered email for all five supported template kinds."
+  },
+  {
+    "path": "forms/test_s3_filesystem.go",
+    "status": "read",
+    "note": "Validates storage or backups target, constructs configured S3 client, uploads a random-prefix test object and deletes the prefix to exercise list/delete."
+  },
+  {
+    "path": "forms/test_s3_filesystem_test.go",
+    "status": "read",
+    "note": "Covers target validation and disabled-S3 submit failure."
+  },
+  {
+    "path": "mails/base.go",
+    "status": "read",
+    "note": "Parses and executes composable inline text/templates into a buffer for final message rendering."
+  },
+  {
+    "path": "mails/record.go",
+    "status": "read",
+    "note": "Builds auth alert, OTP, reset, verification and email-change messages with collection templates and hooks; escapes visible record placeholders, embeds signed tokens, and records OTP sentTo only after successful delivery."
+  },
+  {
+    "path": "mails/record_test.go",
+    "status": "read",
+    "note": "Checks one rendered message per auth workflow, HTML escaping, token/dashboard links, OTP code and alert content while hidden placeholders remain unresolved."
+  },
+  {
+    "path": "mails/templates/html_content.go",
+    "status": "read",
+    "note": "Defines the minimal template block that inserts pre-rendered HTMLContent into the shared layout."
+  },
+  {
+    "path": "mails/templates/layout.go",
+    "status": "read",
+    "note": "Defines the complete responsive XHTML email wrapper and shared inline typography/button styles."
+  }
+]

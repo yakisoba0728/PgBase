@@ -1,0 +1,537 @@
+[
+  {
+    "path": "pocketbase.go",
+    "status": "read",
+    "note": "App launcher: eager flags, lazy bootstrap, Cobra commands, signal/termination hook and propagated command errors."
+  },
+  {
+    "path": "cmd/serve.go",
+    "status": "read",
+    "note": "Domain arguments enable HTTP80/HTTPS443 and certificate domains; loopback8090 otherwise; origins configurable."
+  },
+  {
+    "path": "examples/base/main.go",
+    "status": "read",
+    "note": "Release executable registers JS hooks/migrations, automigration, self-update and pb_public SPA fallback."
+  },
+  {
+    "path": ".github/workflows/release.yaml",
+    "status": "read",
+    "note": "Source/UI build and tests before GoReleaser; tagged release vs non-tag snapshot; JS type rebuild intentionally disabled."
+  },
+  {
+    "path": ".goreleaser.yaml",
+    "status": "read",
+    "note": "CGO-free release matrix, stripped versioned executable, zip with license/changelog, checksum and draft release."
+  },
+  {
+    "path": "Makefile",
+    "status": "read",
+    "note": "Lint/test/coverage and JS type-generation developer commands."
+  },
+  {
+    "path": "modernc_versions_check.go",
+    "status": "read",
+    "note": "Bootstrap diagnostic checks compiled SQLite/libc versions without blocking startup."
+  },
+  {
+    "path": "go.mod",
+    "status": "read",
+    "note": "Go1.27 baseline and direct Goja, SQLite, imaging, OAuth, validation, Cobra dependencies."
+  },
+  {
+    "path": "golangci.yml",
+    "status": "read",
+    "note": "Explicit static-analysis/formatter configuration and test preallocation exclusion."
+  },
+  {
+    "path": ".gitignore",
+    "status": "read",
+    "note": "Development/build/coverage/generated documentation exclusions."
+  },
+  {
+    "path": "examples/base/.gitignore",
+    "status": "read",
+    "note": "Only example main.go and ignore file tracked in executable directory."
+  },
+  {
+    "path": "LICENSE.md",
+    "status": "read",
+    "note": "MIT source distribution terms; upstream retained in ignored checkout rather than copied into PgBase product."
+  },
+  {
+    "path": "CONTRIBUTING.md",
+    "status": "read",
+    "note": "Build/run/test/UI workflow and upstream contribution policy; no upstream submission performed."
+  },
+  {
+    "path": "README.md",
+    "status": "read",
+    "note": "Standalone/framework entry points, supported build targets, SDK repositories, UI embed and lifecycle framing."
+  },
+  {
+    "path": "CHANGELOG.md",
+    "status": "read",
+    "note": "v0.40 lifecycle error propagation, log deletion/limits, filesystem hooks, nonblocking backups, JSONv2 compatibility; v0.40.3 regressions."
+  },
+  {
+    "path": ".github/SECURITY.md",
+    "status": "read",
+    "note": "Project-documented operating tradeoffs, transaction/record behavior and trusted-code JSVM scope, read as contextual documentation."
+  },
+  {
+    "path": "cmd/superuser.go",
+    "status": "read",
+    "note": "Superuser create/update/upsert/delete, OTP issuance and IP allowlist commands with configured record validation."
+  },
+  {
+    "path": "cmd/superuser_test.go",
+    "status": "read",
+    "note": "Input/duplicate/password/account existence checks and persisted OTP/IP settings assertions."
+  },
+  {
+    "path": "pocketbase_test.go",
+    "status": "read",
+    "note": "Launcher config vs flags precedence, initialized App/RootCmd, bootstrap skip with help/version/custom flags."
+  },
+  {
+    "path": "plugins/ghupdate/ghupdate.go",
+    "status": "read",
+    "note": "Latest GitHub release download, platform suffix selection, executable swap/revert and optional data backup; Docker/Nix prompt."
+  },
+  {
+    "path": "plugins/ghupdate/ghupdate_test.go",
+    "status": "read",
+    "note": "Version comparison table including component padding and numeric ordering."
+  },
+  {
+    "path": "plugins/ghupdate/release.go",
+    "status": "read",
+    "note": "Release/asset DTO and first suffix-matching download selection."
+  },
+  {
+    "path": "plugins/ghupdate/release_test.go",
+    "status": "read",
+    "note": "Suffix match returns first matching asset."
+  },
+  {
+    "path": "plugins/jsvm/pool.go",
+    "status": "read",
+    "note": "Prewarmed VM pool borrows free runtime or creates one-off overflow VM; size is not concurrency cap."
+  },
+  {
+    "path": "plugins/jsvm/mapper.go",
+    "status": "read",
+    "note": "Go-to-JS field/method case mapping, acronym and OAuth2 special-case."
+  },
+  {
+    "path": "plugins/jsvm/mapper_test.go",
+    "status": "read",
+    "note": "Mapping fixture cases cover mixed case, all caps, acronyms and digits."
+  },
+  {
+    "path": "plugins/jsvm/form_data.go",
+    "status": "read",
+    "note": "Repeated FormData entries and conversion of filesystem.File/string values to multipart body."
+  },
+  {
+    "path": "plugins/jsvm/form_data_test.go",
+    "status": "read",
+    "note": "Append/set/delete/get/has/keys/values/entries and multipart content semantics."
+  },
+  {
+    "path": "plugins/jsvm/jsvm.go",
+    "status": "read",
+    "note": "JS hooks/migrations bindings, shared require/template registry, loader/executor split, file watcher restart and embedded declaration refresh."
+  },
+  {
+    "path": "plugins/jsvm/binds.go",
+    "status": "read",
+    "note": "Full 1273 lines: scoped App hooks, custom routes/middleware, cron, 41 constructors, DBx/mail/filesystem/OS/HTTP bindings and exception extraction."
+  },
+  {
+    "path": "plugins/jsvm/binds_app_reset_test.go",
+    "status": "read",
+    "note": "Full 314 lines: pooled runtime App reset across hooks, route handler and both middleware forms."
+  },
+  {
+    "path": "plugins/jsvm/binds_test.go",
+    "status": "read",
+    "note": "Full 1870 lines: binding counts, conversion/nullable DynamicModel, HTTP/FormData, hook/route error chains and Promise limitations."
+  },
+  {
+    "path": "plugins/migratecmd/migratecmd.go",
+    "status": "read",
+    "note": "CLI up/down/create/collections/history-sync; snapshot and migration filename writing."
+  },
+  {
+    "path": "plugins/migratecmd/automigrate.go",
+    "status": "read",
+    "note": "Collection request hooks generate schema up/down changes; excludes OAuth provider secrets and separates migration registration transaction."
+  },
+  {
+    "path": "plugins/migratecmd/templates.go",
+    "status": "read",
+    "note": "Full JS/Go migration template generator: create/delete/snapshot, stable-ID field diffs, metadata exclusions and escaping."
+  },
+  {
+    "path": "plugins/migratecmd/migratecmd_test.go",
+    "status": "read",
+    "note": "Full 1369 lines: JS/Go golden create/delete/update templates, secret omission and no-op edits."
+  },
+  {
+    "path": "plugins/jsvm/internal/types/types.go",
+    "status": "read",
+    "note": "Full 1403 handwritten generator lines: binding TS docs, tygoja package/type mappings, reflected hook signatures and timestamped generated output."
+  },
+  {
+    "path": "plugins/jsvm/internal/types/generated/embed.go",
+    "status": "read",
+    "note": "Embed generated TypeScript definitions for distribution."
+  },
+  {
+    "path": "tests/app.go",
+    "status": "read",
+    "note": "Full 902 lines: cloned SQLite fixture app, migrations/bootstrap, mutex event counters, hooks and test mailer, recursive cleanup."
+  },
+  {
+    "path": "tests/api.go",
+    "status": "read",
+    "note": "Scenario harness: request execution, response inclusion/exclusion checks, hook count invariants, timeout, benchmark and cleanup."
+  },
+  {
+    "path": "tests/dynamic_stubs.go",
+    "status": "read",
+    "note": "Deterministic OTP/MFA identities with relative dates; auxiliary log seed data."
+  },
+  {
+    "path": "tests/mailer.go",
+    "status": "read",
+    "note": "Mutex protected mock message collection with shallow copy accessors."
+  },
+  {
+    "path": "tests/request.go",
+    "status": "read",
+    "note": "Multipart fixture builder with temporary files and deferred cleanup."
+  },
+  {
+    "path": "tests/validation_errors.go",
+    "status": "read",
+    "note": "Exact validation error key count and membership assertions."
+  },
+  {
+    "path": "tests/data/.gitignore",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/auxiliary.db",
+    "status": "inspected_artifact",
+    "note": "SQLite fixture table/view/index names inspected with readonly connection"
+  },
+  {
+    "path": "tests/data/data.db",
+    "status": "inspected_artifact",
+    "note": "SQLite fixture table/view/index names inspected with readonly connection"
+  },
+  {
+    "path": "tests/data/lost+found/test.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/la4y2w4o98acwuj/300_uh_lkx91_hvb_Da8K5pl069.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/la4y2w4o98acwuj/300_uh_lkx91_hvb_Da8K5pl069.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/la4y2w4o98acwuj/thumbs_300_uh_lkx91_hvb_Da8K5pl069.png/100x100_300_uh_lkx91_hvb_Da8K5pl069.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/la4y2w4o98acwuj/thumbs_300_uh_lkx91_hvb_Da8K5pl069.png/100x100_300_uh_lkx91_hvb_Da8K5pl069.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/qjeql998mtp1azp/logo_vcf_jjg5_tah_9MtIHytOmZ.svg",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/9n89pl5vkct6330/qjeql998mtp1azp/logo_vcf_jjg5_tah_9MtIHytOmZ.svg.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/0x50_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/0x50_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/100x100_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/100x100_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x0_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x0_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50b_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50b_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50f_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50f_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50t_300_1SEi6Q6U72.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/4q1xlclmfloku33/thumbs_300_1SEi6Q6U72.png/70x50t_300_1SEi6Q6U72.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/oap640cot4yru2s/test_kfd2wYLxkz.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/_pb_users_auth_/oap640cot4yru2s/test_kfd2wYLxkz.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/300_WlbFWSGmW9.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/300_WlbFWSGmW9.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/logo_vcfJJG5TAh.svg",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/logo_vcfJJG5TAh.svg.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_MaWC6mWyrP.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_MaWC6mWyrP.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_QZFjKjXchk.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_QZFjKjXchk.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_d61b33QdDU.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_d61b33QdDU.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_tC1Yc87DfC.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/test_tC1Yc87DfC.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/thumbs_300_WlbFWSGmW9.png/100x100_300_WlbFWSGmW9.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/84nmscqy84lsi1t/thumbs_300_WlbFWSGmW9.png/100x100_300_WlbFWSGmW9.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/al1h9ijdeojtsjy/300_Jsjq7RdBgA.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/al1h9ijdeojtsjy/300_Jsjq7RdBgA.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/al1h9ijdeojtsjy/thumbs_300_Jsjq7RdBgA.png/100x100_300_Jsjq7RdBgA.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wsmn24bux7wo113/al1h9ijdeojtsjy/thumbs_300_Jsjq7RdBgA.png/100x100_300_Jsjq7RdBgA.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/7nwo8tuiatetxdm/test_JnXeKEwgwr.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/7nwo8tuiatetxdm/test_JnXeKEwgwr.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/300_UhLKX91HVb.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/300_UhLKX91HVb.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/test_FLurQTgrY8.txt",
+    "status": "read",
+    "note": "Full text fixture content read: ignore patterns, test text or SVG logo"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/test_FLurQTgrY8.txt.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/thumbs_300_UhLKX91HVb.png/100x100_300_UhLKX91HVb.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/lcl9d87w22ml6jy/thumbs_300_UhLKX91HVb.png/100x100_300_UhLKX91HVb.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/mk5fmymtx4wsprk/300_JdfBOieXAW.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/mk5fmymtx4wsprk/300_JdfBOieXAW.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/mk5fmymtx4wsprk/thumbs_300_JdfBOieXAW.png/100x100_300_JdfBOieXAW.png",
+    "status": "inspected_artifact",
+    "note": "PNG header dimensions and byte size inspected; fixture payload not source code"
+  },
+  {
+    "path": "tests/data/storage/wzlqyes4orhoygb/mk5fmymtx4wsprk/thumbs_300_JdfBOieXAW.png/100x100_300_JdfBOieXAW.png.attrs",
+    "status": "read",
+    "note": "File metadata fixture: content type, original filename and digest"
+  },
+  {
+    "path": "CHANGELOG_08_15.md",
+    "status": "inspected_reference",
+    "note": "Historical release-note version headings indexed. Not executable source; historical prose not read end-to-end and not counted as read."
+  },
+  {
+    "path": "CHANGELOG_16_22.md",
+    "status": "inspected_reference",
+    "note": "Historical release-note version headings indexed. Not executable source; historical prose not read end-to-end and not counted as read."
+  },
+  {
+    "path": "CHANGELOG_23_39.md",
+    "status": "inspected_reference",
+    "note": "Historical release-note version headings indexed. Not executable source; historical prose not read end-to-end and not counted as read."
+  },
+  {
+    "path": "go.sum",
+    "status": "inspected_artifact",
+    "note": "Dependency checksum metadata indexed by module; dependency declarations read in go.mod. Checksums not treated as handwritten source."
+  },
+  {
+    "path": "plugins/jsvm/internal/types/generated/types.d.ts",
+    "status": "inspected_artifact",
+    "note": "Generated header/size inspected and traced to fully read handwritten types.go generator and Go bindings. Generated 24820 lines not claimed as full-text reviewed."
+  }
+]

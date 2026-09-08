@@ -1,0 +1,927 @@
+[
+  {
+    "path": "tools/archive/create.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/archive/create_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/archive/extract.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/archive/extract_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/auth/apple.go",
+    "status": "read",
+    "note": "Uses Apple PKCE and id_token claims; validates temporal/issuer/audience claims plus remote JWK signature before accepting verified email."
+  },
+  {
+    "path": "tools/auth/auth.go",
+    "status": "read",
+    "note": "Defines 32-provider registry/factory contract and AuthUser fields including raw profile, OAuth tokens, expiry, and verified-email result."
+  },
+  {
+    "path": "tools/auth/auth_test.go",
+    "status": "read",
+    "note": "Checks every registered provider factory, concrete provider type, name, and default ordering."
+  },
+  {
+    "path": "tools/auth/base_provider.go",
+    "status": "read",
+    "note": "Implements shared OAuth2 config/exchange/client/user-info GET flow, mutable provider settings, shallow Extra clone, and raw non-2xx response errors."
+  },
+  {
+    "path": "tools/auth/base_provider_test.go",
+    "status": "read",
+    "note": "Exercises provider setters/getters, config construction, authorization URL, context/client replacement, scopes, PKCE, and Extra shallow-copy behavior."
+  },
+  {
+    "path": "tools/auth/bitbucket.go",
+    "status": "read",
+    "note": "Implements the bitbucket OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/box.go",
+    "status": "read",
+    "note": "Implements the box OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/discord.go",
+    "status": "read",
+    "note": "Implements the discord OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/facebook.go",
+    "status": "read",
+    "note": "Implements the facebook OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/gitea.go",
+    "status": "read",
+    "note": "Implements the gitea OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/gitee.go",
+    "status": "read",
+    "note": "Implements the gitee OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/github.go",
+    "status": "read",
+    "note": "Implements the github OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/gitlab.go",
+    "status": "read",
+    "note": "Implements the gitlab OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/google.go",
+    "status": "read",
+    "note": "Implements the google OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/instagram.go",
+    "status": "read",
+    "note": "Implements the instagram OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/internal/jwk/jwk.go",
+    "status": "read",
+    "note": "Reconstructs RSA or Ed25519 public keys, fetches matching non-empty-alg JWK, and validates JWT signature using the advertised algorithm."
+  },
+  {
+    "path": "tools/auth/internal/jwk/jwk_test.go",
+    "status": "read",
+    "note": "Covers RSA/Ed25519 key reconstruction errors, JWK fetch status/matching, and valid/invalid signed token cases."
+  },
+  {
+    "path": "tools/auth/kakao.go",
+    "status": "read",
+    "note": "Implements the kakao OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/lark.go",
+    "status": "read",
+    "note": "Implements the lark OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/linear.go",
+    "status": "read",
+    "note": "Implements the linear OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/livechat.go",
+    "status": "read",
+    "note": "Implements the livechat OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/mailcow.go",
+    "status": "read",
+    "note": "Implements the mailcow OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/microsoft.go",
+    "status": "read",
+    "note": "Implements the microsoft OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/monday.go",
+    "status": "read",
+    "note": "Implements the monday OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/notion.go",
+    "status": "read",
+    "note": "Implements the notion OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/oidc.go",
+    "status": "read",
+    "note": "Implements the oidc OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/patreon.go",
+    "status": "read",
+    "note": "Implements the patreon OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/planningcenter.go",
+    "status": "read",
+    "note": "Implements the planningcenter OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/spotify.go",
+    "status": "read",
+    "note": "Implements the spotify OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/strava.go",
+    "status": "read",
+    "note": "Implements the strava OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/trakt.go",
+    "status": "read",
+    "note": "Implements the trakt OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/twitch.go",
+    "status": "read",
+    "note": "Implements the twitch OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/twitter.go",
+    "status": "read",
+    "note": "Implements the twitter OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/vk.go",
+    "status": "read",
+    "note": "Implements the vk OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/wakatime.go",
+    "status": "read",
+    "note": "Implements the wakatime OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/auth/yandex.go",
+    "status": "read",
+    "note": "Implements the yandex OAuth provider defaults and profile mapping, including provider-specific account, verified-email, avatar, and token-expiry handling."
+  },
+  {
+    "path": "tools/cron/cron.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/cron/cron_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/cron/job.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/cron/job_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/cron/schedule.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/cron/schedule_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/index.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/index_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/json.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/json_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/select.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/dbutils/select_test.go",
+    "status": "indexed",
+    "note": "Pending model-visible full-text review."
+  },
+  {
+    "path": "tools/filesystem/blob/bucket.go",
+    "status": "read",
+    "note": "Portable bucket facade: bounded pages and iterators, attributes/exists, range readers, metadata-normalizing writers, copy/delete/close, MD5 verification, and normalized errors."
+  },
+  {
+    "path": "tools/filesystem/blob/driver.go",
+    "status": "read",
+    "note": "Defines storage driver contracts for attributes, lexicographic pagination, ranged reads, typed writes, copy/delete, close, and error normalization."
+  },
+  {
+    "path": "tools/filesystem/blob/hex.go",
+    "status": "read",
+    "note": "Implements reversible rune-based __0x...__ key escaping with graceful handling of malformed escape sequences."
+  },
+  {
+    "path": "tools/filesystem/blob/reader.go",
+    "status": "read",
+    "note": "Implements ranged ReadSeekCloser with lazy reader recreation after seek, bounded range semantics, attributes, and copy fast paths."
+  },
+  {
+    "path": "tools/filesystem/blob/writer.go",
+    "status": "read",
+    "note": "Buffers at most 512 bytes for MIME sniffing, supports streamed writes/copy fast paths, and aborts on supplied MD5 mismatch."
+  },
+  {
+    "path": "tools/filesystem/file.go",
+    "status": "read",
+    "note": "Builds upload File values from path/bytes/multipart/URL and normalizes randomized names, double extensions, lengths, and detected extensions."
+  },
+  {
+    "path": "tools/filesystem/file_test.go",
+    "status": "read",
+    "note": "Covers every File source, URL cancellation/status behavior, empty-byte rejection, metadata map, and filename/extension normalization edge cases."
+  },
+  {
+    "path": "tools/filesystem/filesystem.go",
+    "status": "read",
+    "note": "Provides local/S3 storage, hooks, upload/copy/list/delete-prefix, HTTP conditional/range serving, and WxH crop/fit/top/bottom thumbnail generation."
+  },
+  {
+    "path": "tools/filesystem/filesystem_test.go",
+    "status": "read",
+    "note": "Exercises local file lifecycle, hooks, prefix deletion, inline/attachment and MIME headers, single/multi-range responses, reupload, and all thumbnail modes/formats."
+  },
+  {
+    "path": "tools/filesystem/internal/fileblob/attrs.go",
+    "status": "read",
+    "note": "Stores local object metadata in JSON .attrs sidecars and defaults absent metadata to application/octet-stream."
+  },
+  {
+    "path": "tools/filesystem/internal/fileblob/fileblob.go",
+    "status": "read",
+    "note": "Local blob driver recursively pages escaped UTF-8 keys, stores optional metadata sidecars, range-reads files, and atomically publishes temp writes after context and metadata checks."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/copy_object.go",
+    "status": "read",
+    "note": "Issues signed same-bucket CopyObject requests with URL-encoded x-amz-copy-source and decodes XML results."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/copy_object_test.go",
+    "status": "read",
+    "note": "Verifies encoded copy source, SigV4 header, custom headers, ETag, and LastModified decoding."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/delete_object.go",
+    "status": "read",
+    "note": "Issues signed DELETE object requests with optional request mutation."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/delete_object_test.go",
+    "status": "read",
+    "note": "Verifies DELETE URL, optional header, and signature presence."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/error.go",
+    "status": "read",
+    "note": "Defines serialized S3 ResponseError with status/code/message/request/resource and optional raw response text."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/error_test.go",
+    "status": "read",
+    "note": "Covers XML/JSON ResponseError serialization and all Error string variants."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/get_object.go",
+    "status": "read",
+    "note": "Streams signed GET object bodies and loads response metadata through HeadObjectResponse."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/get_object_test.go",
+    "status": "read",
+    "note": "Verifies GET signing, body streaming, headers, normalized metadata, times, lengths, and deterministic serialization."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/head_object.go",
+    "status": "read",
+    "note": "Issues signed HEAD and maps object headers, metadata, ETag, length, range, and modification time."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/head_object_test.go",
+    "status": "read",
+    "note": "Verifies HEAD signing and full response-header/metadata mapping."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/list_objects.go",
+    "status": "read",
+    "note": "Encodes ListObjectsV2 pagination/filter parameters and decodes object, owner, restore, prefix, and continuation XML."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/list_objects_test.go",
+    "status": "read",
+    "note": "Covers exact query encoding and complete ListObjectsV2 XML-to-JSON mapping."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/s3.go",
+    "status": "read",
+    "note": "Builds path/virtual-host S3 URLs, AWS-escapes paths/queries, signs canonical SigV4 requests, and normalizes error responses."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/s3_escape_test.go",
+    "status": "read",
+    "note": "Checks AWS byte escaping for paths and sorted query values including reserved characters."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/s3_test.go",
+    "status": "read",
+    "note": "Covers URL styles/schemes and deterministic SigV4 headers/signatures across credentials, special paths, and custom headers."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/tests/client.go",
+    "status": "read",
+    "note": "Thread-safe HTTP stub client matches method/URL/headers and reports unmatched or unconsumed requests with bodies."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/tests/headers.go",
+    "status": "read",
+    "note": "Test helper compares literal or anchored-regex header expectations."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/uploader.go",
+    "status": "read",
+    "note": "One-shot uploader chooses single PUT or bounded-concurrency multipart upload, sorts completion parts, and aborts multipart work on upload or completion errors."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3/uploader_test.go",
+    "status": "read",
+    "note": "Covers required fields, single PUT metadata, multipart concurrency/defaults, ordered completion XML, part failure abort, and completion failure abort."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3blob.go",
+    "status": "read",
+    "note": "S3 blob driver maps pagination, metadata escaping, ranges including zero length, streaming pipe uploads, copy/delete, error normalization, ETag MD5, and key escaping."
+  },
+  {
+    "path": "tools/filesystem/internal/s3blob/s3blob_test.go",
+    "status": "read",
+    "note": "Covers configuration, not-found normalization, escaped copy/delete/list, attributes metadata, range headers and sizes, typed writer headers and empty/write behavior."
+  },
+  {
+    "path": "tools/hook/event.go",
+    "status": "read",
+    "note": "Defines reusable chain event whose Next advances the current handler continuation."
+  },
+  {
+    "path": "tools/hook/event_test.go",
+    "status": "read",
+    "note": "Verifies unset and repeatedly invoked event continuation behavior."
+  },
+  {
+    "path": "tools/hook/hook.go",
+    "status": "read",
+    "note": "Concurrency-safe generic middleware chain supports generated/replaced IDs, stable priority ordering, unbind, snapshots, one-off handlers, and explicit Next control."
+  },
+  {
+    "path": "tools/hook/hook_test.go",
+    "status": "read",
+    "note": "Covers priority/order, replacement, chain short-circuit, unbind/all, length, and returned error behavior."
+  },
+  {
+    "path": "tools/hook/tagged.go",
+    "status": "read",
+    "note": "Wraps a base hook to run handlers only when any configured tag matches while preserving chain continuation."
+  },
+  {
+    "path": "tools/hook/tagged_test.go",
+    "status": "read",
+    "note": "Verifies match-all and overlapping tag proxies share one priority-ordered base chain."
+  },
+  {
+    "path": "tools/inflector/inflector.go",
+    "status": "read",
+    "note": "Implements casing, DB identifier cleanup, sentence normalization, and cached rule-based singularization."
+  },
+  {
+    "path": "tools/inflector/inflector_test.go",
+    "status": "read",
+    "note": "Covers capitalization, identifier cleanup, sentence normalization, casing conversion, and irregular singularization."
+  },
+  {
+    "path": "tools/inflector/singularize.go",
+    "status": "read",
+    "note": "Implements casing, DB identifier cleanup, sentence normalization, and cached rule-based singularization."
+  },
+  {
+    "path": "tools/inflector/singularize_test.go",
+    "status": "read",
+    "note": "Covers capitalization, identifier cleanup, sentence normalization, casing conversion, and irregular singularization."
+  },
+  {
+    "path": "tools/list/list.go",
+    "status": "read",
+    "note": "Provides slice membership/subtraction, bounded regex caching, stable unique string coercion, and chunking."
+  },
+  {
+    "path": "tools/list/list_test.go",
+    "status": "read",
+    "note": "Covers subtraction, membership and anchored regex matching, unique coercion, and chunk boundaries."
+  },
+  {
+    "path": "tools/logger/batch_handler.go",
+    "status": "read",
+    "note": "Implements a concurrency-safe slog batch handler with grouped attributes, filtering, threshold/manual flush, and structured error normalization."
+  },
+  {
+    "path": "tools/logger/batch_handler_test.go",
+    "status": "read",
+    "note": "Covers defaults, level filtering, nested attributes, error serialization, filtering, and flushing."
+  },
+  {
+    "path": "tools/logger/log.go",
+    "status": "read",
+    "note": "Implements a concurrency-safe slog batch handler with grouped attributes, filtering, threshold/manual flush, and structured error normalization."
+  },
+  {
+    "path": "tools/mailer/html2text.go",
+    "status": "read",
+    "note": "Defines rich messages and hooks plus sendmail and SMTP/TLS delivery with attachments, headers, and text fallback."
+  },
+  {
+    "path": "tools/mailer/html2text_test.go",
+    "status": "read",
+    "note": "Covers HTML-to-text conversion, addresses, MIME sniff preservation, and LOGIN authentication safety."
+  },
+  {
+    "path": "tools/mailer/mailer.go",
+    "status": "read",
+    "note": "Defines rich messages and hooks plus sendmail and SMTP/TLS delivery with attachments, headers, and text fallback."
+  },
+  {
+    "path": "tools/mailer/mailer_test.go",
+    "status": "read",
+    "note": "Covers HTML-to-text conversion, addresses, MIME sniff preservation, and LOGIN authentication safety."
+  },
+  {
+    "path": "tools/mailer/sendmail.go",
+    "status": "read",
+    "note": "Defines rich messages and hooks plus sendmail and SMTP/TLS delivery with attachments, headers, and text fallback."
+  },
+  {
+    "path": "tools/mailer/smtp.go",
+    "status": "read",
+    "note": "Defines rich messages and hooks plus sendmail and SMTP/TLS delivery with attachments, headers, and text fallback."
+  },
+  {
+    "path": "tools/mailer/smtp_test.go",
+    "status": "read",
+    "note": "Covers HTML-to-text conversion, addresses, MIME sniff preservation, and LOGIN authentication safety."
+  },
+  {
+    "path": "tools/osutils/cmd.go",
+    "status": "read",
+    "note": "Provides validated browser launching, prompts, rollback-aware directory moves, and go-run detection."
+  },
+  {
+    "path": "tools/osutils/cmd_test.go",
+    "status": "read",
+    "note": "Covers yes/no parsing, directory moves and exclusions, and go-run path heuristics."
+  },
+  {
+    "path": "tools/osutils/dir.go",
+    "status": "read",
+    "note": "Provides validated browser launching, prompts, rollback-aware directory moves, and go-run detection."
+  },
+  {
+    "path": "tools/osutils/dir_test.go",
+    "status": "read",
+    "note": "Covers yes/no parsing, directory moves and exclusions, and go-run path heuristics."
+  },
+  {
+    "path": "tools/osutils/run.go",
+    "status": "read",
+    "note": "Provides validated browser launching, prompts, rollback-aware directory moves, and go-run detection."
+  },
+  {
+    "path": "tools/osutils/run_test.go",
+    "status": "read",
+    "note": "Covers yes/no parsing, directory moves and exclusions, and go-run path heuristics."
+  },
+  {
+    "path": "tools/picker/excerpt_modifier.go",
+    "status": "read",
+    "note": "Projects JSON-compatible values by nested/wildcard field expressions with registered modifiers and HTML-stripping excerpts."
+  },
+  {
+    "path": "tools/picker/excerpt_modifier_test.go",
+    "status": "read",
+    "note": "Covers nested and wildcard projection, modifiers, search results, invalid UTF-8, and Unicode excerpts."
+  },
+  {
+    "path": "tools/picker/modifiers.go",
+    "status": "read",
+    "note": "Projects JSON-compatible values by nested/wildcard field expressions with registered modifiers and HTML-stripping excerpts."
+  },
+  {
+    "path": "tools/picker/pick.go",
+    "status": "read",
+    "note": "Projects JSON-compatible values by nested/wildcard field expressions with registered modifiers and HTML-stripping excerpts."
+  },
+  {
+    "path": "tools/picker/pick_test.go",
+    "status": "read",
+    "note": "Covers nested and wildcard projection, modifiers, search results, invalid UTF-8, and Unicode excerpts."
+  },
+  {
+    "path": "tools/router/buffer_with_file.go",
+    "status": "read",
+    "note": "Hybrid rewind buffer keeps an in-memory prefix, spills overflow to a temp file, and closes/removes disk state safely."
+  },
+  {
+    "path": "tools/router/buffer_with_file_test.go",
+    "status": "read",
+    "note": "Covers memory-only and spill-to-file reads, seeks, writes, default thresholds, repeated close, and temp-file cleanup."
+  },
+  {
+    "path": "tools/router/error.go",
+    "status": "read",
+    "note": "Defines normalized API errors, recursive validation-error mapping, default status messages, and JSON marshaling behavior."
+  },
+  {
+    "path": "tools/router/error_test.go",
+    "status": "read",
+    "note": "Exercises API error construction, wrapped-status selection, validation nesting, custom marshalers, and deterministic JSON output."
+  },
+  {
+    "path": "tools/router/event.go",
+    "status": "read",
+    "note": "Implements request helpers, response formats, fields projection, multipart uploads, body binding, redirects/files, and typed API-error shortcuts."
+  },
+  {
+    "path": "tools/router/event_test.go",
+    "status": "read",
+    "note": "Covers response tracking and formats, fields picking, uploads, static files, remote IP/TLS/cookies, API errors, and JSON/XML/form/multipart binding."
+  },
+  {
+    "path": "tools/router/group.go",
+    "status": "read",
+    "note": "Builds nested route groups with HTTP aliases, inherited middleware bind/unbind exclusions, prefixes, and wildcard-aware route detection."
+  },
+  {
+    "path": "tools/router/group_test.go",
+    "status": "read",
+    "note": "Verifies nested group registration, middleware ordering/removal, route aliases/actions, and exact versus trailing-wildcard HasRoute matching."
+  },
+  {
+    "path": "tools/router/rereadable_read_closer.go",
+    "status": "read",
+    "note": "Wraps request bodies for repeated reads by copying to the hybrid buffer, rotating readers at EOF, and joining close errors."
+  },
+  {
+    "path": "tools/router/rereadable_read_closer_test.go",
+    "status": "read",
+    "note": "Repeats body reads across disk spill and manual rewind, then confirms every temporary file is removed on close."
+  },
+  {
+    "path": "tools/router/route.go",
+    "status": "read",
+    "note": "Defines per-route action, method/path, middleware binding, and named exclusions that suppress inherited handlers."
+  },
+  {
+    "path": "tools/router/route_test.go",
+    "status": "read",
+    "note": "Checks anonymous and named middleware order, re-binding exclusion removal, and selective unbinding while preserving anonymous handlers."
+  },
+  {
+    "path": "tools/router/router.go",
+    "status": "read",
+    "note": "Compiles groups into ServeMux patterns, creates replayable-body events, triggers hook chains, normalizes errors, and tracks/wraps response capabilities."
+  },
+  {
+    "path": "tools/router/router_test.go",
+    "status": "read",
+    "note": "Runs an HTTP server to verify method dispatch, fallback errors, cleanup, middleware sequence, HEAD behavior, path values, and hierarchical exclusions."
+  },
+  {
+    "path": "tools/router/unmarshal_request_data.go",
+    "status": "read",
+    "note": "Reflectively binds value maps into maps or structs, supports pointers/slices/TextUnmarshaler/nesting, merges @jsonPayload, and conservatively infers scalars."
+  },
+  {
+    "path": "tools/router/unmarshal_request_data_test.go",
+    "status": "read",
+    "note": "Covers scalar and pointer/slice binding across all primitives, time parsing, tags/prefixes/embedded structs, JSON overlay, invalid values, and unexported fields."
+  },
+  {
+    "path": "tools/routine/routine.go",
+    "status": "read",
+    "note": "Provides fire-and-forget goroutines with panic recovery and wrappers that convert panics to errors."
+  },
+  {
+    "path": "tools/routine/routine_test.go",
+    "status": "read",
+    "note": "Covers asynchronous panic recovery and panic-to-error conversion."
+  },
+  {
+    "path": "tools/search/filter.go",
+    "status": "read",
+    "note": "Parses cached fexpr filters into parameterized dbx SQL with null/empty semantics, LIKE escaping, macros/functions, expression caps, and multi-match subqueries."
+  },
+  {
+    "path": "tools/search/filter_test.go",
+    "status": "read",
+    "note": "Validates grammar failures, all comparison/LIKE/null cases, macros, geoDistance, safe replacements, expression limits, and wildcard escaping through executed SQL."
+  },
+  {
+    "path": "tools/search/identifier_macros.go",
+    "status": "read",
+    "note": "Implements UTC now/yesterday/tomorrow and clock/calendar boundary macros with PocketBase millisecond datetime formatting."
+  },
+  {
+    "path": "tools/search/identifier_macros_test.go",
+    "status": "read",
+    "note": "Pins time and verifies the exact value of all 16 registered temporal identifier macros."
+  },
+  {
+    "path": "tools/search/multi_match_subquery.go",
+    "status": "read",
+    "note": "Builds correlated SELECT expressions for multi-value matching, quoting tables/columns and merging join and local parameters."
+  },
+  {
+    "path": "tools/search/multi_match_subquery_test.go",
+    "status": "read",
+    "note": "Checks multi-match SQL with two joins and confirms external, join, and subquery parameters merge into the root map."
+  },
+  {
+    "path": "tools/search/provider.go",
+    "status": "read",
+    "note": "Parses page/perPage/sort/filter options, enforces length/count caps, applies resolver updates, and executes paged rows plus optional concurrent distinct counts."
+  },
+  {
+    "path": "tools/search/provider_test.go",
+    "status": "read",
+    "note": "Covers provider defaults/setters/parsing, query absence, pagination normalization, filters/sorts, skipTotal, SQL/result shapes, and configured limits."
+  },
+  {
+    "path": "tools/search/simple_field_resolver.go",
+    "status": "read",
+    "note": "Allows literal or regex-listed fields, quotes plain identifiers, and converts allowed dotted paths into SQLite JSON_EXTRACT expressions."
+  },
+  {
+    "path": "tools/search/simple_field_resolver_test.go",
+    "status": "read",
+    "note": "Verifies resolver query no-op behavior, allowlist and regex rejection, column normalization, and dotted JSON-path output."
+  },
+  {
+    "path": "tools/search/sort.go",
+    "status": "read",
+    "note": "Parses comma-separated signed sorts and resolves validated fields, plus SQLite RANDOM() and table-qualified _rowid_ special cases."
+  },
+  {
+    "path": "tools/search/sort_test.go",
+    "status": "read",
+    "note": "Covers invalid, allowed, ascending/descending, random and rowid sort expressions plus multi-field string parsing."
+  },
+  {
+    "path": "tools/search/token_functions.go",
+    "status": "read",
+    "note": "Defines geoDistance Haversine SQL and bounded strftime construction with strict token types, parameter conflict checks, null handling, and multi-match propagation."
+  },
+  {
+    "path": "tools/search/token_functions_test.go",
+    "status": "read",
+    "note": "Exercises geoDistance arity/types/numerics and rounding, plus strftime argument validation, ten-argument cap, resolver failures, and executed date output."
+  },
+  {
+    "path": "tools/security/crypto.go",
+    "status": "read",
+    "note": "Provides PKCE, hashes/HMACs, AES-256-GCM, HS256 JWTs, and cryptographic or pseudorandom string generation."
+  },
+  {
+    "path": "tools/security/crypto_test.go",
+    "status": "read",
+    "note": "Covers hash/HMAC vectors, AES-GCM, JWT validation, and random/regex generation."
+  },
+  {
+    "path": "tools/security/encrypt.go",
+    "status": "read",
+    "note": "Provides PKCE, hashes/HMACs, AES-256-GCM, HS256 JWTs, and cryptographic or pseudorandom string generation."
+  },
+  {
+    "path": "tools/security/encrypt_test.go",
+    "status": "read",
+    "note": "Covers hash/HMAC vectors, AES-GCM, JWT validation, and random/regex generation."
+  },
+  {
+    "path": "tools/security/jwt.go",
+    "status": "read",
+    "note": "Provides PKCE, hashes/HMACs, AES-256-GCM, HS256 JWTs, and cryptographic or pseudorandom string generation."
+  },
+  {
+    "path": "tools/security/jwt_test.go",
+    "status": "read",
+    "note": "Covers hash/HMAC vectors, AES-GCM, JWT validation, and random/regex generation."
+  },
+  {
+    "path": "tools/security/random.go",
+    "status": "read",
+    "note": "Provides PKCE, hashes/HMACs, AES-256-GCM, HS256 JWTs, and cryptographic or pseudorandom string generation."
+  },
+  {
+    "path": "tools/security/random_by_regex.go",
+    "status": "read",
+    "note": "Provides PKCE, hashes/HMACs, AES-256-GCM, HS256 JWTs, and cryptographic or pseudorandom string generation."
+  },
+  {
+    "path": "tools/security/random_by_regex_test.go",
+    "status": "read",
+    "note": "Covers hash/HMAC vectors, AES-GCM, JWT validation, and random/regex generation."
+  },
+  {
+    "path": "tools/security/random_test.go",
+    "status": "read",
+    "note": "Covers hash/HMAC vectors, AES-GCM, JWT validation, and random/regex generation."
+  },
+  {
+    "path": "tools/store/store.go",
+    "status": "read",
+    "note": "Implements a generic concurrency-safe map with shallow-copy reads, atomic callbacks/get-or-set, bounded insertion, JSON, and delete-triggered rebuilding."
+  },
+  {
+    "path": "tools/store/store_test.go",
+    "status": "read",
+    "note": "Covers shallow copies, accessors, atomic set operations, bounded insertion, JSON, and map rebuilding."
+  },
+  {
+    "path": "tools/subscriptions/broker.go",
+    "status": "read",
+    "note": "Implements subscription clients/broker state, normalized topic options, discard-safe channels, and SSE framing."
+  },
+  {
+    "path": "tools/subscriptions/broker_test.go",
+    "status": "read",
+    "note": "Covers registration/chunking, normalized options, prefixes, discard/send behavior, and SSE framing."
+  },
+  {
+    "path": "tools/subscriptions/client.go",
+    "status": "read",
+    "note": "Implements subscription clients/broker state, normalized topic options, discard-safe channels, and SSE framing."
+  },
+  {
+    "path": "tools/subscriptions/client_test.go",
+    "status": "read",
+    "note": "Covers registration/chunking, normalized options, prefixes, discard/send behavior, and SSE framing."
+  },
+  {
+    "path": "tools/subscriptions/message.go",
+    "status": "read",
+    "note": "Implements subscription clients/broker state, normalized topic options, discard-safe channels, and SSE framing."
+  },
+  {
+    "path": "tools/subscriptions/message_test.go",
+    "status": "read",
+    "note": "Covers registration/chunking, normalized options, prefixes, discard/send behavior, and SSE framing."
+  },
+  {
+    "path": "tools/template/registry.go",
+    "status": "read",
+    "note": "Caches html/template renderers from files, strings, or fs.FS with global functions including explicit raw HTML."
+  },
+  {
+    "path": "tools/template/registry_test.go",
+    "status": "read",
+    "note": "Covers caching from files/strings/fs.FS, custom/raw functions, parse and execution errors."
+  },
+  {
+    "path": "tools/template/renderer.go",
+    "status": "read",
+    "note": "Caches html/template renderers from files, strings, or fs.FS with global functions including explicit raw HTML."
+  },
+  {
+    "path": "tools/template/renderer_test.go",
+    "status": "read",
+    "note": "Covers caching from files/strings/fs.FS, custom/raw functions, parse and execution errors."
+  },
+  {
+    "path": "tools/tokenizer/tokenizer.go",
+    "status": "read",
+    "note": "Tokenizes readers with configurable separators while respecting quotes, escapes, and balanced parentheses."
+  },
+  {
+    "path": "tools/tokenizer/tokenizer_test.go",
+    "status": "read",
+    "note": "Covers separators, empties, quoting, escapes, parentheses, trimming, and scans."
+  },
+  {
+    "path": "tools/types/datetime.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/datetime_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  },
+  {
+    "path": "tools/types/geo_point.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/geo_point_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_array.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_array_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_map.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_map_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_raw.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/json_raw_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  },
+  {
+    "path": "tools/types/types.go",
+    "status": "read",
+    "note": "Defines SQL/JSON-safe UTC dates, geo points, deterministic JSON array/map/raw wrappers, and pointer helpers."
+  },
+  {
+    "path": "tools/types/types_test.go",
+    "status": "read",
+    "note": "Covers dates, geo points, JSON wrappers, SQL scan/value behavior, resets, and pointer helpers."
+  }
+]

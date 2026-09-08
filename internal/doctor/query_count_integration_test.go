@@ -32,7 +32,8 @@ import (
 // alongside statements that are likewise independent of catalog size.
 // Compound indexes add two fixed reads: metadata availability and all definitions.
 // Views add another fixed availability probe and bulk definition read.
-const doctorSnapshotQueryCeiling = 35
+// Field contracts add one fixed column-capability probe to support pre-v22 upgrades.
+const doctorSnapshotQueryCeiling = 36
 
 type doctorQueryTracer struct {
 	mu         sync.Mutex

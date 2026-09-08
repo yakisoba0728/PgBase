@@ -377,6 +377,13 @@ describe("HTTP adapter wire contract", () => {
     });
   });
 
+  it("normalizes a legacy null plan SQL list to an empty preview", async () => {
+    const mock = stub(session(), respond(200, `{"baseVersion":7,"checksum":"approved","definition":{"fields":[]},"sql":null}`));
+    const backend = await authenticated(mock);
+    const plan = await backend.schema.plan({ operation: "create", name: "posts", fields: [] });
+    expect(plan.sql).toEqual([]);
+  });
+
   it("re-reads the catalog only to separate a same-version conflict from a moved catalog", async () => {
     const mock = stub(
       session(),

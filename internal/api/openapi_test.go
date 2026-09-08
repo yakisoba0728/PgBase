@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/webisnoteasy/PgBase/internal/jobs"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/realtime"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/serviceauth"
@@ -22,6 +24,7 @@ import (
 // contract, not a claim to describe every dynamically configured record field.
 func TestOpenAPIRouteContract(t *testing.T) {
 	dependencies := Dependencies{
+		AuthAdministration: (*userauth.Service)(nil), Jobs: (*jobs.Service)(nil), RequestLog: &observability.RequestLog{},
 		UserAuth: (*userauth.Service)(nil), EmailActions: (*userauth.Service)(nil), AuthFactors: (*userauth.Service)(nil), AuthCollections: (*userauth.Service)(nil),
 		RecordAccess: &struct{ RecordAccess }{}, RecordRules: (*recordaccess.RuleService)(nil), ServiceTokens: (*serviceauth.Service)(nil), Files: (*filestore.Service)(nil), Realtime: (*realtime.Service)(nil),
 		MaximumFileUploadBytes: 100 << 20, MetricsExposition: http.NotFoundHandler(),

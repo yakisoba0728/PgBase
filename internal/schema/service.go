@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
@@ -262,13 +263,19 @@ func validateCatalogIntegrity(catalog Catalog) error {
 	for _, collection := range catalog.Collections {
 		fieldNames := make(map[string]bool, len(collection.Fields))
 		for ordinal, field := range collection.Fields {
-			if field.ID == uuid.Nil || field.Ordinal != ordinal || field.Name != field.ColumnName || !isSupportedType(field.Type) ||
+			if field.ID == uuid.Nil || field.Ordinal != ordinal || !isSupportedType(field.Type) ||
 				fieldIDs[field.ID] || fieldNames[field.Name] {
 				return ErrConflict
 			}
 			fieldIDs[field.ID] = true
 			fieldNames[field.Name] = true
 			if err := validateName("", field.Name); err != nil {
+				return ErrConflict
+			}
+			if err := validateName("", field.ColumnName); err != nil {
+				return ErrConflict
+			}
+			if err := fieldvalue.ValidateDefinition(string(field.Type), fieldValueOptions(field.Options)); err != nil {
 				return ErrConflict
 			}
 			if field.Type == TypeFile {
@@ -303,7 +310,7 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			}
 			expectedStorageName := field.ColumnName
 			if field.Relation.Cardinality == RelationMultiple {
-				expectedStorageName = NewRelationPhysicalNames(collection.TableName, field.Name).MultiTable
+				expectedStorageName = NewRelationPhysicalNames(collection.TableName, field.ColumnName).MultiTable
 			}
 			if field.Relation.Storage.Name != expectedStorageName {
 				return ErrConflict
@@ -480,12 +487,24 @@ func newCollectionMetadata(definition PlannedCollection) (Collection, error) {
 
 func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition PlannedCollection) ([]Field, error) {
 	existingIDs := make(map[string]uuid.UUID, len(existing))
+	existingByID := make(map[uuid.UUID]Field, len(existing))
 	for _, field := range existing {
 		existingIDs[field.Name] = field.ID
+		existingByID[field.ID] = field
 	}
 	fields := make([]Field, 0, len(definition.Fields))
 	for ordinal, planned := range definition.Fields {
 		fieldID, ok := existingIDs[planned.Name]
+		columnName := planned.ColumnName
+		if planned.ID != uuid.Nil {
+			prior, exists := existingByID[planned.ID]
+			if !exists && len(existing) > 0 {
+				return nil, ErrConflict
+			}
+			if exists {
+				fieldID, ok, columnName = prior.ID, true, prior.ColumnName
+			}
+		}
 		if !ok {
 			var err error
 			fieldID, err = uuid.NewV7()
@@ -498,9 +517,9 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 			return nil, err
 		}
 		fields = append(fields, Field{
-			ID: fieldID, Name: planned.Name, ColumnName: planned.Name, Type: planned.Type,
+			ID: fieldID, Name: planned.Name, ColumnName: columnName, Type: planned.Type,
 			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
-			Default: append([]byte(nil), planned.Default...), Relation: relation, Ordinal: planned.Ordinal,
+			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Ordinal: planned.Ordinal,
 		})
 	}
 	return fields, nil

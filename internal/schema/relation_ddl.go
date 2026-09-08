@@ -22,10 +22,14 @@ func createSingleRelationStatements(sourceTable string, field PlannedField, addC
 	if relation == nil {
 		return nil
 	}
-	names := NewRelationPhysicalNames(sourceTable, field.Name)
+	physicalField := field.ColumnName
+	if physicalField == "" {
+		physicalField = field.Name
+	}
+	names := NewRelationPhysicalNames(sourceTable, physicalField)
 	source := pgx.Identifier{"app", sourceTable}.Sanitize()
 	target := pgx.Identifier{"app", relation.TargetCollection}.Sanitize()
-	column := pgx.Identifier{field.Name}.Sanitize()
+	column := pgx.Identifier{physicalField}.Sanitize()
 	statements := make([]string, 0, 3)
 	if addColumn {
 		definition := column + " uuid"
@@ -54,7 +58,11 @@ func createMultiRelationStatements(sourceTable string, field PlannedField) []str
 	if relation == nil {
 		return nil
 	}
-	names := NewRelationPhysicalNames(sourceTable, field.Name)
+	physicalField := field.ColumnName
+	if physicalField == "" {
+		physicalField = field.Name
+	}
+	names := NewRelationPhysicalNames(sourceTable, physicalField)
 	edge := pgx.Identifier{"pgbase_relation", names.MultiTable}.Sanitize()
 	source := pgx.Identifier{"app", sourceTable}.Sanitize()
 	target := pgx.Identifier{"app", relation.TargetCollection}.Sanitize()
@@ -79,12 +87,12 @@ func createMultiRelationStatements(sourceTable string, field PlannedField) []str
 		createTable,
 		"CREATE INDEX " + pgx.Identifier{names.MultiReverseIndex}.Sanitize() + " ON " + edge +
 			" (" + targetID + ", " + sourceID + ")",
-		positionFunctionStatement(sourceTable, field.Name),
+		positionFunctionStatement(sourceTable, physicalField),
 		"CREATE CONSTRAINT TRIGGER " + pgx.Identifier{names.PositionTrigger}.Sanitize() +
 			" AFTER INSERT OR UPDATE OR DELETE ON " + edge +
 			" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION " +
 			pgx.Identifier{"pgbase_relation", names.PositionFunction}.Sanitize() + "()",
-		cardinalityFunctionStatement(sourceTable, field.Name, relation.MinSelect, relation.MaxSelect, false),
+		cardinalityFunctionStatement(sourceTable, physicalField, relation.MinSelect, relation.MaxSelect, false),
 		"CREATE CONSTRAINT TRIGGER " + pgx.Identifier{names.SourceCardinalityTrigger}.Sanitize() +
 			" AFTER INSERT ON " + source +
 			" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION " +
@@ -204,9 +212,9 @@ func dropRelationFieldStatements(collection Collection, field Field) []string {
 		return nil
 	}
 	if field.Relation.Storage.Kind == RelationStorageEdgeTableV1 {
-		return dropMultiRelationStatements(collection.TableName, field.Name)
+		return dropMultiRelationStatements(collection.TableName, field.ColumnName)
 	}
-	names := NewRelationPhysicalNames(collection.TableName, field.Name)
+	names := NewRelationPhysicalNames(collection.TableName, field.ColumnName)
 	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
 	return []string{
 		"ALTER TABLE " + table + " DROP CONSTRAINT " + pgx.Identifier{names.SingleForeignKey}.Sanitize(),
@@ -246,7 +254,7 @@ func alterRelationFieldStatements(sourceTable string, ordinal int, previous, des
 	if after.Cardinality == RelationSingle {
 		statements := make([]string, 0, 3)
 		table := pgx.Identifier{"app", sourceTable}.Sanitize()
-		column := pgx.Identifier{desired.Name}.Sanitize()
+		column := pgx.Identifier{desired.ColumnName}.Sanitize()
 		if previous.Required != desired.Required {
 			action := "DROP NOT NULL"
 			if desired.Required {
@@ -255,7 +263,7 @@ func alterRelationFieldStatements(sourceTable string, ordinal int, previous, des
 			statements = append(statements, "ALTER TABLE "+table+" ALTER COLUMN "+column+" "+action)
 		}
 		if previous.Unique != desired.Unique {
-			names := NewRelationPhysicalNames(sourceTable, desired.Name)
+			names := NewRelationPhysicalNames(sourceTable, desired.ColumnName)
 			statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", names.SingleReverseIndex}.Sanitize())
 			prefix := "CREATE INDEX "
 			if desired.Unique {
@@ -270,8 +278,8 @@ func alterRelationFieldStatements(sourceTable string, ordinal int, previous, des
 		return nil, nil
 	}
 	return []string{
-		validateMultiBoundsStatement(sourceTable, desired.Name, after.MinSelect, after.MaxSelect),
-		cardinalityFunctionStatement(sourceTable, desired.Name, after.MinSelect, after.MaxSelect, true),
+		validateMultiBoundsStatement(sourceTable, desired.ColumnName, after.MinSelect, after.MaxSelect),
+		cardinalityFunctionStatement(sourceTable, desired.ColumnName, after.MinSelect, after.MaxSelect, true),
 	}, nil
 }
 
