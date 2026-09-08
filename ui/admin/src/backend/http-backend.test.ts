@@ -146,6 +146,38 @@ describe("HTTP adapter wire contract", () => {
     expect(expired).not.toHaveBeenCalled();
   });
 
+  it("announces session expiry when the users endpoint returns 401", async () => {
+    const mock = stub(session(), respond(401, envelope("authentication_required")));
+    const backend = await authenticated(mock);
+    const expired = vi.fn();
+    backend.session.onExpired(expired);
+
+    await expect(backend.users.list()).rejects.toBeDefined();
+
+    expect(expired).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a delayed users 401 after a fresh administrator login", async () => {
+    let answerOldRequest: (response: Response) => void = () => {};
+    const oldRequest = new Promise<Response>((resolve) => { answerOldRequest = resolve; });
+    const mock = vi.fn()
+      .mockResolvedValueOnce(session("csrf-old"))
+      .mockReturnValueOnce(oldRequest)
+      .mockResolvedValueOnce(session("csrf-fresh"));
+    vi.stubGlobal("fetch", mock);
+    const backend = httpBackend();
+    const expired = vi.fn();
+    backend.session.onExpired(expired);
+
+    await backend.session.login({ email: "admin@example.com", password: "first password" });
+    const staleRead = backend.users.list();
+    await backend.session.login({ email: "admin@example.com", password: "fresh password" });
+    answerOldRequest(respond(401, envelope("authentication_required")));
+
+    await expect(staleRead).rejects.toBeDefined();
+    expect(expired).not.toHaveBeenCalled();
+  });
+
   it("keeps the fresh CSRF token when an old logout finishes later", async () => {
     let answerOldLogout: (response: Response) => void = () => {};
     const oldLogout = new Promise<Response>((resolve) => { answerOldLogout = resolve; });
@@ -209,6 +241,68 @@ describe("HTTP adapter wire contract", () => {
     await backend.records.list("po sts", { cursor: "c1", filter: "title = 'x'", sort: "-created_at" });
 
     expect(mock.mock.calls[1][0]).toBe("/api/v1/collections/po%20sts/records?limit=50&cursor=c1&filter=title+%3D+%27x%27&sort=-created_at");
+  });
+
+  it("lists users with the bounded limit and after cursor", async () => {
+    const after = "55555555-5555-4555-8555-555555555555";
+    const body = `{"items":[],"nextAfter":"66666666-6666-4666-8666-666666666666"}`;
+    const mock = stub(session(), respond(200, body));
+    const backend = await authenticated(mock);
+
+    await expect(backend.users.list(after)).resolves.toEqual(JSON.parse(body));
+
+    expect(mock.mock.calls[1][0]).toBe(`/api/admin/users?limit=50&after=${after}`);
+    expect((mock.mock.calls[1][1] as RequestInit).method).toBeUndefined();
+  });
+
+  it("patches user active state with the exact body and CSRF token", async () => {
+    const id = "77777777-7777-4777-8777-777777777777";
+    const managed = { id, email: "user@example.test", active: false, createdAt: "created", updatedAt: "updated" };
+    const mock = stub(session(), respond(200, JSON.stringify(managed)));
+    const backend = await authenticated(mock);
+
+    await expect(backend.users.setActive(id, false)).resolves.toEqual(managed);
+
+    expect(mock.mock.calls[1][0]).toBe(`/api/admin/users/${id}`);
+    expect((mock.mock.calls[1][1] as RequestInit).method).toBe("PATCH");
+    expect((mock.mock.calls[1][1] as RequestInit).body).toBe(`{"active":false}`);
+    expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
+  });
+
+  it("posts user session revocation with CSRF and returns the revoked count", async () => {
+    const id = "88888888-8888-4888-8888-888888888888";
+    const mock = stub(session(), respond(200, `{"revokedSessions":3}`));
+    const backend = await authenticated(mock);
+
+    await expect(backend.users.revokeSessions(id)).resolves.toBe(3);
+
+    expect(mock.mock.calls[1][0]).toBe(`/api/admin/users/${id}/revoke-sessions`);
+    expect((mock.mock.calls[1][1] as RequestInit).method).toBe("POST");
+    expect((mock.mock.calls[1][1] as RequestInit).body).toBeUndefined();
+    expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
+  });
+
+  it("gets collection user access from the encoded collection path", async () => {
+    const mock = stub(session(), respond(200, `{"collection":"private notes","enabled":false}`));
+    const backend = await authenticated(mock);
+
+    await expect(backend.schema.userAccess("private notes")).resolves.toEqual({ collection: "private notes", enabled: false });
+
+    expect(mock.mock.calls[1][0]).toBe("/api/admin/collections/private%20notes/user-access");
+    expect((mock.mock.calls[1][1] as RequestInit).method).toBeUndefined();
+    expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBeNull();
+  });
+
+  it("puts collection user access with the exact body and CSRF token", async () => {
+    const mock = stub(session(), respond(200, `{"collection":"private notes","enabled":true}`));
+    const backend = await authenticated(mock);
+
+    await expect(backend.schema.setUserAccess("private notes", true)).resolves.toEqual({ collection: "private notes", enabled: true });
+
+    expect(mock.mock.calls[1][0]).toBe("/api/admin/collections/private%20notes/user-access");
+    expect((mock.mock.calls[1][1] as RequestInit).method).toBe("PUT");
+    expect((mock.mock.calls[1][1] as RequestInit).body).toBe(`{"enabled":true}`);
+    expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
   });
 
   it("sends idempotency, precondition and CSRF headers with the exact request body", async () => {

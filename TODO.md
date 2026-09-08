@@ -1,17 +1,17 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-08, v0.1.0 이후. 작업 브랜치: `codex/public-identity-owner-access`.
+기준: 2026-09-08, v0.1.0 이후. 현재 작업 브랜치: `codex/user-management-lifecycle`. M1은 PR #26 / `52af13d`에 병합 완료.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
 ## 현재 실행 보드
 
 | 작업 | 담당 | 상태 | 완료 기준 |
 | --- | --- | --- | --- |
-| M1-A 사용자 인증 | GPT 5.6 Sol / public_auth | 구현·단위·DB·검토 보완 완료 | 가입·로그인·Bearer 검증·로그아웃, 저장소/검증 테스트 |
-| M1-B 소유권 기반 데이터 접근 | GPT 5.6 Terra / owner_access | 구현·DB·잠금 회귀 완료 | A/B 사용자 분리, 기본 차단, 원자적 소유권 기록, SQL 페이지 제한 전 필터 |
-| M1-C HTTP·설정·앱 연결 | Root | 구현·실제 HTTP/race 검증 완료 | 실제 HTTP로 두 사용자의 독립 CRUD 가능 |
-| M1-D 마이그레이션·독립 검토 | GPT 5.6 Sol / private_release_review + Root | 업그레이드·반복 실행 검증 완료 | 기존 이력 체크섬 유지, 업그레이드·역사 버전 검증 경계 확인 |
-| M1-E 통합 검증·문서·PR | Root + 검토 에이전트 | 구현·로컬 검사 완료, [PR #26](https://github.com/yakisoba0728/PgBase/pull/26)에서 CI·병합 추적 | 전체 관련 검사 통과, PR/CI/병합 결과 기록 |
+| M2-A 사용자 수명주기 서비스 | GPT 5.6 Sol / public_auth | 구현·DB·경쟁 조건 검사 완료 | 목록·활성 상태·전체 세션 폐기·암호 변경 및 DB 동시성 검증 |
+| M2-A 관리자 UI | GPT 5.6 Terra / owner_access + Root | 구현·416 UI 테스트·실제 브라우저 확인 완료 | Users 화면, 페이지 이동, 활성화/비활성화·세션 폐기·컬렉션 접근 설정 |
+| M2-A HTTP·통합 | Root | 구현·입력/오류 단위 검사 완료 | 관리자 쿠키/CSRF와 사용자 Bearer 경계, 엄격한 입력·오류 계약 |
+| M2-A 실제 HTTP 검증 | GPT 5.6 Sol / private_release_review | 실제 HTTP 수명주기 검사 통과 | 비활성화·재활성화·폐기·암호 변경을 실제 앱으로 검증 |
+| M2-A 인수인계 | Root | 로컬 검증 완료, [PR #27](https://github.com/yakisoba0728/PgBase/pull/27)에서 CI·병합 추적 | 전체 검사·문서·PR·CI·병합, 릴리스와 구분 |
 
 ## M0 — 기준점과 작업 관리
 
@@ -129,11 +129,61 @@
 - 병합 여부와 최종 main 커밋은 [PR #26 타임라인](https://github.com/yakisoba0728/PgBase/pull/26)에서 추적한다. 검증 중인 커밋 자체에 병합 완료를 미리 기록하지 않는다.
 - [x] 이번 PR은 소스 구현만 반영. 배포 버전은 v0.1.0 유지, 후속 릴리스는 별도 작업이며 기존 태그 변경 금지.
 
+## M2-A — 사용자 관리와 암호 변경 (현재 구현 단위)
+
+기존 project users 모델을 확장한다. 메일 기반 복구와 OAuth, Auth 컬렉션 전체는 이 단위에 포함하지 않는다. 비활성화는 기존 세션을 전부 폐기하고, 재활성화는 새 로그인을 요구한다. 암호 변경은 현재 암호 확인 후 현재 세션을 포함한 모든 세션을 원자적으로 폐기한다.
+
+### 저장소·동시성 — Sol
+
+- [x] 기존 users/user_sessions 스키마 재사용, 불필요한 migration 없음.
+- [x] UUID 순서의 bounded keyset 사용자 목록 (최대 100명).
+- [x] 사용자 목록에 암호 해시·세션 토큰·내부 제한 상태 미포함.
+- [x] 관리자 사용자 활성화/비활성화 서비스.
+- [x] 비활성화와 모든 세션 폐기를 같은 transaction에서 처리.
+- [x] 재활성화 후 과거 세션이 되살아나지 않음.
+- [x] 사용자 전체 세션 폐기 및 실제 폐기 수 반환.
+- [x] 현재 암호 확인과 새 암호 입력 검증.
+- [x] 암호 변경의 연산량·실패 시도 제한.
+- [x] 잠금 전 암호 연산, 잠금 후 기존 hash/active 재검증.
+- [x] 암호 변경과 모든 세션 폐기의 원자성.
+- [x] 로그인/비활성화/폐기/암호 변경의 경쟁 조건 DB 검사.
+- [x] 잘못된 현재 암호가 기존 암호·세션을 변경하지 않음.
+
+### HTTP·UI — Root + Terra
+
+- [x] GET /api/admin/users?after=UUID&limit=50.
+- [x] PATCH /api/admin/users/{id} {active:boolean}.
+- [x] POST /api/admin/users/{id}/revoke-sessions.
+- [x] POST /api/v1/auth/change-password {currentPassword,newPassword}.
+- [x] 관리자 전용 읽기·CSRF mutation과 사용자 Bearer 경계.
+- [x] 잘못된 UUID·중복/알 수 없는 query·빈 active·과대 body 거부.
+- [x] 내부 오류 비노출, 400/401/404/429/503 계약.
+- [x] /admin/users 경로와 내비게이션.
+- [x] 목록·빈 상태·페이지 이동·조회 실패 재시도.
+- [x] 활성화/비활성화·전체 세션 폐기 UI.
+- [x] 요청 중 중복 조작 방지, 실패 후 재시도 가능.
+- [x] 세션 변경·페이지 이탈 후 늦은 응답 무효화.
+- [x] 컬렉션 owner-access 설정 화면과 관계 제한 설명.
+- [x] HTTP adapter·메모리 backend 계약과 UI 상호작용 검사.
+
+### 검증·완료 — Root + 독립 Sol
+
+- [x] 실제 HTTP의 관리자 사용자 관리·계정 수명주기 검사.
+- [x] 기존 사용자 데이터 소유권과 관리자 기능 회귀 없음.
+- [x] 단위/race·PostgreSQL integration 및 skip 정책.
+- [x] pinned lint·vet·gofmt·구조 제한의 실제 증가량 기록.
+- [x] UI typecheck·test·build 및 embedded dist 갱신/재현.
+- [x] 독립 검토, 발견된 실제 문제 수정 후 재검증.
+- [x] API·관리 UI·암호 변경/다시 로그인 사용법 작성.
+- [x] [PR #27 생성](https://github.com/yakisoba0728/PgBase/pull/27).
+- M2-A 최신 CI는 [PR checks](https://github.com/yakisoba0728/PgBase/pull/27/checks), 병합 및 main 커밋은 [PR 타임라인](https://github.com/yakisoba0728/PgBase/pull/27)을 기준으로 추적한다.
+- M2-A는 소스 구현이며 새 릴리스는 아직 발행하지 않았다.
+
 ## M2 — 사용자 수명주기와 유연한 권한
 
 - [ ] Auth 컬렉션 모델과 기존 프로젝트 사용자 업그레이드 설계.
-- [ ] 관리자 UI에서 사용자 목록·비활성화·세션 폐기.
-- [ ] 암호 변경과 기존 세션 폐기 정책.
+- [x] 관리자 UI에서 사용자 목록·비활성화·세션 폐기 (M2-A 검증 중, PR 반영 추적).
+- [x] 암호 변경과 기존 세션 폐기 정책 (M2-A 검증 중, PR 반영 추적).
 - [ ] SMTP/메일 어댑터와 테스트 전송.
 - [ ] 이메일 검증 토큰·만료·일회성 소비.
 - [ ] 비밀번호 재설정 요청·완료·재사용 거부.
@@ -217,3 +267,11 @@
 - 2026-09-08: 최종 쿼리·레코드·업그레이드·크기 정책 race 재검사와 pinned lint 통과. 실제 Cosign 검증 테스트 통과. 복원 후 원래 Bearer 세션까지 PG16/17/18에서 확인. PR 준비 완료, 배포된 v0.1.0은 유지.
 
 - 2026-09-08: PR #26 생성, Backend/Frontend/Security CI 시작. 위 GitHub 링크가 최신 커밋별 CI·병합 상태의 기준이다. 구현·로컬 검증 완료와 배포 릴리스 완료는 구분한다.
+
+- 2026-09-08: M1 PR #26 병합 및 main 확인 완료. 후속 M2-A 브랜치 생성. Sol 사용자 수명주기, Terra 관리자 UI, Sol 독립 HTTP 테스트, Root API 연결 작업 시작. 세부 TODO 35개 추가.
+
+- 2026-09-08: M2-A 서비스·API·UI 구현 연결. 실제 HTTP 수명주기, 2개 서비스 간 암호 변경 제한, 로그인/비활성화·암호 변경 경쟁 조건 검사 통과. UI 다중 행 pending 잠금, incoming 관계 판정, 정책 조회 재시도 및 늦은 응답 무효화를 검토·보완하고 테스트 추가.
+
+- 2026-09-08: M2-A 전체 Go unit/race·PG17 integration/race 및 skip 정책, pinned lint/vet 통과. UI 25개 파일 416개 테스트·typecheck·build 통과. 실제 브라우저에서 비활성화→재활성화·세션 폐기를 확인하고, 데스크톱 버튼 가시성 및 모바일 페이지 overflow를 검증. 최종 런타임 증가 +656줄은 설계 문서와 제한에 반영.
+
+- 2026-09-08: M2-A PR #27 생성. Backend/Frontend/Security CI 실행 시작. 구현·로컬 검사와 CI·병합·배포 상태를 분리해 추적.

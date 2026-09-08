@@ -9,7 +9,9 @@ import type {
   RecordPage,
   ResumedSession,
   SchemaHealth,
-  SystemStatus,
+	SystemStatus,
+	ManagedUser,
+	UserPage,
 } from "../backend/ports";
 
 /**
@@ -101,7 +103,12 @@ export interface BackendScript {
   update: Step<ScriptedRecord>[];
   remove: Step<void>[];
   status: Step<SystemStatus>[];
-  health: Step<SchemaHealth>[];
+	health: Step<SchemaHealth>[];
+	userAccess: Step<{ collection: string; enabled: boolean }>[];
+	setUserAccess: Step<{ collection: string; enabled: boolean }>[];
+	users: Step<UserPage>[];
+	setUserActive: Step<ManagedUser>[];
+	revokeUserSessions: Step<number>[];
   calls: Call[];
 }
 
@@ -110,7 +117,9 @@ export function backendScript(): BackendScript {
     resume: [], setup: [], login: [], logout: [],
     catalog: [], plan: [], apply: [], operation: [], operations: [],
     list: [], read: [], create: [], update: [], remove: [],
-    status: [], health: [], calls: [],
+	status: [], health: [], calls: [],
+	users: [], setUserActive: [], revokeUserSessions: [],
+	userAccess: [], setUserAccess: [],
   };
 }
 

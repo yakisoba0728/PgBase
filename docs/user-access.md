@@ -54,6 +54,7 @@ Registration returns HTTP 201 with `{token,user:{id,email,createdAt},expiresAt}`
 | --- | --- | --- |
 | Inspect session | `GET /api/v1/auth/session` | Bearer token; user and expiry |
 | Log out | `POST /api/v1/auth/logout` | Bearer token; 204, token revoked |
+| Change password | `POST /api/v1/auth/change-password` | Current password required; 204, all sessions revoked; [details](user-management.md) |
 | List / create | `GET` / `POST /api/v1/user/collections/{collection}/records` | Own records only |
 | Read / update / delete | `GET` / `PATCH` / `DELETE /api/v1/user/collections/{collection}/records/{id}` | Own record only; send its current `If-Match` ETag for conditional updates/deletes |
 
@@ -76,6 +77,6 @@ Administrator cookies do not authenticate public-user routes. Public Bearer toke
 
 Unknown accounts and wrong passwords both return 401. Login limiting is shared in PostgreSQL: five account failures or twenty network failures trigger a 15-minute block. Correct credentials remain blocked during that interval; successful login does not erase prior failures. Registration has its own network limit. A 429 response includes `Retry-After`; bounded concurrent admission can also return 429.
 
-This milestone implements project users and scalar owner-only access. Configurable Auth collections, password reset/change, email verification, OAuth, MFA, user-management UI, arbitrary access rules, relation-aware user access, files, realtime and client SDKs are tracked in [TODO](../TODO.md).
+Project users, scalar owner-only access, [administrator user management and current-password changes](user-management.md) are implemented in current source. Configurable Auth collections, password reset, email verification, OAuth, MFA, arbitrary access rules, relation-aware user access, files, realtime and client SDKs are tracked in [TODO](../TODO.md).
 
 Backups must include `pgbase_meta` along with application schemas. The PostgreSQL 16/17/18 restore drill exercises restored users, sessions, ownership and cross-user isolation. Keep the same token secret when restoring an installation if existing sessions must remain usable.

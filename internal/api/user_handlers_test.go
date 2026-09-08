@@ -148,7 +148,7 @@ func TestPublicRoutesPreserveAdmissionAndBudgetContracts(t *testing.T) {
 			counts[r.access]++
 		}
 	}
-	if counts[accessUserSession] != 7 || counts[accessPublic] != 2 {
+	if counts[accessUserSession] != 8 || counts[accessPublic] != 2 {
 		t.Fatalf("user route admissions=%v", counts)
 	}
 	d.RecordAccess = nil

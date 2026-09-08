@@ -20,7 +20,8 @@ import {
   type ResumedSession,
   type SetupInput,
   type SchemaHealth,
-  type SystemStatus,
+	type SystemStatus,
+	type ManagedUser, type UserPage,
 } from "../backend/ports";
 import { nextStep, settledStep, type BackendScript, type Fault, type ScriptedApply, type ScriptedCatalog, type ScriptedPlan, type ScriptedRecord } from "./backend-script";
 
@@ -129,6 +130,8 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       operation: (operationId: string, signal) => guard(signal, () => take<OperationReceipt>("operation", { operationId }, "schema")),
       operations: (cursor: string | undefined, signal) => guard(signal, () =>
         take<OperationHistory>("operations", cursor === undefined ? {} : { cursor }, "schema")),
+		userAccess: (collection, signal) => guard(signal, () => take<{ collection: string; enabled: boolean }>("userAccess", { collection }, "schema")),
+		setUserAccess: (collection, enabled) => guard(undefined, () => take<{ collection: string; enabled: boolean }>("setUserAccess", { collection, enabled }, "schema")),
     },
     records: {
       list: (collection: string, options: ListOptions, signal) => guard(signal, async () => {
@@ -149,9 +152,14 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       remove: (record: VersionedRecord) =>
         guard(undefined, () => take<void>("remove", { collection: record.collection, id: record.id, etag: record.precondition() }, "record")),
     },
-    system: {
+	system: {
       status: (signal) => guard(signal, () => take<SystemStatus>("status", {}, "system")),
       health: (signal) => guard(signal, () => take<SchemaHealth>("health", {}, "system")),
-    },
+	},
+	users: {
+		list: (after, signal) => guard(signal, () => take<UserPage>("users", after ? { after } : {}, "system")),
+		setActive: (id, active) => guard(undefined, () => take<ManagedUser>("setUserActive", { id, active }, "system")),
+		revokeSessions: (id) => guard(undefined, () => take<number>("revokeUserSessions", { id }, "system")),
+	},
   };
 }

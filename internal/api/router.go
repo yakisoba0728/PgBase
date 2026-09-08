@@ -107,6 +107,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	}
 	if dependencies.UserAuth != nil {
 		users := userEndpoints{dependencies: dependencies}
+		routes = append(routes, users.lifecycleRoutes()...)
 		routes = append(routes,
 			route{method: "POST", pattern: "/api/v1/auth/register", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(true)},
 			route{method: "POST", pattern: "/api/v1/auth/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(false)},
