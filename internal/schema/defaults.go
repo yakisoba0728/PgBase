@@ -59,14 +59,12 @@ func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (
 			return json.RawMessage("true"), "TRUE", nil
 		}
 		return json.RawMessage("false"), "FALSE", nil
-	case TypeInteger:
-		value, ok := parseInteger(raw, 32)
-		if !ok {
-			return nil, "", validation("", "invalid_default")
+	case TypeInteger, TypeBigInt:
+		bits := 64
+		if typ == TypeInteger {
+			bits = 32
 		}
-		return jsonString(value), value, nil
-	case TypeBigInt:
-		value, ok := parseInteger(raw, 64)
+		value, ok := parseInteger(raw, bits)
 		if !ok {
 			return nil, "", validation("", "invalid_default")
 		}
@@ -165,10 +163,7 @@ func parseNumeric(raw json.RawMessage) (string, bool) {
 
 func parseJSONString(raw json.RawMessage) (string, bool) {
 	value, err := jsonvalue.String(raw)
-	if err != nil {
-		return "", false
-	}
-	return value, true
+	return value, err == nil
 }
 
 func parseUUID(raw json.RawMessage) (string, bool) {
@@ -213,10 +208,7 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 
 func canonicalJSON(raw json.RawMessage) (json.RawMessage, bool) {
 	canonical, err := jsonvalue.Canonical(raw)
-	if err != nil {
-		return nil, false
-	}
-	return json.RawMessage(canonical), true
+	return json.RawMessage(canonical), err == nil
 }
 
 func jsonString(value string) json.RawMessage {

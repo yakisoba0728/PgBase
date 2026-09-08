@@ -8,10 +8,10 @@ export type RelationTargetSearch = RelationTargetPlan | { problem: "invalid-uuid
 const filterFieldPattern = /^[a-z_][a-z0-9_]*$/;
 const maximumSearchBytes = 1024;
 
-// The record port asks for one fixed page of 50 rows, so a hydration batch that
-// named more ids than that would come back truncated with labels silently
-// missing. Four batches bound the requests one editor can fan out; a selection
-// past that keeps its own UUID, which is a stable label rather than a blank.
+// A hydration query names no more than 50 ids, and each response page remains
+// inside the record port's fixed bounds. Four batches cap the selected ids one
+// editor hydrates; a selection past that keeps its own UUID, which is a stable
+// label rather than a blank.
 export const relationHydrationBatch = 50;
 export const relationHydrationLimit = relationHydrationBatch * 4;
 
@@ -72,7 +72,7 @@ export function deselectRelationTarget(draft: string, selectedID: string): strin
 }
 
 /**
- * One primary-key lookup per hydration batch. Equality against `id` is the
+ * One primary-key query per hydration batch. Equality against `id` is the
  * cheapest predicate the kernel has, and a batch stays inside the filter's
  * 4,096-byte and 100-node budgets because 50 ids cost roughly 2,350 bytes and
  * 51 nodes.

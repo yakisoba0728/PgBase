@@ -13,15 +13,9 @@ export function draftLedger(confirmLeave: (text: string) => boolean = (text) => 
   return {
     held: () => unsaved.size > 0,
     hold: (resource, dirty) => { if (dirty) unsaved.add(resource); else unsaved.delete(resource); },
-    // Nothing to lose is never worth a question. Agreeing to lose the draft is
-    // the explicit discard, so the resource is released and the departure that
-    // follows does not ask a second time about work already given up.
-    mayLeave: () => {
-      if (unsaved.size === 0) return true;
-      if (!confirmLeave(leaveText)) return false;
-      unsaved.clear();
-      return true;
-    },
+    // Keep the resource held until its owner unmounts or releases it. A caller
+    // can ask permission before an async departure that later fails.
+    mayLeave: () => unsaved.size === 0 || confirmLeave(leaveText),
   };
 }
 
