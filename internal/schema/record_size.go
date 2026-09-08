@@ -27,6 +27,9 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 	columns := []string{"root.id", "root.created_at", "root.updated_at"}
 	timestamps := []string{"created_at", "updated_at"}
 	for _, field := range after.Fields {
+		if field.Type == TypeFile {
+			continue
+		}
 		grows = grows || existing[field.Name] != field.Type
 		column := "root." + pgx.Identifier{field.ColumnName}.Sanitize()
 		switch field.Type {

@@ -1299,7 +1299,7 @@
         {
           "name": "Access-Control-Allow-Headers",
           "values": [
-            "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, PgBase-Operation-ID"
+            "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, Last-Event-ID, X-PgBase-File-Size, X-PgBase-File-SHA256, PgBase-Operation-ID"
           ]
         },
         {

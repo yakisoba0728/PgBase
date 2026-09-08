@@ -28,6 +28,28 @@ describe("collection default contract", () => {
   });
 });
 
+describe("compound indexes", () => {
+  const fields = [field("title", "text", ""), field("rank", "integer", "0")];
+  it("preserves untouched update indexes but makes an explicit empty list a clear request", () => {
+    expect(buildInput("update", "notes", fields)).not.toHaveProperty("indexes");
+    expect(buildInput("update", "notes", fields, [])).toMatchObject({ indexes: [] });
+  });
+  it("keeps ordered fields and rejects invalid index selections", () => {
+    expect(buildInput("create", "notes", fields, [{ name: "title_rank", fields: ["title", "rank"], unique: true }]).indexes).toEqual([{ name: "title_rank", fields: ["title", "rank"], unique: true }]);
+    expect(() => buildInput("create", "notes", fields, [{ name: "bad", fields: ["title"], unique: false }])).toThrow("two to eight");
+  });
+});
+
+describe("view collection payload", () => {
+  it("omits a view for normal collections and carries source, projection, and static filter for a view", () => {
+    const fields = [field("title", "text", "")];
+    expect(buildInput("create", "notes", fields)).not.toHaveProperty("view");
+    expect(buildInput("create", "recent_notes", fields, undefined, {
+      source: "notes", projection: ["title"], filter: { op: "eq", field: "title", value: "published" },
+    })).toEqual({ operation: "create", name: "recent_notes", fields: [], view: { source: "notes", projection: ["title"], filter: { op: "eq", field: "title", value: "published" } } });
+  });
+});
+
 describe("collection relation input contract", () => {
   const relationField = (patch: Partial<DraftField> = {}): DraftField => ({
     name: "tags",

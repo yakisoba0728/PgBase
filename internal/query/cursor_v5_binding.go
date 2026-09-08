@@ -2,6 +2,7 @@ package query
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/webisnoteasy/PgBase/internal/cursor"
 	"github.com/webisnoteasy/PgBase/internal/membership"
@@ -24,7 +25,7 @@ func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Trav
 		CatalogVersion:       plan.catalogVersion,
 		MembershipGeneration: traversal.Generation,
 		QueryHash:            queryHash,
-		ScopeHash:            s.cursorV5ScopeFingerprint(plan.principal),
+		ScopeHash:            s.cursorV5PlanScope(plan),
 		Order:                order,
 		HighWater:            traversal.HighWater,
 	}, nil
@@ -42,7 +43,7 @@ func (s *Service) bindCursorV5(page cursor.Page, plan rootPlan, traversal member
 	if err != nil {
 		return nil, cursorV5RequestError(err)
 	}
-	if !page.V5.Matches(plan.catalogVersion, expectedQuery, s.cursorV5ScopeFingerprint(plan.principal), expectedOrder) {
+	if !page.V5.Matches(plan.catalogVersion, expectedQuery, s.cursorV5PlanScope(plan), expectedOrder) {
 		return nil, invalidCursor()
 	}
 	if traversal.ValidateV5(page.V5.MembershipGeneration, page.V5.HighWater) != nil {
@@ -69,4 +70,13 @@ func cursorV5RequestError(err error) error {
 		return err
 	}
 	return invalidCursor()
+}
+
+func (s *Service) cursorV5PlanScope(plan rootPlan) []byte {
+	hops := relationPolicyRevisionString(plan.relation)
+	hops += plan.outputRuleScope
+	if plan.ruleRevision == 0 && hops == "" {
+		return s.cursorV5ScopeFingerprint(plan.principal)
+	}
+	return s.cursors.ScopeFingerprint(append(s.cursorV5ScopeFingerprint(plan.principal), []byte("rules:"+strconv.FormatInt(plan.ruleRevision, 10)+hops)...))
 }

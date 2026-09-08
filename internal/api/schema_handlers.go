@@ -61,6 +61,8 @@ type plannedCollectionResponse struct {
 	Name      string                 `json:"name"`
 	TableName string                 `json:"tableName"`
 	Fields    []plannedFieldResponse `json:"fields"`
+	Indexes   []schema.PlannedIndex  `json:"indexes,omitempty"`
+	View      *schema.PlannedView    `json:"view,omitempty"`
 }
 
 type schemaPlanResponse struct {
@@ -94,11 +96,13 @@ type relationResponse struct {
 }
 
 type collectionResponse struct {
-	ID        uuid.UUID       `json:"id"`
-	Name      string          `json:"name"`
-	TableName string          `json:"tableName"`
-	Fields    []fieldResponse `json:"fields"`
-	CreatedAt time.Time       `json:"createdAt"`
+	ID        uuid.UUID        `json:"id"`
+	Name      string           `json:"name"`
+	TableName string           `json:"tableName"`
+	Fields    []fieldResponse  `json:"fields"`
+	Indexes   []schema.Index   `json:"indexes,omitempty"`
+	View      *schema.ViewSpec `json:"view,omitempty"`
+	CreatedAt time.Time        `json:"createdAt"`
 }
 
 type collectionDeleteResponse struct {
@@ -112,6 +116,8 @@ type collectionChangeRequest struct {
 	// Fields is a pointer so an update can distinguish an omitted key (which
 	// would otherwise silently drop every column) from an explicit empty list.
 	Fields      *[]schema.FieldInput `json:"fields"`
+	Indexes     *[]schema.IndexInput `json:"indexes"`
+	View        *schema.ViewInput    `json:"view,omitempty"`
 	Checksum    string               `json:"checksum"`
 	BaseVersion *int64               `json:"baseVersion"`
 }
@@ -211,12 +217,19 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 func (c collectionChangeRequest) change() (schema.Change, bool) {
 	switch c.Operation {
 	case "create":
-		return schema.NewCreateChange(schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs()}), true
+		indexes := []schema.IndexInput(nil)
+		if c.Indexes != nil {
+			indexes = *c.Indexes
+		}
+		return schema.NewCreateChange(schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: c.View}), true
 	case "update":
 		if c.Fields == nil {
 			return schema.Change{}, false
 		}
-		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, Fields: c.fieldInputs()}), true
+		if c.View != nil {
+			return schema.Change{}, false
+		}
+		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
 	case "delete":
 		return schema.NewDeleteChange(c.Name), true
 	default:
@@ -294,7 +307,7 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal,
 		})
 	}
-	return plannedCollectionResponse{Name: collection.Name, TableName: collection.TableName, Fields: fields}
+	return plannedCollectionResponse{Name: collection.Name, TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
 }
 
 func collectionDTO(collection schema.Collection) collectionResponse {
@@ -309,7 +322,7 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 	}
 	return collectionResponse{
 		ID: collection.ID, Name: collection.Name, TableName: collection.TableName,
-		Fields: fields, CreatedAt: collection.CreatedAt.UTC(),
+		Fields: fields, Indexes: append([]schema.Index(nil), collection.Indexes...), View: collection.View, CreatedAt: collection.CreatedAt.UTC(),
 	}
 }
 

@@ -271,6 +271,12 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			if err := validateName("", field.Name); err != nil {
 				return ErrConflict
 			}
+			if field.Type == TypeFile {
+				if field.Required || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil {
+					return ErrConflict
+				}
+				continue
+			}
 			if len(field.Default) != 0 {
 				// Stored defaults carry the bounds of the binary that wrote
 				// them, not this one. A bound added after a release must not
@@ -310,6 +316,53 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				SourceFieldID:      field.ID,
 				Spec:               *field.Relation,
 			}]++
+		}
+		indexNames := map[string]bool{}
+		for _, index := range collection.Indexes {
+			if index.ID == uuid.Nil || indexNames[index.Name] || index.IndexName != compoundIndexName(collection.Name, index.Name) || len(index.Fields) < 2 || len(index.Fields) > 8 {
+				return ErrConflict
+			}
+			if err := validateName("", index.Name); err != nil {
+				return ErrConflict
+			}
+			indexNames[index.Name] = true
+			seen := map[string]bool{}
+			for _, name := range index.Fields {
+				if seen[name] || !fieldNames[name] {
+					return ErrConflict
+				}
+				seen[name] = true
+				for _, field := range collection.Fields {
+					if field.Name == name && (field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB) {
+						return ErrConflict
+					}
+				}
+			}
+		}
+		if collection.View != nil {
+			source, ok := catalog.Collections[collection.View.Source]
+			if !ok || source.ID != collection.View.SourceCollectionID || source.IsView() || len(collection.Indexes) > 0 || len(collection.View.Projection) != len(collection.Fields) {
+				return ErrConflict
+			}
+			for position, name := range collection.View.Projection {
+				if collection.Fields[position].Name != name {
+					return ErrConflict
+				}
+				found := false
+				for _, field := range source.Fields {
+					if field.Name == name && field.Type == collection.Fields[position].Type && field.Type != TypeFile && field.Type != TypeRelation {
+						found = true
+					}
+				}
+				if !found {
+					return ErrConflict
+				}
+			}
+			if collection.View.Filter != nil {
+				if _, err := compileStaticViewFilter(*collection.View.Filter, source, "source", 0); err != nil {
+					return ErrConflict
+				}
+			}
 		}
 	}
 	for targetCollectionID, incoming := range catalog.Incoming {
@@ -451,6 +504,26 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		})
 	}
 	return fields, nil
+}
+
+func updatedIndexMetadata(collection string, existing []Index, definition PlannedCollection) ([]Index, error) {
+	ids := map[string]uuid.UUID{}
+	for _, index := range existing {
+		ids[index.Name] = index.ID
+	}
+	result := make([]Index, 0, len(definition.Indexes))
+	for _, planned := range definition.Indexes {
+		id := ids[planned.Name]
+		if id == uuid.Nil {
+			var err error
+			id, err = uuid.NewV7()
+			if err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, Index{ID: id, Name: planned.Name, Fields: append([]string(nil), planned.Fields...), IndexName: compoundIndexName(collection, planned.Name), Unique: planned.Unique})
+	}
+	return result, nil
 }
 
 func resolvedPlannedRelation(fieldPath string, collectionID uuid.UUID, planned PlannedField) (*RelationSpec, error) {

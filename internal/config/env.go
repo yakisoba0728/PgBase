@@ -32,6 +32,18 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	}
 
 	opts := pgbase.Options{DatabaseURL: databaseURL, TokenSecret: tokenSecret}
+	if err := loadFiles(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
+	}
+	if err := loadOAuth(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
+	}
+	if err := loadEmail(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
+	}
+	if err := loadJobs(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
+	}
 	if raw, ok := value(lookup, "PGBASE_HTTP_ADDRESS"); ok {
 		opts.HTTPAddress = raw
 	}

@@ -7,14 +7,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/accessrule"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 type rootPlan struct {
-	filter         filterNode
-	relation       relationListPlan
-	catalogVersion int64
-	principal      Principal
-	ownerID        *uuid.UUID
+	filter           filterNode
+	relation         relationListPlan
+	catalogVersion   int64
+	principal        Principal
+	ownerID          *uuid.UUID
+	rule             *accessrule.Rule
+	ruleRevision     int64
+	policyCollection schema.Collection
+	outputRuleScope  string
 }
 
 func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
@@ -26,9 +32,9 @@ func (p rootPlan) order() orderSpec { return p.relation.order }
 
 func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
 	if p.order().relationAnchor {
-		return p.relation.pageStatement(after, fetchLimit)
+		return p.relation.pageStatementWithPolicy(after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
 	}
-	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID)
+	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
 }
 
 func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {

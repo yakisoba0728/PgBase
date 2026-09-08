@@ -111,7 +111,7 @@ export function UsersPage() {
         <thead><tr><th>User</th><th>Status</th><th>Dates</th><th>Actions</th></tr></thead>
         <tbody>{page.items.map((user) => <tr key={user.id}>
           <td><span className="user-identity">{user.email}</span><small className="user-identity">{user.id}</small></td>
-          <td>{user.active ? "Active" : "Inactive"}</td>
+          <td>{user.active ? "Active" : "Inactive"}<br /><small>{user.verified ? "Verified" : "Unverified"}</small></td>
           <td>
             <small>Created</small><time dateTime={user.createdAt}>{displayDate(user.createdAt)}</time>
             <small>Updated</small><time dateTime={user.updatedAt}>{displayDate(user.updatedAt)}</time>

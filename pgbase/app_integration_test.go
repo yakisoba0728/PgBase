@@ -206,7 +206,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 11 || migrations[10].Version != 11 {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != int64(len(migrations)) {
 		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -226,8 +226,9 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 		{name: "v9 rejected", through: 9},
 		{name: "v9 rejected without auto-upgrade", through: 9, autoMigrate: true},
 		{name: "v10 rejected", through: 10},
-		{name: "v11 accepted", through: 11, wantAccept: true},
-		{name: "dirty v11 rejected", through: 11, dirty: true},
+		{name: "v11 rejected", through: 11},
+		{name: "latest accepted", through: len(migrations), wantAccept: true},
+		{name: "dirty latest rejected", through: len(migrations), dirty: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v8 rejected", through: 8, dirty: true},
 		{name: "dirty v9 rejected", through: 9, dirty: true},

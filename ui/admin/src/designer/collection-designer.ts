@@ -7,12 +7,14 @@ import {
   SchemaError,
   type CollectionChange,
   type CollectionDefinition,
+  type CompoundIndex,
   type FieldInput,
   type FieldType,
   type PlannedChange,
   type PlannedField,
   type RelationCardinality,
   type RelationDeleteAction,
+  type ViewDefinition,
 } from "../backend/ports";
 import { operationFailureMessage, useOperationRecovery, type OperationRecovery } from "../operations/operation-recovery";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
@@ -102,15 +104,22 @@ function relationInput(field: DraftField, index: number): FieldInput["relation"]
   return { targetCollection: relation.targetCollection, cardinality: relation.cardinality, minSelect, maxSelect, onDelete: relation.onDelete };
 }
 
-export function buildInput(operation: "create" | "update", name: string, fields: DraftField[]): CollectionChange {
+export function buildInput(operation: "create" | "update", name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition): CollectionChange {
+  if (indexes !== undefined) {
+    for (const index of indexes) {
+      if (index.name.trim() === "" || index.fields.length < 2 || index.fields.length > 8) throw new DraftError("Each compound index needs a name and two to eight fields.");
+      const known = new Set(fields.filter((field) => field.type !== "relation" && field.type !== "file" && field.type !== "jsonb").map((field) => field.name));
+      if (new Set(index.fields).size !== index.fields.length || index.fields.some((field) => !known.has(field))) throw new DraftError("Compound indexes can use each scalar field once.");
+    }
+  }
   return {
     operation,
     name,
-    fields: fields.map((field, index) => {
+    fields: view === undefined ? fields.map((field, index) => {
       const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
       if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
       return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
-    }),
+    }) : [], ...(indexes === undefined ? {} : { indexes }), ...(view === undefined ? {} : { view }),
   };
 }
 
@@ -244,12 +253,14 @@ function schemaMessage(error: unknown, fallback: string, validationFallback = "C
 }
 
 // The whole last-agreed draft distinguishes an untouched form.
-const draftSignature = (name: string, fields: DraftField[]): string => stringifyJSON({ name, fields });
+const draftSignature = (name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition): string => stringifyJSON({ name, fields, indexes, view });
 
 interface State {
   identity: string; create: boolean; phase: "loading" | "missing" | "unavailable" | "ready";
   name: string; tableName: string; definition: CollectionDefinition | null; catalog: CollectionCatalog | null;
   targetsLoading: boolean; targetsFailed: boolean; fields: DraftField[];
+  indexes?: CompoundIndex[];
+  view?: ViewDefinition;
   plan: PlannedChange | null; confirmed: boolean; pending: boolean; error: string | null;
   deletePlan: PlannedChange | null; deleteConfirmText: string; deletePending: boolean; deleteError: string | null;
   pristine: string; undecided: UndecidedApply | null; terminal: boolean;
@@ -293,10 +304,10 @@ function initial(mode: DesignerMode, identity: string): State {
   const fields = create ? [newField()] : [];
   return {
     identity, create, phase: create ? "ready" : "loading", name, tableName: "",
-    definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields,
+    definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields, indexes: create ? [] : undefined,
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields), undecided: null, terminal: false,
+    pristine: draftSignature(name, fields, create ? [] : undefined), undecided: null, terminal: false,
   };
 }
 
@@ -310,7 +321,7 @@ function loadedState(current: State, catalog: CollectionCatalog): Partial<State>
   const fields = draftFields(definition, catalog);
   return {
     ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields,
-    pristine: draftSignature(definition.name, fields),
+    indexes: undefined, pristine: draftSignature(definition.name, fields),
   };
 }
 
@@ -339,6 +350,7 @@ export interface CollectionDesigner {
   deleteTarget: DeleteTarget | null; deleteConfirmText: string; deleteConfirmed: boolean;
   deletePending: boolean; deleteError: string | null;
   recovery: OperationRecovery | null;
+  indexes: CompoundIndex[]; indexesTouched: boolean; setIndexes(indexes: CompoundIndex[]): void; view?: ViewDefinition; setView(view?: ViewDefinition): void; viewSources: CollectionDefinition[]; isView: boolean;
   rename(name: string): void; editField(index: number, edit: DraftEdit): void; addField(): void; removeField(index: number): void;
   confirmDestructive(confirmed: boolean): void; confirmDeleteName(typed: string): void; requestPreview(): void; requestApply(): void;
   requestDeletePlan(): void; cancelDelete(): void; requestDelete(): void;
@@ -402,7 +414,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const storageBlocked = stored === false, restored = stored || null;
   const undecided = state.undecided ?? restored;
   const recovery = useOperationRecovery(undecided?.operationId ?? null);
-  const signature = draftSignature(state.name, state.fields);
+  const signature = draftSignature(state.name, state.fields, state.indexes, state.view);
   const live = useRef(signature);
   live.current = signature;
   const recovered = recovery?.status === "committed" ? undecided : null;
@@ -417,7 +429,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const savedDraft = useUnsavedDraft(identity, unsaved);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
-    (!state.create || state.fields.some((field) => field.type === "relation"));
+    (!state.create || state.view !== undefined || state.fields.some((field) => field.type === "relation"));
 
   useEffect(() => {
     if (!wantsCatalog) return;
@@ -453,8 +465,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
-    try { return buildInput(state.create ? "create" : "update", state.name, state.fields); } catch { return null; }
-  }, [state.create, state.definition, state.fields, state.name]);
+    try { return buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view); } catch { return null; }
+  }, [state.create, state.definition, state.fields, state.indexes, state.view, state.name]);
   const preview = state.plan !== null && input !== null && state.plan.matches(input) ? state.plan : null;
   const removedFields = useMemo(() => {
     if (preview === null || state.definition === null) return [];
@@ -466,7 +478,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const requestPreview = useCallback(async () => {
     if (editingBlocked || state.pending || (!state.create && state.definition === null)) return;
     let change: CollectionChange;
-    try { change = buildInput(state.create ? "create" : "update", state.name, state.fields); }
+    try { change = buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view); }
     catch (caught: unknown) { update(identity, { error: draftMessage(caught, "Collection input is invalid.") }); return; }
     update(identity, { error: null, pending: true });
     try {
@@ -482,7 +494,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     } finally {
       update(identity, { pending: false });
     }
-  }, [editingBlocked, identity, recoveryFailed, schema, state.create, state.definition, state.fields, state.name, state.pending, update]);
+  }, [editingBlocked, identity, recoveryFailed, schema, state.create, state.definition, state.fields, state.indexes, state.view, state.name, state.pending, state.catalog?.version, update]);
 
   const requestApply = useCallback(async () => {
     if (editingBlocked || recoveryFailed || preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
@@ -569,6 +581,11 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     name: state.name,
     tableName: state.tableName,
     fields: state.fields,
+    indexes: state.indexes ?? state.definition?.indexes ?? [],
+    indexesTouched: state.indexes !== undefined,
+    view: state.view,
+    viewSources: (state.catalog?.all() ?? []).filter((collection) => collection.view === undefined),
+    isView: state.definition?.view !== undefined,
     relationTargets: relationTargets(state.catalog, state.name),
     relationTargetsLoading: state.targetsLoading,
     relationTargetsFailed: state.targetsFailed,
@@ -590,6 +607,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     editField: (index, edit) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))); },
     addField: () => { if (!editingBlocked) update(identity, (current) => redrafted([...current.fields, newField()])); },
     removeField: (index) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))); },
+    setIndexes: (indexes) => { if (!editingBlocked) update(identity, { indexes, plan: null, confirmed: false }); },
+    setView: (view) => { if (!editingBlocked) update(identity, { view, plan: null, confirmed: false }); },
     confirmDestructive: (confirmed) => update(identity, { confirmed }),
     confirmDeleteName: (deleteConfirmText) => update(identity, { deleteConfirmText }),
     requestPreview: () => void requestPreview(),

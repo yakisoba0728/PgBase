@@ -193,7 +193,7 @@ func TestPublicIdentityUpgradePreservesPopulatedV9DatabaseAndIsIdempotent(t *tes
 	); err != nil {
 		t.Fatalf("inspect rerun data: %v", err)
 	}
-	if migrationCount != 11 || userCount != 1 || sessionCount != 1 || ownerCount != 1 || enabledAccessCount != 1 {
+	if migrationCount != len(migrations) || userCount != 1 || sessionCount != 1 || ownerCount != 1 || enabledAccessCount != 1 {
 		t.Fatalf("rerun counts migrations=%d users=%d sessions=%d owners=%d enabled_access=%d",
 			migrationCount, userCount, sessionCount, ownerCount, enabledAccessCount)
 	}

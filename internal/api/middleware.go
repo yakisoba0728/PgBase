@@ -235,17 +235,13 @@ func requestRoute(request *http.Request) string {
 	return pattern
 }
 
-// bodyLimitMiddleware caps every request body, not only the ones whose
+// requestBodyLimitMiddleware caps every request body, not only the ones whose
 // Content-Type looks like JSON. The decoder that actually reads a body accepts
 // a media type through mime.ParseMediaType, which trims Unicode spaces such as
 // U+00A0 that a prefix match keeps, so any Content-Type gate here can disagree
 // with the decoder and let an unauthenticated request stream an unbounded body
-// into memory. No route accepts a body larger than maxJSONBodyBytes, so one
-// unconditional limit keeps the two decisions from drifting apart again.
-func bodyLimitMiddleware(next http.Handler) http.Handler {
-	return requestBodyLimitMiddleware(maxJSONBodyBytes, next)
-}
-
+// into memory. Every route applies its declared cap unconditionally; file uploads have a
+// separate bounded streaming cap.
 func requestBodyLimitMiddleware(maximumBytes int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
@@ -305,7 +301,7 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 			}
 			setCORSHeaders(w, origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, PgBase-Operation-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, Last-Event-ID, X-PgBase-File-Size, X-PgBase-File-SHA256, PgBase-Operation-ID")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -334,7 +330,7 @@ func allowedCORSHeaders(raw string) bool {
 	}
 	for _, header := range strings.Split(raw, ",") {
 		switch strings.ToLower(strings.TrimSpace(header)) {
-		case "content-type", "authorization", "x-csrf-token", "x-pgbase-csrf", "idempotency-key", "if-match",
+		case "content-type", "authorization", "x-csrf-token", "x-pgbase-csrf", "idempotency-key", "if-match", "last-event-id", "x-pgbase-file-size", "x-pgbase-file-sha256",
 			"pgbase-operation-id":
 		default:
 			return false

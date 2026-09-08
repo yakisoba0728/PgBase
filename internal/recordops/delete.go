@@ -9,7 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -107,6 +110,9 @@ func (s *Service) deleteGraphInTransaction(
 	if request.IfMatch.Present && !request.IfMatch.matches(rootSnapshot.previousETag) {
 		return MutationResult{}, &Error{Code: CodePreconditionFailed, CurrentETag: rootSnapshot.previousETag}
 	}
+	if err := authorizeDeleteClosure(ctx, tx, groups, request.Principal); err != nil {
+		return MutationResult{}, err
+	}
 
 	identities, err := identityCache.identitiesFor(s, root, deletes, updates)
 	if err != nil {
@@ -157,6 +163,45 @@ func (s *Service) deleteGraphInTransaction(
 		return MutationResult{}, err
 	}
 	return MutationResult{EventID: identityCache.rootEventID, Compatibility: compatibility}, nil
+}
+
+func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, groups []deleteGroup, principal Principal) error {
+	if principal.Kind == PrincipalAdministrator {
+		return nil
+	}
+	for _, group := range groups {
+		checks := []struct {
+			action string
+			ids    []uuid.UUID
+		}{{"delete", group.deletes}}
+		updates := make([]uuid.UUID, len(group.updates))
+		for i := range group.updates {
+			updates[i] = group.updates[i].Source.RecordID
+		}
+		checks = append(checks, struct {
+			action string
+			ids    []uuid.UUID
+		}{"update", updates})
+		for _, check := range checks {
+			if len(check.ids) == 0 {
+				continue
+			}
+			if err := recordaccess.AuthorizeSubject(ctx, tx, group.collection.AccessCollectionID(), principal, check.action); err != nil {
+				return err
+			}
+			if principal.Kind == identity.Service {
+				continue
+			}
+			allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(group.collection), principal, check.action, check.ids, false)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return query.ErrRecordNotFound
+			}
+		}
+	}
+	return nil
 }
 
 // groupDeleteClosure splits the plan's closure into per-collection batches
@@ -434,7 +479,7 @@ func deleteArtifactBatches(
 				eventID: identity.eventID, recordID: recordID,
 				previousVersion: &previousVersion, newVersion: previousVersion + 1,
 				previousETag: snapshot.previousETag, changedFields: []string{},
-				tombstone: true, compatibility: deleteCompatibility,
+				tombstone: true, compatibility: deleteCompatibility, changes: snapshot.record,
 				revisionPresent: snapshot.revisionPresent,
 			})
 		}

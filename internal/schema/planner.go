@@ -86,6 +86,9 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
+	if input.View != nil {
+		return planViewCreate(catalog, input)
+	}
 	if len(input.Fields) > maximumCollectionFields {
 		return Plan{}, validation("fields", "too_many_fields")
 	}
@@ -108,7 +111,11 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 		fields = append(fields, planned)
 	}
 
-	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields}
+	indexes, err := planCompoundIndexes(input.Indexes, fields)
+	if err != nil {
+		return Plan{}, err
+	}
+	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, Indexes: indexes}
 	return Plan{
 		Operation:   createCollectionOperation,
 		BaseVersion: catalog.Version,
@@ -120,6 +127,9 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 // Field renames are not supported: a name that disappears is a drop and a name
 // that appears is an add.
 func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if current.IsView() {
+		return Plan{}, validation("name", "view_read_only")
+	}
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -177,6 +187,29 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		desired = append(desired, planned)
 	}
+	for _, candidate := range catalog.Collections {
+		if candidate.View != nil && candidate.View.SourceCollectionID == current.ID {
+			dependencies := map[string]struct{}{}
+			for _, name := range candidate.View.Projection {
+				dependencies[name] = struct{}{}
+			}
+			viewFilterFields(candidate.View.Filter, dependencies)
+			for name := range dependencies {
+				var desiredField PlannedField
+				found := false
+				for _, field := range desired {
+					if field.Name == name {
+						desiredField = field
+						found = true
+						break
+					}
+				}
+				if !found || desiredField.Type != currentFields[name].Type {
+					return Plan{}, validation("fields", "field_used_by_view")
+				}
+			}
+		}
+	}
 
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
 	statements := make([]string, 0, len(desired))
@@ -188,11 +221,17 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			statements = append(statements, dropRelationFieldStatements(current, field)...)
 			continue
 		}
+		if field.Type == TypeFile {
+			continue
+		}
 		statements = append(statements, "ALTER TABLE "+table+" DROP COLUMN "+pgx.Identifier{field.Name}.Sanitize())
 	}
 	for ordinal, field := range desired {
 		previous, exists := currentFields[field.Name]
 		if !exists {
+			if field.Type == TypeFile {
+				continue
+			}
 			if field.Required && len(field.Default) == 0 {
 				// A required relation is valid when the source collection is
 				// empty. The service checks row existence both while planning
@@ -220,6 +259,12 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			statements = append(statements, relationChanges...)
 			continue
 		}
+		if previous.Type == TypeFile || field.Type == TypeFile {
+			if previous.Type != field.Type {
+				return Plan{}, validation(fmt.Sprintf("fields.%d.type", ordinal), "unsupported_schema_change")
+			}
+			continue
+		}
 		alter, err := alterColumnStatements(table, ordinal, previous, field)
 		if err != nil {
 			return Plan{}, err
@@ -227,11 +272,30 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		statements = append(statements, alter...)
 		statements = append(statements, indexChangeStatements(current.Name, table, previous, field)...)
 	}
+	var indexes []PlannedIndex
+	if input.Indexes == nil {
+		preserved := make([]IndexInput, 0, len(current.Indexes))
+		for _, index := range current.Indexes {
+			preserved = append(preserved, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+		}
+		var err error
+		indexes, err = planCompoundIndexes(preserved, desired)
+		if err != nil {
+			return Plan{}, validation("indexes", "referenced_field_changed")
+		}
+	} else {
+		var err error
+		indexes, err = planCompoundIndexes(*input.Indexes, desired)
+		if err != nil {
+			return Plan{}, err
+		}
+	}
+	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes)...)
 
 	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired},
+		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired, Indexes: indexes},
 		Statements:  statements,
 	}, nil
 }
@@ -254,6 +318,14 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 	}
 	if collectionHasIncomingRelation(catalog, current.ID) {
 		return Plan{}, validation("name", "collection_referenced")
+	}
+	for _, candidate := range catalog.Collections {
+		if candidate.View != nil && candidate.View.SourceCollectionID == current.ID {
+			return Plan{}, validation("name", "collection_referenced")
+		}
+	}
+	if current.View != nil {
+		return Plan{Operation: deleteCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: current.Name, TableName: current.TableName, View: &PlannedView{SourceCollectionID: current.View.SourceCollectionID, Source: current.View.Source, Projection: append([]string(nil), current.View.Projection...), Filter: cloneViewFilter(current.View.Filter)}}, Statements: []string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}}, nil
 	}
 	fields := make([]PlannedField, 0, len(current.Fields))
 	for _, field := range current.Fields {
@@ -319,6 +391,9 @@ func planInputField(
 	if !isSupportedType(field.Type) {
 		return PlannedField{}, validation(fieldPath+".type", "unsupported_type")
 	}
+	if field.Type == TypeFile && (field.Required || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil) {
+		return PlannedField{}, validation(fieldPath, "invalid_file_field")
+	}
 
 	var targetCollectionID *uuid.UUID
 	storageName := ""
@@ -335,6 +410,9 @@ func planInputField(
 				targetCollectionID = &target
 			default:
 				if target, ok := catalog.Collections[targetName]; ok {
+					if target.IsView() {
+						return PlannedField{}, validation(fieldPath+".relation.targetCollection", "view_not_supported")
+					}
 					targetID := target.ID
 					targetCollectionID = &targetID
 				}
@@ -490,7 +568,7 @@ func renderValidatedDefault(field PlannedField) string {
 
 func isSupportedType(typ FieldType) bool {
 	switch typ {
-	case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeTimestampTZ, TypeUUID, TypeJSONB, TypeRelation:
+	case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeTimestampTZ, TypeUUID, TypeJSONB, TypeRelation, TypeFile:
 		return true
 	default:
 		return false
@@ -505,6 +583,9 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 		`"updated_at" timestamptz not null`,
 	}
 	for _, field := range definition.Fields {
+		if field.Type == TypeFile {
+			continue
+		}
 		if field.Type == TypeRelation && field.Relation != nil && field.Relation.Cardinality == RelationMultiple {
 			continue
 		}
@@ -525,7 +606,6 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 		}
 		columns = append(columns, column)
 	}
-
 	statements := []string{
 		"CREATE TABLE " + table + " (" + strings.Join(columns, ", ") + ")",
 		"CREATE INDEX " + pgx.Identifier{indexName(definition.Name, "created_at:id")}.Sanitize() +
@@ -544,6 +624,9 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 		}
 		statements = append(statements, prefix+pgx.Identifier{indexName(definition.Name, field.Name)}.Sanitize()+
 			" ON "+table+" ("+pgx.Identifier{field.Name}.Sanitize()+")")
+	}
+	for _, index := range definition.Indexes {
+		statements = append(statements, createCompoundIndexStatement(definition.Name, definition.TableName, index))
 	}
 	for _, field := range definition.Fields {
 		if field.Type != TypeRelation || field.Relation == nil {
@@ -565,6 +648,103 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 			nullableDescCompanionSpec(definition.Name, definition.TableName, field.Name, field.Name), false))
 	}
 	return statements
+}
+
+func planCompoundIndexes(inputs []IndexInput, fields []PlannedField) ([]PlannedIndex, error) {
+	available := make(map[string]PlannedField, len(fields))
+	for _, field := range fields {
+		available[field.Name] = field
+	}
+	seen := make(map[string]struct{}, len(inputs))
+	seenFields := make(map[string]struct{}, len(inputs))
+	result := make([]PlannedIndex, 0, len(inputs))
+	for i, input := range inputs {
+		path := fmt.Sprintf("indexes.%d", i)
+		if err := validateInputName(path+".name", input.Name); err != nil {
+			return nil, err
+		}
+		if _, ok := seen[input.Name]; ok {
+			return nil, validation(path+".name", "duplicate_name")
+		}
+		seen[input.Name] = struct{}{}
+		if len(input.Fields) < 2 || len(input.Fields) > 8 {
+			return nil, validation(path+".fields", "invalid_count")
+		}
+		fieldSeen := map[string]struct{}{}
+		for j, name := range input.Fields {
+			field, ok := available[name]
+			if !ok {
+				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "unknown_field")
+			}
+			if field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB {
+				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "unsupported_field")
+			}
+			if _, ok := fieldSeen[name]; ok {
+				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "duplicate_name")
+			}
+			fieldSeen[name] = struct{}{}
+		}
+		signature := strings.Join(input.Fields, "\x00")
+		if _, ok := seenFields[signature]; ok {
+			return nil, validation(path+".fields", "duplicate_index")
+		}
+		seenFields[signature] = struct{}{}
+		result = append(result, PlannedIndex{Name: input.Name, Fields: append([]string(nil), input.Fields...), Unique: input.Unique})
+	}
+	return result, nil
+}
+
+func compoundIndexName(collection, name string) string {
+	return indexName(collection, "compound:"+name)
+}
+
+func createCompoundIndexStatement(collection, table string, index PlannedIndex) string {
+	prefix := "CREATE INDEX "
+	if index.Unique {
+		prefix = "CREATE UNIQUE INDEX "
+	}
+	columns := make([]string, len(index.Fields))
+	for i, field := range index.Fields {
+		columns[i] = pgx.Identifier{field}.Sanitize()
+	}
+	return prefix + pgx.Identifier{compoundIndexName(collection, index.Name)}.Sanitize() + " ON " + pgx.Identifier{"app", table}.Sanitize() + " (" + strings.Join(columns, ", ") + ")"
+}
+
+func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex) []string {
+	old := map[string]Index{}
+	next := map[string]PlannedIndex{}
+	for _, index := range current {
+		old[index.Name] = index
+	}
+	for _, index := range desired {
+		next[index.Name] = index
+	}
+	statements := []string{}
+	for _, index := range current {
+		desiredIndex, ok := next[index.Name]
+		if !ok || index.Unique != desiredIndex.Unique || !stringSlicesEqual(index.Fields, desiredIndex.Fields) {
+			statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", index.IndexName}.Sanitize())
+		}
+	}
+	for _, index := range desired {
+		currentIndex, ok := old[index.Name]
+		if !ok || currentIndex.Unique != index.Unique || !stringSlicesEqual(currentIndex.Fields, index.Fields) {
+			statements = append(statements, createCompoundIndexStatement(collection, table, index))
+		}
+	}
+	return statements
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func indexName(collection, field string) string {

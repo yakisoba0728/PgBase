@@ -18,7 +18,7 @@ func (s *Service) ListUsers(ctx context.Context, after uuid.UUID, limit int) (Us
 		return UserPage{}, ErrValidation
 	}
 	rows, err := s.pool.Query(ctx, `
-		select id,email,active,created_at,updated_at
+		select id,auth_collection_id,email,verified,active,created_at,updated_at
 		from pgbase_meta.users
 		where id > $1
 		order by id
@@ -30,7 +30,7 @@ func (s *Service) ListUsers(ctx context.Context, after uuid.UUID, limit int) (Us
 	items := make([]ManagedUser, 0, limit+1)
 	for rows.Next() {
 		var user ManagedUser
-		if err := rows.Scan(&user.ID, &user.Email, &user.Active, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.Active, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return UserPage{}, fmt.Errorf("scan user: %w", err)
 		}
 		user.CreatedAt = user.CreatedAt.UTC()
@@ -199,13 +199,13 @@ func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, currentPassw
 func userPasswordByIDDB(ctx context.Context, db interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, id uuid.UUID, lock bool) (ManagedUser, string, error) {
-	query := `select id,email,active,created_at,updated_at,password_hash from pgbase_meta.users where id=$1`
+	query := `select id,auth_collection_id,email,verified,active,created_at,updated_at,password_hash from pgbase_meta.users where id=$1`
 	if lock {
 		query += ` for update`
 	}
 	var user ManagedUser
 	var hash string
-	err := db.QueryRow(ctx, query, id).Scan(&user.ID, &user.Email, &user.Active, &user.CreatedAt, &user.UpdatedAt, &hash)
+	err := db.QueryRow(ctx, query, id).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.Active, &user.CreatedAt, &user.UpdatedAt, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ManagedUser{}, "", ErrInvalidCredentials
 	}
@@ -218,7 +218,7 @@ func userPasswordByIDDB(ctx context.Context, db interface {
 }
 
 func lockManagedUser(ctx context.Context, tx pgx.Tx, id uuid.UUID, user *ManagedUser) error {
-	err := tx.QueryRow(ctx, `select id,email,active,created_at,updated_at from pgbase_meta.users where id=$1 for update`, id).Scan(&user.ID, &user.Email, &user.Active, &user.CreatedAt, &user.UpdatedAt)
+	err := tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,active,created_at,updated_at from pgbase_meta.users where id=$1 for update`, id).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.Active, &user.CreatedAt, &user.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -234,6 +234,9 @@ func revokeSessionsInTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (int64, er
 	tag, err := tx.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=CURRENT_TIMESTAMP where user_id=$1 and revoked_at is null`, id)
 	if err != nil {
 		return 0, fmt.Errorf("revoke user sessions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `delete from pgbase_meta.user_mfa_challenges where user_id=$1`, id); err != nil {
+		return 0, fmt.Errorf("revoke user MFA challenges: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

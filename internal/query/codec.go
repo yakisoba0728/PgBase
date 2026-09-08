@@ -51,6 +51,9 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 		if !ok {
 			return nil, validation(name, "unknown_field")
 		}
+		if field.Type == schema.TypeFile {
+			return nil, validation(name, "file_field_read_only")
+		}
 		value, err := decodeFieldValue(field, raw)
 		if err != nil {
 			return nil, err
@@ -213,6 +216,9 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 	destinations := []any{&id, &createdAt, &updatedAt}
 	values := make([]any, len(fields))
 	for index, field := range fields {
+		if field.Type == schema.TypeFile {
+			continue
+		}
 		if isMultipleRelation(field) {
 			continue
 		}
@@ -235,6 +241,9 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 	record["created_at"] = createdAt.UTC().Format(time.RFC3339Nano)
 	record["updated_at"] = updatedAt.UTC().Format(time.RFC3339Nano)
 	for index, field := range fields {
+		if field.Type == schema.TypeFile {
+			continue
+		}
 		if isMultipleRelation(field) {
 			record[field.Name] = []string{}
 			continue

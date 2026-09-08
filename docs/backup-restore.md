@@ -137,3 +137,9 @@ Use the drill as the reference for what a restore must prove; the manual steps b
 For disaster recovery, promote a fully validated PITR target or restored database, update the secret-managed `PGBASE_DATABASE_URL`, and roll out all instances. Keep the damaged source isolated until the recovered project has been accepted.
 
 When the backup and restore work is complete, unset `PGSERVICEFILE`, `PGPASSFILE`, and `pgbase_secret_dir`. Retain or securely remove the protected libpq files according to the operator's credential-rotation policy.
+
+## Local file objects
+
+For installations with file storage enabled, database backups include file metadata but not object bytes. Drain all PgBase writers and cleanup workers, then back up the database and the entire local file directory as one recovery set. Restore both into new locations with the same token secret before starting the application. The restore drill now copies the file directory independently and downloads a file through the restored authenticated HTTP API, checking its exact bytes and MIME type. S3-compatible production recovery must retain object versions for the intended PostgreSQL recovery point; this local filesystem drill does not qualify that deployment.
+
+The disposable WAL marker drill is `scripts/test-local-pitr.sh`; details and measured limits are in [local verification](local-verification.md).

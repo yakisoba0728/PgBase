@@ -3,6 +3,8 @@ import { operationFailureMessage, type OperationRecovery } from "../operations/o
 import { AdminLink } from "../routing/admin-link";
 import type { AdminRoute } from "../routing/admin-location";
 import { CollectionFieldEditor } from "./collection-field-editor";
+import { ViewDefinitionEditor } from "./view-definition-editor";
+import { RecordRulesEditor } from "./record-rules-editor";
 
 /**
  * The outcome of an apply the server could not decide within the request. It
@@ -38,11 +40,14 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
     {designer.relationTargetsFailed && <p role="alert">Unable to load relation targets. Reload this page before adding a relation field.</p>}
-    <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
+    {designer.isView && <p>This view is read-only. Its definition cannot be edited; delete and recreate the view to change it.</p>}
+    {!designer.isView && <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
       {designer.create && <>
         <label htmlFor="collection-name">Collection name</label>
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
+      {designer.create && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
+      {designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} onChange={designer.setView} /> : <>
       <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor
@@ -59,8 +64,20 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
         />)}
         <button className="secondary" disabled={designer.editingBlocked} onClick={designer.addField} type="button">Add field</button>
       </fieldset>
+      <fieldset disabled={designer.editingBlocked}><legend>Compound indexes</legend>
+        {designer.indexes.map((index, position) => <div key={position}>
+          <label>Index name <input value={index.name} onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, name: event.target.value } : entry))} /></label>
+          <label>Ordered fields <input aria-label={`Index ${position + 1} fields`} value={index.fields.join(", ")} onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, fields: event.target.value.split(",").map((field) => field.trim()).filter(Boolean) } : entry))} /></label>
+          <label><input checked={index.unique} type="checkbox" onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, unique: event.target.checked } : entry))} /> Unique</label>
+          <button type="button" onClick={() => designer.setIndexes(designer.indexes.filter((_, i) => i !== position))}>Remove index</button>
+        </div>)}
+        <button type="button" onClick={() => designer.setIndexes([...designer.indexes, { name: "", fields: [], unique: false }])}>Add compound index</button>
+        <p>Each compound index needs two to eight ordered scalar fields.</p>
+      </fieldset>
+      </>}
       <button disabled={designer.pending || designer.editingBlocked} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</button>
-    </form>
+    </form>}
+    {!designer.create && <RecordRulesEditor collection={designer.name} />}
     {designer.preview && <section className="preview" aria-label={designer.create ? "Collection preview" : "Collection change preview"}>
       <h3>Server preview</h3>
       <p>Catalog version {designer.preview.baseVersion}</p>
@@ -82,7 +99,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
       {designer.deleteTarget === null
         ? <button className="danger" disabled={designer.deletePending || designer.editingBlocked} onClick={designer.requestDeletePlan} type="button">{designer.deletePending ? "Preparing…" : "Delete collection"}</button>
         : <div>
-          <p>This permanently drops the table and all records.</p>
+          <p>{designer.isView ? "This permanently drops the view; source records remain." : "This permanently drops the table and all records."}</p>
           <p>Deleting {designer.deleteTarget.collection} · physical table {designer.deleteTarget.tableName} · catalog version {designer.deleteTarget.baseVersion}</p>
           <h4>SQL</h4>
           <pre>{designer.deleteTarget.sql.join("\n\n")}</pre>

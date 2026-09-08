@@ -134,19 +134,34 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	defer cancel()
 	// Rewind to exactly v6. Remove every later object and history row so Up sees
 	// a contiguous pre-membership history even as new migrations are embedded.
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.schema_writer_leases;
+	if _, err := pool.Exec(ctx, `drop table pgbase_meta.collection_views;
+        drop table pgbase_meta.service_token_scopes, pgbase_meta.service_tokens;
+        drop table pgbase_meta.compound_index_fields, pgbase_meta.compound_indexes;
+        drop table pgbase_meta.collection_rules;
+        drop table pgbase_meta.user_auth_profiles, pgbase_meta.user_oauth_identities,
+            pgbase_meta.user_oauth_states, pgbase_meta.user_totp_recovery_codes,
+            pgbase_meta.user_totp_factors, pgbase_meta.user_mfa_challenges;
+        drop table pgbase_meta.scheduled_jobs;
+        drop table pgbase_meta.realtime_events, pgbase_meta.outbox_delivery, pgbase_meta.realtime_retention;
+        alter table pgbase_meta.record_outbox drop column owner_user_id, drop column record_snapshot;
+        drop trigger fields_delete_record_files on pgbase_meta.fields;
+        drop table pgbase_meta.record_files, pgbase_meta.file_object_deletions;
+        drop function pgbase_meta.queue_record_file_objects(), pgbase_meta.delete_record_files_for_field();
+        drop table pgbase_meta.user_email_actions;
+        drop table pgbase_meta.schema_writer_leases;
 		drop table pgbase_meta.schema_companion_index_capability;
 		drop table pgbase_meta.record_owners;
 		drop table pgbase_meta.collection_access;
 		drop table pgbase_meta.user_sessions;
 		drop table pgbase_meta.user_auth_rate_limits;
 		drop table pgbase_meta.users;
+        drop table pgbase_meta.auth_collections;
 		drop table pgbase_meta.record_creation_ordinals;
 		drop table pgbase_meta.record_membership_backfills;
 		drop table pgbase_meta.collection_creation_counters;
 		drop table pgbase_meta.runtime_writer_leases;
 		drop table pgbase_meta.record_membership_capability;
-		delete from pgbase_meta.system_migrations where version in (7, 8, 9, 10, 11)`); err != nil {
+		delete from pgbase_meta.system_migrations where version > 6`); err != nil {
 		t.Fatal(err)
 	}
 	request := CreateRequest{

@@ -97,6 +97,11 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 			return Catalog{}, err
 		}
 		current.Fields = fields
+		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		if err != nil {
+			return Catalog{}, err
+		}
+		current.Indexes = indexes
 		next.Collections[current.Name] = current
 	case changeDelete:
 		if _, ok := next.Collections[change.deleteName]; !ok {
@@ -167,6 +172,16 @@ func cloneCatalog(source Catalog) Catalog {
 		for index := range collection.Fields {
 			collection.Fields[index].Default = append([]byte(nil), collection.Fields[index].Default...)
 			collection.Fields[index].Relation = clonePointer(collection.Fields[index].Relation)
+		}
+		collection.Indexes = append([]Index(nil), collection.Indexes...)
+		for index := range collection.Indexes {
+			collection.Indexes[index].Fields = append([]string(nil), collection.Indexes[index].Fields...)
+		}
+		if collection.View != nil {
+			view := *collection.View
+			view.Projection = append([]string(nil), collection.View.Projection...)
+			view.Filter = cloneViewFilter(collection.View.Filter)
+			collection.View = &view
 		}
 		clone.Collections[name] = collection
 	}

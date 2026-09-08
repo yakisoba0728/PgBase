@@ -1,0 +1,21 @@
+name: pgbase-local
+services:
+  postgres:
+    image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+    environment:
+      POSTGRES_DB: pgbase
+      POSTGRES_USER: pgbase
+      POSTGRES_PASSWORD: ${PGBASE_LOCAL_DATABASE_PASSWORD:?Run scripts/dev-local.sh first}
+    ports:
+      - "127.0.0.1:55440:5432"
+    volumes:
+      - data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgbase -d pgbase"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    mem_limit: 1g
+    cpus: 2
+volumes:
+  data:

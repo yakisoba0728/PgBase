@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
@@ -42,7 +43,10 @@ type Service struct {
 	recorder observability.Recorder
 	random   io.Reader
 	members  *membershipWriterProvider
+	hooks    []MutationHook
 }
+
+type batchTransactionKey struct{}
 
 // A nil runtime is not a disabled membership: the writer provider registers
 // one on the first mutation, so a service built without the application's
@@ -107,6 +111,8 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
+	ctx, hooks := s.hookContext(ctx)
+	defer hooks.after(ctx, &err)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationWrite, operationStarted, &err, &relationOperation)
@@ -153,7 +159,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		idempotencyLock = &lock
 	}
 	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, uuid.Nil); err != nil {
+		if collection.IsView() {
+			return recordaccess.ErrUnsupported
+		}
+		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, uuid.Nil); err != nil {
 			return err
 		}
 		relationOperation = inputTouchesRelationField(collection, request.Input)
@@ -167,7 +176,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				return err
 			}
 			if found {
-				if request.Principal.Kind == PrincipalUser {
+				if request.Principal.Kind != PrincipalAdministrator {
+					if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, replayed.Record.Data); err != nil {
+						return err
+					}
 					id, ok := replayed.Record.Data["id"].(string)
 					if !ok {
 						return query.ErrRecordNotFound
@@ -176,7 +188,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 					if err != nil {
 						return query.ErrRecordNotFound
 					}
-					if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, recordID); err != nil {
+					if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, recordID, "create"); err != nil {
 						return err
 					}
 				}
@@ -199,6 +211,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := relations.Lock(ctx, tx, recordID); err != nil {
 			return normalizeRelationError(err)
 		}
+		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
+			return err
+		}
 		data, err := query.EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 		if err != nil {
 			return query.NormalizeRecordError(err)
@@ -208,6 +223,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		}
 		if err := relations.Store(ctx, tx, recordID, data); err != nil {
 			return normalizeRelationError(err)
+		}
+		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, data); err != nil {
+			return err
 		}
 		if err := schema.ValidateRecordSize(data); err != nil {
 			return err
@@ -256,6 +274,8 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 }
 
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (result MutationResult, err error) {
+	ctx, hooks := s.hookContext(ctx)
+	defer hooks.after(ctx, &err)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationWrite, operationStarted, &err, &relationOperation)
@@ -288,7 +308,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	}
 
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, request.ID); err != nil {
+		if collection.IsView() {
+			return recordaccess.ErrUnsupported
+		}
+		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "update"); err != nil {
 			return err
 		}
 		relationOperation = inputTouchesRelationField(collection, request.Input)
@@ -305,6 +328,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		if err := relations.Lock(ctx, tx, request.ID); err != nil {
 			return normalizeRelationError(err)
+		}
+		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
+			return err
 		}
 		before, err := readRecord(ctx, tx, collection, request.ID, !relations.LocksSource())
 		if err != nil {
@@ -339,6 +365,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := relations.Store(ctx, tx, request.ID, after); err != nil {
 			return normalizeRelationError(err)
 		}
+		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, after); err != nil {
+			return err
+		}
 		if err := schema.ValidateRecordSize(after); err != nil {
 			return err
 		}
@@ -370,6 +399,8 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 }
 
 func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result MutationResult, err error) {
+	ctx, hooks := s.hookContext(ctx)
+	defer hooks.after(ctx, &err)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationDelete, operationStarted, &err, &relationOperation)
@@ -395,7 +426,10 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	}
 
 	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, request.ID); err != nil {
+		if collection.IsView() {
+			return recordaccess.ErrUnsupported
+		}
+		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "delete"); err != nil {
 			return err
 		}
 		relationOperation = collectionParticipatesInRelations(catalog, collection)
@@ -415,30 +449,28 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	return result, nil
 }
 
-func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, recordID uuid.UUID) error {
-	if principal.Kind != PrincipalUser {
+func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal Principal, recordID uuid.UUID, actions ...string) error {
+	if principal.Kind == PrincipalAdministrator {
 		return nil
 	}
-	for _, field := range collection.Fields {
-		if field.Type == schema.TypeRelation {
-			return recordaccess.ErrUnsupported
-		}
+	action := "view"
+	if recordID == uuid.Nil {
+		action = "create"
 	}
-	if len(catalog.Incoming[collection.ID]) != 0 {
-		return recordaccess.ErrUnsupported
+	if len(actions) > 0 {
+		action = actions[0]
 	}
-	if err := recordaccess.AuthorizeUser(ctx, tx, collection.ID, principal.ID); err != nil {
+	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action); err != nil {
 		return err
 	}
-	if recordID == uuid.Nil {
+	if recordID == uuid.Nil || principal.Kind == identity.Service {
 		return nil
 	}
-	var owned bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pgbase_meta.record_owners WHERE collection_id=$1 AND record_id=$2 AND user_id=$3)`, collection.ID, recordID, principal.ID).Scan(&owned)
+	allowed, err := recordaccess.AllowsRecord(ctx, tx, policyCollection(collection), principal, action, recordID, false)
 	if err != nil {
 		return err
 	}
-	if !owned {
+	if !allowed {
 		return query.ErrRecordNotFound
 	}
 	return nil
@@ -589,7 +621,30 @@ func (s *Service) pinnedTx(
 	idempotencyLock *int64,
 	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
 ) error {
+	if tx, ok := ctx.Value(batchTransactionKey{}).(pgx.Tx); ok {
+		if idempotencyLock != nil {
+			var locked bool
+			if err := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", *idempotencyLock).Scan(&locked); err != nil {
+				return err
+			}
+			if !locked {
+				return &Error{Code: CodeIdempotencyInProgress}
+			}
+		}
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
+		}
+		collection, ok := catalog.Collections[collectionName]
+		if !ok {
+			return query.ErrCollectionNotFound
+		}
+		return operation(tx, catalog, collection)
+	}
 	return database.Retry(ctx, func() error {
+		if hooks, _ := ctx.Value(mutationHookKey{}).(*mutationHookRun); hooks != nil {
+			hooks.events = nil
+		}
 		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: isolation}, func(tx pgx.Tx) error {
 			if idempotencyLock != nil {
 				var locked bool

@@ -32,6 +32,7 @@ func (s *Service) executeMaterializedExpandPlan(
 	catalog schema.Catalog,
 	roots []map[string]any,
 	plan expandPlan,
+	principal Principal,
 	usage *expansionUsage,
 ) ([]ExpandedRecord, error) {
 	materials := make([]*materializedRecord, len(roots))
@@ -53,9 +54,9 @@ func (s *Service) executeMaterializedExpandPlan(
 				var err error
 				switch job.node.kind {
 				case expandNodeForward:
-					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, usage)
+					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, principal, usage)
 				case expandNodeReverse:
-					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, usage)
+					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, principal, usage)
 				default:
 					err = schema.ErrConflict
 				}
@@ -124,6 +125,7 @@ func (s *Service) executeForwardExpandNode(
 	tx pgx.Tx,
 	catalog schema.Catalog,
 	job expandLevelJob,
+	principal Principal,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
@@ -141,11 +143,11 @@ func (s *Service) executeForwardExpandNode(
 		allIDs = append(allIDs, reference.ids...)
 	}
 	ids := uniqueSortedIDs(allIDs)
-	if err := usage.takeRows(len(ids)); err != nil {
+	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, principal, usage)
+	if err != nil {
 		return nil, err
 	}
-	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, usage)
-	if err != nil {
+	if err := usage.takeRows(len(targetRecords)); err != nil {
 		return nil, err
 	}
 	targets := make(map[uuid.UUID]*materializedRecord, len(targetRecords))

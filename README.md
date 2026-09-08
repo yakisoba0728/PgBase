@@ -44,3 +44,11 @@ One pgBase project owns one PostgreSQL database. Multiple pgBase instances for t
 The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability during v0.x.
 
 Public user access is limited to enabled collections without incoming or outgoing relations, and users can access only records they create. This kernel does not yet provide configurable Auth collections, OAuth2/MFA, an arbitrary record-rule language, cross-project relations, arbitrary SQL joins, relation edge attributes, files, outbox delivery/realtime, an SDK, generated OpenAPI, online DDL, read-replica routing, or sharding. Relation mutations are supported only through the record API/Record Operations kernel; direct writes to pgBase-owned PostgreSQL objects are outside the contract because they bypass ETag/revision, audit, outbox, logical delete actions, and relation locking. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview), automatic single/multiple relation conversion, or composite indexes. It makes no throughput, large-scale-readiness, or zero-downtime upgrade guarantee.
+
+## Local development features
+
+The in-progress M2–M6 source branch adds user email actions, OAuth/TOTP, auth collections and typed record rules; a TypeScript SDK; local/S3 files; SSE record events; compound indexes, read-only views, atomic batches, Go hooks and leased jobs. See [live implementation status](TODO.md) for validation and merge status. This is not a new published release or a claim of complete PocketBase API compatibility.
+
+Start PostgreSQL, PgBase and the local mail inbox with `scripts/dev-local.sh`. See [local development](docs/local-development.md), [local verification](docs/local-verification.md), [realtime](docs/realtime.md), and [extension/client scope](docs/extensions-and-client-scope.md).
+
+현재 로컬 소스 기능의 PocketBase 대비 차이와 검증 경계는 [2026-09-09 기능 비교표](docs/pocketbase-local-feature-comparison-2026-09-09.md), 검증 결과는 [로컬 검증 기록](docs/local-verification.md)을 참고하세요.

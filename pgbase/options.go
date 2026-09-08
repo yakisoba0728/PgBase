@@ -37,9 +37,19 @@ const (
 )
 
 type Options struct {
-	DatabaseURL string
+	Files          FileOptions
+	OAuthProviders []OAuthProviderOptions
+	OAuthRedirects []string
+	MutationHooks  []MutationHook
+	SMTP           SMTPOptions
+	DatabaseURL    string
 	// UserRegistrationEnabled permits public self-registration; false by default.
 	UserRegistrationEnabled bool
+	// Jobs enables registered durable scheduled jobs. Jobs are disabled by
+	// default so a process that has not opted in never claims shared work.
+	JobsEnabled bool
+	// Jobs contains named handlers registered before App startup.
+	Jobs []ScheduledJob
 	// AllowInsecureDatabase permits an unverified or plaintext PostgreSQL
 	// connection. It is only for an explicitly trusted local development
 	// network such as the bundled Compose stack.
@@ -67,6 +77,11 @@ type Options struct {
 }
 
 func (o Options) Normalized() (Options, error) {
+	files, err := o.Files.normalized()
+	if err != nil {
+		return Options{}, err
+	}
+	o.Files = files
 	if o.HTTPAddress == "" {
 		o.HTTPAddress = "127.0.0.1:8090"
 	}
@@ -88,12 +103,33 @@ func (o Options) Normalized() (Options, error) {
 	if err := validateOptions(o); err != nil {
 		return Options{}, err
 	}
+	for _, hook := range o.MutationHooks {
+		if hook == nil {
+			return Options{}, fmt.Errorf("MutationHooks: nil hook")
+		}
+	}
+	o.MutationHooks = append([]MutationHook(nil), o.MutationHooks...)
+	o.OAuthProviders = append([]OAuthProviderOptions(nil), o.OAuthProviders...)
+	for i := range o.OAuthProviders {
+		o.OAuthProviders[i].Scopes = append([]string(nil), o.OAuthProviders[i].Scopes...)
+	}
+	o.OAuthRedirects = append([]string(nil), o.OAuthRedirects...)
+	o.Jobs = append([]ScheduledJob(nil), o.Jobs...)
 	o.TokenSecret = append([]byte(nil), o.TokenSecret...)
 	o.MetricsToken = append([]byte(nil), o.MetricsToken...)
 	return o, nil
 }
 
 func validateOptions(o Options) error {
+	if err := validateScheduledJobs(o.Jobs); err != nil {
+		return err
+	}
+	if err := o.validateOAuth(); err != nil {
+		return err
+	}
+	if err := o.validateEmail(); err != nil {
+		return err
+	}
 	if err := validateDatabaseURL(o.DatabaseURL, o.AllowInsecureDatabase); err != nil {
 		return fmt.Errorf("DatabaseURL: %w", err)
 	}

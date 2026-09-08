@@ -5,7 +5,7 @@
 pgBase 기준: 정식 `v0.1.0`, commit `3677a6b182b440a158e96d10482b1552030c18f5`.
 PocketBase 기준: [최신 정식 릴리스 `v0.40.3`](https://github.com/pocketbase/pocketbase/releases/tag/v0.40.3), 2026-09-06 발행, commit [`5684ee24f1e88f71a2ede73d20cf547fbd509e16`](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16). GitHub API와 공식 문서에서 확인했다. 고정한 upstream 소스와 상세 출처는 [upstream 조사](pocketbase-upstream-capabilities-2026-09-08.md)에 기록한다.
 
-> 이 표는 v0.1.0에 고정한 비교 기록이다. 이후 M1 구현 내용은 아래 부록과 [실시간 TODO](../TODO.md)를 참고한다.
+> 이 표는 v0.1.0에 고정한 과거 비교 기록이다. 현재 로컬 소스 기능은 [2026-09-09 로컬 기능 비교](pocketbase-local-feature-comparison-2026-09-09.md)를 참고한다. 배포된 v0.1.0의 평가와 아직 공개되지 않은 소스 기능을 섞어 읽지 않는다.
 
 ## 판단
 

@@ -91,13 +91,25 @@ func (s *Service) readGetInTx(
 	request GetRequest,
 	result *getResult,
 ) error {
-	if err := authorizePrincipal(ctx, tx, catalog, collection, request.Principal); err != nil {
+	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "view"); err != nil {
 		return err
 	}
 	statement := CompileSelectByID(collection, request.ID)
-	if request.Principal.Kind == identity.User {
-		statement.SQL += ` AND EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = $2 AND "rq_owner".record_id = ` + quoted(collection.TableName) + `.` + quoted("id") + ` AND "rq_owner".user_id = $3)`
-		statement.Args = append(statement.Args, collection.ID, request.Principal.ID)
+	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
+		rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if err != nil {
+			return err
+		}
+		policyTarget, err := sourcePolicyCollection(catalog, collection)
+		if err != nil {
+			return err
+		}
+		predicate, args, err := compilePolicyPredicate(rules.View, collection, policyTarget, collection.TableName, request.Principal, len(statement.Args))
+		if err != nil {
+			return err
+		}
+		statement.SQL += " AND (" + predicate + ")"
+		statement.Args = append(statement.Args, args...)
 	}
 	root, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 	if err := recordQueryError(err); err != nil {
@@ -110,7 +122,7 @@ func (s *Service) readGetInTx(
 		if err := usage.takeQuerySteps(1 + multipleRelationFieldCount(collection)); err != nil {
 			return err
 		}
-		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, usage); err != nil {
+		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, usage); err != nil {
 			return err
 		}
 		if err := validateExpandedRecordSize(ExpandedRecord{Root: root}, usage.limits.maxBytes); err != nil {
@@ -129,10 +141,10 @@ func (s *Service) readGetInTx(
 		if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
 			return err
 		}
-		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, usage); err != nil {
+		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, usage); err != nil {
 			return err
 		}
-		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, []map[string]any{root}, plan, usage)
+		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, []map[string]any{root}, plan, request.Principal, usage)
 		if err != nil {
 			return err
 		}
@@ -208,7 +220,7 @@ func (s *Service) readListInTx(
 	filterNode filterNode,
 	requestedSort []SortKey,
 ) (listResult, bool, error) {
-	if err := authorizePrincipal(ctx, tx, catalog, collection, request.Principal); err != nil {
+	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
 		return listResult{}, false, err
 	}
 	var expansion expandPlan
@@ -229,13 +241,35 @@ func (s *Service) readListInTx(
 		}
 		return listResult{}, relationOperation, err
 	}
+	if relationListPlanUsesRelation(relationPlan) {
+		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
+			return listResult{}, relationOperation, err
+		}
+	}
 	rootPlan := plannedRootPlan(filterNode, relationPlan)
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
-	if request.Principal.Kind == identity.User {
-		ownerID := request.Principal.ID
-		rootPlan.ownerID = &ownerID
+	rootPlan.policyCollection, err = sourcePolicyCollection(catalog, collection)
+	if err != nil {
+		return listResult{}, relationOperation, err
 	}
-	traversal, err := s.resolveTraversal(ctx, tx, collection.ID)
+	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
+		rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if err != nil {
+			return listResult{}, false, err
+		}
+		if revision == 0 && request.Principal.Kind == identity.User {
+			ownerID := request.Principal.ID
+			rootPlan.ownerID = &ownerID
+		} else {
+			rootPlan.rule = &rules.List
+			rootPlan.ruleRevision = revision
+		}
+		rootPlan.outputRuleScope, err = bindOutputRuleScope(ctx, tx, catalog, collection, expansion)
+		if err != nil {
+			return listResult{}, false, err
+		}
+	}
+	traversal, err := s.resolveTraversal(ctx, tx, collection.AccessCollectionID())
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}
@@ -245,7 +279,11 @@ func (s *Service) readListInTx(
 	}
 	if usage == nil {
 		if multipleRelationFieldCount(collection) != 0 {
-			rootRequest.hydrator = newRootHydrator(tx, catalog, collection)
+			rootRequest.hydrator = newRootHydrator(tx, catalog, collection, request.Principal)
+		} else if collectionHasRelation(collection) {
+			rootRequest.hydrate = func(items []map[string]any) error {
+				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal)
+			}
 		}
 	} else {
 		rootRequest.charge = usage.takeQuerySteps
@@ -256,7 +294,7 @@ func (s *Service) readListInTx(
 			if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
 				return err
 			}
-			return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, usage)
+			return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, request.Principal, usage)
 		}
 	}
 	root, err := s.readRootPageInTx(ctx, tx, rootRequest)
@@ -267,7 +305,7 @@ func (s *Service) readListInTx(
 		return listResult{page: root.page}, relationOperation, nil
 	}
 
-	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, root.page.Items, expansion, usage)
+	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, root.page.Items, expansion, request.Principal, usage)
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}
@@ -299,19 +337,20 @@ func (s *Service) readListInTx(
 	}, relationOperation, nil
 }
 
-func authorizePrincipal(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal) error {
-	if principal.Kind != identity.User {
-		return nil
-	}
+func collectionHasRelation(collection schema.Collection) bool {
 	for _, field := range collection.Fields {
 		if field.Type == schema.TypeRelation {
-			return recordaccess.ErrUnsupported
+			return true
 		}
 	}
-	if len(catalog.Incoming[collection.ID]) != 0 {
-		return recordaccess.ErrUnsupported
+	return false
+}
+
+func authorizePrincipal(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal Principal, action string) error {
+	if principal.Kind == identity.Administrator {
+		return nil
 	}
-	return recordaccess.AuthorizeUser(ctx, tx, collection.ID, principal.ID)
+	return recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action)
 }
 
 func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {
@@ -397,11 +436,15 @@ func (s *Service) fetchExpansionTargets(
 	catalog schema.Catalog,
 	collection schema.Collection,
 	ids []uuid.UUID,
+	principal Principal,
 	usage *expansionUsage,
 ) (map[uuid.UUID]map[string]any, error) {
 	targets := make(map[uuid.UUID]map[string]any, len(ids))
 	if len(ids) == 0 {
 		return targets, nil
+	}
+	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, "view"); err != nil {
+		return nil, err
 	}
 	selectedMultiFields := multipleRelationFieldNames(collection)
 	hydrationSteps := len(selectedMultiFields)
@@ -410,6 +453,22 @@ func (s *Service) fetchExpansionTargets(
 		return nil, err
 	}
 	statement := compileExpandTargetSelect(collection, ids)
+	if principal.Kind == identity.User || principal.Kind == identity.Anonymous {
+		rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if err != nil {
+			return nil, err
+		}
+		policyTarget, err := sourcePolicyCollection(catalog, collection)
+		if err != nil {
+			return nil, err
+		}
+		predicate, args, err := compilePolicyPredicate(rules.View, collection, policyTarget, collection.TableName, principal, len(statement.Args))
+		if err != nil {
+			return nil, err
+		}
+		statement.SQL = injectBeforeOrder(statement.SQL, " AND ("+predicate+")")
+		statement.Args = append(statement.Args, args...)
+	}
 	rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 	if err != nil {
 		return nil, expansionTargetFailure(err)

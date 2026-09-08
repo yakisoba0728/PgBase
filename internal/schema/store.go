@@ -71,6 +71,48 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		return Catalog{}, fmt.Errorf("iterate collections: %w", err)
 	}
 	rows.Close()
+	var hasViews bool
+	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.collection_views') is not null`).Scan(&hasViews); err != nil {
+		return Catalog{}, err
+	}
+	if hasViews {
+		viewRows, err := s.db.Query(ctx, `select collection_id,source_collection_id,projection,filter_json from pgbase_meta.collection_views`)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("read collection views: %w", err)
+		}
+		for viewRows.Next() {
+			var collectionID, sourceID uuid.UUID
+			var projection []string
+			var raw []byte
+			if err := viewRows.Scan(&collectionID, &sourceID, &projection, &raw); err != nil {
+				viewRows.Close()
+				return Catalog{}, err
+			}
+			name, ok := collectionNames[collectionID]
+			sourceName, sourceOK := collectionNames[sourceID]
+			if !ok || !sourceOK {
+				viewRows.Close()
+				return Catalog{}, errCatalogIntegrity
+			}
+			var filter *ViewFilter
+			if len(raw) > 0 {
+				var value ViewFilter
+				if json.Unmarshal(raw, &value) != nil {
+					viewRows.Close()
+					return Catalog{}, errCatalogIntegrity
+				}
+				filter = &value
+			}
+			collection := collections[name]
+			collection.View = &ViewSpec{SourceCollectionID: sourceID, Source: sourceName, Projection: append([]string(nil), projection...), Filter: filter}
+			collections[name] = collection
+		}
+		if err := viewRows.Err(); err != nil {
+			viewRows.Close()
+			return Catalog{}, err
+		}
+		viewRows.Close()
+	}
 
 	type fieldLocation struct {
 		collectionID   uuid.UUID
@@ -179,6 +221,57 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		return Catalog{}, fmt.Errorf("iterate relation metadata: %w", err)
 	}
 	relationRows.Close()
+	var hasCompoundIndexes bool
+	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.compound_indexes') is not null and to_regclass('pgbase_meta.compound_index_fields') is not null`).Scan(&hasCompoundIndexes); err != nil {
+		return Catalog{}, fmt.Errorf("inspect compound index metadata: %w", err)
+	}
+	if hasCompoundIndexes {
+		indexRows, err := s.db.Query(ctx, `select i.id,i.collection_id,i.name,i.index_name,i.is_unique,f.name
+		from pgbase_meta.compound_indexes i join pgbase_meta.compound_index_fields m on m.index_id=i.id
+		join pgbase_meta.fields f on f.id=m.field_id order by i.collection_id,i.name,m.ordinal`)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("read compound indexes: %w", err)
+		}
+		indexLocations := map[uuid.UUID]struct {
+			collection string
+			position   int
+		}{}
+		for indexRows.Next() {
+			var id, collectionID uuid.UUID
+			var name, physical, field string
+			var unique bool
+			if err := indexRows.Scan(&id, &collectionID, &name, &physical, &unique, &field); err != nil {
+				indexRows.Close()
+				return Catalog{}, err
+			}
+			collectionName, ok := collectionNames[collectionID]
+			if !ok {
+				indexRows.Close()
+				return Catalog{}, errCatalogIntegrity
+			}
+			collection := collections[collectionName]
+			location, ok := indexLocations[id]
+			if !ok {
+				collection.Indexes = append(collection.Indexes, Index{ID: id, Name: name, IndexName: physical, Unique: unique})
+				location = struct {
+					collection string
+					position   int
+				}{collectionName, len(collection.Indexes) - 1}
+				indexLocations[id] = location
+			}
+			if location.collection != collectionName {
+				indexRows.Close()
+				return Catalog{}, errCatalogIntegrity
+			}
+			collection.Indexes[location.position].Fields = append(collection.Indexes[location.position].Fields, field)
+			collections[collectionName] = collection
+		}
+		if err := indexRows.Err(); err != nil {
+			indexRows.Close()
+			return Catalog{}, err
+		}
+		indexRows.Close()
+	}
 
 	for _, collection := range collections {
 		for _, field := range collection.Fields {
@@ -200,6 +293,15 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 	if err := s.insertFieldMetadata(ctx, collection, definition, createdAt); err != nil {
 		return err
 	}
+	if collection.View != nil {
+		encoded, err := encodeViewFilter(collection.View.Filter)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collection_views(collection_id,source_collection_id,projection,filter_json,created_at) values($1,$2,$3,$4::jsonb,$5)`, collection.ID, collection.View.SourceCollectionID, collection.View.Projection, encoded, createdAt); err != nil {
+			return fmt.Errorf("insert collection view metadata: %w", err)
+		}
+	}
 	return s.insertMembershipMetadata(ctx, collection.ID, createdAt)
 }
 
@@ -210,6 +312,11 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 		collection.ID, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
 	}
+	if len(collection.Indexes) > 0 || len(definition.Indexes) > 0 {
+		if _, err := s.db.Exec(ctx, `delete from pgbase_meta.compound_indexes where collection_id = $1`, collection.ID); err != nil {
+			return fmt.Errorf("clear compound index metadata: %w", err)
+		}
+	}
 	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.fields where collection_id = $1`, collection.ID); err != nil {
 		return fmt.Errorf("clear field metadata: %w", err)
 	}
@@ -217,6 +324,19 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 }
 
 func (s *Store) DeleteCollection(ctx context.Context, collectionID uuid.UUID) error {
+	// A service credential outlives any one collection, but a scope cannot.
+	// This runs inside the schema apply transaction, after the table DDL and
+	// while the schema advisory lock is held, so authorization either observes
+	// the collection and its scope or neither of them.
+	var hasServiceTokenScopes bool
+	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.service_token_scopes') is not null`).Scan(&hasServiceTokenScopes); err != nil {
+		return fmt.Errorf("check collection service token scopes: %w", err)
+	}
+	if hasServiceTokenScopes {
+		if _, err := s.db.Exec(ctx, `delete from pgbase_meta.service_token_scopes where collection_id = $1`, collectionID); err != nil {
+			return fmt.Errorf("delete collection service token scopes: %w", err)
+		}
+	}
 	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.collections where id = $1`, collectionID); err != nil {
 		return fmt.Errorf("delete collection metadata: %w", err)
 	}
@@ -356,6 +476,36 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 			values ($1, $2, $3, $4, $5, $6)`,
 			indexID, collection.ID, field.ID, indexName(collection.Name, field.Name), field.Unique, createdAt); err != nil {
 			return fmt.Errorf("insert collection index metadata: %w", err)
+		}
+	}
+	fieldIDs := make(map[string]uuid.UUID, len(collection.Fields))
+	for _, field := range collection.Fields {
+		fieldIDs[field.Name] = field.ID
+	}
+	indexMetadata := make(map[string]Index, len(collection.Indexes))
+	for _, index := range collection.Indexes {
+		indexMetadata[index.Name] = index
+	}
+	if len(indexMetadata) != len(definition.Indexes) {
+		return errCatalogIntegrity
+	}
+	for _, planned := range definition.Indexes {
+		stored, ok := indexMetadata[planned.Name]
+		if !ok || stored.ID == uuid.Nil || stored.IndexName != compoundIndexName(collection.Name, planned.Name) || stored.Unique != planned.Unique || !stringSlicesEqual(stored.Fields, planned.Fields) {
+			return errCatalogIntegrity
+		}
+		indexID := stored.ID
+		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.compound_indexes(id,collection_id,name,index_name,is_unique,created_at) values($1,$2,$3,$4,$5,$6)`, indexID, collection.ID, planned.Name, compoundIndexName(collection.Name, planned.Name), planned.Unique, createdAt); err != nil {
+			return fmt.Errorf("insert compound index metadata: %w", err)
+		}
+		for ordinal, name := range planned.Fields {
+			fieldID, ok := fieldIDs[name]
+			if !ok {
+				return errCatalogIntegrity
+			}
+			if _, err := s.db.Exec(ctx, `insert into pgbase_meta.compound_index_fields(index_id,field_id,ordinal) values($1,$2,$3)`, indexID, fieldID, ordinal); err != nil {
+				return fmt.Errorf("insert compound index field: %w", err)
+			}
 		}
 	}
 	return nil

@@ -283,7 +283,7 @@ func validExpandCatalogName(name string) bool {
 func supportedExpandFieldType(fieldType schema.FieldType) bool {
 	switch fieldType {
 	case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText,
-		schema.TypeTimestampTZ, schema.TypeUUID, schema.TypeJSONB, schema.TypeRelation:
+		schema.TypeTimestampTZ, schema.TypeUUID, schema.TypeJSONB, schema.TypeRelation, schema.TypeFile:
 		return true
 	default:
 		return false

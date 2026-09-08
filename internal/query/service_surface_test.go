@@ -101,7 +101,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// (+42/-3), preserving all existing rationale. This feature scope expansion
 	// is included in docs/public-identity-owner-access-design.md and the group
 	// ceiling. No extra headroom is allocated.
-	if runtimeLines > 4_911 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4911", runtimeLines)
+	// M2–M6 adds relation target rules, visibility hydration and source-backed views.
+	// See docs/local-milestone-design.md for the measured scope change.
+	if runtimeLines > 5439 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 5439", runtimeLines)
 	}
 }

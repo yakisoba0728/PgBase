@@ -27,7 +27,7 @@ export class SessionError extends Error {
   constructor(readonly reason: SessionFailure) { super(reason); this.name = "SessionError"; }
 }
 
-export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "timestamptz", "uuid", "jsonb", "relation"] as const;
+export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "timestamptz", "uuid", "jsonb", "file", "relation"] as const;
 export const relationCardinalities = ["single", "multiple"] as const;
 export const relationDeleteActions = ["restrict", "cascade", "set_null"] as const;
 export type FieldType = typeof fieldTypes[number];
@@ -41,8 +41,11 @@ export interface FieldInput { name: string; type: FieldType; required: boolean; 
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
-export interface CollectionDefinition { id?: string; name: string; tableName: string; fields: FieldDefinition[] }
-export interface CollectionChange { operation: "create" | "update" | "delete"; name: string; fields?: FieldInput[] }
+export interface CompoundIndex { id?: string; name: string; indexName?: string; fields: string[]; unique: boolean }
+export interface ViewFilter { op: "all" | "any" | "eq" | "ne" | "lt" | "lte" | "gt" | "gte"; args?: ViewFilter[]; field?: string; value?: unknown }
+export interface ViewDefinition { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter }
+export interface CollectionDefinition { id?: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export interface CollectionChange { operation: "create" | "update" | "delete"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
 
 // A Map keyed by own entries, so a collection named `constructor` or
 // `__proto__` can neither be found by accident nor shadow a real one.
@@ -245,6 +248,23 @@ export interface SchemaPort {
 	userAccess(collection: string, signal?: AbortSignal): Promise<{ collection: string; enabled: boolean }>;
 	setUserAccess(collection: string, enabled: boolean): Promise<{ collection: string; enabled: boolean }>;
 }
+export interface RecordRules { collection: string; rules: Record<string, unknown>; revision: number }
+export interface RulePreview { items: Array<{ recordId: string; allowed: boolean }> }
+export interface RecordRulesPort {
+  getRules(collection: string, signal?: AbortSignal): Promise<RecordRules>;
+  setRules(collection: string, rules: Record<string, unknown>, revision: number, signal?: AbortSignal): Promise<RecordRules>;
+  previewRule(collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview>;
+}
+export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
+export interface AuthCollectionsPort { listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void> }
+export interface ServiceTokenScope { collectionId: string; action: "read" | "create" | "update" | "delete" }
+export interface ServiceToken { id: string; name: string; active: boolean; expiresAt: string; revokedAt?: string; createdAt: string; scopes: ServiceTokenScope[] }
+export interface IssuedServiceToken extends ServiceToken { token: string }
+export interface ServiceTokensPort {
+  listServiceTokens(signal?: AbortSignal): Promise<ServiceToken[]>;
+  issueServiceToken(value: { name: string; ttlSeconds: number; scopes: ServiceTokenScope[] }, signal?: AbortSignal): Promise<IssuedServiceToken>;
+  revokeServiceToken(id: string, signal?: AbortSignal): Promise<void>;
+}
 
 export interface RecordPort {
   list(collection: string, options: ListOptions, signal?: AbortSignal): Promise<RecordPage>;
@@ -253,13 +273,21 @@ export interface RecordPort {
   update(record: VersionedRecord, patch: RecordData): Promise<VersionedRecord>;
   remove(record: VersionedRecord): Promise<void>;
 }
+export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean }
+export interface FilePort {
+  listFiles(collection: string, recordID: string, field: string, signal?: AbortSignal): Promise<FileInfo[]>;
+  uploadFile(collection: string, recordID: string, field: string, file: File, signal?: AbortSignal): Promise<FileInfo>;
+  deleteFile(id: string, signal?: AbortSignal): Promise<void>;
+  createDownloadToken(id: string, variant?: string, signal?: AbortSignal): Promise<string>;
+  downloadBlob(id: string, token: string, variant?: string, signal?: AbortSignal): Promise<Blob>;
+}
 
 export interface SystemPort {
   status(signal?: AbortSignal): Promise<SystemStatus>;
   health(signal?: AbortSignal): Promise<SchemaHealth>;
 }
 
-export interface ManagedUser { id: string; email: string; active: boolean; createdAt: string; updatedAt: string }
+export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
 export interface UserPage { items: ManagedUser[]; nextAfter?: string }
 export interface UsersPort {
   list(after?: string, signal?: AbortSignal): Promise<UserPage>;
@@ -273,4 +301,8 @@ export interface AdminBackend {
   records: RecordPort;
   system: SystemPort;
   users: UsersPort;
+  files: FilePort;
+  rules: RecordRulesPort;
+  authCollections: AuthCollectionsPort;
+  serviceTokens: ServiceTokensPort;
 }

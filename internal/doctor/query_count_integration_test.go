@@ -30,7 +30,9 @@ import (
 // observed shape of every companion in one statement. The manifest itself is
 // reused from the physical comparison rather than recompiled. Raise this only
 // alongside statements that are likewise independent of catalog size.
-const doctorSnapshotQueryCeiling = 31
+// Compound indexes add two fixed reads: metadata availability and all definitions.
+// Views add another fixed availability probe and bulk definition read.
+const doctorSnapshotQueryCeiling = 35
 
 type doctorQueryTracer struct {
 	mu         sync.Mutex

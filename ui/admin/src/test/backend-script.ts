@@ -12,6 +12,12 @@ import type {
 	SystemStatus,
 	ManagedUser,
 	UserPage,
+	FileInfo,
+	RecordRules,
+	RulePreview,
+	AuthCollection,
+	ServiceToken,
+	IssuedServiceToken,
 } from "../backend/ports";
 
 /**
@@ -109,6 +115,21 @@ export interface BackendScript {
 	users: Step<UserPage>[];
 	setUserActive: Step<ManagedUser>[];
 	revokeUserSessions: Step<number>[];
+	listFiles: Step<FileInfo[]>[];
+	uploadFile: Step<FileInfo>[];
+	deleteFile: Step<void>[];
+	createDownloadToken: Step<string>[];
+	downloadBlob: Step<Blob>[];
+	getRules: Step<RecordRules>[];
+	setRules: Step<RecordRules>[];
+	previewRule: Step<RulePreview>[];
+	listAuthCollections: Step<AuthCollection[]>[];
+	createAuthCollection: Step<AuthCollection>[];
+	updateAuthCollection: Step<AuthCollection>[];
+	deleteAuthCollection: Step<void>[];
+	listServiceTokens: Step<ServiceToken[]>[];
+	issueServiceToken: Step<IssuedServiceToken>[];
+	revokeServiceToken: Step<void>[];
   calls: Call[];
 }
 
@@ -119,6 +140,11 @@ export function backendScript(): BackendScript {
     list: [], read: [], create: [], update: [], remove: [],
 	status: [], health: [], calls: [],
 	users: [], setUserActive: [], revokeUserSessions: [],
+	listFiles: [], uploadFile: [], deleteFile: [], createDownloadToken: [], downloadBlob: [],
+	getRules: [], setRules: [],
+	previewRule: [],
+	listAuthCollections: [], createAuthCollection: [], updateAuthCollection: [], deleteAuthCollection: [],
+	listServiceTokens: [], issueServiceToken: [], revokeServiceToken: [],
 	userAccess: [], setUserAccess: [],
   };
 }

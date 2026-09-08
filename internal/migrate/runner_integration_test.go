@@ -576,14 +576,15 @@ func TestPublicIdentityArtifactRequiresCompleteMigrationHistory(t *testing.T) {
 	}
 	defer pool.Close()
 	migrations := system.Migrations()
-	if len(migrations) != 11 {
+	if len(migrations) < 20 {
 		t.Fatalf("migration count=%d", len(migrations))
 	}
 	if schemaCompilerGenerationPreparationPolicy(migrations) != nil {
 		t.Fatal("historic preparation policy must not accept current manifest")
 	}
 	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	for _, version := range []int64{9, 10, 11} {
+	latest := int64(len(migrations))
+	for _, version := range []int64{9, 10, 11, latest - 1, latest} {
 		bootstrap := New(pool, nil)
 		bootstrap.migrations = migrations[:version]
 		bootstrap.compatibility = nil
@@ -594,7 +595,7 @@ func TestPublicIdentityArtifactRequiresCompleteMigrationHistory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status != (Status{Current: version, Latest: 11, Compatible: version == 11}) {
+		if status != (Status{Current: version, Latest: latest, Compatible: version == latest}) {
 			t.Fatalf("v%d status=%#v", version, status)
 		}
 	}

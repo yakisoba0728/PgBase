@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PgBase private notes</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 42rem; padding: 0 1rem; }
+      label, input, textarea, button { display: block; margin: .45rem 0; width: 100%; box-sizing: border-box; }
+      button { width: auto; padding: .4rem .7rem; }
+      #status { min-height: 1.5rem; } #notes { padding-left: 1.2rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Private notes</h1>
+    <p>Each signed-in user can see only notes they created in an enabled scalar collection.</p>
+    <label>PgBase URL <input id="base-url" value="http://127.0.0.1:8090"></label>
+    <label>Email <input id="email" type="email" autocomplete="email"></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+    <button id="register">Register</button>
+    <button id="login">Log in</button>
+    <button id="logout" disabled>Log out</button>
+    <p id="status" role="status"></p>
+    <section id="note-form" hidden>
+      <label>New note <textarea id="note" rows="3"></textarea></label>
+      <button id="create">Save note</button>
+      <ul id="notes"></ul>
+    </section>
+    <section>
+      <h2>Account actions</h2>
+      <label>Reset email <input id="reset-email" type="email"></label>
+      <button id="request-reset">Request password reset</button>
+      <label>Action token <input id="action-token"></label>
+      <label>New password <input id="new-password" type="password"></label>
+      <button id="confirm-reset">Confirm password reset</button>
+      <button id="request-verification">Request email verification</button>
+      <button id="confirm-verification">Confirm email verification</button>
+      <label>New email <input id="new-email" type="email"></label>
+      <button id="request-email-change">Request email change</button>
+      <button id="confirm-email-change">Confirm email change</button>
+      <h2>Note files</h2>
+      <p>Enter a note ID from your list, then select a file to upload.</p>
+      <label>Note ID <input id="file-record-id"></label>
+      <label>File field <input id="file-field" value="attachment"></label>
+      <label>Attachment <input id="file-input" type="file"></label>
+      <button id="upload-file">Upload file</button>
+    </section>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

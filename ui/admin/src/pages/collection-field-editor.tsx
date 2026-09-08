@@ -27,6 +27,7 @@ export function CollectionFieldEditor({
   const fieldNumber = index + 1;
   const relation = field.relation;
   const isRelation = field.type === "relation";
+  const isFile = field.type === "file";
   const setNull = relation?.onDelete === "set_null";
   const multiple = relation?.cardinality === "multiple";
 
@@ -87,14 +88,14 @@ export function CollectionFieldEditor({
       {showRequiredRelationMigration && field.required && <p role="note">New required relations use a staged migration: add the relation as optional, populate every record, then mark it required.</p>}
     </fieldset>}
 
-    <label><input aria-label={`Field ${fieldNumber} has default`} checked={field.hasDefault} disabled={isRelation} onChange={(event) => onEdit({ set: "hasDefault", value: event.target.checked })} type="checkbox" /> Use default</label>
+    <label><input aria-label={`Field ${fieldNumber} has default`} checked={field.hasDefault} disabled={isRelation || isFile} onChange={(event) => onEdit({ set: "hasDefault", value: event.target.checked })} type="checkbox" /> Use default</label>
     <label htmlFor={`field-${index}-default`}>Field {fieldNumber} default</label>
     {field.type === "boolean" ? <select disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} value={field.defaultText}><option value="">Choose…</option><option value="true">true</option><option value="false">false</option></select> :
       <input disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} placeholder={field.type === "timestamptz" ? "now or RFC 3339 timestamp" : field.type === "jsonb" ? "Valid JSON" : undefined} value={field.defaultText} />}
     <div className="checks">
       <label><input aria-label={`Field ${fieldNumber} required`} checked={field.required} disabled={setNull} onChange={(event) => onEdit({ set: "required", value: event.target.checked })} type="checkbox" /> required</label>
-      <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>
-      <label><input aria-label={`Field ${fieldNumber} indexed`} checked={field.indexed} disabled={isRelation} onChange={(event) => onEdit({ set: "indexed", value: event.target.checked })} type="checkbox" /> indexed</label>
+      <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple || isFile} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>
+      <label><input aria-label={`Field ${fieldNumber} indexed`} checked={field.indexed} disabled={isRelation || isFile} onChange={(event) => onEdit({ set: "indexed", value: event.target.checked })} type="checkbox" /> indexed</label>
     </div>
     {fieldCount > 1 && <button className="secondary" disabled={pending} onClick={onRemove} type="button">Remove field</button>}
   </div>;
