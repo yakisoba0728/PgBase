@@ -7,36 +7,44 @@ import (
 	"strings"
 )
 
-func clientAddress(r *http.Request, trustedProxies []netip.Prefix) string {
+func clientAddress(r *http.Request, trustedProxies []netip.Prefix) (string, bool) {
 	peer, ok := remoteAddress(r.RemoteAddr)
 	if !ok {
-		return "unknown"
+		return "unknown", true
 	}
 	if !addressTrusted(peer, trustedProxies) {
-		return peer.String()
+		return rateLimitAddress(peer), true
 	}
 	values := r.Header.Values("X-Forwarded-For")
 	if len(values) == 0 {
-		return peer.String()
+		return rateLimitAddress(peer), true
 	}
 	parts := strings.Split(strings.Join(values, ","), ",")
 	forwarded := make([]netip.Addr, 0, len(parts))
 	for _, part := range parts {
 		address, err := netip.ParseAddr(strings.TrimSpace(part))
-		if err != nil {
-			return peer.String()
+		if err != nil || address.Zone() != "" {
+			return "", false
 		}
 		forwarded = append(forwarded, address.Unmap())
 	}
 	if len(forwarded) == 0 {
-		return peer.String()
+		return "", false
 	}
 	for index := len(forwarded) - 1; index >= 0; index-- {
 		if !addressTrusted(forwarded[index], trustedProxies) {
-			return forwarded[index].String()
+			return rateLimitAddress(forwarded[index]), true
 		}
 	}
-	return peer.String()
+	return rateLimitAddress(peer), true
+}
+
+func rateLimitAddress(address netip.Addr) string {
+	address = address.Unmap()
+	if address.Is6() {
+		return netip.PrefixFrom(address, 64).Masked().String()
+	}
+	return address.String()
 }
 
 func remoteAddress(value string) (netip.Addr, bool) {

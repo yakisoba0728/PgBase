@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,13 +31,6 @@ func (s *Store) SchemaVersion(ctx context.Context) (int64, error) {
 // snapshot instead of using a stale catalog.
 func (s *Store) PinnedSchemaVersion(ctx context.Context) (int64, error) {
 	return s.schemaVersion(ctx, " FOR SHARE")
-}
-
-// SnapshotSchemaVersion reads the catalog version without taking a row lock, so
-// a read-only diagnostic transaction can pin the version its own snapshot
-// already froze. A writer must use PinnedSchemaVersion instead.
-func (s *Store) SnapshotSchemaVersion(ctx context.Context) (int64, error) {
-	return s.schemaVersion(ctx, "")
 }
 
 // LockedSchemaVersion takes the exclusive side of the catalog/record lock
@@ -131,7 +123,6 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	}
 	fieldRows.Close()
 
-	incoming := make(map[uuid.UUID][]RelationRef)
 	relationRows, err := s.db.Query(ctx, `select field_id, source_collection_id,
 		target_collection_id, cardinality, min_select, max_select, on_delete,
 		value_codec_version, storage_kind, storage_name
@@ -163,10 +154,6 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 			relationRows.Close()
 			return Catalog{}, errCatalogIntegrity
 		}
-		if _, ok := collectionNames[sourceCollectionID]; !ok {
-			relationRows.Close()
-			return Catalog{}, errCatalogIntegrity
-		}
 		if _, ok := collectionNames[spec.TargetCollectionID]; !ok {
 			relationRows.Close()
 			return Catalog{}, errCatalogIntegrity
@@ -183,14 +170,9 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 			return Catalog{}, fmt.Errorf("%w: %w", errCatalogIntegrity, err)
 		}
 
-		field.Relation = cloneRelationSpec(&spec)
+		field.Relation = clonePointer(&spec)
 		collection.Fields[location.fieldIndex] = field
 		collections[location.collectionName] = collection
-		incoming[spec.TargetCollectionID] = append(incoming[spec.TargetCollectionID], RelationRef{
-			SourceCollectionID: sourceCollectionID,
-			SourceFieldID:      fieldID,
-			Spec:               spec,
-		})
 	}
 	if err := relationRows.Err(); err != nil {
 		relationRows.Close()
@@ -198,25 +180,14 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	}
 	relationRows.Close()
 
-	for name, collection := range collections {
+	for _, collection := range collections {
 		for _, field := range collection.Fields {
 			if (field.Type == TypeRelation) != (field.Relation != nil) {
 				return Catalog{}, errCatalogIntegrity
 			}
 		}
-		collections[name] = collection
 	}
-	for targetCollectionID := range incoming {
-		sort.Slice(incoming[targetCollectionID], func(i, j int) bool {
-			left := incoming[targetCollectionID][i]
-			right := incoming[targetCollectionID][j]
-			if left.SourceCollectionID != right.SourceCollectionID {
-				return left.SourceCollectionID.String() < right.SourceCollectionID.String()
-			}
-			return left.SourceFieldID.String() < right.SourceFieldID.String()
-		})
-	}
-	return Catalog{Version: version, Collections: collections, Incoming: incoming}, nil
+	return Catalog{Version: version, Collections: collections, Incoming: buildIncomingIndex(collections)}, nil
 }
 
 func (s *Store) InsertCollection(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {

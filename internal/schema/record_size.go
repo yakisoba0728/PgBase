@@ -69,13 +69,24 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 			}
 			record[name], _ = json.Marshal(timestamp.UTC().Format(time.RFC3339Nano))
 		}
-		encoded, err := json.Marshal(record)
-		if err != nil {
-			return fmt.Errorf("measure schema record size: %w", err)
-		}
-		if len(encoded) > MaximumRecordBytes {
-			return validation("record", "record_too_large")
+		if err := ValidateRecordSize(record); err != nil {
+			return err
 		}
 	}
 	return rows.Err()
+}
+
+// ValidateRecordSize checks the complete post-image, including relations,
+// before a record write or schema change commits. Per-field input bounds
+// cannot account for a PATCH merged with existing values. Callers can shrink
+// legacy oversized records because the pre-image is never checked here.
+func ValidateRecordSize(record any) error {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("measure record size: %w", err)
+	}
+	if len(encoded) > MaximumRecordBytes {
+		return validation("record", "record_too_large")
+	}
+	return nil
 }

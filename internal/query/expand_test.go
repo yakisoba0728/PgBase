@@ -69,6 +69,18 @@ func TestValidateExpandedRecordSizeIncludesTrailingNewline(t *testing.T) {
 	assertValidationDetail(t, err, "response", "response_too_large")
 }
 
+func TestExpansionUsageRejectsMaterializationBeyondResponseBudget(t *testing.T) {
+	usage := &expansionUsage{limits: expandLimits{maxBytes: 16}}
+	if err := usage.takeMaterializedRecord(map[string]any{"x": 1}); err != nil {
+		t.Fatal(err)
+	}
+	err := usage.takeMaterializedRecord(map[string]any{"value": "too large"})
+	assertValidationDetail(t, err, "response", "response_too_large")
+	if usage.materializedBytes != len(`{"x":1}`) {
+		t.Fatalf("materialized bytes after rejection = %d", usage.materializedBytes)
+	}
+}
+
 func TestMaterializedExpansionRejectsBranchingGraphBeforeExponentialFlatten(t *testing.T) {
 	t.Parallel()
 	leaf := &materializedRecord{root: map[string]any{

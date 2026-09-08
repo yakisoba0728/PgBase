@@ -15,6 +15,8 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 )
 
+const maximumRecordBytes = schema.MaximumRecordBytes
+
 func TestCreateRefusesRecordOverThePageBudget(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()

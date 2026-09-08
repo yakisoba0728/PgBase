@@ -12,6 +12,7 @@ import {
   type AdminRoute,
 } from "./admin-location";
 import { memoryHistory } from "../test/memory-history";
+import { draftLedger } from "./unsaved-draft";
 
 const routes: AdminRoute[] = [
   { kind: "collections" },
@@ -137,6 +138,38 @@ describe("history adapters", () => {
 });
 
 describe("route departure", () => {
+  it.each(["posts", "%70osts"])("keeps the draft guard when typed navigation stays on %s", (collectionPath) => {
+    const history = memoryHistory(`/admin/collections/${collectionPath}/records/one`);
+    const confirmLeave = vi.fn(() => true);
+    const ledger = draftLedger(confirmLeave);
+    ledger.hold("record posts id:one", true);
+    const { result } = renderHook(() => useAdminLocation(history, ledger.mayLeave));
+
+    act(() => result.current.navigate({ kind: "record", collection: "posts", id: "one" }));
+    expect(confirmLeave).not.toHaveBeenCalled();
+    expect(ledger.held()).toBe(true);
+    expect(history.entries).toHaveLength(1);
+
+    confirmLeave.mockReturnValue(false);
+    act(() => result.current.navigate({ kind: "collections" }));
+    expect(history.path()).toBe(`/admin/collections/${collectionPath}/records/one`);
+    expect(ledger.held()).toBe(true);
+  });
+
+  it("keeps the draft guard when browser history changes only a resource's encoding", () => {
+    const history = memoryHistory("/admin/collections/%70osts/records/one");
+    const confirmLeave = vi.fn(() => true);
+    const ledger = draftLedger(confirmLeave);
+    renderHook(() => useAdminLocation(history, ledger.mayLeave));
+    act(() => history.push("/admin/collections/posts/records/one"));
+    ledger.hold("record posts id:one", true);
+
+    act(() => history.back());
+    expect(confirmLeave).not.toHaveBeenCalled();
+    expect(ledger.held()).toBe(true);
+    expect(history.path()).toBe("/admin/collections/%70osts/records/one");
+  });
+
   it("restores the address the browser moved away from when the departure is refused", () => {
     const history = memoryHistory("/admin/collections");
     const { result } = renderHook(() => useAdminLocation(history, () => false));

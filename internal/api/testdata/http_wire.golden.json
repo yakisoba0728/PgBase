@@ -7,12 +7,6 @@
       "status": 200,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://pgbase.example"
@@ -21,7 +15,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -51,7 +45,7 @@
         {
           "name": "Set-Cookie",
           "values": [
-            "pgbase_admin=fixed-session-token; Path=/; Expires=<expiry>; HttpOnly; Secure; SameSite=Lax"
+            "__Host-pgbase_admin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Expires=<expiry>; HttpOnly; Secure; SameSite=Lax"
           ]
         },
         {
@@ -75,8 +69,8 @@
       ],
       "cookies": [
         {
-          "name": "pgbase_admin",
-          "value": "fixed-session-token",
+          "name": "__Host-pgbase_admin",
+          "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
           "path": "/",
           "expires": "<expiry>",
           "maxAge": 0,
@@ -93,7 +87,7 @@
           "id": "12345678-1234-4567-8901-123456789abc",
           "updatedAt": "<time>"
         },
-        "csrfToken": "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo",
+        "csrfToken": "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4",
         "expiresAt": "<expiry>"
       },
       "accessLog": {
@@ -114,12 +108,6 @@
       "status": 500,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://pgbase.example"
@@ -128,7 +116,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -201,12 +189,6 @@
       "status": 204,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://pgbase.example"
@@ -215,7 +197,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -239,7 +221,7 @@
         {
           "name": "Set-Cookie",
           "values": [
-            "pgbase_admin=; Path=/; Expires=<expiry>; Max-Age=0; HttpOnly; Secure; SameSite=Lax"
+            "__Host-pgbase_admin=; Path=/; Expires=<expiry>; Max-Age=0; HttpOnly; Secure; SameSite=Lax"
           ]
         },
         {
@@ -263,7 +245,7 @@
       ],
       "cookies": [
         {
-          "name": "pgbase_admin",
+          "name": "__Host-pgbase_admin",
           "value": "",
           "path": "/",
           "expires": "<expiry>",

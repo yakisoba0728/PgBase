@@ -7,12 +7,6 @@
       "status": 200,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -21,7 +15,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -96,12 +90,6 @@
       "status": 404,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -110,7 +98,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -183,12 +171,6 @@
       "status": 404,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -197,7 +179,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -270,12 +252,6 @@
       "status": 401,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -284,7 +260,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -357,12 +333,6 @@
       "status": 200,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -371,7 +341,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -451,12 +421,6 @@
       "status": 400,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -465,7 +429,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -538,12 +502,6 @@
       "status": 400,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -552,7 +510,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -625,12 +583,6 @@
       "status": 201,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -639,7 +591,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -717,12 +669,6 @@
       "status": 201,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -731,7 +677,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -815,12 +761,6 @@
       "status": 200,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -829,7 +769,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -921,12 +861,6 @@
       "status": 409,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -935,7 +869,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -1014,12 +948,6 @@
       "status": 409,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -1028,7 +956,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -1111,12 +1039,6 @@
       "status": 202,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -1125,7 +1047,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -1213,12 +1135,6 @@
       "status": 400,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -1227,7 +1143,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -1300,12 +1216,6 @@
       "status": 400,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Origin",
           "values": [
             "https://admin.example.com"
@@ -1314,7 +1224,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {
@@ -1387,12 +1297,6 @@
       "status": 204,
       "headers": [
         {
-          "name": "Access-Control-Allow-Credentials",
-          "values": [
-            "true"
-          ]
-        },
-        {
           "name": "Access-Control-Allow-Headers",
           "values": [
             "Content-Type, Authorization, X-CSRF-Token, X-PgBase-CSRF, Idempotency-Key, If-Match, PgBase-Operation-ID"
@@ -1413,7 +1317,7 @@
         {
           "name": "Access-Control-Expose-Headers",
           "values": [
-            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID"
+            "ETag, Location, Idempotency-Replayed, PgBase-Compatibility, PgBase-Operation-ID, Retry-After"
           ]
         },
         {

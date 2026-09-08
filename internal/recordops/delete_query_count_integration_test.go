@@ -22,6 +22,7 @@ const (
 	cascadeDeleteAdvisory       = "advisory_lock"
 	cascadeDeleteReverseRead    = "reverse_read"
 	cascadeDeleteAffectedLock   = "affected_lock"
+	cascadeDeleteBaseMeasure    = "base_measure"
 	cascadeDeleteBaseRead       = "base_read"
 	cascadeDeleteRevisionRead   = "revision_read"
 	cascadeDeleteStorageUpdate  = "storage_update"
@@ -93,6 +94,8 @@ func cascadeDeleteStatementCategory(statement string) string {
 		return cascadeDeleteReverseRead
 	case strings.HasPrefix(statement, `select id from "app"."r0_cascade_scale" where id = any`) && strings.HasSuffix(statement, "for update"):
 		return cascadeDeleteAffectedLock
+	case strings.HasPrefix(statement, "with recursive requested(ids) as"):
+		return cascadeDeleteBaseMeasure
 	case strings.HasPrefix(statement, `select "r0_cascade_scale"."id", `) && strings.Contains(statement, `from "app"."r0_cascade_scale"`):
 		return cascadeDeleteBaseRead
 	case strings.HasPrefix(statement, "select record_id, version, validator from pgbase_meta.record_revisions"):
@@ -132,6 +135,7 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 		cascadeDeleteAdvisory:       1,
 		cascadeDeleteReverseRead:    2,
 		cascadeDeleteAffectedLock:   1,
+		cascadeDeleteBaseMeasure:    1,
 		cascadeDeleteBaseRead:       1,
 		cascadeDeleteRevisionRead:   1,
 		cascadeDeleteStorageUpdate:  1,

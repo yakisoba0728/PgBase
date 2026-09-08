@@ -225,6 +225,51 @@ func TestRecordListRejectsMalformedQueryEncodingBeforeServiceCall(t *testing.T) 
 	}
 }
 
+func TestRecordReadsRejectDuplicateSingletonQueryParametersBeforeServiceCall(t *testing.T) {
+	for _, parameter := range []string{"limit", "cursor", "filter", "sort", "expand"} {
+		t.Run("list/"+parameter, func(t *testing.T) {
+			records := &fakeRecordService{}
+			handler := mustRouter(t, recordTestDependencies(
+				&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+			request := authenticatedRecordRequest(http.MethodGet,
+				"/api/v1/collections/posts/records?"+parameter+"=first&"+parameter+"=second", "", true)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest || records.listCalls != 0 {
+				t.Fatalf("status=%d list calls=%d body=%s", response.Code, records.listCalls, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+		})
+	}
+
+	t.Run("get/expand", func(t *testing.T) {
+		records := &fakeRecordService{}
+		handler := mustRouter(t, recordTestDependencies(
+			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		request := authenticatedRecordRequest(http.MethodGet,
+			"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?expand=owner&expand=reviewers", "", true)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || records.getCalls != 0 {
+			t.Fatalf("status=%d get calls=%d body=%s", response.Code, records.getCalls, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+	})
+
+	t.Run("unrecognized duplicates remain ignored", func(t *testing.T) {
+		records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
+		handler := mustRouter(t, recordTestDependencies(
+			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		request := authenticatedRecordRequest(http.MethodGet,
+			"/api/v1/collections/posts/records?future=first&future=second", "", true)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || records.listCalls != 1 {
+			t.Fatalf("status=%d list calls=%d body=%s", response.Code, records.listCalls, response.Body.String())
+		}
+	})
+}
+
 func TestRecordCreateRejectsMalformedOrDuplicateIdempotencyKeyBeforeServiceCall(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -657,14 +702,14 @@ func assertCompatibilityHeaders(t *testing.T, response *httptest.ResponseRecorde
 func authenticatedRecordRequest(method, path, body string, csrf bool) *http.Request {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Host = "admin.example.com"
-	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "fixed-session-token"})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	if method == http.MethodPost || method == http.MethodPatch || method == http.MethodDelete {
 		request.Header.Set("Origin", "https://admin.example.com")
 		if csrf {
-			request.Header.Set("X-PgBase-CSRF", "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo")
+			request.Header.Set("X-PgBase-CSRF", "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4")
 		}
 	}
 	return request

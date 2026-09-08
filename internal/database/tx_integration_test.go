@@ -20,13 +20,13 @@ func TestInTxRollsBackOnError(t *testing.T) {
 	}
 	defer pool.Close()
 
-	_, err = pool.Exec(context.Background(), "create table rollback_probe (id integer primary key)")
+	_, err = pool.Exec(context.Background(), "create table public.rollback_probe (id integer primary key)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	sentinel := errors.New("stop")
 	err = pool.InTx(context.Background(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, execErr := tx.Exec(context.Background(), "insert into rollback_probe values (1)"); execErr != nil {
+		if _, execErr := tx.Exec(context.Background(), "insert into public.rollback_probe values (1)"); execErr != nil {
 			return execErr
 		}
 		return sentinel
@@ -35,7 +35,7 @@ func TestInTxRollsBackOnError(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	var count int
-	if err := pool.QueryRow(context.Background(), "select count(*) from rollback_probe").Scan(&count); err != nil {
+	if err := pool.QueryRow(context.Background(), "select count(*) from public.rollback_probe").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -51,7 +51,7 @@ func TestInTxRollsBackOnPanic(t *testing.T) {
 	}
 	defer pool.Close()
 
-	_, err = pool.Exec(context.Background(), "create table panic_probe (id integer primary key)")
+	_, err = pool.Exec(context.Background(), "create table public.panic_probe (id integer primary key)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestInTxRollsBackOnPanic(t *testing.T) {
 			}
 		}()
 		_ = pool.InTx(context.Background(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-			if _, execErr := tx.Exec(context.Background(), "insert into panic_probe values (1)"); execErr != nil {
+			if _, execErr := tx.Exec(context.Background(), "insert into public.panic_probe values (1)"); execErr != nil {
 				return execErr
 			}
 			panic(panicValue)
@@ -71,7 +71,7 @@ func TestInTxRollsBackOnPanic(t *testing.T) {
 	}()
 
 	var count int
-	if err := pool.QueryRow(context.Background(), "select count(*) from panic_probe").Scan(&count); err != nil {
+	if err := pool.QueryRow(context.Background(), "select count(*) from public.panic_probe").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {

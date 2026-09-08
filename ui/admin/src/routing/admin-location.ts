@@ -115,7 +115,10 @@ export function useAdminLocation(history: AdminHistory = browserHistory, mayLeav
   // what tells React the route did not move.
   const subscribe = useCallback((onChange: () => void) => history.listen((popped) => {
     const path = history.path();
-    if (!popped || path === held.current || leaving.current()) {
+    // Different URL encodings can still name the same mounted resource. They
+    // do not discard its draft, so they must not release its departure guard.
+    const sameResource = adminRouteIdentity(parseAdminRoute(path)) === adminRouteIdentity(parseAdminRoute(held.current));
+    if (!popped || sameResource || leaving.current()) {
       held.current = path;
       onChange();
       return;
@@ -125,6 +128,7 @@ export function useAdminLocation(history: AdminHistory = browserHistory, mayLeav
 
   const path = useSyncExternalStore(subscribe, history.path);
   const navigate = useCallback((route: AdminRoute) => {
+    if (adminRouteIdentity(route) === adminRouteIdentity(parseAdminRoute(history.path()))) return;
     if (leaving.current()) history.push(adminRoutePath(route));
   }, [history]);
   const route = parseAdminRoute(path);

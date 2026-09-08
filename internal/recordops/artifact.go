@@ -281,40 +281,43 @@ type storedRevision struct {
 	validator []byte
 }
 
-// readRecordBatch reads one collection's base rows in a single query and
-// hydrates every multiple relation with one further query per relation field,
-// so the whole read is bounded by the collection's field count rather than by
-// the number of records.
-func readRecordBatch(
-	ctx context.Context,
-	tx pgx.Tx,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	ids []uuid.UUID,
+// readRecordBatch reads one collection's base rows and hydrates all multiple
+// relations in one bounded query.
+func readRecordBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection,
+	ids []uuid.UUID, budget *deleteReadBudget,
 ) (map[uuid.UUID]map[string]any, error) {
+	if budget == nil || budget.bytes < 0 || budget.rows < 0 || budget.fields < 0 {
+		return nil, schema.ErrConflict
+	}
 	if len(ids) == 0 {
 		return map[uuid.UUID]map[string]any{}, nil
 	}
-	decoded, err := relation.ReadRecords(ctx, tx, collection, ids, func(row pgx.Row) (map[string]any, error) {
+	if err := chargeDeleteRelationShape(collection, len(ids), budget); err != nil {
+		return nil, err
+	}
+	table := quotedRecordCollection(collection)
+	var baseBytes int64
+	if err := tx.QueryRow(ctx, `WITH RECURSIVE requested(ids) AS (
+		SELECT coalesce(pg_catalog.array_agg(id ORDER BY id), '{}'::pg_catalog.uuid[]) FROM `+table+`
+		WHERE id = any($1::pg_catalog.uuid[])
+	), measured(position, bytes) AS (
+		VALUES (0, 0::bigint) UNION ALL SELECT measured.position + 1,
+			measured.bytes + pg_catalog.octet_length(pg_catalog.to_jsonb(record_row)::pg_catalog.text)
+		FROM measured CROSS JOIN requested JOIN `+table+` AS record_row
+			ON record_row.id = requested.ids[measured.position + 1]
+		WHERE measured.position < pg_catalog.cardinality(requested.ids) AND measured.bytes <= $2
+	) SELECT coalesce(pg_catalog.max(bytes), 0) FROM measured`, ids, budget.bytes).Scan(&baseBytes); err != nil {
+		return nil, err
+	}
+	if baseBytes > budget.bytes {
+		return nil, deleteReadBudgetError()
+	}
+	budget.bytes -= baseBytes
+	records, err := relation.ReadRecords(ctx, tx, collection, ids, func(row pgx.Row) (map[string]any, error) {
 		return query.EncodeRecord(collection, row)
 	})
 	if err != nil {
 		return nil, normalizeRelationError(query.NormalizeRecordError(err))
-	}
-	if len(decoded) != len(ids) {
-		return nil, schema.ErrConflict
-	}
-	records := make(map[uuid.UUID]map[string]any, len(decoded))
-	for _, record := range decoded {
-		encoded, ok := record["id"].(string)
-		if !ok {
-			return nil, schema.ErrConflict
-		}
-		id, err := uuid.Parse(encoded)
-		if err != nil {
-			return nil, schema.ErrConflict
-		}
-		records[id] = record
 	}
 	if len(records) != len(ids) {
 		return nil, schema.ErrConflict
@@ -324,11 +327,36 @@ func readRecordBatch(
 		return nil, err
 	}
 	if bindings.HasMultiple() {
-		if err := bindings.Hydrate(ctx, tx, ids, records); err != nil {
+		used, err := bindings.HydrateBounded(ctx, tx, ids, records, int(budget.rows))
+		if errors.Is(err, relation.ErrHydrationBudgetExceeded) {
+			return nil, deleteReadBudgetError()
+		}
+		if err != nil {
 			return nil, normalizeRelationError(err)
 		}
+		budget.rows -= int64(used)
 	}
 	return records, nil
+}
+
+func chargeDeleteRelationShape(collection schema.Collection, records int, budget *deleteReadBudget) error {
+	var fields, bytes int64
+	for _, field := range collection.Fields {
+		if field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple {
+			fields++
+			bytes += int64(len(field.Name) + 6) // comma, quoted key, colon, and []
+		}
+	}
+	if fields > budget.fields || bytes > 0 && int64(records) > budget.bytes/bytes {
+		return deleteReadBudgetError()
+	}
+	budget.fields -= fields
+	budget.bytes -= bytes * int64(records)
+	return nil
+}
+
+func deleteReadBudgetError() error {
+	return &query.ValidationError{Details: []query.ValidationDetail{{Field: "id", Code: "relation_delete_budget_exceeded"}}}
 }
 
 func expectRows(tag pgconn.CommandTag, want int, mismatch error) error {

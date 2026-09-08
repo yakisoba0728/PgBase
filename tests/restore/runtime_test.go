@@ -182,12 +182,19 @@ func (c *candidate) databaseURL(server *postgresServer, database string) string 
 }
 
 func (c *candidate) environment(databaseURL, httpAddress, publicURL string) []string {
-	return []string{
+	environment := []string{
 		"PGBASE_DATABASE_URL=" + databaseURL,
 		"PGBASE_TOKEN_SECRET=" + c.tokenSecret,
 		"PGBASE_HTTP_ADDRESS=" + httpAddress,
 		"PGBASE_PUBLIC_URL=" + publicURL,
 	}
+	if c.release {
+		// The release candidate reaches the drill database over the dedicated,
+		// disposable Docker network. Production-like remote targets remain on
+		// the default verified-TLS policy.
+		environment = append(environment, "PGBASE_ALLOW_INSECURE_DATABASE=true")
+	}
+	return environment
 }
 
 // command runs a one-shot pgBase subcommand such as `migrate up` or `doctor`.

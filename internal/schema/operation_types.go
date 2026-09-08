@@ -27,11 +27,11 @@ var (
 	ErrOperationFailed         = errors.New("schema operation failed")
 )
 
-type operationMode uint8
+type operationMode string
 
 const (
-	operationModeLegacy operationMode = iota + 1
-	operationModeGuarded
+	operationModeLegacy  operationMode = "legacy"
+	operationModeGuarded operationMode = "guarded"
 )
 
 // SchemaOperation is the exact immutable operation vocabulary shared by the

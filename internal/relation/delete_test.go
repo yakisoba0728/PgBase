@@ -95,6 +95,9 @@ func TestDeletePlanViewsAreDeterministicAndOwned(t *testing.T) {
 }
 
 func TestDeleteProductionBudgetsAreHardBounded(t *testing.T) {
+	if deleteMaximumCollections != 256 {
+		t.Fatalf("unexpected collection lock budget: %d", deleteMaximumCollections)
+	}
 	if productionDeleteLimits != (deleteLimits{
 		depth: 32, records: 10_000, edges: 100_000,
 	}) {
@@ -110,6 +113,15 @@ func TestDeleteProductionBudgetsAreHardBounded(t *testing.T) {
 		if validDeleteLimits(limits) {
 			t.Fatalf("accepted invalid limits: %#v", limits)
 		}
+	}
+	root := uuid.New()
+	incoming := make([]deleteRelationBinding, deleteMaximumCollections)
+	for index := range incoming {
+		incoming[index].source.id = uuid.New()
+	}
+	graph := &DeleteGraph{incoming: map[uuid.UUID][]deleteRelationBinding{root: incoming}}
+	if participants := graph.participatingCollections(root); participants != nil {
+		t.Fatalf("oversized collection lock set accepted: %d", len(participants))
 	}
 }
 

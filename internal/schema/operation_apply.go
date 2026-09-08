@@ -77,8 +77,6 @@ func replayedApplyResult(row operationRow) (ApplyResult, error) {
 		switch row.failureCode {
 		case OperationFailurePlanConflict, OperationFailureLeaseLost:
 			return result, ErrConflict
-		case OperationFailureApplyFailed, OperationFailureReconcileFailed:
-			return result, ErrOperationFailed
 		default:
 			return result, ErrOperationFailed
 		}
@@ -100,10 +98,17 @@ func (s *Service) applyClaimedOperation(
 	if err != nil {
 		return s.failClaimedOperation(claim, fmt.Errorf("acquire schema operation connection: %w", err))
 	}
-	defer connection.Release()
+	releaseConnection := func() {
+		if connection != nil {
+			connection.Release()
+			connection = nil
+		}
+	}
+	defer releaseConnection()
 
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
+		releaseConnection()
 		return s.failClaimedOperation(claim, fmt.Errorf("begin schema operation: %w", err))
 	}
 	txClosed := false
@@ -118,6 +123,7 @@ func (s *Service) applyClaimedOperation(
 		rollbackOperationTx(tx)
 		txClosed = true
 		s.cache.discardPrepared(nextCatalog)
+		releaseConnection()
 		return s.failClaimedOperation(claim, err)
 	}
 
@@ -128,6 +134,7 @@ func (s *Service) applyClaimedOperation(
 	if err := commit(ctx, tx); err != nil {
 		rollbackOperationTx(tx)
 		txClosed = true
+		releaseConnection()
 		if schemaCommitDefinitelyFailed(err) {
 			s.cache.discardPrepared(nextCatalog)
 			return s.failClaimedOperation(claim, fmt.Errorf("commit schema operation: %w", err))
@@ -135,6 +142,7 @@ func (s *Service) applyClaimedOperation(
 		return s.resolveAmbiguousSchemaCommit(claim, result, nextCatalog)
 	}
 	txClosed = true
+	releaseConnection()
 	result.Receipt = operationReceipt(committedRow)
 	s.cache.publish(nextCatalog)
 	return result, nil
@@ -454,11 +462,8 @@ func rollbackOperationTx(tx pgx.Tx) {
 }
 
 func schemaCommitDefinitelyFailed(err error) bool {
-	if errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) {
-		return true
-	}
 	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError)
+	return errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) || errors.As(err, &postgresError)
 }
 
 func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedCollection) (Collection, error) {

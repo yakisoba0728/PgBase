@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { AdminLink } from "./routing/admin-link";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
@@ -30,19 +30,30 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate) {
 function AuthenticatedShell({ history }: { history?: AdminHistory }) {
   const { logout, state } = useSession();
   const [drafts] = useState(draftLedger);
-  const { identity, navigate, route } = useAdminLocation(history, drafts.mayLeave);
+  const logoutInFlight = useRef(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  // The ref closes navigation synchronously with starting the request; the
+  // rendered pending state then makes every control and link inert until it
+  // either fails or this shell unmounts after success.
+  const { identity, navigate, route } = useAdminLocation(
+    history,
+    () => !logoutInFlight.current && drafts.mayLeave(),
+  );
   if (state.kind !== "authenticated") return null;
   async function signOut() {
     // Signing out ends the session the draft would have been saved under, so it
-    // is a departure the administrator is asked about like any other.
-    if (logoutPending || !drafts.mayLeave()) return;
+    // is a departure the administrator is asked about like any other. Keep the
+    // guard held until logout actually succeeds: a failed request leaves both
+    // the session and its unsaved draft in this shell.
+    if (logoutInFlight.current || !drafts.confirmLeave()) return;
+    logoutInFlight.current = true;
     setLogoutPending(true);
     setLogoutError(null);
     try {
       await logout();
     } catch {
+      logoutInFlight.current = false;
       setLogoutError("Unable to sign out. Try again.");
       setLogoutPending(false);
     }
@@ -55,9 +66,11 @@ function AuthenticatedShell({ history }: { history?: AdminHistory }) {
       </div>
       <button disabled={logoutPending} onClick={() => void signOut()} type="button">{logoutPending ? "Signing out…" : "Sign out"}</button>
     </header>
-    {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-    <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
-    <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate)}</UnsavedDrafts>
+    <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
+      {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
+      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+      <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate)}</UnsavedDrafts>
+    </fieldset>
   </main>;
 }
 

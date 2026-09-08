@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
@@ -76,6 +77,11 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 	if err := s.ready(); err != nil {
 		return Session{}, err
 	}
+	releaseAdmission, err := acquireAdmission(s.credentialSlots)
+	if err != nil {
+		return Session{}, err
+	}
+	defer releaseAdmission()
 	if s.setupToken == "" {
 		return Session{}, ErrSetupUnavailable
 	}
@@ -83,24 +89,51 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 	if err != nil {
 		return Session{}, err
 	}
-	now := s.clock.Now()
-	buckets := s.rateLimitBuckets("setup", normalizedEmail, subject)
-	required, err := s.SetupRequired(ctx)
+	if !constantTimeStringEqual(s.setupToken, presentedSetupToken) {
+		return Session{}, ErrInvalidCredentials
+	}
+	required, err := s.setupRequired(ctx)
 	if err != nil {
 		return Session{}, err
 	}
 	if !required {
 		return Session{}, ErrSetupUnavailable
 	}
-	if err := s.admitRateLimit(ctx, buckets, now); err != nil {
+	now := s.clock.Now()
+	passwordHash, err := s.hashPassword(ctx, password)
+	if err != nil {
+		if errors.Is(err, ErrValidation) {
+			return Session{}, ErrValidation
+		}
+		return Session{}, fmt.Errorf("hash administrator password: %w", err)
+	}
+	administratorID, err := uuid.NewV7()
+	if err != nil {
+		return Session{}, fmt.Errorf("generate administrator ID: %w", err)
+	}
+	administrator := Administrator{
+		ID: administratorID, Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
+	}
+	rawToken, err := GenerateToken()
+	if err != nil {
 		return Session{}, err
 	}
-	var issued Session
+	sessionID := uuid.New()
+	expiresAt := now.Add(s.sessionTTL)
+	tokenHash := HashSessionToken(s.tokenSecret, rawToken)
+	csrfToken := DeriveCSRFToken(s.tokenSecret, rawToken)
+
 	var operationErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", setupAdvisoryLockKey); err != nil {
+		var acquired bool
+		if err := tx.QueryRow(ctx, "select pg_try_advisory_xact_lock($1)", setupAdvisoryLockKey).Scan(&acquired); err != nil {
 			return fmt.Errorf("lock administrator setup: %w", err)
+		}
+		if !acquired {
+			return fmt.Errorf("lock administrator setup: %w", &pgconn.PgError{
+				Code: "55P03", Message: "administrator setup is already in progress",
+			})
 		}
 		count, err := store.AdministratorCount(ctx)
 		if err != nil {
@@ -110,42 +143,13 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 			operationErr = ErrSetupUnavailable
 			return nil
 		}
-		if !constantTimeStringEqual(s.setupToken, presentedSetupToken) {
-			operationErr = ErrInvalidCredentials
-			return nil
-		}
-		passwordHash, err := s.passwords.Hash(password)
-		if err != nil {
-			if errors.Is(err, ErrValidation) {
-				operationErr = ErrValidation
-				return nil
-			}
-			return fmt.Errorf("hash administrator password: %w", err)
-		}
-		administratorID, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("generate administrator ID: %w", err)
-		}
-		administrator := Administrator{
-			ID: administratorID, Email: normalizedEmail, Active: true, CreatedAt: now, UpdatedAt: now,
-		}
 		administrator, err = store.CreateAdministrator(ctx, administrator, passwordHash)
 		if err != nil {
 			return err
 		}
-		rawToken, err := GenerateToken()
-		if err != nil {
+		if err := store.CreateSession(ctx, sessionID, administrator.ID, tokenHash, expiresAt, now); err != nil {
 			return err
 		}
-		expiresAt := now.Add(s.sessionTTL)
-		if err := store.CreateSession(ctx, uuid.New(), administrator.ID, HashSessionToken(s.tokenSecret, rawToken), expiresAt, now); err != nil {
-			return err
-		}
-		if err := clearSuccessfulRateLimits(ctx, store, buckets); err != nil {
-			return err
-		}
-		issued = Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt,
-			CSRFToken: DeriveCSRFToken(s.tokenSecret, rawToken)}
 		return nil
 	})
 	if err != nil {
@@ -154,7 +158,7 @@ func (s *Service) Setup(ctx context.Context, presentedSetupToken, email, passwor
 	if operationErr != nil {
 		return Session{}, operationErr
 	}
-	return issued, nil
+	return Session{Administrator: administrator, RawToken: rawToken, ExpiresAt: expiresAt, CSRFToken: csrfToken}, nil
 }
 
 // CreateAdministrator creates an active administrator without issuing a session.
@@ -227,6 +231,15 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	if err := s.ready(); err != nil {
 		return false, err
 	}
+	releaseAdmission, err := acquireAdmission(s.probeSlots)
+	if err != nil {
+		return false, err
+	}
+	defer releaseAdmission()
+	return s.setupRequired(ctx)
+}
+
+func (s *Service) setupRequired(ctx context.Context) (bool, error) {
 	count, err := NewStore(s.pool).AdministratorCount(ctx)
 	if err != nil {
 		return false, err
@@ -238,6 +251,11 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 	if err := s.ready(); err != nil {
 		return Session{}, err
 	}
+	releaseAdmission, err := acquireAdmission(s.credentialSlots)
+	if err != nil {
+		return Session{}, err
+	}
+	defer releaseAdmission()
 	normalizedEmail, normalizationErr := NormalizeEmail(email)
 	if normalizationErr != nil {
 		normalizedEmail = strings.ToLower(strings.TrimSpace(email))
@@ -328,6 +346,11 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
+	releaseAdmission, err := acquireAdmission(s.sessionSlots)
+	if err != nil {
+		return Principal{}, err
+	}
+	defer releaseAdmission()
 	administrator, expiresAt, err := NewStore(s.pool).AuthenticateSession(
 		ctx, HashSessionToken(s.tokenSecret, rawToken), s.clock.Now())
 	if err != nil {
@@ -345,6 +368,11 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
+	releaseAdmission, err := acquireAdmission(s.sessionSlots)
+	if err != nil {
+		return err
+	}
+	defer releaseAdmission()
 	return NewStore(s.pool).RevokeSession(ctx, HashSessionToken(s.tokenSecret, rawToken), s.clock.Now())
 }
 
@@ -355,19 +383,38 @@ func (s *Service) ready() error {
 	if s.passwords == nil {
 		return fmt.Errorf("administrator password service is nil")
 	}
-	if len(s.tokenSecret) == 0 || s.sessionTTL <= 0 || s.verifySlots == nil {
+	if len(s.tokenSecret) == 0 || s.sessionTTL <= 0 || s.credentialSlots == nil ||
+		s.sessionSlots == nil || s.probeSlots == nil || s.passwordSlots == nil {
 		return ErrValidation
 	}
 	return nil
 }
 
-func (s *Service) acquirePasswordVerification(ctx context.Context) (func(), error) {
+func acquireAdmission(slots chan struct{}) (func(), error) {
 	select {
-	case s.verifySlots <- struct{}{}:
-		return func() { <-s.verifySlots }, nil
+	case slots <- struct{}{}:
+		return func() { <-slots }, nil
+	default:
+		return nil, ErrRateLimited
+	}
+}
+
+func (s *Service) acquirePasswordWork(ctx context.Context) (func(), error) {
+	select {
+	case s.passwordSlots <- struct{}{}:
+		return func() { <-s.passwordSlots }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func (s *Service) hashPassword(ctx context.Context, password string) (string, error) {
+	release, err := s.acquirePasswordWork(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	return s.passwords.Hash(password)
 }
 
 func (s *Service) verifyLoginCandidate(
@@ -376,7 +423,7 @@ func (s *Service) verifyLoginCandidate(
 	normalizationErr error,
 	password string,
 ) (loginCandidate, bool, error) {
-	release, err := s.acquirePasswordVerification(ctx)
+	release, err := s.acquirePasswordWork(ctx)
 	if err != nil {
 		return loginCandidate{}, false, err
 	}
@@ -460,19 +507,6 @@ func waitLoginFailureDelay(ctx context.Context, failures int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (s *Service) rateLimitBuckets(operation, normalizedEmail, subject string) []rateLimitBucket {
-	buckets := []rateLimitBucket{
-		{hash: rateLimitSubjectHash(s.tokenSecret, operation, "account", normalizedEmail), limit: accountFailureLimit, clearOnSuccess: true},
-		{hash: rateLimitSubjectHash(s.tokenSecret, operation, "network", subject), limit: networkFailureLimit},
-	}
-	if operation == "setup" {
-		for index := range buckets {
-			buckets[index].clearOnSuccess = true
-		}
-	}
-	return buckets
 }
 
 func (s *Service) admitRateLimit(ctx context.Context, buckets []rateLimitBucket, now time.Time) error {

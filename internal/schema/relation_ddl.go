@@ -17,10 +17,6 @@ func createRelationStatements(sourceTable string, field PlannedField, addColumn 
 	return createSingleRelationStatements(sourceTable, field, addColumn)
 }
 
-func addRelationFieldStatements(sourceTable string, field PlannedField) []string {
-	return createRelationStatements(sourceTable, field, true)
-}
-
 func createSingleRelationStatements(sourceTable string, field PlannedField, addColumn bool) []string {
 	relation := field.Relation
 	if relation == nil {

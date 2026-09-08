@@ -194,6 +194,36 @@ describe("administration shell", () => {
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
   });
 
+  it("makes the workspace inert while logout is pending and always settles after backend success", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
+    const logout = deferredStep<void>();
+    harness.script.logout.push(logout.step);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    const title = await screen.findByLabelText("title");
+    await user.clear(title);
+    await user.type(title, "protected draft");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
+    expect(screen.getByRole("group", { name: "Administrator workspace" })).toHaveAttribute("inert");
+    expect(title).toBeDisabled();
+
+    await user.type(title, " attempted edit");
+    await user.click(screen.getByRole("link", { name: "System" }));
+    expect(title).toHaveValue("protected draft");
+    expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
+
+    await act(async () => { logout.settle({ value: undefined }); });
+
+    expect(await screen.findByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(harness.history.path()).toBe("/admin/login");
+  });
+
   it("refuses a second sign-out and keeps the session after a failed one", async () => {
     const harness = scriptedAdmin("/admin/collections");
     harness.script.catalog.push({ value: { version: 0, collections: [] } });
@@ -221,7 +251,7 @@ describe("administration shell", () => {
     harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
     const logout = deferredStep<void>();
     harness.script.logout.push(logout.step);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false).mockReturnValueOnce(true);
     const user = userEvent.setup();
     renderAdmin(harness);
 
@@ -236,8 +266,12 @@ describe("administration shell", () => {
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
 
-    await user.click(screen.getByRole("link", { name: "Collections" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
     expect(confirm).toHaveBeenCalledTimes(2);
+    expect(callsTo(harness.script, "logout")).toHaveLength(1);
+
+    await user.click(screen.getByRole("link", { name: "Collections" }));
+    expect(confirm).toHaveBeenCalledTimes(3);
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit after failure");
     expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
   });

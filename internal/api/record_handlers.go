@@ -32,6 +32,10 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
+	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand") {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	limit := 50
 	if raw := values.Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -69,6 +73,10 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	values, err := neturl.ParseQuery(r.URL.RawQuery)
 	if err != nil {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
+	if duplicateSingleton(values, "expand") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}

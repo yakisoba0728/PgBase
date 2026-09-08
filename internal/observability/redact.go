@@ -9,8 +9,8 @@ import (
 
 var (
 	urlPassword         = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^:\s/@]+:)[^@\s/]+@`)
-	urlQueryParameter   = regexp.MustCompile("([?&])([^=&#\\s]+)=([^&#\\r\\n`\"']*)")
-	keywordDSNParameter = regexp.MustCompile(`(\b[^\s=&?]+)(\s*=\s*)('(?:\\.|[^'])*'|"(?:\\.|[^"])*"|(?:\\.|[^\s&])+)`)
+	urlQueryParameter   = regexp.MustCompile("([?&])([^=&#\\s]+)=([^&\\r\\n]*)")
+	keywordDSNParameter = regexp.MustCompile("(\\b[^\\s=&?]+)(\\s*=\\s*)('(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"|`(?:\\\\.|[^`])*`|(?:\\\\.|[^\\s&])+)")
 	headerSecret        = regexp.MustCompile(`(?i)((?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+`)
 	bearerSecret        = regexp.MustCompile(`(?i)(\bbearer\s+)[^\s,;]+`)
 	tokenSecret         = regexp.MustCompile(`(?i)((?:setup|session)[ _-]?token\s*[:=]\s*)[^\s,;]+`)
@@ -47,13 +47,15 @@ func sensitiveParameterKey(key string) bool {
 		key = decoded
 	}
 	key = strings.ToLower(strings.ReplaceAll(key, "-", "_"))
-	return strings.HasSuffix(key, "password") || key == "pass" || key == "token" ||
-		key == "access_token" || key == "setup_token" || key == "session_token"
+	return strings.Contains(key, "password") || strings.Contains(key, "token") ||
+		strings.Contains(key, "secret") || key == "pass" || strings.Contains(key, "api_key") ||
+		strings.Contains(key, "apikey") || strings.Contains(key, "private_key")
 }
 
 func sensitiveKey(key string) bool {
 	key = strings.ToLower(strings.ReplaceAll(key, "-", "_"))
 	return strings.Contains(key, "password") || strings.Contains(key, "authorization") ||
 		strings.Contains(key, "cookie") || strings.Contains(key, "token") ||
-		strings.Contains(key, "database_url") || strings.Contains(key, "dsn")
+		strings.Contains(key, "secret") || strings.Contains(key, "api_key") || strings.Contains(key, "apikey") ||
+		strings.Contains(key, "private_key") || strings.Contains(key, "database_url") || strings.Contains(key, "dsn")
 }

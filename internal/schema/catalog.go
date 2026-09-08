@@ -166,7 +166,7 @@ func cloneCatalog(source Catalog) Catalog {
 		collection.Fields = append([]Field(nil), collection.Fields...)
 		for index := range collection.Fields {
 			collection.Fields[index].Default = append([]byte(nil), collection.Fields[index].Default...)
-			collection.Fields[index].Relation = cloneRelationSpec(collection.Fields[index].Relation)
+			collection.Fields[index].Relation = clonePointer(collection.Fields[index].Relation)
 		}
 		clone.Collections[name] = collection
 	}

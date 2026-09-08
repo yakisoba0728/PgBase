@@ -85,7 +85,7 @@ func TestMembershipRolloutBuildProducesFiveDistinctExecutables(t *testing.T) {
 		declaration := declaredArtifacts[index]
 		if entry.Phase != phase || entry.Commit != declaration.Commit || entry.Version != declaration.Version ||
 			entry.Path != wantPath || entry.Digest != actualDigests[lowerPhase] ||
-			entry.Toolchain.GoVersion != "go1.26.7" || entry.Toolchain.GOOS == "" || entry.Toolchain.GOARCH == "" {
+			entry.Toolchain.GoVersion != "go1.26.8" || entry.Toolchain.GOOS == "" || entry.Toolchain.GOARCH == "" {
 			t.Fatalf("artifact metadata entry %d = %#v, want phase=%s commit=%s version=%s path=%s digest=%s with pinned toolchain",
 				index, entry, phase, declaration.Commit, declaration.Version, wantPath, actualDigests[lowerPhase])
 		}

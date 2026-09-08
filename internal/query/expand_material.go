@@ -36,6 +36,9 @@ func (s *Service) executeMaterializedExpandPlan(
 ) ([]ExpandedRecord, error) {
 	materials := make([]*materializedRecord, len(roots))
 	for index, root := range roots {
+		if err := usage.takeMaterializedRecord(root); err != nil {
+			return nil, err
+		}
 		materials[index] = &materializedRecord{root: cloneRecord(root)}
 	}
 	if len(plan.nodes) != 0 && len(materials) != 0 {

@@ -103,6 +103,36 @@ func TestReleaseWorkflowGatesEveryPromotionBehindPreflightAndOneCandidate(t *tes
 	}
 }
 
+func TestPublicationWorkflowsRequireProtectedSourcesAndScopedWritePermissions(t *testing.T) {
+	release := workflowSource(t, "release-image.yml")
+	phase := workflowSource(t, "release-phase-image.yml")
+	for name, source := range map[string]string{"release-image.yml": release, "release-phase-image.yml": phase} {
+		if !strings.Contains(source, "permissions:\n  contents: read\n") {
+			t.Errorf("%s does not default to read-only contents", name)
+		}
+		if strings.Contains(source, "secrets: inherit") {
+			t.Errorf("%s inherits secrets into its reusable gate", name)
+		}
+		candidate := strings.Join(workflowJobs(t, name)["candidate"], "\n")
+		for _, contract := range []string{"environment: release-publish", "packages: write", "id-token: write", "attestations: write"} {
+			if !strings.Contains(candidate, contract) {
+				t.Errorf("%s candidate is missing %q", name, contract)
+			}
+		}
+	}
+	if got := jobField(t, workflowJobs(t, "release-image.yml"), "preflight", "if"); got != "${{ github.ref_protected }}" {
+		t.Errorf("release preflight condition = %q", got)
+	}
+	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
+	if !strings.Contains(promotion, "environment: release-publish") || !strings.Contains(promotion, "packages: write") {
+		t.Error("release promotion is not scoped to the protected publication environment")
+	}
+	resolveCondition := jobField(t, workflowJobs(t, "release-phase-image.yml"), "resolve", "if")
+	if !strings.Contains(resolveCondition, "github.event.repository.default_branch") || !strings.Contains(resolveCondition, "github.ref_protected") {
+		t.Errorf("release phase source condition = %q", resolveCondition)
+	}
+}
+
 func TestReleasePromotionSerializesAndLabelsEachMovingChannel(t *testing.T) {
 	promotion := strings.Join(workflowJobs(t, "release-image.yml")["promotion"], "\n")
 	for _, contract := range []string{
@@ -259,8 +289,15 @@ func TestImageDependentWorkflowsRefuseAHalfConfiguredCandidate(t *testing.T) {
 
 func TestRestoreDrillWorkflowWatchesItsOwnTestSources(t *testing.T) {
 	source := workflowSource(t, "backup-restore.yml")
-	if count := strings.Count(source, `"tests/restore/**"`); count != 2 {
-		t.Errorf("backup-restore.yml push/pull_request path filters cover tests/restore/** %d times, want 2", count)
+	for _, trigger := range []string{"workflow_call:", "workflow_dispatch:", "schedule:"} {
+		if !strings.Contains(source, trigger) {
+			t.Errorf("backup-restore.yml is missing the %s trigger", trigger)
+		}
+	}
+	for _, costlyTrigger := range []string{"\n  push:", "\n  pull_request:"} {
+		if strings.Contains(source, costlyTrigger) {
+			t.Errorf("backup-restore.yml restores every supported database on routine %s events", strings.TrimSpace(costlyTrigger))
+		}
 	}
 	if !strings.Contains(source, "go test -tags=restore ./tests/restore") {
 		t.Error("backup-restore.yml no longer drives the RestoreDrill through its Go entry point")

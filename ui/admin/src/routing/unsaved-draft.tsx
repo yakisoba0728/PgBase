@@ -1,21 +1,32 @@
-import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, type ReactNode } from "react";
 
 const leaveText = "Leave this page? The changes you have not saved will be lost.";
 
 interface DraftLedger {
   held(): boolean;
   hold(resource: string, unsaved: boolean): void;
+  confirmLeave(): boolean;
   mayLeave(): boolean;
 }
 
 export function draftLedger(confirmLeave: (text: string) => boolean = (text) => window.confirm(text)): DraftLedger {
   const unsaved = new Set<string>();
+  const confirmed = () => unsaved.size === 0 || confirmLeave(leaveText);
   return {
     held: () => unsaved.size > 0,
     hold: (resource, dirty) => { if (dirty) unsaved.add(resource); else unsaved.delete(resource); },
-    // Keep the resource held until its owner unmounts or releases it. A caller
-    // can ask permission before an async departure that later fails.
-    mayLeave: () => unsaved.size === 0 || confirmLeave(leaveText),
+    // Some departures, such as sign-out, can fail after the administrator
+    // agrees to leave. Confirm them without releasing the guard; a successful
+    // departure unmounts the resource and releases it in the ordinary way.
+    confirmLeave: confirmed,
+    // Nothing to lose is never worth a question. Agreeing to lose the draft is
+    // the explicit discard, so the resource is released and the departure that
+    // follows does not ask a second time about work already given up.
+    mayLeave: () => {
+      if (!confirmed()) return false;
+      unsaved.clear();
+      return true;
+    },
   };
 }
 
@@ -39,9 +50,11 @@ export function UnsavedDrafts({ children, ledger }: { children: ReactNode; ledge
  */
 export function useUnsavedDraft(resource: string, unsaved: boolean): () => void {
   const ledger = useContext(LedgerContext);
-  useEffect(() => {
-    ledger?.hold(resource, unsaved);
+  useLayoutEffect(() => {
     return () => ledger?.hold(resource, false);
+  }, [ledger, resource]);
+  useLayoutEffect(() => {
+    ledger?.hold(resource, unsaved);
   }, [ledger, resource, unsaved]);
   return useCallback(() => ledger?.hold(resource, false), [ledger, resource]);
 }

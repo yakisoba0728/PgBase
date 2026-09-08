@@ -22,14 +22,11 @@ describe("unsaved drafts", () => {
     expect(ledger.mayLeave()).toBe(true);
     expect(confirmLeave).toHaveBeenCalledTimes(1);
 
-    // The owner releases the draft when the approved departure completes.
-    // Until then, another attempted departure must still be guarded.
+    // Agreeing was the discard, so the departure that follows is not a second
+    // chance to lose the same work.
+    expect(ledger.held()).toBe(false);
     expect(ledger.mayLeave()).toBe(true);
-    expect(confirmLeave).toHaveBeenCalledTimes(2);
-
-    ledger.hold("record posts id:one", false);
-    expect(ledger.mayLeave()).toBe(true);
-    expect(confirmLeave).toHaveBeenCalledTimes(2);
+    expect(confirmLeave).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the administrator on the resource when the draft is not to be lost", () => {
@@ -41,6 +38,24 @@ describe("unsaved drafts", () => {
 
     ledger.hold("collection-edit posts", false);
     expect(ledger.mayLeave()).toBe(true);
+  });
+
+  it("can confirm a fallible departure without releasing its draft guard", () => {
+    const confirmLeave = vi.fn(() => true);
+    const ledger = draftLedger(confirmLeave);
+
+    ledger.hold("record posts id:one", true);
+    expect(ledger.confirmLeave()).toBe(true);
+    expect(ledger.held()).toBe(true);
+
+    expect(ledger.confirmLeave()).toBe(true);
+    expect(confirmLeave).toHaveBeenCalledTimes(2);
+
+    // The owner releases the draft when the approved departure completes.
+    // Until then, another attempted departure must still be guarded.
+    ledger.hold("record posts id:one", false);
+    expect(ledger.confirmLeave()).toBe(true);
+    expect(confirmLeave).toHaveBeenCalledTimes(2);
   });
 
   it("lets the browser offer to keep a draft a reload would drop", () => {

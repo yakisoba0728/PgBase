@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	schemaOperationReconcileInterval = time.Second
-	schemaOperationReconcileBatch    = 32
-	schemaOperationCleanupInterval   = 5 * time.Minute
-	schemaOperationCleanupRetention  = 30 * 24 * time.Hour
-	schemaOperationCleanupBatch      = 256
-	schemaOperationCleanupYield      = 10 * time.Millisecond
+	schemaOperationReconcileInterval   = time.Second
+	schemaOperationReconcileBatch      = 32
+	schemaOperationCleanupInterval     = 5 * time.Minute
+	schemaOperationCleanupRetention    = 30 * 24 * time.Hour
+	schemaOperationCleanupBatch        = 256
+	schemaOperationCleanupYield        = 10 * time.Millisecond
+	schemaOperationMaintenanceRetryMin = 100 * time.Millisecond
+	schemaOperationMaintenanceRetryMax = 5 * time.Second
 )
 
 var (
@@ -34,10 +36,14 @@ func (s *Service) Run(ctx context.Context) error {
 	if s == nil || s.pool == nil || ctx == nil {
 		return errSchemaOperationMaintenanceUnavailable
 	}
-	if err := s.reconcileSchemaOperations(ctx); err != nil {
+	run := func(operation func(context.Context) error) error {
+		err := s.runSchemaOperationMaintenance(ctx, operation)
 		if ctx.Err() != nil {
 			return nil
 		}
+		return err
+	}
+	if err := run(s.reconcileSchemaOperations); err != nil {
 		return err
 	}
 
@@ -50,19 +56,36 @@ func (s *Service) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-reconcileTicker.C:
-			if err := s.reconcileSchemaOperations(ctx); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
+			if err := run(s.reconcileSchemaOperations); err != nil {
 				return err
 			}
 		case <-cleanupTicker.C:
-			if err := s.drainSchemaOperationCleanup(ctx); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
+			if err := run(s.drainSchemaOperationCleanup); err != nil {
 				return err
 			}
+		}
+	}
+}
+
+// runSchemaOperationMaintenance keeps a temporary PostgreSQL outage inside the
+// readiness boundary instead of turning one failed maintenance attempt into a
+// process shutdown. Integrity and programming errors still escape immediately:
+// retrying those would only hide a receipt state the operator must investigate.
+func (s *Service) runSchemaOperationMaintenance(ctx context.Context, operation func(context.Context) error) error {
+	retryMin, retryMax := s.maintenanceRetryMin, s.maintenanceRetryMax
+	if retryMin <= 0 {
+		retryMin = schemaOperationMaintenanceRetryMin
+	}
+	if retryMax < retryMin {
+		retryMax = retryMin
+	}
+	for delay := retryMin; ; delay = min(delay*2, retryMax) {
+		err := operation(ctx)
+		if err == nil || database.Classify(err) != database.KindUnavailable {
+			return err
+		}
+		if err := waitForContext(ctx, delay); err != nil {
+			return err
 		}
 	}
 }
@@ -105,104 +128,72 @@ type maintenanceAudit struct {
 }
 
 func (s *Service) reconcileOneSchemaOperation(ctx context.Context) (reconciled bool, err error) {
-	connection, err := s.pool.Acquire(ctx)
-	if err != nil {
-		return false, fmt.Errorf("acquire schema operation maintenance connection: %w", err)
-	}
-	defer connection.Release()
-
-	tx, err := connection.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return false, fmt.Errorf("begin schema operation reconciliation: %w", err)
-	}
-	committed := false
-	defer func() {
-		if committed {
-			return
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
+			return fmt.Errorf("set schema operation reconciliation lock timeout: %w", err)
 		}
-		cleanupCtx, cancel := database.BoundedCleanupContext(context.Background())
-		defer cancel()
-		_ = tx.Rollback(cleanupCtx)
-	}()
+		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
+			return fmt.Errorf("disable schema operation reconciliation statement timeout: %w", err)
+		}
 
-	if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
-		return false, fmt.Errorf("set schema operation reconciliation lock timeout: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
-		return false, fmt.Errorf("disable schema operation reconciliation statement timeout: %w", err)
-	}
-
-	var operation maintenanceOperation
-	err = tx.QueryRow(ctx, `SELECT operation_id, operation, actor_id, plan_checksum, base_version
+		var operation maintenanceOperation
+		err := tx.QueryRow(ctx, `SELECT operation_id, operation, actor_id, plan_checksum, base_version
 		FROM pgbase_meta.schema_operations
 		WHERE status IN ('running', 'unknown')
 		  AND reconcile_after <= current_timestamp
 		ORDER BY reconcile_after, operation_id
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`).Scan(
-		&operation.operationID,
-		&operation.operation,
-		&operation.actorID,
-		&operation.checksum,
-		&operation.baseVersion,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		cleanupCtx, cancel := database.BoundedCleanupContext(context.Background())
-		defer cancel()
-		if err := tx.Rollback(cleanupCtx); err != nil {
-			return false, fmt.Errorf("close empty schema operation reconciliation: %w", err)
+			&operation.operationID,
+			&operation.operation,
+			&operation.actorID,
+			&operation.checksum,
+			&operation.baseVersion,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		committed = true
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("claim schema operation reconciliation: %w", err)
-	}
-	var acquiredSchemaLock bool
-	if err := tx.QueryRow(ctx, "select pg_try_advisory_xact_lock($1)", schemaAdvisoryLockKey).Scan(&acquiredSchemaLock); err != nil {
-		return false, fmt.Errorf("try schema operation reconciliation advisory lock: %w", err)
-	}
-	if !acquiredSchemaLock {
-		cleanupCtx, cancel := database.BoundedCleanupContext(context.Background())
-		defer cancel()
-		if err := tx.Rollback(cleanupCtx); err != nil {
-			return false, fmt.Errorf("defer contended schema operation reconciliation: %w", err)
+		if err != nil {
+			return fmt.Errorf("claim schema operation reconciliation: %w", err)
 		}
-		committed = true
-		return false, nil
-	}
+		var acquiredSchemaLock bool
+		if err := tx.QueryRow(ctx, "select pg_try_advisory_xact_lock($1)", schemaAdvisoryLockKey).Scan(&acquiredSchemaLock); err != nil {
+			return fmt.Errorf("try schema operation reconciliation advisory lock: %w", err)
+		}
+		if !acquiredSchemaLock {
+			return nil
+		}
 
-	var schemaVersion int64
-	if err := tx.QueryRow(ctx, `SELECT version
+		var schemaVersion int64
+		if err := tx.QueryRow(ctx, `SELECT version
 		FROM pgbase_meta.schema_state
 		WHERE singleton
 		FOR UPDATE`).Scan(&schemaVersion); err != nil {
-		return false, fmt.Errorf("lock schema state for operation reconciliation: %w", err)
-	}
+			return fmt.Errorf("lock schema state for operation reconciliation: %w", err)
+		}
 
-	targetVersion := operation.baseVersion + 1
-	audits, err := readMaintenanceAudits(ctx, tx, operation.operationID)
+		audits, err := readMaintenanceAudits(ctx, tx, operation.operationID)
+		if err != nil {
+			return err
+		}
+		status := OperationFailed
+		switch {
+		case len(audits) == 0:
+		case len(audits) == 1 && auditExactlyMatchesOperation(audits[0], operation) && schemaVersion >= operation.baseVersion+1:
+			status = OperationCommitted
+		default:
+			return errSchemaOperationAuditIntegrity
+		}
+		if err := transitionReconciledOperation(ctx, tx, operation.operationID, status); err != nil {
+			return err
+		}
+		reconciled = true
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	switch {
-	case len(audits) == 0:
-		if err := transitionReconciledOperation(ctx, tx, operation.operationID, OperationFailed); err != nil {
-			return false, err
-		}
-	case len(audits) == 1 && auditExactlyMatchesOperation(audits[0], operation) && schemaVersion >= targetVersion:
-		if err := transitionReconciledOperation(ctx, tx, operation.operationID, OperationCommitted); err != nil {
-			return false, err
-		}
-	default:
-		return false, errSchemaOperationAuditIntegrity
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit schema operation reconciliation: %w", err)
-	}
-	committed = true
-	return true, nil
+	return reconciled, nil
 }
 
 func readMaintenanceAudits(ctx context.Context, tx pgx.Tx, operationID uuid.UUID) ([]maintenanceAudit, error) {
@@ -243,36 +234,20 @@ func auditExactlyMatchesOperation(audit maintenanceAudit, operation maintenanceO
 }
 
 func transitionReconciledOperation(ctx context.Context, tx pgx.Tx, operationID uuid.UUID, status OperationStatus) error {
-	var tag interface{ RowsAffected() int64 }
-	var err error
-	switch status {
-	case OperationCommitted:
-		tag, err = tx.Exec(ctx, `UPDATE pgbase_meta.schema_operations
-			SET status = 'committed',
-				lease_owner = NULL,
-				lease_expires_at = NULL,
-				reconcile_after = NULL,
-				committed_version = base_version + 1,
-				failure_code = NULL,
-				updated_at = current_timestamp,
-				completed_at = current_timestamp
-			WHERE operation_id = $1
-			  AND status IN ('running', 'unknown')`, operationID)
-	case OperationFailed:
-		tag, err = tx.Exec(ctx, `UPDATE pgbase_meta.schema_operations
-			SET status = 'failed',
-				lease_owner = NULL,
-				lease_expires_at = NULL,
-				reconcile_after = NULL,
-				committed_version = NULL,
-				failure_code = 'reconcile_failed',
-				updated_at = current_timestamp,
-				completed_at = current_timestamp
-			WHERE operation_id = $1
-			  AND status IN ('running', 'unknown')`, operationID)
-	default:
+	if status != OperationCommitted && status != OperationFailed {
 		return errSchemaOperationAuditIntegrity
 	}
+	tag, err := tx.Exec(ctx, `UPDATE pgbase_meta.schema_operations
+		SET status = $2,
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			reconcile_after = NULL,
+			committed_version = CASE WHEN $2 = 'committed' THEN base_version + 1 END,
+			failure_code = CASE WHEN $2 = 'failed' THEN 'reconcile_failed' END,
+			updated_at = current_timestamp,
+			completed_at = current_timestamp
+		WHERE operation_id = $1
+		  AND status IN ('running', 'unknown')`, operationID, status)
 	if err != nil {
 		return fmt.Errorf("record reconciled schema operation: %w", err)
 	}
@@ -291,16 +266,7 @@ func (s *Service) drainSchemaOperationCleanup(ctx context.Context) error {
 		if deleted < schemaOperationCleanupBatch {
 			return nil
 		}
-		timer := time.NewTimer(schemaOperationCleanupYield)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
+		if waitForContext(ctx, schemaOperationCleanupYield) != nil {
 			return nil
 		}
 	}

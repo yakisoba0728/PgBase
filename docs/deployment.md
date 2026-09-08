@@ -39,6 +39,8 @@ Deploy immutable `image@sha256:...` references rather than relying on a mutable 
 
 A release tag runs a tag/version preflight first. Only after it accepts the tag does the workflow build and push exactly one candidate image, and that candidate's digest is the sole input to the five release gates: backend, frontend, Docker E2E, security scanning, and the backup/restore drill. The E2E and restore gates refuse to start without a digest-pinned candidate and have no source-build or local-tag fallback, and security scans the same digest instead of building its own audit image. Promotion adds tags to that verified digest and never rebuilds. The published digest is therefore the artifact that passed the gates.
 
+Publication fails closed unless the triggering tag is protected. Configure a repository ruleset for `refs/tags/v*` that restricts creation and updates to release maintainers, and protect the `release-publish` environment with required reviewers, self-review prevention, and matching deployment-ref rules. The workflow keeps write permissions inside the environment-gated candidate and promotion jobs; these source controls are defense in depth and do not replace the GitHub ruleset or environment policy. Historical phase dispatch is likewise accepted only from the protected default branch.
+
 The candidate is built for `linux/amd64` only. There is no multi-architecture release image; running pgBase on another architecture means building from source and validating it yourself.
 
 Before any gate consumes the digest, the workflow verifies that the provenance and SBOM attestations it just published can actually be retrieved and verified from the registry:
@@ -58,7 +60,7 @@ Migration rollouts use the immutable source commits in
 `deployments/release-phases.json`, not a current binary with a version constant
 overridden. Dispatch the **Release phase image gate** workflow with the exact
 `rollout` and `phase`. It resolves exactly one manifest entry, builds that
-commit's real `cmd/pgbase` binary with Go 1.26.7, and copies only that binary and
+commit's real `cmd/pgbase` binary with Go 1.26.8, and copies only that binary and
 the pinned CA bundle into the current hardened distroless runtime. The candidate
 is built and pushed once as `linux/amd64`; its digest is then passed unchanged to
 the backend, frontend, E2E, security, and backup/restore gates. This workflow
@@ -94,21 +96,27 @@ The production binary reads configuration from environment variables:
 
 | Variable | Requirement and behavior |
 | --- | --- |
-| `PGBASE_DATABASE_URL` | Required `postgres://` or `postgresql://` URL. Use TLS verification such as `sslmode=verify-full` for a remote database. |
+| `PGBASE_DATABASE_URL` | Required `postgres://` or `postgresql://` URL. Every remote primary and fallback target must use encrypted certificate and hostname verification (`sslmode=verify-full`). Local loopback and Unix-socket targets may use plaintext. |
+| `PGBASE_ALLOW_INSECURE_DATABASE` | Boolean; default `false`. Explicit development-only escape hatch for a non-loopback database without verified TLS. The bundled Compose profile sets it only for PostgreSQL on its private development network; never enable it for a production or otherwise untrusted network. |
 | `PGBASE_TOKEN_SECRET` | Required base64 text decoding to at least 32 bytes. All instances must share it. |
-| `PGBASE_SETUP_TOKEN` | Set to an unguessable value of at least 32 characters before first-administrator setup. |
+| `PGBASE_SETUP_TOKEN` | Set to an unguessable valid UTF-8 value of at least 32 characters and no more than 1,024 bytes before first-administrator setup. The upper bound guarantees the configured credential fits the setup API's request budget. |
 | `PGBASE_METRICS_TOKEN` | Optional bearer-token-safe secret of 32–256 bytes. When set, enables `GET /metrics`; when empty, the route does not exist. Use a distinct secret per monitoring trust boundary. |
-| `PGBASE_HTTP_ADDRESS` | Listener address; default `:8090`. |
-| `PGBASE_PUBLIC_URL` | Exact external `http` or `https` origin, with no path, query, fragment, credentials, or wildcard. Set it in production. |
+| `PGBASE_HTTP_ADDRESS` | Listener address; default `127.0.0.1:8090`. A reverse-proxy deployment may bind a private or wildcard backend address explicitly. |
+| `PGBASE_PUBLIC_URL` | Exact external `http` or `https` origin, with no path, query, fragment, credentials, or wildcard. Plain HTTP is accepted only for loopback hosts; use HTTPS for every non-loopback public URL. Set it in production. |
 | `PGBASE_AUTO_MIGRATE` | Boolean; default `false`. Use `true` only for the bundled development Compose path. |
 | `PGBASE_TRUSTED_PROXIES` | Comma-separated, masked CIDR prefixes for proxies allowed to supply forwarded scheme/address data. Empty by default. |
 | `PGBASE_CORS_ALLOWED_ORIGINS` | Comma-separated exact `http`/`https` origins. Wildcards are rejected. Leave empty for same-origin administration. |
 | `PGBASE_ADMIN_SESSION_TTL` | Go duration; positive and no greater than `12h`; default `12h`. |
 | `PGBASE_STATEMENT_TIMEOUT` | Go duration; default `5s`. Applies to ordinary request and diagnostic SQL. System migrations and approved collection DDL disable this statement limit locally so large schema work can finish; they retain a 5-second lock-acquisition timeout and remain cancelable through the command/request context. |
+| `PGBASE_SCHEMA_APPLY_TIMEOUT` | Go duration; default `10m`. Bounds the administrator schema-apply HTTP route without widening ordinary request deadlines. |
 | `PGBASE_SHUTDOWN_TIMEOUT` | Go duration; default `15s`. |
 | `PGBASE_STOP_GRACE_PERIOD` | Compose stop grace Go duration; default `20s`. When set, it must be at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`; pgBase refuses startup when the margin is smaller. |
 
 Never put secret values in command arguments, source control, images, support bundles, or logs. Supply them through a secret manager or protected environment injection. The JSON logger redacts known credentials, but redaction is not a substitute for avoiding secret-bearing log messages.
+
+### Bundled development Compose resource ceilings
+
+The bundled development profile applies ordinary Compose service-level `cpus`, `mem_limit`, and `pids_limit` bounds rather than the optional Swarm `deploy` section. It defaults both pgBase and PostgreSQL to 2 CPUs, 1 GiB of memory, and 256 PIDs. Override them with `PGBASE_APP_CPUS`, `PGBASE_APP_MEMORY_LIMIT`, `PGBASE_APP_PIDS_LIMIT`, `PGBASE_POSTGRES_CPUS`, `PGBASE_POSTGRES_MEMORY_LIMIT`, and `PGBASE_POSTGRES_PIDS_LIMIT` after measuring the local workload. These defaults are containment ceilings for the development stack, not production sizing guidance; set and validate production limits in the target orchestrator.
 
 ## Record mutation safety
 
@@ -164,19 +172,20 @@ pgBase serves HTTP and does not expose a TLS certificate flag. Terminate TLS at 
 
 Configure `PGBASE_TRUSTED_PROXIES` with only the actual proxy network ranges. Forwarded scheme and client addresses are ignored from an untrusted peer. pgBase walks `X-Forwarded-For` from the trusted side and selects the first untrusted address; malformed chains fall back to the direct peer. Do not trust `0.0.0.0/0` or `::/0` merely to make proxying work.
 
-The bundled cookie-authenticated administrator UI must share the API origin. Administrator mutations require that exact `Origin`, a valid administrator cookie, and `X-PgBase-CSRF`. `PGBASE_CORS_ALLOWED_ORIGINS` controls browser response visibility and preflight only; it does not grant setup, login, or mutation authority to another origin. A future cross-origin administrator client requires credentials designed separately from the `SameSite=Lax` cookie. Wildcards are rejected. With an HTTPS public URL, administrator cookies are issued with `Secure`.
+The bundled cookie-authenticated administrator UI must share the API origin. Administrator reads allow non-browser clients that omit `Origin`, but a browser that sends `Origin` must send the exact public origin; mutations additionally require `X-PgBase-CSRF`. `PGBASE_CORS_ALLOWED_ORIGINS` controls non-credentialed browser response visibility and preflight only. It never grants cookie-authenticated read, setup, login, or mutation authority to another origin, and global CORS responses do not opt into browser credentials. A future cross-origin administrator client requires credentials designed separately from the `SameSite=Lax` cookie. Wildcards are rejected. With an HTTPS public URL, administrator cookies are issued with `Secure`.
 
 ## External PostgreSQL
 
 - Use a dedicated database and role for one pgBase project.
 - Grant the role permission to create and modify objects in `pgbase_meta`, `app`, and `pgbase_relation`; migrations and collection/relation DDL require it.
 - Require encrypted, verified transport for non-local PostgreSQL.
-- Size connection limits for all pgBase instances plus migration, backup, and operator connections.
+- Pooled sessions pin `search_path` to `pg_catalog`; application relations are schema-qualified so caller- or role-controlled schemas cannot capture unqualified object resolution.
+- Configure at least four connections per pgBase pool (`pool_max_conns=4` or higher): one listener, one schema/apply path, and background/request headroom. Size the database limit for all instances plus migration, backup, and operator connections.
 - Back up all three pgBase schemas together. See [Backup and restore](backup-restore.md).
 
 ## Health, rollout, and shutdown
 
-`GET /health/live` returns HTTP 200 while the process HTTP path is alive; a PostgreSQL outage alone does not make liveness fail. `GET /health/ready` returns HTTP 200 only while HTTP is accepting, PostgreSQL is reachable, system migrations are current, and the schema listener is synchronized. A failed readiness response is HTTP 503 with safe component names, not raw dependency errors.
+`GET /health/live` returns HTTP 200 while the process HTTP path is alive; a PostgreSQL outage alone does not make liveness fail. `GET /health/ready` returns HTTP 200 only while HTTP is accepting, PostgreSQL is reachable, system migrations are current, and the schema listener is synchronized. A failed readiness response is HTTP 503 with safe component names, not raw dependency errors. Concurrent readiness probes share one dependency evaluation and reuse it for at most 250 ms; the local shutdown gate still overrides a cached success immediately. Public administrator setup-status checks use the same bounded reuse window and successful setup invalidates it immediately.
 
 Use liveness only to detect a stuck process. Use readiness for load-balancer admission and rollout gates. The container health check invokes `/pgbase healthcheck --url http://127.0.0.1:8090/health/ready` and requires no shell or curl.
 

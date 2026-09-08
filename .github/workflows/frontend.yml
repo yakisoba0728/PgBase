@@ -2,7 +2,9 @@ name: Frontend
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
     inputs:
       candidate_image:
@@ -24,9 +26,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: frontend-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -45,7 +51,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
-          cache: npm
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' && 'npm' || '' }}
           cache-dependency-path: ui/admin/package-lock.json
 
       - name: Install dependencies

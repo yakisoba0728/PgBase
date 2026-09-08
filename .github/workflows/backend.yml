@@ -2,7 +2,9 @@ name: Backend
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
     inputs:
       candidate_image:
@@ -24,10 +26,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: backend-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   observability-artifacts:
     name: Observability artifacts
-    runs-on: ubuntu-24.04
+    # A repository-scoped runner is selected only for the exact internal PR or
+    # main-push SHA an administrator opted into. Releases, manual runs,
+    # schedules, and fork PRs always stay on a GitHub-hosted runner, where
+    # publication credentials cannot leak to a developer machine.
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Check out repository
@@ -53,8 +63,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.7
-          cache: true
+          go-version: 1.26.8
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
           cache-dependency-path: go.sum
 
       # Parsing proves the queries are well formed; only the exposition golden
@@ -64,7 +74,7 @@ jobs:
 
   unit:
     name: Go unit
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -82,8 +92,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.7
-          cache: true
+          go-version: 1.26.8
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
           cache-dependency-path: go.sum
 
       - name: Verify formatting
@@ -107,6 +117,7 @@ jobs:
   # unnoticed.
   darwin-terminal:
     name: macOS terminal
+    if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -118,7 +129,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.7
+          go-version: 1.26.8
           cache: true
           cache-dependency-path: go.sum
 
@@ -135,18 +146,15 @@ jobs:
 
   integration:
     name: PostgreSQL integration / ${{ matrix.postgres.version }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        postgres:
-          - version: "16.13"
-            image: postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60
-          - version: "17.9"
-            image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
-          - version: "18.3"
-            image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+        # Routine PRs and main pushes cover the middle supported major. The
+        # digest-pinned release gate and explicit manual runs retain the full
+        # 16/17/18 compatibility matrix.
+        postgres: ${{ fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') && '[{"version":"16.13","image":"postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60"},{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"},{"version":"18.3","image":"postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba"}]' || '[{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"}]') }}
     services:
       postgres:
         image: ${{ matrix.postgres.image }}
@@ -172,8 +180,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.7
-          cache: true
+          go-version: 1.26.8
+          cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
           cache-dependency-path: go.sum
 
       - name: Vet integration build
@@ -186,13 +194,14 @@ jobs:
           scripts/test-go-integration.sh -race -count=1 2>&1 | tee go-test.log
 
       - name: Record benchmark baseline
+        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -o pipefail
           go test -tags=integration ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark baseline
-        if: always()
+        if: ${{ always() && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: benchmark-postgresql-${{ matrix.postgres.version }}
@@ -214,7 +223,7 @@ jobs:
     # A phase-image dispatch already selected one historical source commit.
     # Recursively rebuilding every phase from that checkout is both redundant
     # and impossible for commits that predate the manifest and builder.
-    if: inputs.source_commit == ''
+    if: inputs.source_commit == '' && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -243,7 +252,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.7
+          go-version: 1.26.8
           cache: true
           cache-dependency-path: go.sum
 

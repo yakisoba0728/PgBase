@@ -111,7 +111,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		}
 	})
 
-	t.Run("hydrate is one ordered query per field", func(t *testing.T) {
+	t.Run("hydrate combines every field into one ordered query", func(t *testing.T) {
 		fixture.resetEdges(t, ctx)
 		counter := &countingRowsQuerier{delegate: fixture.conn}
 		records := map[uuid.UUID]map[string]any{
@@ -122,8 +122,8 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 			[]uuid.UUID{fixture.sourceTwo, fixture.sourceOne, fixture.sourceOne}, records); err != nil {
 			t.Fatalf("hydrate: %v", err)
 		}
-		if counter.queries != 2 {
-			t.Fatalf("hydrate query count = %d; want one for each of 2 multi fields", counter.queries)
+		if counter.queries != 1 {
+			t.Fatalf("hydrate query count = %d; want one combined query", counter.queries)
 		}
 		if got := records[fixture.sourceOne]["labels"]; !reflect.DeepEqual(got, []string{fixture.targetOne.String()}) {
 			t.Fatalf("unexpected labels: %#v", got)
@@ -151,12 +151,12 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("hydrate exact boundary: %v", err)
 		}
-		if used != 2 || exactCounter.queries != 2 || exactCounter.closes != 2 {
-			t.Fatalf("exact boundary used/queries/closes = %d/%d/%d, want 2/2/2",
+		if used != 2 || exactCounter.queries != 1 || exactCounter.closes != 1 {
+			t.Fatalf("exact boundary used/queries/closes = %d/%d/%d, want 2/1/1",
 				used, exactCounter.queries, exactCounter.closes)
 		}
-		if got := exactCounter.queryLimits(); !reflect.DeepEqual(got, []int{3, 2}) {
-			t.Fatalf("exact boundary query limits = %v, want [3 2]", got)
+		if got := exactCounter.queryLimits(); !reflect.DeepEqual(got, []int{3}) {
+			t.Fatalf("exact boundary query limits = %v, want [3]", got)
 		}
 		if got := exactRecords[fixture.sourceOne]["labels"]; !reflect.DeepEqual(got, []string{fixture.targetOne.String()}) {
 			t.Fatalf("exact boundary labels = %#v", got)
@@ -175,15 +175,29 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		if used != 2 || !errors.Is(err, ErrHydrationBudgetExceeded) {
 			t.Fatalf("over boundary used/error = %d/%v", used, err)
 		}
-		if overCounter.queries != 2 || overCounter.closes != 2 {
-			t.Fatalf("over boundary queries/closes = %d/%d, want 2/2", overCounter.queries, overCounter.closes)
+		if overCounter.queries != 1 || overCounter.closes != 1 {
+			t.Fatalf("over boundary queries/closes = %d/%d, want 1/1", overCounter.queries, overCounter.closes)
 		}
-		if got := overCounter.queryLimits(); !reflect.DeepEqual(got, []int{2, 1}) {
-			t.Fatalf("over boundary query limits = %v, want [2 1]", got)
+		if got := overCounter.queryLimits(); !reflect.DeepEqual(got, []int{2}) {
+			t.Fatalf("over boundary query limits = %v, want [2]", got)
 		}
 		if strings.Contains(err.Error(), fixture.sourceOne.String()) ||
 			strings.Contains(err.Error(), fixture.labelTable) || strings.Contains(err.Error(), fixture.groupTable) {
 			t.Fatalf("budget error disclosed relation storage details: %q", err)
+		}
+	})
+
+	t.Run("bounded hydrate reports overflow before validating the unordered limited sample", func(t *testing.T) {
+		records := map[uuid.UUID]map[string]any{fixture.sourceOne: {}}
+		querier := &nonPrefixRowsQuerier{
+			delegate: fixture.conn,
+			sourceID: fixture.sourceOne,
+			targets:  []uuid.UUID{fixture.targetOne, fixture.targetTwo},
+		}
+		used, err := fixture.bindings.HydrateBounded(ctx, querier,
+			[]uuid.UUID{fixture.sourceOne}, records, 1)
+		if used != 2 || !errors.Is(err, ErrHydrationBudgetExceeded) {
+			t.Fatalf("unordered bounded sample used/error = %d/%v", used, err)
 		}
 	})
 
@@ -211,11 +225,11 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		emptyCounter := &countingRowsQuerier{delegate: fixture.conn}
 		used, err = fixture.bindings.HydrateBounded(ctx, emptyCounter,
 			[]uuid.UUID{fixture.sourceOne}, emptyRecords, 0)
-		if err != nil || used != 0 || emptyCounter.queries != 2 || emptyCounter.closes != 2 {
+		if err != nil || used != 0 || emptyCounter.queries != 1 || emptyCounter.closes != 1 {
 			t.Fatalf("zero budget empty hydrate used/error/queries/closes = %d/%v/%d/%d",
 				used, err, emptyCounter.queries, emptyCounter.closes)
 		}
-		if got := emptyCounter.queryLimits(); !reflect.DeepEqual(got, []int{1, 1}) {
+		if got := emptyCounter.queryLimits(); !reflect.DeepEqual(got, []int{1}) {
 			t.Fatalf("zero budget empty query limits = %v", got)
 		}
 		if !reflect.DeepEqual(emptyRecords[fixture.sourceOne]["labels"], []string{}) ||
@@ -241,22 +255,22 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		fixture.resetEdges(t, ctx)
 		queryFailure := errors.New("forced hydration query failure")
 		queryCounter := &countingRowsQuerier{
-			delegate: fixture.conn, failQuery: 2, queryErr: queryFailure,
+			delegate: fixture.conn, failQuery: 1, queryErr: queryFailure,
 		}
 		used, err := fixture.bindings.HydrateBounded(ctx, queryCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 1 || !errors.Is(err, queryFailure) || queryCounter.queries != 2 || queryCounter.closes != 1 {
+		if used != 0 || !errors.Is(err, queryFailure) || queryCounter.queries != 1 || queryCounter.closes != 0 {
 			t.Fatalf("query failure used/error/queries/closes = %d/%v/%d/%d",
 				used, err, queryCounter.queries, queryCounter.closes)
 		}
 
 		rowsFailure := errors.New("forced hydration rows failure")
 		rowsCounter := &countingRowsQuerier{
-			delegate: fixture.conn, rowsErrQuery: 2, rowsErrAfter: 0, rowsErr: rowsFailure,
+			delegate: fixture.conn, rowsErrQuery: 1, rowsErrAfter: 1, rowsErr: rowsFailure,
 		}
 		used, err = fixture.bindings.HydrateBounded(ctx, rowsCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 1 || !errors.Is(err, rowsFailure) || rowsCounter.queries != 2 || rowsCounter.closes != 2 {
+		if used != 1 || !errors.Is(err, rowsFailure) || rowsCounter.queries != 1 || rowsCounter.closes != 1 {
 			t.Fatalf("rows failure used/error/queries/closes = %d/%v/%d/%d",
 				used, err, rowsCounter.queries, rowsCounter.closes)
 		}
@@ -273,7 +287,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		}
 	})
 
-	t.Run("bounded hydrate query count follows multi fields not source records", func(t *testing.T) {
+	t.Run("bounded hydrate query count is independent of fields and source records", func(t *testing.T) {
 		fixture.resetEdges(t, ctx)
 		catalogWithSource := func(source schema.Collection) schema.Catalog {
 			catalog := fixture.catalog
@@ -313,7 +327,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		}
 		quotedLabelTable := pgx.Identifier{"pgbase_relation", fixture.labelTable}.Sanitize()
 		if len(oneCounter.statements) != 1 || !strings.Contains(oneCounter.statements[0], "from "+quotedLabelTable) ||
-			!strings.HasSuffix(oneCounter.statements[0], " limit $2") ||
+			!strings.Contains(oneCounter.statements[0], " limit $2) as bounded_hydration order by ") ||
 			strings.Contains(oneCounter.statements[0], fixture.sourceOne.String()) {
 			t.Fatalf("bounded hydrate SQL is not identifier/value safe: %q", oneCounter.statements)
 		}
@@ -338,8 +352,8 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		manyCounter := &countingRowsQuerier{delegate: fixture.conn}
 		wantRows := len(ids) + 1 // one label per source plus sourceOne's group edge.
 		used, err = fixture.bindings.HydrateBounded(ctx, manyCounter, ids, records, wantRows)
-		if err != nil || used != wantRows || manyCounter.queries != 2 || manyCounter.closes != 2 {
-			t.Fatalf("many-record used/error/queries/closes = %d/%v/%d/%d, want %d/nil/2/2",
+		if err != nil || used != wantRows || manyCounter.queries != 1 || manyCounter.closes != 1 {
+			t.Fatalf("many-record used/error/queries/closes = %d/%v/%d/%d, want %d/nil/1/1",
 				used, err, manyCounter.queries, manyCounter.closes, wantRows)
 		}
 		for _, id := range extraIDs {
@@ -375,7 +389,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		minimumCounter := &countingRowsQuerier{delegate: fixture.conn}
 		used, err = bindLiveFirstFieldBounds(t, fixture, 2, 10, true).HydrateBounded(ctx, minimumCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 1 || !errors.Is(err, ErrInvalidStoredValue) ||
+		if used != 2 || !errors.Is(err, ErrInvalidStoredValue) ||
 			minimumCounter.queries != 1 || minimumCounter.closes != 1 {
 			t.Fatalf("minimum drift used/error/queries/closes = %d/%v/%d/%d",
 				used, err, minimumCounter.queries, minimumCounter.closes)
@@ -389,7 +403,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		maximumCounter := &countingRowsQuerier{delegate: fixture.conn}
 		used, err = bindLiveFirstFieldBounds(t, fixture, 0, 2, false).HydrateBounded(ctx, maximumCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 3 || !errors.Is(err, ErrInvalidStoredValue) ||
+		if used != 4 || !errors.Is(err, ErrInvalidStoredValue) ||
 			maximumCounter.queries != 1 || maximumCounter.closes != 1 {
 			t.Fatalf("maximum drift used/error/queries/closes = %d/%v/%d/%d",
 				used, err, maximumCounter.queries, maximumCounter.closes)
@@ -402,7 +416,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		positionCounter := &countingRowsQuerier{delegate: fixture.conn}
 		used, err = fixture.bindings.HydrateBounded(ctx, positionCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 1 || !errors.Is(err, ErrInvalidStoredValue) ||
+		if used != 2 || !errors.Is(err, ErrInvalidStoredValue) ||
 			positionCounter.queries != 1 || positionCounter.closes != 1 {
 			t.Fatalf("position drift used/error/queries/closes = %d/%v/%d/%d",
 				used, err, positionCounter.queries, positionCounter.closes)
@@ -641,6 +655,19 @@ type countingRowsQuerier struct {
 	rowsErr      error
 	scanErrQuery int
 	scanErr      error
+}
+
+type nonPrefixRowsQuerier struct {
+	delegate RowsQuerier
+	sourceID uuid.UUID
+	targets  []uuid.UUID
+}
+
+func (q *nonPrefixRowsQuerier) Query(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return q.delegate.Query(ctx, `select field_index, source_id, target_id, position from (values
+		(0, $1::uuid, $2::uuid, 1), (0, $1::uuid, $3::uuid, 2))
+		as sample(field_index, source_id, target_id, position) order by position`,
+		q.sourceID, q.targets[0], q.targets[1])
 }
 
 func (q *countingRowsQuerier) Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error) {

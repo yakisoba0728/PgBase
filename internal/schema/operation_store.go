@@ -293,7 +293,7 @@ func insertOperationClaim(
 		)
 		on conflict do nothing
 		returning `+operationRowColumns,
-		identity.operationID, operationModeName(identity.mode), identity.actorID, resourceID,
+		identity.operationID, identity.mode, identity.actorID, resourceID,
 		identity.resourceKeyHash[:], string(identity.operation), operationIdempotencyBytes(identity.idempotencyHash),
 		identity.requestHash[:], identity.planChecksum[:], identity.baseVersion, leaseOwner,
 	))
@@ -400,16 +400,9 @@ func replayedOperationClaim(row operationRow) operationClaim {
 
 func operationIdentityWithoutIDMatches(row operationRow, identity operationClaimIdentity) bool {
 	return row.mode == identity.mode && row.actorID == identity.actorID && row.resourceKeyHash == identity.resourceKeyHash &&
-		row.operation == identity.operation && operationHashPointersEqual(row.idempotencyHash, identity.idempotencyHash) &&
+		row.operation == identity.operation && pointerEqual(row.idempotencyHash, identity.idempotencyHash) &&
 		row.requestHash == identity.requestHash && row.planChecksum == identity.planChecksum &&
 		row.baseVersion == identity.baseVersion
-}
-
-func operationHashPointersEqual(left, right *[32]byte) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }
 
 func operationIdempotencyBytes(value *[32]byte) []byte {
@@ -417,28 +410,6 @@ func operationIdempotencyBytes(value *[32]byte) []byte {
 		return nil
 	}
 	return value[:]
-}
-
-func operationModeName(mode operationMode) string {
-	switch mode {
-	case operationModeLegacy:
-		return "legacy"
-	case operationModeGuarded:
-		return "guarded"
-	default:
-		return ""
-	}
-}
-
-func parseOperationMode(value string) (operationMode, bool) {
-	switch value {
-	case "legacy":
-		return operationModeLegacy, true
-	case "guarded":
-		return operationModeGuarded, true
-	default:
-		return 0, false
-	}
 }
 
 func scanOperationRow(scanner pgx.Row) (operationRow, error) {
@@ -471,8 +442,9 @@ func scanOperationRowWithExtras(scanner pgx.Row, extras ...any) (operationRow, e
 	if err := scanner.Scan(destinations...); err != nil {
 		return operationRow{}, err
 	}
-	parsedMode, ok := parseOperationMode(mode)
-	if !ok || !validStoredOperation(SchemaOperation(operation)) || !validStoredOperationStatus(OperationStatus(status)) ||
+	parsedMode := operationMode(mode)
+	if (parsedMode != operationModeLegacy && parsedMode != operationModeGuarded) ||
+		!validStoredOperation(SchemaOperation(operation)) || !validStoredOperationStatus(OperationStatus(status)) ||
 		len(resourceKeyHash) != 32 || len(requestHash) != 32 || len(planChecksum) != 32 ||
 		(parsedMode == operationModeLegacy && idempotencyHash != nil) ||
 		(parsedMode == operationModeGuarded && len(idempotencyHash) != 32) {
@@ -658,7 +630,7 @@ func operationRowsShareIdentity(left, right operationRow) bool {
 	return left.operationID == right.operationID && left.mode == right.mode &&
 		left.actorID == right.actorID && left.resourceID == right.resourceID &&
 		left.resourceKeyHash == right.resourceKeyHash && left.operation == right.operation &&
-		operationHashPointersEqual(left.idempotencyHash, right.idempotencyHash) &&
+		pointerEqual(left.idempotencyHash, right.idempotencyHash) &&
 		left.requestHash == right.requestHash && left.planChecksum == right.planChecksum &&
 		left.baseVersion == right.baseVersion
 }

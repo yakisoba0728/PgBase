@@ -176,7 +176,7 @@ func TestRunCompletesWithOneConnectionAvailableFromMinimumPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := parsed.Query()
-	query.Set("pool_max_conns", "2")
+	query.Set("pool_max_conns", "4")
 	parsed.RawQuery = query.Encode()
 
 	pool, err := database.Open(context.Background(), parsed.String(), 5*time.Second)
@@ -187,11 +187,13 @@ func TestRunCompletesWithOneConnectionAvailableFromMinimumPool(t *testing.T) {
 	if err := migrate.New(pool, nil).Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	held, err := pool.Acquire(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	for range 3 {
+		held, err := pool.Acquire(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Release()
 	}
-	defer held.Release()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

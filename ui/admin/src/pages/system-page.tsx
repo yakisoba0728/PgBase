@@ -3,6 +3,11 @@ import type { SchemaHealth, SystemStatus, SystemStatusProbe } from "../backend/p
 import { useBackend } from "../auth/session";
 
 interface SystemView { status: SystemStatus; health: SchemaHealth }
+const systemLoadTimeoutMs = 10_000;
+type SystemLoad =
+  | { phase: "loading" }
+  | { phase: "failed" }
+  | { phase: "ready"; view: SystemView };
 
 /**
  * A component named in the probe list was not confirmed by the sample beside
@@ -35,24 +40,38 @@ function Reading({ label, probes, component, children }: {
 
 export function SystemPage() {
   const { system } = useBackend();
-  const [view, setView] = useState<SystemView | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [load, setLoad] = useState<SystemLoad>({ phase: "loading" });
+  const [reloads, setReloads] = useState(0);
   // Both reads answer from a background sample rather than from PostgreSQL, so
   // they are asked for together and fail together; a page that showed one of
   // them would be reporting half an instance's state as the whole of it.
   useEffect(() => {
     const controller = new AbortController();
+    setLoad({ phase: "loading" });
+    const finish = (next?: SystemLoad) => {
+      if (controller.signal.aborted) return;
+      window.clearTimeout(timeout);
+      controller.abort();
+      if (next !== undefined) setLoad(next);
+    };
+    const timeout = window.setTimeout(() => finish({ phase: "failed" }), systemLoadTimeoutMs);
     void Promise.all([system.status(controller.signal), system.health(controller.signal)])
-      .then(([status, health]) => setView({ status, health }))
-      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
-    return () => controller.abort();
-  }, [system]);
+      .then(([status, health]) => finish({ phase: "ready", view: { status, health } }))
+      .catch(() => finish({ phase: "failed" }));
+    return () => finish();
+  }, [reloads, system]);
+
+  const view = load.phase === "ready" ? load.view : null;
+  const refresh = () => setReloads((current) => current + 1);
 
   return <section>
     <h2>System</h2>
     <p>Read-only operational state reported by pgBase.</p>
-    {failed && <p role="alert">Unable to load system status.</p>}
-    {!view && !failed && <p aria-live="polite">Loading system status…</p>}
+    {load.phase === "failed" && <p role="alert">Unable to load system status.</p>}
+    {load.phase === "loading" && <p aria-live="polite">Loading system status…</p>}
+    <button aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh} type="button">
+      {load.phase === "loading" ? "Loading system status…" : load.phase === "failed" ? "Retry system status" : "Refresh system status"}
+    </button>
     {view && <>
       <dl className="system-status">
         <div><dt>Binary version</dt><dd>{view.status.version}</dd></div>

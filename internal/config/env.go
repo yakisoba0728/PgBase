@@ -61,6 +61,13 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 		}
 		opts.PublicURL = origin
 	}
+	if raw, ok := value(lookup, "PGBASE_ALLOW_INSECURE_DATABASE"); ok && raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_ALLOW_INSECURE_DATABASE: %w", err)
+		}
+		opts.AllowInsecureDatabase = parsed
+	}
 	if raw, ok := value(lookup, "PGBASE_AUTO_MIGRATE"); ok && raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -140,7 +147,7 @@ func parsePrefixes(raw string) ([]netip.Prefix, error) {
 	prefixes := make([]netip.Prefix, 0, len(parts))
 	for _, part := range parts {
 		prefix, err := netip.ParsePrefix(strings.TrimSpace(part))
-		if err != nil || prefix != prefix.Masked() {
+		if err != nil || prefix != prefix.Masked() || prefix.Bits() == 0 {
 			return nil, fmt.Errorf("invalid CIDR prefix %q", part)
 		}
 		prefixes = append(prefixes, prefix)

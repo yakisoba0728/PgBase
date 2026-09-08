@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/hmac"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -15,6 +16,8 @@ import (
 )
 
 type adminPrincipalKey struct{}
+
+const adminSessionTokenBytes = 32
 
 // AdminPrincipal is the authenticated administrator and the raw session bound
 // to the current request. RawSession must never be serialized or logged.
@@ -44,20 +47,17 @@ func sameOriginMiddleware(publicURL *url.URL, trustedProxies []netip.Prefix, nex
 
 func adminSessionMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
 	handler := csrfMutationMiddleware(next)
-	handler = authenticateAdminMiddleware(auth, handler)
+	handler = authenticateAdminMiddleware(auth, publicURL, trustedProxies, handler)
 	return originMutationMiddleware(publicURL, trustedProxies, handler)
 }
 
-// adminSameOriginReadMiddleware admits an authenticated read only from this
-// deployment's own origin. A read cannot demand an Origin header the way a
-// mutation does — a browser sends none on a same-origin GET, and a page cannot
-// add one — so the rule is that a presented origin must be ours. That still
-// closes the case this route has to close: a cross-origin fetch always sends
-// Origin, so a configured CORS allowance cannot hand another site a report
-// describing the operator's own schema, while the admin page and a non-browser
-// operator client are unaffected.
+// adminSameOriginReadMiddleware admits a cookie-authenticated read when Origin
+// is absent or names this deployment. A read cannot demand the header the way a
+// mutation does: browsers omit it on same-origin GETs, and non-browser operator
+// clients commonly omit it too. Cross-origin fetches present Origin and are
+// rejected even when global CORS allows that site to read public responses.
 func adminSameOriginReadMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
-	handler := authenticateAdminMiddleware(auth, next)
+	handler := authenticateAdminMiddleware(auth, publicURL, trustedProxies, next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(r.Header.Values("Origin")) > 0 && !sameOrigin(r, publicURL, trustedProxies) {
 			writeAPIError(w, r, APIError{Status: http.StatusForbidden, Code: "origin_rejected", Message: "Request origin is not allowed"})
@@ -77,21 +77,30 @@ func originMutationMiddleware(publicURL *url.URL, trustedProxies []netip.Prefix,
 	})
 }
 
-func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler {
+func authenticateAdminMiddleware(auth AdminAuth, publicURL *url.URL, trustedProxies []netip.Prefix, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(adminCookieName)
-		if err != nil || cookie.Value == "" || auth == nil {
+		cookieName := adminCookieNameForRequest(r, publicURL, trustedProxies)
+		cookie, err := r.Cookie(cookieName)
+		if err != nil && cookieName == adminDevelopmentCookie {
+			cookie, err = r.Cookie(adminCookieName)
+		}
+		if err != nil || !validAdminSessionToken(cookie.Value) || auth == nil {
 			writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 			return
 		}
 		authenticated, err := auth.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
+			if errors.Is(err, adminauth.ErrRateLimited) {
+				w.Header().Set("Retry-After", authenticationRetryAfter)
+				writeAPIError(w, r, APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Too many authentication attempts"})
+				return
+			}
 			if errors.Is(err, adminauth.ErrInvalidCredentials) {
 				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 				return
 			}
 			if database.Classify(err) == database.KindUnavailable {
-				w.Header().Set("Retry-After", "1")
+				w.Header().Set("Retry-After", authenticationRetryAfter)
 				writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Administrator authentication is unavailable"})
 				return
 			}
@@ -104,6 +113,15 @@ func authenticateAdminMiddleware(auth AdminAuth, next http.Handler) http.Handler
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), adminPrincipalKey{}, principal)))
 	})
+}
+
+func validAdminSessionToken(value string) bool {
+	encoding := base64.RawURLEncoding.Strict()
+	if len(value) != encoding.EncodedLen(adminSessionTokenBytes) {
+		return false
+	}
+	decoded, err := encoding.DecodeString(value)
+	return err == nil && len(decoded) == adminSessionTokenBytes
 }
 
 func csrfMiddleware(next http.Handler) http.Handler {
@@ -163,6 +181,13 @@ func secureAdminCookie(r *http.Request, publicURL *url.URL, trustedProxies []net
 		return strings.EqualFold(publicURL.Scheme, "https")
 	}
 	return requestScheme(r, trustedProxies) == "https"
+}
+
+func adminCookieNameForRequest(r *http.Request, publicURL *url.URL, trustedProxies []netip.Prefix) string {
+	if secureAdminCookie(r, publicURL, trustedProxies) {
+		return adminCookieName
+	}
+	return adminDevelopmentCookie
 }
 
 func requestScheme(r *http.Request, trustedProxies []netip.Prefix) string {

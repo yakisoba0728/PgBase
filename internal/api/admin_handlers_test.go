@@ -114,7 +114,7 @@ func TestSetupSetsSecureAdminCookie(t *testing.T) {
 		t.Fatalf("cookies=%+v", cookies)
 	}
 	cookie := cookies[0]
-	if cookie.Name != "pgbase_admin" || cookie.Value != "fixed-session-token" || cookie.Path != "/" ||
+	if cookie.Name != adminCookieName || cookie.Value != "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" || cookie.Path != "/" || cookie.Domain != "" ||
 		!cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie=%+v", cookie)
 	}
@@ -123,6 +123,36 @@ func TestSetupSetsSecureAdminCookie(t *testing.T) {
 		t.Fatalf("setup call=%+v", auth)
 	}
 	assertAdminSessionResponse(t, response.Body.Bytes(), validSession())
+}
+
+func TestSetupAcceptsMaximumConfiguredTokenAndPasswordWithinBodyLimit(t *testing.T) {
+	auth := &fakeAdminAuth{setupSession: validSession()}
+	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
+	input := map[string]string{
+		// Both values force encoding/json's six-byte escaping. The 1 KiB setup
+		// token ceiling must still leave room for the 1 KiB password ceiling.
+		"setupToken": strings.Repeat("&", 1024),
+		"email":      "admin@example.com",
+		"password":   strings.Repeat("&", 1024),
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) > maximumCredentialRequestBytes {
+		t.Fatalf("encoded maximum credentials = %d bytes, body limit %d", len(body), maximumCredentialRequestBytes)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/setup", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://pgbase.example")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if auth.setupToken != input["setupToken"] || auth.setupPassword != input["password"] {
+		t.Fatal("setup service did not receive the maximum-size credentials")
+	}
 }
 
 func TestLoginReturnsAdministratorSession(t *testing.T) {
@@ -138,7 +168,7 @@ func TestLoginReturnsAdministratorSession(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Secure {
+	if len(cookies) != 1 || cookies[0].Name != adminDevelopmentCookie || cookies[0].Secure {
 		t.Fatalf("cookies=%+v", cookies)
 	}
 	if auth.loginCalls != 1 || auth.loginSubject != "192.0.2.1" {
@@ -152,7 +182,7 @@ func TestSessionAuthenticatesCookieAndReturnsCSRFToken(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt}
 	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
-	request.AddCookie(&http.Cookie{Name: "pgbase_admin", Value: session.RawToken})
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -170,8 +200,8 @@ func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	handler := mustRouter(t, testDependencies(auth, mustURL("https://pgbase.example")))
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/auth/logout", nil)
 	request.Header.Set("Origin", "https://pgbase.example")
-	request.Header.Set("X-PgBase-CSRF", "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo")
-	request.AddCookie(&http.Cookie{Name: "pgbase_admin", Value: session.RawToken})
+	request.Header.Set("X-PgBase-CSRF", "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4")
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
@@ -181,7 +211,7 @@ func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 		t.Fatalf("logout call=%+v", auth)
 	}
 	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "pgbase_admin" || cookies[0].MaxAge >= 0 || !cookies[0].HttpOnly || !cookies[0].Secure {
+	if len(cookies) != 1 || cookies[0].Name != adminCookieName || cookies[0].MaxAge >= 0 || !cookies[0].HttpOnly || !cookies[0].Secure {
 		t.Fatalf("cleared cookies=%+v", cookies)
 	}
 }
@@ -228,7 +258,7 @@ func TestAdminAuthenticationErrorsUseSafeEnvelope(t *testing.T) {
 		{name: "validation", err: adminauth.ErrValidation, wantStatus: http.StatusBadRequest, wantCode: "validation_failed"},
 		{name: "credentials", err: adminauth.ErrInvalidCredentials, wantStatus: http.StatusUnauthorized, wantCode: "invalid_credentials"},
 		{name: "setup unavailable", err: adminauth.ErrSetupUnavailable, wantStatus: http.StatusConflict, wantCode: "setup_unavailable"},
-		{name: "rate limited", err: adminauth.ErrRateLimited, wantStatus: http.StatusTooManyRequests, wantCode: "rate_limited"},
+		{name: "rate limited", err: adminauth.ErrRateLimited, wantStatus: http.StatusTooManyRequests, wantCode: "rate_limited", retryAfter: "1"},
 		{name: "retryable database", err: &pgconn.PgError{Code: "40001", Message: "serialization failure"}, wantStatus: http.StatusServiceUnavailable, wantCode: "authentication_unavailable", retryAfter: "1"},
 		{name: "internal", err: errors.New("SQLSTATE 23505 postgres://secret"), wantStatus: http.StatusInternalServerError, wantCode: "internal_error"},
 	}
@@ -271,7 +301,7 @@ func assertAdminSessionResponse(t *testing.T, body []byte, want adminauth.Sessio
 	if response.Administrator.ID != want.Administrator.ID.String() || response.Administrator.Email != want.Administrator.Email {
 		t.Fatalf("administrator=%+v", response.Administrator)
 	}
-	if response.CSRFToken != "4LccAvSIPPQQ4q-qU6zW3cQ4E1sUfZmE2_lisE5NTqo" {
+	if response.CSRFToken != "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4" {
 		t.Fatalf("csrfToken=%q", response.CSRFToken)
 	}
 	if response.ExpiresAt != want.ExpiresAt.UTC().Format(time.RFC3339) {

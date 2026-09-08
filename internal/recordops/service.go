@@ -192,7 +192,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := relations.Store(ctx, tx, recordID, data); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := validateRecordSize(data); err != nil {
+		if err := schema.ValidateRecordSize(data); err != nil {
 			return err
 		}
 		digest, err := recordartifact.SchemaDigest(collection)
@@ -314,7 +314,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := relations.Store(ctx, tx, request.ID, after); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := validateRecordSize(after); err != nil {
+		if err := schema.ValidateRecordSize(after); err != nil {
 			return err
 		}
 		newVersion := previousVersion + 1

@@ -282,6 +282,19 @@ func TestMigrateRejectsMalformedDatabaseURLWithExitCodeTwoWithoutLeakingIt(t *te
 	}
 }
 
+func TestMigrateRejectsAnUndersizedPoolAsConfiguration(t *testing.T) {
+	const databaseURL = "postgres://admin@127.0.0.1/pgbase?sslmode=disable&pool_max_conns=3"
+	var stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"migrate", "status"}, migrationEnv(databaseURL), testIO(nil, io.Discard, &stderr))
+	if code != 2 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "pool_max_conns must be at least 4") ||
+		!strings.HasSuffix(stderr.String(), "pgbase: invalid configuration\n") {
+		t.Fatalf("stderr = %q, want actionable configuration rejection", stderr.String())
+	}
+}
+
 func TestAdminRejectsMalformedDatabaseURLWithoutLeakingIt(t *testing.T) {
 	const secret = "admin-configuration-secret-must-not-leak"
 	const databaseURL = "postgres://admin:" + secret + "@localhost/pgbase?pool_max_conns=not-a-number"

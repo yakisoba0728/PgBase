@@ -104,3 +104,63 @@ func TestComposeStatementTimeoutDefaultMatchesTheApplicationDefault(t *testing.T
 		t.Errorf(".env.example is missing %q", want)
 	}
 }
+
+func TestComposeSchemaApplyTimeoutDefaultMatchesTheApplicationDefault(t *testing.T) {
+	const applicationDefault = 10 * time.Minute
+
+	compose := readFile(t, "docker-compose.yml")
+	if got := interpolationDefault(t, compose, "PGBASE_SCHEMA_APPLY_TIMEOUT"); got != applicationDefault {
+		t.Errorf("docker-compose.yml schema apply timeout default = %s, want the application default %s",
+			got, applicationDefault)
+	}
+	example := readFile(t, ".env.example")
+	match := regexp.MustCompile(`(?m)^PGBASE_SCHEMA_APPLY_TIMEOUT=(.+)$`).FindStringSubmatch(example)
+	if match == nil {
+		t.Fatal(".env.example does not set PGBASE_SCHEMA_APPLY_TIMEOUT")
+	}
+	value, err := time.ParseDuration(strings.TrimSpace(match[1]))
+	if err != nil || value != applicationDefault {
+		t.Fatalf(".env.example schema apply timeout = %q (%v), want %s", match[1], err, applicationDefault)
+	}
+}
+
+func TestBundledComposeMakesItsLocalPlaintextDatabaseExceptionExplicit(t *testing.T) {
+	compose := readFile(t, "docker-compose.yml")
+	for _, contract := range []string{
+		"PGBASE_DATABASE_URL: postgres://pgbase:${PGBASE_POSTGRES_PASSWORD}@postgres:5432/pgbase?sslmode=disable",
+		"PGBASE_ALLOW_INSECURE_DATABASE: \"true\"",
+		"PGBASE_HTTP_ADDRESS: :8090",
+	} {
+		if !strings.Contains(compose, contract) {
+			t.Errorf("docker-compose.yml is missing %q", contract)
+		}
+	}
+}
+
+func TestBundledComposeAppliesConfigurableNonSwarmRuntimeCeilings(t *testing.T) {
+	compose := readFile(t, "docker-compose.yml")
+	example := readFile(t, ".env.example")
+	for key, value := range map[string]string{
+		"PGBASE_APP_CPUS":              "2.0",
+		"PGBASE_APP_MEMORY_LIMIT":      "1g",
+		"PGBASE_APP_PIDS_LIMIT":        "256",
+		"PGBASE_POSTGRES_CPUS":         "2.0",
+		"PGBASE_POSTGRES_MEMORY_LIMIT": "1g",
+		"PGBASE_POSTGRES_PIDS_LIMIT":   "256",
+	} {
+		if !strings.Contains(compose, "${"+key+":-"+value+"}") {
+			t.Errorf("docker-compose.yml is missing the configurable %s default", key)
+		}
+		if !strings.Contains(example, key+"="+value) {
+			t.Errorf(".env.example is missing %s=%s", key, value)
+		}
+	}
+	for _, key := range []string{"cpus:", "mem_limit:", "pids_limit:"} {
+		if got := strings.Count(compose, key); got != 2 {
+			t.Errorf("docker-compose.yml %s occurrences = %d, want one per service", key, got)
+		}
+	}
+	if strings.Contains(compose, "deploy:\n") || strings.Contains(compose, "deploy:\r\n") {
+		t.Fatal("bundled Compose resource ceilings must not rely on the optional deploy section")
+	}
+}

@@ -1,10 +1,10 @@
 package schema
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -31,9 +31,11 @@ type Service struct {
 	cache    *Cache
 	recorder observability.Recorder
 
-	operationCursors *schemaOperationCursorCodec
-	now              func() time.Time
-	commitTx         func(context.Context, pgx.Tx) error
+	operationCursors    *schemaOperationCursorCodec
+	now                 func() time.Time
+	commitTx            func(context.Context, pgx.Tx) error
+	maintenanceRetryMin time.Duration
+	maintenanceRetryMax time.Duration
 
 	beforeDDL        func(context.Context, pgx.Tx) error
 	catalogWireLimit int
@@ -55,11 +57,13 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 	}
 	return &Service{
 		pool: pool, cache: cache, recorder: recorder,
-		operationCursors: newSchemaOperationCursorCodec(operationCursorSecret),
-		now:              time.Now,
-		commitTx:         func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) },
-		catalogWireLimit: maximumCatalogWireBytes,
-		compilerVersion:  schemaCompilerVersion,
+		operationCursors:    newSchemaOperationCursorCodec(operationCursorSecret),
+		now:                 time.Now,
+		commitTx:            func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) },
+		maintenanceRetryMin: schemaOperationMaintenanceRetryMin,
+		maintenanceRetryMax: schemaOperationMaintenanceRetryMax,
+		catalogWireLimit:    maximumCatalogWireBytes,
+		compilerVersion:     schemaCompilerVersion,
 	}
 }
 
@@ -138,10 +142,7 @@ func requiredRelationAddOrdinal(current Collection, desired PlannedCollection) (
 		existing[field.Name] = struct{}{}
 	}
 	for ordinal, field := range desired.Fields {
-		if _, ok := existing[field.Name]; ok {
-			continue
-		}
-		if field.Type == TypeRelation && field.Required {
+		if _, exists := existing[field.Name]; !exists && field.Type == TypeRelation && field.Required {
 			return ordinal, true
 		}
 	}
@@ -234,57 +235,24 @@ func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection)
 }
 
 func sameCatalogContent(left, right Catalog) bool {
-	if left.Version != right.Version || len(left.Collections) != len(right.Collections) || len(left.Incoming) != len(right.Incoming) {
-		return false
-	}
-	for name, leftCollection := range left.Collections {
-		rightCollection, ok := right.Collections[name]
-		if !ok || leftCollection.ID != rightCollection.ID || leftCollection.Name != rightCollection.Name ||
-			leftCollection.TableName != rightCollection.TableName || !leftCollection.CreatedAt.Equal(rightCollection.CreatedAt) ||
-			len(leftCollection.Fields) != len(rightCollection.Fields) {
-			return false
-		}
-		for index, leftField := range leftCollection.Fields {
-			rightField := rightCollection.Fields[index]
-			if leftField.ID != rightField.ID || leftField.Name != rightField.Name || leftField.ColumnName != rightField.ColumnName ||
-				leftField.Type != rightField.Type || leftField.Required != rightField.Required || leftField.Unique != rightField.Unique ||
-				leftField.Indexed != rightField.Indexed || leftField.Ordinal != rightField.Ordinal ||
-				!bytes.Equal(leftField.Default, rightField.Default) || !sameRelationSpec(leftField.Relation, rightField.Relation) {
-				return false
-			}
+	left, right = cloneCatalog(left), cloneCatalog(right)
+	for _, catalog := range []*Catalog{&left, &right} {
+		catalog.wire = nil
+		for name, collection := range catalog.Collections {
+			collection.CreatedAt = collection.CreatedAt.UTC()
+			catalog.Collections[name] = collection
 		}
 	}
-	for targetID, leftIncoming := range left.Incoming {
-		rightIncoming, ok := right.Incoming[targetID]
-		if !ok || len(leftIncoming) != len(rightIncoming) {
-			return false
-		}
-		for index := range leftIncoming {
-			if leftIncoming[index] != rightIncoming[index] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func sameRelationSpec(left, right *RelationSpec) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
+	return reflect.DeepEqual(left, right)
 }
 
 func validateCatalogIntegrity(catalog Catalog) error {
 	collectionIDs := make(map[uuid.UUID]bool, len(catalog.Collections))
 	for key, collection := range catalog.Collections {
-		if key != collection.Name || collection.Name != collection.TableName {
+		if key != collection.Name || collection.Name != collection.TableName || collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
 		}
 		if err := validateName("", collection.Name); err != nil {
-			return ErrConflict
-		}
-		if collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
 		}
 		collectionIDs[collection.ID] = true
@@ -446,18 +414,7 @@ func schemaOperationOutcome(err error) observability.Outcome {
 	if errors.As(err, &validationErr) {
 		return observability.OutcomeValidation
 	}
-	switch database.Classify(err) {
-	case database.KindValidation:
-		return observability.OutcomeValidation
-	case database.KindConflict:
-		return observability.OutcomeConflict
-	case database.KindUnavailable:
-		return observability.OutcomeUnavailable
-	case database.KindCanceled:
-		return observability.OutcomeCanceled
-	default:
-		return observability.OutcomeFailure
-	}
+	return databaseOperationOutcome(err)
 }
 
 func newCollectionMetadata(definition PlannedCollection) (Collection, error) {

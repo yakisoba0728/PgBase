@@ -24,7 +24,7 @@ func readTerminalPasswordContext(ctx context.Context, descriptor int) (password 
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }() // Read-only duplicate: no buffered output to flush.
 	var original uint32
 	if err := windows.GetConsoleMode(handle, &original); err != nil {
 		return nil, fmt.Errorf("read terminal state: %w", err)
@@ -56,7 +56,7 @@ func readStreamPasswordLineContext(ctx context.Context, descriptor, maximumBytes
 	if err != nil {
 		return nil, false, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }() // Read-only duplicate: no buffered output to flush.
 	result := runCancelableWindowsRead(ctx, func() windowsPasswordResult {
 		line, terminated, err := readWindowsLine(reader, maximumBytes, false)
 		return windowsPasswordResult{line: line, terminated: terminated, err: err}
@@ -154,7 +154,7 @@ func runCancelableWindowsRead(ctx context.Context, read func() windowsPasswordRe
 
 	reader := <-ready
 	if reader.thread != 0 {
-		defer windows.CloseHandle(reader.thread)
+		defer func() { _ = windows.CloseHandle(reader.thread) }() // Best-effort release of the worker reference.
 	}
 	defer func() {
 		close(release)

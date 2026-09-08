@@ -125,7 +125,13 @@ func renderProject(t *testing.T, overrides ...string) (string, error) {
 		"--file", filepath.Join(repositoryRoot(t), "deployments", "docker-compose.yml"),
 		"config", "--format", "json")
 	// A developer .env or exported override must not decide what CI renders.
-	command.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}, requiredSecrets()...)
+	environment := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	if runtime.GOOS == "windows" && os.Getenv("USERPROFILE") != "" {
+		// Docker Desktop discovers per-user CLI plugins (including Compose)
+		// through USERPROFILE on Windows even when HOME is set.
+		environment = append(environment, "USERPROFILE="+os.Getenv("USERPROFILE"))
+	}
+	command.Env = append(environment, requiredSecrets()...)
 	command.Env = append(command.Env, overrides...)
 	output, err := command.CombinedOutput()
 	return string(output), err

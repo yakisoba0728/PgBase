@@ -66,14 +66,21 @@ func (l *Listener) Run(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if err := waitForContext(ctx, backoff); err != nil {
 			return ctx.Err()
-		case <-timer.C:
 		}
 		backoff = min(backoff*2, l.retryMax)
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -97,7 +104,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	connectStarted := time.Now()
 	connection, err := l.pool.Acquire(ctx)
 	if err != nil {
-		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
 	defer func() {
@@ -111,7 +118,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 
 	l.pid.Store(connection.Conn().PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
-		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
 	l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
@@ -204,10 +211,10 @@ func (l *Listener) finishOperation(ctx context.Context, operation observability.
 	if operationErr != nil {
 		err = *operationErr
 	}
-	l.record(ctx, observability.OperationEvent(operation, listenerOperationOutcome(err), time.Since(started)))
+	l.record(ctx, observability.OperationEvent(operation, schemaOperationOutcome(err), time.Since(started)))
 }
 
-func listenerOperationOutcome(err error) observability.Outcome {
+func databaseOperationOutcome(err error) observability.Outcome {
 	if err == nil {
 		return observability.OutcomeSuccess
 	}

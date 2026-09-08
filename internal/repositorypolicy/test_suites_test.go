@@ -36,7 +36,7 @@ func TestIntegrationSuiteRejectsMissingAdminURLBeforeInvokingGo(t *testing.T) {
 	}
 }
 
-func TestBackendWorkflowRunsUnitOnceAndLiveTestsAcrossSupportedPostgres(t *testing.T) {
+func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "backend.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -46,15 +46,90 @@ func TestBackendWorkflowRunsUnitOnceAndLiveTestsAcrossSupportedPostgres(t *testi
 		"name: Go unit",
 		"scripts/test-go-unit.sh -race -count=1",
 		"name: PostgreSQL integration / ${{ matrix.postgres.version }}",
-		`version: "16.13"`,
-		`version: "17.9"`,
-		`version: "18.3"`,
+		"fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch')",
+		`{"version":"16.13"`,
+		`{"version":"17.9"`,
+		`{"version":"18.3"`,
+		`|| '[{"version":"17.9"`,
 		"scripts/test-go-integration.sh -race -count=1",
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("backend workflow is missing %q", marker)
 		}
 	}
+}
+
+func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrMainPushSHA(t *testing.T) {
+	const guardedRunner = "(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04'"
+	for name, wantGuards := range map[string]int{"backend.yml": 3, "frontend.yml": 1, "security.yml": 1} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflow := string(raw)
+		if got := strings.Count(workflow, guardedRunner); got != wantGuards {
+			t.Errorf("%s exact trusted PR-or-main-SHA runner guards = %d, want %d", name, got, wantGuards)
+		}
+		if !strings.Contains(workflow, "branches: [main]") || !strings.Contains(workflow, "pull_request:") {
+			t.Errorf("%s does not separate main pushes from PR validation", name)
+		}
+	}
+
+	for _, test := range []struct {
+		name       string
+		event      string
+		ref        string
+		repository string
+		headRepo   string
+		eventSHA   string
+		headSHA    string
+		trustedSHA string
+		runner     string
+		want       bool
+	}{
+		{name: "exact internal pull request", event: "pull_request", repository: "owner/repo", headRepo: "owner/repo", headSHA: "trusted", trustedSHA: "trusted", runner: "temporary", want: true},
+		{name: "fork pull request", event: "pull_request", repository: "owner/repo", headRepo: "fork/repo", headSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "different pull request SHA", event: "pull_request", repository: "owner/repo", headRepo: "owner/repo", headSHA: "other", trustedSHA: "trusted", runner: "temporary"},
+		{name: "exact main push", event: "push", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary", want: true},
+		{name: "different main SHA", event: "push", ref: "refs/heads/main", eventSHA: "other", trustedSHA: "trusted", runner: "temporary"},
+		{name: "tag push", event: "push", ref: "refs/tags/v0.1.0", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "other branch push", event: "push", ref: "refs/heads/release", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "manual dispatch", event: "workflow_dispatch", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "schedule", event: "schedule", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "reusable release", event: "workflow_call", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
+		{name: "missing runner label", event: "push", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := temporaryRunnerEligible(test.event, test.ref, test.repository, test.headRepo, test.eventSHA, test.headSHA, test.trustedSHA, test.runner)
+			if got != test.want {
+				t.Fatalf("temporary runner eligibility = %t, want %t", got, test.want)
+			}
+		})
+	}
+
+	for _, name := range []string{"e2e.yml", "backup-restore.yml"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		workflow := string(raw)
+		if strings.Contains(workflow, "vars.PGBASE_CI_RUNNER") {
+			t.Errorf("%s routes a release-strength Docker job to the developer runner", name)
+		}
+		if !strings.Contains(workflow, "workflow_dispatch:") || !strings.Contains(workflow, "workflow_call:") {
+			t.Errorf("%s is not available to explicit or release-gate execution", name)
+		}
+	}
+}
+
+func temporaryRunnerEligible(event, ref, repository, headRepo, eventSHA, headSHA, trustedSHA, runner string) bool {
+	if trustedSHA == "" || runner == "" {
+		return false
+	}
+	if event == "pull_request" {
+		return headRepo == repository && headSHA == trustedSHA
+	}
+	return event == "push" && ref == "refs/heads/main" && eventSHA == trustedSHA
 }
 
 func withoutEnvironment(environment []string, name string) []string {

@@ -128,6 +128,45 @@ func TestRecordOperationsDeleteGraphBudgetValidationRollsBackClosure(t *testing.
 	assertNoDeleteRequestArtifacts(t, ctx, pool, requestID)
 }
 
+func TestDeleteRecordBatchRejectsAggregateMaterializationBudgets(t *testing.T) {
+	pool, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
+		Name: "delete_read_budget", Fields: []schema.FieldInput{
+			{Name: "name", Type: schema.TypeText, Required: true},
+			deleteRelationField("links", "delete_read_budget", schema.RelationMultiple, schema.RelationSetNull),
+		},
+	})
+	target := createDeleteRecord(t, ctx, records, principal, collection.Name, "budget-target", map[string]json.RawMessage{
+		"name": json.RawMessage(`"target"`),
+	})
+	source := createDeleteRecord(t, ctx, records, principal, collection.Name, "budget-source", map[string]json.RawMessage{
+		"name": json.RawMessage(`"source"`), "links": relationUUIDArrayJSON(recordResultID(t, target)),
+	})
+	sourceID := recordResultID(t, source)
+	readWithBudget := func(budget deleteReadBudget) error {
+		return pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			catalog, err := schemas.EnsureCurrent(ctx, tx)
+			if err != nil {
+				return err
+			}
+			_, err = readRecordBatch(ctx, tx, catalog, catalog.Collections[collection.Name], []uuid.UUID{sourceID}, &budget)
+			return err
+		})
+	}
+	assertDeleteGraphValidation(t, readWithBudget(deleteReadBudget{
+		bytes: 1, rows: maximumDeleteHydrationRows, fields: maximumDeleteHydrationFields,
+	}),
+		"relation_delete_budget_exceeded")
+	assertDeleteGraphValidation(t, readWithBudget(deleteReadBudget{
+		bytes: maximumDeleteMaterializedBytes, rows: 0, fields: maximumDeleteHydrationFields,
+	}),
+		"relation_delete_budget_exceeded")
+	assertDeleteGraphValidation(t, readWithBudget(deleteReadBudget{
+		bytes: maximumDeleteMaterializedBytes, rows: maximumDeleteHydrationRows, fields: 0,
+	}), "relation_delete_budget_exceeded")
+}
+
 func TestRecordOperationsDeleteGraphSetNullWritesOneDerivedArtifact(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()

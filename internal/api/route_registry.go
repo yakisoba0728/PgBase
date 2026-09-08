@@ -17,7 +17,6 @@ const (
 	accessSameOrigin
 	accessAdminSession
 	accessAdminSameOriginRead
-	accessAdminBearer
 	accessMetricsToken
 	accessEmbeddedUI
 )
@@ -48,12 +47,13 @@ const (
 )
 
 type route struct {
-	method   string
-	pattern  string
-	access   accessPolicy
-	response responseMode
-	deadline deadlinePolicy
-	handler  http.Handler
+	method              string
+	pattern             string
+	access              accessPolicy
+	response            responseMode
+	deadline            deadlinePolicy
+	maximumRequestBytes int64
+	handler             http.Handler
 }
 
 // A route with no method is matched for every method, which the registry
@@ -72,6 +72,7 @@ var (
 	errRouteIncomplete    = errors.New("route registry entry is incomplete")
 	errRouteDuplicated    = errors.New("route registry declares one pattern twice")
 	errRouteUncappedBytes = errors.New("route registry declares a buffered response without a byte cap")
+	errRouteRequestCap    = errors.New("route registry declares an invalid request body cap")
 	errRouteCardinality   = errors.New("route registry exceeds the HTTP metric series budget")
 )
 
@@ -96,6 +97,9 @@ func validateRoutes(routes []route) error {
 		}
 		if !declared.response.atomic && declared.response.maximumBytes != 0 {
 			return fmt.Errorf("%w: %q", errRouteIncomplete, declared)
+		}
+		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > maxJSONBodyBytes {
+			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
 		if declared.method == "" {
 			methodAgnostic++
@@ -124,8 +128,6 @@ func (p accessPolicy) String() string {
 		return "admin-session"
 	case accessAdminSameOriginRead:
 		return "admin-same-origin-read"
-	case accessAdminBearer:
-		return "admin-bearer"
 	case accessMetricsToken:
 		return "metrics-token"
 	case accessEmbeddedUI:
@@ -146,8 +148,6 @@ func (d Dependencies) admit(policy accessPolicy, handler http.Handler) http.Hand
 		return adminSessionMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
 	case accessAdminSameOriginRead:
 		return adminSameOriginReadMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
-	case accessAdminBearer:
-		return authenticateAdminMiddleware(d.AdminAuth, handler)
 	}
 	return handler
 }

@@ -19,26 +19,34 @@ func TestOpenRejectsPoolTooSmallForListenerAndRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := parsed.Query()
-	query.Set("pool_max_conns", "1")
+	query.Set("pool_max_conns", "3")
 	parsed.RawQuery = query.Encode()
 	_, err = Open(context.Background(), parsed.String(), time.Second)
-	if err == nil || !strings.Contains(err.Error(), "at least 2") {
+	if err == nil || !strings.Contains(err.Error(), "at least 4") {
 		t.Fatalf("Open error = %v, want minimum pool size rejection", err)
 	}
 }
 
 func TestOpenAppliesPgBaseSessionSettings(t *testing.T) {
-	databaseURL := testutil.NewDatabase(t)
+	parsed, err := url.Parse(testutil.NewDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", "public")
+	parsed.RawQuery = query.Encode()
+	databaseURL := parsed.String()
 	pool, err := Open(context.Background(), databaseURL, 1500*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
 
-	var statementTimeout, applicationName, timezone string
+	var statementTimeout, applicationName, timezone, searchPath string
 	if err := pool.QueryRow(context.Background(), `
-		select current_setting('statement_timeout'), current_setting('application_name'), current_setting('timezone')`).Scan(
-		&statementTimeout, &applicationName, &timezone,
+		select current_setting('statement_timeout'), current_setting('application_name'), current_setting('timezone'),
+			current_setting('search_path')`).Scan(
+		&statementTimeout, &applicationName, &timezone, &searchPath,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +58,9 @@ func TestOpenAppliesPgBaseSessionSettings(t *testing.T) {
 	}
 	if timezone != "UTC" {
 		t.Fatalf("timezone = %q, want %q", timezone, "UTC")
+	}
+	if searchPath != "pg_catalog" {
+		t.Fatalf("search_path = %q, want %q", searchPath, "pg_catalog")
 	}
 }
 
@@ -68,8 +79,8 @@ func TestPoolStatsReturnsCompleteSnapshot(t *testing.T) {
 	stats := pool.Stats()
 	connection.Release()
 
-	if stats.MaxConns < 2 {
-		t.Fatalf("MaxConns = %d, want at least 2", stats.MaxConns)
+	if stats.MaxConns < minimumPoolConnections {
+		t.Fatalf("MaxConns = %d, want at least %d", stats.MaxConns, minimumPoolConnections)
 	}
 	if stats.TotalConns < 1 {
 		t.Fatalf("TotalConns = %d, want at least 1", stats.TotalConns)

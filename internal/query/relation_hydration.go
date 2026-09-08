@@ -24,37 +24,8 @@ func relationHydrationFailure(err error) error {
 	return &relationHydrationError{cause: err}
 }
 
-// hydrateRelationRecords attaches virtual multi-relation values after the base
-// rows have been materialized. The storage facet executes one batch query per
-// multi field and never one query per record.
-func hydrateRelationRecords(
-	ctx context.Context,
-	querier relation.RowsQuerier,
-	catalog schema.Catalog,
-	collection schema.Collection,
-	records []map[string]any,
-) error {
-	if len(records) == 0 || !collectionHasMultipleRelation(collection) {
-		return nil
-	}
-	bindings, err := relation.Bind(catalog, collection)
-	if err != nil {
-		return relationHydrationFailure(err)
-	}
-	ids, byID, err := indexRelationRecords(records)
-	if err != nil {
-		return err
-	}
-	if err := bindings.Hydrate(ctx, querier, ids, byID); err != nil {
-		return relationHydrationFailure(err)
-	}
-	return nil
-}
-
-// hydrateRelationRecordsBounded is reserved for expanded reads. Unlike the
-// compatibility List/Get hydrator above, it constrains junction work in SQL
-// with LIMIT remaining+1 and charges every consumed edge to the request-wide
-// relation-row budget.
+// hydrateRelationRecordsBounded constrains junction work in SQL and charges
+// every consumed edge to the request-wide relation-row budget.
 func hydrateRelationRecordsBounded(
 	ctx context.Context,
 	querier relation.RowsQuerier,
@@ -63,7 +34,7 @@ func hydrateRelationRecordsBounded(
 	records []map[string]any,
 	usage *expansionUsage,
 ) error {
-	if len(records) == 0 || !collectionHasMultipleRelation(collection) {
+	if len(records) == 0 || multipleRelationFieldCount(collection) == 0 {
 		return nil
 	}
 	bindings, err := relation.Bind(catalog, collection)
@@ -107,13 +78,4 @@ func indexRelationRecords(records []map[string]any) ([]uuid.UUID, map[uuid.UUID]
 		ids = append(ids, id)
 	}
 	return ids, byID, nil
-}
-
-func collectionHasMultipleRelation(collection schema.Collection) bool {
-	for _, field := range collection.Fields {
-		if isMultipleRelation(field) {
-			return true
-		}
-	}
-	return false
 }

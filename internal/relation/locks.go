@@ -38,12 +38,7 @@ func (b *Bindings) collectionLockIDs(input writeInput) []uuid.UUID {
 			unique[value.targetCollectionID] = struct{}{}
 		}
 	}
-	ids := make([]uuid.UUID, 0, len(unique))
-	for id := range unique {
-		ids = append(ids, id)
-	}
-	sortUUIDs(ids)
-	return ids
+	return sortedMapKeys(unique, sortUUIDs)
 }
 
 func collectionAdvisoryKey(id uuid.UUID) int64 {
@@ -219,6 +214,15 @@ func (b *Bindings) rowLocks(sourceID uuid.UUID, state sourceState, input writeIn
 
 func sortUUIDs(ids []uuid.UUID) {
 	sort.Slice(ids, func(i, j int) bool { return bytes.Compare(ids[i][:], ids[j][:]) < 0 })
+}
+
+func sortedMapKeys[K comparable, V any](values map[K]V, order func([]K)) []K {
+	keys := make([]K, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	order(keys)
+	return keys
 }
 
 func containsString(values []string, candidate string) bool {

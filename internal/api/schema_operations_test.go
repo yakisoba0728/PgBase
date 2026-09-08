@@ -19,7 +19,7 @@ const (
 	testChecksum     = "3f2a1c0b5d4e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8"
 	testIdempotency  = "operation-key-0123456789abcdef"
 	testApplyBody    = `{"operation":"create","name":"posts","fields":[{"name":"title","type":"text"}],"checksum":"` + testChecksum + `","baseVersion":7}`
-	testSessionToken = "fixed-session-token"
+	testSessionToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 )
 
 func operationRequest(method, target string) *http.Request {
@@ -273,6 +273,21 @@ func TestSchemaOperationHistoryBoundsTheLimitExactlyLikeTheKernel(t *testing.T) 
 			if schemas.listCalls != 0 {
 				t.Fatalf("rejected limit reached the schema module %d times", schemas.listCalls)
 			}
+		})
+	}
+}
+
+func TestSchemaOperationHistoryRejectsDuplicateSingletonParametersBeforeServiceCall(t *testing.T) {
+	for _, parameter := range []string{"limit", "cursor"} {
+		t.Run(parameter, func(t *testing.T) {
+			schemas := &fakeSchemaService{}
+			response := httptest.NewRecorder()
+			schemaOperationHandler(t, schemas).ServeHTTP(response,
+				operationRequest(http.MethodGet, "/api/admin/schema-operations?"+parameter+"=1&"+parameter+"=2"))
+			if response.Code != http.StatusBadRequest || schemas.listCalls != 0 {
+				t.Fatalf("status = %d, list calls = %d, body = %s", response.Code, schemas.listCalls, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "invalid_request")
 		})
 	}
 }

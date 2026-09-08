@@ -143,11 +143,9 @@ func TestServiceConcurrentKnownUnknownWaveHasNoAccountSerializationAndOneDelayCl
 		err       error
 	}
 	results := make(chan loginResult, requestCount)
-	start := make(chan struct{})
 
 	launch := func(candidate, email, password string, index int) {
 		go func() {
-			<-start
 			stages := make([]string, 0, 9)
 			ctx := withLoginTrace(context.Background(), func(stage loginTraceStage) {
 				stages = append(stages, string(stage))
@@ -160,17 +158,19 @@ func TestServiceConcurrentKnownUnknownWaveHasNoAccountSerializationAndOneDelayCl
 			results <- loginResult{candidate: candidate, stages: stages, err: err}
 		}()
 	}
-	for index := 0; index < requestsPerClass; index++ {
-		launch("known", "admin@example.com", fmt.Sprintf("wrong-known-password-%02d", index), index)
-		launch("unknown", "unknown-wave@example.com", dummyPassword, index)
-	}
-	close(start)
-	for index := 0; index < requestCount; index++ {
+	ready := 0
+	launchAndHold := func(candidate, email, password string, index int) {
+		launch(candidate, email, password, index)
 		select {
 		case <-readyForKDF:
+			ready++
 		case <-time.After(5 * time.Second):
-			t.Fatalf("only %d/%d requests completed the same pre-KDF delay class", index, requestCount)
+			t.Fatalf("only %d/%d requests completed the same pre-KDF delay class", ready, requestCount)
 		}
+	}
+	for index := 0; index < requestsPerClass; index++ {
+		launchAndHold("known", "admin@example.com", fmt.Sprintf("wrong-known-password-%02d", index), index)
+		launchAndHold("unknown", "unknown-wave@example.com", dummyPassword, index)
 	}
 	if acquired := pool.Stats().AcquiredConns; acquired != 0 {
 		t.Fatalf("connections held after delay selection and before KDF wave = %d, want 0", acquired)
@@ -178,34 +178,9 @@ func TestServiceConcurrentKnownUnknownWaveHasNoAccountSerializationAndOneDelayCl
 	releaseKDFWave()
 
 	started := 0
-	heldKnown := make([]waveVerification, 0, passwordVerificationConcurrency)
-	twoKnownConcurrent := false
-	for started < requestCount {
-		select {
-		case verification := <-passwords.started:
-			started++
-			if !twoKnownConcurrent && verification.kind == "real" {
-				heldKnown = append(heldKnown, verification)
-				if len(heldKnown) == passwordVerificationConcurrency {
-					twoKnownConcurrent = true
-					for _, held := range heldKnown {
-						held.release()
-					}
-					heldKnown = nil
-				}
-				continue
-			}
-			verification.release()
-		case <-time.After(5 * time.Second):
-			t.Fatalf("only %d/%d password verifications entered the KDF wave", started, requestCount)
-		}
-	}
-	for _, held := range heldKnown {
-		held.release()
-	}
-
+	completed := 0
 	classCounts := map[string]int{"known": 0, "unknown": 0}
-	for index := 0; index < requestCount; index++ {
+	waitForResult := func() {
 		select {
 		case result := <-results:
 			if !errors.Is(result.err, ErrInvalidCredentials) {
@@ -213,15 +188,47 @@ func TestServiceConcurrentKnownUnknownWaveHasNoAccountSerializationAndOneDelayCl
 			}
 			classCounts[result.candidate]++
 			assertLoginWaveStages(t, result.candidate, result.stages)
+			completed++
 		case <-time.After(5 * time.Second):
-			t.Fatalf("only %d/%d login results completed", index, requestCount)
+			t.Fatalf("only %d/%d login results completed", completed, requestCount)
 		}
+	}
+	heldKnown := make([]waveVerification, 0, passwordWorkConcurrency)
+	twoKnownConcurrent := false
+	for started < requestCount {
+		select {
+		case verification := <-passwords.started:
+			started++
+			if !twoKnownConcurrent && verification.kind == "real" {
+				heldKnown = append(heldKnown, verification)
+				if len(heldKnown) == passwordWorkConcurrency {
+					twoKnownConcurrent = true
+					for _, held := range heldKnown {
+						held.release()
+						waitForResult()
+					}
+					heldKnown = nil
+				}
+				continue
+			}
+			verification.release()
+			waitForResult()
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d/%d password verifications entered the KDF wave", started, requestCount)
+		}
+	}
+	for _, held := range heldKnown {
+		held.release()
+		waitForResult()
+	}
+	for completed < requestCount {
+		waitForResult()
 	}
 	if !twoKnownConcurrent {
 		t.Fatal("five requests for one known account never occupied both KDF slots concurrently")
 	}
-	if got := passwords.maximumActive(); got != passwordVerificationConcurrency {
-		t.Fatalf("maximum concurrent KDFs = %d, want %d", got, passwordVerificationConcurrency)
+	if got := passwords.maximumActive(); got != passwordWorkConcurrency {
+		t.Fatalf("maximum concurrent KDFs = %d, want %d", got, passwordWorkConcurrency)
 	}
 	if classCounts["known"] != requestsPerClass || classCounts["unknown"] != requestsPerClass {
 		t.Fatalf("completed candidate classes = %v, want five known and five unknown", classCounts)

@@ -215,6 +215,51 @@ func TestSecurityWorkflowLimitsTheGatedSARIFReportToHighSeverityFindings(t *test
 	}
 }
 
+func TestRoutineSecurityChecksDeferImageWorkToExplicitOrReleaseRuns(t *testing.T) {
+	contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "security.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(contents)
+	selector := strings.Index(workflow, "      - name: Select the image under test\n")
+	if selector < 0 {
+		t.Fatal("security workflow has no image selector")
+	}
+	selectorEnd := strings.Index(workflow[selector+1:], "\n      - name:")
+	if selectorEnd < 0 {
+		t.Fatal("security workflow has no step after the image selector")
+	}
+	selectorStep := workflow[selector : selector+1+selectorEnd]
+	for _, marker := range []string{
+		"inputs.candidate_image != ''",
+		"github.event_name == 'workflow_dispatch'",
+		"github.event_name == 'schedule'",
+	} {
+		if !strings.Contains(selectorStep, marker) {
+			t.Errorf("security image selector is missing %q", marker)
+		}
+	}
+	for _, stepName := range []string{
+		"Generate SPDX SBOM",
+		"Record image findings as SARIF",
+		"Record every severity as SARIF",
+		"Scan production image",
+	} {
+		start := strings.Index(workflow, "      - name: "+stepName+"\n")
+		if start < 0 {
+			t.Errorf("security workflow has no %q step", stepName)
+			continue
+		}
+		end := strings.Index(workflow[start+1:], "\n      - name:")
+		if end < 0 {
+			end = len(workflow) - start - 1
+		}
+		if !strings.Contains(workflow[start:start+1+end], "steps.image.outputs.image_ref != ''") {
+			t.Errorf("security step %q can run without a selected image", stepName)
+		}
+	}
+}
+
 func TestBackupRestoreDrillCoversAppRelationDataDiagnosticsAndToolCompatibility(t *testing.T) {
 	workflowPath := filepath.Join("..", "..", ".github", "workflows", "backup-restore.yml")
 	contents, err := os.ReadFile(workflowPath)
@@ -226,12 +271,18 @@ func TestBackupRestoreDrillCoversAppRelationDataDiagnosticsAndToolCompatibility(
 	// procedure itself lives in tests/restore, where it is executable rather
 	// than embedded in shell.
 	for _, marker := range []string{
-		"tests/restore/**",
-		"scripts/support/**",
+		"workflow_call:",
+		"workflow_dispatch:",
+		"schedule:",
 		"go test -tags=restore ./tests/restore",
 	} {
 		if !strings.Contains(workflow, marker) {
 			t.Fatalf("backup restore workflow is missing %q", marker)
+		}
+	}
+	for _, costlyTrigger := range []string{"\n  push:", "\n  pull_request:"} {
+		if strings.Contains(workflow, costlyTrigger) {
+			t.Fatalf("backup restore workflow unexpectedly runs on %s", strings.TrimSpace(costlyTrigger))
 		}
 	}
 	drill := readDrillSources(t)
