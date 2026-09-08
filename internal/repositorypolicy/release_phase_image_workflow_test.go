@@ -40,23 +40,21 @@ func TestReleasePhaseImageWorkflowSelectsOneImmutableArtifactAndGatesItsDigest(t
 		"--provenance=mode=max",
 		"--sbom=true",
 		"candidate_image=$candidate_image",
-		"actions/attest-build-provenance@",
-		"actions/attest-sbom@",
-		"actions/attest@",
-		"artifact-metadata: write",
+		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"cosign-release: v3.1.2",
+		`scripts/support/create-release-provenance.sh "$RUNNER_TEMP/release-provenance.json" "$EXPECTED_VERSION" "${{ needs.resolve.outputs.source_commit }}"`,
 		"commit: $sourceCommit",
-		".source.repository == $sourceRepository",
 		"packaging: {workflowCommit: $workflowCommit}",
 		"binaryDigest: $binaryDigest",
-		"predicate-type: https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1",
-		"provenance https://slsa.dev/provenance/v1",
-		"sbom https://spdx.dev/Document/v2.3",
-		"source https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1",
-		"jq --exit-status 'length > 0'",
-		".source.commit == $sourceCommit",
-		".packaging.workflowCommit == $workflowCommit",
-		".version == $version",
-		".binaryDigest == $binaryDigest",
+		"COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}",
+		"COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}",
+		`scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 "$RUNNER_TEMP/release-provenance.json"`,
+		`scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson pgbase-release-phase.spdx.json`,
+		`scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1 "$RUNNER_TEMP/release-phase-source.json"`,
+		`scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1`,
+		`scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson`,
+		`scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1`,
+		".github/cosign.pub",
 		"uses: ./.github/workflows/release-gate.yml",
 		"candidate_image: ${{ needs.candidate.outputs.candidate_image }}",
 		"expected_version: ${{ needs.resolve.outputs.expected_version }}",
@@ -71,6 +69,55 @@ func TestReleasePhaseImageWorkflowSelectsOneImmutableArtifactAndGatesItsDigest(t
 	}
 	if strings.Contains(workflow, "promotion:") || strings.Contains(workflow, "promote-release-image.sh") || strings.Contains(workflow, `--tag "$image:latest"`) {
 		t.Fatal("release phase verification can promote a candidate")
+	}
+	for _, forbidden := range []string{
+		"actions/attest-build-provenance@",
+		"actions/attest-sbom@",
+		"uses: actions/attest@",
+		"gh attestation verify",
+		"artifact-metadata: write",
+		"attestations: write",
+		"id-token: write",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release phase workflow still uses unavailable GitHub attestation contract %q", forbidden)
+		}
+	}
+
+	provenanceBytes, err := os.ReadFile(filepath.Join("..", "..", "scripts", "support", "create-release-provenance.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance := string(provenanceBytes)
+	for _, marker := range []string{
+		"https://github.com/yakisoba0728/PgBase/attestations/container-build/v1",
+		"externalParameters: {repository: $repository, ref: $ref, version: $version}",
+		"internalParameters: {workflow: {ref: $workflowRef, commit: $workflowCommit}}",
+		"digest: {gitCommit: $sourceCommit}",
+		"metadata: {invocationId: $invocationId}",
+	} {
+		if !strings.Contains(provenance, marker) {
+			t.Errorf("release provenance helper is missing binding %q", marker)
+		}
+	}
+
+	verificationBytes, err := os.ReadFile(filepath.Join("..", "..", "scripts", "support", "verify-release-attestation.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verification := string(verificationBytes)
+	for _, marker := range []string{
+		`--key "$public_key"`,
+		"--insecure-ignore-tlog",
+		`--type "$predicate_type"`,
+		`expected_digest="${candidate_image##*@sha256:}"`,
+		`expected_name="${candidate_image%@sha256:*}"`,
+		`select(.subject == [{name: $name, digest: {sha256: $digest}}])`,
+		`select(.predicate == $expected[0])`,
+	} {
+		if !strings.Contains(verification, marker) {
+			t.Errorf("release attestation verifier is missing exact binding %q", marker)
+		}
 	}
 }
 

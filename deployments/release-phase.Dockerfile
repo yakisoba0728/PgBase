@@ -4,7 +4,7 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 
 ARG SOURCE_COMMIT
 ARG VERSION
-LABEL org.opencontainers.image.source="https://github.com/webisnoteasy/PgBase" \
+LABEL org.opencontainers.image.source="https://github.com/yakisoba0728/PgBase" \
       org.opencontainers.image.revision="$SOURCE_COMMIT" \
       org.opencontainers.image.version="$VERSION"
 COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
