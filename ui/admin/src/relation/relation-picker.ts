@@ -105,18 +105,29 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     // Claiming the batch before the request is what stops a hydration that
     // finds nothing, or fails outright, from asking for the same ids forever.
     setState((current) => ({ ...current, claimed: new Set([...current.claimed, ...batch]) }));
-    void records.list(target.name, { filter: relationHydrationFilter(batch) }, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted) return;
-        const found = new Map<string, string>();
+    const filter = relationHydrationFilter(batch);
+    void (async () => {
+      const found = new Map<string, string>();
+      let cursor: string | undefined;
+      for (let pageNumber = 0; pageNumber < batch.length && !controller.signal.aborted; pageNumber += 1) {
+        const page = await records.list(target.name, { filter, cursor }, controller.signal);
         for (const record of page.items) {
           const option = relationTargetOption(record, displayField);
           if (option !== undefined) found.set(option.id, option.label);
         }
+        if (page.nextCursor === undefined || found.size === batch.length) return { found, conclusive: true };
+        cursor = page.nextCursor;
+      }
+      return { found, conclusive: false };
+    })()
+      .then(({ found, conclusive }) => {
+        if (controller.signal.aborted) return;
         setState((current) => ({
           ...current,
           labels: new Map([...current.labels, ...found]),
-          missing: new Set([...current.missing, ...batch.filter((id) => !found.has(id))]),
+          missing: conclusive
+            ? new Set([...current.missing, ...batch.filter((id) => !found.has(id))])
+            : current.missing,
         }));
       })
       // A hydration that could not run leaves the id showing its own UUID,

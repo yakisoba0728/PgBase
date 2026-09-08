@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -65,7 +66,7 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err error) {
 	operationStarted := time.Now()
 	relationOperation := changeHasRelationInput(change)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
+	defer s.finishOperation(ctx, observability.OperationRelationSchema, operationStarted, &err, &relationOperation)
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return Plan{}, err
@@ -172,7 +173,10 @@ func (s *Service) catalogLimit() int {
 	return maximumCatalogWireBytes
 }
 
-func (s *Service) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error) {
+func (s *Service) finishOperation(ctx context.Context, operation observability.Operation, started time.Time, operationErr *error, enabled ...*bool) {
+	if len(enabled) != 0 && (enabled[0] == nil || !*enabled[0]) {
+		return
+	}
 	if recovered := recover(); recovered != nil {
 		s.record(ctx, observability.OperationEvent(operation, observability.OutcomeFailure, time.Since(started)))
 		panic(recovered)
@@ -184,30 +188,10 @@ func (s *Service) finishOperation(ctx context.Context, operation observability.O
 	s.record(ctx, observability.OperationEvent(operation, schemaOperationOutcome(err), time.Since(started)))
 }
 
-func (s *Service) finishRelationSchemaOperation(ctx context.Context, started time.Time, operationErr *error, enabled *bool) {
-	if recovered := recover(); recovered != nil {
-		if enabled != nil && *enabled {
-			s.record(ctx, observability.OperationEvent(observability.OperationRelationSchema, observability.OutcomeFailure, time.Since(started)))
-		}
-		panic(recovered)
-	}
-	if enabled == nil || !*enabled {
-		return
-	}
-	var err error
-	if operationErr != nil {
-		err = *operationErr
-	}
-	s.record(ctx, observability.OperationEvent(observability.OperationRelationSchema, schemaOperationOutcome(err), time.Since(started)))
-}
-
 func inputHasRelationField(fields []FieldInput) bool {
-	for _, field := range fields {
-		if field.Type == TypeRelation || field.Relation != nil {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fields, func(field FieldInput) bool {
+		return field.Type == TypeRelation || field.Relation != nil
+	})
 }
 
 func changeHasRelationInput(change Change) bool {
@@ -235,12 +219,9 @@ func schemaOperationForChange(change Change) (observability.Operation, bool) {
 }
 
 func collectionHasRelationField(collection Collection) bool {
-	for _, field := range collection.Fields {
-		if field.Type == TypeRelation || field.Relation != nil {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(collection.Fields, func(field Field) bool {
+		return field.Type == TypeRelation || field.Relation != nil
+	})
 }
 
 func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection) error {
@@ -295,8 +276,7 @@ func sameRelationSpec(left, right *RelationSpec) bool {
 }
 
 func validateCatalogIntegrity(catalog Catalog) error {
-	collectionIDs := make(map[uuid.UUID]struct{}, len(catalog.Collections))
-	tableNames := make(map[string]struct{}, len(catalog.Collections))
+	collectionIDs := make(map[uuid.UUID]bool, len(catalog.Collections))
 	for key, collection := range catalog.Collections {
 		if key != collection.Name || collection.Name != collection.TableName {
 			return ErrConflict
@@ -304,39 +284,22 @@ func validateCatalogIntegrity(catalog Catalog) error {
 		if err := validateName("", collection.Name); err != nil {
 			return ErrConflict
 		}
-		if collection.ID == uuid.Nil {
+		if collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
 		}
-		if _, duplicate := collectionIDs[collection.ID]; duplicate {
-			return ErrConflict
-		}
-		collectionIDs[collection.ID] = struct{}{}
-		if _, duplicate := tableNames[collection.TableName]; duplicate {
-			return ErrConflict
-		}
-		tableNames[collection.TableName] = struct{}{}
+		collectionIDs[collection.ID] = true
 	}
 	expectedIncoming := make(map[RelationRef]int)
-	fieldIDs := make(map[uuid.UUID]struct{})
+	fieldIDs := make(map[uuid.UUID]bool)
 	for _, collection := range catalog.Collections {
-		fieldNames := make(map[string]struct{}, len(collection.Fields))
-		columnNames := make(map[string]struct{}, len(collection.Fields))
+		fieldNames := make(map[string]bool, len(collection.Fields))
 		for ordinal, field := range collection.Fields {
-			if field.ID == uuid.Nil || field.Ordinal != ordinal || field.Name != field.ColumnName || !isSupportedType(field.Type) {
+			if field.ID == uuid.Nil || field.Ordinal != ordinal || field.Name != field.ColumnName || !isSupportedType(field.Type) ||
+				fieldIDs[field.ID] || fieldNames[field.Name] {
 				return ErrConflict
 			}
-			if _, duplicate := fieldIDs[field.ID]; duplicate {
-				return ErrConflict
-			}
-			fieldIDs[field.ID] = struct{}{}
-			if _, duplicate := fieldNames[field.Name]; duplicate {
-				return ErrConflict
-			}
-			fieldNames[field.Name] = struct{}{}
-			if _, duplicate := columnNames[field.ColumnName]; duplicate {
-				return ErrConflict
-			}
-			columnNames[field.ColumnName] = struct{}{}
+			fieldIDs[field.ID] = true
+			fieldNames[field.Name] = true
 			if err := validateName("", field.Name); err != nil {
 				return ErrConflict
 			}
@@ -371,7 +334,7 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			if field.Relation.Storage.Name != expectedStorageName {
 				return ErrConflict
 			}
-			if _, ok := collectionIDs[field.Relation.TargetCollectionID]; !ok {
+			if !collectionIDs[field.Relation.TargetCollectionID] {
 				return ErrConflict
 			}
 			expectedIncoming[RelationRef{
@@ -382,7 +345,7 @@ func validateCatalogIntegrity(catalog Catalog) error {
 		}
 	}
 	for targetCollectionID, incoming := range catalog.Incoming {
-		if _, ok := collectionIDs[targetCollectionID]; !ok || len(incoming) == 0 {
+		if !collectionIDs[targetCollectionID] || len(incoming) == 0 {
 			return ErrConflict
 		}
 		for _, relation := range incoming {
@@ -503,26 +466,6 @@ func newCollectionMetadata(definition PlannedCollection) (Collection, error) {
 		return Collection{}, fmt.Errorf("generate collection ID: %w", err)
 	}
 	return newCollectionMetadataWithID(collectionID, definition)
-}
-
-func newFieldMetadata(collectionID uuid.UUID, definition PlannedCollection) ([]Field, error) {
-	fields := make([]Field, 0, len(definition.Fields))
-	for ordinal, planned := range definition.Fields {
-		fieldID, err := uuid.NewV7()
-		if err != nil {
-			return nil, fmt.Errorf("generate field ID: %w", err)
-		}
-		relation, err := resolvedPlannedRelation(fmt.Sprintf("fields.%d", ordinal), collectionID, planned)
-		if err != nil {
-			return nil, err
-		}
-		fields = append(fields, Field{
-			ID: fieldID, Name: planned.Name, ColumnName: planned.Name, Type: planned.Type,
-			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
-			Default: append([]byte(nil), planned.Default...), Relation: relation, Ordinal: planned.Ordinal,
-		})
-	}
-	return fields, nil
 }
 
 func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition PlannedCollection) ([]Field, error) {

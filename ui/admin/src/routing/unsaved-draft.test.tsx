@@ -22,10 +22,14 @@ describe("unsaved drafts", () => {
     expect(ledger.mayLeave()).toBe(true);
     expect(confirmLeave).toHaveBeenCalledTimes(1);
 
-    // Agreeing was the discard, so the departure that follows is not a second
-    // chance to lose the same work.
+    // The owner releases the draft when the approved departure completes.
+    // Until then, another attempted departure must still be guarded.
     expect(ledger.mayLeave()).toBe(true);
-    expect(confirmLeave).toHaveBeenCalledTimes(1);
+    expect(confirmLeave).toHaveBeenCalledTimes(2);
+
+    ledger.hold("record posts id:one", false);
+    expect(ledger.mayLeave()).toBe(true);
+    expect(confirmLeave).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the administrator on the resource when the draft is not to be lost", () => {
