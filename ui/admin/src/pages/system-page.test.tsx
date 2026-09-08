@@ -63,6 +63,29 @@ describe("system page", () => {
     expect(screen.getByRole("button", { name: "Retry system status" })).toBeEnabled();
   });
 
+  it("ignores a timed-out transport that later resolves despite cancellation", async () => {
+    vi.useFakeTimers();
+    const harness = scriptedAdmin("/admin/system");
+    const status = deferredStep<SystemStatus>();
+    const health = deferredStep<SchemaHealth>();
+    harness.script.status.push(status.step);
+    harness.script.health.push(health.step);
+    const system = harness.backend.system;
+    harness.backend.system = { ...system, status: () => system.status(), health: () => system.health() };
+    renderAdmin(harness);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to load system status.");
+    await act(async () => {
+      status.settle({ value: scriptedStatus({ version: "late-version" }) });
+      health.settle({ value: scriptedHealth() });
+    });
+
+    expect(screen.queryByText("late-version")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry system status" })).toBeEnabled();
+  });
+
   it("recovers a complete system view after a transient load failure", async () => {
     const harness = scriptedAdmin("/admin/system");
     const nextStatus = deferredStep<SystemStatus>();

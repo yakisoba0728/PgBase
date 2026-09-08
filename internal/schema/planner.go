@@ -472,23 +472,11 @@ func indexChangeStatements(collection, table string, previous, field PlannedFiel
 }
 
 func isSupportedTypeChange(from, to FieldType) bool {
-	switch {
-	case from == TypeInteger && to == TypeBigInt,
-		from == TypeInteger && to == TypeNumeric,
-		from == TypeBigInt && to == TypeNumeric:
-		return true
-	default:
-		return false
-	}
+	return (from == TypeInteger && to == TypeBigInt) ||
+		((from == TypeInteger || from == TypeBigInt) && to == TypeNumeric)
 }
 
 func sameCanonicalDefault(previous, desired json.RawMessage) bool {
-	if len(previous) == 0 && len(desired) == 0 {
-		return true
-	}
-	if len(previous) == 0 || len(desired) == 0 {
-		return false
-	}
 	return bytes.Equal(previous, desired)
 }
 

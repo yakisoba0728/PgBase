@@ -215,6 +215,10 @@ func (l *Listener) finishOperation(ctx context.Context, operation observability.
 }
 
 func listenerOperationOutcome(err error) observability.Outcome {
+	return databaseOperationOutcome(err)
+}
+
+func databaseOperationOutcome(err error) observability.Outcome {
 	if err == nil {
 		return observability.OutcomeSuccess
 	}

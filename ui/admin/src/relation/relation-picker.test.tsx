@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDefinition, FieldDefinition, RecordPage } from "../backend/ports";
-import { callsTo, type BackendScript } from "../test/backend-script";
+import { callsTo, deferredStep, type BackendScript } from "../test/backend-script";
 import { collection, sessionWrapper, signedInScript, textField } from "../test/harness";
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
@@ -106,6 +106,61 @@ describe("relation picker", () => {
       { id: targetID, label: "Ada", available: true },
       { id: otherID, label: "Grace", available: true },
     ]);
+  });
+
+  it("continues selected-target hydration after a byte-truncated page", async () => {
+    const script = signedInScript();
+    script.list.push({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "selected page two" } });
+    script.list.push({ value: { items: [{ id: otherID, name: "Grace" }] } });
+    const view = renderHook(() => useRelationPicker(users, relationField("tags", "multiple"), `${targetID}\n${otherID}`, vi.fn()), { wrapper: wrap(script) });
+
+    await waitFor(() => expect(view.result.current.selections[1].label).toBe("Grace"));
+    expect(view.result.current.selections).toEqual([
+      { id: targetID, label: "Ada", available: true },
+      { id: otherID, label: "Grace", available: true },
+    ]);
+    expect(callsTo(script, "list")[1].detail).toEqual({
+      collection: "users", cursor: "selected page two", filter: `id = '${targetID}' || id = '${otherID}'`,
+    });
+  });
+
+  it("leaves an unresolved target available when hydration exhausts its page budget", async () => {
+    const script = signedInScript();
+    script.list.push({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "page two" } });
+    script.list.push({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "page three" } });
+    const view = renderHook(() => useRelationPicker(users, relationField("tags", "multiple"), `${targetID}\n${otherID}`, vi.fn()), { wrapper: wrap(script) });
+
+    await waitFor(() => expect(callsTo(script, "list")).toHaveLength(2));
+    await waitFor(() => expect(view.result.current.selections[0].label).toBe("Ada"));
+    expect(view.result.current.selections[1]).toEqual({ id: otherID, label: otherID, available: true });
+  });
+
+  it("leaves an unresolved target available when a later hydration page fails", async () => {
+    const script = signedInScript();
+    script.list.push({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "page two" } });
+    script.list.push({ fault: { kind: "unreachable" } });
+    const view = renderHook(() => useRelationPicker(users, relationField("tags", "multiple"), `${targetID}\n${otherID}`, vi.fn()), { wrapper: wrap(script) });
+
+    await waitFor(() => expect(callsTo(script, "list")).toHaveLength(2));
+    await act(async () => { await new Promise((settle) => setTimeout(settle, 0)); });
+    expect(view.result.current.selections[1]).toEqual({ id: otherID, label: otherID, available: true });
+  });
+
+  it("does not request another hydration page after its editor unmounts", async () => {
+    const script = signedInScript();
+    const firstPage = deferredStep<RecordPage>();
+    script.list.push(firstPage.step);
+    const backend = memoryBackend(script);
+    const listIgnoringAbort = vi.fn((collection: string, options: Parameters<typeof backend.records.list>[1]) =>
+      backend.records.list(collection, options));
+    const view = renderHook(() => useRelationPicker(users, relationField("tags", "multiple"), `${targetID}\n${otherID}`, vi.fn()), {
+      wrapper: sessionWrapper({ ...backend, records: { ...backend.records, list: listIgnoringAbort } }, memoryHistory()),
+    });
+    await waitFor(() => expect(listIgnoringAbort).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    await act(async () => { firstPage.settle({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "page two" } }); });
+    expect(listIgnoringAbort).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a selected target the collection no longer exposes", async () => {

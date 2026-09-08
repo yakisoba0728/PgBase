@@ -163,10 +163,7 @@ func parseNumeric(raw json.RawMessage) (string, bool) {
 
 func parseJSONString(raw json.RawMessage) (string, bool) {
 	value, err := jsonvalue.String(raw)
-	if err != nil {
-		return "", false
-	}
-	return value, true
+	return value, err == nil
 }
 
 func parseUUID(raw json.RawMessage) (string, bool) {
@@ -211,10 +208,7 @@ func normalizeTimestampDefault(raw json.RawMessage) (json.RawMessage, string, er
 
 func canonicalJSON(raw json.RawMessage) (json.RawMessage, bool) {
 	canonical, err := jsonvalue.Canonical(raw)
-	if err != nil {
-		return nil, false
-	}
-	return json.RawMessage(canonical), true
+	return json.RawMessage(canonical), err == nil
 }
 
 func jsonString(value string) json.RawMessage {

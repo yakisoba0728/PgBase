@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyResult, err error) {
@@ -22,7 +23,7 @@ func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyRe
 	operationStarted := time.Now()
 	relationOperation := changeHasRelationInput(intent.change)
 	defer s.finishOperation(ctx, operation, operationStarted, &err)
-	defer s.finishRelationSchemaOperation(ctx, operationStarted, &err, &relationOperation)
+	defer s.finishOperation(ctx, observability.OperationRelationSchema, operationStarted, &err, &relationOperation)
 	if err = s.ready(); err != nil {
 		return ApplyResult{}, err
 	}
@@ -286,7 +287,9 @@ func (s *Service) executeClaimedOperation(
 	case changeCreate:
 		err = store.InsertCollection(ctx, result.Collection, plan.Definition, appliedAt)
 	case changeUpdate:
-		err = store.UpdateCollection(ctx, result.Collection, plan.Definition, appliedAt)
+		if err = validateChangedRecordSizes(ctx, tx, current, result.Collection); err == nil {
+			err = store.UpdateCollection(ctx, result.Collection, plan.Definition, appliedAt)
+		}
 	case changeDelete:
 		err = store.DeleteCollection(ctx, current.ID)
 	}

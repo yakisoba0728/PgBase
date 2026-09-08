@@ -47,33 +47,18 @@ export function SystemPage() {
   // them would be reporting half an instance's state as the whole of it.
   useEffect(() => {
     const controller = new AbortController();
-    let settled = false;
     setLoad({ phase: "loading" });
-    const timeout = window.setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      controller.abort();
-      setLoad({ phase: "failed" });
-    }, systemLoadTimeoutMs);
-    void Promise.all([system.status(controller.signal), system.health(controller.signal)])
-      .then(([status, health]) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        setLoad({ phase: "ready", view: { status, health } });
-      })
-      .catch(() => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        controller.abort();
-        setLoad({ phase: "failed" });
-      });
-    return () => {
-      settled = true;
+    const finish = (next?: SystemLoad) => {
+      if (controller.signal.aborted) return;
       window.clearTimeout(timeout);
       controller.abort();
+      if (next !== undefined) setLoad(next);
     };
+    const timeout = window.setTimeout(() => finish({ phase: "failed" }), systemLoadTimeoutMs);
+    void Promise.all([system.status(controller.signal), system.health(controller.signal)])
+      .then(([status, health]) => finish({ phase: "ready", view: { status, health } }))
+      .catch(() => finish({ phase: "failed" }));
+    return () => finish();
   }, [reloads, system]);
 
   const view = load.phase === "ready" ? load.view : null;
