@@ -46,6 +46,7 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 		"PGBASE_TOKEN_SECRET":            base64.StdEncoding.EncodeToString(make([]byte, 32)),
 		"PGBASE_ALLOW_INSECURE_DATABASE": "true",
 		"PGBASE_AUTO_MIGRATE":            "true",
+		"PGBASE_USER_REGISTRATION":       "true",
 		"PGBASE_TRUSTED_PROXIES":         "10.0.0.0/8, 2001:db8::/32",
 		"PGBASE_CORS_ALLOWED_ORIGINS":    "https://admin.example,https://admin.example:8443",
 		"PGBASE_ADMIN_SESSION_TTL":       "30m",
@@ -70,6 +71,9 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 	}
 	if len(opts.TrustedProxies) != 2 || opts.TrustedProxies[0].String() != "10.0.0.0/8" {
 		t.Fatalf("TrustedProxies = %#v", opts.TrustedProxies)
+	}
+	if !opts.UserRegistrationEnabled {
+		t.Fatal("user registration opt-in not loaded")
 	}
 	if got := opts.CORSAllowedOrigins; len(got) != 2 || got[1] != "https://admin.example:8443" {
 		t.Fatalf("CORSAllowedOrigins = %#v", got)
@@ -139,6 +143,7 @@ func TestLoadEnvReportsInvalidParsingWithEnvironmentVariable(t *testing.T) {
 		value string
 	}{
 		{name: "boolean", key: "PGBASE_AUTO_MIGRATE", value: "sometimes"},
+		{name: "registration boolean", key: "PGBASE_USER_REGISTRATION", value: "sometimes"},
 		{name: "insecure database boolean", key: "PGBASE_ALLOW_INSECURE_DATABASE", value: "sometimes"},
 		{name: "duration", key: "PGBASE_ADMIN_SESSION_TTL", value: "later"},
 		{name: "stop grace duration", key: "PGBASE_STOP_GRACE_PERIOD", value: "later"},

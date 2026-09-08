@@ -13,18 +13,21 @@ import (
 )
 
 type Dependencies struct {
-	Readiness          Readiness
-	Logger             *slog.Logger
-	CORSAllowedOrigins []string
-	AdminAuth          AdminAuth
-	Schema             SchemaService
-	Records            RecordService
-	PublicURL          *url.URL
-	TrustedProxies     []netip.Prefix
-	System             SystemStatusProvider
-	SchemaHealth       SchemaHealthProvider
-	AdminUI            http.Handler
-	Metrics            *observability.Metrics
+	Readiness               Readiness
+	Logger                  *slog.Logger
+	CORSAllowedOrigins      []string
+	AdminAuth               AdminAuth
+	UserAuth                UserAuth
+	RecordAccess            RecordAccess
+	UserRegistrationEnabled bool
+	Schema                  SchemaService
+	Records                 RecordService
+	PublicURL               *url.URL
+	TrustedProxies          []netip.Prefix
+	System                  SystemStatusProvider
+	SchemaHealth            SchemaHealthProvider
+	AdminUI                 http.Handler
+	Metrics                 *observability.Metrics
 	// MetricsExposition is the already-authenticated exposition handler. The
 	// caller builds it so the bearer secret never becomes a router
 	// dependency; the metrics module hashes it on construction and keeps only
@@ -101,6 +104,22 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.update)},
 		{method: "DELETE", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
+	}
+	if dependencies.UserAuth != nil {
+		users := userEndpoints{dependencies: dependencies}
+		routes = append(routes,
+			route{method: "POST", pattern: "/api/v1/auth/register", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(true)},
+			route{method: "POST", pattern: "/api/v1/auth/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: users.credentials(false)},
+			route{method: "GET", pattern: "/api/v1/auth/session", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.session)},
+			route{method: "POST", pattern: "/api/v1/auth/logout", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.logout)},
+			route{method: "GET", pattern: "/api/v1/user/collections/{collection}/records", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
+			route{method: "POST", pattern: "/api/v1/user/collections/{collection}/records", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.create)},
+			route{method: "GET", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.get)},
+			route{method: "PATCH", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.update)},
+			route{method: "DELETE", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
+			route{method: "GET", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
+			route{method: "PUT", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
+		)
 	}
 	if metricsEnabled {
 		// Prometheus exposition streams and is not a JSON envelope, so it is

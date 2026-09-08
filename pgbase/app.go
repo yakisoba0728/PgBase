@@ -392,7 +392,7 @@ func newWithCatalogPreflight(
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	schemaHealth := newSchemaHealthSampler(pool, runner)
-	handler, err := api.NewRouter(api.Dependencies{
+	handler, err := api.NewRouter(withUserServices(api.Dependencies{
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
@@ -407,7 +407,7 @@ func newWithCatalogPreflight(
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
-	})
+	}, pool, normalized))
 	if err != nil {
 		return nil, err
 	}

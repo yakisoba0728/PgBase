@@ -8,6 +8,8 @@ type Kind string
 
 const Administrator Kind = "administrator"
 
+const User Kind = "user"
+
 // Subject is the stable identity supplied by authentication to domain
 // operations.
 type Subject struct {
@@ -16,5 +18,5 @@ type Subject struct {
 }
 
 func (subject Subject) Valid() bool {
-	return subject.Kind == Administrator && subject.ID != uuid.Nil
+	return (subject.Kind == Administrator || subject.Kind == User) && subject.ID != uuid.Nil
 }

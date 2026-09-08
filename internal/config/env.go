@@ -68,6 +68,13 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 		}
 		opts.AllowInsecureDatabase = parsed
 	}
+	if raw, ok := value(lookup, "PGBASE_USER_REGISTRATION"); ok && raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_USER_REGISTRATION: %w", err)
+		}
+		opts.UserRegistrationEnabled = parsed
+	}
 	if raw, ok := value(lookup, "PGBASE_AUTO_MIGRATE"); ok && raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {

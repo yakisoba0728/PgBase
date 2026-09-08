@@ -204,9 +204,9 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 	}
 }
 
-func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T) {
+func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 9 || migrations[8].Version != 9 {
+	if len(migrations) != 11 || migrations[10].Version != 11 {
 		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -223,7 +223,11 @@ func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T
 		{name: "populated v6 rejected without auto-upgrade", through: 6, autoMigrate: true, populate: true},
 		{name: "v7 rejected", through: 7},
 		{name: "v8 rejected", through: 8},
-		{name: "v9 accepted", through: 9, wantAccept: true},
+		{name: "v9 rejected", through: 9},
+		{name: "v9 rejected without auto-upgrade", through: 9, autoMigrate: true},
+		{name: "v10 rejected", through: 10},
+		{name: "v11 accepted", through: 11, wantAccept: true},
+		{name: "dirty v11 rejected", through: 11, dirty: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
 		{name: "dirty v8 rejected", through: 8, dirty: true},
 		{name: "dirty v9 rejected", through: 9, dirty: true},
@@ -335,7 +339,7 @@ func TestSchemaCompilerGenerationArtifactStartsOnItsDeclaredHistory(t *testing.T
 					_ = app.Close(context.Background())
 					t.Fatalf("ready app schema-writer leases = %d, want 1", schemaWriters)
 				}
-				if testCase.through == 9 {
+				if testCase.through >= 9 {
 					var protocol int16
 					if err := app.pool.QueryRow(context.Background(), `select writer_protocol
 						from pgbase_meta.schema_writer_leases`).Scan(&protocol); err != nil || protocol != 1 {

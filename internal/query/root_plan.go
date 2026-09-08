@@ -14,6 +14,7 @@ type rootPlan struct {
 	relation       relationListPlan
 	catalogVersion int64
 	principal      Principal
+	ownerID        *uuid.UUID
 }
 
 func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
@@ -27,7 +28,7 @@ func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement,
 	if p.order().relationAnchor {
 		return p.relation.pageStatement(after, fetchLimit)
 	}
-	return compileListPage(p.filter, p.order(), after, fetchLimit)
+	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID)
 }
 
 func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {

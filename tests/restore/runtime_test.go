@@ -187,6 +187,7 @@ func (c *candidate) environment(databaseURL, httpAddress, publicURL string) []st
 		"PGBASE_TOKEN_SECRET=" + c.tokenSecret,
 		"PGBASE_HTTP_ADDRESS=" + httpAddress,
 		"PGBASE_PUBLIC_URL=" + publicURL,
+		"PGBASE_USER_REGISTRATION=true",
 	}
 	if c.release {
 		// The release candidate reaches the drill database over the dedicated,

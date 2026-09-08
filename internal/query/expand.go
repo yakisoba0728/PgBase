@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -89,7 +91,14 @@ func (s *Service) readGetInTx(
 	request GetRequest,
 	result *getResult,
 ) error {
+	if err := authorizePrincipal(ctx, tx, catalog, collection, request.Principal); err != nil {
+		return err
+	}
 	statement := CompileSelectByID(collection, request.ID)
+	if request.Principal.Kind == identity.User {
+		statement.SQL += ` AND EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = $2 AND "rq_owner".record_id = ` + quoted(collection.TableName) + `.` + quoted("id") + ` AND "rq_owner".user_id = $3)`
+		statement.Args = append(statement.Args, collection.ID, request.Principal.ID)
+	}
 	root, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
 	if err := recordQueryError(err); err != nil {
 		return err
@@ -199,6 +208,9 @@ func (s *Service) readListInTx(
 	filterNode filterNode,
 	requestedSort []SortKey,
 ) (listResult, bool, error) {
+	if err := authorizePrincipal(ctx, tx, catalog, collection, request.Principal); err != nil {
+		return listResult{}, false, err
+	}
 	var expansion expandPlan
 	var usage *expansionUsage
 	var err error
@@ -219,6 +231,10 @@ func (s *Service) readListInTx(
 	}
 	rootPlan := plannedRootPlan(filterNode, relationPlan)
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
+	if request.Principal.Kind == identity.User {
+		ownerID := request.Principal.ID
+		rootPlan.ownerID = &ownerID
+	}
 	traversal, err := s.resolveTraversal(ctx, tx, collection.ID)
 	if err != nil {
 		return listResult{}, relationOperation, err
@@ -281,6 +297,21 @@ func (s *Service) readListInTx(
 		page:     RecordPage{Items: items, NextCursor: cursor},
 		expanded: expanded[:keep], querySteps: usage.querySteps,
 	}, relationOperation, nil
+}
+
+func authorizePrincipal(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal) error {
+	if principal.Kind != identity.User {
+		return nil
+	}
+	for _, field := range collection.Fields {
+		if field.Type == schema.TypeRelation {
+			return recordaccess.ErrUnsupported
+		}
+	}
+	if len(catalog.Incoming[collection.ID]) != 0 {
+		return recordaccess.ErrUnsupported
+	}
+	return recordaccess.AuthorizeUser(ctx, tx, collection.ID, principal.ID)
 }
 
 func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {

@@ -19,6 +19,10 @@ const (
 	administratorPassword = "restore-drill-administrator-password"
 	peopleCollection      = "restore_people"
 	articleCollection     = "restore_articles"
+	publicCollection      = "restore_public_notes"
+	publicOwnerEmail      = "restore-owner@example.test"
+	publicForeignEmail    = "restore-foreign@example.test"
+	publicUserPassword    = "restore-public-user-password"
 	articleIdempotencyKey = "restore-article-record"
 )
 
@@ -126,6 +130,11 @@ type sourceProject struct {
 	outboxEvents    int
 	idempotency     int
 	schemaReceipts  int
+	publicOwner     publicUser
+	publicForeign   publicUser
+	publicRecord    record
+	users           int
+	owners          int
 }
 
 func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, postgres *postgresServer) sourceProject {
@@ -154,6 +163,8 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 			{"name": "name", "type": "text", "required": true, "unique": false, "indexed": true},
 		},
 	})
+	client.applyCollection(t, ctx, map[string]any{"name": publicCollection, "fields": []map[string]any{{"name": "title", "type": "text", "required": true, "unique": false, "indexed": true}}})
+	client.call(t, ctx, http.MethodPut, "/api/admin/collections/"+publicCollection+"/user-access", map[string]any{"enabled": true}, nil, http.StatusOK, nil)
 	client.applyCollection(t, ctx, map[string]any{
 		"name": articleCollection,
 		"fields": []map[string]any{
@@ -180,6 +191,15 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 	if project.articleETag == "" || project.articleETag == project.article.etag {
 		t.Fatalf("PATCH ETag = %q, want a new strong validator", project.articleETag)
 	}
+	project.publicOwner = registerPublicUser(t, ctx, instance.baseURL, publicOwnerEmail, publicUserPassword)
+	project.publicForeign = registerPublicUser(t, ctx, instance.baseURL, publicForeignEmail, publicUserPassword)
+	var created map[string]any
+	publicRecordRequest(t, ctx, instance.baseURL, project.publicOwner.Token, http.MethodPost, "/api/v1/user/collections/"+publicCollection+"/records", map[string]any{"title": "restore-owner-note"}, http.StatusCreated, &created)
+	identifier, _ := created["id"].(string)
+	if identifier == "" {
+		t.Fatalf("public record has no id: %#v", created)
+	}
+	project.publicRecord = record{id: identifier}
 
 	// The source instance must be drained before the dump so the snapshot never
 	// races the schema-operation maintenance loop.
@@ -195,6 +215,8 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 	project.outboxEvents = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_outbox"))
 	project.idempotency = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_idempotency"))
 	project.schemaReceipts = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.schema_migrations"))
+	project.users = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.users"))
+	project.owners = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_owners"))
 	for name, count := range map[string]int{
 		"record revisions":   project.revisions,
 		"record audit":       project.auditEvents,
@@ -295,10 +317,13 @@ func verifyRestoredDatabase(t *testing.T, ctx context.Context, postgres *postgre
 	}
 	assertCount(t, postgres, ctx, "system migrations", "select count(*) from pgbase_meta.system_migrations", expected.systemMigration)
 	assertCount(t, postgres, ctx, "administrators", "select count(*) from pgbase_meta.admins", 1)
-	assertCount(t, postgres, ctx, "collections", "select count(*) from pgbase_meta.collections", 2)
+	assertCount(t, postgres, ctx, "collections", "select count(*) from pgbase_meta.collections", 3)
 	assertCount(t, postgres, ctx, "field relations", "select count(*) from pgbase_meta.field_relations", 2)
 	assertCount(t, postgres, ctx, "people", "select count(*) from app."+peopleCollection, 2)
 	assertCount(t, postgres, ctx, "articles", "select count(*) from app."+articleCollection, 1)
+	assertCount(t, postgres, ctx, "public notes", "select count(*) from app."+publicCollection, 1)
+	assertCount(t, postgres, ctx, "public users", "select count(*) from pgbase_meta.users", expected.users)
+	assertCount(t, postgres, ctx, "record owners", "select count(*) from pgbase_meta.record_owners", expected.owners)
 	assertCount(t, postgres, ctx, "record revisions", "select count(*) from pgbase_meta.record_revisions", expected.revisions)
 	assertCount(t, postgres, ctx, "record audit events", "select count(*) from pgbase_meta.record_audit_events", expected.auditEvents)
 	assertCount(t, postgres, ctx, "record outbox events", "select count(*) from pgbase_meta.record_outbox", expected.outboxEvents)
@@ -340,8 +365,8 @@ func verifyRestoredDatabase(t *testing.T, ctx context.Context, postgres *postgre
 		 and migrations.operation = operations.operation
 		 and migrations.checksum = operations.plan_checksum
 		 and migrations.applied_by = operations.actor_id
-		where operations.status = 'committed'`); committed != "2" {
-		t.Errorf("restored committed schema operation receipts = %s, want 2", committed)
+		where operations.status = 'committed'`); committed != "3" {
+		t.Errorf("restored committed schema operation receipts = %s, want 3", committed)
 	}
 	if unresolved := postgres.query(t, ctx, restoredDatabase,
 		"select count(*) from pgbase_meta.schema_operations where status in ('running','unknown')"); unresolved != "1" {
@@ -411,6 +436,35 @@ func verifyRestoredService(t *testing.T, ctx context.Context, drill *candidate, 
 		t.Errorf("post-restore replay Location = %q, want %q", responseHeaders.Get("Location"), expected.article.location)
 	}
 	assertCount(t, postgres, ctx, "articles after replay", "select count(*) from app."+articleCollection, 1)
+	for _, expectedUser := range []publicUser{expected.publicOwner, expected.publicForeign} {
+		var session struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		}
+		publicRecordRequest(t, ctx, instance.baseURL, expectedUser.Token, http.MethodGet, "/api/v1/auth/session", nil, http.StatusOK, &session)
+		if session.User.ID != expectedUser.ID {
+			t.Fatalf("restored session user = %q, want %q", session.User.ID, expectedUser.ID)
+		}
+	}
+	owner := loginPublicUser(t, ctx, instance.baseURL, publicOwnerEmail, publicUserPassword)
+	foreign := loginPublicUser(t, ctx, instance.baseURL, publicForeignEmail, publicUserPassword)
+	var ownerPage struct {
+		Items []map[string]any `json:"items"`
+	}
+	publicRecordRequest(t, ctx, instance.baseURL, owner.Token, http.MethodGet, "/api/v1/user/collections/"+publicCollection+"/records", nil, http.StatusOK, &ownerPage)
+	if len(ownerPage.Items) != 1 || ownerPage.Items[0]["id"] != expected.publicRecord.id {
+		t.Fatalf("restored owner list = %#v", ownerPage.Items)
+	}
+	publicRecordRequest(t, ctx, instance.baseURL, owner.Token, http.MethodGet, "/api/v1/user/collections/"+publicCollection+"/records/"+expected.publicRecord.id, nil, http.StatusOK, nil)
+	var foreignPage struct {
+		Items []map[string]any `json:"items"`
+	}
+	publicRecordRequest(t, ctx, instance.baseURL, foreign.Token, http.MethodGet, "/api/v1/user/collections/"+publicCollection+"/records", nil, http.StatusOK, &foreignPage)
+	if len(foreignPage.Items) != 0 {
+		t.Fatalf("restored foreign list = %#v", foreignPage.Items)
+	}
+	publicRecordRequest(t, ctx, instance.baseURL, foreign.Token, http.MethodGet, "/api/v1/user/collections/"+publicCollection+"/records/"+expected.publicRecord.id, nil, http.StatusNotFound, nil)
 
 	// The restored instance owns the unresolved claim now, so it must close it.
 	deadline := time.Now().Add(90 * time.Second)

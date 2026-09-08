@@ -11,7 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -142,7 +144,11 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", result.Record.ETag)
 	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
-	w.Header().Set("Location", "/api/v1/collections/"+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
+	prefix := "/api/v1/collections/"
+	if principal.Kind == identity.User {
+		prefix = "/api/v1/user/collections/"
+	}
+	w.Header().Set("Location", prefix+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
 	writeCompatibilityHeaders(w, result.Compatibility)
 	writeJSON(w, http.StatusCreated, result.Record.Data)
 }
@@ -221,6 +227,9 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func recordPrincipal(w http.ResponseWriter, r *http.Request) (recordops.Principal, bool) {
+	if user, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
+		return recordops.Principal{Kind: identity.User, ID: user.principal.User.ID}, true
+	}
 	principal, ok := AdminPrincipalFromContext(r.Context())
 	if !ok || principal.Administrator.ID == uuid.Nil {
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
@@ -352,6 +361,10 @@ func writeRecordError(w http.ResponseWriter, r *http.Request, err error) {
 	var validation *query.ValidationError
 	databaseKind := database.Classify(err)
 	switch {
+	case errors.Is(err, recordaccess.ErrDenied), errors.Is(err, recordaccess.ErrUnsupported):
+		apiError = APIError{Status: http.StatusForbidden, Code: "access_denied", Message: "User access is not available for this collection"}
+	case errors.Is(err, recordaccess.ErrNotFound):
+		apiError = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Record or collection not found"}
 	case query.IsInvalidCursor(err):
 		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_cursor", Message: "Cursor is invalid"}
 	case errors.Is(err, query.ErrCollectionNotFound), errors.Is(err, query.ErrRecordNotFound):

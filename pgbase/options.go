@@ -38,6 +38,8 @@ const (
 
 type Options struct {
 	DatabaseURL string
+	// UserRegistrationEnabled permits public self-registration; false by default.
+	UserRegistrationEnabled bool
 	// AllowInsecureDatabase permits an unverified or plaintext PostgreSQL
 	// connection. It is only for an explicitly trusted local development
 	// network such as the bundled Compose stack.

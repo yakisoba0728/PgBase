@@ -19,6 +19,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
@@ -152,6 +153,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		idempotencyLock = &lock
 	}
 	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, uuid.Nil); err != nil {
+			return err
+		}
 		relationOperation = inputTouchesRelationField(collection, request.Input)
 		createFence, err := membershipWriter.LockCreate(ctx, tx, collection.ID)
 		if err != nil {
@@ -163,6 +167,19 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				return err
 			}
 			if found {
+				if request.Principal.Kind == PrincipalUser {
+					id, ok := replayed.Record.Data["id"].(string)
+					if !ok {
+						return query.ErrRecordNotFound
+					}
+					recordID, err := uuid.Parse(id)
+					if err != nil {
+						return query.ErrRecordNotFound
+					}
+					if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, recordID); err != nil {
+						return err
+					}
+				}
 				result = replayed
 				return nil
 			}
@@ -210,6 +227,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			}},
 		}); err != nil {
 			return err
+		}
+		if request.Principal.Kind == PrincipalUser {
+			if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_owners(collection_id, record_id, user_id) VALUES ($1,$2,$3)`, collection.ID, recordID, request.Principal.ID); err != nil {
+				return err
+			}
 		}
 		if len(keyHash) > 0 {
 			body, err := recordartifact.CanonicalRecord(data)
@@ -266,6 +288,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	}
 
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, request.ID); err != nil {
+			return err
+		}
 		relationOperation = inputTouchesRelationField(collection, request.Input)
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
@@ -370,6 +395,9 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	}
 
 	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, request.ID); err != nil {
+			return err
+		}
 		relationOperation = collectionParticipatesInRelations(catalog, collection)
 		writeFence, err := membershipWriter.Begin(ctx, tx)
 		if err != nil {
@@ -385,6 +413,35 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 		return MutationResult{}, membershipBoundaryError(err)
 	}
 	return result, nil
+}
+
+func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, recordID uuid.UUID) error {
+	if principal.Kind != PrincipalUser {
+		return nil
+	}
+	for _, field := range collection.Fields {
+		if field.Type == schema.TypeRelation {
+			return recordaccess.ErrUnsupported
+		}
+	}
+	if len(catalog.Incoming[collection.ID]) != 0 {
+		return recordaccess.ErrUnsupported
+	}
+	if err := recordaccess.AuthorizeUser(ctx, tx, collection.ID, principal.ID); err != nil {
+		return err
+	}
+	if recordID == uuid.Nil {
+		return nil
+	}
+	var owned bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pgbase_meta.record_owners WHERE collection_id=$1 AND record_id=$2 AND user_id=$3)`, collection.ID, recordID, principal.ID).Scan(&owned)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return query.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (s *Service) validateRequest(principal Principal, requestID string) error {

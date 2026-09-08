@@ -218,3 +218,9 @@ and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_T
 ## Zero-downtime limits
 
 Multi-instance serving is supported against one shared database, but zero-downtime upgrades are not guaranteed. The Production Kernel has no online-DDL mechanism, down-migration command, read-replica routing, or compatibility promise between arbitrary v0.x binaries and schemas. Collection and relation DDL can acquire PostgreSQL locks. A system migration may require a maintenance window; follow release-specific guidance and prefer a tested stop-migrate-start sequence whenever compatibility is uncertain.
+
+## Public user registration and collection access
+
+`PGBASE_USER_REGISTRATION` defaults to `false`. Set it to `true` to expose self-registration in builds containing the post-v0.1.0 public-user capability; login and existing Bearer sessions are independent of the registration switch. The bundled Compose file forwards this setting from its environment file. Sessions last 24 hours and can be revoked with logout. Public and administrator sessions use separate tables and token domains.
+
+Public record access is separately default-denied per collection. An administrator enables owner-only access through `/api/admin/collections/{collection}/user-access`. Incoming or outgoing relations make the public record capability unavailable until relation-aware authorization is implemented. See [user access](user-access.md) for exact routes, limits, and examples, and [upgrades](upgrades.md#public-identity-and-owner-access-system-migrations-1011) before using an existing database.
