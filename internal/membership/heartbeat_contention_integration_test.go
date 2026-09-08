@@ -94,12 +94,15 @@ func TestHeartbeatStopsWhenTheLeaseToleranceIsSpent(t *testing.T) {
 	// Set before the loop reads it: every renewal is then already outside the
 	// window, so the first one that cannot reach the database has to stop.
 	runtime.leaseTolerance = time.Nanosecond
+	// Run can finish its initial refresh before the observing goroutine runs.
+	// With this exhausted tolerance there will be no second renewal to observe.
+	before := leaseHeartbeatAt(t, fixture, runtime.instanceID)
 
 	ctx, cancel := context.WithCancel(fixture.ctx)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runtime.Run(ctx) }()
-	if err := waitForRenewal(fixture, pool, runtime.instanceID); err != nil {
+	if err := waitForRenewalAfter(fixture, pool, runtime.instanceID, before); err != nil {
 		t.Fatalf("running membership writer never renewed its lease: %v", err)
 	}
 	lockCapabilityExclusively(t, fixture)
@@ -227,6 +230,10 @@ func waitForRenewal(fixture bootstrapFixture, pool *database.Pool, instanceID uu
 	if err != nil {
 		return err
 	}
+	return waitForRenewalAfter(fixture, pool, instanceID, before)
+}
+
+func waitForRenewalAfter(fixture bootstrapFixture, pool *database.Pool, instanceID uuid.UUID, before time.Time) error {
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		time.Sleep(50 * time.Millisecond)
 		latest, err := leaseHeartbeat(fixture, pool, instanceID)
