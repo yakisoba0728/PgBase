@@ -42,7 +42,7 @@ jq --null-input \
       buildType: $buildType,
       externalParameters: {repository: $repository, ref: $ref, version: $version},
       internalParameters: {workflow: {ref: $workflowRef, commit: $workflowCommit}},
-      resolvedDependencies: [{uri: ("git+" + $repository + "@" + $ref), digest: {gitCommit: $sourceCommit}}]
+      resolvedDependencies: [{uri: ("git+" + $repository + "@" + $sourceCommit), digest: {gitCommit: $sourceCommit}}]
     },
     runDetails: {
       builder: {id: "https://github.com/actions/runner/github-hosted"},
