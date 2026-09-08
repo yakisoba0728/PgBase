@@ -399,26 +399,31 @@ func TestSchemaOperationReconcileDrainsAcrossServiceInstances(t *testing.T) {
 	defer cancel()
 	start := make(chan struct{})
 	results := make(chan error, 2)
+	// A nonblocking pass can skip a row or advisory lock held by its peer.
+	// Keep the service loops alive so their later ticks can finish that work.
 	for _, instance := range []*Service{first, second} {
 		instance := instance
 		go func() {
 			<-start
-			results <- instance.reconcileSchemaOperations(ctx)
+			results <- instance.Run(ctx)
 		}()
 	}
 	close(start)
+	for _, operationID := range operationIDs {
+		waitForMaintenanceStatus(t, pool, operationID, OperationFailed, OperationFailureReconcileFailed)
+	}
+	cancel()
+	shutdownCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
 	for range 2 {
 		select {
 		case err := <-results:
 			if err != nil {
 				t.Fatal(err)
 			}
-		case <-ctx.Done():
-			t.Fatal("multi-instance reconciliation did not make progress")
+		case <-shutdownCtx.Done():
+			t.Fatal("multi-instance reconciliation did not stop")
 		}
-	}
-	for _, operationID := range operationIDs {
-		waitForMaintenanceStatus(t, pool, operationID, OperationFailed, OperationFailureReconcileFailed)
 	}
 }
 
