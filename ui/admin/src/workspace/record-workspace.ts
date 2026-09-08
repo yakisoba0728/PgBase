@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useBackend } from "../auth/session";
+import { useBackend, useSession } from "../auth/session";
 import {
   CreateAttempt,
   RecordError,
@@ -20,6 +20,7 @@ import {
   type Draft,
   type FieldState,
 } from "./record-codec";
+import { clearDraft, downloadJSON, readDraft, writeDraft, type RecordScope } from "./record-productivity";
 
 const staleText = "This record changed after you loaded it. Reload the latest version before saving or deleting.";
 const missingText = "This record no longer exists.";
@@ -47,10 +48,13 @@ interface ListState {
   // The cursor that opened every page after the first, oldest first. Empty
   // means the first page, so its length is also how far the chain has walked.
   cursors: string[];
+  selected: Set<string>;
+  actionMessage: string | null;
+  actionPending: boolean;
 }
 
 function initialList(identity: string): ListState {
-  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", sort: "", cursors: [] };
+  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
 }
 
 function nextSort(current: string, column: string): string {
@@ -77,6 +81,13 @@ export interface RecordList {
   toggleSort(column: string): void;
   previousPage(): void;
   nextPage(): void;
+  selected: ReadonlySet<string>;
+  actionMessage: string | null;
+  actionPending: boolean;
+  select(id: string, selected: boolean): void;
+  selectMany(ids: string[], selected: boolean): void;
+  deleteSelected(): void;
+  exportJSON(): void;
 }
 
 export function useRecordList(collectionName: string): RecordList {
@@ -84,6 +95,9 @@ export function useRecordList(collectionName: string): RecordList {
   const identity = adminRouteIdentity({ kind: "records", collection: collectionName });
   const [state, update] = useResourceState(identity, initialList);
   const inFlight = useRef<AbortController | null>(null);
+  const actionFlight = useRef<AbortController | null>(null);
+  const active = useRouteGuard(identity);
+  useEffect(() => () => actionFlight.current?.abort(), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -141,6 +155,53 @@ export function useRecordList(collectionName: string): RecordList {
     toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column) })),
     previousPage: () => { if (state.cursors.length > 0) void openPage(state.cursors.slice(0, -1)); },
     nextPage: () => { if (state.page?.nextCursor !== undefined) void openPage([...state.cursors, state.page.nextCursor]); },
+    selected: state.selected,
+    actionMessage: state.actionMessage,
+    actionPending: state.actionPending,
+    select: (id, selected) => update(identity, (current) => {
+      const next = new Set(current.selected); selected ? next.add(id) : next.delete(id); return { selected: next, actionMessage: null };
+    }),
+    selectMany: (ids, selected) => update(identity, (current) => {
+      const next = new Set(current.selected); for (const id of ids) selected ? next.add(id) : next.delete(id); return { selected: next, actionMessage: null };
+    }),
+    deleteSelected: () => {
+      const ids = [...state.selected];
+      if (ids.length === 0 || state.actionPending || !window.confirm(`Delete ${ids.length} selected record${ids.length === 1 ? "" : "s"}?`)) return;
+      update(identity, { actionPending: true, actionMessage: null });
+      actionFlight.current?.abort();
+      const controller = new AbortController(); actionFlight.current = controller;
+      void Promise.allSettled(ids.map(async (id) => records.remove(await records.get(collectionName, id, controller.signal))))
+        .then((outcomes) => {
+          if (!active()) return;
+          const failed = ids.filter((_, index) => outcomes[index].status === "rejected");
+          update(identity, { selected: new Set(failed), actionMessage: failed.length === 0
+            ? `Deleted ${ids.length} record${ids.length === 1 ? "" : "s"}.`
+            : `Deleted ${ids.length - failed.length} of ${ids.length} records. ${failed.length} failed and remain selected.` });
+          void openPage(state.cursors);
+        }).finally(() => { if (active()) update(identity, { actionPending: false }); });
+    },
+    exportJSON: () => {
+      if (state.actionPending) return;
+      const selected = new Set(state.selected);
+      update(identity, { actionPending: true, actionMessage: null });
+      actionFlight.current?.abort();
+      const controller = new AbortController(); actionFlight.current = controller;
+      void (async () => {
+        const items = [];
+        let cursor: string | undefined;
+        let pages = 0;
+        do {
+          const page = await records.list(collectionName, { cursor, filter: state.appliedFilter, sort: state.sort }, controller.signal);
+          items.push(...page.items.filter((item) => selected.size === 0 || selected.has(String(item.id))));
+          cursor = page.nextCursor; pages += 1;
+        } while (cursor !== undefined && pages < 100);
+        if (cursor !== undefined) throw new Error("export page limit");
+        if (!active()) return;
+        downloadJSON(`${collectionName}-${selected.size > 0 ? "selected" : "filtered"}.json`, items);
+        update(identity, { actionMessage: `Exported ${items.length} ${selected.size > 0 ? "selected" : "filtered"} record${items.length === 1 ? "" : "s"}.` });
+      })().catch(() => { if (active()) update(identity, { actionMessage: "Unable to export every matching record within the 100-page limit." }); })
+        .finally(() => { if (active()) update(identity, { actionPending: false }); });
+    },
   };
 }
 
@@ -181,6 +242,7 @@ export interface RecordEditor {
   reload(): void;
   save(): void;
   remove(): void;
+  duplicate(): void;
 }
 
 function saveFailure(caught: unknown, collection: CollectionDefinition): Partial<EditorState> {
@@ -210,12 +272,14 @@ function removeFailure(caught: unknown): Partial<EditorState> {
 
 export function useRecordEditor(collectionName: string, id: string | undefined, navigate: (route: AdminRoute) => void): RecordEditor {
   const { records, schema } = useBackend();
+  const { state: session } = useSession();
   const identity = adminRouteIdentity({ kind: "record", collection: collectionName, id });
   const active = useRouteGuard(identity);
   const isCreate = id === undefined;
   const [state, update] = useResourceState(identity, initialEditor);
   const attempt = useRef(new CreateAttempt(collectionName));
   if (attempt.current.collection !== collectionName) attempt.current = new CreateAttempt(collectionName);
+  const scope: RecordScope = { administrator: session.kind === "authenticated" ? session.administrator.id : "", collection: collectionName, record: id ?? "new" };
 
   // A reload asked for after a failed precondition keeps the unsaved draft;
   // every other load starts the editor over.
@@ -224,6 +288,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   keepDraftRef.current = keepDraft;
 
   useEffect(() => {
+    if (session.kind !== "authenticated") return;
     const controller = new AbortController();
     const preserve = keepDraftRef.current;
     update(identity, preserve ? { message: null } : { message: null, loadedResource: null, collection: null, catalog: null, stale: false, loaded: null });
@@ -232,8 +297,10 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       if (collection === undefined) throw new Error("missing collection");
       const record = id === undefined ? null : await records.get(collectionName, id, controller.signal);
       if (controller.signal.aborted) return;
-      const draft = initialDraft(collection.fields, record?.data ?? {}, isCreate);
-      update(identity, { loadedResource: identity, collection, catalog, draft, initial: draft, loaded: record, stale: false, errors: {} });
+      const clean = initialDraft(collection.fields, record?.data ?? {}, isCreate);
+      const restored = state.reloads === 0 ? readDraft(scope) : null;
+      const draft = preserve ? state.draft : restored === null ? clean : { ...clean, ...restored };
+      update(identity, { loadedResource: identity, collection, catalog, draft, initial: clean, loaded: record, stale: false, errors: {} });
     }).catch((caught: unknown) => {
       if (controller.signal.aborted) return;
       update(identity, {
@@ -243,10 +310,14 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       });
     });
     return () => controller.abort();
-  }, [collectionName, id, identity, isCreate, records, schema, state.reloads, update]);
+  }, [collectionName, id, identity, isCreate, records, schema, session.kind, state.reloads, update, scope.administrator]);
 
   const dirty = useMemo(() => dirtyNames(state.draft, state.initial), [state.draft, state.initial]);
   const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
+  useEffect(() => {
+    if (state.collection === null || scope.administrator === "") return;
+    if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft);
+  }, [dirty.size, scope.administrator, scope.collection, scope.record, state.collection, state.draft]);
   // The draft as it stands now, readable from a response handler that closed
   // over the draft it sent: the two differ exactly when editing continued.
   const live = useRef(state.draft);
@@ -273,6 +344,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       update(identity, { initial: state.draft, loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
       if (outran) return;
       savedDraft();
+      clearDraft(scope);
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
       update(identity, saveFailure(caught, collection));
@@ -289,6 +361,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       await records.remove(record);
       if (!active()) return;
       savedDraft();
+      clearDraft(scope);
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
       update(identity, removeFailure(caught));
@@ -318,5 +391,11 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     reload: () => update(identity, (current) => ({ reloads: current.reloads + 1 })),
     save: () => void save(),
     remove: () => void remove(),
+    duplicate: () => {
+      if (state.collection === null || isCreate) return;
+      const duplicate = Object.fromEntries(Object.entries(state.draft).filter(([name]) => state.collection?.fields.find((field) => field.name === name)?.type !== "file"));
+      writeDraft({ ...scope, record: "new" }, duplicate);
+      navigate({ kind: "record", collection: collectionName });
+    },
   };
 }

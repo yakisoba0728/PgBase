@@ -282,6 +282,11 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, err
 	}
 	started := time.Now()
+	if intent.change.kind == changeUpdate {
+		if err := validateChangedFieldOptions(ctx, tx, current, result.Collection); err != nil {
+			return ApplyResult{}, nil, operationRow{}, err
+		}
+	}
 	if err := s.executePlan(ctx, tx, plan); err != nil {
 		return ApplyResult{}, nil, operationRow{}, err
 	}

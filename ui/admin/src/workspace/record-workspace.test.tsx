@@ -220,6 +220,46 @@ describe("RecordList", () => {
     await waitFor(() => expect(result.current.failed).toBe(true));
     expect(result.current.collection).toBeNull();
   });
+  it("deletes selected records with their own ETags and keeps partial failures selected", async () => {
+    const { result, script } = openList([posts], { items: [{ id: recordID }, { id: otherID }] });
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    script.read.push(
+      { value: { data: { id: recordID }, etag: '"pgb1.first"' } },
+      { value: { data: { id: otherID }, etag: '"pgb1.second"' } },
+    );
+    script.remove.push({ value: undefined }, { fault: { kind: "stale" } });
+    script.list.push({ value: { items: [{ id: otherID }] } });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    act(() => result.current.selectMany([recordID, otherID], true));
+    act(() => result.current.deleteSelected());
+
+    await waitFor(() => expect(result.current.actionMessage).toContain("Deleted 1 of 2"));
+    expect([...result.current.selected]).toEqual([otherID]);
+    expect(callsTo(script, "remove").map((call) => call.detail)).toEqual([
+      { collection: "posts", id: recordID, etag: '"pgb1.first"' },
+      { collection: "posts", id: otherID, etag: '"pgb1.second"' },
+    ]);
+  });
+
+  it("exports every page under the active filter and sort with a clear filtered scope", async () => {
+    const { result, script } = openList([posts], { items: [{ id: recordID }] });
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    script.list.push({ value: { items: [{ id: recordID }], nextCursor: "export-next" } });
+    script.list.push({ value: { items: [{ id: otherID }] } });
+    const createURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:records");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    act(() => result.current.exportJSON());
+
+    await waitFor(() => expect(result.current.actionMessage).toBe("Exported 2 filtered records."));
+    expect(createURL).toHaveBeenCalledOnce();
+    expect(callsTo(script, "list").slice(-2).map((call) => call.detail)).toEqual([
+      { collection: "posts" },
+      { collection: "posts", cursor: "export-next" },
+    ]);
+  });
 });
 
 describe("RecordEditor", () => {
@@ -295,7 +335,7 @@ describe("RecordEditor", () => {
     script.read.push({ value: { data: { id: recordID, title: "theirs" }, etag: '"pgb1.two"' } });
     act(() => result.current.reload());
     await waitFor(() => expect(result.current.stale).toBe(false));
-    expect(result.current.stateOf(result.current.fields[0])).toEqual({ kind: "value", value: "theirs" });
+    expect(result.current.stateOf(result.current.fields[0])).toEqual({ kind: "value", value: "my draft" });
   });
 
   it("reports a record another administrator already deleted", async () => {

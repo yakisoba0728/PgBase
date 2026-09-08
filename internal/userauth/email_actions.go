@@ -32,11 +32,24 @@ func (s *Service) ConfigureEmailActions(sender mailer.Sender, baseURL string, tt
 	if s == nil || sender == nil || ttl <= 0 || ttl > maximumEmailActionTTL {
 		return ErrValidation
 	}
+	if err := s.ConfigureEmailActionBaseURL(baseURL, ttl); err != nil {
+		return err
+	}
+	s.mailer = sender
+	return nil
+}
+
+// ConfigureEmailActionBaseURL enables database-managed per-realm SMTP without
+// requiring a process-wide SMTP credential.
+func (s *Service) ConfigureEmailActionBaseURL(baseURL string, ttl time.Duration) error {
+	if s == nil || ttl <= 0 || ttl > maximumEmailActionTTL {
+		return ErrValidation
+	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
 		return ErrValidation
 	}
-	s.mailer, s.emailBaseURL, s.emailActionTTL = sender, strings.TrimRight(baseURL, "/"), ttl
+	s.emailBaseURL, s.emailActionTTL = strings.TrimRight(baseURL, "/"), ttl
 	return nil
 }
 
@@ -64,7 +77,7 @@ func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	return s.sendAction(ctx, user.Email, "Verify your email", "verify", raw)
+	return s.sendAction(ctx, user.ID, user.Email, "Verify your email", "verify", raw)
 }
 
 func (s *Service) ConfirmVerification(ctx context.Context, rawToken string) error {
@@ -118,7 +131,7 @@ func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collecti
 	}
 	// Reset requests deliberately do not disclose delivery or account state.
 	// The token remains bounded by expiry and cleanup if delivery fails.
-	_ = s.sendAction(ctx, user.Email, "Reset your password", "reset", raw)
+	_ = s.sendAction(ctx, user.ID, user.Email, "Reset your password", "reset", raw)
 	return nil
 }
 
@@ -128,6 +141,13 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 	}
 	if err := validatePassword(newPassword); err != nil {
 		return err
+	}
+	var collectionID uuid.UUID
+	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose='password_reset' and a.consumed_at is null`, s.actionTokenHash("password_reset", rawToken)).Scan(&collectionID); err == nil {
+		policy, policyErr := s.authPolicy(ctx, collectionID)
+		if policyErr != nil || !policy.PasswordEnabled || len(newPassword) < policy.MinimumPasswordBytes {
+			return ErrValidation
+		}
 	}
 	if validateToken(rawToken) != nil {
 		return ErrInvalidCredentials
@@ -207,7 +227,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	if err != nil {
 		return err
 	}
-	return s.sendAction(ctx, normalized, "Confirm your email change", "email-change", raw)
+	return s.sendAction(ctx, user.ID, normalized, "Confirm your email change", "email-change", raw)
 }
 
 func (s *Service) ConfirmEmailChange(ctx context.Context, rawToken string) error {
@@ -234,7 +254,7 @@ func (s *Service) emailReady() error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	if s.mailer == nil || s.emailBaseURL == "" || s.emailActionTTL <= 0 {
+	if s.emailBaseURL == "" || s.emailActionTTL <= 0 {
 		return errors.New("user email actions unavailable")
 	}
 	return nil
@@ -287,9 +307,31 @@ func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken stri
 	})
 }
 
-func (s *Service) sendAction(ctx context.Context, to, subject, action, raw string) error {
-	message := mailer.Message{To: to, Subject: subject, Text: s.emailBaseURL + "/auth/action#action=" + action + "&token=" + url.QueryEscape(raw)}
-	if err := s.mailer.Send(ctx, message); err != nil {
+func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject, action, raw string) error {
+	var collectionID uuid.UUID
+	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&collectionID); err != nil {
+		return errors.New("send user email action")
+	}
+	actionURL := s.emailBaseURL + "/auth/action#action=" + action + "&token=" + url.QueryEscape(raw)
+	body := actionURL
+	var configuredSubject, configuredBody string
+	templatePurpose := action
+	if action == "reset" {
+		templatePurpose = "password_reset"
+	} else if action == "email-change" {
+		templatePurpose = "email_change"
+	}
+	if err := s.pool.QueryRow(ctx, `select subject,body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose=$2`, collectionID, templatePurpose).Scan(&configuredSubject, &configuredBody); err == nil {
+		subject, body = configuredSubject, strings.ReplaceAll(configuredBody, "{{action_url}}", actionURL)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("send user email action")
+	}
+	sender, err := s.smtpSender(ctx, collectionID)
+	if err != nil {
+		return errors.New("send user email action")
+	}
+	message := mailer.Message{To: to, Subject: subject, Text: body}
+	if err := sender.Send(ctx, message); err != nil {
 		return errors.New("send user email action")
 	}
 	return nil

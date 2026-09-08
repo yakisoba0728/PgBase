@@ -117,6 +117,14 @@ func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, currentPassw
 	if id == uuid.Nil || validatePassword(newPassword) != nil {
 		return ErrValidation
 	}
+	var collectionID uuid.UUID
+	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, id).Scan(&collectionID); err != nil {
+		return ErrInvalidCredentials
+	}
+	policy, err := s.authPolicy(ctx, collectionID)
+	if err != nil || !policy.PasswordEnabled || len(newPassword) < policy.MinimumPasswordBytes {
+		return ErrValidation
+	}
 	release, err := admit(s.credentialSlots)
 	if err != nil {
 		return err

@@ -1,3 +1,4 @@
+export * from "./admin.js";
 export class PgBaseError extends Error {
     status;
     code;

@@ -12,6 +12,7 @@ import (
 
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 )
 
 func TestCatalogPreflightIsANoOpBeforeCatalogTablesExist(t *testing.T) {
@@ -26,6 +27,26 @@ func TestCatalogPreflightIsANoOpBeforeCatalogTablesExist(t *testing.T) {
 	}
 	if cache.current.Load() != nil {
 		t.Fatal("fresh database preflight published a catalog")
+	}
+}
+
+func TestCatalogPreflightAcceptsVersion21BeforeFieldContractMigration(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for _, migration := range system.Migrations() {
+		if migration.Version > 21 {
+			break
+		}
+		if _, err := pool.Exec(ctx, migration.SQL); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+	}
+	if err := PreflightCatalog(ctx, pool, &Cache{}); err != nil {
+		t.Fatalf("v21 preflight: %v", err)
 	}
 }
 

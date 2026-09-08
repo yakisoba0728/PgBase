@@ -64,6 +64,13 @@ func Open(
 		return nil, err
 	}
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		var admitted bool
+		if err := conn.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock_shared($1)`, backupGateKey).Scan(&admitted); err != nil {
+			return fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
+		}
+		if !admitted {
+			return ErrBackupGateBusy
+		}
 		return configureSession(ctx, conn.Exec, statementTimeout)
 	}
 

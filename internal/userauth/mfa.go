@@ -34,6 +34,14 @@ func (s *Service) BeginTOTPEnrollment(ctx context.Context, userID uuid.UUID, cur
 	if userID == uuid.Nil {
 		return TOTPEnrollment{}, ErrValidation
 	}
+	var collectionID uuid.UUID
+	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&collectionID); err != nil {
+		return TOTPEnrollment{}, ErrNotFound
+	}
+	policy, err := s.authPolicy(ctx, collectionID)
+	if err != nil || !policy.MFAEnabled {
+		return TOTPEnrollment{}, ErrValidation
+	}
 	user, _, err := s.verifyUserPassword(ctx, userID, currentPassword, "totp-enroll")
 	if err != nil {
 		return TOTPEnrollment{}, err

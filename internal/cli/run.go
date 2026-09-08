@@ -53,6 +53,7 @@ func productionCommands() commandTable {
 		"schema-index": runSchemaIndex,
 		"membership":   runMembership,
 		"healthcheck":  runHealthcheck,
+		"backup":       runBackup,
 	}
 }
 
@@ -106,7 +107,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor, schema-index, membership> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor, schema-index, membership, backup> [arguments]")
 	return err
 }
 

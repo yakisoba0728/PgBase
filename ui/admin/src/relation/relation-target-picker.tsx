@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
 import { useRelationPicker } from "./relation-picker";
 
@@ -16,6 +16,8 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
   target: CollectionDefinition;
 }) {
   const picker = useRelationPicker(target, field, draft, onChange);
+  const [newValue, setNewValue] = useState("");
+  const [edits, setEdits] = useState<Record<string, string>>({});
   const searchField = picker.searchField;
   const base = `record-${field.name}-target`;
   const statusID = `${base}-search-status`;
@@ -77,12 +79,23 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
     {picker.hasMore && <button disabled={disabled || picker.loadingMore} onClick={picker.loadMore} type="button">
       {picker.loadingMore ? "Loading more…" : `Load more ${field.name} targets`}
     </button>}
+    {searchField !== undefined && target.view === undefined && <details>
+      <summary>Create {target.name} inline</summary>
+      <label htmlFor={`${base}-new`}>New {target.name} {searchField.name}</label>
+      <input id={`${base}-new`} value={newValue} onChange={(event) => setNewValue(event.target.value)} />
+      <button disabled={disabled || picker.mutating || newValue.trim() === ""} onClick={() => { picker.createTarget(newValue); setNewValue(""); }} type="button">Create and select</button>
+    </details>}
     {picker.selections.length > 0 && <ul aria-label={`${field.name} selected targets`}>
       {picker.selections.map((selection) => <li key={selection.id}>
         {describeTarget(selection.label, selection.id)}{selection.available ? "" : " — unavailable"}
         <button disabled={disabled} onClick={() => picker.deselect(selection.id)} type="button">
           Remove {describeTarget(selection.label, selection.id)}
         </button>
+        {searchField !== undefined && target.view === undefined && <details><summary>Edit target inline</summary>
+          <label htmlFor={`${base}-edit-${selection.id}`}>{searchField.name}</label>
+          <input id={`${base}-edit-${selection.id}`} value={edits[selection.id] ?? selection.label} onChange={(event) => setEdits((current) => ({ ...current, [selection.id]: event.target.value }))} />
+          <button disabled={disabled || picker.mutating} onClick={() => picker.editTarget(selection.id, edits[selection.id] ?? selection.label)} type="button">Save target</button>
+        </details>}
       </li>)}
     </ul>}
   </fieldset>;

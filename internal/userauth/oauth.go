@@ -88,11 +88,11 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 		return OAuthAuthorization{}, err
 	}
 	defer release()
-	configured, ok := s.oauthProviders[provider]
-	if !ok || configured == nil {
+	configured, redirects, configErr := s.configuredOAuthProvider(ctx, collectionID, provider)
+	if configErr != nil || configured == nil {
 		return OAuthAuthorization{}, ErrValidation
 	}
-	if _, ok := s.oauthRedirects[redirectURI]; !ok {
+	if _, ok := redirects[redirectURI]; !ok {
 		return OAuthAuthorization{}, ErrValidation
 	}
 	stateBytes := make([]byte, 32)
@@ -134,8 +134,7 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 }
 
 func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code string) (Session, error) {
-	configured, ok := s.oauthProviders[provider]
-	if !ok || configured == nil || validateToken(state) != nil || code == "" || len(code) > 4096 {
+	if validateToken(state) != nil || code == "" || len(code) > 4096 {
 		return Session{}, ErrInvalidCredentials
 	}
 	var encrypted []byte
@@ -147,6 +146,10 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	}
 	if err != nil {
 		return Session{}, err
+	}
+	configured, _, configErr := s.configuredOAuthProvider(ctx, collectionID, provider)
+	if configErr != nil || configured == nil {
+		return Session{}, ErrInvalidCredentials
 	}
 	verifierBytes, err := s.decrypt("oauth-verifier", encrypted)
 	if err != nil {

@@ -83,7 +83,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
       <p>Catalog version {designer.preview.baseVersion}</p>
       <ul>{designer.preview.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
       <h4>SQL</h4>
-      <pre>{designer.preview.sql.join("\n\n")}</pre>
+      <pre>{(designer.preview.sql ?? []).join("\n\n") || "No SQL statements."}</pre>
       {designer.removedFields.length > 0 && <div aria-label="Permanent data loss warning" className="danger-zone" role="alert">
         <p>This change permanently deletes data from these fields:</p>
         <ul>{designer.removedFields.map((name) => <li key={name}>{name}</li>)}</ul>

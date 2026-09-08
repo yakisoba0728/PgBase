@@ -13,6 +13,9 @@ import (
 )
 
 type Dependencies struct {
+	AuthAdministration      AuthAdministration
+	RequestLog              *observability.RequestLog
+	Jobs                    ManagedJobs
 	ServiceTokens           ServiceTokens
 	RecordRules             RecordRules
 	AuthCollections         AuthCollections
@@ -137,6 +140,8 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumBatchRequestBytes, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
+	routes = append(routes, authAdministrationRoutes(dependencies)...)
+	routes = append(routes, operationsConsoleRoutes(dependencies)...)
 	routes = append(routes, serviceTokenRoutes(dependencies)...)
 	routes = append(routes, serviceRecordRoutes(dependencies)...)
 	routes = append(routes, realtimeOperationRoutes(dependencies)...)
@@ -206,7 +211,7 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	var handler http.Handler = mux
 	handler = corsMiddleware(dependencies.CORSAllowedOrigins, handler)
 	handler = securityHeadersMiddleware(handler)
-	handler = accessLogMiddleware(logger, handler)
+	handler = accessLogMiddleware(logger, handler, dependencies.RequestLog)
 	handler = requestIDMiddleware(handler)
 	handler = recoveryMiddleware(logger, handler)
 	if metricsEnabled {

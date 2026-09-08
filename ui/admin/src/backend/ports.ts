@@ -37,7 +37,8 @@ export type RelationDeleteAction = typeof relationDeleteActions[number];
 interface RelationInput { targetCollection: string; cardinality: RelationCardinality; minSelect: number; maxSelect: number; onDelete: RelationDeleteAction }
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
-export interface FieldInput { name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown; relation?: RelationInput }
+export interface FieldOptions { minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url"; allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number }
+export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
@@ -256,7 +257,15 @@ export interface RecordRulesPort {
   previewRule(collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview>;
 }
 export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
-export interface AuthCollectionsPort { listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void> }
+export interface AuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; mfaEnabled: boolean }
+export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; allowInsecureLoopback: boolean }
+export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change"; subject: string; body: string }
+export interface AuthSMTPSettings { address: string; from: string; username: string; password?: string; passwordConfigured: boolean; serverName: string; implicitTls: boolean; allowInsecureLoopback: boolean }
+export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProviderSettings[]; templates: AuthMailTemplate[]; smtp?: AuthSMTPSettings }
+export interface AuthCollectionsPort {
+  listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
+  getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
+}
 export interface ServiceTokenScope { collectionId: string; action: "read" | "create" | "update" | "delete" }
 export interface ServiceToken { id: string; name: string; active: boolean; expiresAt: string; revokedAt?: string; createdAt: string; scopes: ServiceTokenScope[] }
 export interface IssuedServiceToken extends ServiceToken { token: string }
@@ -293,9 +302,24 @@ export interface UsersPort {
   list(after?: string, signal?: AbortSignal): Promise<UserPage>;
   setActive(id: string, active: boolean): Promise<ManagedUser>;
   revokeSessions(id: string): Promise<number>;
+  setVerified(id: string, verified: boolean): Promise<ManagedUser>;
+  sendVerification(id: string): Promise<void>;
+  sendPasswordReset(id: string): Promise<void>;
+}
+
+export interface RequestLogEntry { id: number; at: string; method: string; route: string; status: number; durationMs: number }
+export interface RequestLogPage { items: RequestLogEntry[]; nextBefore?: number; oldestId: number }
+export interface ScheduledJob { id: string; name: string; schedule: string; enabled: boolean; registered: boolean; running: boolean; nextRunAt: string; lastStartedAt?: string; lastFinishedAt?: string; attempts: number; failed: boolean }
+export interface JobPage { items: ScheduledJob[]; workerEnabled: boolean }
+export interface OperationsPort {
+  logs(before?: number, statusClass?: number, signal?: AbortSignal): Promise<RequestLogPage>;
+  jobs(signal?: AbortSignal): Promise<JobPage>;
+  configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
+  runJob(id: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface AdminBackend {
+  operations?: OperationsPort;
   session: SessionPort;
   schema: SchemaPort;
   records: RecordPort;

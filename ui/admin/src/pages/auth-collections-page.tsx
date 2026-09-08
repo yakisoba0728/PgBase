@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { AuthCollection } from "../backend/ports";
+import { AuthAdministrationPanel } from "../components/auth-administration-panel";
 
 function profileSchemaText(schema: Record<string, string>): string { return JSON.stringify(schema, null, 2); }
 
@@ -104,6 +105,7 @@ export function AuthCollectionsPage() {
       <label>Profile schema JSON<textarea aria-label={`${item.name} profile schema`} value={drafts[item.id] ?? profileSchemaText(item.profileSchema)} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} /></label>
       <button disabled={pending} type="button" onClick={() => save(item)}>Save</button><button disabled={pending || item.name === "users"} type="button" onClick={() => remove(item)}>Delete</button>
       {item.name === "users" && <p>The default users realm cannot be deleted.</p>}
+      <AuthAdministrationPanel collectionId={item.id} />
     </li>)}</ul>}
   </section>;
 }

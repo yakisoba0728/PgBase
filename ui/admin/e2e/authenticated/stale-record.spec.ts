@@ -27,7 +27,7 @@ test("recovers a second tab from the precondition the first tab invalidated", as
     await expect(second.getByRole("button", { name: "Save changes" })).toBeDisabled();
 
     await second.getByRole("button", { name: "Reload record" }).click();
-    await expect(second.getByLabel("body", { exact: true })).toHaveValue("first tab wins");
+    await expect(second.getByLabel("body", { exact: true })).toHaveValue("second tab draft");
     await expect(second.getByRole("button", { name: "Save changes" })).toBeEnabled();
 
     await second.getByLabel("body", { exact: true }).fill("second tab after reload");

@@ -26,6 +26,7 @@ import (
 type App struct {
 	options          Options
 	pool             *database.Pool
+	backupGate       *database.BackupGate
 	handler          http.Handler
 	httpServer       *http.Server
 	readiness        *readinessState
@@ -301,6 +302,16 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false)
+	if err != nil {
+		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
+	}
+	keepGate := false
+	defer func() {
+		if !keepGate {
+			_ = gate.Close(context.Background())
+		}
+	}()
 	pool, err := database.Open(ctx, normalized.DatabaseURL, normalized.StatementTimeout, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
@@ -405,6 +416,7 @@ func newWithCatalogPreflight(
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
 	dependencies, err := withUserServices(api.Dependencies{
 		Realtime:           realtimeService,
+		RequestLog:         &observability.RequestLog{},
 		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
 		Readiness:          readiness,
 		Logger:             normalized.Logger,
@@ -428,6 +440,9 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	if jobService != nil {
+		dependencies.Jobs = jobService
+	}
 	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
 	handler, err := api.NewRouter(dependencies)
 	if err != nil {
@@ -436,12 +451,12 @@ func newWithCatalogPreflight(
 	app := &App{
 		options:          normalized,
 		pool:             pool,
+		backupGate:       gate,
 		handler:          handler,
 		readiness:        readiness,
 		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
 		realtimeWorker:   realtimeService,
-		jobWorker:        jobService,
 		schemaOperations: schemaService,
 		schemaListener:   schemaListener,
 		membershipWriter: membershipRuntime,
@@ -449,6 +464,9 @@ func newWithCatalogPreflight(
 		schemaHealth:     schemaHealth,
 		listen:           net.Listen,
 		lifecycleClosing: make(chan struct{}),
+	}
+	if jobService != nil {
+		app.jobWorker = jobService
 	}
 	if fileService != nil {
 		app.fileWorker = fileService
@@ -463,6 +481,7 @@ func newWithCatalogPreflight(
 		MaxHeaderBytes:    64 << 10,
 	}
 	keepPool = true
+	keepGate = true
 	return app, nil
 }
 
@@ -699,6 +718,11 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	if a.pool != nil {
 		if err := a.pool.CloseContext(ctx); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close PostgreSQL pool: %w", err))
+		}
+	}
+	if a.backupGate != nil {
+		if err := a.backupGate.Close(ctx); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("release PostgreSQL writer gate: %w", err))
 		}
 	}
 

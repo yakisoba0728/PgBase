@@ -6,6 +6,8 @@ import type { AdminRoute } from "../routing/admin-location";
 import { useRecordEditor, type RecordEditor } from "../workspace/record-workspace";
 import type { FieldState } from "../workspace/record-codec";
 
+function jsonSelections(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
+
 function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefinition }) {
   const state = editor.stateOf(field);
   const relation = field.type === "relation" ? field.relation : undefined;
@@ -15,6 +17,7 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
   const errorID = error ? `record-${field.name}-error` : undefined;
   const describedBy = [relationHintID, errorID].filter(Boolean).join(" ") || undefined;
   const target = editor.targetOf(field);
+  const allowed = field.options?.allowedValues ?? [];
 
   return <div className="record-field">
     <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
@@ -31,6 +34,8 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
     {state.kind === "value" && <>
       <label htmlFor={`record-${field.name}`}>{field.name}</label>
       {field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.checked)} type="checkbox" /> :
+        field.type === "text" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)}><option disabled value="">Choose a value</option>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
+        field.type === "jsonb" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} multiple onChange={(event) => editor.setValue(field, JSON.stringify(Array.from(event.target.selectedOptions, (option) => option.value)))} value={jsonSelections(String(state.value))}>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" || multipleRelation ? <textarea aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} rows={multipleRelation ? Math.min(8, Math.max(3, relation?.maxSelect ?? 3)) : 5} value={String(state.value)} /> :
           <input aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)} />}
       {relation !== undefined && target !== undefined && <RelationTargetPicker
@@ -88,6 +93,7 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
     {editor.collection && <form onSubmit={(event) => { event.preventDefault(); editor.save(); }}>
       {editor.fields.map((field) => field.type === "file" && id ? <FileField collection={collectionName} recordID={id} field={field} key={field.name} /> : <RecordField editor={editor} field={field} key={field.name} />)}
       <button disabled={editor.pending || editor.stale} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</button>
+      {!editor.isCreate && <button disabled={editor.pending} onClick={editor.duplicate} type="button">Duplicate record</button>}
       {!editor.isCreate && <button className="danger" disabled={editor.pending || editor.stale} onClick={editor.remove} type="button">Delete record</button>}
     </form>}
   </section>;

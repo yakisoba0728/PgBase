@@ -7,6 +7,7 @@ import {
   SessionError,
   VersionedRecord,
   type AdminBackend,
+  type RequestLogPage, type JobPage,
   type ApplyAttempt,
   type ApplyOutcome,
   type AuthenticatedSession,
@@ -31,6 +32,7 @@ import {
   type RecordRules,
   type RulePreview,
   type AuthCollection,
+  type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
 } from "./ports";
@@ -201,7 +203,7 @@ class HTTPBackend implements AdminBackend {
     plan: async (change: CollectionChange, signal?: AbortSignal): Promise<PlannedChange> => {
       const reply = await this.#schemaCall({ path: "/api/admin/collections/plan", method: "POST", body: change, csrf: true, signal });
       const plan = reply.data as { baseVersion: number; checksum: string; definition: { fields: PlannedField[] }; sql: string[] };
-      return new PlannedChange(change, plan.checksum, plan.baseVersion, plan.definition.fields, plan.sql);
+      return new PlannedChange(change, plan.checksum, plan.baseVersion, plan.definition.fields, Array.isArray(plan.sql) ? plan.sql : []);
     },
     apply: async (plan: PlannedChange, attempt: ApplyAttempt): Promise<ApplyOutcome> => {
       const identity = attempt.identityFor(plan);
@@ -301,6 +303,22 @@ class HTTPBackend implements AdminBackend {
     },
   };
 
+  readonly operations = {
+    logs: async (before?: number, statusClass?: number, signal?: AbortSignal): Promise<RequestLogPage> => {
+      const query = new URLSearchParams();
+      if (before !== undefined) query.set("before", String(before));
+      if (statusClass !== undefined) query.set("statusClass", String(statusClass));
+      return (await this.#send({ path: `/api/admin/logs?${query}`, signal })).data as RequestLogPage;
+    },
+    jobs: async (signal?: AbortSignal): Promise<JobPage> => (await this.#send({ path: "/api/admin/jobs", signal })).data as JobPage,
+    configureJob: async (id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> => {
+      await this.#send({ path: `/api/admin/jobs/${encodeURIComponent(id)}`, method: "PUT", body: { schedule, enabled }, csrf: true, signal });
+    },
+    runJob: async (id: string, signal?: AbortSignal): Promise<void> => {
+      await this.#send({ path: `/api/admin/jobs/${encodeURIComponent(id)}/run`, method: "POST", csrf: true, signal });
+    },
+  };
+
   readonly users = {
     list: async (after?: string, signal?: AbortSignal): Promise<UserPage> => {
       const query = new URLSearchParams({ limit: "50" });
@@ -311,6 +329,10 @@ class HTTPBackend implements AdminBackend {
       (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}`, method: "PATCH", body: { active }, csrf: true })).data as ManagedUser,
     revokeSessions: async (id: string): Promise<number> =>
       Number(((await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, method: "POST", csrf: true })).data as { revokedSessions: number }).revokedSessions),
+    setVerified: async (id: string, verified: boolean): Promise<ManagedUser> =>
+      (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/verification`, method: "PUT", body: { verified }, csrf: true })).data as ManagedUser,
+    sendVerification: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-verification`, method: "POST", csrf: true }); },
+    sendPasswordReset: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-password-reset`, method: "POST", csrf: true }); },
   };
 
   readonly files = {
@@ -357,6 +379,13 @@ class HTTPBackend implements AdminBackend {
     updateAuthCollection: async (id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection> =>
       (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}`, method: "PATCH", body: value, csrf: true, signal })).data as AuthCollection,
     deleteAuthCollection: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}`, method: "DELETE", csrf: true, signal }); },
+    getAdministration: async (id: string, signal?: AbortSignal): Promise<AuthAdministration> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/administration`, signal })).data as AuthAdministration,
+    setPolicy: async (id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/policy`, method: "PUT", body: value, csrf: true, signal })).data as AuthPolicy,
+    putProvider: async (id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(value.name)}`, method: "PUT", body: value, csrf: true, signal })).data as OAuthProviderSettings,
+    deleteProvider: async (id: string, name: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(name)}`, method: "DELETE", csrf: true, signal }); },
+    putTemplate: async (id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}`, method: "PUT", body: value, csrf: true, signal })).data as AuthMailTemplate,
+    putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: value, csrf: true, signal })).data as AuthSMTPSettings,
+    testSMTP: async (id: string, recipient: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp/test`, method: "POST", body: { recipient }, csrf: true, signal }); },
   };
   readonly serviceTokens = {
     listServiceTokens: async (signal?: AbortSignal): Promise<ServiceToken[]> =>

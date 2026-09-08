@@ -134,7 +134,13 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	defer cancel()
 	// Rewind to exactly v6. Remove every later object and history row so Up sees
 	// a contiguous pre-membership history even as new migrations are embedded.
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.collection_views;
+	if _, err := pool.Exec(ctx, `drop trigger auth_collection_policy_after_insert on pgbase_meta.auth_collections;
+        drop function pgbase_meta.create_auth_policy();
+        drop table pgbase_meta.auth_collection_policies, pgbase_meta.auth_oauth_providers,
+            pgbase_meta.auth_mail_templates, pgbase_meta.auth_smtp_configs;
+        drop function pgbase_meta.rename_field_references(jsonb,text,text);
+        alter table pgbase_meta.fields drop column options_json;
+        drop table pgbase_meta.collection_views;
         drop table pgbase_meta.service_token_scopes, pgbase_meta.service_tokens;
         drop table pgbase_meta.compound_index_fields, pgbase_meta.compound_indexes;
         drop table pgbase_meta.collection_rules;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
-import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
-import { selectRelationTarget } from "../workspace/record-codec";
+import { CreateAttempt, type CollectionDefinition, type FieldDefinition } from "../backend/ports";
+import { encodeDraft, initialDraft, selectRelationTarget } from "../workspace/record-codec";
 import {
   deselectRelationTarget,
   relationDraftSelection,
@@ -36,6 +36,9 @@ export interface RelationPicker {
   moveActive(step: ActiveStep): void;
   chooseActive(): void;
   dismiss(): void;
+  mutating: boolean;
+  createTarget(value: string): void;
+  editTarget(id: string, value: string): void;
 }
 
 interface PickerState {
@@ -52,11 +55,12 @@ interface PickerState {
   labels: ReadonlyMap<string, string>;
   missing: ReadonlySet<string>;
   claimed: ReadonlySet<string>;
+  mutating: boolean;
 }
 
 const initialState: PickerState = {
   query: "", plan: null, cursor: undefined, results: null, status: null, busy: null,
-  activeIndex: -1, labels: new Map(), missing: new Set(), claimed: new Set(),
+  activeIndex: -1, labels: new Map(), missing: new Set(), claimed: new Set(), mutating: false,
 };
 
 function resultsStatus(count: number, more: boolean): string | null {
@@ -78,12 +82,13 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
   const [state, setState] = useState<PickerState>(initialState);
   const patch = useCallback((next: Partial<PickerState>) => setState((current) => ({ ...current, ...next })), []);
   const pageFlight = useRef<AbortController | null>(null);
+  const alive = useRef(true);
   // Hydration is not cancelled when the pending set shrinks, only when the
   // editor goes away: each batch narrows the next one, so a cleanup keyed on
   // that set would abort every request it just started.
   const hydrationFlights = useRef(new Set<AbortController>());
 
-  useEffect(() => () => pageFlight.current?.abort(), []);
+  useEffect(() => () => { alive.current = false; pageFlight.current?.abort(); }, []);
   useEffect(() => {
     const flights = hydrationFlights.current;
     return () => { for (const controller of flights) controller.abort(); flights.clear(); };
@@ -202,6 +207,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     hasMore: state.cursor !== undefined,
     activeIndex: state.activeIndex,
     searchField: displayField,
+    mutating: state.mutating,
     setQuery: (query) => patch({ query }),
     search: () => void search(),
     loadMore: () => {
@@ -219,5 +225,36 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       if (candidate !== undefined) select(candidate.id);
     },
     dismiss: () => patch({ results: null, plan: null, cursor: undefined, activeIndex: -1, status: null }),
+    createTarget: (value) => {
+      if (displayField === undefined || state.mutating) return;
+      patch({ mutating: true, status: null });
+      const attempt = new CreateAttempt(target.name);
+      const draft = { ...initialDraft(target.fields, {}, true), [displayField.name]: { kind: "value" as const, value } };
+      const encoded = encodeDraft(target.fields, draft, new Set([displayField.name]), true);
+      if (Object.keys(encoded.errors).length > 0) { patch({ mutating: false, status: encoded.errors[displayField.name] ?? "The target record is invalid." }); return; }
+      void records.create(attempt, encoded.input).then((record) => {
+        if (!alive.current) return;
+        const id = String(record.data.id);
+        const candidate = relationTargetOption(record.data, displayField);
+        select(id);
+        if (candidate !== undefined) setState((current) => ({ ...current, results: [...(current.results ?? []), candidate], status: `Created and selected ${candidate.label}.`, labels: new Map([...current.labels, [id, candidate.label]]), claimed: new Set([...current.claimed, id]) }));
+      }).catch(() => { if (alive.current) patch({ status: `Unable to create the ${target.name} record.` }); })
+        .finally(() => { if (alive.current) patch({ mutating: false }); });
+    },
+    editTarget: (id, value) => {
+      if (displayField === undefined || state.mutating) return;
+      patch({ mutating: true, status: null });
+      void records.get(target.name, id).then((record) => {
+        const draft = { ...initialDraft(target.fields, record.data, false), [displayField.name]: { kind: "value" as const, value } };
+        const encoded = encodeDraft(target.fields, draft, new Set([displayField.name]), false);
+        if (Object.keys(encoded.errors).length > 0) throw new Error(encoded.errors[displayField.name]);
+        return records.update(record, encoded.input);
+      }).then((record) => {
+        if (!alive.current) return;
+        const candidate = relationTargetOption(record.data, displayField);
+        if (candidate === undefined) return;
+        setState((current) => ({ ...current, mutating: false, status: `Updated ${candidate.label}.`, results: current.results?.map((item) => item.id === id ? candidate : item) ?? null, labels: new Map([...current.labels, [id, candidate.label]]) }));
+      }).catch(() => { if (alive.current) patch({ mutating: false, status: `Unable to update the ${target.name} record.` }); });
+    },
   };
 }

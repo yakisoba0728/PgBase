@@ -12,7 +12,7 @@ import (
 // newJobService converts public option handlers into the private durable
 // runner. It registers every handler before scheduling anything, so a process
 // never claims work it cannot execute.
-func newJobService(ctx context.Context, pool *database.Pool, options Options) (backgroundRunner, error) {
+func newJobService(ctx context.Context, pool *database.Pool, options Options) (*jobs.Service, error) {
 	if !options.JobsEnabled {
 		return nil, nil
 	}
@@ -31,7 +31,7 @@ func newJobService(ctx context.Context, pool *database.Pool, options Options) (b
 	}
 	service := jobs.NewService(pool, registry, options.Logger, uuid.New())
 	for _, configured := range options.Jobs {
-		if err := service.Schedule(ctx, configured.Name, configured.Schedule); err != nil {
+		if err := service.EnsureScheduled(ctx, configured.Name, configured.Schedule); err != nil {
 			return nil, fmt.Errorf("schedule job %q: %w", configured.Name, err)
 		}
 	}

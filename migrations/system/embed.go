@@ -76,6 +76,12 @@ var serviceTokensSQL string
 //go:embed 000021_collection_views.sql
 var collectionViewsSQL string
 
+//go:embed 000022_field_contracts.sql
+var fieldContractsSQL string
+
+//go:embed 000023_auth_administration.sql
+var authAdministrationSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -143,6 +149,8 @@ var migrations = []Migration{
 	{Version: 19, Name: "compound_indexes", SQL: compoundIndexesSQL, SHA256: sha256.Sum256([]byte(compoundIndexesSQL))},
 	{Version: 20, Name: "service_tokens", SQL: serviceTokensSQL, SHA256: sha256.Sum256([]byte(serviceTokensSQL))},
 	{Version: 21, Name: "collection_views", SQL: collectionViewsSQL, SHA256: sha256.Sum256([]byte(collectionViewsSQL))},
+	{Version: 22, Name: "field_contracts", SQL: fieldContractsSQL, SHA256: sha256.Sum256([]byte(fieldContractsSQL))},
+	{Version: 23, Name: "auth_administration", SQL: authAdministrationSQL, SHA256: sha256.Sum256([]byte(authAdministrationSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

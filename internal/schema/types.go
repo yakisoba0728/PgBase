@@ -27,6 +27,7 @@ const (
 )
 
 type FieldInput struct {
+	ID       *uuid.UUID      `json:"id,omitempty"`
 	Name     string          `json:"name"`
 	Type     FieldType       `json:"type"`
 	Required bool            `json:"required"`
@@ -34,6 +35,22 @@ type FieldInput struct {
 	Indexed  bool            `json:"indexed"`
 	Default  json.RawMessage `json:"default,omitempty"`
 	Relation *RelationInput  `json:"relation,omitempty"`
+	Options  *FieldOptions   `json:"options,omitempty"`
+}
+
+// FieldOptions contains value constraints enforced on record writes. Required
+// remains the SQL NULL contract; these constraints apply only to non-NULL values.
+type FieldOptions struct {
+	MinLength      *int     `json:"minLength,omitempty"`
+	MaxLength      *int     `json:"maxLength,omitempty"`
+	Pattern        string   `json:"pattern,omitempty"`
+	Format         string   `json:"format,omitempty"`
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
+	AllowedValues  []string `json:"allowedValues,omitempty"`
+	MinSelect      *int     `json:"minSelect,omitempty"`
+	MaxSelect      *int     `json:"maxSelect,omitempty"`
+	Min            *string  `json:"min,omitempty"`
+	Max            *string  `json:"max,omitempty"`
 }
 
 type IndexInput struct {
@@ -144,6 +161,19 @@ func cloneFieldInputs(fields []FieldInput) []FieldInput {
 	return cloned
 }
 
+func cloneFieldOptions(source FieldOptions) FieldOptions {
+	result := source
+	result.MinLength = clonePointer(source.MinLength)
+	result.MaxLength = clonePointer(source.MaxLength)
+	result.MinSelect = clonePointer(source.MinSelect)
+	result.MaxSelect = clonePointer(source.MaxSelect)
+	result.Min = clonePointer(source.Min)
+	result.Max = clonePointer(source.Max)
+	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
+	result.AllowedValues = append([]string(nil), source.AllowedValues...)
+	return result
+}
+
 // ApplyIntent binds one immutable change to the plan version/checksum approved
 // by the caller and the administrator responsible for the mutation.
 type ApplyIntent struct {
@@ -186,6 +216,7 @@ type Field struct {
 	Indexed    bool            `json:"indexed"`
 	Default    json.RawMessage `json:"default,omitempty"`
 	Relation   *RelationSpec   `json:"relation,omitempty"`
+	Options    FieldOptions    `json:"options,omitzero"`
 	Ordinal    int             `json:"ordinal"`
 }
 
@@ -223,14 +254,17 @@ type Index struct {
 }
 
 type PlannedField struct {
-	Name     string
-	Type     FieldType
-	Required bool
-	Unique   bool
-	Indexed  bool
-	Default  json.RawMessage
-	Relation *PlannedRelation `json:"relation,omitempty"`
-	Ordinal  int
+	ID         uuid.UUID `json:"id,omitzero"`
+	Name       string
+	ColumnName string
+	Type       FieldType
+	Required   bool
+	Unique     bool
+	Indexed    bool
+	Default    json.RawMessage
+	Relation   *PlannedRelation `json:"relation,omitempty"`
+	Options    FieldOptions     `json:"options,omitzero"`
+	Ordinal    int
 }
 
 type PlannedCollection struct {

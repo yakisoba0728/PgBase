@@ -26,6 +26,7 @@ import {
 	type RecordRules,
 	type RulePreview,
 	type AuthCollection,
+	type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthSMTPSettings,
 	type ServiceToken,
 	type IssuedServiceToken,
 } from "../backend/ports";
@@ -166,6 +167,9 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 		list: (after, signal) => guard(signal, () => take<UserPage>("users", after ? { after } : {}, "system")),
 		setActive: (id, active) => guard(undefined, () => take<ManagedUser>("setUserActive", { id, active }, "system")),
 		revokeSessions: (id) => guard(undefined, () => take<number>("revokeUserSessions", { id }, "system")),
+		setVerified: (id, verified) => guard(undefined, () => take<ManagedUser>("setUserVerified", { id, verified }, "system")),
+		sendVerification: (id) => guard(undefined, () => take<void>("sendVerification", { id }, "system")),
+		sendPasswordReset: (id) => guard(undefined, () => take<void>("sendPasswordReset", { id }, "system")),
 	},
 	files: {
 		listFiles: (collection, recordID, field, signal) => guard(signal, () => take<FileInfo[]>("listFiles", { collection, recordID, field }, "record")),
@@ -184,6 +188,13 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 		createAuthCollection: (value, signal) => guard(signal, () => take<AuthCollection>("createAuthCollection", { value }, "schema")),
 		updateAuthCollection: (id, value, signal) => guard(signal, () => take<AuthCollection>("updateAuthCollection", { id, value }, "schema")),
 		deleteAuthCollection: (id, signal) => guard(signal, () => take<void>("deleteAuthCollection", { id }, "schema")),
+		getAdministration: (id, signal) => guard(signal, () => take<AuthAdministration>("getAuthAdministration", { id }, "schema")),
+		setPolicy: (id, value, signal) => guard(signal, () => take<AuthPolicy>("setAuthPolicy", { id, value }, "schema")),
+		putProvider: (id, value, signal) => guard(signal, () => take<OAuthProviderSettings>("putOAuthProvider", { id, value }, "schema")),
+		deleteProvider: (id, name, signal) => guard(signal, () => take<void>("deleteOAuthProvider", { id, name }, "schema")),
+		putTemplate: (id, value, signal) => guard(signal, () => take<AuthMailTemplate>("putAuthMailTemplate", { id, value }, "schema")),
+		putSMTP: (id, value, signal) => guard(signal, () => take<AuthSMTPSettings>("putAuthSMTP", { id, value }, "schema")),
+		testSMTP: (id, recipient, signal) => guard(signal, () => take<void>("testAuthSMTP", { id, recipient }, "schema")),
 	},
 	serviceTokens: {
 		listServiceTokens: (signal) => guard(signal, () => take<ServiceToken[]>("listServiceTokens", {}, "schema")),

@@ -83,7 +83,7 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 		if !ok {
 			return ErrConflict
 		}
-		names := NewRelationPhysicalNames(collection.TableName, field.Name)
+		names := NewRelationPhysicalNames(collection.TableName, field.ColumnName)
 		switch field.Relation.Cardinality {
 		case RelationSingle:
 			builder.required.Columns = append(builder.required.Columns, ColumnSpec{
@@ -223,12 +223,12 @@ func (builder *physicalManifestBuilder) addMultiRelation(sourceTable, targetTabl
 	)
 	builder.addIndex(relationPhysicalNamespace, table, names.MultiReverseIndex, []string{"target_id", "source_id"}, false, false, "")
 
-	positionDefinition := positionFunctionStatement(sourceTable, field.Name)
+	positionDefinition := positionFunctionStatement(sourceTable, field.ColumnName)
 	positionBody, ok := plannerFunctionBody(positionDefinition)
 	if !ok {
 		return ErrConflict
 	}
-	cardinalityDefinition := cardinalityFunctionStatement(sourceTable, field.Name, field.Relation.MinSelect, field.Relation.MaxSelect, false)
+	cardinalityDefinition := cardinalityFunctionStatement(sourceTable, field.ColumnName, field.Relation.MinSelect, field.Relation.MaxSelect, false)
 	cardinalityBody, ok := plannerFunctionBody(cardinalityDefinition)
 	if !ok {
 		return ErrConflict

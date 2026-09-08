@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/webisnoteasy/PgBase/internal/observability"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -205,7 +206,7 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 	return w.ResponseWriter.Write(body)
 }
 
-func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+func accessLogMiddleware(logger *slog.Logger, next http.Handler, logs ...*observability.RequestLog) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		response := &statusWriter{ResponseWriter: w}
@@ -213,6 +214,9 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 		status := response.status
 		if status == 0 {
 			status = http.StatusOK
+		}
+		for _, log := range logs {
+			log.Record(r.Method, requestRoute(r), status, time.Since(started))
 		}
 		logger.Info("http request", "request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds())
 	})
