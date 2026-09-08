@@ -11,7 +11,7 @@
 | M2-A 관리자 UI | GPT 5.6 Terra / owner_access + Root | 구현·416 UI 테스트·실제 브라우저 확인 완료 | Users 화면, 페이지 이동, 활성화/비활성화·세션 폐기·컬렉션 접근 설정 |
 | M2-A HTTP·통합 | Root | 구현·입력/오류 단위 검사 완료 | 관리자 쿠키/CSRF와 사용자 Bearer 경계, 엄격한 입력·오류 계약 |
 | M2-A 실제 HTTP 검증 | GPT 5.6 Sol / private_release_review | 실제 HTTP 수명주기 검사 통과 | 비활성화·재활성화·폐기·암호 변경을 실제 앱으로 검증 |
-| M2-A 인수인계 | Root | 로컬 검증 완료, PR 준비 | 전체 검사·문서·PR·CI·병합, 릴리스와 구분 |
+| M2-A 인수인계 | Root | 로컬 검증 완료, [PR #27](https://github.com/yakisoba0728/PgBase/pull/27)에서 CI·병합 추적 | 전체 검사·문서·PR·CI·병합, 릴리스와 구분 |
 
 ## M0 — 기준점과 작업 관리
 
@@ -175,7 +175,9 @@
 - [x] UI typecheck·test·build 및 embedded dist 갱신/재현.
 - [x] 독립 검토, 발견된 실제 문제 수정 후 재검증.
 - [x] API·관리 UI·암호 변경/다시 로그인 사용법 작성.
-- [ ] PR 생성, 최신 CI 확인, 병합 상태 추적.
+- [x] [PR #27 생성](https://github.com/yakisoba0728/PgBase/pull/27).
+- M2-A 최신 CI는 [PR checks](https://github.com/yakisoba0728/PgBase/pull/27/checks), 병합 및 main 커밋은 [PR 타임라인](https://github.com/yakisoba0728/PgBase/pull/27)을 기준으로 추적한다.
+- M2-A는 소스 구현이며 새 릴리스는 아직 발행하지 않았다.
 
 ## M2 — 사용자 수명주기와 유연한 권한
 
@@ -271,3 +273,5 @@
 - 2026-09-08: M2-A 서비스·API·UI 구현 연결. 실제 HTTP 수명주기, 2개 서비스 간 암호 변경 제한, 로그인/비활성화·암호 변경 경쟁 조건 검사 통과. UI 다중 행 pending 잠금, incoming 관계 판정, 정책 조회 재시도 및 늦은 응답 무효화를 검토·보완하고 테스트 추가.
 
 - 2026-09-08: M2-A 전체 Go unit/race·PG17 integration/race 및 skip 정책, pinned lint/vet 통과. UI 25개 파일 416개 테스트·typecheck·build 통과. 실제 브라우저에서 비활성화→재활성화·세션 폐기를 확인하고, 데스크톱 버튼 가시성 및 모바일 페이지 overflow를 검증. 최종 런타임 증가 +656줄은 설계 문서와 제한에 반영.
+
+- 2026-09-08: M2-A PR #27 생성. Backend/Frontend/Security CI 실행 시작. 구현·로컬 검사와 CI·병합·배포 상태를 분리해 추적.
