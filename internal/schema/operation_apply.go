@@ -77,8 +77,6 @@ func replayedApplyResult(row operationRow) (ApplyResult, error) {
 		switch row.failureCode {
 		case OperationFailurePlanConflict, OperationFailureLeaseLost:
 			return result, ErrConflict
-		case OperationFailureApplyFailed, OperationFailureReconcileFailed:
-			return result, ErrOperationFailed
 		default:
 			return result, ErrOperationFailed
 		}
@@ -464,18 +462,15 @@ func rollbackOperationTx(tx pgx.Tx) {
 }
 
 func schemaCommitDefinitelyFailed(err error) bool {
-	if errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) {
-		return true
-	}
 	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError)
+	return errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) || errors.As(err, &postgresError)
 }
 
 func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedCollection) (Collection, error) {
 	if collectionID == uuid.Nil {
 		return Collection{}, ErrConflict
 	}
-	fields, err := fieldMetadata(collectionID, nil, definition)
+	fields, err := updatedFieldMetadata(collectionID, nil, definition)
 	if err != nil {
 		return Collection{}, err
 	}

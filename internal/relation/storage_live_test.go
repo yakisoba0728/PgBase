@@ -187,6 +187,20 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		}
 	})
 
+	t.Run("bounded hydrate reports overflow before validating the unordered limited sample", func(t *testing.T) {
+		records := map[uuid.UUID]map[string]any{fixture.sourceOne: {}}
+		querier := &nonPrefixRowsQuerier{
+			delegate: fixture.conn,
+			sourceID: fixture.sourceOne,
+			targets:  []uuid.UUID{fixture.targetOne, fixture.targetTwo},
+		}
+		used, err := fixture.bindings.HydrateBounded(ctx, querier,
+			[]uuid.UUID{fixture.sourceOne}, records, 1)
+		if used != 2 || !errors.Is(err, ErrHydrationBudgetExceeded) {
+			t.Fatalf("unordered bounded sample used/error = %d/%v", used, err)
+		}
+	})
+
 	t.Run("bounded hydrate validates negative and zero remaining budgets", func(t *testing.T) {
 		fixture.resetEdges(t, ctx)
 		noSourceCounter := &countingRowsQuerier{delegate: fixture.conn}
@@ -402,7 +416,7 @@ func TestRelationStorageLivePostgreSQL(t *testing.T) {
 		positionCounter := &countingRowsQuerier{delegate: fixture.conn}
 		used, err = fixture.bindings.HydrateBounded(ctx, positionCounter,
 			[]uuid.UUID{fixture.sourceOne}, map[uuid.UUID]map[string]any{fixture.sourceOne: {}}, 10)
-		if used != 1 || !errors.Is(err, ErrInvalidStoredValue) ||
+		if used != 2 || !errors.Is(err, ErrInvalidStoredValue) ||
 			positionCounter.queries != 1 || positionCounter.closes != 1 {
 			t.Fatalf("position drift used/error/queries/closes = %d/%v/%d/%d",
 				used, err, positionCounter.queries, positionCounter.closes)
@@ -641,6 +655,19 @@ type countingRowsQuerier struct {
 	rowsErr      error
 	scanErrQuery int
 	scanErr      error
+}
+
+type nonPrefixRowsQuerier struct {
+	delegate RowsQuerier
+	sourceID uuid.UUID
+	targets  []uuid.UUID
+}
+
+func (q *nonPrefixRowsQuerier) Query(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return q.delegate.Query(ctx, `select field_index, source_id, target_id, position from (values
+		(0, $1::uuid, $2::uuid, 1), (0, $1::uuid, $3::uuid, 2))
+		as sample(field_index, source_id, target_id, position) order by position`,
+		q.sourceID, q.targets[0], q.targets[1])
 }
 
 func (q *countingRowsQuerier) Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error) {

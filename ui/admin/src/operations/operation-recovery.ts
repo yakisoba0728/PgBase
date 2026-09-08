@@ -26,11 +26,8 @@ function mayRetryFailure(error: unknown, now: number, notFoundUntil: number): bo
   // or any other typed contract failure, needs an explicit re-check rather
   // than thousands of automatic requests.
   if (error.reason === "not-found") return now < notFoundUntil;
-  return error.reason === "failed" &&
-    (error.code === "internal_error" ||
-      error.code === "schema_unavailable" ||
-      error.code === "authentication_unavailable" ||
-      error.code === "rate_limited");
+  return error.reason === "failed" && ["internal_error", "schema_unavailable",
+    "authentication_unavailable", "rate_limited"].includes(error.code);
 }
 
 // The ledger's terminal classifications. They are the whole failure vocabulary

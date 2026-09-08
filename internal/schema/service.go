@@ -142,10 +142,7 @@ func requiredRelationAddOrdinal(current Collection, desired PlannedCollection) (
 		existing[field.Name] = struct{}{}
 	}
 	for ordinal, field := range desired.Fields {
-		if _, ok := existing[field.Name]; ok {
-			continue
-		}
-		if field.Type == TypeRelation && field.Required {
+		if _, exists := existing[field.Name]; !exists && field.Type == TypeRelation && field.Required {
 			return ordinal, true
 		}
 	}
@@ -433,10 +430,6 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 	for _, field := range existing {
 		existingIDs[field.Name] = field.ID
 	}
-	return fieldMetadata(collectionID, existingIDs, definition)
-}
-
-func fieldMetadata(collectionID uuid.UUID, existingIDs map[string]uuid.UUID, definition PlannedCollection) ([]Field, error) {
 	fields := make([]Field, 0, len(definition.Fields))
 	for ordinal, planned := range definition.Fields {
 		fieldID, ok := existingIDs[planned.Name]

@@ -10,13 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
-	"github.com/webisnoteasy/PgBase/internal/schema"
 )
-
-// The shared schema bound also applies to record writes. Per-field input
-// validation cannot see how a PATCH grows the complete post-image, so the
-// write service checks its merged record before committing.
-const maximumRecordBytes = schema.MaximumRecordBytes
 
 type PrincipalKind = identity.Kind
 

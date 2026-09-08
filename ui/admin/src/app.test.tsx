@@ -194,31 +194,6 @@ describe("administration shell", () => {
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
   });
 
-  it("keeps protecting a confirmed draft when sign-out fails", async () => {
-    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
-    harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
-    harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
-    harness.script.logout.push({ fault: { kind: "unreachable" } }, { fault: { kind: "unreachable" } });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const user = userEvent.setup();
-    renderAdmin(harness);
-
-    await user.clear(await screen.findByLabelText("title"));
-    await user.type(screen.getByLabelText("title"), "unsaved edit");
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out. Try again.");
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
-
-    confirm.mockReturnValue(false);
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(callsTo(harness.script, "logout")).toHaveLength(1);
-    expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
-  });
-
   it("makes the workspace inert while logout is pending and always settles after backend success", async () => {
     const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
     harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
@@ -276,7 +251,7 @@ describe("administration shell", () => {
     harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
     const logout = deferredStep<void>();
     harness.script.logout.push(logout.step);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false).mockReturnValueOnce(true);
     const user = userEvent.setup();
     renderAdmin(harness);
 
@@ -291,8 +266,12 @@ describe("administration shell", () => {
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
 
-    await user.click(screen.getByRole("link", { name: "Collections" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
     expect(confirm).toHaveBeenCalledTimes(2);
+    expect(callsTo(harness.script, "logout")).toHaveLength(1);
+
+    await user.click(screen.getByRole("link", { name: "Collections" }));
+    expect(confirm).toHaveBeenCalledTimes(3);
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit after failure");
     expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
   });

@@ -2,7 +2,9 @@
 
 PR [#13](https://github.com/webisnoteasy/PgBase/pull/13) was revalidated from
 `a69ee1ec5a31eecb09c56859c843741bb01282a7` together with the latest main commit
-`47210a126fe7e6bc2b5f7ef631345d2d5c702e74` (PR #20).
+`47210a126fe7e6bc2b5f7ef631345d2d5c702e74` (PR #20). Before publication, the
+concurrent PR update `ae2ed7d6cf725a19599da33d69a5ef174f994996` was incorporated
+and the resulting source was revalidated as well.
 
 ## Changes
 
@@ -21,9 +23,12 @@ PR [#13](https://github.com/webisnoteasy/PgBase/pull/13) was revalidated from
   checks remain in place.
 - Made best-effort cleanup of Windows password-input handles explicit, resolving
   three native Windows `errcheck` diagnostics without changing cleanup behavior.
+- Retained the concurrent update's shared post-image size validation, bounded
+  relation-hydration error precedence, and explicit full-SHA selection for
+  temporary CI execution on an internal PR or main push.
 
-No runtime budget was increased. The final measurements are 35,856 handwritten
-runtime lines (limit 35,856), 16,745 data-group lines (limit 16,747), and 3,670 UI
+No runtime budget was increased. The final measurements are 35,822 handwritten
+runtime lines (limit 35,856), 16,714 data-group lines (limit 16,747), and 3,667 UI
 runtime lines (limit 3,670). Export/interface/constructor budgets also pass.
 
 ## Verification
@@ -32,7 +37,7 @@ runtime lines (limit 3,670). Export/interface/constructor budgets also pass.
 | --- | --- |
 | Linux Go 1.26.8 unit suite, race detector and skip policy | Passed |
 | PostgreSQL 17.9 full integration suite with race detector and integration vet | Passed |
-| UI tests | 24 files, 403 tests passed |
+| UI tests | 24 files, 402 tests passed |
 | UI typecheck and rebuilt embedded distribution | Passed |
 | Real Chromium onboarding and authenticated E2E | 8 tests passed, no retries or skips |
 | Native Windows pinned golangci-lint v2.12.2 | Passed, 0 issues |
