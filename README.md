@@ -1,6 +1,6 @@
 # pgBase
 
-pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. This repository is a pre-v0.1 development preview, not a stable release. It currently provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records including ordered single/multiple relation fields, bounded relation expand/filter/sort, signed cursor pagination, create idempotency, strong ETag concurrency control, committed audit and a transactional outbox writer, health/readiness, protected opt-in Prometheus metrics, explicit system migrations, diagnostics, and a container image.
+pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. The initial v0.1.0 release is published; current development remains early v0.x with evolving contracts. The current source adds opt-in public user registration, Bearer sessions, and owner-only scalar record access; see [public user access](docs/user-access.md) for the version and scope boundary. It also provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records including ordered single/multiple relation fields, bounded relation expand/filter/sort, signed cursor pagination, create idempotency, strong ETag concurrency control, committed audit and a transactional outbox writer, health/readiness, protected opt-in Prometheus metrics, explicit system migrations, diagnostics, and a container image.
 
 ## Quick start
 
@@ -21,6 +21,8 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 - [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)
 - [Codebase audit findings and remediation evidence](docs/codebase-audit-2026-08-28.md)
 - [Round 4-5 codebase audit and remediation evidence](docs/codebase-audit-2026-09-01.md)
+- [Implementation TODO and live work log](TODO.md)
+- [Public user authentication and owner access](docs/user-access.md)
 - [10-minute quickstart](docs/quickstart.md)
 - [Deployment and configuration](docs/deployment.md)
 - [Backup and restore](docs/backup-restore.md)
@@ -38,6 +40,6 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 One pgBase project owns one PostgreSQL database. Multiple pgBase instances for that same project may share that database and must share configuration secrets. Do not point unrelated projects at one pgBase database.
 
-The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability while the project is pre-v0.1.
+The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability during v0.x.
 
-This kernel does not provide public user authentication or record rules, cross-project relations, arbitrary SQL joins, relation edge attributes, files, outbox delivery/realtime, an SDK, generated OpenAPI, online DDL, read-replica routing, or sharding. Relation mutations are supported only through the record API/Record Operations kernel; direct writes to pgBase-owned PostgreSQL objects are outside the contract because they bypass ETag/revision, audit, outbox, logical delete actions, and relation locking. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview), automatic single/multiple relation conversion, or composite indexes. It makes no throughput, large-scale-readiness, or zero-downtime upgrade guarantee.
+Public user access is limited to enabled collections without incoming or outgoing relations, and users can access only records they create. This kernel does not yet provide configurable Auth collections, OAuth2/MFA, an arbitrary record-rule language, cross-project relations, arbitrary SQL joins, relation edge attributes, files, outbox delivery/realtime, an SDK, generated OpenAPI, online DDL, read-replica routing, or sharding. Relation mutations are supported only through the record API/Record Operations kernel; direct writes to pgBase-owned PostgreSQL objects are outside the contract because they bypass ETag/revision, audit, outbox, logical delete actions, and relation locking. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview), automatic single/multiple relation conversion, or composite indexes. It makes no throughput, large-scale-readiness, or zero-downtime upgrade guarantee.

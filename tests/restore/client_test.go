@@ -180,6 +180,94 @@ func recordsPath(collection string) string {
 	return "/api/v1/collections/" + collection + "/records"
 }
 
+type publicUser struct{ ID, Token string }
+
+func registerPublicUser(t *testing.T, ctx context.Context, baseURL, email, password string) publicUser {
+	t.Helper()
+	client := &http.Client{Timeout: 30 * time.Second}
+	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/auth/register", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var value struct {
+		Token string `json:"token"`
+		User  struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if response.StatusCode != http.StatusCreated || json.NewDecoder(response.Body).Decode(&value) != nil || value.Token == "" || value.User.ID == "" {
+		t.Fatalf("register public user %s status=%d", email, response.StatusCode)
+	}
+	return publicUser{ID: value.User.ID, Token: value.Token}
+}
+
+func loginPublicUser(t *testing.T, ctx context.Context, baseURL, email, password string) publicUser {
+	t.Helper()
+	client := &http.Client{Timeout: 30 * time.Second}
+	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/auth/login", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var value struct {
+		Token string `json:"token"`
+		User  struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&value) != nil || value.Token == "" || value.User.ID == "" {
+		t.Fatalf("login public user %s status=%d", email, response.StatusCode)
+	}
+	return publicUser{ID: value.User.ID, Token: value.Token}
+}
+
+func publicRecordRequest(t *testing.T, ctx context.Context, baseURL, token, method, path string, body any, want int, destination any) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader = bytes.NewReader(encoded)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, baseURL+path, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != want {
+		data, _ := io.ReadAll(response.Body)
+		t.Fatalf("%s %s status=%d want=%d body=%s", method, path, response.StatusCode, want, data)
+	}
+	if destination != nil {
+		if err := json.NewDecoder(response.Body).Decode(destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func cloneWith(base map[string]any, additions map[string]any) map[string]any {
 	merged := make(map[string]any, len(base)+len(additions))
 	for key, value := range base {

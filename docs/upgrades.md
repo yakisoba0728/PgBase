@@ -1,6 +1,6 @@
 # Upgrades
 
-pgBase is pre-v0.1. v0.x binaries, HTTP contracts, environment variables, system schemas, and backup procedures may change without backwards compatibility. Read release-specific notes and rehearse every upgrade on a restored copy of production data.
+pgBase is an early v0.x project. v0.x binaries, HTTP contracts, environment variables, system schemas, and backup procedures may change without backwards compatibility. Read release-specific notes and rehearse every upgrade on a restored copy of production data.
 
 ## Upgrade procedure
 
@@ -634,3 +634,11 @@ If either command reports that finding:
 Do not assume a rolling upgrade is zero downtime. pgBase does not provide online DDL, down migrations, arbitrary old/new binary coexistence guarantees, replica routing, or automatic traffic orchestration. Collection DDL can take PostgreSQL locks, and a target system migration may not be compatible with the old binary. Use a stop-migrate-start maintenance window unless release-specific evidence establishes safe coexistence.
 
 There is no `pgbase migrate down`. Do not manually delete migration rows, relation metadata, edge tables, or reverse SQL in production. If an upgrade cannot be rolled forward safely, stop writers and restore the verified pre-upgrade whole-database backup/PITR point so all three schemas return to the same instant. Rolling a binary back is safe only when that exact binary has been verified against the already-upgraded schema; v0.x provides no general guarantee.
+
+## Public identity and owner access (system migrations 10–11)
+
+This capability is introduced after v0.1.0. The current binary requires the complete clean history through migration 11 and refuses to serve a database still at 9 or 10. These are additive migrations; existing records remain unowned and invisible to public users. Existing administrator access is retained. The historical phase manifests above remain fixed to their original versions and are not a rolling-upgrade bridge for this change.
+
+Use a maintenance-window upgrade: stop all old instances, retain a complete tested backup, then use the new binary with `PGBASE_AUTO_MIGRATE=false` to run `pgbase migrate status`, `pgbase migrate up`, and `pgbase migrate status`. Require `current=latest=11`, `compatible=true`, `dirty=false`, then run `pgbase doctor --json` and start only the new instances. Repeating `migrate up` on the completed history does not reapply migrations. The bulk `up` command is intentional for this two-migration offline upgrade: `up --through 11` refuses a database with two pending migrations and is not the v9-to-v11 procedure.
+
+Keep `PGBASE_USER_REGISTRATION=false` until registration is intended, and separately enable owner-only access for selected scalar collections using the administrator API. A source build after v0.1.0 is required until a release containing this capability is published. Do not point the v0.1.0 binary at the upgraded database; it rejects the unknown migration history. A rollback requires the verified pre-upgrade backup and the matching old binary, with explicit handling of data created since that backup.

@@ -52,7 +52,11 @@ func (s *Service) bindCursorV5(page cursor.Page, plan rootPlan, traversal member
 }
 
 func (s *Service) cursorV5ScopeFingerprint(principal Principal) []byte {
-	return s.cursors.ScopeFingerprint([]byte(`{"kind":"administrator","id":"` + principal.ID.String() + `","policy":"administrator-all-v1"}`))
+	policy := "administrator-all-v1"
+	if principal.Kind == "user" {
+		policy = "owner-only-v1"
+	}
+	return s.cursors.ScopeFingerprint([]byte(`{"kind":"` + string(principal.Kind) + `","id":"` + principal.ID.String() + `","policy":"` + policy + `"}`))
 }
 
 // A v5 descriptor is derived from the request's own filter and order, so a

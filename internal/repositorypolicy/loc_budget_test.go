@@ -35,12 +35,20 @@ import (
 // key renderer feeding both the DDL and the comparison). A zero-slack ratchet
 // tracks the measurement in both directions; only raising it needs the
 // accounting recorded below.
-const dataGroupRuntimeLimit = 16_747
+// M1 adds a new product capability after the R11 refactor: public identities
+// and owner-scoped access. Its explicit scope expansion is recorded in
+// docs/public-identity-owner-access-design.md. Count recordaccess in this group
+// rather than hiding its 77 lines outside the original five packages. Existing
+// group packages add 100 and delete 3 lines (+97); the full group grows by 174
+// from its v0.1.0 measurement of 16,714 (prior ceiling 16,747).
+// This establishes a new measured ceiling for M1, not general growth headroom.
+const dataGroupRuntimeLimit = 16_888
 
 var dataGroupPackages = []string{
 	"internal/database",
 	"internal/query",
 	"internal/recordops",
+	"internal/recordaccess",
 	"internal/relation",
 	"internal/schema",
 }
@@ -57,7 +65,7 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
-				// None of the five has a subpackage today. If one appears, its
+				// None of these packages has a subpackage today. If one appears, its
 				// lines belong to the group and this test has to walk it.
 				t.Fatalf("%s has subdirectory %s, which this budget does not count", name, entry.Name())
 			}
@@ -268,6 +276,14 @@ func TestDataGroupRuntimeStaysWithinItsBudget(t *testing.T) {
 // their numerical increases are 585 and 143 respectively. The data-group
 // limit remains fixed at 16,747; exported declarations fell to 461 and every
 // other structural gate remains at or below its existing ceiling.
+// M1 public identities and owner-only records expand the v0.1.0 product scope:
+// measured handwritten runtime 35,822 -> 36,840 (+1,018). The comparison
+// runtime category is +1,030/-20; eight migration embed lines count as support
+// in that category report but remain included in Go runtime measurement.
+// UI remains 3,667. The three new interfaces are the password adapter and two
+// HTTP service contracts; constructors add the userauth/recordaccess services.
+// Exported declarations increase from 462 to 482. Keep the 800-line file gate
+// and all UI gates unchanged. See the M1 design note for scope and boundaries.
 type structuralLimit struct {
 	name    string
 	value   func(repositoryMetrics) int
@@ -276,11 +292,11 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 35_856, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 36_840, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 3_670, "plan 2,050"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 17, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 462, "plan 285"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 25, "plan 16"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 20, "plan 12"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 482, "plan 285"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 27, "plan 16"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 19, "plan 30"},
 	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 119, "plan 65"},

@@ -19,6 +19,7 @@ const (
 	accessAdminSameOriginRead
 	accessMetricsToken
 	accessEmbeddedUI
+	accessUserSession
 )
 
 // responseMode separates a response the router buffers whole from one it
@@ -80,7 +81,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 32
+	maximumRegisteredRoutes     = 40
 	maximumMethodAgnosticRoutes = 3
 )
 
@@ -132,6 +133,8 @@ func (p accessPolicy) String() string {
 		return "metrics-token"
 	case accessEmbeddedUI:
 		return "embedded-ui"
+	case accessUserSession:
+		return "user-session"
 	}
 	return "unknown"
 }
@@ -142,6 +145,8 @@ func (p accessPolicy) String() string {
 // through a different call shape.
 func (d Dependencies) admit(policy accessPolicy, handler http.Handler) http.Handler {
 	switch policy {
+	case accessUserSession:
+		return userSessionMiddleware(d.UserAuth, handler)
 	case accessSameOrigin:
 		return sameOriginMiddleware(d.PublicURL, d.TrustedProxies, handler)
 	case accessAdminSession:
@@ -174,6 +179,9 @@ func (d Dependencies) requiredModules() error {
 	}
 	if d.SchemaHealth == nil {
 		missing = append(missing, "SchemaHealth")
+	}
+	if (d.UserAuth == nil) != (d.RecordAccess == nil) {
+		missing = append(missing, "UserAuth and RecordAccess must be configured together")
 	}
 	if d.SchemaApplyTimeout <= 0 {
 		missing = append(missing, "SchemaApplyTimeout")

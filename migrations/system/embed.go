@@ -40,6 +40,12 @@ var schemaCompanionIndexesSQL string
 //go:embed 000009_schema_compiler_generation.sql
 var schemaCompilerGenerationSQL string
 
+//go:embed 000010_public_users.sql
+var publicUsersSQL string
+
+//go:embed 000011_owner_access.sql
+var ownerAccessSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -95,6 +101,8 @@ var migrations = []Migration{
 		SQL:     schemaCompilerGenerationSQL,
 		SHA256:  sha256.Sum256([]byte(schemaCompilerGenerationSQL)),
 	},
+	{Version: 10, Name: "public_users", SQL: publicUsersSQL, SHA256: sha256.Sum256([]byte(publicUsersSQL))},
+	{Version: 11, Name: "owner_access", SQL: ownerAccessSQL, SHA256: sha256.Sum256([]byte(ownerAccessSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

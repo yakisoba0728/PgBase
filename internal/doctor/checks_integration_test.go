@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/releasephase"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 	"github.com/webisnoteasy/PgBase/migrations/system"
@@ -33,7 +32,7 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 
 func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) != 9 || migrations[8].Version != 9 {
+	if len(migrations) != 11 || migrations[10].Version != 11 {
 		t.Fatalf("preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -45,14 +44,14 @@ func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 		{name: "v5 rejected", through: 5, wantCode: "migration_not_current"},
 		{name: "v6 rejected", through: 6, wantCode: "migration_not_current"},
 		{name: "v7 rejected", through: 7, wantCode: "migration_not_current"},
-		{name: "v8 follows artifact boundary", through: 8},
-		{name: "v9 accepted", through: 9},
+		{name: "v8 rejected", through: 8, wantCode: "migration_not_current"},
+		{name: "v9 rejected", through: 9, wantCode: "migration_not_current"},
+		{name: "v10 rejected", through: 10, wantCode: "migration_not_current"},
+		{name: "v11 accepted", through: 11},
+		{name: "dirty v11 rejected", through: 11, dirty: true, wantCode: "migration_checksum_mismatch"},
 		{name: "dirty v9 rejected", through: 9, dirty: true, wantCode: "migration_checksum_mismatch"},
 	}
 	for _, testCase := range tests {
-		if testCase.through == 8 && releasephase.SchemaCompilerGeneration != 2 {
-			testCase.wantCode = "migration_not_current"
-		}
 		t.Run(testCase.name, func(t *testing.T) {
 			databaseURL := testutil.NewDatabase(t)
 			testutil.ApplySystemMigrationPrefix(t, databaseURL, migrations[:testCase.through])

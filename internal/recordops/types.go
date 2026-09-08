@@ -15,6 +15,7 @@ import (
 type PrincipalKind = identity.Kind
 
 const PrincipalAdministrator PrincipalKind = identity.Administrator
+const PrincipalUser PrincipalKind = identity.User
 
 type Principal = identity.Subject
 

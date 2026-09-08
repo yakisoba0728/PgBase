@@ -97,7 +97,11 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// Ratcheted from 4,894 by R11: +0/-10 for the NewService forwarder, which
 	// defaulted the logger and the recorder and had no caller in the tree, not
 	// even a test. NewServiceWithRecorder took its name.
-	if runtimeLines > 4_884 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 4884", runtimeLines)
+	// M1 adds owner-scoped SQL and cursor binding: measured 4,872 -> 4,911
+	// (+42/-3), preserving all existing rationale. This feature scope expansion
+	// is included in docs/public-identity-owner-access-design.md and the group
+	// ceiling. No extra headroom is allocated.
+	if runtimeLines > 4_911 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 4911", runtimeLines)
 	}
 }

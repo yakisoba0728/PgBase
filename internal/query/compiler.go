@@ -106,7 +106,7 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	}, nil
 }
 
-func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int) (Statement, error) {
+func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int, ownerID *uuid.UUID) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -125,6 +125,9 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 			return Statement{}, err
 		}
 		conditions = append(conditions, keysetSQL)
+	}
+	if ownerID != nil {
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(order.root.ID)+` AND "rq_owner".record_id = `+quoted(order.root.TableName)+`.`+quoted("id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
 	}
 	limit := builder.placeholder(fetchLimit)
 	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)

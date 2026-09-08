@@ -15,20 +15,24 @@ import (
 
 func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 	want := map[int64]string{
-		1: "c1fc7648bae60359cb3adcb11feae210b02b54a79fd5933abfb1cd3e2736fca4",
-		2: "fe3eebdc35d995593d3185169e61670b37a1c5906d06562649a00c50448c32fb",
-		3: "effa5a5895a8ec387c73b4a0afdb1ed3aeb154f09f3d0825862f00d6237c1303",
-		4: "747f4377b19f70e2bdeaf77e5ee9b96f0bb019f0ba0a6d5f7d856d8adb90751b",
-		5: "576df4a578efbd1259cf5dbf22da8d7669bd729e33d2ef1d1b4ed30e1d16197a",
-		6: "6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a",
-		7: "8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e",
-		8: "e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff",
-		9: "19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6",
+		1:  "c1fc7648bae60359cb3adcb11feae210b02b54a79fd5933abfb1cd3e2736fca4",
+		2:  "fe3eebdc35d995593d3185169e61670b37a1c5906d06562649a00c50448c32fb",
+		3:  "effa5a5895a8ec387c73b4a0afdb1ed3aeb154f09f3d0825862f00d6237c1303",
+		4:  "747f4377b19f70e2bdeaf77e5ee9b96f0bb019f0ba0a6d5f7d856d8adb90751b",
+		5:  "576df4a578efbd1259cf5dbf22da8d7669bd729e33d2ef1d1b4ed30e1d16197a",
+		6:  "6c3f728926d04b9bbeb81152df6eede97de155ddd2bb503a43faba4af0d6ec7a",
+		7:  "8c8f2a4b0506d4abaffc19097a090f84f424ef521ec9575ac4577ecaa1b3432e",
+		8:  "e1cf6ca6e847d1b0593c6def69c5c3a65c0916efe1011fbdacedb87f72177cff",
+		9:  "19baaeab06d5b9c23333ae5c14cf0c6c806360e1dabc958c35c24263225d35c6",
+		10: "7b8f592b013ddac0030fd0c86502895ea6aad2985b841cd72ff1ca8371d242d6",
+		11: "495ebb9be48ca51a4bbf551dbc7227e090dade8d99e99e11626928dfa2005f46",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 9 || migrations[7].Version != 8 ||
+	if len(migrations) != 11 || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
-		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" {
+		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
+		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||
+		migrations[10].Version != 11 || migrations[10].Name != "owner_access" {
 		t.Fatalf("migration ordering=%+v", migrations)
 	}
 	// Every applied migration is pinned, so adding one without its checksum

@@ -132,18 +132,21 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Rewind to exactly v6. Every later migration has to go: leaving v8's or v9's
-	// row behind would make the history a gap rather than the clean pre-membership
-	// history this test is about. Migration 9 only alters v8's table, which the
-	// drop below removes, so it leaves nothing else to undo.
+	// Rewind to exactly v6. Remove every later object and history row so Up sees
+	// a contiguous pre-membership history even as new migrations are embedded.
 	if _, err := pool.Exec(ctx, `drop table pgbase_meta.schema_writer_leases;
 		drop table pgbase_meta.schema_companion_index_capability;
+		drop table pgbase_meta.record_owners;
+		drop table pgbase_meta.collection_access;
+		drop table pgbase_meta.user_sessions;
+		drop table pgbase_meta.user_auth_rate_limits;
+		drop table pgbase_meta.users;
 		drop table pgbase_meta.record_creation_ordinals;
 		drop table pgbase_meta.record_membership_backfills;
 		drop table pgbase_meta.collection_creation_counters;
 		drop table pgbase_meta.runtime_writer_leases;
 		drop table pgbase_meta.record_membership_capability;
-		delete from pgbase_meta.system_migrations where version in (7, 8, 9)`); err != nil {
+		delete from pgbase_meta.system_migrations where version in (7, 8, 9, 10, 11)`); err != nil {
 		t.Fatal(err)
 	}
 	request := CreateRequest{
@@ -154,10 +157,9 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	if _, err := records.Create(ctx, request); !IsCode(err, CodeUnavailable) || errors.Is(err, membership.ErrUnavailable) {
 		t.Fatalf("Release-A Create on exact v6 error = %v, want stable availability", err)
 	}
-	// Apply every pending migration rather than targeting 7: the exact-target
-	// command refuses a version that leaves a later embedded migration pending,
-	// which is the guard that keeps a rollout from crossing two at once. What
-	// this test needs is simply that membership exists afterwards.
+	// Up is intentionally current: exact-target rejects an older release phase
+	// when later embedded migrations remain pending. This test's invariant is the
+	// direct constructor recovering after migration, including later additions.
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -567,47 +567,36 @@ func TestStatusCompatibleAcceptsOnlyValidatedRequiredAndOptionalLatest(t *testin
 	}
 }
 
-// The schema-compiler-generation P0 artifact is the deploy rollback target on
-// either side of migration 9. It recognizes only the two checksum-pinned
-// histories it was built to bridge; every other history remains fail-closed.
-func TestSchemaCompilerGenerationArtifactDeclaresItsV8V9Boundary(t *testing.T) {
+// Current binaries require the complete new history. Historic artifacts retain
+// their source-pinned manifests and v8/v9 preparation boundary.
+func TestPublicIdentityArtifactRequiresCompleteMigrationHistory(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
 	migrations := system.Migrations()
-	if len(migrations) != 9 || migrations[len(migrations)-2].Version != 8 ||
-		migrations[len(migrations)-1].Version != 9 {
-		t.Fatalf("schema compiler generation manifest = %#v", migrations)
+	if len(migrations) != 11 {
+		t.Fatalf("migration count=%d", len(migrations))
 	}
-
-	bootstrap := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	bootstrap.migrations = migrations[:len(migrations)-1]
-	bootstrap.compatibility = nil
-	if err := bootstrap.Up(context.Background()); err != nil {
-		t.Fatal(err)
+	if schemaCompilerGenerationPreparationPolicy(migrations) != nil {
+		t.Fatal("historic preparation policy must not accept current manifest")
 	}
-
 	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	status, err := runner.Status(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := Status{Current: 8, Latest: 9}
-	if status != want {
-		t.Fatalf("pre-migration status = %#v, want %#v", status, want)
-	}
-
-	if _, err := runner.UpThrough(context.Background(), 9); err != nil {
-		t.Fatal(err)
-	}
-	status, err = runner.Status(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status != (Status{Current: 9, Latest: 9, Compatible: true}) {
-		t.Fatalf("post-migration status = %#v", status)
+	for _, version := range []int64{9, 10, 11} {
+		bootstrap := New(pool, nil)
+		bootstrap.migrations = migrations[:version]
+		bootstrap.compatibility = nil
+		if err := bootstrap.Up(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		status, err := runner.Status(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != (Status{Current: version, Latest: 11, Compatible: version == 11}) {
+			t.Fatalf("v%d status=%#v", version, status)
+		}
 	}
 }
 
