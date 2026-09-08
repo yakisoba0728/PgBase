@@ -126,9 +126,15 @@ func commandEnvironment(databaseURL string) (postgresCommand, error) {
 	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.User == nil || parsed.Fragment != "" {
 		return postgresCommand{}, errors.New("invalid PostgreSQL URL")
 	}
+	identityParameters := map[string]bool{"host": true, "hostaddr": true, "port": true, "user": true, "password": true, "dbname": true, "database": true, "service": true, "servicefile": true}
+	for key := range parsed.Query() {
+		if identityParameters[strings.ToLower(key)] {
+			return postgresCommand{}, errors.New("backup PostgreSQL URL must keep connection identity in its authority and path")
+		}
+	}
 	host := parsed.Hostname()
-	if value := parsed.Query().Get("host"); value != "" {
-		host = value
+	if host == "" {
+		return postgresCommand{}, errors.New("invalid PostgreSQL URL")
 	}
 	port := 5432
 	if raw := parsed.Port(); raw != "" {
@@ -235,6 +241,11 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
 		return errors.New("backup directory already exists")
 	}
+	command, err := commandEnvironment(databaseURL)
+	if err != nil {
+		return err
+	}
+	defer command.cleanup()
 	serverMajor, idle, err := serverState(ctx, databaseURL)
 	if err != nil {
 		return err
@@ -266,11 +277,6 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 	if err = os.Mkdir(filepath.Join(temporary, "files"), 0700); err != nil {
 		return err
 	}
-	command, err := commandEnvironment(databaseURL)
-	if err != nil {
-		return err
-	}
-	defer command.cleanup()
 	dump := filepath.Join(temporary, "database.dump")
 	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--file", dump}, command.env); err != nil {
 		return err
@@ -398,6 +404,11 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 	if err != nil {
 		return err
 	}
+	command, err := commandEnvironment(databaseURL)
+	if err != nil {
+		return err
+	}
+	defer command.cleanup()
 	serverMajor, idle, err := serverState(ctx, databaseURL)
 	if err != nil {
 		return err
@@ -462,11 +473,6 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 		staging = ""
 		installedFiles = true
 	}
-	command, err := commandEnvironment(databaseURL)
-	if err != nil {
-		return err
-	}
-	defer command.cleanup()
 	if err = run(ctx, "pg_restore", []string{"--dbname", "", "--single-transaction", "--no-owner", "--no-acl", "--exit-on-error", filepath.Join(directory, "database.dump")}, command.env); err != nil {
 		return err
 	}

@@ -22,3 +22,5 @@ The database restore uses one transaction. Files are copied into a fresh staging
 Install `pg_dump` and `pg_restore` from the PostgreSQL major version used by the server. Connection settings are passed through libpq environment variables, and the password is written only to a temporary mode-0600 passfile; the database URL and password are not placed in child-process arguments.
 
 Keep `PGBASE_TOKEN_SECRET` and the remaining protected project configuration separately: a database-and-files recovery set does not include process environment settings. Reuse the project token secret to decrypt persisted OAuth and SMTP secrets after recovery. Run `pgbase doctor --json` against the restored target before starting it.
+
+Backup commands require connection identity in the PostgreSQL URL authority/path. Query parameters that override host, port, user, password, database or service identity are rejected before database inspection; pool and TLS query options remain supported. This keeps the checked database and the database used by the child tool identical.

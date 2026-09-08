@@ -63,6 +63,15 @@ func TestCommandEnvironmentDropsInheritedLibpqOverrides(t *testing.T) {
 	}
 }
 
+func TestCommandEnvironmentRejectsConnectionIdentityQueryOverrides(t *testing.T) {
+	for _, parameter := range []string{"host=localhost", "hostaddr=127.0.0.1", "port=5433", "user=other", "password=other", "dbname=other", "database=other", "service=other", "servicefile=other"} {
+		_, err := commandEnvironment("postgres://expected:credential@localhost:5432/expected?sslmode=disable&" + parameter)
+		if err == nil || !strings.Contains(err.Error(), "authority and path") {
+			t.Fatalf("identity override %q error = %v", parameter, err)
+		}
+	}
+}
+
 func TestCleanRelativeRejectsTraversalAndNonCanonicalPaths(t *testing.T) {
 	for _, value := range []string{"", ".", "../secret", "a/../secret", "/absolute", `windows\path`} {
 		if _, err := cleanRelative(value); err == nil {
