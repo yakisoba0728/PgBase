@@ -104,7 +104,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	connectStarted := time.Now()
 	connection, err := l.pool.Acquire(ctx)
 	if err != nil {
-		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
 	defer func() {
@@ -118,7 +118,7 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 
 	l.pid.Store(connection.Conn().PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
-		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, listenerOperationOutcome(err), time.Since(connectStarted)))
+		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
 	l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
@@ -211,23 +211,5 @@ func (l *Listener) finishOperation(ctx context.Context, operation observability.
 	if operationErr != nil {
 		err = *operationErr
 	}
-	l.record(ctx, observability.OperationEvent(operation, listenerOperationOutcome(err), time.Since(started)))
-}
-
-func listenerOperationOutcome(err error) observability.Outcome {
-	if err == nil {
-		return observability.OutcomeSuccess
-	}
-	switch database.Classify(err) {
-	case database.KindValidation:
-		return observability.OutcomeValidation
-	case database.KindConflict:
-		return observability.OutcomeConflict
-	case database.KindUnavailable:
-		return observability.OutcomeUnavailable
-	case database.KindCanceled:
-		return observability.OutcomeCanceled
-	default:
-		return observability.OutcomeFailure
-	}
+	l.record(ctx, observability.OperationEvent(operation, schemaOperationOutcome(err), time.Since(started)))
 }

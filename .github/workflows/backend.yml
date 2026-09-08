@@ -33,11 +33,11 @@ concurrency:
 jobs:
   observability-artifacts:
     name: Observability artifacts
-    # A repository-scoped runner is selected only for the exact internal PR
-    # SHA an administrator opted into. Releases and fork PRs always stay on a
-    # GitHub-hosted runner, where publication credentials cannot leak to a
-    # developer machine.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
+    # A repository-scoped runner is selected only for the exact internal PR or
+    # main-push SHA an administrator opted into. Releases, manual runs,
+    # schedules, and fork PRs always stay on a GitHub-hosted runner, where
+    # publication credentials cannot leak to a developer machine.
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Check out repository
@@ -74,7 +74,7 @@ jobs:
 
   unit:
     name: Go unit
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -146,7 +146,7 @@ jobs:
 
   integration:
     name: PostgreSQL integration / ${{ matrix.postgres.version }}
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
+    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false

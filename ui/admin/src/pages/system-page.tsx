@@ -48,27 +48,19 @@ export function SystemPage() {
   useEffect(() => {
     const controller = new AbortController();
     let settled = false;
-    setLoad({ phase: "loading" });
-    const timeout = window.setTimeout(() => {
+    let timeout: ReturnType<typeof window.setTimeout>;
+    const finish = (next: SystemLoad) => {
       if (settled) return;
       settled = true;
+      window.clearTimeout(timeout);
       controller.abort();
-      setLoad({ phase: "failed" });
-    }, systemLoadTimeoutMs);
+      setLoad(next);
+    };
+    setLoad({ phase: "loading" });
+    timeout = window.setTimeout(() => finish({ phase: "failed" }), systemLoadTimeoutMs);
     void Promise.all([system.status(controller.signal), system.health(controller.signal)])
-      .then(([status, health]) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        setLoad({ phase: "ready", view: { status, health } });
-      })
-      .catch(() => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        controller.abort();
-        setLoad({ phase: "failed" });
-      });
+      .then(([status, health]) => finish({ phase: "ready", view: { status, health } }))
+      .catch(() => finish({ phase: "failed" }));
     return () => {
       settled = true;
       window.clearTimeout(timeout);

@@ -416,6 +416,7 @@ func (b *Bindings) hydrate(
 	}
 	defer rows.Close()
 	expectedPositions := make([]map[uuid.UUID]int, len(multiple))
+	invalidStoredValue := false
 	for rows.Next() {
 		used++
 		if remaining >= 0 && used > remaining {
@@ -427,7 +428,8 @@ func (b *Bindings) hydrate(
 			return used, fmt.Errorf("hydrate relation values: %w", err)
 		}
 		if fieldIndex < 0 || fieldIndex >= len(multiple) || targetID == uuid.Nil || records[sourceID] == nil {
-			return used, ErrInvalidStoredValue
+			invalidStoredValue = true
+			continue
 		}
 		expected := expectedPositions[fieldIndex]
 		if expected == nil {
@@ -435,18 +437,23 @@ func (b *Bindings) hydrate(
 			expectedPositions[fieldIndex] = expected
 		}
 		if position != expected[sourceID] {
-			return used, ErrInvalidStoredValue
+			invalidStoredValue = true
+			continue
 		}
 		field := multiple[fieldIndex]
 		values, ok := records[sourceID][field.field.Name].([]string)
 		if !ok {
-			return used, ErrInvalidStoredValue
+			invalidStoredValue = true
+			continue
 		}
 		records[sourceID][field.field.Name] = append(values, targetID.String())
 		expected[sourceID]++
 	}
 	if err := rows.Err(); err != nil {
 		return used, fmt.Errorf("hydrate relation values: %w", err)
+	}
+	if invalidStoredValue {
+		return used, ErrInvalidStoredValue
 	}
 	for _, field := range multiple {
 		for _, id := range ids {

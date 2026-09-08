@@ -32,6 +32,51 @@ func readSchemaIndexStatus(t *testing.T, databaseURL string) schemaIndexReport {
 	return report
 }
 
+// Status is the operator's diagnostic surface for this rollout. A database
+// failure after the command has connected must retain its redacted operation
+// diagnostic instead of collapsing to the process-wide generic exit line.
+func TestSchemaIndexStatusReportsDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	prepareDoctorDatabase(t, databaseURL)
+	locker, err := database.Open(ctx, databaseURL, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	connection, err := locker.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	transaction, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx,
+		"lock table pgbase_meta.schema_companion_index_capability in access exclusive mode"); err != nil {
+		t.Fatal(err)
+	}
+
+	baseEnv := migrationEnv(databaseURL)
+	env := func(key string) (string, bool) {
+		if key == "PGBASE_STATEMENT_TIMEOUT" {
+			return "100ms", true
+		}
+		return baseEnv(key)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Execute(ctx, []string{"schema-index", "status"}, env, IO{Stdout: &stdout, Stderr: &stderr})
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("status exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "read companion index rollout status") ||
+		!strings.HasSuffix(stderr.String(), "pgbase: command failed\n") {
+		t.Fatalf("status stderr lost database diagnostic: %q", stderr.String())
+	}
+}
+
 // The whole operator surface, end to end: report the closed gate, refuse to
 // activate without a proven fleet, then build and turn it off again.
 func TestSchemaIndexDrivesTheCompanionRolloutFromTheCommandLine(t *testing.T) {

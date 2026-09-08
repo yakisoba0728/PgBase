@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -96,7 +97,7 @@ func runSchemaIndex(ctx context.Context, args []string, env environment, streams
 
 	switch subcommand {
 	case "status":
-		return writeSchemaIndexStatus(ctx, service, pool, stdout, *jsonOutput)
+		return writeSchemaIndexStatus(ctx, service, pool, runtime.logger, stdout, *jsonOutput)
 	case "activate":
 		receipt, err := service.ActivateCompanionIndexes(ctx, schema.SchemaWriterFleetProof{Instances: witnesses})
 		if err != nil {
@@ -119,7 +120,8 @@ func runSchemaIndex(ctx context.Context, args []string, env environment, streams
 }
 
 func writeSchemaIndexStatus(
-	ctx context.Context, service *schema.Service, pool *database.Pool, stdout io.Writer, jsonOutput bool,
+	ctx context.Context, service *schema.Service, pool *database.Pool, logger *slog.Logger,
+	stdout io.Writer, jsonOutput bool,
 ) error {
 	var diagnostics schema.CompanionIndexDiagnostics
 	if err := pool.InTx(ctx, pgx.TxOptions{
@@ -129,11 +131,11 @@ func writeSchemaIndexStatus(
 		diagnostics, err = schema.ReadCompanionIndexDiagnostics(ctx, tx)
 		return err
 	}); err != nil {
-		return err
+		return operationError(logger, "read companion index rollout status", err)
 	}
 	leases, err := service.SchemaWriterFleet(ctx)
 	if err != nil {
-		return err
+		return operationError(logger, "read active schema writer fleet", err)
 	}
 	report := schemaIndexReport{
 		Installed:  diagnostics.Status.Installed,

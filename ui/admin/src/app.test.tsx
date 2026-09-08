@@ -194,31 +194,6 @@ describe("administration shell", () => {
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
   });
 
-  it("keeps protecting a confirmed draft when sign-out fails", async () => {
-    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
-    harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
-    harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
-    harness.script.logout.push({ fault: { kind: "unreachable" } }, { fault: { kind: "unreachable" } });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const user = userEvent.setup();
-    renderAdmin(harness);
-
-    await user.clear(await screen.findByLabelText("title"));
-    await user.type(screen.getByLabelText("title"), "unsaved edit");
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out. Try again.");
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
-
-    confirm.mockReturnValue(false);
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(callsTo(harness.script, "logout")).toHaveLength(1);
-    expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
-  });
-
   it("makes the workspace inert while logout is pending and always settles after backend success", async () => {
     const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
     harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
@@ -268,6 +243,33 @@ describe("administration shell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out. Try again.");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
     expect(screen.getByRole("heading", { name: "pgBase administration" })).toBeVisible();
+  });
+
+  it("keeps guarding an unsaved draft after sign-out fails", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    for (const _ of [0, 1]) harness.script.catalog.push({ value: { version: 4, collections: [posts] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "Post A" }, etag: '"pgb1.one"' } });
+    const logout = deferredStep<void>();
+    harness.script.logout.push(logout.step);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await user.clear(await screen.findByLabelText("title"));
+    await user.type(screen.getByLabelText("title"), "unsaved edit");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await act(async () => { logout.settle({ fault: { kind: "unreachable" } }); });
+    await screen.findByRole("alert");
+
+    await user.type(screen.getByLabelText("title"), " after failure");
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    await user.click(screen.getByRole("link", { name: "Collections" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("title")).toHaveValue("unsaved edit after failure");
+    expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
   });
 
   it("falls back to the collection list for an undecodable administrator path", async () => {
