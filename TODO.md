@@ -383,3 +383,5 @@
 - 2026-09-09: 서비스 토큰 scope의 컬렉션 삭제 방해를 실제 브라우저에서 재현해 guarded schema transaction에서 정리하도록 수정. active/revoked 토큰 HTTP 회귀 및 브라우저 4개 통과. UI 431개, 기존 browser 1+7개, Go race·PG17/MinIO 기능 및 skip 정책, PG16/17/18 파일 포함 복원 통과. 최종 구조 제한 재측정·회귀 통과, PR 준비.
 
 - 2026-09-09: PR #28 생성, 최신 HEAD에 Backend/Frontend/Security CI 실행. 로컬 기능과 검증 항목은 완료했으며 외부 인프라·공개 릴리스 항목만 대기로 유지한다. 병합 결과는 PR 타임라인에서 확인한다.
+
+- 2026-09-09: 첫 CI의 gofmt 검사에서 View 파일 포맷 누락 발견·수정. 형식 변경 3줄을 구조 측정에 반영하고 최신 HEAD 검증 재실행.

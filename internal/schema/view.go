@@ -137,8 +137,11 @@ func staticViewLiteral(kind FieldType, raw json.RawMessage) (string, error) {
 		return value.String() + "::numeric", nil
 	case TypeTimestampTZ:
 		var value string
-		if json.Unmarshal(raw,&value)!=nil || value=="now" { return "",ErrConflict }
-		_,rendered,err:=normalizeDefault(kind,raw);return rendered,err
+		if json.Unmarshal(raw, &value) != nil || value == "now" {
+			return "", ErrConflict
+		}
+		_, rendered, err := normalizeDefault(kind, raw)
+		return rendered, err
 	default:
 		_, rendered, err := normalizeDefault(kind, raw)
 		return rendered, err

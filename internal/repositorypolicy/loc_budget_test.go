@@ -44,7 +44,7 @@ import (
 // This establishes a new measured ceiling for M1, not general growth headroom.
 // M2–M6 adds typed policies, relations, batches, compound indexes and views.
 // This new product scope is measured in docs/local-milestone-design.md.
-const dataGroupRuntimeLimit = 18913
+const dataGroupRuntimeLimit = 18916
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -300,7 +300,7 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 45632, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 45635, "plan 22,484"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 4376, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 34, "plan 12"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 653, "plan 285"},
