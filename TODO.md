@@ -385,3 +385,44 @@
 - 2026-09-09: PR #28 생성, 최신 HEAD에 Backend/Frontend/Security CI 실행. 로컬 기능과 검증 항목은 완료했으며 외부 인프라·공개 릴리스 항목만 대기로 유지한다. 병합 결과는 PR 타임라인에서 확인한다.
 
 - 2026-09-09: 첫 CI의 gofmt 검사에서 View 파일 포맷 누락 발견·수정. 형식 변경 3줄을 구조 측정에 반영하고 최신 HEAD 검증 재실행.
+
+## PocketBase 전체 소스 대조 감사 (2026-09-09)
+
+- [x] 공식 전체 Git 저장소 다운로드, v0.40.3/commit 고정.
+- [x] 추적 파일 923개 전수 inventory와 체크섬·담당 작성.
+- [x] GPT 5.6 Sol API/core 병렬 독해 시작.
+- [x] API/forms/mails 전체 소스·테스트 90개 독해와 PgBase 대조.
+- [x] core/migrations 전체 소스·테스트 독해와 PgBase 대조.
+- [x] core/field* 32개 구현·테스트 전체 본문 판독과 필드 계약 비교.
+- [x] 관리자 UI 전체 handwritten source 독해와 화면별 대조.
+- [x] UI handwritten CSS 35개 전체 판독 및 icon vendor 연계 확인.
+- [x] Upstream cron 실패·relation picker 로딩 상태를 원본 함수+stub로 좁게 재현.
+- [x] tools 전체 소스·테스트 독해와 공통 동작 대조.
+- [x] archive/cron/dbutils 16개 전체 판독 및 PgBase 계약 비교.
+- [x] plugins/CLI/build/release/test fixtures 및 생성물 검토 (82 본문 / 22 artifact / 3 역사 참고 문서).
+- [x] 파일별 ledger 누락·중복·정확한 읽기 범위 교차 확인.
+- [x] 기존 65–70% 추정 재평가, 실제 공백·우선순위·완료 기준 보고.
+
+진행 기록: [전체 소스 감사](docs/pocketbase-source-audit-2026-09-09/README.md). 본문 734개·생성물/자산 186개·역사 참고 3개를 구분해 검토 완료. 미판독 소스 0개이며, inventory 등록만으로 본문 판독 처리하지 않았다.
+
+
+### 소스 감사에서 도출한 후속 구현 후보 — 미착수
+
+현재 소스 감사의 완료 표시와 아래 제품 구현 완료를 구분한다. 계약 차이와 상세 완료 기준은 [통합 평가](docs/pocketbase-source-audit-2026-09-09/assessment.md)에 기록한다.
+
+- [ ] PB-A01: Required·빈 값·숫자 정밀도·ID·relation 중복에 대한 PgBase 호환 정책과 wire 예제 확정.
+- [ ] PB-A02: 필드 ID 기반 데이터 보존 rename 계획/API/UI 및 관계·view·index 보존 검증.
+- [ ] PB-A03: text 길이/pattern, email/URL 형식·도메인, select 선택 수 검증을 스키마/API/UI/SDK에 연결.
+- [ ] PB-A04: editor·geoPoint·사용자 autodate 지원 범위와 전용 입력/조회 UI 결정 및 구현.
+- [ ] PB-A05: Hidden/Presentable/Help 등 필드 메타데이터의 API 응답·relation 표시 계약 구현.
+- [ ] PB-A06: 레코드 bulk 선택·삭제·export·duplicate와 부분 실패/동시 갱신 표시.
+- [ ] PB-A07: relation picker의 즉석 생성·수정 및 column preference·draft 복구.
+- [ ] PB-A08: auth realm별 OAuth provider/정책/메일 템플릿 설정과 로컬 inbox 시험.
+- [ ] PB-A09: 이메일 OTP·impersonation 필요 여부 및 세션/토큰 무효화 계약 확정 후 구현.
+- [ ] PB-A10: 파일 필드별 MIME·크기·개수·Required 설정과 기존 첨부 처리 정책.
+- [ ] PB-A11: 여러 썸네일 crop/fit·크기 설정 및 권한·캐시·저장 비용 검증.
+- [ ] PB-A12: 관리자 로그 검색/통계와 cron 목록·실행 상태·수동 실행 API/UI.
+- [ ] PB-A13: 로컬 PostgreSQL+파일 백업 작업 추적·다운로드·복원 UI와 일관성 검증.
+- [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI.
+- [ ] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증.
+- [ ] PB-A16: custom routes·hook 확대·migration authoring·JSVM/Dart의 제품 범위 결정; 구현 전 재시도/트랜잭션 계약 명시.

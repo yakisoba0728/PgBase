@@ -1,0 +1,737 @@
+[
+  {
+    "path": "core/app.go",
+    "status": "read",
+    "note": "Read full text in bounded ranges: defines the intentionally large App abstraction spanning bootstrap/resources, dual SQLite builders, model CRUD/transactions, collection/record/auth queries, backup/view operations, and tagged lifecycle/API/mailer/filesystem/realtime hooks."
+  },
+  {
+    "path": "core/auth_origin_model.go",
+    "status": "read",
+    "note": "Read full text: AuthOrigin is a typed Record proxy over _authOrigins; validation requires a real auth collection/record pair, collection/record deletion cascades proxy rows inside transactions, and auth password hash changes delete all prior origin fingerprints after the update chain succeeds."
+  },
+  {
+    "path": "core/auth_origin_model_test.go",
+    "status": "read",
+    "note": "Read full text: tests proxy construction/accessors/timestamps, proxy prevalidation, auth-only collection and existing-record reference validation, and deletion of the exact origin rows when passwords change."
+  },
+  {
+    "path": "core/auth_origin_query.go",
+    "status": "read",
+    "note": "Read full text: provides record- and collection-scoped descending origin queries, id and record+fingerprint lookup, and best-effort aggregate deletion returning errors.Join for failed model deletes."
+  },
+  {
+    "path": "core/auth_origin_query_test.go",
+    "status": "read",
+    "note": "Read full text: fixture-backed tests assert query ordering and scoping, missing/wrong IDs, fingerprint binding to both record and collection, and exact delete-hook effects for all origins of a record."
+  },
+  {
+    "path": "core/backup.go",
+    "status": "read",
+    "note": "Read full text: autobackup hooks install/remove a cron job on bootstrap/settings reload, generate bounded snake-case names, create backups, alert superusers on failure, and retain only the newest configured number of automatically prefixed archives."
+  },
+  {
+    "path": "core/backup_create.go",
+    "status": "read",
+    "note": "Read full text in two ranges: backup exclusion and filesystem hooks coordinate concurrent deletes/creates around VACUUM INTO snapshots of data and auxiliary DBs, then a mutex-protected deflate zip captures remaining local data and uploads to local/S3 backup storage."
+  },
+  {
+    "path": "core/backup_restore.go",
+    "status": "read",
+    "note": "Read full text: restore serializes via StoreKeyActiveBackup, downloads/extracts to an in-data-dir temp location, requires data.db, transactionally swaps directory contents with exclusions, restarts, and rolls back the directory swap or panics if rollback itself fails."
+  },
+  {
+    "path": "core/backup_test.go",
+    "status": "read",
+    "note": "Read full text: tests active-operation exclusion, generated/custom/replacement backups, archive root contents and backup-directory exclusion, plus restore rejection for concurrent and missing backups."
+  },
+  {
+    "path": "core/base.go",
+    "status": "read",
+    "note": "Read full text in bounded ranges: BaseApp owns bootstrap/reset/restart, separate concurrent read and serialized write builders for data and auxiliary SQLite databases, transaction clones, settings/hooks, mail/filesystems/backups, async post-delete file cleanup, cron optimization, and batched persistent logging with termination flush."
+  },
+  {
+    "path": "core/base_test.go",
+    "status": "read",
+    "note": "Read full text in two bounded ranges: tests defaults, bootstrap/reset state, transaction identity, mail and local/S3 filesystem selection, log retention/batch timer/min-level reload, concurrent-read versus serialized-write routing for both databases, and repeated termination without deadlock."
+  },
+  {
+    "path": "core/collection_import.go",
+    "status": "read",
+    "note": "Read full text: imports nonempty collection maps transactionally, overlays existing models, preserves system/omitted fields unless deleteMissing, orders views last, optionally deletes missing nonsystem collections, saves without validation then validates the final graph."
+  },
+  {
+    "path": "core/collection_import_test.go",
+    "status": "read",
+    "note": "Read full text: verifies atomic invalid imports, create/update/delete counts, system preservation, field-id/name reconciliation, deleteMissing behavior, secret/id/name preservation, JSON input, defaults and auth options."
+  },
+  {
+    "path": "core/collection_model.go",
+    "status": "read",
+    "note": "Read full text in three ranges: bridges generic model and collection hooks, models base/auth/view collection serialization with secret redaction, creates deterministic defaults and indexes, and transactionally synchronizes record tables or SQL views with cache reload and dependency resave."
+  },
+  {
+    "path": "core/collection_model_auth_options.go",
+    "status": "read",
+    "note": "Read full text in two ranges: defines auth rules, password/OAuth/OTP/MFA/token/template defaults and validation; preserves omitted OAuth provider secrets by name during partial JSON updates and instantiates configured provider adapters."
+  },
+  {
+    "path": "core/collection_model_auth_options_test.go",
+    "status": "read",
+    "note": "Read full text in three ranges: exhaustively tests auth/manage rules, unique identity fields, MFA method/rule constraints, token/template/OTP validation, duration helpers, OAuth partial merge, duplicate/provider validation and provider initialization overrides."
+  },
+  {
+    "path": "core/collection_model_auth_templates.go",
+    "status": "read",
+    "note": "Read full text: defines email placeholder constants and default verification, reset, email-change, OTP and new-location alert templates."
+  },
+  {
+    "path": "core/collection_model_base_options.go",
+    "status": "read",
+    "note": "Read full text: base collections have an empty options object with no extra validation."
+  },
+  {
+    "path": "core/collection_model_test.go",
+    "status": "read",
+    "note": "Read full text in five bounded ranges: tests constructors/default system fields, type predicates, option scan/unmarshal/secret-redacted serialization without cache mutation, DB export/index helpers, deletion integrity, event synchronization, physical table/view save updates, dependent views, id casting and index table normalization."
+  },
+  {
+    "path": "core/collection_model_view_options.go",
+    "status": "read",
+    "note": "Read full text: view options consist of a required ViewQuery validated through the collection validator."
+  },
+  {
+    "path": "core/collection_model_view_options_test.go",
+    "status": "read",
+    "note": "Read full text: validates empty/invalid/missing-id/empty-id/duplicate-id view queries and accepts valid create/update queries."
+  },
+  {
+    "path": "core/collection_query.go",
+    "status": "read",
+    "note": "Read full text: queries and caches collections by type/name/id, discovers relation references from live or cached catalogs, enforces case-insensitive name uniqueness, transactionally truncates non-view records through model deletes, normalizes view IDs to TEXT, and resaves views whose inferred fields change."
+  },
+  {
+    "path": "core/collection_query_test.go",
+    "status": "read",
+    "note": "Read full text in two ranges: tests query SQL, cache reload/fallback without DB reads, type/name/id lookups, live and cached relation references, case-insensitive uniqueness, and atomic truncate rollback/success including deferred file deletion."
+  },
+  {
+    "path": "core/collection_record_table_sync.go",
+    "status": "read",
+    "note": "Read full text: transactionally creates/renames record tables, drops/adds/renames columns by stable field ID through temporary names, rebuilds indexes, converts single/multiple stored values while temporarily removing views, and runs SQLite optimize afterward."
+  },
+  {
+    "path": "core/collection_record_table_sync_test.go",
+    "status": "read",
+    "note": "Read full text: verifies create/update table columns and indexes, preservation/recreation of views during single↔multiple conversions, exact normalized stored values/defaults, and recovery of an index persisted without a table name."
+  },
+  {
+    "path": "core/collection_validate.go",
+    "status": "read",
+    "note": "Read full text in two ranges: validates immutable identity/type/system state, case-insensitive names and table collisions, field IDs/names/types/system invariants, rules, view read-only constraints, auth system fields, unique identity indexes, index syntax/global names/definitions, and type-specific options."
+  },
+  {
+    "path": "core/collection_validate_test.go",
+    "status": "read",
+    "note": "Read full text in three ranges: scenario matrix covers every collection type, immutable/system identifiers, names, rules, view mutation rules, index conflicts and protected system constraints, required auth indexes/fields, duplicate/type-changing/system fields, reserved auth names, and nested field-setting errors."
+  },
+  {
+    "path": "core/db.go",
+    "status": "read",
+    "note": "Read full text: generic model CRUD routes reads/writes to dual builders, wraps validate/create/update/delete hook phases, supports DBExporter, retries SQLite locks, forbids PK changes, and defers success/error hooks until transaction completion."
+  },
+  {
+    "path": "core/db_builder.go",
+    "status": "read",
+    "note": "Read full text: dualDBBuilder routes selects and SELECT/WITH raw queries to concurrent DB and all model/DDL/mutations to serialized DB, with ASCII/Unicode leading-space handling."
+  },
+  {
+    "path": "core/db_connect.go",
+    "status": "read",
+    "note": "Read full text: default modernc SQLite connection enables busy timeout, WAL, bounded journal, normal sync, foreign keys, memory temp/cache and defensive mode."
+  },
+  {
+    "path": "core/db_connect_nodefaultdriver.go",
+    "status": "read",
+    "note": "Read full text: no_default_driver build requires an injected DBConnect and otherwise panics."
+  },
+  {
+    "path": "core/db_model.go",
+    "status": "read",
+    "note": "Read full text: Model/BaseModel track current and last-saved scalar ID; scan/not-new snapshots ID while MarkAsNew only clears saved state."
+  },
+  {
+    "path": "core/db_model_test.go",
+    "status": "read",
+    "note": "Read full text: verifies PK, LastSavedPK and IsNew transitions across scan/new/not-new."
+  },
+  {
+    "path": "core/db_retry.go",
+    "status": "read",
+    "note": "Read full text: query hook adds timeout when absent, retries only lock-text errors with capped backoff, preserves sql.ErrNoRows, and appends failed SQL to other errors."
+  },
+  {
+    "path": "core/db_retry_test.go",
+    "status": "read",
+    "note": "Read full text: tests interval bounds and retry counts for database/table lock versus unrelated errors."
+  },
+  {
+    "path": "core/db_table.go",
+    "status": "read",
+    "note": "Read full text: exposes SQLite table columns/info/indexes/existence, trusted-name table deletion and data/aux VACUUM helpers."
+  },
+  {
+    "path": "core/db_table_test.go",
+    "status": "read",
+    "note": "Read full text: verifies tables/views across data/aux DBs, pragma metadata, indexes, missing-safe deletion and correct serialized VACUUM routing."
+  },
+  {
+    "path": "core/db_test.go",
+    "status": "read",
+    "note": "Read full text: tests random ID shape, model/aux query SQL and validation hook/context propagation."
+  },
+  {
+    "path": "core/db_tx.go",
+    "status": "read",
+    "note": "Read full text: data/aux transactions shallow-clone App with tx builders, nest on existing tx, and serialize thread-safe OnComplete callbacks after commit/rollback while joining callback errors."
+  },
+  {
+    "path": "core/db_tx_test.go",
+    "status": "read",
+    "note": "Read full text: tests nested commit/rollback, deferred hook counts and nontransactional event App, and transaction wrappers introduced inside create/update/delete execute hooks."
+  },
+  {
+    "path": "core/event_request.go",
+    "status": "read",
+    "note": "Read full text: RequestEvent derives proxy-aware RealIP, caches parsed first-value query/header/body data while refreshing auth/context, and RequestInfo.Clone copies maps plus a fresh auth record."
+  },
+  {
+    "path": "core/event_request_batch.go",
+    "status": "read",
+    "note": "Read full text: batch events carry validated internal HTTP requests with bounded URL and GET/POST/PUT/PATCH/DELETE methods."
+  },
+  {
+    "path": "core/event_request_batch_test.go",
+    "status": "read",
+    "note": "Read full text: tests allowed methods, missing values and 2000-character URL boundary."
+  },
+  {
+    "path": "core/event_request_test.go",
+    "status": "read",
+    "note": "Read full text: tests trusted-header IP direction/fallback, superuser recognition, request-info parsing/cache refresh and clone isolation."
+  },
+  {
+    "path": "core/events.go",
+    "status": "read",
+    "note": "Read full text in two ranges: declares tagged app/model/record/collection/request/file/realtime/auth event payloads and bidirectional adapters that propagate mutable app/context/type/model/error state between generic and specialized hooks."
+  },
+  {
+    "path": "core/external_auth_model.go",
+    "status": "read",
+    "note": "Read full text: ExternalAuth proxies _externalAuths, validates auth collection/record and registered provider, cascades references, and transactionally deletes external identities plus rotates tokenKey when an auth record becomes verified."
+  },
+  {
+    "path": "core/external_auth_model_test.go",
+    "status": "read",
+    "note": "Read full text: tests proxy accessors/timestamps/prevalidation, auth/reference/provider constraints, and exact identity/token-key effects for verified-state transitions."
+  },
+  {
+    "path": "core/external_auth_query.go",
+    "status": "read",
+    "note": "Read full text: lists external identities by record/collection, finds newest nonempty provider identity by expression, and joins per-model deletion errors."
+  },
+  {
+    "path": "core/external_auth_query_test.go",
+    "status": "read",
+    "note": "Read full text: fixture tests collection/record scoping and order, expression lookup, and exact deletion hook IDs."
+  },
+  {
+    "path": "core/field.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines fieldNameRegex, maxSafeJSONInt, SystemDynamicFieldNames, ErrInvalidFieldValue, FieldFactoryFunc, Fields, Field, MaxBodySizeCalculator; Commonly used field names."
+  },
+  {
+    "path": "core/field_autodate.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeAutodate, autodateLastKnownPrefix, AutodateField, Type, GetId, SetId, GetName; used to keep track of the last set autodate value"
+  },
+  {
+    "path": "core/field_autodate_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 8 cases including TestAutodateFieldBaseMethods, TestAutodateFieldColumnType, TestAutodateFieldPrepareValue; defines TestAutodateFieldBaseMethods, TestAutodateFieldColumnType, TestAutodateFieldPrepareValue, TestAutodateFieldValidateValue, TestAutodateFieldValidateSettings, TestAutodateFieldFindSetter, cutMilliseconds, TestAutodateFieldIntercept"
+  },
+  {
+    "path": "core/field_bool.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeBool, _, BoolField, Type, GetId, SetId, GetName; BoolField defines \"bool\" type field to store a single true/false value."
+  },
+  {
+    "path": "core/field_bool_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 5 cases including TestBoolFieldBaseMethods, TestBoolFieldColumnType, TestBoolFieldPrepareValue; defines TestBoolFieldBaseMethods, TestBoolFieldColumnType, TestBoolFieldPrepareValue, TestBoolFieldValidateValue, TestBoolFieldValidateSettings"
+  },
+  {
+    "path": "core/field_date.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeDate, _, DateField, Type, GetId, SetId, GetName; DateField defines \"date\" type field to store a single [types.DateTime] value."
+  },
+  {
+    "path": "core/field_date_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 5 cases including TestDateFieldBaseMethods, TestDateFieldColumnType, TestDateFieldPrepareValue; defines TestDateFieldBaseMethods, TestDateFieldColumnType, TestDateFieldPrepareValue, TestDateFieldValidateValue, TestDateFieldValidateSettings"
+  },
+  {
+    "path": "core/field_editor.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeEditor, DefaultEditorFieldMaxSize, EditorField, Type, GetId, SetId, GetName; EditorField defines \"editor\" type field to store HTML formatted text."
+  },
+  {
+    "path": "core/field_editor_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 6 cases including TestEditorFieldBaseMethods, TestEditorFieldColumnType, TestEditorFieldPrepareValue; defines TestEditorFieldBaseMethods, TestEditorFieldColumnType, TestEditorFieldPrepareValue, TestEditorFieldValidateValue, TestEditorFieldValidateSettings, TestEditorFieldCalculateMaxBodySize"
+  },
+  {
+    "path": "core/field_email.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeEmail, _, EmailField, Type, GetId, SetId, GetName; EmailField defines \"email\" type field for storing a single email string address."
+  },
+  {
+    "path": "core/field_email_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 5 cases including TestEmailFieldBaseMethods, TestEmailFieldColumnType, TestEmailFieldPrepareValue; defines TestEmailFieldBaseMethods, TestEmailFieldColumnType, TestEmailFieldPrepareValue, TestEmailFieldValidateValue, TestEmailFieldValidateSettings"
+  },
+  {
+    "path": "core/field_file.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeFile, DefaultFileFieldMaxSize, looseFilenameRegex, var, FileField, Type, GetId; FileField defines \"file\" type field for managing record file(s)."
+  },
+  {
+    "path": "core/field_file_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 12 cases including TestFileFieldBaseMethods, TestFileFieldColumnType, TestFileFieldIsMultiple; defines TestFileFieldBaseMethods, TestFileFieldColumnType, TestFileFieldIsMultiple, TestFileFieldPrepareValue, TestFileFieldDriverValue, TestFileFieldValidateValue, TestFileFieldValidateSettings, TestFileFieldCalculateMaxBodySize; -------------------------------------------------------------------"
+  },
+  {
+    "path": "core/field_geo_point.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeGeoPoint, GeoPointField, Type, GetId, SetId, GetName, SetName; GeoPointField defines \"geoPoint\" type field for storing latitude and longitude GPS coordinates."
+  },
+  {
+    "path": "core/field_geo_point_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 5 cases including TestGeoPointFieldBaseMethods, TestGeoPointFieldColumnType, TestGeoPointFieldPrepareValue; defines TestGeoPointFieldBaseMethods, TestGeoPointFieldColumnType, TestGeoPointFieldPrepareValue, TestGeoPointFieldValidateValue, TestGeoPointFieldValidateSettings"
+  },
+  {
+    "path": "core/field_json.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeJSON, DefaultJSONFieldMaxSize, JSONField, Type, GetId, SetId, GetName; JSONField defines \"json\" type field for storing any serialized JSON value."
+  },
+  {
+    "path": "core/field_json_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 6 cases including TestJSONFieldBaseMethods, TestJSONFieldColumnType, TestJSONFieldPrepareValue; defines TestJSONFieldBaseMethods, TestJSONFieldColumnType, TestJSONFieldPrepareValue, TestJSONFieldValidateValue, TestJSONFieldValidateSettings, TestJSONFieldCalculateMaxBodySize"
+  },
+  {
+    "path": "core/field_number.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeNumber, minNumberValidationError, NumberField, Type, GetId, SetId, GetName; NumberField defines \"number\" type field for storing numeric (float64) value."
+  },
+  {
+    "path": "core/field_number_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 6 cases including TestNumberFieldBaseMethods, TestNumberFieldColumnType, TestNumberFieldPrepareValue; defines TestNumberFieldBaseMethods, TestNumberFieldColumnType, TestNumberFieldPrepareValue, TestNumberFieldValidateValue, TestNumberFieldValidateSettings, TestNumberFieldFindSetter"
+  },
+  {
+    "path": "core/field_password.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypePassword, PasswordField, Type, GetId, SetId, GetName, SetName; PasswordField defines \"password\" type field for storing bcrypt hashed strings"
+  },
+  {
+    "path": "core/field_password_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 8 cases including TestPasswordFieldBaseMethods, TestPasswordFieldColumnType, TestPasswordFieldPrepareValue; defines TestPasswordFieldBaseMethods, TestPasswordFieldColumnType, TestPasswordFieldPrepareValue, TestPasswordFieldDriverValue, TestPasswordFieldValidateValue, TestPasswordFieldValidateSettings, TestPasswordFieldFindSetter, TestPasswordFieldFindGetter"
+  },
+  {
+    "path": "core/field_relation.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeRelation, RelationField, Type, GetId, SetId, GetName, SetName; RelationField defines \"relation\" type field for storing single or"
+  },
+  {
+    "path": "core/field_relation_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 8 cases including TestRelationFieldBaseMethods, TestRelationFieldColumnType, TestRelationFieldIsMultiple; defines TestRelationFieldBaseMethods, TestRelationFieldColumnType, TestRelationFieldIsMultiple, TestRelationFieldPrepareValue, TestRelationFieldDriverValue, TestRelationFieldValidateValue, TestRelationFieldValidateSettings, TestRelationFieldFindSetter"
+  },
+  {
+    "path": "core/field_select.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeSelect, SelectField, Type, GetId, SetId, GetName, SetName; SelectField defines \"select\" type field for storing single or"
+  },
+  {
+    "path": "core/field_select_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 8 cases including TestSelectFieldBaseMethods, TestSelectFieldColumnType, TestSelectFieldIsMultiple; defines TestSelectFieldBaseMethods, TestSelectFieldColumnType, TestSelectFieldIsMultiple, TestSelectFieldPrepareValue, TestSelectFieldDriverValue, TestSelectFieldValidateValue, TestSelectFieldValidateSettings, TestSelectFieldFindSetter"
+  },
+  {
+    "path": "core/field_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines testFieldBaseMethods, testDefaultFieldIdValidation, testDefaultFieldNameValidation, testDefaultFieldHelpValidation"
+  },
+  {
+    "path": "core/field_text.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeText, autogenerateModifier, forbiddenPKCharacters, caseInsensitiveReservedPKs, largestReservedPKLength, TextField, Type; (see largestReservedPKLength)"
+  },
+  {
+    "path": "core/field_text_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 7 cases including TestTextFieldBaseMethods, TestTextFieldColumnType, TestTextFieldPrepareValue; defines TestTextFieldBaseMethods, TestTextFieldColumnType, TestTextFieldPrepareValue, TestTextFieldValidateValue, TestTextFieldValidateSettings, TestTextFieldAutogenerate, TestTextFieldFindSetter"
+  },
+  {
+    "path": "core/field_url.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines init, FieldTypeURL, _, URLField, Type, GetId, SetId, GetName; URLField defines \"url\" type field for storing a single URL string value."
+  },
+  {
+    "path": "core/field_url_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 5 cases including TestURLFieldBaseMethods, TestURLFieldColumnType, TestURLFieldPrepareValue; defines TestURLFieldBaseMethods, TestURLFieldColumnType, TestURLFieldPrepareValue, TestURLFieldValidateValue, TestURLFieldValidateSettings"
+  },
+  {
+    "path": "core/fields_list.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. defines NewFieldsList, FieldsList, Clone, FieldNames, AsMap, GetById, GetByName, RemoveById; NewFieldsList creates a new FieldsList instance with the provided fields."
+  },
+  {
+    "path": "core/fields_list_test.go",
+    "status": "indexed",
+    "note": "Automated full-file byte read and symbol/test/comment extraction only; model full-text review pending. tests 14 cases including TestNewFieldsList, TestFieldsListClone, TestFieldsListFieldNames; defines TestNewFieldsList, TestFieldsListClone, TestFieldsListFieldNames, TestFieldsListAsMap, TestFieldsListGetById, TestFieldsListGetByName, TestFieldsListRemove, TestFieldsListAdd"
+  },
+  {
+    "path": "core/log_model.go",
+    "status": "read",
+    "note": "Read full text: auxiliary Log DBExporter caps messages at 8KB and JSON data at configured/default 16KiB, preserving decodable prefix fields and adding __pb_truncated__."
+  },
+  {
+    "path": "core/log_model_test.go",
+    "status": "read",
+    "note": "Read full text: verifies table and deterministic exports below, at, and above default/custom limits."
+  },
+  {
+    "path": "core/log_printer.go",
+    "status": "read",
+    "note": "Read full text: cached terminal colors format standard/custom levels and render request error/details as nested lines or generic data."
+  },
+  {
+    "path": "core/log_printer_test.go",
+    "status": "read",
+    "note": "Read full text: verifies dev prints all levels while persistence still honors minimum, and nondev only persists enabled levels."
+  },
+  {
+    "path": "core/log_query.go",
+    "status": "read",
+    "note": "Read full text: auxiliary log lookup, hourly SQLite statistics and hook-free bulk retention deletion."
+  },
+  {
+    "path": "core/log_query_test.go",
+    "status": "read",
+    "note": "Read full text: fixture tests lookup, hourly grouping/filter and progressive retention deletion."
+  },
+  {
+    "path": "core/mfa_model.go",
+    "status": "read",
+    "note": "Read full text: MFA proxies _mfas with auth collection/record/method, expiry by created time, hourly cleanup, reference cascades and transactional deletion on password hash change."
+  },
+  {
+    "path": "core/mfa_model_test.go",
+    "status": "read",
+    "note": "Read full text: tests proxy/accessors/expiry/prevalidation/reference requirements and password-change-specific MFA revocation."
+  },
+  {
+    "path": "core/mfa_query.go",
+    "status": "read",
+    "note": "Read full text: lists MFA sessions by record/collection, looks up IDs, joins bulk-delete errors and expires rows per auth collection duration even when MFA is disabled."
+  },
+  {
+    "path": "core/mfa_query_test.go",
+    "status": "read",
+    "note": "Read full text: fixture tests ordered scoping/lookup/deletion and collection-specific expiry cleanup sets."
+  },
+  {
+    "path": "core/migrations_list.go",
+    "status": "read",
+    "note": "Read full text: Migration list stores Up/Down/reapply callbacks, infers source filename and stable-sorts lexically on add/register/copy."
+  },
+  {
+    "path": "core/migrations_list_test.go",
+    "status": "read",
+    "note": "Read full text: verifies explicit/inferred filenames, copy and duplicate stable ordering."
+  },
+  {
+    "path": "core/migrations_runner.go",
+    "status": "read",
+    "note": "Read full text: runner initializes history, applies/reverts across nested aux+main transactions, supports conditional reapply and missing-file history cleanup, and orders legacy seconds/microseconds timestamps compatibly."
+  },
+  {
+    "path": "core/migrations_runner_test.go",
+    "status": "read",
+    "note": "Read full text: tests out-of-order applied rows, skip/reapply/order, reverse rollback and deleted migration history cleanup."
+  },
+  {
+    "path": "core/notify_watcher.go",
+    "status": "read",
+    "note": "Read full text: fsnotify sentinel files synchronize settings/catalog caches between processes sharing data dir, filtering self/removal events and debouncing 50ms with lifecycle cleanup."
+  },
+  {
+    "path": "core/notify_watcher_test.go",
+    "status": "read",
+    "note": "Read full text: shared-directory two-app tests verify remote settings refresh and one debounced concurrent collection query after create/update/delete."
+  },
+  {
+    "path": "core/otp_model.go",
+    "status": "read",
+    "note": "Read full text: OTP proxy binds auth record/collection and sentTo/password, expires by age, cleans hourly and deletes all record OTPs after tokenKey rotation."
+  },
+  {
+    "path": "core/otp_model_test.go",
+    "status": "read",
+    "note": "Read full text: tests proxy/accessors/expiry/validation and selective token-key-change revocation."
+  },
+  {
+    "path": "core/otp_query.go",
+    "status": "read",
+    "note": "Read full text: lists/looks up/deletes OTPs and expires them using each auth collection duration regardless of enabled state."
+  },
+  {
+    "path": "core/otp_query_test.go",
+    "status": "read",
+    "note": "Read full text: fixture tests ordering/scoping/lookups/bulk deletes and duration-dependent cleanup sets."
+  },
+  {
+    "path": "core/record_field_resolver.go",
+    "status": "read",
+    "note": "Read full text in two ranges: configures allowed record/request/collection paths, binds static request values, creates relation joins with list-rule enforcement and DISTINCT, supports modifiers, hidden-field fencing and nested map/array extraction."
+  },
+  {
+    "path": "core/record_field_resolver_replace_expr.go",
+    "status": "read",
+    "note": "Read full text: dbx expression safely fails closed on invalid inputs and replaces an internal placeholder with a built expression."
+  },
+  {
+    "path": "core/record_field_resolver_runner.go",
+    "status": "read",
+    "note": "Read full text through EOF in bounded ranges: one-shot resolver translates collection, @request, and @collection operands into SQLite expressions; validates visibility/list-rule boundaries, caps relation traversal at six, builds/reuses forward/back-relation and JSON joins, and implements isset/each/length/lower/changed plus multi-match subqueries."
+  },
+  {
+    "path": "core/record_field_resolver_test.go",
+    "status": "read",
+    "note": "Read full text through EOF in bounded ranges: exhaustive SQL-shape contract tests cover direct/nested/back relations, list-rule and hidden-email enforcement, @collection aliases, @request auth/body/query/header values, multi-match versus opt-any semantics, lower/isset/each/length/changed modifiers, JSON/null normalization, geolocation properties, strftime, relation-depth limit, and missing request values."
+  },
+  {
+    "path": "core/record_model.go",
+    "status": "read",
+    "note": "Read full text through EOF in six bounded ranges: Record bridges generic model and record hooks, nests per-field interceptors around validation/CRUD phases, tracks original/current/custom/expand state, normalizes setters/getters/modifiers, controls public export including auth secrets/email visibility, exports only changed DB columns optionally, refreshes auth token keys on password/email change, enforces cross-auth-collection ID uniqueness, and performs deterministic transactional recursive relation cascade/unset handling in 8000-row batches."
+  },
+  {
+    "path": "core/record_model_auth.go",
+    "status": "read",
+    "note": "Read full text: auth Record convenience methods expose email/visibility/verified/token key/password; random password generation hashes a ~30-character secret, refreshes token key, and clears the transient plaintext so configured password validators are intentionally bypassed."
+  },
+  {
+    "path": "core/record_model_auth_test.go",
+    "status": "read",
+    "note": "Read full text: verifies auth getters/setters, 50-character token-key refresh, empty/nonempty password validation, random-password validity and token invalidation, and intentional bypass of plain-password length/pattern validation."
+  },
+  {
+    "path": "core/record_model_superusers.go",
+    "status": "read",
+    "note": "Read full text: hooks prevent deleting the sole superuser transactionally, always verify superusers, remove the installer account after first real superuser creation, block installer password reset, and force the reserved collection name/password auth while disabling OAuth and requiring MFA with OTP."
+  },
+  {
+    "path": "core/record_model_superusers_test.go",
+    "status": "read",
+    "note": "Read full text: fixture-backed test confirms IsSuperuser is based only on membership in the reserved _superusers collection."
+  },
+  {
+    "path": "core/record_model_test.go",
+    "status": "read",
+    "note": "Read full text through EOF in nine bounded ranges: validates record defaults and scan/original/fresh/clone behavior, recursive expansion merge, schema/custom data separation, typed getters and file helpers, DB export/change-only updates, public serialization visibility and auth secret suppression, modifier replacement, field validation, bidirectional model/record hook synchronization, base/auth/view save behavior, cross-auth ID uniqueness, automatic token-key refresh, relation deletion constraints/cascades, self/multi relation handling, and >8000-reference batch processing."
+  },
+  {
+    "path": "core/record_proxy.go",
+    "status": "read",
+    "note": "Read full text: defines the minimal RecordProxy contract and embeddable BaseRecordProxy for typed project models by forwarding a mutable *Record."
+  },
+  {
+    "path": "core/record_proxy_test.go",
+    "status": "read",
+    "note": "Read full text: verifies setting a proxied record exposes the embedded record and ID consistently."
+  },
+  {
+    "path": "core/record_query.go",
+    "status": "read",
+    "note": "Read full text through EOF in two bounded ranges: RecordQuery installs lock-retry and scan hooks for Record/value/proxy destinations; helpers resolve collections and records by id/data/filter, compile resolver-backed filters/sorts, count records, verify typed JWTs from per-record tokenKey plus collection token secret, honor email index collation, and evaluate access rules with superuser/public/nil semantics."
+  },
+  {
+    "path": "core/record_query_expand.go",
+    "status": "read",
+    "note": "Read full text: expands normalized direct and back-relation paths recursively to depth six, deduplicates IDs, supports injected policy-aware fetching, caps each back-relation discovery at 1000, infers scalar back expands from a single-column unique index, preserves prior nested expands, and reports failures per requested path."
+  },
+  {
+    "path": "core/record_query_expand_test.go",
+    "status": "read",
+    "note": "Read full text in two bounded ranges: covers empty/invalid/fetch-error paths, normalized and shared prefixes, six-level cap, deprecated and current back-relation syntax, direct/nested/multiple expansion, unique-index scalar result shape, and deduplicated relation fetch queries."
+  },
+  {
+    "path": "core/record_query_test.go",
+    "status": "read",
+    "note": "Read full text in three bounded ranges: tests collection resolution by model/name/id, Record/proxy/custom result scans, id/data/filter helpers, ordering/limit/offset and JSON paths, token type checks, case-sensitive versus NOCASE auth email lookup, count behavior, and rule access where superusers bypass rules while guests/auth records distinguish nil, empty, invalid, matched and mismatched rules."
+  },
+  {
+    "path": "core/record_tokens.go",
+    "status": "read",
+    "note": "Read full text: issues auth/static-auth, verification, password-reset, email-change, and private-file JWTs only for auth records, signing each with record tokenKey plus the collection-specific secret and duration; claims bind record and collection, with email/newEmail where applicable and explicit refreshability for auth tokens."
+  },
+  {
+    "path": "core/record_tokens_test.go",
+    "status": "read",
+    "note": "Read full text: verifies every token family round-trips through token lookup, rejects non-auth records and empty signing keys, checks static auth refreshability and custom/fallback expiry windows."
+  },
+  {
+    "path": "core/settings_model.go",
+    "status": "read",
+    "note": "Read full text in two bounded ranges: Settings is a mutex-protected _params model with runtime reload hooks, optional at-rest encryption, secret-redacted JSON, deep clone/merge, collection-rename propagation into rate-limit labels, and validation for superuser IPs, SMTP/S3/backups, meta, logs, batch, trusted proxies and audience-aware exact/prefix rate-limit rules."
+  },
+  {
+    "path": "core/settings_model_test.go",
+    "status": "read",
+    "note": "Read full text in three bounded ranges: tests undeletable settings, encrypted/plain DB export, deep merge/clone, JSON secret masking, nested validation, SMTP/S3/backup/batch/log/meta constraints, conflicting rate-limit labels/audiences, direct-before-prefix rule precedence, and duration/string rendering."
+  },
+  {
+    "path": "core/settings_query.go",
+    "status": "read",
+    "note": "Read full text: ReloadSettings reads the singleton _params/settings row, recreates it from current defaults if absent, triggers OnSettingsReload around loading, tries plain JSON before environment-key decryption, and marks the shared settings model persisted after a successful scan."
+  },
+  {
+    "path": "core/settings_query_test.go",
+    "status": "read",
+    "note": "Read full text: tests missing-row recreation and exact lifecycle hook counts, database edits reloading without an update, repeat reloads, and encrypted insert/update values that do not expose the configured app name."
+  },
+  {
+    "path": "core/syscall.go",
+    "status": "read",
+    "note": "Read full text: the non-js/wasm build replaces the current process with syscall.Exec, used by restart/restore flows rather than spawning a child."
+  },
+  {
+    "path": "core/syscall_wasm.go",
+    "status": "read",
+    "note": "Read full text: the js/wasm build provides the same execve seam but always returns errors.ErrUnsupported."
+  },
+  {
+    "path": "core/system_alert.go",
+    "status": "read",
+    "note": "Read full text: renders a fixed HTML alert using runtime app/sender metadata, restricts recipients to superuser records, requires subject/details, escapes the subject, sends through the app mail hook/client, and aggregates delivery failures when broadcasting to all superusers."
+  },
+  {
+    "path": "core/system_alert_test.go",
+    "status": "read",
+    "note": "Read full text: bootstraps isolated apps, creates real superuser records, intercepts OnMailerSend to assert subject/details/recipient, and verifies one-recipient and all-three-superuser delivery counts."
+  },
+  {
+    "path": "core/validators/db.go",
+    "status": "read",
+    "note": "Read full text: UniqueId accepts empty input but rejects existing IDs and database lookup errors; NormalizeUniqueIndexError parses SQLite unique-constraint messages into per-field validation errors while guarding table/field prefix collisions and preserving unrelated or already-normalized errors."
+  },
+  {
+    "path": "core/validators/db_test.go",
+    "status": "read",
+    "note": "Read full text: fixture-backed tests cover empty/existing/new IDs and unknown tables, plus nil/unrelated/pre-normalized errors, table mismatch, suffix and field-prefix collision cases, and multi-column normalization."
+  },
+  {
+    "path": "core/validators/equal.go",
+    "status": "read",
+    "note": "Read full text: generic Equal compares comparable values including zero values, treats nil and typed-nil pointers as equal, recursively dereferences pointer variants, and converts reflection panics or mismatched underlying types into validation failure."
+  },
+  {
+    "path": "core/validators/equal_test.go",
+    "status": "read",
+    "note": "Read full text: the table covers strings, booleans, integers, pointers, pointer/value equivalence, differing types and typed nils; the function is named Equal rather than TestEqual, so Go's test runner will not discover it automatically."
+  },
+  {
+    "path": "core/validators/file.go",
+    "status": "read",
+    "note": "Read full text: uploaded-file rules reject unsupported value types, allow nil, enforce declared size, reopen content for signature-based MIME detection, support mimetype parent matching, and bound filenames embedded in errors."
+  },
+  {
+    "path": "core/validators/file_test.go",
+    "status": "read",
+    "note": "Read full text: tests nil and exact size boundaries and demonstrates that MIME is detected from bytes rather than the .png filename extension, including a charset-qualified text/plain allowlist match."
+  },
+  {
+    "path": "core/validators/string.go",
+    "status": "read",
+    "note": "Read full text: validates string regular expressions through regexp.Compile and accepts individual IPv4/IPv6 addresses or CIDR prefixes through netip, allowing empty strings for composition with Required; its invalid-IP error code contains the upstream spelling 'invlaid'."
+  },
+  {
+    "path": "core/validators/string_test.go",
+    "status": "read",
+    "note": "Read full text: tests empty/simple/escaped/invalid regexes and incomplete IPv4, IPv4, compressed and expanded IPv6, and IPv4/IPv6 CIDR inputs."
+  },
+  {
+    "path": "core/validators/validators.go",
+    "status": "read",
+    "note": "Read full text: defines a shared unsupported-type validation error; JoinValidationErrors merges two validation maps with the second overwriting duplicate keys, otherwise prefers a nonempty validation map or errors.Join; cutStr truncates byte strings for bounded messages."
+  },
+  {
+    "path": "core/validators/validators_test.go",
+    "status": "read",
+    "note": "Read full text: tests nil/plain joined errors, empty validation maps, preference for nonempty validation maps over plain errors, and merging two keyed validation maps."
+  },
+  {
+    "path": "core/view.go",
+    "status": "read",
+    "note": "Read full text in two bounded ranges: trusted-input raw SELECT views are transactionally dropped/recreated and probed; dry-run rejects wildcards, requires an id, infers cloned PocketBase field types from parsed aliases/tables plus casts/count/total, samples for empty/duplicate IDs, and resolves aliased file fields through at most five nested views back to the source record. The tokenizer/parser checks are explicitly rudimentary and not a security boundary."
+  },
+  {
+    "path": "core/view_test.go",
+    "status": "read",
+    "note": "Read full text in three bounded ranges: tests view replacement/cleanup and malformed or multi-statement input, wildcard/id rules, comment and identifier parsing, joins/aliases/auth fields/casts/aggregates and OnlyInt inference, nested single/multi-file provenance recursion limits, and dry-run sample-size plus empty/duplicate-id behavior (including sample size zero skipping duplicate detection)."
+  },
+  {
+    "path": "migrations/1640988000_aux_init.go",
+    "status": "read",
+    "note": "Read full text: auxiliary migration creates the _logs table plus level, message, and hourly-created indexes; Down drops it, and init conditionally reapplies when the auxiliary table is absent."
+  },
+  {
+    "path": "migrations/1640988000_init.go",
+    "status": "read",
+    "note": "Read full text: initial application migration creates params and collection catalog plus MFA, OTP, auth-origin, external-auth, superuser, and user system collections with their fields, rules, indexes and defaults; Down removes the initialized tables."
+  },
+  {
+    "path": "migrations/1717233556_v0.23_migrate.go",
+    "status": "read",
+    "note": "Read full text in three bounded ranges: upgrades pre-v0.23 collections/settings/admins/external identities, maps every legacy field/auth option and rule syntax, renames password storage, adds system fields/timestamps, validates all migrated collections, and removes superseded tables/log DB."
+  },
+  {
+    "path": "migrations/1717233557_v0.23_migrate2.go",
+    "status": "read",
+    "note": "Read full text: ensures the collection type index and clears obsolete delete rules from the system MFA/OTP collections using SaveNoValidate."
+  },
+  {
+    "path": "migrations/1717233558_v0.23_migrate3.go",
+    "status": "read",
+    "note": "Read full text: deterministically normalizes system collection/field IDs and rewrites relation plus MFA/OTP/auth-origin references in one migration."
+  },
+  {
+    "path": "migrations/1717233559_v0.23_migrate4.go",
+    "status": "read",
+    "note": "Read full text: idempotently adds the hidden sentTo field to the OTP collection."
+  },
+  {
+    "path": "migrations/1763020353_update_default_auth_alert_templates.go",
+    "status": "read",
+    "note": "Read full text: conditionally updates only unchanged default auth-alert templates and provides a symmetric Down migration."
+  },
+  {
+    "path": "migrations/1778828400_normalize_indexes.go",
+    "status": "read",
+    "note": "Read full text: reconciles SQLite master indexes into collection metadata, removes duplicate auth indexes, and resaves collections to normalize definitions."
+  }
+]

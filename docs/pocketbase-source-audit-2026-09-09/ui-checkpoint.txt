@@ -1,0 +1,10 @@
+UI audit complete.
+
+PocketBase source: v0.40.3, commit 5684ee24f1e88f71a2ede73d20cf547fbd509e16.
+PgBase comparison commit: 35af64c3e4736af0a8a6d2d3ecb36640e035840a.
+
+Final 394-entry ledger: 230 directly read source files, 164 inspected artifacts, 0 indexed-only entries.
+The 19 formerly indexed non-CSS files were fully reread in independent outputs of at most 300 lines and received file-specific notes.
+The CSS overlay was merged from ui-css-ledger.json (35 read, remixicon.css inspected artifact).
+
+ui.md is final and includes source pins, actual PgBase links, product/behavior parity findings, and three passing narrow source-extraction reproductions.

@@ -1,0 +1,162 @@
+[
+  {
+    "path": "core/field.go",
+    "status": "read",
+    "note": "Factory registry and Field interfaces; validation/preparation, mutable field getters/setters/interceptors, ID/name/help constraints and reserved names."
+  },
+  {
+    "path": "core/field_bool.go",
+    "status": "read",
+    "note": "false default, Required means true; cast coercion and raw type validation, tests assert false required rejected."
+  },
+  {
+    "path": "core/field_bool_test.go",
+    "status": "read",
+    "note": "false default, Required means true; cast coercion and raw type validation, tests assert false required rejected. Test body fully read."
+  },
+  {
+    "path": "core/field_autodate.go",
+    "status": "read",
+    "note": "OnCreate/OnUpdate interception, Set noop vs SetRaw override, last-known date tracks successful and failed resaves; system options immutable."
+  },
+  {
+    "path": "core/field_autodate_test.go",
+    "status": "read",
+    "note": "OnCreate/OnUpdate interception, Set noop vs SetRaw override, last-known date tracks successful and failed resaves; system options immutable. Test body fully read."
+  },
+  {
+    "path": "core/field_date.go",
+    "status": "read",
+    "note": "DateTime coercion defaults invalid scans to zero; Required and Min/Max checks, TEXT storage; tests include zero/range settings."
+  },
+  {
+    "path": "core/field_date_test.go",
+    "status": "read",
+    "note": "DateTime coercion defaults invalid scans to zero; Required and Min/Max checks, TEXT storage; tests include zero/range settings. Test body fully read."
+  },
+  {
+    "path": "core/field_editor.go",
+    "status": "read",
+    "note": "HTML text payload with 5MiB default byte limit, ConvertURLs metadata, Required nonempty; no content sanitization in this field contract."
+  },
+  {
+    "path": "core/field_editor_test.go",
+    "status": "read",
+    "note": "HTML text payload with 5MiB default byte limit, ConvertURLs metadata, Required nonempty; no content sanitization in this field contract. Test body fully read."
+  },
+  {
+    "path": "core/field_email.go",
+    "status": "read",
+    "note": "Email format and mutually exclusive exact domain allow/deny lists; string coercion, required and schema tests."
+  },
+  {
+    "path": "core/field_email_test.go",
+    "status": "read",
+    "note": "Email format and mutually exclusive exact domain allow/deny lists; string coercion, required and schema tests. Test body fully read."
+  },
+  {
+    "path": "core/field_url.go",
+    "status": "read",
+    "note": "URL format plus exact parsed Host allow/deny lists; mutually exclusive domain settings; normalization and validation tests."
+  },
+  {
+    "path": "core/field_url_test.go",
+    "status": "read",
+    "note": "URL format plus exact parsed Host allow/deny lists; mutually exclusive domain settings; normalization and validation tests. Test body fully read."
+  },
+  {
+    "path": "core/field_geo_point.go",
+    "status": "read",
+    "note": "GeoPoint Scan from maps/JSON, required rejects Null Island, latitude/longitude bounds; JSON storage and fixture matrix."
+  },
+  {
+    "path": "core/field_geo_point_test.go",
+    "status": "read",
+    "note": "GeoPoint Scan from maps/JSON, required rejects Null Island, latitude/longitude bounds; JSON storage and fixture matrix. Test body fully read."
+  },
+  {
+    "path": "core/field_json.go",
+    "status": "read",
+    "note": "String-to-JSON normalization for multipart compatibility, required rejects null/empty string/list/object, 1MiB default, JSONv2 duplicate-key validation."
+  },
+  {
+    "path": "core/field_json_test.go",
+    "status": "read",
+    "note": "String-to-JSON normalization for multipart compatibility, required rejects null/empty string/list/object, 1MiB default, JSONv2 duplicate-key validation. Test body fully read."
+  },
+  {
+    "path": "core/field_number.go",
+    "status": "read",
+    "note": "float64 coercion, finite/integer/min/max checks; zero bypasses range if optional, Required rejects zero; +/- setter operators and tests."
+  },
+  {
+    "path": "core/field_number_test.go",
+    "status": "read",
+    "note": "float64 coercion, finite/integer/min/max checks; zero bypasses range if optional, Required rejects zero; +/- setter operators and tests. Test body fully read."
+  },
+  {
+    "path": "core/field_password.go",
+    "status": "read",
+    "note": "bcrypt FieldValue tracks plain/hash/error; min/max rune counts, regex/cost; plain cleared on persistence; getters and validation matrix."
+  },
+  {
+    "path": "core/field_password_test.go",
+    "status": "read",
+    "note": "bcrypt FieldValue tracks plain/hash/error; min/max rune counts, regex/cost; plain cleared on persistence; getters and validation matrix."
+  },
+  {
+    "path": "core/field_select.go",
+    "status": "read",
+    "note": "Single value keeps last normalized element; unique multiple lists with allowed values/maxSelect and append/prepend/subtract setters."
+  },
+  {
+    "path": "core/field_select_test.go",
+    "status": "read",
+    "note": "Single value keeps last normalized element; unique multiple lists with allowed values/maxSelect and append/prepend/subtract setters."
+  },
+  {
+    "path": "core/field_relation.go",
+    "status": "read",
+    "note": "Single string or ordered unique JSON list; required/min/max/existence count validation; immutable target ID, view-to-view restriction; setter tests."
+  },
+  {
+    "path": "core/field_relation_test.go",
+    "status": "read",
+    "note": "Single string or ordered unique JSON list; required/min/max/existence count validation; immutable target ID, view-to-view restriction; setter tests."
+  },
+  {
+    "path": "core/field_text.go",
+    "status": "read",
+    "note": "Rune-length/regex validators, optional zero bypass, immutable primary key, filesystem-compatible IDs; regex autogeneration and modifier plus full test matrix."
+  },
+  {
+    "path": "core/field_text_test.go",
+    "status": "read",
+    "note": "Rune-length/regex validators, optional zero bypass, immutable primary key, filesystem-compatible IDs; regex autogeneration and modifier plus full test matrix."
+  },
+  {
+    "path": "core/field_file.go",
+    "status": "read",
+    "note": "Full 829 implementation +1157 test lines: pending upload objects vs persisted filenames, size/MIME/cardinality/thumb specs; transaction upload cleanup/commit deletion and repeated resaves."
+  },
+  {
+    "path": "core/field_file_test.go",
+    "status": "read",
+    "note": "Full 829 implementation +1157 test lines: pending upload objects vs persisted filenames, size/MIME/cardinality/thumb specs; transaction upload cleanup/commit deletion and repeated resaves."
+  },
+  {
+    "path": "core/fields_list.go",
+    "status": "read",
+    "note": "Stable generated CRC IDs, replacement by ID/name, insert/move ordering, polymorphic JSON marshal, clone and SQL scan/value."
+  },
+  {
+    "path": "core/fields_list_test.go",
+    "status": "read",
+    "note": "Full clone/replacement/order, unknown types, JSON roundtrip/default serialization and scan tests."
+  },
+  {
+    "path": "core/field_test.go",
+    "status": "read",
+    "note": "Shared Field factory/getter/setter and ID/name/help validation tests including reserved names and length boundaries."
+  }
+]
