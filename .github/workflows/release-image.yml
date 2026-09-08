@@ -40,8 +40,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
     outputs:
       candidate_image: ${{ steps.candidate.outputs.candidate_image }}
       expected_version: ${{ needs.preflight.outputs.expected_version }}
@@ -52,6 +50,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install the pinned private attestation verifier
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.2
+
+      - name: Require a private package before publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scripts/support/validate-private-package.sh before \
+            "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REPOSITORY#*/}" \
+            "$RUNNER_TEMP/package-privacy-before.json"
 
       - name: Build and push candidate once
         id: candidate
@@ -98,45 +109,53 @@ jobs:
           output-file: pgbase-release.spdx.json
           artifact-name: pgbase-release-sbom
 
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ steps.candidate.outputs.image }}
-          subject-digest: ${{ steps.candidate.outputs.digest }}
-          push-to-registry: true
+      - name: Describe the key-backed build
+        env:
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.expected_version }}
+        run: scripts/support/create-release-provenance.sh "$RUNNER_TEMP/release-provenance.json" "$EXPECTED_VERSION" "$GITHUB_SHA"
 
-      - name: Attest release SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
-        with:
-          subject-name: ${{ steps.candidate.outputs.image }}
-          subject-digest: ${{ steps.candidate.outputs.digest }}
-          sbom-path: pgbase-release.spdx.json
-          push-to-registry: true
+      - name: Sign the release provenance and SBOM
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.expected_version }}
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
+        run: |
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 "$RUNNER_TEMP/release-provenance.json"
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson pgbase-release.spdx.json
 
       # Producing an attestation is not the same as being able to retrieve and
       # verify one. Every gate and the promotion depend on this job, so a
       # candidate whose provenance or SBOM cannot be verified from the registry
       # never reaches a tag.
-      - name: Verify the published provenance and SBOM attestations
+      - name: Verify the signed provenance and SBOM against the candidate digest
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.expected_version }}
         run: |
           set -euo pipefail
-          for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3; do
-            gh attestation verify "oci://$CANDIDATE_IMAGE" \
-              --repo "$GITHUB_REPOSITORY" \
-              --predicate-type "$predicate" \
-              --format json > "$RUNNER_TEMP/attestation-${predicate##*/}.json"
-          done
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 \
+            "$RUNNER_TEMP/release-provenance.json" .github/cosign.pub "$RUNNER_TEMP/attestation-provenance.json"
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson \
+            pgbase-release.spdx.json .github/cosign.pub "$RUNNER_TEMP/attestation-sbom.json"
+
+      - name: Require the published package to remain private
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scripts/support/validate-private-package.sh after \
+            "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REPOSITORY#*/}" \
+            "$RUNNER_TEMP/package-privacy-after.json"
 
       - name: Upload attestation verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-attestation-verification
-          path: ${{ runner.temp }}/attestation-*.json
+          path: |
+            ${{ runner.temp }}/attestation-*.json
+            ${{ runner.temp }}/package-privacy-*.json
           if-no-files-found: warn
           retention-days: 90
 

@@ -1,6 +1,6 @@
 # Deployment
 
-pgBase is pre-v0.1. Validate every release in a staging copy, keep a current backup, and expect configuration, API, and migration procedures to change during v0.x.
+Validate every pgBase release in a staging copy, keep a current backup, and expect configuration, API, and migration procedures to change during v0.x.
 
 ## Database and instance topology
 
@@ -39,20 +39,28 @@ Deploy immutable `image@sha256:...` references rather than relying on a mutable 
 
 A release tag runs a tag/version preflight first. Only after it accepts the tag does the workflow build and push exactly one candidate image, and that candidate's digest is the sole input to the five release gates: backend, frontend, Docker E2E, security scanning, and the backup/restore drill. The E2E and restore gates refuse to start without a digest-pinned candidate and have no source-build or local-tag fallback, and security scans the same digest instead of building its own audit image. Promotion adds tags to that verified digest and never rebuilds. The published digest is therefore the artifact that passed the gates.
 
-Publication fails closed unless the triggering tag is protected. Configure a repository ruleset for `refs/tags/v*` that restricts creation and updates to release maintainers, and protect the `release-publish` environment with required reviewers, self-review prevention, and matching deployment-ref rules. The workflow keeps write permissions inside the environment-gated candidate and promotion jobs; these source controls are defense in depth and do not replace the GitHub ruleset or environment policy. Historical phase dispatch is likewise accepted only from the protected default branch.
+Publication fails closed unless the triggering tag is protected. Restrict creation of `refs/tags/v*` to the release owner and prevent updates and deletion of existing release tags. Protect the default branch with pull requests and the five routine CI checks. The `release-publish` environment permits only release tags and the protected default branch used by historical phase dispatch. The workflow keeps registry write permissions and signing secrets inside the candidate job; promotion receives registry credentials but no signing key.
+
+For this private, personal GitHub Pro repository, creating an owner-only protected release tag is the owner's approval to run the complete release pipeline. This is a single-owner release policy, not independent two-person approval. GitHub does not offer required environment reviewers for private Pro repositories. If independent approval becomes a requirement, use a supported environment approval service or plan before publishing; an ordinary environment without required reviewers does not provide that property.
 
 The candidate is built for `linux/amd64` only. There is no multi-architecture release image; running pgBase on another architecture means building from source and validating it yourself.
 
-Before any gate consumes the digest, the workflow verifies that the provenance and SBOM attestations it just published can actually be retrieved and verified from the registry:
+The private release uses key-backed Cosign attestations for provenance and SPDX SBOMs. The encrypted private key and its password are `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` secrets in `release-publish`; only the public key, `.github/cosign.pub`, is committed. Neither private repository metadata nor signatures are submitted to public Fulcio/Rekor services. The GHCR package and its attached attestations must remain private.
+
+Before any gate consumes the digest, the workflow retrieves and verifies both signed attestations from that exact registry digest and checks their source and predicate bindings. Consumers must obtain the public key through a trusted channel, rather than accepting a replacement key supplied alongside an untrusted image. The initial public-key file SHA-256 is `11d76bbe37cb662c446d9a9b2eff9cd3826bd5afe64dfdf61e4adff798052f7a`.
+
+These signatures establish that the holder of the release key made the provenance claims. They are not GitHub-issued keyless identities and do not provide a public transparency timestamp. Protect the signing environment and workflow changes accordingly. Keep an encrypted key backup and its password outside source control with access restricted to the release owner; rotate the trusted key and document the affected releases if it is compromised.
+
+Use Cosign v3.1.2 and the trusted public key to verify a release from the personal repository namespace:
 
 ```console
-gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
-  --repo webisnoteasy/PgBase --predicate-type https://slsa.dev/provenance/v1
-gh attestation verify oci://ghcr.io/webisnoteasy/pgbase@sha256:... \
-  --repo webisnoteasy/PgBase --predicate-type https://spdx.dev/Document/v2.3
+cosign verify-attestation --key .github/cosign.pub --insecure-ignore-tlog \
+  --type slsaprovenance1 ghcr.io/yakisoba0728/pgbase@sha256:...
+cosign verify-attestation --key .github/cosign.pub --insecure-ignore-tlog \
+  --type spdxjson ghcr.io/yakisoba0728/pgbase@sha256:...
 ```
 
-Run the same two commands against the digest you intend to deploy, and retain that digest with the deployment record.
+`--insecure-ignore-tlog` disables only the transparency-log requirement; public-key signature and image-subject verification remain required. Inspect the verified provenance's repository, source commit and version against the release you selected. The workflow's `verify-release-attestation.sh` helper additionally requires exact equality with the predicate produced by that build. Retain the decoded statements and digest with the deployment record. GitHub artifact-attestation APIs are not used by this private Pro release path.
 
 ### Historical rollout-phase images
 

@@ -75,9 +75,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     services:
       postgres:
         image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
@@ -110,6 +107,19 @@ jobs:
           go-version: 1.26.8
           cache: true
           cache-dependency-path: go.sum
+
+      - name: Install the pinned private attestation verifier
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.2
+
+      - name: Require a private package before publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scripts/support/validate-private-package.sh before \
+            "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REPOSITORY#*/}" \
+            "$RUNNER_TEMP/package-privacy-before.json"
 
       - name: Build the immutable release phase bundle
         env:
@@ -189,24 +199,13 @@ jobs:
           output-file: pgbase-release-phase.spdx.json
           artifact-name: pgbase-release-phase-sbom
 
-      - name: Attest phase build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ steps.candidate.outputs.image }}
-          subject-digest: ${{ steps.candidate.outputs.digest }}
-          push-to-registry: true
+      - name: Describe the key-backed phase build
+        env:
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
+        run: scripts/support/create-release-provenance.sh "$RUNNER_TEMP/release-provenance.json" "$EXPECTED_VERSION" "${{ needs.resolve.outputs.source_commit }}"
 
-      - name: Attest phase SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
-        with:
-          subject-name: ${{ steps.candidate.outputs.image }}
-          subject-digest: ${{ steps.candidate.outputs.digest }}
-          sbom-path: pgbase-release-phase.spdx.json
-          push-to-registry: true
-
-      # GitHub's standard workflow provenance identifies the commit containing
-      # this dispatcher. A phase build deliberately checks out an older commit,
-      # so a second signed predicate records that actual source dependency.
+      # The SLSA provenance binds this historical source commit to the build.
+      # This additional predicate records its rollout phase and binary digest.
       - name: Describe the selected phase source
         shell: bash
         env:
@@ -228,53 +227,38 @@ jobs:
             '{schemaVersion: 1, rollout: $rollout, phase: $phase, source: {repository: $repository, commit: $sourceCommit}, packaging: {workflowCommit: $workflowCommit}, version: $version, binaryDigest: $binaryDigest}' \
             > "$RUNNER_TEMP/release-phase-source.json"
 
-      - name: Attest the selected phase source
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-name: ${{ steps.candidate.outputs.image }}
-          subject-digest: ${{ steps.candidate.outputs.digest }}
-          predicate-type: https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1
-          predicate-path: ${{ runner.temp }}/release-phase-source.json
-          push-to-registry: true
+      - name: Sign the phase provenance, SBOM, and selected source
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
+        run: |
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 "$RUNNER_TEMP/release-provenance.json"
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson pgbase-release-phase.spdx.json
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1 "$RUNNER_TEMP/release-phase-source.json"
 
-      - name: Verify the published provenance and SBOM attestations
+      - name: Verify every signed phase attestation against the candidate digest
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CANDIDATE_IMAGE: ${{ steps.candidate.outputs.candidate_image }}
-          ROLLOUT: ${{ inputs.rollout }}
-          PHASE: ${{ inputs.phase }}
-          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
           EXPECTED_VERSION: ${{ needs.resolve.outputs.expected_version }}
-          BINARY_DIGEST: ${{ steps.candidate.outputs.binary_digest }}
         run: |
           set -euo pipefail
-          while read -r evidence predicate; do
-            gh attestation verify "oci://$CANDIDATE_IMAGE" \
-              --repo "$GITHUB_REPOSITORY" \
-              --predicate-type "$predicate" \
-              --format json > "$RUNNER_TEMP/phase-attestation-$evidence.json"
-            jq --exit-status 'length > 0' \
-              "$RUNNER_TEMP/phase-attestation-$evidence.json" >/dev/null
-          done <<'PREDICATES'
-          provenance https://slsa.dev/provenance/v1
-          sbom https://spdx.dev/Document/v2.3
-          source https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1
-          PREDICATES
-          jq --exit-status \
-            --arg rollout "$ROLLOUT" \
-            --arg phase "$PHASE" \
-            --arg sourceRepository "https://github.com/$GITHUB_REPOSITORY" \
-            --arg sourceCommit "$SOURCE_COMMIT" \
-            --arg workflowCommit "$GITHUB_SHA" \
-            --arg version "$EXPECTED_VERSION" \
-            --arg binaryDigest "$BINARY_DIGEST" \
-            '[.[] | .verificationResult.statement.predicate |
-              select(.schemaVersion == 1 and .rollout == $rollout and .phase == $phase and
-                .source.repository == $sourceRepository and .source.commit == $sourceCommit and
-                .packaging.workflowCommit == $workflowCommit and
-                .version == $version and .binaryDigest == $binaryDigest)] | length > 0' \
-            "$RUNNER_TEMP/phase-attestation-source.json" >/dev/null
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 \
+            "$RUNNER_TEMP/release-provenance.json" .github/cosign.pub "$RUNNER_TEMP/phase-attestation-provenance.json"
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson \
+            pgbase-release-phase.spdx.json .github/cosign.pub "$RUNNER_TEMP/phase-attestation-sbom.json"
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1 \
+            "$RUNNER_TEMP/release-phase-source.json" .github/cosign.pub "$RUNNER_TEMP/phase-attestation-source.json"
+
+      - name: Require the published package to remain private
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scripts/support/validate-private-package.sh after \
+            "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REPOSITORY#*/}" \
+            "$RUNNER_TEMP/package-privacy-after.json"
 
       - name: Upload phase attestation verification evidence
         if: always()
@@ -284,6 +268,7 @@ jobs:
           path: |
             ${{ runner.temp }}/phase-attestation-*.json
             ${{ runner.temp }}/release-phase-source.json
+            ${{ runner.temp }}/package-privacy-*.json
           if-no-files-found: warn
           retention-days: 90
 

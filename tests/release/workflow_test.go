@@ -114,9 +114,14 @@ func TestPublicationWorkflowsRequireProtectedSourcesAndScopedWritePermissions(t 
 			t.Errorf("%s inherits secrets into its reusable gate", name)
 		}
 		candidate := strings.Join(workflowJobs(t, name)["candidate"], "\n")
-		for _, contract := range []string{"environment: release-publish", "packages: write", "id-token: write", "attestations: write"} {
+		for _, contract := range []string{"environment: release-publish", "packages: write"} {
 			if !strings.Contains(candidate, contract) {
 				t.Errorf("%s candidate is missing %q", name, contract)
+			}
+		}
+		for _, forbidden := range []string{"id-token: write", "attestations: write", "artifact-metadata: write"} {
+			if strings.Contains(candidate, forbidden) {
+				t.Errorf("%s candidate still requests unavailable private-repository permission %q", name, forbidden)
 			}
 		}
 	}
@@ -166,16 +171,55 @@ func TestReleaseCandidateVerifiesItsOwnProvenanceAndSBOM(t *testing.T) {
 	// The verification lives in the candidate job so every gate and the
 	// promotion depend on it without adding a sixth release gate.
 	candidate := strings.Join(workflowJobs(t, "release-image.yml")["candidate"], "\n")
-	if !strings.Contains(candidate, "gh attestation verify") {
+	if !strings.Contains(candidate, "scripts/support/verify-release-attestation.sh") {
 		t.Error("the release candidate does not verify its published attestations")
 	}
-	for _, predicate := range []string{"https://slsa.dev/provenance/v1", "https://spdx.dev/Document/v2.3"} {
+	for _, predicate := range []string{"slsaprovenance1", "spdxjson"} {
 		if !strings.Contains(source, predicate) {
 			t.Errorf("release-image.yml does not verify the %s attestation", predicate)
 		}
 	}
 	if !strings.Contains(source, "release-attestation-verification") {
 		t.Error("release-image.yml keeps no attestation verification evidence")
+	}
+	for _, contract := range []string{
+		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"cosign-release: v3.1.2",
+		"COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}",
+		"COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}",
+		"scripts/support/sign-release-attestation.sh",
+		".github/cosign.pub",
+	} {
+		if !strings.Contains(candidate, contract) {
+			t.Errorf("release-image.yml candidate is missing private signing contract %q", contract)
+		}
+	}
+	for _, forbidden := range []string{"actions/attest-build-provenance", "actions/attest-sbom", "gh attestation verify"} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("release-image.yml still uses unavailable GitHub attestation path %q", forbidden)
+		}
+	}
+}
+
+func TestReleasePhaseUsesTheSamePrivateSigningTrustRoot(t *testing.T) {
+	source := workflowSource(t, "release-phase-image.yml")
+	candidate := strings.Join(workflowJobs(t, "release-phase-image.yml")["candidate"], "\n")
+	for _, contract := range []string{
+		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"cosign-release: v3.1.2",
+		"scripts/support/create-release-provenance.sh",
+		"scripts/support/sign-release-attestation.sh",
+		"scripts/support/verify-release-attestation.sh",
+		"https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1",
+	} {
+		if !strings.Contains(candidate, contract) {
+			t.Errorf("release-phase-image.yml candidate is missing private signing contract %q", contract)
+		}
+	}
+	for _, forbidden := range []string{"actions/attest-build-provenance", "actions/attest-sbom", "uses: actions/attest@", "gh attestation verify"} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("release-phase-image.yml still uses unavailable GitHub attestation path %q", forbidden)
+		}
 	}
 }
 

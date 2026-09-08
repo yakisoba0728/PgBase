@@ -110,6 +110,16 @@ jobs:
         shell: bash
         run: scripts/test-go-unit.sh -race -count=1
 
+      - name: Install the pinned private attestation verifier
+        if: inputs.source_commit == ''
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.2
+
+      - name: Verify private attestations against a disposable registry
+        if: inputs.source_commit == ''
+        run: go test -tags=cosignintegration ./tests/release -run '^TestPrivateReleaseAttestation' -count=1
+
   # The terminal adapter's cancellation and echo-restoration behaviour is
   # implemented per platform and its tests are darwin-only, so the Ubuntu unit
   # job never compiles them. Without a macOS runner a regression in the path
