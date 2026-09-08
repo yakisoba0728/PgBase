@@ -27,11 +27,14 @@ status="$(printf 'Authorization: Bearer %s\n' "$GH_TOKEN" | curl --silent --show
   --header 'Accept: application/vnd.github+json' \
   --header @- \
   --header 'X-GitHub-Api-Version: 2022-11-28' \
-  "https://api.github.com/users/$owner/packages/container/$encoded_package")"
+  "https://api.github.com/user/packages/container/$encoded_package")"
 
 case "$status" in
   200)
-    jq --exit-status '{id, name, package_type, visibility, html_url} | select(.visibility == "private")' \
+    jq --exit-status --arg owner "$owner" --arg package "$package" \
+      'select((.owner.login | ascii_downcase) == ($owner | ascii_downcase) and
+        .name == $package and .package_type == "container" and .visibility == "private") |
+        {id, name, package_type, visibility, html_url, owner: .owner.login}' \
       "$body" > "$evidence"
     ;;
   404)

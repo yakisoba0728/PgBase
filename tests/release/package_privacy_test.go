@@ -20,7 +20,7 @@ for argument in "$@"; do
   if [[ "$previous" == "--output" ]]; then output="$argument"; fi
   previous="$argument"
 done
-[[ "$*" == *'/packages/container/pgbase'* ]] || exit 91
+[[ "$*" == *'https://api.github.com/user/packages/container/pgbase'* ]] || exit 91
 printf '%s\n' "$MOCK_BODY" > "$output"
 printf '%s' "$MOCK_STATUS"
 `
@@ -42,13 +42,14 @@ printf '%s' "$MOCK_STATUS"
 	if err := run("before", "404", `{}`); err != nil {
 		t.Fatalf("confirmed absence before publication was rejected: %v", err)
 	}
-	if err := run("after", "200", `{"id":1,"name":"pgbase","package_type":"container","visibility":"private","html_url":"private"}`); err != nil {
+	if err := run("after", "200", `{"id":1,"name":"pgbase","package_type":"container","visibility":"private","html_url":"private","owner":{"login":"yakisoba0728"}}`); err != nil {
 		t.Fatalf("private package after publication was rejected: %v", err)
 	}
 	for name, test := range map[string]struct{ mode, status, body string }{
 		"authorization failure": {"before", "403", `{}`},
 		"missing after push":    {"after", "404", `{}`},
-		"public package":        {"after", "200", `{"visibility":"public"}`},
+		"public package":        {"after", "200", `{"name":"pgbase","package_type":"container","visibility":"public","owner":{"login":"yakisoba0728"}}`},
+		"different owner":       {"after", "200", `{"name":"pgbase","package_type":"container","visibility":"private","owner":{"login":"another-owner"}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := run(test.mode, test.status, test.body); err == nil {
