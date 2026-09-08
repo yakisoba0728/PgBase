@@ -11,7 +11,7 @@
 | M1-B 소유권 기반 데이터 접근 | GPT 5.6 Terra / owner_access | 구현·DB·잠금 회귀 완료 | A/B 사용자 분리, 기본 차단, 원자적 소유권 기록, SQL 페이지 제한 전 필터 |
 | M1-C HTTP·설정·앱 연결 | Root | 구현·실제 HTTP/race 검증 완료 | 실제 HTTP로 두 사용자의 독립 CRUD 가능 |
 | M1-D 마이그레이션·독립 검토 | GPT 5.6 Sol / private_release_review + Root | 업그레이드·반복 실행 검증 완료 | 기존 이력 체크섬 유지, 업그레이드·역사 버전 검증 경계 확인 |
-| M1-E 통합 검증·문서·PR | Root + 검토 에이전트 | 전체 회귀 검사 진행 | 전체 관련 검사 통과, PR/CI/병합 결과 기록 |
+| M1-E 통합 검증·문서·PR | Root + 검토 에이전트 | 구현·로컬 검사 완료, [PR #26](https://github.com/yakisoba0728/PgBase/pull/26)에서 CI·병합 추적 | 전체 관련 검사 통과, PR/CI/병합 결과 기록 |
 
 ## M0 — 기준점과 작업 관리
 
@@ -20,7 +20,7 @@
 - [x] 구현 전용 `codex/public-identity-owner-access` 브랜치 생성.
 - [x] Sol/Terra 담당 파일 경계와 공통 인터페이스 확정.
 - [x] 상세 TODO와 현재 실행 보드 생성.
-- [ ] 비교 보고서와 이번 구현 기록을 PR에 포함.
+- [x] 비교 보고서와 이번 구현 기록을 [PR #26](https://github.com/yakisoba0728/PgBase/pull/26)에 포함.
 
 ## M1 — 일반 사용자 + 소유자 전용 데이터 API (현재 구현)
 
@@ -124,9 +124,10 @@
 - [x] README의 pre-v0.1 설명을 실제 상태와 맞춤.
 - [x] 공개 사용자 quickstart: 가입 설정→컬렉션 허용→두 사용자 CRUD.
 - [x] 이번 단위의 제한과 미구현 기능 명시.
-- [ ] PR 생성·최신 커밋 CI 확인.
-- [ ] PR 병합 및 최종 main 확인.
-- [ ] 릴리스 여부·버전·검증 결과를 별도 기록 (기존 v0.1.0 태그 변경 금지).
+- [x] [PR #26 생성](https://github.com/yakisoba0728/PgBase/pull/26).
+- 최신 커밋의 CI 결과는 [PR checks](https://github.com/yakisoba0728/PgBase/pull/26/checks)에서 추적한다.
+- 병합 여부와 최종 main 커밋은 [PR #26 타임라인](https://github.com/yakisoba0728/PgBase/pull/26)에서 추적한다. 검증 중인 커밋 자체에 병합 완료를 미리 기록하지 않는다.
+- [x] 이번 PR은 소스 구현만 반영. 배포 버전은 v0.1.0 유지, 후속 릴리스는 별도 작업이며 기존 태그 변경 금지.
 
 ## M2 — 사용자 수명주기와 유연한 권한
 
@@ -214,3 +215,5 @@
 - 2026-09-08: 전체 PostgreSQL integration/race·skip 정책 통과. Sol의 populated v9→v11 업그레이드 및 반복 실행 보존 테스트 통과. 미사용 쿼리 wrapper를 제거하고 기존 설명 주석을 복구해 최종 코드 크기 재측정.
 
 - 2026-09-08: 최종 쿼리·레코드·업그레이드·크기 정책 race 재검사와 pinned lint 통과. 실제 Cosign 검증 테스트 통과. 복원 후 원래 Bearer 세션까지 PG16/17/18에서 확인. PR 준비 완료, 배포된 v0.1.0은 유지.
+
+- 2026-09-08: PR #26 생성, Backend/Frontend/Security CI 시작. 위 GitHub 링크가 최신 커밋별 CI·병합 상태의 기준이다. 구현·로컬 검증 완료와 배포 릴리스 완료는 구분한다.
