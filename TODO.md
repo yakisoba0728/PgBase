@@ -267,7 +267,8 @@
 - [x] 각 module의 API·SDK·UI 연결 후 실제 앱 end-to-end 검사.
 - [x] docs/API 계약·OpenAPI·예제·README를 실제 구현과 일치시킴.
 - [x] 최종 변경 범위의 독립 검토·unit/race·DB·UI·SDK·로컬서비스 통합 검사.
-- [ ] 단계별 PR/최신 CI/main 병합 결과 기록, 소스와 릴리스 구분.
+- [x] [M2–M6 로컬 구현 PR #28 생성](https://github.com/yakisoba0728/PgBase/pull/28), 소스와 릴리스 구분.
+- 최신 커밋 CI는 [PR checks](https://github.com/yakisoba0728/PgBase/pull/28/checks), 실제 병합 여부·main 커밋은 [PR 타임라인](https://github.com/yakisoba0728/PgBase/pull/28)을 기준으로 추적한다. 검증 전 병합 성공을 미리 기록하지 않는다.
 
 ### M2-B 계정 메일 상세
 
@@ -380,3 +381,5 @@
 - 2026-09-09: Auth/OAuth/MFA·관계 모든 hop·서비스 토큰·View/복합 인덱스·파일·SSE 독립 검토 및 회귀 완료. SDK 실제 tarball 설치와 PgBase HTTP conformance 통과. 브라우저에서 기본 fetch 바인딩 오류와 토큰 폼 입력 실패 후 잠김을 발견·수정. UI 431개 테스트 통과. 전체 Go/PG 및 PG16/17/18 복원 최종 재검증 중.
 
 - 2026-09-09: 서비스 토큰 scope의 컬렉션 삭제 방해를 실제 브라우저에서 재현해 guarded schema transaction에서 정리하도록 수정. active/revoked 토큰 HTTP 회귀 및 브라우저 4개 통과. UI 431개, 기존 browser 1+7개, Go race·PG17/MinIO 기능 및 skip 정책, PG16/17/18 파일 포함 복원 통과. 최종 구조 제한 재측정·회귀 통과, PR 준비.
+
+- 2026-09-09: PR #28 생성, 최신 HEAD에 Backend/Frontend/Security CI 실행. 로컬 기능과 검증 항목은 완료했으며 외부 인프라·공개 릴리스 항목만 대기로 유지한다. 병합 결과는 PR 타임라인에서 확인한다.
