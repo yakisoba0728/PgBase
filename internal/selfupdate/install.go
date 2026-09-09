@@ -53,6 +53,11 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, err
 	}
 	defer releaseLock(lock)
+	executableLock, err := acquireUpdateExecutableLock(target)
+	if err != nil {
+		return Status{}, err
+	}
+	defer closeExecutableLock(executableLock)
 	if existing, err := loadJournal(state); err == nil {
 		status, recoverErr := recoverLocked(ctx, state, target, existing, options.Probe)
 		if recoverErr != nil {
@@ -196,6 +201,11 @@ func Rollback(ctx context.Context, target, stateDir string, probe func(context.C
 		return Status{}, err
 	}
 	defer releaseLock(lock)
+	executableLock, err := acquireUpdateExecutableLock(canonical)
+	if err != nil {
+		return Status{}, err
+	}
+	defer closeExecutableLock(executableLock)
 	entry, err := loadJournal(state)
 	if err != nil {
 		return Status{}, ErrRecoveryRequired

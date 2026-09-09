@@ -11,13 +11,28 @@ import (
 )
 
 func acquireLock(file *os.File) error {
+	return acquireExclusiveExecutableLock(file)
+}
+
+func releaseLock(file *os.File) error { return unix.Flock(int(file.Fd()), unix.LOCK_UN) }
+
+func acquireSharedExecutableLock(file *os.File) error {
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		return ErrReplaceBusy
+	}
+	return nil
+}
+
+func acquireExclusiveExecutableLock(file *os.File) error {
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return ErrReplaceBusy
 	}
 	return nil
 }
 
-func releaseLock(file *os.File) error { return unix.Flock(int(file.Fd()), unix.LOCK_UN) }
+func closeExecutableLock(file *os.File) error {
+	return errors.Join(releaseLock(file), file.Close())
+}
 
 func replaceFile(source, target string) error {
 	if err := os.Rename(source, target); err != nil {
