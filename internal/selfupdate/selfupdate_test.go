@@ -100,6 +100,25 @@ func TestSelectEnforcesVersionChannelAndPlatform(t *testing.T) {
 	}
 }
 
+func TestSelectRejectsUnverifiableSourceMinimumAndOrdersLargePrereleases(t *testing.T) {
+	manifest := fixtureManifest("v0.2.0", newCommit, "https://example.test/pgbase", 1, strings.Repeat("a", 64))
+	manifest.Releases[0].MinUpdaterVersion = "v99.0.0"
+	if _, err := Select(manifest, Selection{Current: Build{Version: "dev", Commit: "unknown", GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, Requested: "v0.2.0"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("source minimum error=%v", err)
+	}
+	manifest = Manifest{SchemaVersion: 1, Channel: "beta", Releases: []Release{
+		fixtureRelease("v1.0.0-18446744073709551616", newCommit, "https://example.test/first", 1, strings.Repeat("a", 64)),
+		fixtureRelease("v1.0.0-18446744073709551617", newCommit, "https://example.test/second", 1, strings.Repeat("b", 64)),
+	}}
+	for index := range manifest.Releases {
+		manifest.Releases[index].MinUpdaterVersion = "v0.1.0"
+	}
+	candidate, err := Select(manifest, Selection{Current: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, Channel: "beta"})
+	if err != nil || candidate.Release.Version != "v1.0.0-18446744073709551617" {
+		t.Fatalf("candidate=%+v err=%v", candidate, err)
+	}
+}
+
 func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")

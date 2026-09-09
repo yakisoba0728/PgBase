@@ -83,12 +83,16 @@ func compareVersion(left, right version) int {
 		leftID, rightID := left.pre[index], right.pre[index]
 		leftNumber, rightNumber := allDigits(leftID), allDigits(rightID)
 		if leftNumber && rightNumber {
-			leftValue, _ := strconv.ParseUint(leftID, 10, 64)
-			rightValue, _ := strconv.ParseUint(rightID, 10, 64)
-			if leftValue < rightValue {
+			if len(leftID) < len(rightID) {
 				return -1
 			}
-			if leftValue > rightValue {
+			if len(leftID) > len(rightID) {
+				return 1
+			}
+			if leftID < rightID {
+				return -1
+			}
+			if leftID > rightID {
 				return 1
 			}
 			continue

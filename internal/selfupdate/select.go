@@ -61,7 +61,9 @@ func Select(manifest Manifest, selection Selection) (Candidate, error) {
 		}
 	}
 	minimum, _ := parseVersion(chosen.MinUpdaterVersion)
-	if currentReleased && compareVersion(current, minimum) < 0 {
+	// A source build may name an exact release, but has no released updater
+	// version that can prove it meets the release's minimum contract.
+	if !currentReleased || compareVersion(current, minimum) < 0 {
 		return Candidate{}, ErrInvalidInput
 	}
 	for _, artifact := range chosen.Artifacts {
