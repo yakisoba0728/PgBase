@@ -39,6 +39,7 @@ type Status struct {
 	Candidate Build  `json:"candidate,omitempty"`
 	Previous  Build  `json:"previous,omitempty"`
 	BackupSHA string `json:"backupSha256,omitempty"`
+	Recovered bool   `json:"-"`
 }
 
 // Apply downloads a signed selected artifact into the target's own directory,
@@ -264,7 +265,11 @@ func Recover(ctx context.Context, target, stateDir string, probe func(context.Co
 	if err != nil || entry.Target != filepath.Base(canonical) {
 		return Status{}, ErrRecoveryRequired
 	}
-	return recoverLocked(ctx, state, canonical, entry, probe)
+	status, err := recoverLocked(ctx, state, canonical, entry, probe)
+	if err == nil && entry.Phase != "committed" && entry.Phase != "rolled_back" && entry.Phase != "aborted" {
+		status.Recovered = true
+	}
+	return status, err
 }
 
 // ReadStatus is mutation-free and intentionally does not take an updater lock.

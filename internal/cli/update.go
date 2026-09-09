@@ -144,6 +144,8 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 		return updateFailure(statusErr)
 	} else if unresolvedUpdate(status) {
 		return updateFailure(selfupdate.ErrRecoveryRequired)
+	} else if status.Recovered {
+		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": status})
 	}
 	reportUpdateProgress(streams, "checking signed update manifest")
 	fetched, err := fetchUpdate(ctx, input)
@@ -206,8 +208,15 @@ func runUpdateRollback(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return updateFailure(err)
 	}
-	if candidateCompatibility(currentBuild(), selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(previous.Previous)}}) != "compatible" {
+	if previous.Phase == "idle" {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
+	}
+	compatibility := candidateCompatibility(currentBuild(), selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(previous.Previous)}})
+	if compatibility == "migration_required" {
 		return updateFailure(selfupdate.ErrMigrationRequired)
+	}
+	if compatibility != "compatible" {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
 	}
 	reportUpdateProgress(streams, "restoring verified update backup")
 	status, err := selfupdate.Rollback(ctx, target, state, nil)

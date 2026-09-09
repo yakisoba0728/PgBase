@@ -385,6 +385,9 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 			if err != nil || status.Phase != "rolled_back" {
 				t.Fatalf("status=%+v err=%v", status, err)
 			}
+			if !status.Recovered {
+				t.Fatal("recovery transition was not marked")
+			}
 			current, err := ProbeBinary(context.Background(), target)
 			if err != nil || !sameBuild(current, entry.Old) {
 				t.Fatalf("current=%+v err=%v", current, err)
