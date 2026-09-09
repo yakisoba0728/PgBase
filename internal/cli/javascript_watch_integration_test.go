@@ -80,6 +80,28 @@ func TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations(t *testing.T
 	}
 }
 
+func TestJavaScriptWatchClosesInitialGenerationWhenStatusWriteFails(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/watch","access":"public","handler":{"module":"app.js","export":"route"}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeWatchSource(t, directory, "cleanup")
+	address := watchUnusedAddress(t)
+	options := pgbase.Options{DatabaseURL: testutil.NewDatabase(t), HTTPAddress: address,
+		TokenSecret: []byte("javascript-watch-secret-32-bytes-minimum"), AutoMigrate: true,
+		ShutdownTimeout: 2 * time.Second, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		JavaScript: &pgbase.JavaScriptOptions{Directory: directory}}
+	err := superviseJavaScript(context.Background(), options, 50*time.Millisecond, testIO(nil, failingWriter{}, io.Discard))
+	if err == nil || !strings.Contains(err.Error(), "write JavaScript generation status") {
+		t.Fatalf("watch status write error = %v", err)
+	}
+	listener, listenErr := net.Listen("tcp", address)
+	if listenErr != nil {
+		t.Fatalf("watch listener leaked after status failure: %v", listenErr)
+	}
+	_ = listener.Close()
+}
+
 func writeWatchSource(t *testing.T, directory, version string) {
 	t.Helper()
 	source := `exports.route=()=>({status:200,json:{version:"` + version + `"}}); exports.up=function(){const pg=require("pgbase");pg.migration.exec({sql:"create table watch_should_not_exist(value text)"});return {};}; exports.down=()=>({});`

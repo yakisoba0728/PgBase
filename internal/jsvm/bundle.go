@@ -15,8 +15,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/dop251/goja/ast"
+	"github.com/dop251/goja/parser"
 )
 
 const (
@@ -299,6 +303,9 @@ func (b *Bundle) validateReferences() error {
 				return fmt.Errorf("JavaScript migration %q dependency: %w", migration.ID, err)
 			}
 		}
+		if err := b.validateMigrationDependencyClosure(migration); err != nil {
+			return err
+		}
 	}
 	for _, ref := range refs {
 		if ref.Export == "" || len(ref.Export) > 128 || strings.ContainsAny(ref.Export, "\x00\r\n") {
@@ -309,6 +316,111 @@ func (b *Bundle) validateReferences() error {
 		}
 	}
 	return nil
+}
+
+func (b *Bundle) validateMigrationDependencyClosure(migration Migration) error {
+	allowed := make(map[string]bool, len(migration.Dependencies)+1)
+	for _, name := range append([]string{migration.Module}, migration.Dependencies...) {
+		canonical, err := b.canonicalModule(name)
+		if err != nil {
+			return fmt.Errorf("JavaScript migration %q source %q: %w", migration.ID, name, err)
+		}
+		allowed[canonical] = true
+	}
+	for module := range allowed {
+		if strings.HasSuffix(module, ".json") {
+			continue
+		}
+		required, err := staticCommonJSRequires(module, b.sources[module])
+		if err != nil {
+			return fmt.Errorf("JavaScript migration %q source %q: %w", migration.ID, module, err)
+		}
+		for _, requested := range required {
+			if requested == "pgbase" {
+				continue
+			}
+			if !strings.HasPrefix(requested, "./") && !strings.HasPrefix(requested, "../") {
+				return fmt.Errorf("JavaScript migration %q source %q requires unsupported module %q", migration.ID, module, requested)
+			}
+			resolved, err := b.canonicalModule(path.Clean(path.Join(path.Dir(module), requested)))
+			if err != nil {
+				return fmt.Errorf("JavaScript migration %q source %q requires %q: %w", migration.ID, module, requested, err)
+			}
+			if !allowed[resolved] {
+				return fmt.Errorf("JavaScript migration %q source %q requires undeclared dependency %q", migration.ID, module, resolved)
+			}
+		}
+	}
+	return nil
+}
+
+func staticCommonJSRequires(filename string, source []byte) ([]string, error) {
+	program, err := parser.ParseFile(nil, filename, source, 0)
+	if err != nil {
+		return nil, err
+	}
+	required := []string{}
+	var visit func(reflect.Value) error
+	visit = func(value reflect.Value) error {
+		if !value.IsValid() {
+			return nil
+		}
+		if value.Kind() == reflect.Interface {
+			if value.IsNil() {
+				return nil
+			}
+			return visit(value.Elem())
+		}
+		if value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				return nil
+			}
+			if value.CanInterface() {
+				if _, ok := value.Interface().(ast.Node); !ok {
+					return nil
+				}
+				if call, ok := value.Interface().(*ast.CallExpression); ok {
+					if identifier, ok := call.Callee.(*ast.Identifier); ok && identifier.Name.String() == "require" {
+						if len(call.ArgumentList) != 1 {
+							return errors.New("migration require must have one static string argument")
+						}
+						literal, ok := call.ArgumentList[0].(*ast.StringLiteral)
+						if !ok {
+							return errors.New("dynamic require is not supported in migration source")
+						}
+						required = append(required, literal.Value.String())
+					}
+				}
+			}
+			return visit(value.Elem())
+		}
+		switch value.Kind() {
+		case reflect.Struct:
+			for index := 0; index < value.NumField(); index++ {
+				if err := visit(value.Field(index)); err != nil {
+					return err
+				}
+			}
+		case reflect.Slice, reflect.Array:
+			for index := 0; index < value.Len(); index++ {
+				if err := visit(value.Index(index)); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	for _, statement := range program.Body {
+		if err := visit(reflect.ValueOf(statement)); err != nil {
+			return nil, err
+		}
+	}
+	for _, declaration := range program.DeclarationList {
+		if err := visit(reflect.ValueOf(declaration)); err != nil {
+			return nil, err
+		}
+	}
+	return required, nil
 }
 
 func (b *Bundle) canonicalModule(name string) (string, error) {

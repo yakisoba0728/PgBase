@@ -5,10 +5,12 @@ package pgbase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestJavaScriptAndGoFacadesShareRecordAuthorizationAndHooks(t *testing.T) {
@@ -31,6 +33,7 @@ func TestJavaScriptAndGoFacadesShareRecordAuthorizationAndHooks(t *testing.T) {
 		}
 	}
 	var appRef *App
+	captured := make(chan *ExtensionContext, 1)
 	fixture := newPublicUsersAppOptions(t, true, func(options *Options) {
 		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"records": true}, Concurrency: 1, Queue: 1}
 		options.CustomRoutes = []CustomRoute{{Method: http.MethodGet, Pattern: "/extensions/go-records", Access: RouteUser,
@@ -48,6 +51,16 @@ func TestJavaScriptAndGoFacadesShareRecordAuthorizationAndHooks(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(page)
 			}),
+		}, {Method: http.MethodGet, Pattern: "/extensions/capture", Access: RouteUser,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				extensions, err := appRef.ExtensionsForRequest(request.Context())
+				if err != nil {
+					http.Error(w, "extension context unavailable", http.StatusInternalServerError)
+					return
+				}
+				captured <- extensions
+				w.WriteHeader(http.StatusNoContent)
+			}),
 		}}
 	})
 	appRef = fixture.app
@@ -61,6 +74,23 @@ func TestJavaScriptAndGoFacadesShareRecordAuthorizationAndHooks(t *testing.T) {
 	assertPublicUsersStatus(t, enable, http.StatusOK)
 	first := registerPublicUser(t, fixture, "js-first@example.test", publicUserOnePass)
 	second := registerPublicUser(t, fixture, "js-second@example.test", publicUserTwoPass)
+	captureResponse := publicUsersRequest(t, fixture, http.MethodGet, "/extensions/capture", nil, first.Token, nil, nil)
+	assertPublicUsersStatus(t, captureResponse, http.StatusNoContent)
+	retained := <-captured
+	select {
+	case <-retained.Records.host.authorityContext.Done():
+	case <-time.After(time.Second):
+		t.Fatal("captured extension authority context did not expire")
+	}
+	_, err := retained.Records.Create(context.Background(), ExtensionRecordWrite{Collection: "notes",
+		Input: map[string]json.RawMessage{"title": json.RawMessage(`"escaped"`)}, IdempotencyKey: "captured-extension-create-0001"})
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("retained extension authority error = %v", err)
+	}
+	var escaped int
+	if err := fixture.app.pool.QueryRow(context.Background(), `select count(*) from app.notes`).Scan(&escaped); err != nil || escaped != 0 {
+		t.Fatalf("retained facade record count=%d error=%v", escaped, err)
+	}
 
 	for attempt := range 2 {
 		created := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/records", map[string]any{"title": "original"}, first.Token, nil,

@@ -65,7 +65,11 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 		return err
 	}
 	if _, err := fmt.Fprintf(streams.stdout(), "JavaScript generation %s running\n", snapshot.digest); err != nil {
-		return err
+		shutdown, cancel := context.WithTimeout(context.Background(), currentOptions.ShutdownTimeout)
+		closeErr := app.Close(shutdown)
+		cancel()
+		runErr := <-result
+		return errors.Join(fmt.Errorf("write JavaScript generation status: %w", err), closeErr, runErr)
 	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()

@@ -46,3 +46,16 @@ func TestJavaScriptCheckRejectsInvalidBundleAsConfiguration(t *testing.T) {
 		t.Fatalf("invalid js check stderr = %q", stderr.String())
 	}
 }
+
+func TestJavaScriptMigrationPreflightsBundleBeforeDatabase(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","migrations":[{"id":"202609100040_bad","module":"missing.js","up":"up","irreversibleReason":"fixture"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"migration", "list", "--js-dir", directory},
+		migrationEnv("postgres://postgres@127.0.0.1:1/unreachable?sslmode=disable"), testIO(nil, &bytes.Buffer{}, &stderr))
+	if code != 2 || !strings.Contains(stderr.String(), "JavaScript bundle is invalid") {
+		t.Fatalf("migration preflight code=%d stderr=%q", code, stderr.String())
+	}
+}

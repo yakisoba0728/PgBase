@@ -11,8 +11,8 @@ import (
 
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/jsvm"
-	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/mailer"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 const maximumJavaScriptHookState = 8 << 10
@@ -116,26 +116,7 @@ func (hook *javaScriptLifecycleHook) invoke(ctx context.Context, event *HookEven
 }
 
 func safeJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
-	if event == nil {
-		return nil, errors.New("JavaScript hook event is nil")
-	}
-	if request, ok := event.Data.(*RequestEvent); ok {
-		principal, _ := PrincipalFromContext(request.Request.Context())
-		return json.Marshal(map[string]any{"method": request.Request.Method, "path": request.Request.URL.Path,
-			"query": cloneQuery(request.Request.URL.Query()), "headers": safeJavaScriptHeaders(request.Request.Header), "principal": principal})
-	}
-	if message, ok := event.Data.(*mailer.Message); ok {
-		return json.Marshal(extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML})
-	}
-	if mailEvent, ok := event.Data.(*MailEvent); ok {
-		return json.Marshal(map[string]any{"purpose": mailEvent.Purpose, "message": extensionMailRequest{
-			To: mailEvent.Message.To, Subject: mailEvent.Message.Subject, Text: mailEvent.Message.Text, HTML: mailEvent.Message.HTML}})
-	}
-	raw, err := json.Marshal(event.Data)
-	if err != nil {
-		return nil, fmt.Errorf("encode JavaScript hook %s data: %w", event.Kind, err)
-	}
-	return raw, nil
+	return marshalJavaScriptHookData(event)
 }
 
 func applyJavaScriptHookPatch(event *HookEvent, raw json.RawMessage) error {
@@ -191,6 +172,39 @@ func applyJavaScriptHookPatch(event *HookEvent, raw json.RawMessage) error {
 		if patch.Input != nil {
 			data.Input = cloneRawFields(patch.Input)
 		}
+	case *api.BatchRequestEvent:
+		var patch struct {
+			Operations []struct {
+				Input map[string]json.RawMessage `json:"input"`
+			} `json:"operations"`
+		}
+		if err := decodeStrictJSON(raw, &patch); err != nil || len(patch.Operations) != len(data.Operations) {
+			return invalidJavaScriptPatch(event.Kind, errors.Join(err, errors.New("batch patch must preserve operation count")))
+		}
+		for index := range patch.Operations {
+			input := cloneRawFields(patch.Operations[index].Input)
+			switch operation := &data.Operations[index]; {
+			case operation.Create != nil:
+				operation.Create.Input = input
+			case operation.Update != nil:
+				operation.Update.Input = input
+			case operation.Upsert != nil:
+				operation.Upsert.Input = input
+			case operation.Delete != nil && input != nil:
+				return invalidJavaScriptPatch(event.Kind, errors.New("delete operation has no mutable input"))
+			}
+		}
+	case *api.SchemaImportRequestEvent:
+		if event.Kind != HookSchemaImportPreview || data.Mode != "preview" {
+			return invalidJavaScriptPatch(event.Kind, errors.New("event is read-only"))
+		}
+		var patch struct {
+			Document schema.SchemaDocument `json:"document"`
+		}
+		if err := decodeStrictJSON(raw, &patch); err != nil || patch.Document.Format == "" {
+			return invalidJavaScriptPatch(event.Kind, errors.Join(err, errors.New("schema preview document is required")))
+		}
+		data.Document = patch.Document
 	case *RequestEvent:
 		var patch struct {
 			Headers map[string]string `json:"headers"`
@@ -226,5 +240,3 @@ func decodeStrictJSON(raw []byte, destination any) error {
 func invalidJavaScriptPatch(event string, cause error) error {
 	return fmt.Errorf("JavaScript hook %s invalid patch: %w", event, cause)
 }
-
-var _ = lifecycle.Event{}

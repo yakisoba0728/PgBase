@@ -2,11 +2,18 @@ package pgbase
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/webisnoteasy/PgBase/internal/backup"
+	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/mailer"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 func TestJavaScriptHookUsesPriorityAndTypedMailPatch(t *testing.T) {
@@ -76,5 +83,68 @@ func TestJavaScriptHookRejectsPatchForReadOnlyAuthEvent(t *testing.T) {
 	finish(err)
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("read-only patch error = %v", err)
+	}
+}
+
+func TestJavaScriptHookSafeDTOsCoverLifecycleEventsAndRedactStorageKeys(t *testing.T) {
+	id := uuid.New()
+	events := []*HookEvent{
+		{Kind: HookRecordCreateRequest, Data: &api.RecordRequestEvent{Actor: identity.Subject{Kind: identity.User, ID: id}, RequestID: "request-1", Collection: "notes"}},
+		{Kind: HookRecordBatchRequest, Data: &api.BatchRequestEvent{}},
+		{Kind: HookSchemaImportPreview, Data: &api.SchemaImportRequestEvent{Mode: "preview", Document: schema.SchemaDocument{Format: schema.SchemaDocumentFormat}}},
+		{Kind: HookCollectionCreate, Data: &schema.CollectionMutationEvent{Operation: "create", Name: "notes", ActorID: id}},
+		{Kind: HookRecordBefore, Data: recordops.Mutation{EventID: id, Collection: "notes", RecordID: id, Operation: "create", ActorID: id}},
+		{Kind: HookFileUpload, Data: &filestore.FileEvent{File: filestore.File{ID: id, CollectionID: id, RecordID: id, ObjectKey: "private/object", ThumbnailKey: "private/thumb"}, Principal: identity.Subject{Kind: identity.User, ID: id}}},
+		{Kind: HookFileDownload, Data: &filestore.FileAccessEvent{FileID: id, CollectionID: id, RecordID: id, Principal: identity.Subject{Kind: identity.User, ID: id}}},
+		{Kind: HookAppBoot, Data: &ApplicationEvent{Mode: "server", Address: "127.0.0.1:0"}},
+		{Kind: HookAuthPassword, Data: &AuthEvent{Flow: "login", UserID: id}},
+		{Kind: HookStorageSettingsList, Data: &StorageSettingsEvent{Driver: "local", Result: StorageSettingsResult{SecretConfigured: true}}},
+		{Kind: HookBackupCreate, Data: &backup.LifecycleEvent{Operation: "create", BackupID: "backup-1", Job: backup.Job{ID: "job-1", Error: "postgres://secret"}}},
+		{Kind: HookRealtimeMessage, Data: &api.RealtimeLifecycleEvent{UserID: id, Collection: "notes"}},
+	}
+	for _, event := range events {
+		raw, err := safeJavaScriptHookData(event)
+		if err != nil || !json.Valid(raw) {
+			t.Fatalf("safe DTO %s = %s error=%v", event.Kind, raw, err)
+		}
+		wire := string(raw)
+		if strings.Contains(wire, "ObjectKey") || strings.Contains(wire, "objectKey") || strings.Contains(wire, "private/object") ||
+			strings.Contains(wire, "thumbnailKey") || strings.Contains(wire, "postgres://secret") {
+			t.Fatalf("safe DTO %s exposed private data: %s", event.Kind, wire)
+		}
+		if strings.Contains(wire, `"Mode"`) || strings.Contains(wire, `"File"`) || strings.Contains(wire, `"Actor"`) {
+			t.Fatalf("safe DTO %s retained Go field casing: %s", event.Kind, wire)
+		}
+	}
+	if _, err := safeJavaScriptHookData(&HookEvent{Kind: "unknown", Data: struct{ Secret string }{Secret: "value"}}); err == nil {
+		t.Fatal("unsupported hook data type was reflected into JavaScript")
+	}
+}
+
+func TestJavaScriptHookPatchPreservesBatchIdentityAndLimitsSchemaMutationToPreview(t *testing.T) {
+	recordID := uuid.New()
+	batch := &api.BatchRequestEvent{Operations: []recordops.BatchOperation{
+		{Create: &recordops.CreateRequest{Collection: "notes", Input: map[string]json.RawMessage{"title": json.RawMessage(`"old"`)}, IdempotencyKey: "stable-key"}},
+		{Delete: &recordops.DeleteRequest{Collection: "notes", ID: recordID}},
+	}}
+	patch := json.RawMessage(`{"operations":[{"input":{"title":"new"}},{}]}`)
+	if err := applyJavaScriptHookPatch(&HookEvent{Kind: HookRecordBatchRequest, Data: batch}, patch); err != nil {
+		t.Fatal(err)
+	}
+	if string(batch.Operations[0].Create.Input["title"]) != `"new"` || batch.Operations[0].Create.IdempotencyKey != "stable-key" || batch.Operations[1].Delete.ID != recordID {
+		t.Fatalf("batch identity or input changed incorrectly: %#v", batch.Operations)
+	}
+	if err := applyJavaScriptHookPatch(&HookEvent{Kind: HookRecordBatchRequest, Data: batch}, json.RawMessage(`{"operations":[{"operation":"delete"},{}]}`)); err == nil {
+		t.Fatal("batch operation identity patch was accepted")
+	}
+
+	preview := &api.SchemaImportRequestEvent{Mode: "preview", Document: schema.SchemaDocument{Format: schema.SchemaDocumentFormat}}
+	documentPatch := json.RawMessage(`{"document":{"format":"pgbase.schema/v1","collections":[{"name":"notes","userAccess":false,"rules":{}}]}}`)
+	if err := applyJavaScriptHookPatch(&HookEvent{Kind: HookSchemaImportPreview, Data: preview}, documentPatch); err != nil || len(preview.Document.Collections) != 1 {
+		t.Fatalf("schema preview patch document=%#v error=%v", preview.Document, err)
+	}
+	apply := &api.SchemaImportRequestEvent{Mode: "apply", Document: preview.Document}
+	if err := applyJavaScriptHookPatch(&HookEvent{Kind: HookSchemaImportApply, Data: apply}, documentPatch); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("schema apply patch error = %v", err)
 	}
 }

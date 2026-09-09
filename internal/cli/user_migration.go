@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/config"
 	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
@@ -78,17 +79,18 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		args[0] != "snapshot" && args[0] != "history-sync" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
 	}
+	javaScriptOptions, err := preflightUserMigrationJavaScript(ctx, env, javaScriptDirectory)
+	if err != nil {
+		return configurationError{err: err, message: "JavaScript bundle is invalid: " + err.Error()}
+	}
 	runtime, err := openDatabase(ctx, env, streams)
 	if err != nil {
 		return err
 	}
 	options := runtime.options
 	runtime.Close()
-	if javaScriptDirectory != "" {
-		if options.JavaScript == nil {
-			options.JavaScript = &pgbase.JavaScriptOptions{}
-		}
-		options.JavaScript.Directory = javaScriptDirectory
+	if javaScriptOptions != nil {
+		options.JavaScript = javaScriptOptions
 	}
 	app, err := pgbase.New(ctx, options)
 	if err != nil {
@@ -209,6 +211,29 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return err
 	}
 	return nil
+}
+
+func preflightUserMigrationJavaScript(ctx context.Context, env environment, directory string) (*pgbase.JavaScriptOptions, error) {
+	lookup := env
+	if directory != "" {
+		lookup = func(name string) (string, bool) {
+			if name == "PGBASE_JS_DIR" {
+				return directory, true
+			}
+			if env == nil {
+				return "", false
+			}
+			return env(name)
+		}
+	}
+	options, err := config.LoadJavaScriptEnv(lookup)
+	if err != nil || options == nil {
+		return options, err
+	}
+	if _, err := pgbase.ValidateJavaScript(ctx, *options); err != nil {
+		return nil, err
+	}
+	return options, nil
 }
 
 func parseUserMigrationJavaScriptDirectory(args []string) ([]string, string, error) {

@@ -31,16 +31,17 @@ type extensionBridge struct {
 }
 
 type extensionHost struct {
-	bridge    *extensionBridge
-	principal identity.Subject
-	requestID string
-	valid     bool
-	hookEvent string
+	bridge           *extensionBridge
+	principal        identity.Subject
+	requestID        string
+	valid            bool
+	hookEvent        string
+	authorityContext context.Context
 }
 
 func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
 	principal, requestID, ok := api.ExtensionRequestContext(ctx)
-	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok}
+	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx}
 }
 
 func (bridge *extensionBridge) forSubject(principal identity.Subject, requestID string) jsvm.Host {
@@ -54,8 +55,13 @@ func (bridge *extensionBridge) forHook(ctx context.Context, event string) jsvm.H
 }
 
 func (host *extensionHost) Call(ctx context.Context, method string, input json.RawMessage) (json.RawMessage, error) {
+	operationContext, cleanup, err := host.operationContext(ctx)
+	if err != nil {
+		return nil, extensionError("extension_context_expired", err)
+	}
+	defer cleanup()
 	if host != nil && host.bridge != nil && strings.HasPrefix(method, "log.") {
-		return host.callLog(ctx, method, input)
+		return host.callLog(operationContext, method, input)
 	}
 	if host == nil || host.bridge == nil || !host.valid {
 		return nil, extensionError("extension_context_unavailable", errors.New("request admission context is unavailable"))
@@ -67,14 +73,39 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	}
 	switch method {
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
-		return host.callRecords(ctx, method, input)
+		return host.callRecords(operationContext, method, input)
 	case "mail.send":
-		return host.callMail(ctx, input)
+		return host.callMail(operationContext, input)
 	case "files.list", "files.upload", "files.delete", "files.token", "files.read":
-		return host.callFiles(ctx, method, input)
+		return host.callFiles(operationContext, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
+}
+
+func (host *extensionHost) operationContext(caller context.Context) (context.Context, func(), error) {
+	if caller == nil {
+		return nil, func() {}, errors.New("caller context is nil")
+	}
+	if host == nil || host.authorityContext == nil {
+		return caller, func() {}, nil
+	}
+	if err := host.authorityContext.Err(); err != nil {
+		return nil, func() {}, err
+	}
+	combined, cancel := context.WithCancelCause(caller)
+	stop := context.AfterFunc(host.authorityContext, func() {
+		cancel(context.Cause(host.authorityContext))
+	})
+	cleanup := func() {
+		stop()
+		cancel(nil)
+	}
+	if err := combined.Err(); err != nil {
+		cleanup()
+		return nil, func() {}, context.Cause(combined)
+	}
+	return combined, cleanup, nil
 }
 
 type extensionRecordRequest struct {

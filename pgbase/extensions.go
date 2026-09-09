@@ -33,7 +33,7 @@ func (a *App) ExtensionsForRequest(ctx context.Context) (*ExtensionContext, erro
 	if !ok {
 		return nil, errors.New("extension request context is not admitted")
 	}
-	host := &extensionHost{bridge: a.extensions, principal: principal, requestID: requestID, valid: true}
+	host := &extensionHost{bridge: a.extensions, principal: principal, requestID: requestID, valid: true, authorityContext: ctx}
 	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}}, nil
 }
 
