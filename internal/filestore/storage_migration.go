@@ -538,6 +538,14 @@ func (s *ObjectMigrationService) fail(ctx context.Context, id uuid.UUID, cause e
 // CleanupOne removes one object from a retired source after the safety delay.
 // Failures remain durable and are retried by later maintenance runs.
 func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
+	// Avoid placing an exclusive transition request in PostgreSQL's advisory
+	// lock queue every maintenance tick when there is no cleanup work. A due
+	// row can appear after this hint; the next tick will claim it, while the
+	// locked query below remains authoritative for concurrent cleaners.
+	var due bool
+	if err := s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_storage_source_cleanup where completed_at is null and not_before<=CURRENT_TIMESTAMP)`).Scan(&due); err != nil || !due {
+		return false, err
+	}
 	worked := false
 	err := s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {

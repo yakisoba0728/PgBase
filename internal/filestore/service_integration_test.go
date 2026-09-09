@@ -75,6 +75,92 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := identity.Subject{Kind: identity.User, ID: userID}
+	t.Run("idle storage cleanup does not queue an exclusive transition", func(t *testing.T) {
+		controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, release, err := controller.BeginStorageOperation(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		cleanupContext, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer cancel()
+		worked, err := NewObjectMigrationService(controller).CleanupOne(cleanupContext)
+		if err != nil || worked {
+			t.Fatalf("idle CleanupOne while a reader is active = %t, %v", worked, err)
+		}
+	})
+	t.Run("queued storage transition does not deadlock upload publication", func(t *testing.T) {
+		controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		local, err := NewLocalStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocked := &leaseBlockingStore{ObjectStore: local, entered: make(chan uint32, 1), release: make(chan struct{})}
+		controller.mu.Lock()
+		controller.store, controller.revision = blocked, 1
+		controller.mu.Unlock()
+		guarded, err := NewService(pool, controller, authorize, Options{MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute})
+		if err != nil {
+			t.Fatal(err)
+		}
+		uploadContext, cancelUpload := context.WithCancel(ctx)
+		defer cancelUpload()
+		data := []byte("writer queued")
+		digest := sha256.Sum256(data)
+		done := make(chan error, 1)
+		go func() {
+			_, uploadErr := guarded.Upload(uploadContext, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "writer-queued.txt", ContentType: "text/plain", Size: int64(len(data)), SHA256: digest, Body: bytes.NewReader(data)})
+			done <- uploadErr
+		}()
+		<-blocked.entered
+		writer, err := pool.OpenCoordinationSession(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer writer.Close(context.Background())
+		writerDone := make(chan error, 1)
+		go func() {
+			_, lockErr := writer.Exec(ctx, `select pg_advisory_lock($1)`, storageTransitionLock)
+			writerDone <- lockErr
+		}()
+		deadline := time.Now().Add(time.Second)
+		for {
+			var waiting bool
+			if err := pool.QueryRow(ctx, `select coalesce((select wait_event_type='Lock' and lower(wait_event)='advisory' from pg_stat_activity where pid=$1),false)`, writer.PgConn().PID()).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("exclusive storage transition did not queue")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		close(blocked.release)
+		select {
+		case uploadErr := <-done:
+			if !errors.Is(uploadErr, ErrStorageConflict) {
+				t.Fatalf("upload with a queued transition = %v, want ErrStorageConflict", uploadErr)
+			}
+		case <-time.After(250 * time.Millisecond):
+			cancelUpload()
+			uploadErr := <-done
+			t.Fatalf("upload publication blocked behind its own lease: %v", uploadErr)
+		}
+		if err := <-writerDone; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Exec(ctx, `select pg_advisory_unlock($1)`, storageTransitionLock); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("lost storage lease cannot publish ready metadata", func(t *testing.T) {
 		controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
 		if err != nil {
