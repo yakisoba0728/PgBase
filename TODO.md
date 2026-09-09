@@ -11,8 +11,8 @@
 | G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 완료 — occurrence `ee806dd`, migration 없음, exact PG 5회·race green, Nash 0 findings | 완료 단계 재실행 없음 |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 완료·clean handoff — native `4575a02`와 최종 browser `58106`가 동일 record/ETag/exact-number/file/SSE green; task 종료 | 완료 단계 재실행 없음 |
 | G3 N6/N7 통합 | Sol 통합 | **완료** — N6/N7 external·native/browser cross·same-origin PublicDir·occurrence review 모두 green | G5 전 관련 변경 없으면 반복 없음 |
-| G4 N8/N9 구현·조립 | N8 Euclid/Sol backend + Feynman/Terra UI + Gauss/Sol review, 공통 seam Sol 통합; N9 Sagan/Terra | **ACTIVE.** 재개 HEAD `9acc7b2`. 제품/UI 통합 checkpoint는 `6bb6dbb`: shared wiring `5e2ed00`, UI `35712f4`. Gauss의 불완전 pause review `9ac351a`는 docs-only `0b1ecc8`로 통합했다. Euclid의 unintegrated clean WIP는 `codex/n8-sql-console` `4d773b5`; R1–R4/R8–R10/R12 open, R5–R7/R11 closed, full PASS 없음. N9 private+shared closure 완료 | resume 시 `4d773b5`를 WIP로 검토하고 미실행 R12→PG/race/build를 통과한 뒤에만 통합 |
-| G5 최종 인수 | Sol 통합 | 대기 — 안정 candidate에서 독립 command group 병렬 실행 | N8 완료 뒤 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
+| G4 N8/N9 구현·조립 | Euclid/Sol backend, Feynman/Terra browser, Gauss/Sol review; lead shared composition | **ACTIVE.** checkpoint `4d773b5`를 미인수 candidate `769440e`로 통합, 공통 catalog/timeout/session capability `66fec8f` focused green. R8 cast·R12 identity retention·R4 coordinator 잔여는 owner 수정 중. Browser DB/launcher/credential/driver 준비 완료. | owner stable fixes → 실제 browser + final delta closure |
+| G5 최종 인수 | Boole/Spark unit-race·vet/lint, Socrates/Spark UI/build, lead PG/composition | unit/race/vet/lint은 compiled `3f868f3`, full UI는 stable `7dbda78`에서 병렬 실행. PG18 `55472`/MinIO `59007` 준비 완료. | 후속 변경은 affected delta만 재검증, six builds는 최종 Go SHA |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
 
@@ -26,8 +26,8 @@ Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료�
 - [x] N6 기반·도메인·migration·jobs·CLI/types/watch·hook·stress/storage·external/cross/same-origin 및 occurrence fix `ee806dd` Nash closure 완료; G3 종료.
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
-- [ ] N8 owner fix 재개: owner branch `codex/n8-sql-console` clean WIP `4d773b5`에 R1–R4/R8–R12와 `sessionIdentity` candidate가 있다. R12 PG17/18은 오래된 history 기대값 `>=5`가 실제 4여서 실패했고 `>=4`+old-write 부재로 assertion만 수정한 뒤 **재실행하지 않았다**. 이 SHA를 accepted/integrated로 표시하지 않는다.
-- [ ] N8 resume: current full PG17/18, race, six-build, 실제 HTTP/browser `58097`→`58096`, fixture/credential 생성은 모두 미실행이다. API/UI test server나 protected credential file도 생성되지 않았다.
+- [ ] N8 owner fix 재개: owner branch `codex/n8-sql-console` clean WIP `4d773b5`에 R1–R4/R8–R12와 `sessionIdentity` candidate가 있다. R12 PG17/18은 오래된 history 기대값 `>=5`가 실제 4여서 실패했고 `>=4`+old-write 부재로 assertion만 수정한 뒤 **재실행하지 않았다**. 재개 후 통합 `769440e`의 미인수 candidate로 구성 중이며 최종 acceptance는 open이다.
+- [ ] N8 resume: current full PG17/18, race, six-build, 실제 HTTP/browser `58097`→`58096`, fixture/credential 생성은 모두 미실행이다. 현재 Feynman의 별도 browser DB/launcher/protected credentials/driver 준비가 완료됐고 최종 migration41 뒤 실제 browser를 실행한다.
 - [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
 - [x] N8 UI R11 `35712f4`: `sessionIdentity` namespace가 없으면 저장하지 않고 legacy global key를 읽지 않고 삭제한다. 같은 세션 reload만 복구하며 관리자 전환·만료 뒤 새 세션은 이전 요청을 보거나 실행하지 않는다. Gauss delta review `465b8f5` zero; backend field composition만 pending.
 - [x] N8 UI R6 `35712f4`: `statements`가 없는 durable summary에서 committed/row/byte를 보존하며 TTL 경과는 expired, restart/응답 소실은 unavailable로 표시한다. focused 17 green, Gauss delta review `465b8f5` zero.
