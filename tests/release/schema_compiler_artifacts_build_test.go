@@ -67,7 +67,6 @@ func TestSchemaCompilerRolloutBuildProducesDistinctPredecessorPreparationAndFeat
 		wantPath := "pgbase-schema-compiler-v9-" + lowerPhase
 		if entry.Phase != phase || entry.Commit != declaration.Commit || entry.Version != declaration.Version ||
 			entry.Path != wantPath || entry.Digest != actualDigests[lowerPhase] ||
-			entry.Build.BuiltAt == "" || entry.Build.SchemaMin == "" || entry.Build.SchemaMin != entry.Build.SchemaMax ||
 			entry.Toolchain.GoVersion != "go1.26.8" || entry.Toolchain.GOOS == "" || entry.Toolchain.GOARCH == "" {
 			t.Fatalf("schema compiler metadata entry %d = %#v", index, entry)
 		}

@@ -94,10 +94,14 @@ while IFS=$'\t' read -r phase commit version; do
 		exit 1
 	fi
 	ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$version"
-	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=$commit"
-	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=$built_at"
-	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version"
-	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version"
+	has_buildinfo=false
+	if [[ -f "$source_directory/internal/buildinfo/buildinfo.go" ]]; then
+		has_buildinfo=true
+		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=$commit"
+		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=$built_at"
+		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version"
+		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version"
+	fi
 	artifact="$output_directory/pgbase-$rollout-$phase_name"
 	(
 		cd "$source_directory"
@@ -108,7 +112,7 @@ while IFS=$'\t' read -r phase commit version; do
 	)
 	if [[ "$target_goos" == "$(GOTOOLCHAIN="$toolchain" go env GOOS)" &&
 	      "$target_goarch" == "$(GOTOOLCHAIN="$toolchain" go env GOARCH)" &&
-	      -f "$source_directory/internal/buildinfo/buildinfo.go" ]]; then
+	      "$has_buildinfo" == true ]]; then
 		expected="{\"version\":\"$version\",\"commit\":\"$commit\",\"builtAt\":\"$built_at\",\"goos\":\"$target_goos\",\"goarch\":\"$target_goarch\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}"
 		if [[ "$("$artifact" version --json)" != "$expected" ]]; then
 			echo "release artifact build metadata does not match its inputs: $phase" >&2
@@ -118,12 +122,13 @@ while IFS=$'\t' read -r phase commit version; do
 	chmod 0755 "$artifact"
 	digest="$(sha256_file "$artifact")"
 	jq -nc --arg phase "$phase" --arg commit "$commit" --arg path "$(basename "$artifact")" \
-		--arg version "$version" --arg builtAt "$built_at" --arg schemaVersion "$schema_version" \
+		--arg version "$version" --argjson hasBuildInfo "$has_buildinfo" \
+		--arg builtAt "$built_at" --arg schemaVersion "$schema_version" \
 		--arg digest "sha256:$digest" --arg goVersion "$go_version" \
 		--arg goOS "$target_goos" --arg goArch "$target_goarch" \
-		'{phase:$phase,commit:$commit,version:$version,path:$path,digest:$digest,
-			build:{builtAt:$builtAt,schemaMin:$schemaVersion,schemaMax:$schemaVersion},
-			toolchain:{goVersion:$goVersion,goOS:$goOS,goArch:$goArch}}' >>"$metadata_lines"
+		'({phase:$phase,commit:$commit,version:$version,path:$path,digest:$digest,
+			toolchain:{goVersion:$goVersion,goOS:$goOS,goArch:$goArch}} +
+			(if $hasBuildInfo then {build:{builtAt:$builtAt,schemaMin:$schemaVersion,schemaMax:$schemaVersion}} else {} end))' >>"$metadata_lines"
 done
 
 jq -s --arg rollout "$rollout" \
