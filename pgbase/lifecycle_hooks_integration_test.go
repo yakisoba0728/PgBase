@@ -415,7 +415,7 @@ func TestLifecycleMutableBatchStillUsesPublicUserAuthorization(t *testing.T) {
 	enable := publicUsersRequest(t, app, http.MethodPut, "/api/admin/collections/n5_hook_allowed/user-access", map[string]any{"enabled": true}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, enable, http.StatusOK)
 	user := registerPublicUser(t, app, "n5-hook-user@example.test", publicUserOnePass)
-	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_hook_allowed", "input": map[string]any{"title": "must not write"}, "idempotencyKey": "n5-hook-auth-0001"}}}, user.Token, nil, nil)
+	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_hook_allowed", "input": map[string]any{"title": "must not write"}}}}, user.Token, nil, nil)
 	assertPublicUsersStatus(t, batch, http.StatusForbidden)
 	page := publicUsersRequest(t, app, http.MethodGet, "/api/v1/user/collections/n5_hook_allowed/records", nil, user.Token, nil, nil)
 	assertPublicUsersStatus(t, page, http.StatusOK)
@@ -464,5 +464,41 @@ func TestLifecycleJSONBatchRejectsReorderedIdempotentCreatesThroughHTTP(t *testi
 		if len(listing.Items) != 1 {
 			t.Fatalf("%s records after rejected replay=%#v", collection, listing.Items)
 		}
+	}
+}
+
+func TestLifecycleJSONBatchRejectsSameCollectionIdempotentReorderThroughHTTP(t *testing.T) {
+	registry := &HookRegistry{}
+	reorder := false
+	_, err := registry.On(HookRecordBatchRequest, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		if reorder {
+			operations := event.Data.(*BatchRequestEvent).Operations
+			operations[0], operations[1] = operations[1], operations[0]
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Hooks = registry })
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	createPublicUsersCollection(t, app, cookie, csrf, "n5_identity_same")
+	body := map[string]any{"operations": []map[string]any{
+		{"operation": "create", "collection": "n5_identity_same", "input": map[string]any{"title": "first"}, "idempotencyKey": "n5-identity-same-first-0001"},
+		{"operation": "create", "collection": "n5_identity_same", "input": map[string]any{"title": "second"}, "idempotencyKey": "n5-identity-same-second-0001"},
+	}}
+	initial := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", body, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, initial, http.StatusOK)
+	reorder = true
+	replay := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", body, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, replay, http.StatusBadRequest)
+	page := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/n5_identity_same/records", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, page, http.StatusOK)
+	var listing struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodePublicUsersJSON(t, page, &listing)
+	if len(listing.Items) != 2 {
+		t.Fatalf("same-collection records after rejected replay=%#v", listing.Items)
 	}
 }

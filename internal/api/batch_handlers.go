@@ -297,13 +297,14 @@ type batchIdentity struct {
 	key     string
 	context []byte
 	target  batchAttachmentBinding
+	create  *recordops.CreateRequest
 }
 
 func captureBatchIdentities(operations []recordops.BatchOperation) batchIdentities {
 	identities := make(batchIdentities, len(operations))
 	for index, operation := range operations {
 		if operation.Create != nil {
-			identities[index] = batchIdentity{key: operation.Create.IdempotencyKey, context: append([]byte(nil), operation.Create.IdempotencyContext...), target: batchAttachmentBindingFor(operation)}
+			identities[index] = batchIdentity{key: operation.Create.IdempotencyKey, context: append([]byte(nil), operation.Create.IdempotencyContext...), target: batchAttachmentBindingFor(operation), create: operation.Create}
 		}
 	}
 	return identities
@@ -322,7 +323,7 @@ func (identities batchIdentities) restore(operations []recordops.BatchOperation)
 		if identity.key == "" {
 			continue
 		}
-		if operations[index].Create == nil || !sameBatchOperationBinding(identity.target, batchAttachmentBindingFor(operations[index])) {
+		if operations[index].Create != identity.create || !sameBatchOperationBinding(identity.target, batchAttachmentBindingFor(operations[index])) {
 			return false
 		}
 		operations[index].Create.IdempotencyKey = identity.key
