@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -766,6 +767,31 @@ func (failingWriter) Write([]byte) (int, error) { return 0, syscall.ENOSPC }
 func TestCopyBoundedPropagatesNoSpace(t *testing.T) {
 	if _, _, err := copyBounded(context.Background(), failingWriter{}, strings.NewReader("artifact"), 8); !errors.Is(err, syscall.ENOSPC) {
 		t.Fatalf("ENOSPC=%v", err)
+	}
+}
+
+func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/short" {
+			w.Header().Set("Content-Length", "5")
+			_, _ = w.Write([]byte("bad"))
+			return
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	url, _ := url.Parse(server.URL + "/short")
+	fetched := Fetched{Candidate: Candidate{Artifact: Artifact{URL: url.String(), Size: 5, SHA256: strings.Repeat("a", 64)}}, remote: &remoteSource{origin: originOf(url), client: server.Client()}}
+	destination := filepath.Join(t.TempDir(), "short")
+	if _, err := fetched.DownloadArtifact(context.Background(), destination); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("short=%v", err)
+	}
+	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
+		t.Fatalf("short cleanup=%v", err)
+	}
+	blocked, _ := url.Parse(server.URL + "/blocked")
+	if _, err := openRemote(context.Background(), &http.Client{Transport: server.Client().Transport, Timeout: 20 * time.Millisecond}, blocked, 16); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("deadline=%v", err)
 	}
 }
 
