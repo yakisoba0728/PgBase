@@ -20,7 +20,7 @@ func newSQLConsole(
 	if configured == nil {
 		return nil, nil, nil
 	}
-	pools, err := sqlconsole.OpenPools(ctx, configured.poolOptions(catalog, options.AllowInsecureDatabase))
+	pools, err := sqlconsole.OpenPools(ctx, configured.poolOptions(catalog, schema.NewStore(control).SchemaVersion, options.AllowInsecureDatabase))
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize SQL console pools: %w", err)
 	}
@@ -39,13 +39,7 @@ func newSQLConsole(
 		runner.Close()
 		return nil, nil, fmt.Errorf("initialize SQL console service: %w", err)
 	}
-	targets := make([]api.SQLConsoleWriteTarget, len(configured.WriteTargets))
-	for index, target := range configured.WriteTargets {
-		targets[index] = api.SQLConsoleWriteTarget{
-			Schema: target.Schema, Table: target.Table, Columns: append([]string(nil), target.Columns...),
-		}
-	}
-	handlers, err := api.NewSQLConsoleHandlers(service, options.TokenSecret, targets)
+	handlers, err := api.NewSQLConsoleHandlers(service, options.TokenSecret, configured.handlerOptions())
 	if err != nil {
 		_ = service.Close(context.Background())
 		return nil, nil, fmt.Errorf("initialize SQL console HTTP handlers: %w", err)

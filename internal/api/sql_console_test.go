@@ -81,7 +81,7 @@ func TestSQLConsoleRoutesUseExistingAdminOriginSessionAndCSRFChain(t *testing.T)
 }
 
 func TestSQLConsoleRouteRegistryPinsOptionalAdmissionAndBounds(t *testing.T) {
-	handlers, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, testTokenSecret, nil)
+	handlers, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, testTokenSecret, SQLConsoleHandlerOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,7 +24,7 @@ import (
 // registry used by the server. Bodies remain extensible; this is a route
 // contract, not a claim to describe every dynamically configured record field.
 func allOptionalRouteDependencies() Dependencies {
-	sqlConsole, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, testTokenSecret, nil)
+	sqlConsole, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, testTokenSecret, SQLConsoleHandlerOptions{})
 	if err != nil {
 		panic(err)
 	}
