@@ -39,7 +39,7 @@ export type RelationDeleteAction = typeof relationDeleteActions[number];
 interface RelationInput { targetCollection: string; cardinality: RelationCardinality; minSelect: number; maxSelect: number; onDelete: RelationDeleteAction }
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
-export interface FieldOptions { maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean; minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url"; allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
+export interface FieldOptions { maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean; minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url"; allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
 export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }

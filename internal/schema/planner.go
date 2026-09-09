@@ -412,6 +412,13 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
+	if field.Options != nil {
+		options := cloneFieldOptions(*field.Options)
+		field.Options = &options
+	}
+	if err := normalizeFieldOptionsInput(field.Options); err != nil {
+		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
+	}
 	if len([]rune(field.Help)) > 300 {
 		return PlannedField{}, validation(fieldPath+".help", "too_long")
 	}

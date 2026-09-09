@@ -269,31 +269,7 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	if isMultipleRelation(field) {
 		return "", validation("filter", "relation_filter_unsupported")
 	}
-	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
-		return "", validation("filter", "type_mismatch")
-	}
-	column := quoted(field.ColumnName)
-	if comparison.value.kind == filterLiteralNull {
-		switch comparison.operator {
-		case "=":
-			return "(" + column + " IS NULL)", nil
-		case "!=":
-			return "(" + column + " IS NOT NULL)", nil
-		default:
-			return "", validation("filter", "type_mismatch")
-		}
-	}
-	value, err := decodeFilterValue(field, comparison.value)
-	if err != nil {
-		return "", err
-	}
-	if field.Type == schema.TypeBoolean && comparison.operator == "!=" {
-		// "!= true" is rewritten as "= false" so SQL NULL rows are excluded
-		// exactly like a native "column <> value" comparison.
-		value = !value.(bool)
-		return "(" + column + " = " + builder.placeholder(value) + ")", nil
-	}
-	return "(" + column + " " + comparison.operator + " " + builder.placeholder(value) + ")", nil
+	return compileQualifiedComparison(field, comparison, quoted(field.ColumnName), builder)
 }
 
 func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {

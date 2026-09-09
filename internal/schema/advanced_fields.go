@@ -3,6 +3,9 @@ package schema
 import "encoding/json"
 
 func validateAdvancedFieldInput(field FieldInput) string {
+	if field.Type == TypeText && field.Options != nil && field.Options.AutogeneratePattern != "" && len(field.Default) != 0 {
+		return "invalid_text_field"
+	}
 	switch field.Type {
 	case TypeGeoPoint:
 		if field.Unique || !validAdvancedFixedDefault(field) || field.Relation != nil {

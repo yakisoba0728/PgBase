@@ -41,7 +41,7 @@ const result = await admin.apply(planned);
 console.log(result, await admin.operation(planned.operationID));
 ```
 
-Existing field IDs preserve data when a field is renamed. Omitted options preserve the current constraints; `{}` clears them. `FieldOptions` covers text length/pattern/email/URL/domains/choices, numeric decimal bounds and JSONB multi-select counts. Required follows SQL NULL semantics for ordinary scalars; editor/password also reject empty strings, geoPoint rejects the zero point, and files require an attached value. See [advanced field contracts](../../docs/advanced-fields.md). The client also exposes `logs`, `jobs`, `configureJob` and `queueJob`.
+Existing field IDs preserve data when a field is renamed. Omitted options preserve the current constraints; `{}` clears them. `FieldOptions` covers text length/pattern/autogeneration, email/URL allow and deny domains, choices, numeric decimal bounds and JSONB multi-select counts. Required follows SQL NULL semantics for ordinary scalars; editor/password also reject empty strings, geoPoint rejects the zero point, and files require an attached value. See [advanced field contracts](../../docs/advanced-fields.md). The client also exposes `logs`, `jobs`, `configureJob` and `queueJob`.
 
 ## Storage administration and advanced fields
 

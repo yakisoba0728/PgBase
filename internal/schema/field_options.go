@@ -52,7 +52,7 @@ func defaultSatisfiesOptions(typ FieldType, raw json.RawMessage, options FieldOp
 	return fieldvalue.ValidateNumeric(value, fieldValueOptions(options)) == ""
 }
 func fieldValueOptions(o FieldOptions) fieldvalue.Options {
-	return fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, AllowedValues: o.AllowedValues, Min: o.Min, Max: o.Max}
+	return fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, DeniedDomains: o.DeniedDomains, AutogeneratePattern: o.AutogeneratePattern, AllowedValues: o.AllowedValues, Min: o.Min, Max: o.Max}
 }
 func fieldInputValueOptions(o *FieldOptions) fieldvalue.Options {
 	if o == nil {
@@ -65,6 +65,23 @@ func clonedInputOptions(o *FieldOptions) FieldOptions {
 		return FieldOptions{}
 	}
 	return cloneFieldOptions(*o)
+}
+
+func normalizeFieldOptionsInput(o *FieldOptions) error {
+	if o == nil {
+		return nil
+	}
+	allowed, err := fieldvalue.NormalizeDomains(o.AllowedDomains)
+	if err != nil {
+		return err
+	}
+	denied, err := fieldvalue.NormalizeDomains(o.DeniedDomains)
+	if err != nil {
+		return err
+	}
+	o.AllowedDomains = allowed
+	o.DeniedDomains = denied
+	return nil
 }
 func relationStorageName(collection string, field FieldInput) string {
 	if field.Relation != nil && field.Relation.Cardinality == RelationMultiple {

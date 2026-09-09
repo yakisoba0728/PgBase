@@ -7,8 +7,10 @@ export type FieldOptions = {
     minLength?: number;
     maxLength?: number;
     pattern?: string;
+    autogeneratePattern?: string;
     format?: "email" | "url";
     allowedDomains?: string[];
+    deniedDomains?: string[];
     allowedValues?: string[];
     min?: string;
     max?: string;

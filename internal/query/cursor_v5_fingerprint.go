@@ -16,6 +16,7 @@ type cursorV5FilterComparison struct {
 	Kind     string          `json:"kind"`
 	Path     []string        `json:"path"`
 	Type     string          `json:"type"`
+	Modifier string          `json:"modifier,omitempty"`
 	Operator string          `json:"operator"`
 	Value    json.RawMessage `json:"value"`
 }
@@ -59,7 +60,7 @@ func encodeCursorV5Filter(filter *plannedRelationFilter) (json.RawMessage, error
 		}
 		return json.Marshal(cursorV5FilterComparison{
 			Kind: "comparison", Path: path, Type: string(field.Type),
-			Operator: comparison.input.operator, Value: value,
+			Modifier: comparison.input.modifier, Operator: comparison.input.operator, Value: value,
 		})
 	}
 	kind := "and"

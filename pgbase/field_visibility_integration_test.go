@@ -74,7 +74,7 @@ func TestHiddenFieldHTTPContract(t *testing.T) {
 	if _, ok := batchOut.Results[0].Body["secret"]; ok {
 		t.Fatalf("batch leaked hidden: %#v", batchOut)
 	}
-	filtered := publicUsersRequest(t, app, http.MethodGet, base+"?filter=secret%20%3D%20%27server-secret%27", nil, user.Token, nil, nil)
+	filtered := publicUsersRequest(t, app, http.MethodGet, base+"?filter=secret%3Alower%20%3D%20%27server-secret%27", nil, user.Token, nil, nil)
 	assertPublicUsersStatus(t, filtered, http.StatusUnprocessableEntity)
 	admin := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/hidden_notes/records/"+id, nil, "", cookie, nil)
 	assertPublicUsersStatus(t, admin, http.StatusOK)

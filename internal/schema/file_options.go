@@ -41,7 +41,7 @@ func validateFieldOptions(kind FieldType, options *FieldOptions) error {
 	if options == nil {
 		return nil
 	}
-	if options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.AllowedValues) != 0 || options.Min != nil || options.Max != nil || options.MinSelect != nil {
+	if options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.DeniedDomains) != 0 || options.AutogeneratePattern != "" || len(options.AllowedValues) != 0 || options.Min != nil || options.Max != nil || options.MinSelect != nil {
 		return fieldvalue.ValidateDefinition("file", fieldInputValueOptions(options))
 	}
 	if options.MaxSelect != nil && (*options.MaxSelect < 1 || *options.MaxSelect > maximumFiles) {
@@ -75,7 +75,7 @@ func validateAdvancedFieldOptions(kind FieldType, options *FieldOptions) error {
 		}
 		return nil
 	}
-	hasGeneric := options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.AllowedValues) != 0 || options.MinSelect != nil || options.MaxSelect != nil || options.Min != nil || options.Max != nil || options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0
+	hasGeneric := options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.DeniedDomains) != 0 || options.AutogeneratePattern != "" || len(options.AllowedValues) != 0 || options.MinSelect != nil || options.MaxSelect != nil || options.Min != nil || options.Max != nil || options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0
 	switch kind {
 	case TypeEditor:
 		if hasGeneric || options.OnCreate || options.OnUpdate || options.MaxSize != nil && (*options.MaxSize < 0 || *options.MaxSize > MaximumRecordBytes) {
@@ -90,7 +90,7 @@ func validateAdvancedFieldOptions(kind FieldType, options *FieldOptions) error {
 			return errors.New("invalid autodate options")
 		}
 	case TypePassword:
-		if options.Format != "" || len(options.AllowedDomains) != 0 || len(options.AllowedValues) != 0 || options.MinSelect != nil || options.MaxSelect != nil || options.Min != nil || options.Max != nil || options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0 || options.MaxSize != nil || options.ConvertURLs || options.OnCreate || options.OnUpdate {
+		if options.Format != "" || len(options.AllowedDomains) != 0 || len(options.DeniedDomains) != 0 || options.AutogeneratePattern != "" || len(options.AllowedValues) != 0 || options.MinSelect != nil || options.MaxSelect != nil || options.Min != nil || options.Max != nil || options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0 || options.MaxSize != nil || options.ConvertURLs || options.OnCreate || options.OnUpdate {
 			return errors.New("invalid password options")
 		}
 		return fieldvalue.ValidateDefinition("text", fieldInputValueOptions(options))

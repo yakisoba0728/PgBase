@@ -130,10 +130,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
-		mutationInput, err := prepareGeneratedFields(ctx, tx, collection, request.Input, true)
-		if err != nil {
-			return err
-		}
 		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, uuid.Nil); err != nil {
 			return err
 		}
@@ -167,6 +163,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				result = replayed
 				return nil
 			}
+		}
+		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, true)
+		if err != nil {
+			return err
 		}
 		if err := createFence.Reserve(ctx); err != nil {
 			return transactionalMembership(err)
@@ -295,7 +295,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
-		mutationInput, err := prepareGeneratedFields(ctx, tx, collection, request.Input, false)
+		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
 		if err != nil {
 			return err
 		}

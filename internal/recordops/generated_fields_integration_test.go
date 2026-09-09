@@ -3,9 +3,14 @@
 package recordops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +18,130 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/passwordfield"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
 )
+
+func TestTextAutogeneratePrecedenceRetryReplayAndBatchRollback(t *testing.T) {
+	pool, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_text", []schema.FieldInput{
+		{Name: "slug", Type: schema.TypeText, Required: true, Unique: true, Options: &schema.FieldOptions{Pattern: `^[a-c]$`, AutogeneratePattern: `[a-c]`}},
+		{Name: "label", Type: schema.TypeText},
+	})
+
+	records.random = bytes.NewReader(make([]byte, 64))
+	first, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-first", Collection: "generated_text", IdempotencyKey: "autogen-first-key-0001", Input: map[string]json.RawMessage{"label": json.RawMessage(`"one"`)}})
+	if err != nil || first.Record.Data["slug"] != "a" {
+		t.Fatalf("first=%#v err=%v", first.Record, err)
+	}
+
+	secondRandom := append(make([]byte, 33), byte(1))
+	records.random = bytes.NewReader(secondRandom)
+	second, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-second", Collection: "generated_text", Input: map[string]json.RawMessage{"label": json.RawMessage(`"two"`)}})
+	if err != nil || second.Record.Data["slug"] != "b" {
+		t.Fatalf("second=%#v err=%v", second.Record, err)
+	}
+
+	records.random = bytes.NewReader(make([]byte, 64))
+	explicit, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-explicit", Collection: "generated_text", Input: map[string]json.RawMessage{"slug": json.RawMessage(`"c"`), "label": json.RawMessage(`"explicit"`)}})
+	if err != nil || explicit.Record.Data["slug"] != "c" {
+		t.Fatalf("explicit=%#v err=%v", explicit.Record, err)
+	}
+	id := uuid.MustParse(explicit.Record.Data["id"].(string))
+	updated, err := records.Update(ctx, UpdateRequest{Principal: principal, RequestID: "autogen-update", Collection: "generated_text", ID: id, Input: map[string]json.RawMessage{"label": json.RawMessage(`"updated"`)}})
+	if err != nil || updated.Record.Data["slug"] != "c" {
+		t.Fatalf("update=%#v err=%v", updated.Record, err)
+	}
+	var validation *validationdomain.Error
+	records.random = bytes.NewReader(make([]byte, 32))
+	_, err = records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-empty", Collection: "generated_text", Input: map[string]json.RawMessage{"slug": json.RawMessage(`""`)}})
+	if !errors.As(err, &validation) || validation.Details[0].Code != "pattern" {
+		t.Fatalf("explicit empty error=%v", err)
+	}
+	records.random = bytes.NewReader(make([]byte, 32))
+	if _, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-null", Collection: "generated_text", Input: map[string]json.RawMessage{"slug": json.RawMessage(`null`)}}); err == nil {
+		t.Fatal("explicit null was replaced by generation")
+	}
+
+	records.random = bytes.NewReader(make([]byte, 32))
+	replayed, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-replay", Collection: "generated_text", IdempotencyKey: "autogen-first-key-0001", Input: map[string]json.RawMessage{"label": json.RawMessage(`"one"`)}})
+	if err != nil || !replayed.Replayed || replayed.Record.Data["slug"] != "a" {
+		t.Fatalf("replay=%#v err=%v", replayed, err)
+	}
+
+	records.random = bytes.NewReader(make([]byte, 64))
+	_, err = records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-exhaust", Collection: "generated_text", Input: map[string]json.RawMessage{}})
+	validation = nil
+	if !errors.As(err, &validation) || len(validation.Details) != 1 || validation.Details[0].Field != "slug" || validation.Details[0].Code != "autogenerate_exhausted" {
+		t.Fatalf("exhaustion=%v", err)
+	}
+
+	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_batch", []schema.FieldInput{{Name: "token", Type: schema.TypeText, Unique: true, Options: &schema.FieldOptions{AutogeneratePattern: `fixed`}}})
+	records.random = bytes.NewReader(make([]byte, 64))
+	results, err := records.Batch(ctx, BatchRequest{Principal: principal, RequestID: "autogen-batch", Operations: []BatchOperation{{Create: &CreateRequest{Collection: "generated_batch", Input: map[string]json.RawMessage{}}}, {Create: &CreateRequest{Collection: "generated_batch", Input: map[string]json.RawMessage{}}}}})
+	if err == nil || results != nil {
+		t.Fatalf("batch=%#v err=%v", results, err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `select count(*) from app.generated_batch`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("batch rows=%d err=%v", count, err)
+	}
+}
+
+func TestConcurrentAutogenerateUniqueCandidatesSerializeAndRetry(t *testing.T) {
+	pool, schemas, firstService, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_concurrent", []schema.FieldInput{{Name: "slug", Type: schema.TypeText, Unique: true, Options: &schema.FieldOptions{AutogeneratePattern: `[a-c]`}}})
+	secondService := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
+	ready := &sync.WaitGroup{}
+	ready.Add(2)
+	firstService.random = &autogenerateBarrierReader{ready: ready}
+	secondService.random = &autogenerateBarrierReader{ready: ready}
+
+	results := make(chan MutationResult, 2)
+	errorsChannel := make(chan error, 2)
+	for index, service := range []*Service{firstService, secondService} {
+		go func(index int, service *Service) {
+			result, err := service.Create(ctx, CreateRequest{Principal: principal, RequestID: fmt.Sprintf("autogen-concurrent-%d", index), Collection: "generated_concurrent", Input: map[string]json.RawMessage{}})
+			results <- result
+			errorsChannel <- err
+		}(index, service)
+	}
+	values := map[string]bool{}
+	for range 2 {
+		result, err := <-results, <-errorsChannel
+		if err != nil {
+			t.Fatal(err)
+		}
+		values[result.Record.Data["slug"].(string)] = true
+	}
+	if len(values) != 2 || !values["a"] || !values["b"] {
+		t.Fatalf("concurrent values=%v", values)
+	}
+}
+
+type autogenerateBarrierReader struct {
+	mu    sync.Mutex
+	calls int
+	ready *sync.WaitGroup
+}
+
+func (r *autogenerateBarrierReader) Read(target []byte) (int, error) {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	if call == 2 {
+		r.ready.Done()
+		r.ready.Wait()
+	}
+	for index := range target {
+		target[index] = byte(max(call-2, 0))
+	}
+	return len(target), nil
+}
+
+var _ io.Reader = (*autogenerateBarrierReader)(nil)
 
 func TestGeneratedFieldsPersistWithoutSecretArtifacts(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)

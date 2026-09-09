@@ -2,6 +2,26 @@
 
 PgBase supports four PocketBase-style advanced field types: `editor`, `geoPoint`, `autodate`, and `password`. They use the same schema preview/apply, portable schema document, record transaction, visibility, realtime, and batch boundaries as the existing field types.
 
+## Text generation and domains
+
+Text `options.autogeneratePattern` is a bounded generatable Go/RE2 expression.
+When the field key is absent on create, PgBase uses cryptographic randomness to
+produce a matching value. Any explicit value, including an empty string or
+`null`, wins and is validated normally; updates never generate. Generated
+values pass every configured text validator. Unique generated values use
+candidate locks and bounded retries, and an idempotent create replay returns
+the originally committed value. Text defaults and autogeneration cannot be
+combined.
+
+Email and URL text fields may set `options.allowedDomains` and
+`options.deniedDomains` together. Schema input lowercases, trims and sorts both
+lists. Entries match the exact host and its subdomains; deny wins before a
+nonempty allow list is checked. Tightening either list preflights existing rows.
+
+Text and editor filters support the terminal `:lower` modifier, for example
+`title:lower = 'published'` and `owner.name:lower = 'ada'`. Typed record rules
+accept the same modifier. It changes comparison only, not storage or sorting.
+
 ## Editor
 
 An editor value is an HTML string. PgBase stores the text verbatim and does not sanitize or execute it. Applications must escape or sanitize HTML for their rendering context. The administrator rich editor treats `convertURLs` as an editing hint; the server never rewrites URLs.
@@ -10,7 +30,7 @@ An editor value is an HTML string. PgBase stores the text verbatim and does not 
 
 The complete canonical record is limited to 8 MiB. This size uses compact JSON with HTML escaping disabled, so HTML characters are charged as their actual JSON bytes. HTTP request and response limits allow 48 MiB plus envelope space because a valid JSON wire encoder may escape one character into six bytes.
 
-Editor fields support ordinary text comparisons. PgBase does not expose PocketBase's `:lower` filter modifier.
+Editor fields support ordinary text comparisons, including `:lower`.
 
 ## Geo point
 
@@ -18,7 +38,7 @@ A geo point is exactly `{"lon": number, "lat": number}`. Both members are requir
 
 Geo point columns are non-null `jsonb` with the zero-point default. They cannot be unique or have a custom default. An indexed field supports numeric filter and sort paths `field.lon` and `field.lat`, including paths through bounded single relations. Other JSON properties and deeper paths are rejected. Cursor identity binds the field and coordinate, so `lat` and `lon` cursors cannot be interchanged.
 
-PocketBase permits general JSON-property traversal after a geoPoint field. PgBase deliberately limits this to the two defined coordinates.
+Typed record rules accept the same `field.lon` and `field.lat` paths. PocketBase permits general JSON-property traversal after a geoPoint field; PgBase deliberately limits this to the two defined coordinates.
 
 ## Autodate
 
@@ -39,6 +59,13 @@ Argon2id is irreversible, so changing password length or pattern options cannot 
 ## Schema and visibility
 
 All four logical types and their options round-trip through catalog responses and `pgbase.schema/v1` export/import. Editor and geoPoint fixed defaults may appear in exported documents and import only when they match their exact zero value. Unsupported options are rejected rather than discarded.
+
+PocketBase mutation-key modifiers for numeric, select, relation and file fields
+remain outside the PgBase contract. Exact bigint/numeric transport, ordered
+relation writes with duplicate rejection, target authorization and attachment
+lifecycle retain their existing explicit write interfaces. PgBase also does
+not accept a text `:autogenerate` write key; absent-on-create is the sole
+generation trigger.
 
 `hidden` has the same meaning as on other fields: public users cannot read, filter, sort, or expand through the field, while administrators retain schema and record access. Password redaction applies to administrators as well and is stronger than hidden-field projection.
 

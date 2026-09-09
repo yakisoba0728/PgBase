@@ -200,21 +200,43 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 }
 
 func (c *compiler) field(name string) (string, schema.FieldType, error) {
+	modifier := ""
+	if strings.Contains(name, ":") {
+		if strings.Count(name, ":") != 1 || !strings.HasSuffix(name, ":lower") {
+			return "", "", ErrInvalid
+		}
+		name, modifier = strings.TrimSuffix(name, ":lower"), "lower"
+	}
 	switch name {
 	case "id":
-		return c.alias + `."id"`, schema.TypeUUID, nil
+		return c.ruleFieldExpression(c.alias+`."id"`, schema.TypeUUID, modifier)
 	case "created_at", "updated_at":
-		return c.alias + "." + pgx.Identifier{name}.Sanitize(), schema.TypeTimestampTZ, nil
+		return c.ruleFieldExpression(c.alias+"."+pgx.Identifier{name}.Sanitize(), schema.TypeTimestampTZ, modifier)
 	}
+	path := strings.Split(name, ".")
 	for _, field := range c.collection.Fields {
 		if field.Name == name {
 			switch field.Type {
 			case schema.TypeText, schema.TypeEditor, schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeUUID, schema.TypeTimestampTZ, schema.TypeAutoDate:
-				return c.alias + "." + pgx.Identifier{field.ColumnName}.Sanitize(), field.Type, nil
+				return c.ruleFieldExpression(c.alias+"."+pgx.Identifier{field.ColumnName}.Sanitize(), field.Type, modifier)
 			}
+		}
+		if len(path) == 2 && field.Name == path[0] && field.Type == schema.TypeGeoPoint && (path[1] == "lon" || path[1] == "lat") {
+			column := "((" + c.alias + "." + pgx.Identifier{field.ColumnName}.Sanitize() + "->>'" + path[1] + "')::numeric)"
+			return c.ruleFieldExpression(column, schema.TypeNumeric, modifier)
 		}
 	}
 	return "", "", ErrInvalid
+}
+
+func (c *compiler) ruleFieldExpression(column string, kind schema.FieldType, modifier string) (string, schema.FieldType, error) {
+	if modifier == "" {
+		return column, kind, nil
+	}
+	if modifier != "lower" || kind != schema.TypeText && kind != schema.TypeEditor {
+		return "", "", ErrInvalid
+	}
+	return "lower(" + column + ")", kind, nil
 }
 
 func typedValue(kind schema.FieldType, raw json.RawMessage) (any, error) {
@@ -251,7 +273,7 @@ func typedValue(kind schema.FieldType, raw json.RawMessage) (any, error) {
 			return nil, ErrInvalid
 		}
 		return value.String(), nil
-	case schema.TypeText, schema.TypeTimestampTZ, schema.TypeUUID:
+	case schema.TypeText, schema.TypeEditor, schema.TypeTimestampTZ, schema.TypeAutoDate, schema.TypeUUID:
 		var value string
 		if json.Unmarshal(raw, &value) != nil {
 			return nil, ErrInvalid

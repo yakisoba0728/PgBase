@@ -95,6 +95,9 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 				return nil, 0, validation("filter", "unsupported_type")
 			}
+			if value.modifier != "" && field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+				return nil, 0, validation("filter", "unsupported_modifier")
+			}
 			copy := field
 			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, rootField: &copy}}, 0, nil
 		}
@@ -110,6 +113,9 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 		}
 		if path.terminalIsRelation && (value.operator != "=" || value.value.kind != filterLiteralString) {
 			return nil, 0, relationFilterUnsupported()
+		}
+		if value.modifier != "" && path.terminal.Type != schema.TypeText && path.terminal.Type != schema.TypeEditor {
+			return nil, 0, validation("filter", "unsupported_modifier")
 		}
 		copy := path
 		return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, path: &copy}}, len(path.hops), nil
@@ -426,11 +432,17 @@ func geoPointExpression(column, property string) string {
 }
 
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
-	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeRelation || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
 	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
 		return "", validation("filter", "type_mismatch")
+	}
+	if comparison.modifier != "" {
+		if comparison.modifier != "lower" || field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+			return "", validation("filter", "unsupported_modifier")
+		}
+		column = "lower(" + column + ")"
 	}
 	if comparison.value.kind == filterLiteralNull {
 		switch comparison.operator {

@@ -19,4 +19,8 @@ describe("field options", () => {
     const options = { maxFileSize: 5242880, maxSelect: 4, mimeTypes: ["image/*", "application/pdf"], thumbs: ["100x100", "100x50t", "100x50b", "100x50f"] };
     expect(fieldOptionsInput(draftFieldOptions(options))).toEqual(options);
   });
+  it("round trips generation and both canonical domain lists", () => {
+    const options = { autogeneratePattern: "user-[a-z]{8}@example[.]com", format: "email" as const, allowedDomains: ["example.com"], deniedDomains: ["private.example.com"] };
+    expect(fieldOptionsInput(draftFieldOptions(options))).toEqual(options);
+  });
 });

@@ -201,7 +201,7 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 
 func codecOptions(field schema.Field) fieldvalue.Options {
 	o := field.Options
-	return fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, AllowedValues: o.AllowedValues, Min: o.Min, Max: o.Max}
+	return fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, DeniedDomains: o.DeniedDomains, AllowedValues: o.AllowedValues, Min: o.Min, Max: o.Max}
 }
 
 func decodeRelationFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
