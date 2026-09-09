@@ -242,9 +242,17 @@ func TestLocalSignedArtifactApplyAndRollbackFixture(t *testing.T) {
 		raw, _ = json.Marshal(manifest)
 		_ = os.WriteFile(manifestPath, raw, 0600)
 		_ = os.WriteFile(signaturePath, sign(private, raw), 0600)
-		if _, fetchErr := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current, Requested: "v0.2.0"}); fetchErr != nil {
+		linked, fetchErr := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current, Requested: "v0.2.0"})
+		if fetchErr != nil {
 			// Fetch authenticates metadata; symlink rejection occurs on download.
 			t.Fatal(fetchErr)
+		}
+		destination := filepath.Join(install, "linked-candidate")
+		if _, downloadErr := linked.DownloadArtifact(context.Background(), destination); !errors.Is(downloadErr, ErrInvalidInput) {
+			t.Fatalf("symlink download error=%v", downloadErr)
+		}
+		if _, statErr := os.Lstat(destination); !os.IsNotExist(statErr) {
+			t.Fatalf("symlink download left destination: %v", statErr)
 		}
 	}
 }
