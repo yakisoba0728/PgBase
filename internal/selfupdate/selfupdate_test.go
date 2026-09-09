@@ -193,6 +193,62 @@ func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
 	}
 }
 
+func TestLocalSignedArtifactApplyAndRollbackFixture(t *testing.T) {
+	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
+	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
+	install := t.TempDir()
+	target := filepath.Join(install, "pgbase")
+	copyFixture(t, oldBinary, target)
+	artifact, err := os.ReadFile(newBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fixtureManifest("v0.2.0", newCommit, "file://"+newBinary, int64(len(artifact)), checksum(artifact))
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(install, "manifest.json")
+	signaturePath := manifestPath + ".ed25519"
+	if err = os.WriteFile(manifestPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(signaturePath, sign(private, raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	fetched, err := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Apply(context.Background(), ApplyOptions{Target: target, StateDir: filepath.Join(install, ".pgbase-update"), Fetched: fetched, TrustKey: public, Current: current}); err != nil {
+		t.Fatal(err)
+	}
+	if current, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || current.Version != "v0.2.0" {
+		t.Fatalf("current=%+v err=%v", current, probeErr)
+	}
+	if _, err = Rollback(context.Background(), target, filepath.Join(install, ".pgbase-update"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if current, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || current.Version != "v0.1.0" {
+		t.Fatalf("current=%+v err=%v", current, probeErr)
+	}
+	if err = os.Symlink(newBinary, filepath.Join(install, "artifact-link")); err == nil {
+		manifest.Releases[0].Artifacts[0].URL = "file://" + filepath.Join(install, "artifact-link")
+		raw, _ = json.Marshal(manifest)
+		_ = os.WriteFile(manifestPath, raw, 0600)
+		_ = os.WriteFile(signaturePath, sign(private, raw), 0600)
+		if _, fetchErr := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current, Requested: "v0.2.0"}); fetchErr != nil {
+			// Fetch authenticates metadata; symlink rejection occurs on download.
+			t.Fatal(fetchErr)
+		}
+	}
+}
+
 func TestApplyRollsBackCanonicalProbeFailure(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "pgbase")
