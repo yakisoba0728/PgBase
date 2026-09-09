@@ -34,7 +34,9 @@ import (
 // Views add another fixed availability probe and bulk definition read.
 // Field contracts add one fixed column-capability probe to support pre-v22 upgrades.
 // P6 adds one fixed SQL-view metadata capability probe, independent of catalog size.
-const doctorSnapshotQueryCeiling = 37
+// N1 adds one fixed user-migration-version-table capability probe so doctor can
+// inspect both compatible pre-v40 histories and v40 user migration revisions.
+const doctorSnapshotQueryCeiling = 38
 
 type doctorQueryTracer struct {
 	mu         sync.Mutex
