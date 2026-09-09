@@ -27,3 +27,29 @@ The review reproduced this with `migration.js -> declared.js -> undeclared.js`, 
 - `git diff --check 2939f15...94b32b3 -- internal/jsvm pgbase internal/api/custom_routes.go go.mod go.sum` — exit 0.
 - Local review-only migration-closure reproduction above — exit 0; fixture removed.
 - No live service, Docker, UserData, port `8090`, `55440`, `59000`, or the owner/lead-coordinated N6 PostgreSQL fixture was used.
+
+## Delta review — jobs, CLI, watch, and declarations
+
+Reviewed `94b32b3fe1b5bf1f066d3b9a25e818ea15ecf279...41852b5c803891de004f8e810c4ff14699f2eaa5`. This delta covers the JS CLI/env surface, migration CLI composition, source snapshots/watch reload, durable job wiring, and the declaration file. N7 changes and the remaining hook/migration/external-app work are excluded. The two earlier P1s are unchanged by this delta and await the owner’s narrow fixes.
+
+### Standards
+
+No documented repository-standard violation or actionable baseline smell was found in the delta. The new code keeps CLI parsing, environment decoding, snapshotting, and job execution at their existing seams. `git diff --check` is clean.
+
+### Spec
+
+#### P1 — migration `--js-dir` validates after opening the database
+
+`runUserMigration` parses `--js-dir`, then calls `openDatabase` before it applies that directory to `options.JavaScript` and constructs the application ([`internal/cli/user_migration.go`](../../../internal/cli/user_migration.go) lines 72–96). An invalid JS manifest, path, export, or capability passed through `--js-dir` therefore reaches the database before `pgbase.New` validates the bundle.
+
+N6 requires source/path/capability failures to be configuration errors rejected before the database connection, route registration, or worker start ([`N6.md`](N6.md) line 183); its CLI contract also says the same manifest source is used by migration subcommands ([`N6.md`](N6.md) lines 156–160). Preload and validate the effective JavaScript options immediately after parsing the flag, before `openDatabase`; pass the validated immutable bundle/options into the subsequent app construction. Add a DB-free regression whose bad `--js-dir` returns exit 2 even when `PGBASE_DATABASE_URL` is unreachable.
+
+#### P1 — a broken stdout leaves the initial watch generation running
+
+After `startWatchedApplication` starts `app.Run` in a goroutine, `superviseJavaScript` writes the initial generation status. If that write fails, it returns directly without closing the just-started app or awaiting `result` ([`internal/cli/javascript_watch.go`](../../../internal/cli/javascript_watch.go) lines 63–69 and 144–151). A closed stdout pipe can therefore make `pgbase js serve --watch` return while its listener, jobs, and runtime stay alive until some later cancellation.
+
+This contradicts the N6 shutdown contract, which requires the supervisor to retain one listener/job owner and to clean the VM/reader lifecycle ([`N6.md`](N6.md) lines 175–177 and 205). On the status-write error path, close `app` with the configured shutdown timeout and wait for `result` before returning the joined error. Cover it with a failing `IO.stdout` writer and assert that the listener becomes unavailable and no job generation remains.
+
+### Review-only confirmation
+
+`js check` currently accepts a job manifest without the mandatory `JobServiceSubjects` entry: `go test ./internal/cli -run '^TestReviewJavaScriptCheckAcceptsJobWithoutServiceSubject$' -count=1 -v` exited 0. This is not filed as a defect because the current `js check` contract can reasonably be read as bundle validation rather than full runnable-app validation; the fixture was removed. If the CLI is intended to certify runnable configuration, make it reject that case before reporting the bundle valid.
