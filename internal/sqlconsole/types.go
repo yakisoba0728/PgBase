@@ -394,7 +394,16 @@ func CloneExecution(execution Execution) Execution {
 	clone := execution
 	if execution.Result != nil {
 		result := *execution.Result
-		result.Statements = append([]StatementResult(nil), execution.Result.Statements...)
+		result.Statements = make([]StatementResult, len(execution.Result.Statements))
+		for statementIndex, source := range execution.Result.Statements {
+			statement := source
+			statement.Columns = append([]Column(nil), source.Columns...)
+			statement.Rows = make([][]Cell, len(source.Rows))
+			for rowIndex, row := range source.Rows {
+				statement.Rows[rowIndex] = append([]Cell(nil), row...)
+			}
+			result.Statements[statementIndex] = statement
+		}
 		clone.Result = &result
 	}
 	if execution.Failure != nil {

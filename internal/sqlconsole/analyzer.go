@@ -131,7 +131,7 @@ func analyzeStatement(index int, mode Mode, statement Statement) (AnalyzedStatem
 	switch typed := parsed.(type) {
 	case *pgparse.SelectStmt:
 		analyzed.Kind = StatementSelect
-		if err := validateSelect(typed); err != nil {
+		if err := validateSelect(typed, true); err != nil {
 			return AnalyzedStatement{}, reject(index, err.Error())
 		}
 	case *pgparse.InsertStmt:
@@ -174,7 +174,7 @@ func analyzeStatement(index int, mode Mode, statement Statement) (AnalyzedStatem
 		return AnalyzedStatement{}, reject(index, "statement type is not allowed")
 	}
 
-	collector := astCollector{ctes: collectCTENames(parsed), parameters: make(map[int]struct{})}
+	collector := astCollector{ctes: topLevelCTENames(parsed), parameters: make(map[int]struct{})}
 	pgparse.Walk(parsed, collector.visit)
 	if collector.err != nil {
 		return AnalyzedStatement{}, reject(index, collector.err.Error())
@@ -189,14 +189,51 @@ func analyzeStatement(index int, mode Mode, statement Statement) (AnalyzedStatem
 	return analyzed, nil
 }
 
-func validateSelect(statement *pgparse.SelectStmt) error {
+func validateSelect(statement *pgparse.SelectStmt, topLevel bool) error {
+	if topLevel {
+		var nestedError error
+		pgparse.Walk(statement, func(node pgparse.Node) bool {
+			selectStatement, ok := node.(*pgparse.SelectStmt)
+			if !ok {
+				return true
+			}
+			if selectStatement != statement && len(selectStatement.With) != 0 {
+				nestedError = errors.New("nested WITH clauses are not allowed")
+				return false
+			}
+			if selectStatement.Into != nil {
+				nestedError = errors.New("SELECT INTO is not allowed")
+				return false
+			}
+			if len(selectStatement.Locking) != 0 {
+				nestedError = errors.New("row locking clauses are not allowed")
+				return false
+			}
+			return true
+		})
+		if nestedError != nil {
+			return nestedError
+		}
+	}
 	if statement.Into != nil {
 		return errors.New("SELECT INTO is not allowed")
 	}
 	if len(statement.Locking) != 0 {
 		return errors.New("row locking clauses are not allowed")
 	}
+	if !topLevel && len(statement.With) != 0 {
+		return errors.New("nested WITH clauses are not allowed")
+	}
+	cteNames := make(map[string]struct{}, len(statement.With))
 	for _, cte := range statement.With {
+		name := strings.ToLower(cte.Name)
+		if _, duplicate := cteNames[name]; duplicate {
+			return errors.New("CTE names must be unique")
+		}
+		cteNames[name] = struct{}{}
+		if cte.Recursive {
+			return errors.New("recursive CTEs are not allowed")
+		}
 		if cte.Aux != "" {
 			return errors.New("unmodelled CTE SEARCH/CYCLE clauses are not allowed")
 		}
@@ -204,21 +241,36 @@ func validateSelect(statement *pgparse.SelectStmt) error {
 		if !ok {
 			return errors.New("data-modifying CTEs are not allowed")
 		}
-		if err := validateSelect(selectStatement); err != nil {
+		if err := rejectUnqualifiedRelations(selectStatement); err != nil {
+			return err
+		}
+		if err := validateSelect(selectStatement, false); err != nil {
 			return err
 		}
 	}
 	if statement.Left != nil {
-		if err := validateSelect(statement.Left); err != nil {
+		if err := validateSelect(statement.Left, false); err != nil {
 			return err
 		}
 	}
 	if statement.Right != nil {
-		if err := validateSelect(statement.Right); err != nil {
+		if err := validateSelect(statement.Right, false); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func rejectUnqualifiedRelations(statement *pgparse.SelectStmt) error {
+	var result error
+	pgparse.Walk(statement, func(node pgparse.Node) bool {
+		if table, ok := node.(*pgparse.TableName); ok && table.Schema == "" {
+			result = errors.New("CTE bodies may reference only schema-qualified persistent relations")
+			return false
+		}
+		return result == nil
+	})
+	return result
 }
 
 func validateInsert(statement *pgparse.InsertStmt) (RelationRef, error) {
@@ -239,7 +291,7 @@ func validateInsert(statement *pgparse.InsertStmt) (RelationRef, error) {
 		return RelationRef{}, errors.New("ON CONFLICT is not in the allowed write grammar")
 	}
 	if statement.Select != nil {
-		if err := validateSelect(statement.Select); err != nil {
+		if err := validateSelect(statement.Select, false); err != nil {
 			return RelationRef{}, err
 		}
 	}
@@ -288,16 +340,13 @@ func writeTarget(table *pgparse.TableName) (RelationRef, error) {
 	return RelationRef{Schema: table.Schema, Name: table.Name}, nil
 }
 
-func collectCTENames(statement pgparse.Stmt) map[string]struct{} {
+func topLevelCTENames(statement pgparse.Stmt) map[string]struct{} {
 	result := make(map[string]struct{})
-	pgparse.Walk(statement, func(node pgparse.Node) bool {
-		if selectStatement, ok := node.(*pgparse.SelectStmt); ok {
-			for _, cte := range selectStatement.With {
-				result[strings.ToLower(cte.Name)] = struct{}{}
-			}
+	if selectStatement, ok := statement.(*pgparse.SelectStmt); ok {
+		for _, cte := range selectStatement.With {
+			result[strings.ToLower(cte.Name)] = struct{}{}
 		}
-		return true
-	})
+	}
 	return result
 }
 
@@ -318,7 +367,6 @@ func (collector *astCollector) visit(node pgparse.Node) bool {
 	ensureMaps(collector)
 	switch typed := node.(type) {
 	case *pgparse.SelectStmt:
-		collector.err = validateSelect(typed)
 	case *pgparse.InsertStmt, *pgparse.UpdateStmt, *pgparse.DeleteStmt:
 	case *pgparse.TableName:
 		if typed.Schema == "" {

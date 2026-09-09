@@ -106,3 +106,26 @@ func TestCellJSONKeepsNullAndExactValuesDistinct(t *testing.T) {
 		t.Fatalf("encoded cells = %s", encoded)
 	}
 }
+
+func TestCloneExecutionOwnsEveryNestedResultSlice(t *testing.T) {
+	t.Parallel()
+
+	source := Execution{Result: &Result{Statements: []StatementResult{{
+		Columns: []Column{{Name: "amount", TypeOID: 1700, TypeName: "numeric"}},
+		Rows:    [][]Cell{{{Kind: CellDecimal, Text: "9007199254740993.125"}}},
+	}}}}
+	clone := CloneExecution(source)
+	clone.Result.Statements[0].Columns[0].Name = "changed"
+	clone.Result.Statements[0].Rows[0][0].Text = "0"
+	clone.Result.Statements[0].Rows[0] = append(clone.Result.Statements[0].Rows[0], Cell{Kind: CellNull})
+
+	if got := source.Result.Statements[0].Columns[0].Name; got != "amount" {
+		t.Fatalf("source column = %q", got)
+	}
+	if got := source.Result.Statements[0].Rows[0][0].Text; got != "9007199254740993.125" {
+		t.Fatalf("source cell = %q", got)
+	}
+	if got := len(source.Result.Statements[0].Rows[0]); got != 1 {
+		t.Fatalf("source row length = %d", got)
+	}
+}
