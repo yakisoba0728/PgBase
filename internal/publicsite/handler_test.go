@@ -1,11 +1,13 @@
 package publicsite
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 )
 
@@ -66,6 +68,89 @@ func TestHandlerRejectsTraversalAndEscapingSymlinks(t *testing.T) {
 			t.Fatalf("%s status=%d body=%q", target, response.Code, response.Body.String())
 		}
 	}
+}
+
+func TestHandlerDoesNotUseSPAFallbackForExistingDirectoryWithoutIndex(t *testing.T) {
+	root := t.TempDir()
+	writeSiteFile(t, root, "index.html", "app")
+	if err := os.Mkdir(filepath.Join(root, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/assets", "/assets/"} {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		if response.Code != http.StatusNotFound || response.Body.String() == "app" {
+			t.Fatalf("%s status=%d body=%q", target, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestHandlerNeverServesOutsideFileWhileSymlinkIsReplaced(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	root := t.TempDir()
+	writeSiteFile(t, root, "safe.txt", "safe")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "switch.txt")
+	if err := os.Symlink("safe.txt", link); err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var swaps sync.WaitGroup
+	swaps.Add(1)
+	go func() {
+		defer swaps.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			temporary := filepath.Join(root, fmt.Sprintf(".switch-%d", i%2))
+			_ = os.Remove(temporary)
+			target := "safe.txt"
+			if i%2 == 1 {
+				target = outside
+			}
+			if err := os.Symlink(target, temporary); err != nil {
+				t.Errorf("create replacement symlink: %v", err)
+				return
+			}
+			if err := os.Rename(temporary, link); err != nil {
+				t.Errorf("replace symlink: %v", err)
+				return
+			}
+		}
+	}()
+	for range 2_000 {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/switch.txt", nil))
+		if response.Body.String() == "secret" {
+			close(done)
+			swaps.Wait()
+			t.Fatal("served file outside configured root")
+		}
+		if response.Code != http.StatusOK && response.Code != http.StatusNotFound {
+			close(done)
+			swaps.Wait()
+			t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+		}
+	}
+	close(done)
+	swaps.Wait()
 }
 
 func TestHandlerRequiresAbsoluteExistingDirectory(t *testing.T) {

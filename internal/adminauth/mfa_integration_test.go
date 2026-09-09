@@ -42,6 +42,42 @@ func TestN3UpsertDeleteProtectsLastAdministratorAndInvalidatesSessions(t *testin
 	if _, err := service.Login(ctx, first.Email, "second correct horse battery staple", "192.0.2.1"); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.EnableTOTP(ctx, first.Email, "JBSWY3DPEHPK3PXP"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AllowIP(ctx, first.Email, "192.0.2.0/24"); err != nil {
+		t.Fatal(err)
+	}
+	otpSecret, err := decodeTOTPSecret("JBSWY3DPEHPK3PXP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeSession, err := service.LoginWithOTP(ctx, first.Email, "second correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, time.Now()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "update pgbase_meta.admins set active=false where id=$1", first.ID); err != nil {
+		t.Fatal(err)
+	}
+	reactivated, created, err := service.UpsertAdministrator(ctx, first.Email, "third correct horse battery staple")
+	if err != nil || created || reactivated.ID != first.ID || !reactivated.Active {
+		t.Fatalf("reactivated=%#v created=%t err=%v", reactivated, created, err)
+	}
+	if _, err := service.Authenticate(ctx, activeSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("reactivated old session error=%v", err)
+	}
+	if _, err := service.Login(ctx, first.Email, "second correct horse battery staple", "192.0.2.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("reactivated old password error=%v", err)
+	}
+	if _, err := service.Login(ctx, first.Email, "third correct horse battery staple", "192.0.2.1"); !errors.Is(err, ErrOTPRequired) {
+		t.Fatalf("reactivated OTP-free login error=%v", err)
+	}
+	if _, err := service.LoginWithOTP(ctx, first.Email, "third correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, time.Now())); err != nil {
+		t.Fatalf("reactivated OTP login: %v", err)
+	}
+	if prefixes, err := service.ListIP(ctx, first.Email); err != nil || len(prefixes) != 1 || prefixes[0] != "192.0.2.0/24" {
+		t.Fatalf("reactivated IP policy=%q err=%v", prefixes, err)
+	}
 	if err := service.DeleteAdministrator(ctx, first.Email); !errors.Is(err, ErrConflict) {
 		t.Fatalf("last administrator delete error=%v", err)
 	}

@@ -190,6 +190,29 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	return administratorUTC(administrator), nil
 }
 
+// UpsertAdministratorPassword reactivates a locked existing administrator,
+// replaces its password, and removes every existing session. TOTP and IP
+// policy rows remain associated with the administrator's stable ID.
+func (s *Store) UpsertAdministratorPassword(ctx context.Context, administratorID uuid.UUID, passwordHash string, now time.Time) (Administrator, error) {
+	var administrator Administrator
+	err := s.db.QueryRow(ctx, `
+		update pgbase_meta.admins
+		set password_hash = $2, active = true, updated_at = $3
+		where id = $1
+		returning id, email, active, created_at, updated_at`, administratorID, passwordHash, now).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("upsert administrator password: %w", err)
+	}
+	if err := s.DeleteAdministratorSessions(ctx, administratorID); err != nil {
+		return Administrator{}, err
+	}
+	return administratorUTC(administrator), nil
+}
+
 // AdministratorByEmail reads an active administrator and its password hash
 // without retaining a database resource across password verification.
 func (s *Store) AdministratorByEmail(ctx context.Context, email string) (Administrator, string, error) {
@@ -200,6 +223,28 @@ func (s *Store) AdministratorByEmail(ctx context.Context, email string) (Adminis
 // active-state changes after a password was verified outside the transaction.
 func (s *Store) AdministratorByEmailForUpdate(ctx context.Context, email string) (Administrator, string, error) {
 	return s.administratorByEmail(ctx, email, true)
+}
+
+// AdministratorByEmailAnyForUpdate locks an administrator regardless of its
+// active state. It is reserved for lifecycle operations that may reactivate an
+// existing administrator and must not mistake that row for an absent email.
+func (s *Store) AdministratorByEmailAnyForUpdate(ctx context.Context, email string) (Administrator, string, error) {
+	var administrator Administrator
+	var passwordHash string
+	err := s.db.QueryRow(ctx, `
+		select id, email, active, created_at, updated_at, password_hash
+		from pgbase_meta.admins
+		where email = $1
+		for update`, email).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active,
+		&administrator.CreatedAt, &administrator.UpdatedAt, &passwordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, "", ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, "", fmt.Errorf("read administrator: %w", err)
+	}
+	return administratorUTC(administrator), passwordHash, nil
 }
 
 func (s *Store) administratorByEmail(ctx context.Context, email string, forUpdate bool) (Administrator, string, error) {

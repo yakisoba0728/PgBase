@@ -15,7 +15,7 @@ import (
 var hashedAsset = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
 
 type handler struct {
-	root string
+	root *os.Root
 	spa  bool
 }
 
@@ -34,7 +34,11 @@ func New(root string, spa bool) (http.Handler, error) {
 	if err != nil || !info.IsDir() {
 		return nil, errors.New("public directory must exist and be a directory")
 	}
-	return handler{root: resolved, spa: spa}, nil
+	rootHandle, err := os.OpenRoot(resolved)
+	if err != nil {
+		return nil, errors.New("open public directory")
+	}
+	return handler{root: rootHandle, spa: spa}, nil
 }
 
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +60,12 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.serveNamed(w, r, name) {
+		return
+	}
+	// A directory has only one public representation: its own index.html.
+	// Do not turn an extensionless existing directory into an SPA deep link.
+	if info, err := h.root.Stat(name); err == nil && info.IsDir() {
+		http.NotFound(w, r)
 		return
 	}
 	if h.spa && path.Ext(name) == "" && h.serveNamed(w, r, "index.html") {
@@ -86,12 +96,10 @@ func (h handler) open(name string) (*os.File, os.FileInfo, error) {
 	if name == "." || name == "" || strings.HasPrefix(name, "/") || unsafePath("/"+name, "") {
 		return nil, nil, os.ErrNotExist
 	}
-	candidate := filepath.Join(h.root, filepath.FromSlash(name))
-	resolved, err := filepath.EvalSymlinks(candidate)
-	if err != nil || !within(h.root, resolved) {
-		return nil, nil, os.ErrNotExist
-	}
-	file, err := os.Open(resolved)
+	// os.Root keeps a descriptor for the configured root and resolves each
+	// component beneath it. Its Open operation follows only in-root relative
+	// symlinks, so replacement between validation and opening cannot escape.
+	file, err := h.root.Open(name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,20 +108,7 @@ func (h handler) open(name string) (*os.File, os.FileInfo, error) {
 		file.Close()
 		return nil, nil, os.ErrNotExist
 	}
-	// Re-stat the resolved pathname after opening it. This catches a symlink
-	// replacement between resolution and open on supported local filesystems;
-	// the descriptor is never served unless it still names that contained file.
-	contained, statErr := os.Stat(resolved)
-	if statErr != nil || !os.SameFile(info, contained) {
-		file.Close()
-		return nil, nil, os.ErrNotExist
-	}
 	return file, info, nil
-}
-
-func within(root, target string) bool {
-	rel, err := filepath.Rel(root, target)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func unsafePath(decoded, raw string) bool {

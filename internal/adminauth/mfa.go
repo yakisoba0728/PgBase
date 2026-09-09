@@ -23,6 +23,9 @@ import (
 
 const administratorLifecycleLock int64 = 0x7067626173650039
 
+// UpsertAdministrator creates an administrator when its email is absent.
+// An existing active or inactive record keeps its ID, is activated, receives
+// the new password, and has every session invalidated.
 func (s *Service) UpsertAdministrator(ctx context.Context, email, password string) (Administrator, bool, error) {
 	if err := s.ready(); err != nil {
 		return Administrator{}, false, err
@@ -43,9 +46,9 @@ func (s *Service) UpsertAdministrator(ctx context.Context, email, password strin
 			return err
 		}
 		store := NewStore(tx)
-		existing, _, lookup := store.AdministratorByEmailForUpdate(ctx, normalized)
+		existing, _, lookup := store.AdministratorByEmailAnyForUpdate(ctx, normalized)
 		if lookup == nil {
-			administrator, err = store.ResetAdministratorPassword(ctx, normalized, hash, now)
+			administrator, err = store.UpsertAdministratorPassword(ctx, existing.ID, hash, now)
 			return err
 		}
 		if lookup != ErrInvalidCredentials {
@@ -57,7 +60,6 @@ func (s *Service) UpsertAdministrator(ctx context.Context, email, password strin
 		}
 		administrator, err = store.CreateAdministrator(ctx, Administrator{ID: id, Email: normalized, Active: true, CreatedAt: now, UpdatedAt: now}, hash)
 		created = true
-		_ = existing
 		return err
 	})
 	return administrator, created, err
