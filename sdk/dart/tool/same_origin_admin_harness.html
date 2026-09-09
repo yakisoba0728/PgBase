@@ -1,0 +1,7 @@
+<!doctype html><title>N7 same-origin admin</title><button id="login">Login/resume</button><button id="ok">CSRF mutation</button><button id="bad">Missing CSRF</button><pre id="status">Ready</pre><script>
+let csrf=''; const status=document.querySelector('#status');
+async function call(path, init={}) { const r=await fetch(path,{credentials:'include',...init}); return [r,await r.text()]; }
+login.onclick=async()=>{let [r,b]=await call('/api/admin/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'n7-admin@example.test',password:'correct-horse-battery-staple-N7'})}); if(r.status===200) csrf=JSON.parse(b).csrfToken; let [s]=await call('/api/admin/session'); status.textContent=`login=${r.status} resume=${s.status}`;};
+ok.onclick=async()=>{let [r]=await call('/api/admin/auth/logout',{method:'POST',headers:{'x-pgbase-csrf':csrf}}); status.textContent=`csrf mutation=${r.status}`;};
+bad.onclick=async()=>{let [r]=await call('/api/admin/auth/logout',{method:'POST'}); status.textContent=`missing csrf=${r.status}`;};
+</script>
