@@ -49,13 +49,17 @@ func runJavaScriptWatch(ctx context.Context, args []string, env environment, str
 	return superviseJavaScript(ctx, options, *poll, streams)
 }
 
-func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll time.Duration, streams IO) error {
+func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll time.Duration, streams IO) (resultErr error) {
 	sourceDirectory := sourceOptions.JavaScript.Directory
 	snapshot, err := createJavaScriptSnapshot(sourceOptions.JavaScript)
 	if err != nil {
 		return configurationError{err: err, message: "JavaScript bundle is invalid: " + err.Error()}
 	}
-	defer os.RemoveAll(snapshot.directory)
+	defer func() {
+		if removeErr := os.RemoveAll(snapshot.directory); removeErr != nil {
+			resultErr = errors.Join(resultErr, removeErr)
+		}
+	}()
 	currentOptions := sourceOptions
 	currentJavaScript := *sourceOptions.JavaScript
 	currentJavaScript.Directory = snapshot.directory

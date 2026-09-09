@@ -124,7 +124,7 @@ func (options JavaScriptOptions) limits() jsvm.Limits {
 // ValidateJavaScript loads an immutable source snapshot, validates every
 // handler export without database or transport effects, and returns its public
 // registration manifest.
-func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (JavaScriptManifest, error) {
+func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (manifest JavaScriptManifest, err error) {
 	normalized, err := options.normalized()
 	if err != nil {
 		return JavaScriptManifest{}, err
@@ -137,7 +137,9 @@ func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (JavaScr
 	if err != nil {
 		return JavaScriptManifest{}, err
 	}
-	defer runtime.Close(ctx)
+	defer func() {
+		err = errors.Join(err, runtime.Close(ctx))
+	}()
 	if err := validateJavaScriptRegistration(bundle.Manifest(), normalized.Capabilities); err != nil {
 		return JavaScriptManifest{}, err
 	}

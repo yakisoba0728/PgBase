@@ -366,7 +366,7 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 			}
 		}
 	}
-	encoded, err := encodeValue(vm, result, r.limits.MaximumJSONDepth)
+	encoded, err := encodeValue(result, r.limits.MaximumJSONDepth)
 	if err != nil {
 		return nil, &Error{Code: CodeInvalidResult, cause: err}
 	}
@@ -506,7 +506,7 @@ func (r *Runtime) hostFunction(vm *goja.Runtime, state *callState, capability, m
 		if len(call.Arguments) > 0 {
 			input = call.Argument(0)
 		}
-		encoded, err := encodeValue(vm, input, state.limits.MaximumJSONDepth)
+		encoded, err := encodeValue(input, state.limits.MaximumJSONDepth)
 		if err != nil || len(encoded) > state.limits.MaximumInputBytes {
 			panic(vm.ToValue(map[string]any{"name": "PgBaseError", "code": string(CodeLimitExceeded)}))
 		}
@@ -623,15 +623,15 @@ func importValue(vm *goja.Runtime, value any, depth, maximumDepth int) (goja.Val
 	}
 }
 
-func encodeValue(vm *goja.Runtime, value goja.Value, maximumDepth int) (json.RawMessage, error) {
-	converted, err := exportValue(vm, value, 0, maximumDepth, make(map[*goja.Object]bool))
+func encodeValue(value goja.Value, maximumDepth int) (json.RawMessage, error) {
+	converted, err := exportValue(value, 0, maximumDepth, make(map[*goja.Object]bool))
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(converted)
 }
 
-func exportValue(vm *goja.Runtime, value goja.Value, depth, maximumDepth int, seen map[*goja.Object]bool) (any, error) {
+func exportValue(value goja.Value, depth, maximumDepth int, seen map[*goja.Object]bool) (any, error) {
 	if depth > maximumDepth {
 		return nil, errors.New("JSON nesting exceeds limit")
 	}
@@ -681,7 +681,7 @@ func exportValue(vm *goja.Runtime, value goja.Value, depth, maximumDepth int, se
 		}
 		result := make([]any, int(length))
 		for index := range result {
-			converted, err := exportValue(vm, object.Get(fmt.Sprint(index)), depth+1, maximumDepth, seen)
+			converted, err := exportValue(object.Get(fmt.Sprint(index)), depth+1, maximumDepth, seen)
 			if err != nil {
 				return nil, err
 			}
@@ -694,7 +694,7 @@ func exportValue(vm *goja.Runtime, value goja.Value, depth, maximumDepth int, se
 	}
 	result := make(map[string]any)
 	for _, name := range object.Keys() {
-		converted, err := exportValue(vm, object.Get(name), depth+1, maximumDepth, seen)
+		converted, err := exportValue(object.Get(name), depth+1, maximumDepth, seen)
 		if err != nil {
 			return nil, err
 		}

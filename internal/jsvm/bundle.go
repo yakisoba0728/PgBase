@@ -158,7 +158,7 @@ func LoadBundle(directory string) (*Bundle, error) {
 	if directory == "" || !filepath.IsAbs(directory) || strings.IndexByte(directory, 0) >= 0 {
 		return nil, errors.New("JavaScript directory must be an absolute path")
 	}
-	root, err := filepath.Clean(directory), error(nil)
+	root := filepath.Clean(directory)
 	info, err := os.Lstat(root)
 	if err != nil {
 		return nil, fmt.Errorf("inspect JavaScript directory: %w", err)
@@ -249,12 +249,16 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 	return nil
 }
 
-func readRegularFile(filename string, maximum int64) ([]byte, error) {
+func readRegularFile(filename string, maximum int64) (contents []byte, err error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -262,7 +266,7 @@ func readRegularFile(filename string, maximum int64) ([]byte, error) {
 	if !info.Mode().IsRegular() || info.Size() > maximum {
 		return nil, errors.New("file is not regular or exceeds its size limit")
 	}
-	contents, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	contents, err = io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +462,8 @@ func bundleDigest(manifest []byte, sources map[string][]byte) string {
 	hash.Write([]byte("pgbase-js-bundle-v1\x00"))
 	hash.Write(manifest)
 	for _, name := range names {
-		fmt.Fprintf(hash, "\x00%d:%s\x00%d:", len(name), name, len(sources[name]))
+		hashData := fmt.Sprintf("\x00%d:%s\x00%d:", len(name), name, len(sources[name]))
+		hash.Write([]byte(hashData))
 		hash.Write(sources[name])
 	}
 	return hex.EncodeToString(hash.Sum(nil))

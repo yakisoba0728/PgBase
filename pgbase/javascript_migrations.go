@@ -56,14 +56,16 @@ func (a *App) JavaScriptMigrations() ([]UserMigration, error) {
 }
 
 func javaScriptMigrationCallback(bundle *jsvm.Bundle, descriptor jsvm.Migration, export string) func(context.Context, pgx.Tx) error {
-	return func(ctx context.Context, tx pgx.Tx) error {
+	return func(ctx context.Context, tx pgx.Tx) (resultErr error) {
 		limits := jsvm.Limits{Concurrency: 1, Queue: 1, AdmissionTimeout: time.Second, DefaultTimeout: time.Minute,
 			MaximumTimeout: 5 * time.Minute, MaximumHostCalls: 4096, MaximumInputBytes: 4 << 20, MaximumOutputBytes: 16 << 20}
 		runtime, err := jsvm.NewRuntime(bundle, limits)
 		if err != nil {
 			return err
 		}
-		defer runtime.Close(context.WithoutCancel(ctx))
+		defer func() {
+			resultErr = errors.Join(resultErr, runtime.Close(context.WithoutCancel(ctx)))
+		}()
 		input, err := json.Marshal(map[string]string{"id": descriptor.ID})
 		if err != nil {
 			return err

@@ -404,7 +404,7 @@ type extensionFileResult struct {
 	Items       []extensionFileResult `json:"items,omitempty"`
 }
 
-func (host *extensionHost) callFiles(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+func (host *extensionHost) callFiles(ctx context.Context, method string, raw json.RawMessage) (result json.RawMessage, resultErr error) {
 	if host.bridge.files == nil {
 		return nil, extensionError("files_unavailable", errors.New("file operations are unavailable"))
 	}
@@ -479,14 +479,18 @@ func (host *extensionHost) callFiles(ctx context.Context, method string, raw jso
 		if err != nil {
 			return nil, mapExtensionError(err)
 		}
-		defer reader.Close()
-		contents, err := io.ReadAll(io.LimitReader(reader, 3<<20+1))
-		if err != nil || len(contents) > 3<<20 {
+		defer func() {
+			if closeErr := reader.Close(); closeErr != nil {
+				resultErr = errors.Join(resultErr, mapExtensionError(closeErr))
+			}
+		}()
+		resultData, err := io.ReadAll(io.LimitReader(reader, 3<<20+1))
+		if err != nil || len(resultData) > 3<<20 {
 			return nil, extensionError("file_too_large", err)
 		}
-		result := publicFileResult(file)
-		result.DataBase64 = base64.StdEncoding.EncodeToString(contents)
-		return json.Marshal(result)
+		operationResult := publicFileResult(file)
+		operationResult.DataBase64 = base64.StdEncoding.EncodeToString(resultData)
+		return json.Marshal(operationResult)
 	case "files.open":
 		return host.openFileHandle(ctx, request)
 	case "files.readChunk":
