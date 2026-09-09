@@ -97,7 +97,7 @@ func execute(ctx context.Context, args []string, env environment, streams IO, co
 		}
 		var updateErr updateOperationalError
 		if errors.As(err, &updateErr) {
-			if encodeErr := json.NewEncoder(stderr).Encode(map[string]any{
+			if encodeErr := json.NewEncoder(streams.stdout()).Encode(map[string]any{
 				"schemaVersion": updateJSONSchemaVersion,
 				"error": map[string]string{
 					"code":    updateErr.Error(),

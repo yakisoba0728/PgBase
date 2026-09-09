@@ -32,8 +32,8 @@ func TestExecuteRendersStableRedactedUpdateError(t *testing.T) {
 			return updateFailure(selfupdate.ErrUntrustedManifest)
 		},
 	})
-	if code != 1 || stdout.Len() != 0 {
-		t.Fatalf("exit=%d stdout=%q", code, stdout.String())
+	if code != 1 || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
 	var envelope struct {
 		SchemaVersion int `json:"schemaVersion"`
@@ -42,11 +42,11 @@ func TestExecuteRendersStableRedactedUpdateError(t *testing.T) {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
-		t.Fatalf("stderr JSON=%q: %v", stderr.String(), err)
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("stdout JSON=%q: %v", stdout.String(), err)
 	}
 	if envelope.SchemaVersion != 1 || envelope.Error.Code != "untrusted_manifest" || envelope.Error.Message != "update command failed" {
-		t.Fatalf("stderr envelope=%+v", envelope)
+		t.Fatalf("stdout envelope=%+v", envelope)
 	}
 
 	if code := execute(context.Background(), []string{"update"}, emptyEnv, testIO(nil, io.Discard, io.Discard), commandTable{
