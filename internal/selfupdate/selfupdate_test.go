@@ -415,6 +415,20 @@ func TestPrepareInstallationRejectsWorldWritableExistingState(t *testing.T) {
 	}
 }
 
+func TestReadStatusFirstUseReturnsIdleWithoutCreatingState(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "pgbase")
+	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
+	state := filepath.Join(directory, ".pgbase-update")
+	status, err := ReadStatus(target, state)
+	if err != nil || status.Phase != "idle" {
+		t.Fatalf("status=%+v err=%v", status, err)
+	}
+	if _, err = os.Lstat(state); !os.IsNotExist(err) {
+		t.Fatalf("ReadStatus created state: %v", err)
+	}
+}
+
 func TestPrepareInstallationRejectsWritableTargetAndDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX install permissions are exercised on Unix")
