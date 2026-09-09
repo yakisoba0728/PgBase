@@ -15,7 +15,7 @@ function sample(patch: Partial<SQLConsoleExecution> = {}): SQLConsoleExecution {
 function port(overrides: Partial<SQLConsolePort> = {}): SQLConsolePort {
   return {
     submit: vi.fn(async () => sample()), execution: vi.fn(async () => sample()), cancel: vi.fn(async () => sample({ status: "canceled", result: undefined })),
-    history: vi.fn(async () => ({ executions: [], writeEnabled: true, writeTargets: [{ schema: "extension", table: "ledger_entries", columns: ["id", "amount"] }] })),
+    history: vi.fn(async () => ({ executions: [], writeEnabled: true, writeTargets: [{ schema: "extension", table: "ledger_entries", columns: ["id", "amount"] }], sessionIdentity: "session-a" })),
     ...overrides,
   };
 }
@@ -105,6 +105,40 @@ describe("SQL console page", () => {
     expect(submitted.mock.calls[1][0]).toEqual(submitted.mock.calls[0][0]);
   });
 
+  it("never exposes a retained write across a different or expired administrator session scope", async () => {
+    const submitted = vi.fn(async () => { throw new Error("response lost"); });
+    const firstBackend = port({ submit: submitted });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValueOnce("write-operation-id").mockReturnValueOnce("write-idempotency-key") });
+    const first = render(<SQLConsolePage port={firstBackend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+    await screen.findByRole("button", { name: "Recheck write execution" });
+    first.unmount();
+
+    for (const scope of ["session-b", "session-a-after-expiry"]) {
+      const otherBackend = port({ history: vi.fn(async () => ({ executions: [], writeEnabled: true, writeTargets: [], sessionIdentity: scope })) });
+      const other = render(<SQLConsolePage port={otherBackend} />);
+      await screen.findByRole("button", { name: "Run read query" });
+      await userEvent.click(screen.getByLabelText("Transactional write"));
+      expect(screen.queryByRole("button", { name: "Recheck write execution" })).not.toBeInTheDocument();
+      expect(otherBackend.execution).not.toHaveBeenCalled();
+      other.unmount();
+    }
+  });
+
+  it("removes the legacy unscoped recovery cache instead of reading it", async () => {
+    window.sessionStorage.setItem("pgbase.sql-console.pending-write/v1", JSON.stringify({ operationID: "old", idempotencyKey: "old", mode: "write", dryRun: false, statements: [{ sql: "DELETE FROM extension.items" }] }));
+    const backend = port({ history: vi.fn(async () => ({ executions: [], writeEnabled: true, writeTargets: [] })) });
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByRole("button", { name: "Run read query" });
+
+    expect(window.sessionStorage.getItem("pgbase.sql-console.pending-write/v1")).toBeNull();
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    expect(screen.queryByRole("button", { name: "Recheck write execution" })).not.toBeInTheDocument();
+  });
+
   it("releases a definite write rejection instead of treating it as an uncertain execution", async () => {
     const backend = port({ submit: vi.fn(async () => { throw new SQLConsoleError(400, "invalid_request"); }) });
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => id) });
@@ -127,6 +161,21 @@ describe("SQL console page", () => {
 
     expect(backend.execution).toHaveBeenCalledWith(id);
     expect(await screen.findByText("9223372036854775807")).toBeVisible();
+  });
+
+  it.each([
+    ["2000-01-01T00:00:00Z", "The bounded result expired"],
+    ["2099-01-01T00:00:00Z", "The bounded result is unavailable"],
+  ])("labels a durable summary with omitted statement rows as unavailable (%s)", async (resultUntil, expected) => {
+    const full = sample().result!;
+    const durable = sample({ resultUntil, result: { ...full, statements: undefined, committed: true } });
+    const backend = port({ history: vi.fn(async () => ({ executions: [durable], writeEnabled: false, writeTargets: [], sessionIdentity: "session-a" })), execution: vi.fn(async () => durable) });
+    render(<SQLConsolePage port={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Inspect" }));
+
+    expect(await screen.findByText(new RegExp(expected))).toBeVisible();
+    expect(screen.getByText(/1 rows, 0 affected rows, 48 bytes/)).toBeVisible();
+    expect(screen.getByText(/Committed/)).toBeVisible();
   });
 
   it("omits an untouched timeout and validates an edited timeout against the server capability", async () => {

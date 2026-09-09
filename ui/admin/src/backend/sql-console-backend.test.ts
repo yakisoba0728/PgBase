@@ -26,12 +26,12 @@ describe("SQL console backend", () => {
   });
 
   it("uses the dedicated cancel and cursor routes", async () => {
-    const scripted = transport([{ executions: [execution], nextCursor: "next", writeEnabled: true, writeTargets: [{ schema: "extension", table: "items", columns: ["id", "amount"] }], defaultTimeoutMs: 1500, maximumTimeoutMs: 2000 }, execution]);
+    const scripted = transport([{ executions: [execution], nextCursor: "next", writeEnabled: true, writeTargets: [{ schema: "extension", table: "items", columns: ["id", "amount"] }], defaultTimeoutMs: 1500, maximumTimeoutMs: 2000, sessionIdentity: "opaque-session-scope" }, execution]);
     const backend = createSQLConsoleBackend(scripted.transport);
 
     const history = await backend.history("prior page");
     expect(history.writeTargets).toEqual([{ schema: "extension", table: "items", columns: ["id", "amount"] }]);
-    expect(history).toMatchObject({ defaultTimeoutMs: 1500, maximumTimeoutMs: 2000 });
+    expect(history).toMatchObject({ defaultTimeoutMs: 1500, maximumTimeoutMs: 2000, sessionIdentity: "opaque-session-scope" });
     await backend.cancel(execution.id);
     expect(scripted.calls.map((call) => [call.method, call.path])).toEqual([
       ["GET", "/api/admin/sql/queries?cursor=prior%20page"], ["POST", `/api/admin/sql/queries/${execution.id}/cancel`],

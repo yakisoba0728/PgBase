@@ -44,7 +44,7 @@ export interface SQLConsoleExecution {
   failure?: SQLConsoleFailure;
 }
 export interface SQLConsoleWriteTarget { schema: string; table: string; columns: string[] }
-export interface SQLConsoleHistory { executions: SQLConsoleExecution[]; nextCursor?: string; writeEnabled: boolean; writeTargets: SQLConsoleWriteTarget[]; defaultTimeoutMs?: number; maximumTimeoutMs?: number }
+export interface SQLConsoleHistory { executions: SQLConsoleExecution[]; nextCursor?: string; writeEnabled: boolean; writeTargets: SQLConsoleWriteTarget[]; defaultTimeoutMs?: number; maximumTimeoutMs?: number; sessionIdentity?: string }
 
 export interface SQLConsoleTransportRequest { path: string; method: "GET" | "POST"; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal }
 export interface SQLConsoleTransportResponse { status: number; body: unknown }
@@ -134,7 +134,7 @@ export function createSQLConsoleBackend(transport: SQLConsoleTransport): SQLCons
       const maximumTimeoutMs = decoded.maximumTimeoutMs === undefined ? undefined : number(decoded.maximumTimeoutMs);
       if ((defaultTimeoutMs === undefined) !== (maximumTimeoutMs === undefined) || (defaultTimeoutMs !== undefined && (defaultTimeoutMs < 1 || maximumTimeoutMs === undefined || maximumTimeoutMs < defaultTimeoutMs))) throw new SQLConsoleError(502, "invalid_response");
       return {
-        executions: decoded.executions.map(execution), nextCursor: optionalString(decoded.nextCursor), writeEnabled: boolean(decoded.writeEnabled), ...(defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs, maximumTimeoutMs }),
+        executions: decoded.executions.map(execution), nextCursor: optionalString(decoded.nextCursor), writeEnabled: boolean(decoded.writeEnabled), ...(defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs, maximumTimeoutMs }), ...(decoded.sessionIdentity === undefined ? {} : { sessionIdentity: string(decoded.sessionIdentity) }),
         writeTargets: decoded.writeTargets.map((target) => { const value = object(target); if (!Array.isArray(value.columns)) throw new SQLConsoleError(502, "invalid_response"); return { schema: string(value.schema), table: string(value.table), columns: value.columns.map(string) }; }),
       };
     },
