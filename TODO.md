@@ -1,5 +1,26 @@
 # pgBase 구현 현황 / TODO
 
+## N1–N5 병렬 실행 — 진행 중 (2026-09-09)
+
+실행 계획: [N1–N5 계획](docs/superpowers/plans/2026-09-09-n1-n5-execution.md). Astra는 조율, GPT-5.6 Sol/Terra는 구현·통합·검증을 담당한다.
+
+| 항목 | 담당 | 상태 | 증거 |
+| --- | --- | --- | --- |
+| 계획·작업 분할 | Astra | 완료 | 실행 계획 작성 |
+| N1 자동 migration | Sol | 배정 준비 | — |
+| N2 정적 사이트·SPA | Terra | 배정 준비 | — |
+| N3 관리자 CLI | Terra | 배정 준비 | — |
+| N4 필드·조회 | Sol | 배정 준비 | — |
+| N5 세부 hooks | Terra | 배정 준비 | — |
+| 통합·검토·전체 검증 | Sol | 구현 대기 | — |
+
+- [x] 계획과 완료 기준 기록.
+- [ ] N1–N5 각 구현·집중 검증 완료.
+- [ ] 통합·독립 검토·전체 회귀 완료.
+- [ ] 최신 상태 문서와 오래된 체크리스트 정리.
+
+실행 기록: 계획 작성 및 독립 worktree 준비 시작. 기존 로컬 설치 P8/schema v38은 유지한다.
+
 문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 P8과 위 문서를 따른다.
 
 기준: 2026-09-09, v0.1.0 이후. 최신 제품 병합은 [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) / `0d28446`이며 실제 로컬 설치는 P8, PostgreSQL 17, schema v38이다. P1–P5는 PR #29, P6는 #30, P7은 #31, P8은 #32로 구현·로컬 검증·원격 CI·병합·설치를 마쳤다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
