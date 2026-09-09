@@ -21,10 +21,10 @@ Gross tracked runtime comparison is +11,258/−48 = +11,210. Four new migration 
 | Runtime area | Added | Removed | Contract served |
 | --- | ---: | ---: | --- |
 | `internal/jsvm` | 1,238 | 0 | bounded JS engine, loader, cancellation and queue lifecycle |
-| `pgbase` | 2,578 | 14 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
+| `pgbase` | 2,579 | 14 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
 | `internal/sqlconsole` | 3,630 | 0 | parser/native capability guard, restricted pools, executor, durable admission/recovery and heavy-data cleanup |
 | `internal/selfupdate` | 2,034 | 0 | signed local artifact verification, journaled swap/recovery and platform helpers |
-| `internal/cli` | 748 | 4 | JS migration/watch and local self-update command surfaces |
+| `internal/cli` | 747 | 4 | JS migration/watch and local self-update command surfaces |
 | `internal/api` | 457 | 9 | optional authenticated SQL routes, bounded DTOs and session capability |
 | `ui/admin` | 430 | 12 | SQL editor/results/history/recovery, session-scoped pending identity and nav |
 | other runtime/support | 147 | 9 | build metadata/config, storage guard, job occurrence identity, PublicDir CSP and external example |
