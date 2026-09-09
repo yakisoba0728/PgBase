@@ -14,12 +14,12 @@
 | 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. PR34 병합·schema40 설치 인수 완료 |
 | 구현 중 | N6 | JSVM | Chandrasekhar/Sol, merged2939f15 기반 전용 worktree |
 | 구현 중 | N7 | Dart SDK | Einstein/Terra, merged2939f15 기반 전용 worktree |
-| 9 | N8 | SQL 콘솔 | 실행·인증·권한·결과 제한 계약 확정 |
-| 10 | N9 | self-update | 로컬 교체/복구 및 artifact 검증 계약 확정 |
+| G3 후 | N8 | SQL 콘솔 | N6/N7 안정 통합·핵심 인수 뒤 Sol worker 배정 |
+| G3 후 | N9 | self-update | N6/N7 안정 통합·핵심 인수 뒤 Terra worker 배정 |
 
-N6/Sol·N7/Terra는 최신 사용자 승인에 따라 설치 마감과 독립적으로 전용 worktree에서 병렬 구현을 시작했다. 이후 N8/N9 순서다. 계획 N6–N9/N6 `133f644`와 N7 `8dadf42` 및 코드는 이 설치 문서 커밋에 섞지 않는다. live 설치·ports·공용 문서는 현재 설치 담당 단일 소유이며 후속 통합은 별도 branch에서 진행한다. N1–N5는 구현·독립 Standards/Spec 검토·전체 인수·원격 CI/병합·기존 설치까지 완료했고 공개 배포와 구분한다.
+N6/Sol·N7/Terra는 최신 사용자 승인에 따라 전용 worktree에서 병렬 구현 중이다. 통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유한다. N6/N7 안정 통합과 핵심 실제 인수 뒤 N8/Sol·N9/Terra를 다음 병렬 stage로 배정한다. live 설치·ports는 후속 구현·검증 대상이 아니다. N1–N5는 구현·독립 Standards/Spec 검토·전체 인수·원격 CI/병합·기존 설치까지 완료했고 공개 배포와 구분한다.
 
-후속 인계: Einstein이 N7 전용 fixture의 user-file upload 404를 보고했다. 원인은 아직 확정되지 않았으며 N7의 `tool/live_conformance.dart` 재현·`N7.md` 증거를 다음 통합 담당이 확인한다. 이 설치 단계에서 Go 수정이나 live 재검사를 수행하지 않았다.
+N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `tool/live_conformance.dart`의 upload 404를 재현했다. 무인증 file route도 인증 오류가 아닌 generic router 404였고 컨테이너에 `PGBASE_FILES_DRIVER`/`PGBASE_FILES_LOCAL_DIRECTORY`가 없었다. `withFileServices`가 file routes를 등록하지 않은 fixture 설정 누락으로 확정했으며 N7 worker가 local file storage만 추가해 실제 upload/list/token/download를 재검증한다. SDK·Go server 계약 변경 사유는 없다.
 
 ## N0 — 지금 작성한 P8 마무리
 
