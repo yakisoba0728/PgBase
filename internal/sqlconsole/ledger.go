@@ -159,7 +159,8 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		if tag.RowsAffected() == 0 {
 			_ = transaction.Rollback(ctx)
 			connection.Release()
-			return ledger.retainedWrite(ctx, identity)
+			execution, err := ledger.retainedWrite(ctx, identity)
+			return execution, false, err
 		}
 	}
 	row := transaction.QueryRow(ctx, `insert into pgbase_meta.sql_console_executions
@@ -182,7 +183,8 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 	}
 	_ = transaction.Rollback(ctx)
 	connection.Release()
-	return ledger.existing(ctx, identity)
+	execution, err = ledger.existing(ctx, identity)
+	return execution, false, err
 }
 
 func (ledger *Ledger) receipt(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
@@ -216,7 +218,7 @@ func (ledger *Ledger) receipt(ctx context.Context, identity LedgerIdentity) (Exe
 	return execution, true, nil
 }
 
-func (ledger *Ledger) existing(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
+func (ledger *Ledger) existing(ctx context.Context, identity LedgerIdentity) (Execution, error) {
 	var idempotency any
 	if identity.Request.Mode == ModeWrite {
 		idempotency = identity.IdempotencyHash[:]
@@ -234,17 +236,17 @@ func (ledger *Ledger) existing(ctx context.Context, identity LedgerIdentity) (Ex
 	err := row.Scan(&execution.ID, &execution.Mode, &execution.DryRun, &execution.Status, &execution.CreatedAt,
 		&startedAt, &finishedAt, &resultUntil, &sameRequest)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Execution{}, false, ErrConflict
+		return Execution{}, ErrConflict
 	}
 	if err != nil {
-		return Execution{}, false, err
+		return Execution{}, err
 	}
 	setExecutionTimes(&execution, startedAt, finishedAt, resultUntil)
 	if !sameRequest {
-		return Execution{}, false, ErrConflict
+		return Execution{}, ErrConflict
 	}
 	execution, err = ledger.Get(ctx, identity.AdministratorID, execution.ID)
-	return execution, false, err
+	return execution, err
 }
 
 func (ledger *Ledger) MarkRunning(ctx context.Context, actorID, executionID uuid.UUID) (Execution, error) {

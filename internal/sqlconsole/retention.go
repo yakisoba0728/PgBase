@@ -9,16 +9,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (ledger *Ledger) retainedWrite(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
+func (ledger *Ledger) retainedWrite(ctx context.Context, identity LedgerIdentity) (Execution, error) {
 	if receipt, found, err := ledger.receipt(ctx, identity); err != nil || found {
-		return receipt, false, err
+		return receipt, err
 	}
-	execution, _, err := ledger.existing(ctx, identity)
+	execution, err := ledger.existing(ctx, identity)
 	if err == nil {
-		return execution, false, nil
+		return execution, nil
 	}
 	if !errors.Is(err, ErrConflict) && !errors.Is(err, pgx.ErrNoRows) {
-		return Execution{}, false, err
+		return Execution{}, err
 	}
 	row := ledger.pool.QueryRow(ctx, `select execution_id,dry_run,status,finished_at,failure_code,
 		administrator_id=$2 and request_hash=$3 as same_request
@@ -30,13 +30,13 @@ func (ledger *Ledger) retainedWrite(ctx context.Context, identity LedgerIdentity
 	var failureCode *string
 	var sameRequest bool
 	if err := row.Scan(&execution.ID, &execution.DryRun, &execution.Status, &finishedAt, &failureCode, &sameRequest); err != nil {
-		return Execution{}, false, err
+		return Execution{}, err
 	}
 	if !sameRequest {
-		return Execution{}, false, ErrConflict
+		return Execution{}, ErrConflict
 	}
 	if finishedAt == nil || !terminalStatus(execution.Status) {
-		return Execution{}, false, ErrConflict
+		return Execution{}, ErrConflict
 	}
 	execution.Mode = ModeWrite
 	execution.CreatedAt = *finishedAt
@@ -50,7 +50,7 @@ func (ledger *Ledger) retainedWrite(ctx context.Context, identity LedgerIdentity
 	if failureCode != nil {
 		execution.Failure = &Failure{Code: *failureCode, Message: failureMessage(*failureCode)}
 	}
-	return execution, false, nil
+	return execution, nil
 }
 
 func cleanupExecutions(ctx context.Context, transaction pgx.Tx) error {
