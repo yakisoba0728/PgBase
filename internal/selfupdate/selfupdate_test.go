@@ -249,6 +249,56 @@ func TestLocalSignedArtifactApplyAndRollbackFixture(t *testing.T) {
 	}
 }
 
+func TestApplyCrashPhasesRecoverDeterministically(t *testing.T) {
+	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
+	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
+	artifact, err := os.ReadFile(newBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ phase, want string }{
+		{"manifest_verified", "aborted"}, {"staged", "aborted"}, {"backup_created", "aborted"}, {"replacement_started", "rolled_back"}, {"replacement_visible", "committed"},
+	} {
+		t.Run(test.phase, func(t *testing.T) {
+			directory := t.TempDir()
+			target := filepath.Join(directory, "pgbase")
+			copyFixture(t, oldBinary, target)
+			manifest := fixtureManifest("v0.2.0", newCommit, "file://"+newBinary, int64(len(artifact)), checksum(artifact))
+			raw, _ := json.Marshal(manifest)
+			manifestPath := filepath.Join(directory, "manifest.json")
+			signaturePath := manifestPath + ".ed25519"
+			if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(signaturePath, sign(private, raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+			fetched, err := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Apply(context.Background(), ApplyOptions{Target: target, StateDir: filepath.Join(directory, ".pgbase-update"), Fetched: fetched, TrustKey: public, Current: current, BeforePhase: func(phase string) error {
+				if phase == test.phase {
+					return errors.New("crash")
+				}
+				return nil
+			}})
+			if err == nil {
+				t.Fatal("crash seam did not interrupt")
+			}
+			status, err := Recover(context.Background(), target, filepath.Join(directory, ".pgbase-update"), nil)
+			if err != nil || status.Phase != test.want {
+				t.Fatalf("status=%+v err=%v", status, err)
+			}
+		})
+	}
+}
+
 func TestApplyRollsBackCanonicalProbeFailure(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "pgbase")
