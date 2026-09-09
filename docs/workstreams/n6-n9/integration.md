@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:39 KST
+Last updated: 2026-09-10 04:42 KST
 
 ## Current milestone
 
@@ -17,8 +17,8 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 
 | Workstream | Worker / branch / worktree | State at 03:38 KST | Integration requirement |
 | --- | --- | --- | --- |
-| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | integrated through `41852b5`; Nash initial review has two P1 fixes open, CLI/jobs delta review active | authority/dependency fixes, broader hooks/migrations, external app/browser and stress |
-| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | actual data/admin matrix and same-origin browser integrated through `f018df1`; lead Chrome reproduction green | revocation/SSE and controllable cursor-expired/cancel-upload edges |
+| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | integrated through `41852b5`; Nash reviews have four P1 fixes open | authority/dependency/pre-DB/cleanup fixes, broader hooks/migrations, external app/browser and stress |
+| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | through `96b04d0`; data/admin/browser and revoke/logout session 401 green | actual open-SSE revocation and controllable cursor-expired/cancel-upload edges |
 | N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | active pre-G3 preparation, `N8.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | preparation `08ce58c`, Windows scope correction `7453dd1`; docs only, blocker none | waiting; product start only on G3 signal |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
@@ -85,3 +85,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:35 KST — integrated N6 jobs/CLI/types/watch commit `bc24fb0` as `41852b5`. On the combined branch, focused race passed for `internal/cli`, `internal/config`, `internal/jsvm`, and `pgbase`; dedicated PG17.9 `55469` passed CLI migration/watch 2 tests, existing jobs fencing/timeout/admin-lease 3 tests, and JS durable retry/cron/admin-persistence 1 test. Nash will review this stable delta after closing the already assigned `94b32b3` slice.
 - 2026-09-10 04:37 KST — integrated Nash's review-only `15c5138` as `dc64f18`. Standards has no finding; Spec has two reproduced P1s: a captured `ExtensionContext` can retain original user authority after its admitted request ends, and a migration's undeclared nested/Down-only local dependency can pass startup validation then fail only during Up/Down. Both exact fixes/tests were returned to Chandrasekhar. Nash is now reviewing only the stable `94b32b3..41852b5` jobs/CLI/types/watch delta and remains assigned for fix closure.
 - 2026-09-10 04:39 KST — fixed the shortest G3-green boundary: close Nash's two P1s and the `41852b5` delta review; finish N6 hook DTO/patch and migration snapshot/history-sync/cancel-lock; pass one external Go+JS application through PG/file/SMTP/job retry and browser+Dart/Flutter record/ETag/exact-number/SSE; pass focused CPU-loop, queue/quota, cancellation and Close resource checks; close N7 revocation and controllable cursor/upload edges. Full regression and six builds stay at G5. N8 was asked to end preparation with its concise one-file implementation map.
+- 2026-09-10 04:42 KST — integrated Nash's jobs/CLI review-only `fa624bd` as `f02de7b`. It adds two Spec P1s: migration `--js-dir` reaches DB open before invalid JS preflight, and an initial watch stdout failure returns without closing/waiting for the generation. Standards remains clear; all four N6 P1s are with Chandrasekhar and Nash remains assigned for closure.
+- 2026-09-10 04:42 KST — integrated N7 revocation conformance `3e89960` as `96b04d0`. Dedicated `58091` now proves session 401 after administrator revocation and after user logout. Actual already-open SSE cancellation/adoption is still required; cursor-expired and canceled-upload cleanup remain conditional on a deterministic real fixture seam.
