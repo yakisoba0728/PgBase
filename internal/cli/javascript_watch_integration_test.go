@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations(t *testing.T
 		JavaScript: &pgbase.JavaScriptOptions{Directory: directory}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr synchronizedBuffer
 	result := make(chan error, 1)
 	go func() {
 		result <- superviseJavaScript(ctx, options, 50*time.Millisecond, testIO(nil, &stdout, &stderr))
@@ -78,6 +79,23 @@ func TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations(t *testing.T
 	case <-time.After(3 * time.Second):
 		t.Fatal("watch did not shut down")
 	}
+}
+
+type synchronizedBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (buffer *synchronizedBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.Buffer.Write(data)
+}
+
+func (buffer *synchronizedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.Buffer.String()
 }
 
 func TestJavaScriptWatchClosesInitialGenerationWhenStatusWriteFails(t *testing.T) {
