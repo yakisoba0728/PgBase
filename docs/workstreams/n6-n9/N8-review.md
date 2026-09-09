@@ -1,5 +1,23 @@
 # N8 independent Standards and Spec review
 
+## Resumed fix-delta review — 2026-09-10
+
+The user resumed review from checkpoint `9ac351ab504dcc683bc5139bf0e01db217286be5`, with speed priority and no duplicate review of closed scopes. The candidate is owner `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`, imported unchanged into this review branch as `0687a95`. The reviewed delta is `10d9df4..4d773b5`; the paused record below is historical.
+
+Focused independent no-database checks passed: `go test ./internal/api ./internal/sqlconsole ./pgbase -run '^(TestSQLConsole|TestNormalize|TestRequest)' -count=1`.
+
+R1, R3, R9, R10 and the backend session capability have source corrections, with final callback/capability composition still to be checked. R2 now preserves a receipt-absent transport commit error as unknown, and its tests assert nullable commit state. R4 now rejects a normal second service startup using an advisory lock and surfaces terminal-ledger failures. Owner PG evidence will be reused; this reviewer will independently reproduce only concrete remaining concerns.
+
+The bounded residual batch sent to Euclid is:
+
+- **R12 confirmed residual:** `internal/sqlconsole/ledger.go:234-236` and `:276-277` delete aged unknown/failed/canceled write executions without retaining their identity unless a success receipt exists. Exact replay then becomes a new execution. Euclid confirmed this and is implementing permanent minimal reservations for every accepted write. Closure requires aged no-receipt unknown and failed replay to preserve identity/status and leave executor invocation counts unchanged, plus concurrent same-ID/key coverage.
+- **R8 confirmed residual:** `internal/sqlconsole/read_guard.go:127-189` scans only named function/operator IDs. A managed view casting safe text through a custom enum and back to text contains `CoerceViaIO` type OIDs outside that scan. The focused independent PG17 repro at `4d773b5` failed its rejection assertion: `inspectManagedReadRelations` accepted `(visible::ext.review_enum)::text` despite the custom type being outside `allowedCasts`. The test explicitly verified `COERCEVIAIO` in `ev_action`. Euclid authorized only named fixture `pgbase_n8_review_r8` on `55470`; it was created and dropped during the 0.05-second test, with no roles or other databases touched. Repro source is archived in `N8-R8-CoerceViaIO-repro.go.txt`. Closure requires rejecting that concrete custom-type cast before execution, alongside the already supplied managed-view checks.
+- **R4 focused concern awaiting reproduction:** `internal/sqlconsole/ledger.go:62-82` holds an idle coordinator connection; the service has no loss/fencing check. If only that backend dies, service A can retain running work while service B acquires the released lock and reconciles it. Closure requires an isolated coordinator-loss/blocked-write regression proving that committed work cannot be durably labeled uncommitted and the unfenced service cannot admit new work.
+
+No full-pass verdict is issued at this stage. Closed R5–R7/R11 and the early parser/clone correction remain closed. Final review is limited to these unresolved fixes and the final stable lead-composition delta, using supplied PG/browser evidence.
+
+The lead clarified the cap contract during this delta review: exceeding affected/result caps is a hard failure with rollback before write commit. Admitted results may retain `truncated=false`; no truncation feature is required. The earlier cap contract question is closed.
+
 ## Paused checkpoint — 2026-09-10
 
 The user stopped this review at its current boundary. This document is an incomplete review checkpoint, **not a full-pass or acceptance verdict**. No further review, repro, test, database, or product work was performed after the stop request.
