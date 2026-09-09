@@ -31,9 +31,10 @@
 - [x] custom route에 기존 요청 제한·오류 처리·인증·로그/metric/hook 연결 및 실제 HTTP 검증. 단위: 충돌/상한/응답 실패 원자성/metric template; PG18: 관리자 CSRF·세션/사용자·service 인증 분리·폐기 후 차단.
 - [x] 새 migration 순서·기존 checksum·OpenAPI·구조 예산 검증. 1–28 원본 동일, 신규 29–32 및 현재 사용 DB 복사본 upgrade/doctor 통과. 실측 예산·800줄 제한 및 전체 Go unit/race 통과.
 - [x] 전체 Go/UI/SDK 회귀와 새 기능 브라우저 인수. Go unit/race·PostgreSQL18+MinIO 전체 integration/race·skip 정책, lint/vet, UI 466개·전체 브라우저 15개와 추가 응답 유실 복구, SDK·6종 로컬 빌드 통과.
-- [ ] PR 생성·필수 CI 통과·병합 및 기존 로컬 데이터 백업/업그레이드.
+- [x] [PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 생성.
+- [ ] 필수 원격 CI 통과·병합 및 기존 로컬 데이터 백업/업그레이드.
 
-현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. P7 PR은 아직 생성하지 않았고, 실행 중 로컬 설치 기준은 PR #30 `b942391`이다.
+현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)을 생성했고 원격 CI 진행 중이다. 실행 중 로컬 설치 기준은 PR #30 `b942391`이다.
 
 - [x] 기존 실행 DB의 별도 복사본에 v28→v32 마이그레이션 적용 및 doctor 확인. 원본 DB/서버는 그대로 유지했고 readiness 정상.
 - [x] 구버전 field metadata 읽기 호환 수정 및 mixed-fleet CLI 회귀 2개 통과.
