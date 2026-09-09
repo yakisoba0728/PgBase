@@ -3,45 +3,73 @@
 package selfupdate
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"golang.org/x/sys/windows"
 )
 
-// WindowsHelperRequest is serialized only by a future CLI handoff after the
-// parent updater exits. It deliberately carries basenames resolved by Apply,
-// never a manifest URL or a key.
-type WindowsHelperRequest struct {
-	ParentPID uint32
-	StateDir  string
-	Target    string
-	Candidate string
-}
-
 // RunWindowsHelper waits for the parent process, reacquires the installation
-// lock, and publishes the already-verified candidate. It is actual supported
-// Windows code; native execution remains unavailable on this Darwin host.
+// and executable locks, then finishes the already journalled replacement.
+// Native Windows execution remains unavailable on this Darwin host.
 func RunWindowsHelper(request WindowsHelperRequest) error {
 	if request.ParentPID == 0 || !filepath.IsAbs(request.StateDir) || !filepath.IsAbs(request.Target) || filepath.Base(request.Candidate) != request.Candidate {
 		return ErrInvalidInput
 	}
 	process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, request.ParentPID)
 	if err == nil {
-		defer windows.CloseHandle(process)
+		defer func() { _ = windows.CloseHandle(process) }()
 		if status, waitErr := windows.WaitForSingleObject(process, windows.INFINITE); waitErr != nil || status != windows.WAIT_OBJECT_0 {
 			return fmt.Errorf("%w: wait parent", ErrReplaceFailed)
 		}
 	}
-	lock, err := os.OpenFile(filepath.Join(request.StateDir, "lock"), os.O_CREATE|os.O_RDWR, 0600)
+	state, target, lock, err := prepareInstallation(request.Target, request.StateDir)
 	if err != nil {
 		return ErrReplaceFailed
 	}
-	defer lock.Close()
+	if target != request.Target || state != request.StateDir {
+		_ = lock.Close()
+		return ErrInvalidInput
+	}
+	defer func() { _ = lock.Close() }()
 	if err = acquireLock(lock); err != nil {
 		return err
 	}
-	defer releaseLock(lock)
-	return replaceFile(filepath.Join(filepath.Dir(request.Target), request.Candidate), request.Target)
+	defer func() { _ = releaseLock(lock) }()
+	executableLock, err := acquireUpdateExecutableLock(target)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeExecutableLock(executableLock) }()
+	entry, err := loadJournal(state)
+	if err != nil || entry.Phase != "replacement_started" || entry.Target != filepath.Base(target) || entry.Candidate != request.Candidate {
+		return ErrRecoveryRequired
+	}
+	candidate := filepath.Join(filepath.Dir(target), entry.Candidate)
+	digest, _, err := fileDigestAndMode(candidate)
+	if err != nil || digest != entry.NewSHA256 {
+		return ErrRecoveryRequired
+	}
+	if build, probeErr := ProbeBinary(context.Background(), candidate); probeErr != nil || !sameBuild(build, entry.New) {
+		return ErrProbeFailed
+	}
+	if err = replaceFile(candidate, target); err != nil {
+		return ErrReplaceFailed
+	}
+	entry.Phase = "replacement_visible"
+	if err = writeJournal(state, entry); err != nil {
+		return err
+	}
+	if digest, _, digestErr := fileDigestAndMode(target); digestErr != nil || digest != entry.NewSHA256 {
+		return ErrProbeFailed
+	}
+	if build, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || !sameBuild(build, entry.New) {
+		return ErrProbeFailed
+	}
+	entry.Phase = "committed"
+	if err = writeJournal(state, entry); err != nil {
+		return err
+	}
+	return nil
 }

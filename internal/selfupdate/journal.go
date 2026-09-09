@@ -39,7 +39,7 @@ func loadJournal(stateDir string) (journal, error) {
 	if err != nil {
 		return journal{}, ErrRecoveryRequired
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields()
 	var result journal
@@ -66,7 +66,7 @@ func writeJournal(stateDir string, value journal) error {
 		return ErrReplaceFailed
 	}
 	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
+	defer func() { _ = os.Remove(temporaryName) }()
 	if _, err = temporary.Write(encoded); err == nil {
 		err = temporary.Sync()
 	}

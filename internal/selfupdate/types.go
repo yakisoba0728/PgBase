@@ -68,6 +68,15 @@ type Build struct {
 	SchemaMax string `json:"schemaMax,omitempty"`
 }
 
+// WindowsHelperRequest contains only local canonical paths and the staged
+// basename. It never transports a manifest, trust key, or artifact URL.
+type WindowsHelperRequest struct {
+	ParentPID uint32
+	StateDir  string
+	Target    string
+	Candidate string
+}
+
 func (b Build) String() string { return fmt.Sprintf("%s %s/%s", b.Version, b.GOOS, b.GOARCH) }
 
 // Manifest is the exact JSON payload authenticated by its detached signature.

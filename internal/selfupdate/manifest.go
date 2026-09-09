@@ -7,8 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
 	"strings"
 )
 
@@ -29,6 +30,9 @@ func VerifyManifest(raw, encodedSignature, publicKey []byte) (Manifest, error) {
 	}
 	signature, err := base64.StdEncoding.DecodeString(string(signatureText))
 	if err != nil || len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(publicKey), raw, signature) {
+		return Manifest{}, ErrUntrustedManifest
+	}
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
 		return Manifest{}, ErrUntrustedManifest
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -56,13 +60,83 @@ func validateManifest(manifest Manifest) error {
 		artifacts := make(map[string]struct{}, len(release.Artifacts))
 		for _, artifact := range release.Artifacts {
 			key := artifact.GOOS + "/" + artifact.GOARCH
-			if _, ok := artifacts[key]; ok || !validIdentifier(artifact.GOOS) || !validIdentifier(artifact.GOARCH) || artifact.Size <= 0 || !validSHA256(artifact.SHA256) {
+			if _, ok := artifacts[key]; ok || !validIdentifier(artifact.GOOS) || !validIdentifier(artifact.GOARCH) || artifact.Size <= 0 || !validSHA256(artifact.SHA256) || !validArtifactURL(artifact.URL) {
 				return ErrUntrustedManifest
 			}
 			artifacts[key] = struct{}{}
 		}
 	}
 	return nil
+}
+
+func rejectDuplicateJSONKeys(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	var value func() error
+	value = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		delimiter, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delimiter {
+		case '{':
+			keys := map[string]struct{}{}
+			for decoder.More() {
+				key, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				name, ok := key.(string)
+				if !ok {
+					return ErrUntrustedManifest
+				}
+				if _, exists := keys[name]; exists {
+					return ErrUntrustedManifest
+				}
+				keys[name] = struct{}{}
+				if err := value(); err != nil {
+					return err
+				}
+			}
+			_, err := decoder.Token()
+			return err
+		case '[':
+			for decoder.More() {
+				if err := value(); err != nil {
+					return err
+				}
+			}
+			_, err := decoder.Token()
+			return err
+		default:
+			return ErrUntrustedManifest
+		}
+	}
+	if err := value(); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return ErrUntrustedManifest
+	}
+	return nil
+}
+
+func validArtifactURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.Opaque != "" {
+		return false
+	}
+	switch parsed.Scheme {
+	case "https", "http":
+		return parsed.Host != ""
+	case "file":
+		return parsed.Host == "" && filepath.IsAbs(parsed.Path)
+	default:
+		return false
+	}
 }
 
 func validChannel(value string) bool {
@@ -109,16 +183,4 @@ func ParseTrustKey(raw []byte) ([]byte, error) {
 		return nil, ErrInvalidInput
 	}
 	return key, nil
-}
-
-func manifestFingerprint(raw []byte) string {
-	digest := sha256.Sum256(raw)
-	return hex.EncodeToString(digest[:])
-}
-
-func formatManifestError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("%w: manifest", ErrUntrustedManifest)
 }

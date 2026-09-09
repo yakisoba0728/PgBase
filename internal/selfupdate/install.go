@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -20,13 +21,14 @@ const probeLimit = 64 << 10
 // ApplyOptions contains only a task-owned target and verified downloader. It
 // never opens a database or discovers a server process.
 type ApplyOptions struct {
-	Target      string
-	StateDir    string
-	Fetched     Fetched
-	TrustKey    []byte
-	Current     Build
-	Probe       func(context.Context, string) (Build, error)
-	BeforePhase func(string) error // test-only crash/fault seam
+	Target        string
+	StateDir      string
+	Fetched       Fetched
+	TrustKey      []byte
+	Current       Build
+	Probe         func(context.Context, string) (Build, error)
+	WindowsLaunch func(WindowsHelperRequest) error
+	BeforePhase   func(string) error // test-only crash/fault seam
 }
 
 // Status is the durable state exposed by `update status --json`.
@@ -48,17 +50,20 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if err = acquireLock(lock); err != nil {
 		return Status{}, err
 	}
-	defer releaseLock(lock)
+	defer func() { _ = releaseLock(lock) }()
 	executableLock, err := acquireUpdateExecutableLock(target)
 	if err != nil {
 		return Status{}, err
 	}
-	defer closeExecutableLock(executableLock)
+	defer func() { _ = closeExecutableLock(executableLock) }()
 	if existing, err := loadJournal(state); err == nil {
+		if existing.Target != filepath.Base(target) {
+			return Status{}, ErrRecoveryRequired
+		}
 		status, recoverErr := recoverLocked(ctx, state, target, existing, options.Probe)
 		if recoverErr != nil {
 			return Status{}, recoverErr
@@ -160,6 +165,15 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	if err = runBeforePhase(options.BeforePhase, entry.Phase); err != nil {
 		return Status{}, err
 	}
+	if runtime.GOOS == "windows" {
+		if options.WindowsLaunch == nil {
+			return Status{}, ErrReplaceFailed
+		}
+		if err = options.WindowsLaunch(WindowsHelperRequest{ParentPID: uint32(os.Getpid()), StateDir: state, Target: target, Candidate: entry.Candidate}); err != nil {
+			return Status{}, ErrReplaceFailed
+		}
+		return statusFromJournal(entry), nil
+	}
 	if err = replaceFile(candidatePath, target); err != nil {
 		return Status{}, ErrReplaceFailed
 	}
@@ -196,18 +210,21 @@ func Rollback(ctx context.Context, target, stateDir string, probe func(context.C
 	if err != nil {
 		return Status{}, err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if err = acquireLock(lock); err != nil {
 		return Status{}, err
 	}
-	defer releaseLock(lock)
+	defer func() { _ = releaseLock(lock) }()
 	executableLock, err := acquireUpdateExecutableLock(canonical)
 	if err != nil {
 		return Status{}, err
 	}
-	defer closeExecutableLock(executableLock)
+	defer func() { _ = closeExecutableLock(executableLock) }()
 	entry, err := loadJournal(state)
 	if err != nil {
+		return Status{}, ErrRecoveryRequired
+	}
+	if entry.Target != filepath.Base(canonical) {
 		return Status{}, ErrRecoveryRequired
 	}
 	if entry.Phase != "committed" {
@@ -271,9 +288,59 @@ func recoverLocked(ctx context.Context, state, target string, entry journal, pro
 			return statusFromJournal(entry), nil
 		}
 		return Status{}, ErrRecoveryRequired
+	case "rollback_started":
+		return recoverRollbackStarted(ctx, state, target, entry, probe)
 	default:
 		return Status{}, ErrRecoveryRequired
 	}
+}
+
+// recoverRollbackStarted handles a crash at every rollback publication edge.
+// The target is either still the verified new binary (retry after removing a
+// verified rollback stage) or already the verified old binary (finish only
+// the durable journal transition). Any third state is intentionally retained
+// for operator recovery.
+func recoverRollbackStarted(ctx context.Context, state, target string, entry journal, probe func(context.Context, string) (Build, error)) (Status, error) {
+	digest, _, err := fileDigestAndMode(target)
+	if err != nil {
+		return Status{}, ErrRecoveryRequired
+	}
+	if digest == entry.OldSHA256 {
+		if restored, probeErr := probe(ctx, target); probeErr != nil || !sameBuild(restored, entry.Old) {
+			return Status{}, ErrRollbackFailed
+		}
+		entry.Phase = "rolled_back"
+		if err = writeJournal(state, entry); err != nil {
+			return Status{}, err
+		}
+		return statusFromJournal(entry), nil
+	}
+	if digest != entry.NewSHA256 {
+		return Status{}, ErrRecoveryRequired
+	}
+	stage := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".pgbase-rollback")
+	if err = removeVerifiedRollbackStage(stage, entry.OldSHA256); err != nil {
+		return Status{}, err
+	}
+	return rollbackLocked(ctx, state, target, entry, probe)
+}
+
+func removeVerifiedRollbackStage(path, expectedDigest string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return ErrRecoveryRequired
+	}
+	digest, _, err := fileDigestAndMode(path)
+	if err != nil || digest != expectedDigest {
+		return ErrRecoveryRequired
+	}
+	if err = os.Remove(path); err != nil {
+		return ErrRecoveryRequired
+	}
+	return nil
 }
 
 func rollbackLocked(ctx context.Context, state, target string, entry journal, probe func(context.Context, string) (Build, error)) (Status, error) {
@@ -326,11 +393,34 @@ func prepareInstallation(target, stateDir string) (string, string, *os.File, err
 	if err != nil {
 		return "", "", nil, err
 	}
-	lock, err := os.OpenFile(filepath.Join(state, "lock"), os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := openStateLock(filepath.Join(state, "lock"))
 	if err != nil {
-		return "", "", nil, ErrReplaceFailed
+		return "", "", nil, err
 	}
 	return state, canonical, lock, nil
+}
+
+func openStateLock(path string) (*os.File, error) {
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err == nil {
+		if !validPrivateStateFile(lock) {
+			_ = lock.Close()
+			return nil, ErrInvalidInput
+		}
+		return lock, nil
+	}
+	if !os.IsExist(err) {
+		return nil, ErrReplaceFailed
+	}
+	lock, err = openExistingRegularFile(path, os.O_RDWR)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	if !validPrivateStateFile(lock) {
+		_ = lock.Close()
+		return nil, ErrInvalidInput
+	}
+	return lock, nil
 }
 
 func validateInstallation(target, stateDir string, createState bool) (string, string, error) {
@@ -368,7 +458,7 @@ func validateInstallation(target, stateDir string, createState bool) (string, st
 		if err = os.Mkdir(stateDir, 0700); err != nil {
 			return "", "", ErrReplaceFailed
 		}
-	} else if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	} else if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !validPrivateStateDirectory(info) {
 		return "", "", ErrInvalidInput
 	}
 	return stateDir, canonical, nil
@@ -387,7 +477,7 @@ func fileDigestAndMode(path string) (string, os.FileMode, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return "", 0, err
@@ -404,7 +494,7 @@ func copyRegular(source, target string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer from.Close()
+	defer func() { _ = from.Close() }()
 	to, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err

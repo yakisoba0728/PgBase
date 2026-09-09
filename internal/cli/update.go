@@ -37,6 +37,8 @@ func runUpdate(ctx context.Context, args []string, _ environment, streams IO) er
 		return runUpdateStatus(args[1:], streams)
 	case "rollback":
 		return runUpdateRollback(ctx, args[1:], streams)
+	case "_windows_helper":
+		return runWindowsUpdateHelper(args[1:])
 	default:
 		return configurationError{err: errors.New("invalid update operation"), message: updateUsage}
 	}
@@ -124,7 +126,7 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return err
 	}
-	status, err := selfupdate.Apply(ctx, selfupdate.ApplyOptions{Target: target, StateDir: state, Fetched: fetched, TrustKey: key, Current: currentBuild()})
+	status, err := selfupdate.Apply(ctx, selfupdate.ApplyOptions{Target: target, StateDir: state, Fetched: fetched, TrustKey: key, Current: currentBuild(), WindowsLaunch: selfupdate.LaunchWindowsHelper})
 	if err != nil {
 		return err
 	}
@@ -218,11 +220,7 @@ func updateTarget(stateOverride string) (string, string, error) {
 }
 
 func loadTrustKey(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, selfupdate.ErrInvalidInput
-	}
-	raw, err := os.ReadFile(path)
+	raw, err := selfupdate.ReadRegularFile(path, selfupdate.SignatureMaxBytes)
 	if err != nil {
 		return nil, selfupdate.ErrInvalidInput
 	}
@@ -234,11 +232,7 @@ func updateHTTPClient(caFile string) (*http.Client, error) {
 	if caFile == "" {
 		return &http.Client{Transport: transport}, nil
 	}
-	info, err := os.Lstat(caFile)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, selfupdate.ErrInvalidInput
-	}
-	pem, err := os.ReadFile(caFile)
+	pem, err := selfupdate.ReadRegularFile(caFile, selfupdate.ManifestMaxBytes)
 	if err != nil {
 		return nil, selfupdate.ErrInvalidInput
 	}

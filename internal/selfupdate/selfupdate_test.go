@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -49,6 +50,30 @@ func TestVerifyManifestRejectsBadSignatureAndDuplicateArtifact(t *testing.T) {
 	signature[0] ^= 1
 	if _, err := VerifyManifest(raw, signature, public); !errors.Is(err, ErrUntrustedManifest) {
 		t.Fatalf("tampered signature error=%v", err)
+	}
+}
+
+func TestVerifyManifestRejectsDuplicateKeysAndMalformedUnselectedArtifacts(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fixtureManifest("v0.2.0", newCommit, "https://example.test/pgbase", 1, strings.Repeat("a", 64))
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := bytes.Replace(raw, []byte(`"schemaVersion":1`), []byte(`"schemaVersion":1,"schemaVersion":1`), 1)
+	if _, err = VerifyManifest(duplicate, sign(private, duplicate), public); !errors.Is(err, ErrUntrustedManifest) {
+		t.Fatalf("duplicate key error=%v", err)
+	}
+	manifest.Releases[0].Artifacts[0].URL = "https://example.test/artifact#fragment"
+	raw, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = VerifyManifest(raw, sign(private, raw), public); !errors.Is(err, ErrUntrustedManifest) {
+		t.Fatalf("malformed artifact error=%v", err)
 	}
 }
 
@@ -258,7 +283,24 @@ func TestApplyRejectsSymlinkAndConcurrentLock(t *testing.T) {
 	regular := buildFixture(t, "v0.1.0", oldCommit, "")
 	os.Remove(target)
 	copyFixture(t, regular, target)
-	state, _, first, err := prepareInstallation(target, filepath.Join(directory, ".pgbase-update"))
+	statePath := filepath.Join(directory, ".pgbase-update")
+	if err := os.Mkdir(statePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lockTarget := filepath.Join(directory, "other-lock")
+	if err := os.WriteFile(lockTarget, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(lockTarget, filepath.Join(statePath, "lock")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := prepareInstallation(target, statePath); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("symlink lock error=%v", err)
+	}
+	if err := os.Remove(filepath.Join(statePath, "lock")); err != nil {
+		t.Fatal(err)
+	}
+	state, _, first, err := prepareInstallation(target, statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +316,105 @@ func TestApplyRejectsSymlinkAndConcurrentLock(t *testing.T) {
 	defer second.Close()
 	if err = acquireLock(second); !errors.Is(err, ErrReplaceBusy) {
 		t.Fatalf("lock error=%v", err)
+	}
+}
+
+func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
+	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
+	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
+	for _, test := range []struct {
+		name          string
+		targetIsOld   bool
+		rollbackStage bool
+	}{
+		{name: "before_copy"},
+		{name: "after_copy", rollbackStage: true},
+		{name: "after_rename", targetIsOld: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			target := filepath.Join(directory, "pgbase")
+			if test.targetIsOld {
+				copyFixture(t, oldBinary, target)
+			} else {
+				copyFixture(t, newBinary, target)
+			}
+			state := filepath.Join(directory, ".pgbase-update")
+			if err := os.Mkdir(state, 0700); err != nil {
+				t.Fatal(err)
+			}
+			backup := "backup-test"
+			copyFixture(t, oldBinary, filepath.Join(state, backup))
+			oldDigest, _, err := fileDigestAndMode(oldBinary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			newDigest, _, err := fileDigestAndMode(newBinary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := journal{SchemaVersion: 1, Phase: "rollback_started", Target: "pgbase", Candidate: ".pgbase-candidate-test", Backup: backup,
+				Old: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, New: Build{Version: "v0.2.0", Commit: newCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
+				OldSHA256: oldDigest, NewSHA256: newDigest, ManifestSHA256: strings.Repeat("a", 64), SignatureSHA256: strings.Repeat("b", 64), TrustFingerprint: strings.Repeat("c", 64)}
+			if test.rollbackStage {
+				copyFixture(t, oldBinary, filepath.Join(directory, ".pgbase.pgbase-rollback"))
+			}
+			if err = writeJournal(state, entry); err != nil {
+				t.Fatal(err)
+			}
+			status, err := Rollback(context.Background(), target, state, nil)
+			if err != nil || status.Phase != "rolled_back" {
+				t.Fatalf("status=%+v err=%v", status, err)
+			}
+			current, err := ProbeBinary(context.Background(), target)
+			if err != nil || !sameBuild(current, entry.Old) {
+				t.Fatalf("current=%+v err=%v", current, err)
+			}
+		})
+	}
+}
+
+func TestPrepareInstallationRejectsWorldWritableExistingState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX state permissions are exercised on Unix")
+	}
+	directory := t.TempDir()
+	target := filepath.Join(directory, "pgbase")
+	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
+	state := filepath.Join(directory, ".pgbase-update")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(state, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := prepareInstallation(target, state); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("world-writable state error=%v", err)
+	}
+}
+
+func TestRollbackRejectsJournalForAnotherTarget(t *testing.T) {
+	directory := t.TempDir()
+	first, second := filepath.Join(directory, "pgbase-a"), filepath.Join(directory, "pgbase-b")
+	fixture := buildFixture(t, "v0.1.0", oldCommit, "")
+	copyFixture(t, fixture, first)
+	copyFixture(t, fixture, second)
+	state := filepath.Join(directory, ".pgbase-update")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := fileDigestAndMode(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := journal{SchemaVersion: 1, Phase: "replacement_started", Target: filepath.Base(first), Candidate: ".candidate", Backup: "backup-test",
+		Old: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, New: Build{Version: "v0.2.0", Commit: newCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
+		OldSHA256: digest, NewSHA256: strings.Repeat("d", 64), ManifestSHA256: strings.Repeat("a", 64), SignatureSHA256: strings.Repeat("b", 64), TrustFingerprint: strings.Repeat("c", 64)}
+	if err = writeJournal(state, entry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Rollback(context.Background(), second, state, nil); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("foreign journal error=%v", err)
 	}
 }
 

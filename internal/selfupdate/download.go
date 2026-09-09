@@ -182,7 +182,7 @@ func (f Fetched) DownloadArtifact(ctx context.Context, destination string) (stri
 	if err != nil {
 		return "", err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return "", fmt.Errorf("%w: stage", ErrReplaceFailed)
@@ -224,7 +224,7 @@ func readRemote(ctx context.Context, client *http.Client, value *url.URL, limit 
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if int64(len(data)) > limit {
 		return nil, ErrDownloadLimit
@@ -266,7 +266,7 @@ func readRegularFile(path string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, ErrInvalidInput
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil || int64(len(data)) > limit {
 		return nil, ErrInvalidInput
@@ -274,15 +274,41 @@ func readRegularFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+// ReadRegularFile returns a bounded snapshot from one verified regular-file
+// descriptor. CLI trust and CA inputs use it to avoid Lstat-then-reopen races.
+func ReadRegularFile(path string, limit int64) ([]byte, error) {
+	if !filepath.IsAbs(path) || limit <= 0 {
+		return nil, ErrInvalidInput
+	}
+	return readRegularFile(path, limit)
+}
+
 func openRegularFile(path string) (*os.File, error) {
-	info, err := os.Lstat(path)
+	return openExistingRegularFile(path, os.O_RDONLY)
+}
+
+// openExistingRegularFile verifies the opened descriptor against the current
+// leaf. Callers consume that descriptor, so a later rename cannot redirect a
+// verified read to another path.
+func openExistingRegularFile(path string, flags int) (*os.File, error) {
+	file, err := os.OpenFile(path, flags, 0)
 	if os.IsNotExist(err) {
 		return nil, os.ErrNotExist
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil {
 		return nil, ErrInvalidInput
 	}
-	return os.Open(path)
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, ErrInvalidInput
+	}
+	leaf, err := os.Lstat(path)
+	if err != nil || !leaf.Mode().IsRegular() || leaf.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, leaf) {
+		_ = file.Close()
+		return nil, ErrInvalidInput
+	}
+	return file, nil
 }
 
 func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, size int64) (int64, string, error) {
