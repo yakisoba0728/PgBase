@@ -5,12 +5,16 @@ package pgbase
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,7 +28,7 @@ func TestJavaScriptUsesRealFileAndMailServices(t *testing.T) {
   {"method":"POST","pattern":"/extensions/file-upload","access":"user","handler":{"module":"route.js","export":"upload"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/file-read","access":"user","handler":{"module":"route.js","export":"read"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/file-stream","access":"user","handler":{"module":"route.js","export":"stream"},"capabilities":["files"]},
-  {"method":"POST","pattern":"/extensions/file-handle-limit","access":"user","handler":{"module":"route.js","export":"handleLimit"},"capabilities":["files"]},
+  {"method":"POST","pattern":"/extensions/file-handle-limit","access":"user","handler":{"module":"route.js","export":"handleLimit"},"capabilities":["files","log"]},
   {"method":"POST","pattern":"/extensions/file-delete","access":"user","handler":{"module":"route.js","export":"remove"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/mail","access":"user","handler":{"module":"route.js","export":"mail"},"capabilities":["mail"]}
  ],
@@ -34,7 +38,7 @@ func TestJavaScriptUsesRealFileAndMailServices(t *testing.T) {
 exports.upload=request=>({status:201,json:pg.files.upload(request.json)});
 exports.read=request=>({status:200,json:pg.files.read(request.json)});
 exports.stream=request=>{try{const opened=pg.files.open(request.json),chunks=[];try{for(;;){const chunk=pg.files.readChunk({handle:opened.handle,maximumBytes:5});if(chunk.dataBase64)chunks.push(chunk.dataBase64);if(chunk.eof)break;}}finally{pg.files.close({handle:opened.handle});}return {status:200,json:{chunks}};}catch(error){return {status:200,json:{error:error.code}};}};
-exports.handleLimit=request=>{const handles=[];for(let i=0;i<4;i++)handles.push(pg.files.open(request.json));let code="";try{pg.files.open(request.json);}catch(error){code=error.code;}return {status:200,json:{code,handles:handles.length}};};
+exports.handleLimit=request=>{const handles=[pg.files.open(request.json)];pg.log.info({message:"first-open"});let code="";try{pg.files.open(request.json);}catch(error){code=error.code;}return {status:200,json:{code,handles:handles.length}};};
 exports.remove=request=>({status:200,json:pg.files.delete(request.json)});
 exports.mail=request=>{pg.mail.send(request.json);return {status:202,json:{sent:true}};};
 exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data.subject,text:event.data.text}});`
@@ -44,11 +48,13 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 	if err := os.WriteFile(filepath.Join(directory, "route.js"), []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	openLog := &blockingOpenLogHandler{entered: make(chan struct{}), release: make(chan struct{})}
 	fixture := newPublicUsersAppOptions(t, true, func(options *Options) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024,
 			MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
 		options.SMTP = SMTPOptions{Address: smtpAddress, From: "pgbase@example.test", ServerName: "localhost", AllowInsecure: true, Timeout: time.Second}
-		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"files": true, "mail": true}, Concurrency: 1, Queue: 1}
+		options.Logger = slog.New(openLog)
+		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"files": true, "mail": true, "log": true}, Concurrency: 1, Queue: 1}
 	})
 	adminCookie, csrf := setupPublicUsersAdministrator(t, fixture)
 	change := map[string]any{"operation": "create", "name": "documents", "fields": []map[string]any{
@@ -116,14 +122,64 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 	if !bytes.Equal(streamBytes, content) {
 		t.Fatalf("streamed data = %q", streamBytes)
 	}
-	limit := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-handle-limit", map[string]any{"fileId": file.ID}, owner.Token, nil, nil)
+	limitResultChannel := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		limitResultChannel <- publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-handle-limit", map[string]any{"fileId": file.ID}, owner.Token, nil, nil)
+	}()
+	select {
+	case <-openLog.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first file handle did not open")
+	}
+	lockConnection, err := fixture.app.pool.OpenCoordinationSession(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockConnection.Close(context.Background())
+	lockAcquired := make(chan error, 1)
+	go func() {
+		_, lockErr := lockConnection.Exec(context.Background(), `select pg_advisory_lock($1)`, int64(0x7067626173650034))
+		lockAcquired <- lockErr
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		var waiting bool
+		if err := fixture.app.pool.QueryRow(context.Background(), `select coalesce((select wait_event_type='Lock' and lower(wait_event)='advisory' from pg_stat_activity where pid=$1),false)`, lockConnection.PgConn().PID()).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("exclusive storage transition lock did not queue behind the open reader")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(openLog.release)
+	var limit *httptest.ResponseRecorder
+	select {
+	case limit = <-limitResultChannel:
+	case <-time.After(time.Second):
+		t.Fatal("second within-cap file open waited behind the exclusive storage lock")
+	}
+	select {
+	case err := <-lockAcquired:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exclusive storage transition lock did not acquire after invocation cleanup")
+	}
+	if _, err := lockConnection.Exec(context.Background(), `select pg_advisory_unlock($1)`, int64(0x7067626173650034)); err != nil {
+		t.Fatal(err)
+	}
 	assertPublicUsersStatus(t, limit, http.StatusOK)
 	var limitResult struct {
 		Code    string `json:"code"`
 		Handles int    `json:"handles"`
 	}
 	decodePublicUsersJSON(t, limit, &limitResult)
-	if limitResult.Code != "file_handle_limit" || limitResult.Handles != 4 {
+	if limitResult.Code != "file_handle_limit" || limitResult.Handles != 1 {
 		t.Fatalf("file handle limit = %#v", limitResult)
 	}
 	mail := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/mail", map[string]any{
@@ -146,6 +202,28 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 		t.Fatalf("delete result = %#v", deleted)
 	}
 }
+
+type blockingOpenLogHandler struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (*blockingOpenLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (handler *blockingOpenLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	if record.Message != "first-open" {
+		return nil
+	}
+	handler.once.Do(func() { close(handler.entered) })
+	select {
+	case <-handler.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (handler *blockingOpenLogHandler) WithAttrs([]slog.Attr) slog.Handler { return handler }
+func (handler *blockingOpenLogHandler) WithGroup(string) slog.Handler      { return handler }
 
 func startN6SMTPFixture(t *testing.T) (string, <-chan string) {
 	t.Helper()

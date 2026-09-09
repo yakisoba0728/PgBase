@@ -12,7 +12,11 @@ import (
 )
 
 const (
-	maximumExtensionFileHandles = 4
+	// A StorageController reader retains a shared transition lease until close.
+	// PostgreSQL may queue a later shared lease behind a waiting exclusive
+	// migration cleanup lock, so an invocation must consume one stream fully
+	// before opening another one.
+	maximumExtensionFileHandles = 1
 	maximumExtensionFileChunk   = 64 << 10
 	maximumExtensionFileBytes   = 3 << 20
 )
@@ -31,7 +35,7 @@ func (host *extensionHost) openFileHandle(ctx context.Context, request extension
 	host.fileMu.Lock()
 	if len(host.fileHandles) >= maximumExtensionFileHandles {
 		host.fileMu.Unlock()
-		return nil, extensionError("file_handle_limit", errors.New("at most four file handles are allowed per invocation"))
+		return nil, extensionError("file_handle_limit", errors.New("close the active file handle before opening another"))
 	}
 	if host.fileHandles == nil {
 		host.fileHandles = make(map[uuid.UUID]extensionFileHandle)
