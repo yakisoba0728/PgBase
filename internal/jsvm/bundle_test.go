@@ -125,6 +125,16 @@ func TestLoadBundleRejectsDynamicRequireInMigrationSource(t *testing.T) {
 	}
 }
 
+func TestLoadBundleRejectsAliasedRequireInMigrationSource(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","migrations":[{"id":"202609100032_alias","module":"migration.js","up":"up","down":"down"}]}`)
+	writeFile(t, directory, "migration.js", `const load=require; exports.up=()=>({}); exports.down=()=>load("./hidden").run();`)
+	writeFile(t, directory, "hidden.js", `exports.run=()=>({});`)
+	if _, err := jsvm.LoadBundle(directory); err == nil || !strings.Contains(err.Error(), "cannot be aliased") {
+		t.Fatalf("LoadBundle aliased require error = %v", err)
+	}
+}
+
 func TestBundleWriteSnapshotPreservesLoadedBytes(t *testing.T) {
 	directory := t.TempDir()
 	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/snapshot","access":"public","handler":{"module":"app.js","export":"run"}}]}`)

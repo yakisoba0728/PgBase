@@ -360,6 +360,7 @@ func staticCommonJSRequires(filename string, source []byte) ([]string, error) {
 		return nil, err
 	}
 	required := []string{}
+	requireIdentifiers, directRequireCalls := 0, 0
 	var visit func(reflect.Value) error
 	visit = func(value reflect.Value) error {
 		if !value.IsValid() {
@@ -379,8 +380,12 @@ func staticCommonJSRequires(filename string, source []byte) ([]string, error) {
 				if _, ok := value.Interface().(ast.Node); !ok {
 					return nil
 				}
+				if identifier, ok := value.Interface().(*ast.Identifier); ok && identifier.Name.String() == "require" {
+					requireIdentifiers++
+				}
 				if call, ok := value.Interface().(*ast.CallExpression); ok {
 					if identifier, ok := call.Callee.(*ast.Identifier); ok && identifier.Name.String() == "require" {
+						directRequireCalls++
 						if len(call.ArgumentList) != 1 {
 							return errors.New("migration require must have one static string argument")
 						}
@@ -419,6 +424,9 @@ func staticCommonJSRequires(filename string, source []byte) ([]string, error) {
 		if err := visit(reflect.ValueOf(declaration)); err != nil {
 			return nil, err
 		}
+	}
+	if requireIdentifiers != directRequireCalls {
+		return nil, errors.New("migration require cannot be aliased, passed, or accessed as a property")
 	}
 	return required, nil
 }
