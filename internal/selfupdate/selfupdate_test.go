@@ -393,6 +393,36 @@ func TestPrepareInstallationRejectsWorldWritableExistingState(t *testing.T) {
 	}
 }
 
+func TestPrepareInstallationRejectsWritableTargetAndDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX install permissions are exercised on Unix")
+	}
+	fixture := buildFixture(t, "v0.1.0", oldCommit, "")
+	for _, test := range []struct {
+		name          string
+		targetMode    os.FileMode
+		directoryMode os.FileMode
+	}{
+		{name: "target", targetMode: 0777, directoryMode: 0700},
+		{name: "directory", targetMode: 0755, directoryMode: 0777},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			target := filepath.Join(directory, "pgbase")
+			copyFixture(t, fixture, target)
+			if err := os.Chmod(target, test.targetMode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(directory, test.directoryMode); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, _, err := prepareInstallation(target, filepath.Join(directory, ".pgbase-update")); !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("writable %s error=%v", test.name, err)
+			}
+		})
+	}
+}
+
 func TestRollbackRejectsJournalForAnotherTarget(t *testing.T) {
 	directory := t.TempDir()
 	first, second := filepath.Join(directory, "pgbase-a"), filepath.Join(directory, "pgbase-b")
