@@ -1,23 +1,25 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-10. P8은 병합·schema v38 로컬 설치 완료이고 N1–N5는 로컬 integration branch에서 구현·독립 검토·전체 인수를 완료했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
 | 순서 | ID | 작업 | 시작 조건 |
 | --- | --- | --- | --- |
 | 완료 | N0 | P8 최종 인수·PR·설치 | PR #32 및 로컬 v38 인수 완료 |
-| 로컬 완료 | N1 | 사용자 migration 자동화 | 구현·N4 option matrix·fresh/upgrade/doctor·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N2 | public 정적 사이트·SPA | 구현·실제 browser route/asset/deep-link·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. 원격 병합·설치 전 |
-| 7 | N6 | JSVM | N1/N5 공개 API 및 runtime 계약 확정 |
-| 8 | N7 | Dart SDK | N0 API 안정화. 이후 다른 후속 작업과 병렬 가능 |
+| 완료 | N1 | 사용자 migration 자동화 | 구현·N4 option matrix·fresh/upgrade/doctor·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N2 | public 정적 사이트·SPA | 구현·실제 browser route/asset/deep-link·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. PR34 병합·schema40 설치 인수 완료 |
+| 구현 중 | N6 | JSVM | Chandrasekhar/Sol, merged2939f15 기반 전용 worktree |
+| 구현 중 | N7 | Dart SDK | Einstein/Terra, merged2939f15 기반 전용 worktree |
 | 9 | N8 | SQL 콘솔 | 실행·인증·권한·결과 제한 계약 확정 |
 | 10 | N9 | self-update | 로컬 교체/복구 및 artifact 검증 계약 확정 |
 
-다음 제품 구현 순서는 N6–N9다. N1–N5는 계획 작성만으로 완료 처리한 것이 아니라 로컬 구현, 집중 검증, 독립 Standards/Spec 검토와 전체 통합 인수를 수행했다. 다만 push·PR·원격 병합·설치·공개 배포 상태와는 구분한다.
+N6/Sol·N7/Terra는 최신 사용자 승인에 따라 설치 마감과 독립적으로 전용 worktree에서 병렬 구현을 시작했다. 이후 N8/N9 순서다. 계획 N6–N9/N6 `133f644`와 N7 `8dadf42` 및 코드는 이 설치 문서 커밋에 섞지 않는다. live 설치·ports·공용 문서는 현재 설치 담당 단일 소유이며 후속 통합은 별도 branch에서 진행한다. N1–N5는 구현·독립 Standards/Spec 검토·전체 인수·원격 CI/병합·기존 설치까지 완료했고 공개 배포와 구분한다.
+
+후속 인계: Einstein이 N7 전용 fixture의 user-file upload 404를 보고했다. 원인은 아직 확정되지 않았으며 N7의 `tool/live_conformance.dart` 재현·`N7.md` 증거를 다음 통합 담당이 확인한다. 이 설치 단계에서 Go 수정이나 live 재검사를 수행하지 않았다.
 
 ## N0 — 지금 작성한 P8 마무리
 

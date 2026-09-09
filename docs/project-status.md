@@ -7,16 +7,16 @@
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 제품 병합 기준 | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` |
-| N1–N5 개발 기준 | 로컬 `codex/n1-n5-integration`, product/test `2837802` 이후 최종 문서 commit. 구현·독립 검토·전체 로컬 인수 완료, 원격 PR/병합·설치·배포 전 |
-| 설치 제품 커밋 | `0d28446b4003679465103c5fe2d4f1c65364cc79`. 설치 기록 문서의 후속 커밋과 구분 |
-| 실제 로컬 설치 | P8, PostgreSQL 17, schema v38, `http://127.0.0.1:8090/admin` |
+| 최신 제품 병합 기준 | [PR #34](https://github.com/yakisoba0728/PgBase/pull/34), `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
+| 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
+| 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
-| 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. P8 릴리스는 없음 |
+| 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. P8/N1–N5 추가 공개 릴리스는 없음 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
 | 승인된 범위 | 로컬에서 구현·검증 가능한 제품 기능. 외부 서버·도메인·실제 provider 계정·공개 패키지 배포는 대기 |
 
-P8 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 로컬 설치까지 완료했다. 구현, 개별 검증, 통합 인수, 병합, 설치, 공개 배포를 서로 다른 상태로 기록한다. 저장소 이전과 협업 요청은 있었지만 과거 저장소 상태·현재 collaborator 권한은 이 문서 작성에서 재조회하지 않았으므로 완료 상태를 새로 단정하지 않는다.
+N1–N5 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 로컬 설치까지 완료했다. 구현, 개별 검증, 통합 인수, 병합, 설치, 공개 배포를 서로 다른 상태로 기록한다. 저장소 이전과 협업 요청은 있었지만 과거 저장소 상태·현재 collaborator 권한은 이 문서 작성에서 재조회하지 않았으므로 완료 상태를 새로 단정하지 않는다.
 
 ## 2. 작업 이력
 
@@ -33,7 +33,7 @@ P8 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 로컬
 | P6 | 파일 정책/변환, OAuth·HTML 메일, SQL View, multipart Batch, 영구 로그·달력 cron, 웹 백업·Go hooks | [PR #30](https://github.com/yakisoba0728/PgBase/pull/30), `b942391` 병합, 로컬 v23→v28 |
 | P7 | hidden/presentable/help, schema import/export, 이메일 OTP, impersonation, Go custom routes | [PR #31](https://github.com/yakisoba0728/PgBase/pull/31), `701256b` 병합, 필수 CI 5개 및 로컬 v28→v32 인수 완료 |
 | P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` 병합, 필수 CI 5개·로컬 v32→v38 인수 완료 |
-| N1–N5 | 자동 migration, public 정적 사이트/SPA, 관리자 CLI, 필드·조회 세부 계약, request/file/mail hooks | 로컬 integration branch 구현·전체 PG18/race·브라우저·SDK/build·독립 검토 완료. 로컬 최종 commit; PR/원격 병합·설치 없음 |
+| N1–N5 | 자동 migration, public 정적 사이트/SPA, 관리자 CLI, 필드·조회 세부 계약, request/file/mail hooks | 전체 로컬 인수·독립 검토와 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15` 완료. 03:24 KST 기존 PG17/schema38→40 설치·인수 완료 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -64,12 +64,12 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 | 기존 파일 이전 | durable ledger, copy/hash 검증, cutover, resume/cancel, namespace 재사용 보호, 동일 operation UUID 응답 유실 복구 | 로컬 race·브라우저 인수 완료 |
 | 파일 작업 잠금 | 요청 DB 풀과 분리한 coordination 연결, 세대 확인, lease 유실 시 업로드 확정 거절 | 백업·복원 결합 회귀 통과 |
 | 백업 S3 | 독립 repository/설정/UI/SDK, 소유 archive 보호·삭제 재시도, pending publication ledger(migration38). 실제 S3 파일 snapshot 복원·원본 객체 삭제 후 로컬 바이트 보존 및 managed 전환 집중 race 통과 | 로컬 전체 회귀 통과 |
-| 사용자 Go migration | create/list/up/down, source checksum, tx rollback, schema 잠금/캐시 및 migration 제어 상태 보호 | 로컬 인수 완료. 자동 diff/snapshot/history-sync는 미구현 |
+| 사용자 Go migration | create/list/up/down, source checksum, tx rollback, schema 잠금/캐시 및 migration 제어 상태 보호 | P8 당시 로컬 인수 완료. 자동 diff/snapshot/history-sync는 후속 N1에서 구현·설치 완료 |
 | lifecycle hooks | app/collection/auth/realtime/file-storage settings/import/backup의 before/after·veto·결과 전달 | 로컬 인수 완료. [hook 목록](lifecycle-parity.md)의 partial 항목은 별도 후속 |
 
 상세 계약: [고급 필드](advanced-fields.md), [파일 저장소](storage-settings.md), [백업 S3](backup-s3.md), [사용자 migration](user-migrations.md), [P8](phase4-local-contracts.md).
 
-## 5. N1–N5 로컬 통합
+## 5. N1–N5 통합·원격 병합·설치 완료
 
 | 작업 | 구현한 범위 | 현재 상태와 경계 |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 | N4 필드·조회 | bounded text autogeneration, email/URL denied domains, canonical options, `:lower` filter/rule, geoPoint `.lon`/`.lat`, schema/API/SDK/UI 연결 | explicit input 우선·create-only 생성, collision/replay/rollback, domain preflight, HTTP/Batch/browser 및 N1 snapshot/Up/Down 보존 통과. 미채택 PB modifiers는 문서화된 차이 |
 | N5 세부 hooks | record list/view/write, Batch/schema import, 목적별 mail, file token/download/transform의 typed request/result hooks | mutable input 재검증, immutable identity/snapshot, veto·panic·cancel·retry/replay·stream outcome 검증. process-local이며 durable delivery/outbox가 아님 |
 
-이 단계는 로컬 개발 브랜치의 구현·검증 상태다. 최신 원격 제품 병합과 실제 설치는 여전히 P8 `0d28446`/schema v38이며, N1–N5는 push·PR·원격 병합·설치·배포하지 않았다.
+N1–N5는 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34)의 필수 CI5/5 통과 후 `2939f15`로 병합됐다. 제출 `432bfaa`와 merge tree는 동일하며 최종 코드 전체 Go unit/race와 PG17+MinIO integration/race·SDK live 근거가 추가됐다. 03:24 KST 같은 제품 SHA의 실제 PG17.9/schema40 설치·인수를 완료했다. 백업/hash와 두 installer 증거 오류로 정상 제품을 rollback한 뒤 복구·최종 성공한 이력은 [설치 기록](workstreams/n1-n5/release-install.md)을 따른다. 공개 release/package/cloud 배포는 이 승인에 포함되지 않는다.
 
 ## 6. 검증과 실제 수정한 문제
 

@@ -1,19 +1,25 @@
 # pgBase 구현 현황 / TODO
 
-## N1–N5 원격 병합·기존 설치 반영 — 새 승인 범위 진행 중
+## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)
 
-2026-09-10 사용자 승인: 검증된 N1–N5를 push→PR→필수 CI→merge한 뒤 기존 PG17/schema38/HTTP8090 설치를 별도 백업하고 binary/schema40 적용·실제 인수를 수행한다. 과거의 원격/설치 제외 기록은 당시 범위이며 이 승인으로 갱신된다. 통합 담당은 현재 checkout과 공용 문서 단일 소유자, Sol/Terra 작업자는 CI 수정·검증·설치를 담당한다. N6–N9 구현, 공개 release/npm/pub.dev, cloud deploy와 외부 provider 설정은 이번 단계에 포함하지 않는다.
+새 사용자 승인에 따라 push→PR→필수 CI→정상 merge→기존 PG17/schema38 설치 백업·binary/schema40 적용·실제 인수를 완료했다. 과거 제외 기록은 당시 범위다. Sol이 설치, Terra가 절차·복구를 독립 검토했으며 공용 문서는 통합 담당 단일 소유다.
 
-- [x] 시작점 확인: `codex/n1-n5-integration`, clean `edf5569`.
-- [x] origin/default branch·기존 PR·보호 정책 확인: `origin/main=238cc37`, N1–N5 기존 PR 없음. active ruleset `22511139`, strict 필수 CI 5개, bypass actor 없음.
-- [ ] concrete PR 작성·push.
-- [ ] 필수 CI 통과 및 정상 merge. 보호 규칙 우회·force push 없음.
-- [ ] 정확한 live 설치 식별, 중단→별도 DB/files/archives/config/binary 백업→복구 절차 기록·검토.
-- [ ] merge 제품 binary와 schema38→40 적용·재시작.
-- [ ] canary/hash·doctor/readiness/login·N1–N5 실제 smoke·데이터 보존 및 복구 증거 확인.
-- [ ] TODO/project-status/next-work에 PR·CI·merge·설치 제품 commit·별도 문서 commit 관계를 기록.
+- [x] origin/default branch·기존 PR·보호 정책 확인: active ruleset `22511139`, strict required CI 5개, bypass actor 없음.
+- [x] [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) push·CI5/5 SUCCESS·02:44 KST 정상 squash merge. 제품 SHA `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`; 제출 `432bfaa`와 merge tree 동일. 보호 우회·force push 없음.
+- [x] 별도 fresh DB/files/archives/config/binary 백업·hash inventory, 정확한 fresh dump의 merged-SHA38→40 canary, 독립 physical restore 완료.
+- [x] 03:24 KST 최종 installer exit0: 설치 제품 `2939f15`, PostgreSQL17.9/schema40, HTTP8090 실행 중. binary SHA-256 `77788e37c9b3c82fd934a0186992321aa9d0f0bd4a82d258eace20030cdce492`.
+- [x] binary provenance/hash·doctor/readiness·기존 관리자 login/logout·schema export·N4 preview·managed backup 생성/다운로드/hash/삭제·N1 진단·데이터/정책/config/files/archives 보존 통과.
+- [x] TODO/project-status/next-work/reassessment·설치 기록 마감. `codex/n1-n5-installed-status`의 로컬 문서 후속 커밋이며 병합·설치 제품 SHA와 구분한다.
 
-현재 단계(2026-09-10 02:25 KST): 원격 정책 확인 완료, PR 작성 중. 필수 CI는 `Go unit`, `Observability artifacts`, `PostgreSQL integration / 17.9`, `test`, `audit`; approving review 0개·미해결 review thread 없음이 필요하다. 기존 worker 재호출이 실패해 isolated `install-stage`/GPT-5.6 Sol과 `ci-stage`/GPT-5.6 Terra를 실행했다. Sol은 기존 `.local/verification/phase4-*` 기록으로 설치 경계·백업/복구 절차 준비, Terra는 CI·설치 절차 독립 검토 담당이다. 정확 live 경계는 확인 중이며 기존 설치 변경은 아직 없다. 권한/자동승인 거절 없음. 설치는 필수 CI green 및 merge 후 실행한다. 상세 기록: [원격·설치 단계](docs/workstreams/n1-n5/release-install.md).
+CI: Go unit5m21s, PG17.9 integration/race·SDK live16m54s, Frontend test1m17s, audit1m3s, Observability25s. 최종 tree의 전체 Go/PG17 gates가 green이며 설치 뒤 전체 검사·제품 수정·설치 round를 추가하지 않았다.
+
+복구점: `/Users/yakisoba0728/Documents/GitHub/PgBase/.local/backups/pre-n1-n5-2939f1543e48-20260910-030338`. 물리 fallback 및 exact hashes/CI/private evidence는 [원격·설치 기록](docs/workstreams/n1-n5/release-install.md)에 있다. 실제 앱0 tables/0 rows·활성 관리자1명·파일 객체0개·기존 archives4개를 보존했다.
+
+실패 이력 정정:03:10 disabled auto-status 성공 기대,03:14 이전 snapshot 증거 overwrite가 installer를 실패시켰다. **두 시도 모두 제품/schema40·core smoke는 정상이었으나 증거 처리 오류로 불필요한 rollback을 수행했다.** 두 복구 모두 P8/schema38·원래 정지 상태·데이터/정책/files/archives 보존에 성공했고 실패 dump/복구 evidence를 보존했다. 최종 installer hash `cd68eba44cb7b1266deee6968650ffa96fdd40f6b759a3ef6a8e48e2c81632c5`로03:23 신호 갱신 후03:24 성공했다. 제품 결함·추가 권한 blocker는 없다.
+
+지원 경계: N1 자동 기록·N2 public/SPA는 기존 설정대로 비활성; N5 standalone 등록 callbacks 없음은 통합 테스트 근거와 구분한다. 공개 release/npm/pub.dev/cloud/provider 설정은 수행하지 않았다.
+
+병렬 후속: N6 Chandrasekhar/Sol·N7 Einstein/Terra는 별도 승인으로 merged `2939f15` 기반 전용 `n6-n9/n6`,`n6-n9/n7` worktree에서 구현 중이다. live 설치·ports·공용 docs 접근 금지, 계획 `133f644`/`8dadf42`와 코드는 이 설치 문서 커밋에 섞지 않는다.
 
 ## N1–N5 병렬 실행 — 로컬 통합·인수 완료 (최종 동기화 2026-09-10 02:13 KST)
 
@@ -54,9 +60,9 @@
 
 최종 budget 측정·독립 검토 완료(01:21 KST): `238cc37`→최종 제품에서 Go runtime 58,513, UI 6,249, handwritten 64,762(+3,345 net), interface 57→60, export 973→1,053, constructor 46→49, page hook 129→131이며 UI export는 203으로 동일하다. schema data-group은 N1/N4 승인 기능으로 21,747→22,693(+946: schema +875, recordops +76, query -5)이다. schema-private transaction/planner 경계를 깨는 광범위 refactor 대신 정확한 증가와 설계 근거를 반영했고 어떤 production 파일도 제외하지 않았다. 고정 800줄 상한을 유지하며 helper를 동작 변경 없이 옮겨 `planner.go` 763줄, `schema_document.go` 798줄, 800줄 초과 production 파일 0개다. 독립 Standards/Spec review와 unit/race/lint가 통과했다.
 
-문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 P8과 위 문서를 따른다.
+문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 완료 기록과 위 문서를 따른다.
 
-기준: 2026-09-09, v0.1.0 이후. 최신 제품 병합은 [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) / `0d28446`이며 실제 로컬 설치는 P8, PostgreSQL 17, schema v38이다. P1–P5는 PR #29, P6는 #30, P7은 #31, P8은 #32로 구현·로컬 검증·원격 CI·병합·설치를 마쳤다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-10, v0.1.0 이후. 최신 제품 병합·실제 로컬 설치는 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) / `2939f15`, N1–N5, PostgreSQL17.9/schema40이다. P1–P5는 PR #29, P6는 #30, P7은 #31, P8은 #32로 구현·로컬 검증·원격 CI·병합·설치를 마쳤다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
 ## P7 — 필드 표시·인증 확장·스키마 입출력·Go 라우트 (로컬 적용 완료)

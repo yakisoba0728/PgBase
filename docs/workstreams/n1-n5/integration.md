@@ -1,11 +1,15 @@
 # N1–N5 integration
 
-Branch: `codex/n1-n5-integration`  
-Baseline: plan `cad7e20`, product base `238cc37`  
-Owner: Sol integration  
-Last updated: 2026-09-10 02:13 KST
+Branch: `codex/n1-n5-integration`
 
-## Current phase
+Baseline: plan `cad7e20`, product base `238cc37`
+
+Owner: Sol integration
+Last updated: 2026-09-10 03:28 KST (local acceptance completed 02:13 KST)
+
+후속 승인 완료: [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) CI5/5·merge `2939f15`, 03:24 KST 동일 제품의 PG17.9/schema40·HTTP8090 설치 인수 완료. 최신 logical backup/canary·physical restore·doctor/readiness/login·데이터/정책/files/archives 보존 통과. 두 정상 제품 적용이 installer 증거 오류로 불필요하게 rollback된 이력과 최종 성공, binary/installer hashes·복구점·제품/문서 commit 구분은 [설치 기록](release-install.md)에 남겼다. 추가 전체 검사·제품 수정 없이 로컬 문서 커밋으로 마감한다. 아래는02:13 KST 당시 로컬 통합 인수 이력이다.
+
+## Local acceptance phase — historical 02:13 KST
 
 N1–N5 implementation, integration, independent Standards/Spec reviews and local
 acceptance are complete. The product/test integration head before this final status
