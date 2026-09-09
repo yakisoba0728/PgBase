@@ -1,39 +1,28 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 로컬 통합 — **ACTIVE — N8 완료 후 G5** (최종 동기화 2026-09-10 08:36 KST)
+## N6–N9 — **로컬 구현·G5 인수 완료** (2026-09-10 08:48 KST)
 
-실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 구현·검토는 Sol/Terra, 독립 실행 가능한 단순 검사는 사용자 승인에 따라 Spark/Luna helper에도 배정한다.
+최종 제품·UI는 `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, branch는 `codex/n6-n9-integration`이다. 마지막 문서 커밋은 제품 SHA와 구분한다. [최종 인수 증거](docs/workstreams/n6-n9/acceptance.md)와 [단계 기록](docs/workstreams/n6-n9/integration.md)에 초기 실패·좁은 수정·최종 검증을 보존했다. **원격 병합·공개 배포·live 교체는 수행하지 않았다.** 설치는 계속 N1–N5/schema40이다.
 
-| 단계 | 담당·소유 | 현재 상태 | 다음 gate |
-| --- | --- | --- | --- |
-| G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
-| G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 완료 — occurrence `ee806dd`, migration 없음, exact PG 5회·race green, Nash 0 findings | 완료 단계 재실행 없음 |
-| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 완료·clean handoff — native `4575a02`와 최종 browser `58106`가 동일 record/ETag/exact-number/file/SSE green; task 종료 | 완료 단계 재실행 없음 |
-| G3 N6/N7 통합 | Sol 통합 | **완료** — N6/N7 external·native/browser cross·same-origin PublicDir·occurrence review 모두 green | G5 전 관련 변경 없으면 반복 없음 |
-| G4 N8/N9 구현·조립 | Feynman browser/UI, Gauss review, lead composition | N8 backend 모든 finding closed, 실제 Chromium 13개 기능 시나리오 pass. 결과 table overflow만 작은 UI 수정 중. N9 완료. | UI 표시 수정·최종 dist 및 Gauss 최종 기록 |
-| G5 최종 인수 | Ramanujan/Luna lint·delta, Helmholtz/Luna builds, lead PG | 전체 PG18/MinIO race `d4fb6a2` 실행 중. N6 lint cleanup 실제3package race pass. 6build/native/Windows compile `6e010f1` green. | watch 출력 test race·N8 unit buildtag·신규41 rewind fixture 수정 후 해당 검사, 최종 UI dist 재포함 빌드 |
+| 단계 | 담당 | 최종 상태 |
+| --- | --- | --- |
+| G0/G1 기준·계약 | Sol 통합 / Astra 조율 | `117a1db` 기반 통합 branch와 두 plan 적용·소유 경계 완료 |
+| G2/G3 N6 | Chandrasekhar/Sol, Nash review | JSVM/facade/hooks/jobs/migrations/CLI, 외부 Go+JS/PG/file/SMTP, same-origin PublicDir, occurrence retry/next-schedule·race 완료 |
+| G2/G3 N7 | Einstein/Terra, Newton review | Dart/Flutter 실제 외부 consumer와 browser, exact number/ETag/file/SSE/cross-flow 완료 |
+| G4 N8 | Euclid/Sol, Feynman/Terra, Gauss review, Sol composition | parser/role/executor/API/UI/retention·durable publication 완료; 실제 browser13 및 좁은 표시 수정, Standards PASS/Spec PASS/open0 |
+| G4 N9 | Sagan/Terra, Mill review, Sol composition | native Darwin update/recovery, CLI/build metadata·독립 검토 완료; Windows native 미실행 명시 |
+| G5 전체 인수 | Sol 통합, Spark 초기 실행 후 Luna/Ramanujan·Helmholtz | 전체 Go/PG+MinIO baseline와 실패 범위 수정/race, lint0/vet, SDK live/pack, UI build/repro, exact budgets, 최종6build/native metadata/Windows compile 완료 |
 
-소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
+- [x] N6/N7 실제 외부 앱·교차 계약·독립 review와 G3 완료.
+- [x] N8 R1–R12, duplicate replay pool 포화, terminal persistence-before-publication, session identity와 결과 표시 finding 모두 closed.
+- [x] N9 private 및 shared CLI/build composition review closed.
+- [x] 전체 회귀의 watch 출력 test race·신규41 rewind fixture·unit build tags·checksum/budgets·lint 실패를 각각 수정하고 영향 범위만 재검증.
+- [x] 최종 `b7674f7` Go1.26.8 lint0/vet/changed race, 6종 CGO0 build·native `version --json`·Windows compile·checksums green.
+- [x] migration1–40 byte 불변; 신규41만 사용. Go69,323/UI6,667/handwritten75,990 실측·독립 검토, production800줄 제한 유지.
+- [x] 모든 worker handoff/종료 완료. 작업 전용6개 컨테이너 정지·data/evidence 보존, API/UI/browser 종료.
+- [x] TODO/next-work/project-status/reassessment/통합·인수 문서 최종 동기화 및 로컬 마감 커밋.
 
-Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료됐다. Active stream 중 동일 shared storage lease를 다시 얻는 `files.open`, `files.read`, `files.upload`는 backend I/O 전에 거절하며, `readChunk`/`close`와 DB-only list/token/delete는 재획득 경로가 아니다. 이 결정적 PG 회귀는 5회 green이다. G3 green은 외부 Go+JS 앱의 PG/file/SMTP/job retry와 브라우저+Dart/Flutter 공통 record/ETag/exact-number/SSE가 실제로 통과한 시점이다. N7 core edge와 focused CPU/queue/cancel/Close도 완료됐다. Astra의 05:14 gate 조정은 독립 N8/N9 제품 착수만 허용하며 G3 완료나 최종 통합을 뜻하지 않는다. 전체 회귀와 6 builds는 G5까지 반복하지 않는다.
-
-격리 환경: N6은 `pgbase-n6-pg-20260910`/PG17.9 `55469`, API `58094`, SMTP `58095`, CSP 분리 browser frontend `58106`; N7은 `pgbase-n7`/PG `55441`, API `58091`, Flutter `58092`, admin proxy `58093`; N8은 `pgbase-n8-20260910`/PG17 `55470`, PG18 `55471`, API `58096`, UI `58097`; N9는 task-owned temp install과 필요 시 TLS/health `58098`을 소유한다. live PostgreSQL `55440`, MinIO `59000`, HTTP `8090`, 기존 Docker/userdata는 모든 N6–N9 검사 대상에서 제외한다.
-
-- [x] `117a1db`에서 통합 branch 생성 및 두 docs-only plan 적용.
-- [x] 중앙 live board·소유·단계 gate와 수분 단위 통합 기록 생성.
-- [x] N7 404 red loop 재현 후 generic router 404와 file env 부재로 원인 확정; SDK/서버 동작 변경 없이 fixture narrow fix를 N7에 반환.
-- [x] N6 기반·도메인·migration·jobs·CLI/types/watch·hook·stress/storage·external/cross/same-origin 및 occurrence fix `ee806dd` Nash closure 완료; G3 종료.
-- [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
-- [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
-- [x] N8 backend checkpoint 이후 R4/R8/R12 stable `0e4ba42` 통합; 전체 sqlconsole PG17 race 8.526s, PG18 6.982s 및 API/options race green.
-- [x] N8 actual Chromium13: exact값/clipboard, write·dryrun·rollback·cancel, CSRF/금지target, history, response-loss/replay, 세션분리, 결과cap 통과. 추가 restart 시도는 미실행 evidence에서 제외.
-- [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
-- [x] N8 UI R11 `35712f4`: `sessionIdentity` namespace가 없으면 저장하지 않고 legacy global key를 읽지 않고 삭제한다. 같은 세션 reload만 복구하며 관리자 전환·만료 뒤 새 세션은 이전 요청을 보거나 실행하지 않는다. Gauss delta review `465b8f5` zero; backend field composition만 pending.
-- [x] N8 UI R6 `35712f4`: `statements`가 없는 durable summary에서 committed/row/byte를 보존하며 TTL 경과는 expired, restart/응답 소실은 unavailable로 표시한다. focused 17 green, Gauss delta review `465b8f5` zero.
-- [x] Gauss N8 backend R1–R12 및 sessionIdentity 모두 closed (`752d38c` + `66fec8f`); 기존 UI17green 유지. 최종 표시delta/dist/전체evidence 기록만 남음.
-- [ ] N6–N9 전체 G5 로컬 인수·문서 동기화·격리 fixture 정리·clean final commit.
-- [x] pause handoff: UI source `cd092fb`는 integration `35712f4`로 이미 반영됐고 focused 17 green, real browser unrun. 최종 불완전 review checkpoint `9ac351a`는 `0b1ecc8`로 반영했다. N8 Docker PG17/18은 정지 상태로 container/data를 보존했다.
+중앙 문서는 Sol 통합 단독 소유다. 작업 fixture는 N7 `55441/58091`, N8 `55470/55471/58096/58097`, G5 `55472/59007`을 사용했다. live `8090/55440/59000`, 설치 binary와 기존 userdata는 변경하지 않았다. Windows 실제 실행, 공개 release/npm/pub.dev/cloud 배포는 이번 로컬 완료에 포함하지 않는다. N8의 영구 compact write key는 총 저장량이 무한히 제한된다는 보장을 하지 않으며, heavy history만30일 정책으로 정리한다.
 
 ## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)
 

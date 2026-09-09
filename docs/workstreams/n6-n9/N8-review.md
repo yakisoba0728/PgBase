@@ -1,19 +1,67 @@
 # N8 independent Standards and Spec review
 
-## Current closure status
+## Final independent Standards and Spec verdict
 
-All N8-R1–R12 findings are closed in the reviewed source deltas and focused evidence. The final full-N8 verdict is **pending final lead composition and browser evidence**; this checkpoint does not claim that final acceptance yet.
+**PASS for the agreed full local N8 review scope at `b7674f704e14b07104ebf6f1c9ee5e53092f367e`** on the lead's `codex/n6-n9-final-candidate`. Standards and Spec review have no remaining actionable findings. N8-R1–R12, the R12 replay-pool follow-up, the final R4 terminal-publication regression, backend session-identity composition, and the presentation overflow finding are closed.
+
+This verdict combines the original bounded backend review, only the subsequent unresolved fix/composition deltas, the independently reproduced R8 failure, meaningful owner PostgreSQL evidence, and the lead's accepted real-browser evidence. Unchanged backend/UI scopes were not reviewed again. It is a local candidate review, not a deployment or a claim that the explicitly excluded supplemental browser scenarios ran.
 
 - Final backend product candidate: `752d38c800eeee66cfa61f0fb18f1d42c9a533a6`, following `0e4ba42df129c4b3e5d849e359ec8c5019a27e3a` and `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`.
 - Shared callback/capability composition: `66fec8fa8dc6f543b36183ba75873d4a9c073162`.
 - Closed UI source: `cd092fb41859812dc333774d4522586f22642757`, integrated as `35712f45be41f8239383824c55401727d510e0ed`, with earlier reviewed fixes listed below. No closed UI scope was repeated.
 - Backend contract/evidence documentation reviewed: `2558d199408284fe27202229cdcce5b3890f2f4a`.
 - Session-conformance expectation-only composition reviewed: `e57d233674f46120e5fa01fc3446fbf7a4e60ea5`.
-- Remaining: final measured structural-budget/dist composition and the lead-supplied browser acceptance evidence. No backend product finding remains open.
+- Final private replay-helper cleanup: `d95848d59591309be886f6cbc16d86c2efbdee96`.
+- Final terminal-publication correction and embedded UI bundle: `b7674f704e14b07104ebf6f1c9ee5e53092f367e`.
+- Presentation fix: worker `5235d9e03b5e6530e3049fdf00586e855b0c8ba8`, integration `882a519436725e6e91843c19dea3a307fb2ccf42`, embedded bundle `index-CTAdrZsH.js`.
+- Remaining findings or required review work within the agreed local N8 scope: **none**. Lead retains integration/release ownership.
+
+| Finding | Final closure basis |
+| --- | --- |
+| R1 catalog freshness | Version gate at `4d773b5`, durable schema-state callback at `66fec8f`, owner PG regression. |
+| R2 commit unknown | Receipt-absent transport error remains unknown with nullable commit state; runner/service/ledger evidence at `4d773b5` and the full PG runs. |
+| R3 virtual fields | File and multiple-relation fields excluded from physical-column expectations; PG startup regression. |
+| R4 durable coordination/publication | `0e4ba42` gates replacement startup against actual in-flight transactions; `b7674f7` persists terminal state before publishing it and consistently surfaces persistence errors. |
+| R5 write identity | Exact replay/reload recovery at `8df8757`, scoped recovery at `cd092fb`, actual response-loss/pre-admission browser cases. |
+| R6 history/results | Real execution GET and durable-summary handling at `16ce11f`/`cd092fb`; focused tests and actual browser Inspect. |
+| R7 configured timeouts | Untouched override omitted; configured API capabilities at `4d773b5`/`66fec8f`; actual 1500/2000 ms browser fixture. |
+| R8 transitive dependencies | Independent custom enum IO repro at `4d773b5`; fail-closed transitive deparse/AST plus native checks at `0e4ba42`; rejected enum and accepted builtin IO controls. |
+| R9 exact write columns | Separate configured and physical column maps at `4d773b5`; rejected-column preflight regression. |
+| R10 single read | Backend normalization at `4d773b5` and the already closed UI rule. |
+| R11 session isolation | Scoped optional opaque capability at `cd092fb`/`4d773b5`/`66fec8f`; actual logout/login and expiry browser cases. |
+| R12 retention/no replay | Permanent accepted identities, atomic bounded cleanup and retained outcomes at `0e4ba42`; released replay admission connection at `752d38c`; semantics preserved at `d95848d`. |
+
+Final R4 closure evidence: the lead's deterministic row-lock test failed before the correction (0.806s), exposing local `Succeeded` while `Ledger.Finish` was blocked. After local-copy → persist → publish, the five affected PostgreSQL race cases passed (3.439s): `TestServicePublishesTerminalOnlyAfterLedgerFinish`, `TestServiceSurfacesTerminalLedgerFailure`, `TestLedgerConcurrentReplaysReleaseAdmissionConnection`, `TestServiceNeverReplaysExpiredWriteWithoutReceipt`, and `TestServicePersistsRejectReplayResultExpiryAndActualCancel`. The reviewed source keeps GET/Cancel/replay nonterminal while persistence waits, returns the persistence error consistently on failure, and preserves the decided successful outcome if cancel arrives during persistence.
+
+The lead confirmed the exact final five-case run used `GOTOOLCHAIN=go1.26.8 GOMAXPROCS=2 go test -tags=integration -race ./internal/sqlconsole -run 'Test(ServicePublishesTerminalOnlyAfterLedgerFinish|ServiceSurfacesTerminalLedgerFailure|LedgerConcurrentReplaysReleaseAdmissionConnection|ServiceNeverReplaysExpiredWriteWithoutReceipt|ServicePersistsRejectReplayResultExpiryAndActualCancel)$' -count=1`, with its own isolated fixture supplied through `PGBASE_TEST_ADMIN_URL` (port 55472). Retained logs were inspected at `/tmp/pgbase-n6n9-terminal-publication-before.log` and `/tmp/pgbase-n6n9-terminal-publication-after.log`. The reviewer did not connect to that fixture or repeat the run.
+
+Final presentation closure: reviewed the three-line markup change, existing overflow CSS, rebuilt bundle, and the actual 1440 px screenshot at `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/n8-ui/.local/verification/n8-browser/evidence/2026-09-09T23-38-02.402Z/01-exact-read.png`. The result viewport stays within the shell; horizontal scrolling contains the wide row and label/copy spacing is readable. Owner evidence: focused component 14/14 and only the affected actual exact-read/clipboard case passed. Lead's final typecheck/Vite build passed.
+
+Final Standards evidence: independent `go run ./tools/repostats -rev b7674f704e14b07104ebf6f1c9ee5e53092f367e` confirmed Go 69,323, UI 6,667 and handwritten 75,990 lines, 67 interfaces, 1,251 exported Go declarations, 55 constructors, 154 UI page state/effect calls, 229 UI exports, and zero production files over 800 lines. The exact measured ceilings, unchanged classifier, immutable migrations 1–40, verified migration-41 checksum, and reviewed scoped rationale match the final composition. `git diff --check` passed for the final correction.
+
+Evidence limits remain explicit: the 13 accepted real-browser scenarios passed, with raw runs and focused harness reruns preserved in `N8-browser.md`. Supplemental actual API-restart, forced commit-unknown rendering and wall-clock TTL browser scenarios did not run to completion and are not claimed here. The lead accepted the combined backend recovery and existing UI source/unit evidence for those mechanisms. The permanent minimal identity/receipt key count can grow indefinitely, as documented for exact no-replay.
+
+Reviewer process/resource state at closure: no reviewer-owned process remains running. The only reviewer database mutation was the owner-authorized, named `pgbase_n8_review_r8` reproduction on PG17 port 55470; that database was dropped on test exit. No reviewer roles were created. Live ports 8090/55440/59000 and user data were not touched. No additional agents or automations were created.
 
 At `752d38c`, both duplicate/conflict paths release the admission connection before nested pool lookups. The owner synchronized eight concurrent replays at the minimum four-connection pool, observed the prior timeout, then verified completion with no new admission and zero acquired-connection leaks after the fix. The focused replay/retention batch passed PG17 with race detection (2.741s) and PG18 (1.621s); focused SQL-console lint reported zero issues. Final migration-41 tests passed PG17 (0.432s) and PG18 (0.439s). Those results, together with the reviewed test sources and prior full-package evidence, close R12 without repeating the entire matrix.
 
 The historical checkpoints and findings below preserve how each defect was identified and closed; their earlier open/pending labels apply only to the stated earlier commits.
+
+Composition `d4fb6a201194e01509e384abb49a469066fc32de` was checked against the reviewed backend/UI pins: the SQL-console/API/options production tree matches `752d38c`, and UI runtime source matches `35712f4`. The later conformance test adds the expected `sqlConsoleEnabled:false` field. The updated embedded bundle contains the reviewed scoped recovery and session/timeout capability code. Migration 41 SHA-256 is `628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699`; migrations 1–40 remain unchanged from `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`.
+
+Independent `go run ./tools/repostats -rev d4fb6a201194e01509e384abb49a469066fc32de` exactly confirmed the documented ceilings: Go 69,292; UI 6,667; handwritten 75,959; interfaces 67; exported Go declarations 1,251; constructors 55; UI page state/effect calls 154; UI exports 229; zero production files over 800 lines. The unchanged classifier, fixed per-file cap and documented approved-feature scope support this budget update. Only the exact later N6 mechanical delta and detailed browser evidence remain for full local closure.
+
+At `17ced7e83125d3f2301451154c84549e27993edb`, the six-file N6 cleanup adds exactly 17 runtime Go lines and does not change N8 production code. Final ceilings are Go 69,309 and handwritten 75,976; the other metrics and fixed per-file cap remain unchanged. N8 PostgreSQL tests were moved under the repository's `integration` build tag without changing their assertions. Later watch-buffer synchronization (`433a753`) and release-rewind inclusion of the final identity table (`a31975f9c1ad01b413d8f72a2c9d0b5fad1d7142`) are test-only corrections with focused race passes supplied by the lead.
+
+The lead-preserved browser record at `eed4ce9:docs/workstreams/n6-n9/N8-browser.md` supplies 13 real Chromium/API/PG17 scenarios at source `e57d233674f46120e5fa01fc3446fbf7a4e60ea5`: default/timeout/exact-value copy, typed decimal parameters, CSRF, multi-statement commit, dry-run, later-statement rollback, forbidden targets, cancel/poll/next query, durable history inspection, lost accepted response, loss before admission with exact replay, cross-login/expiry session isolation, and result-cap rejection. Nine initial passes plus four affected harness-only reruns constitute that evidence; no fabricated response payload or full-suite repetition was claimed. Backend `752d38c` changes no UI/API/schema/grants, so its focused replay evidence composes with these browser runs.
+
+The browser handoff explicitly excludes unfinished supplemental API-restart, forced commit-unknown, and wall-clock TTL scenarios. The lead accepted the 13-scenario browser scope and relies on the closed backend recovery tests and UI source/unit evidence for those mechanisms. This review preserves that limitation and does not claim those additional browser scenarios ran.
+
+Presentation-only worker delta `5235d9e03b5e6530e3049fdf00586e855b0c8ba8` adds the existing `table-scroll` overflow wrapper and inline spacing between result text/type/copy controls. Its source and existing CSS were reviewed with no functional finding; final integrated bundle and screenshot closure remain pending.
+
+Private helper-return cleanup `d95848d59591309be886f6cbc16d86c2efbdee96` preserves behavior: every removed bool was false, both public admission return paths still report `created=false`, and early rollback/connection release remains before nested lookup. It adds two Go lines, taking final measured ceilings to Go 69,311 and handwritten 75,978 before any subsequent correction.
+
+**R4 reopened by concrete final evidence:** the lead's affected PG replay run at `d95848d` observed `waitForStatus(Succeeded)` followed by a forced in-memory TTL expiry returning durable `Running` with no result. `finishWithoutRun` publishes `job.execution` terminal before calling `Ledger.Finish`, so the API can expose completion before durable state exists (and before a potential persistence error). The lead is preparing only a local-snapshot → persist → publish correction and a deterministic row-lock regression proving that polling remains nonterminal while persistence is blocked and exposes matching terminal state only after it succeeds. This invalidates the earlier R4 terminal-durability closure; it does not reopen unrelated scopes or the helper-return refactor.
 
 ## Resumed fix-delta review — 2026-09-10
 

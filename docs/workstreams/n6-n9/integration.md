@@ -7,23 +7,21 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 08:36 KST
+Last updated: 2026-09-10 08:48 KST
 
 ## Current milestone
 
-**ACTIVE.** G3 and N6/N7/N9 core are complete. Current composed candidate is `e57d233`: N8 residual owner `0e4ba42` integrates as `00b7fc4`, generated UI as `5987da9`, additive capability expectation as `e57d233`. Owner full SQLconsole PG17 race/PG18 and API/options focused race pass. Browser is dispatched on the fresh isolated fixture. Final R12 duplicate-replay pool saturation correction, Gauss closure and G5 remain; no final acceptance is claimed.
+**LOCAL ACCEPTANCE COMPLETE.** Final product/UI source is `b7674f704e14b07104ebf6f1c9ee5e53092f367e`; final documentation commits do not change that product tree. G0–G5 are complete under the agreed baseline-plus-affected-delta verification policy. N8 Gauss final report `0b7fcb65` is Standards PASS / Spec PASS / open0. All workers have handed off and closed. [Final acceptance](acceptance.md) records exact commands, original nonzero runs and their narrow closures, artifact paths and qualification limits. No remote release/merge/live replacement occurred.
 
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
-| Workstream | Worker / branch / worktree | Current state | Integration requirement |
-| --- | --- | --- | --- |
-| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | occurrence `ee806dd`, exact PG five times/race, Nash re-review zero findings | complete; retain disposable PG only for G5 |
-| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | core accepted; native `4575a02` and final browser `58106` same-state cross green; clean handoff | task safely closed; no repeat |
-| N8 backend | Euclid / `codex/n8-sql-console` | `0e4ba42` integrated; PG17 race/PG18 green | narrow R12 nested replay acquisition fix and migration-only evidence |
-| N8 UI | Feynman / `codex/n8-sql-console-ui` | focused17 green; launcher/unique DB/protected secret ready | actual Chromium on composed `e57d233`, ports58097→58096 |
-| N8 review | Gauss / `codex/n8-review` | current shared identity/options source closed; R4/R8 corrected | R12 admission residual, final evidence/budget delta only |
-| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private PASS/PASS `b74a49a`; build metadata `d6d9a9a`/`203ae3e` seam closure | G5 integrated checks only |
-| Integration | GPT-5.6 Sol / this branch | active from clean checkpoint `9acc7b2` | shared composition and final parallel G5 execution |
+| Workstream | Owner / independent review | Final state |
+| --- | --- | --- |
+| N6 | Chandrasekhar / Nash | external/cross/occurrence and core accepted; final mechanical cleanup race/lint accepted |
+| N7 | Einstein / Newton | external native Dart/actual Flutter browser and same-state cross accepted; unchanged scopes retained |
+| N8 | Euclid + Feynman + lead / Gauss | final `b7674f7`, all R1–R12/follow-ups closed; actual13 browser scenarios and final result-scroll screenshot accepted |
+| N9 | Sagan + lead / Mill and Sagan shared-seam review | native Darwin/private+composition accepted; final6 artifacts and Windows compile green |
+| Integration/G5 | Sol; mechanical Spark→Luna/Ramanujan/Helmholtz | all required local evidence complete; clean local docs commit; no worker remains active |
 
 ## Ownership and invariants
 
@@ -37,10 +35,10 @@ No N6–N9 test may target the installed PostgreSQL 17.9 on `55440`, MinIO on `5
 
 | Owner | Docker project / resources | Loopback ports | State |
 | --- | --- | --- | --- |
-| N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter and admin proxy | PostgreSQL `55441`, API `58091`, Flutter `58092`, admin `58093` | acceptance complete; worker/listeners stopped |
+| N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter and admin proxy | PostgreSQL `55441`, API `58091`, Flutter `58092`, admin `58093` | stopped at08:45 after exact Compose ownership verification; containers/volumes preserved |
 | N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9; task-owned local files/SMTP/frontend | PostgreSQL `55469`, API `58094`, SMTP `58095`, frontend `58106` | acceptance complete; AutoRemove PG container removed on pause stop, no live resource touched |
-| Integration | `pgbase-n6n9-integration` or another recorded unique name | unallocated; check running ports first | not provisioned |
-| N8 | `pgbase-n8-20260910`; isolated PG17/PG18 and task-owned UI | PG17 `55470`, PG18 `55471`, API `58096`, UI `58097` | PG containers stopped, containers/data preserved; API/UI/credentials were never created |
+| G5 integration | `pgbase-n6n9-g5-20260910` | PG18 `55472`, MinIO `59007` | stopped at08:45; containers/volumes/logs preserved |
+| N8 | `pgbase-n8-20260910`; isolated PG17/PG18 and task-owned UI | PG17 `55470`, PG18 `55471`, API `58096`, UI `58097` | PG containers stopped at08:45; fresh browser DB/roles/protected credentials/evidence preserved; API/UI/browser stopped |
 | N9 | task-owned disposable install directory; no Docker/DB | optional local TLS/health `58098` | allocated; native Darwin fixture only |
 
 Port and container allocation is written here before starting a new fixture. A worker cleans only resources it created and names explicitly.
@@ -154,3 +152,6 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 08:27 KST — integrated residual backend `0e4ba42` as `00b7fc4`; owner entire SQLconsole passed PG17 race (8.526s), PG18 (6.982s), API/options focused race (1.422s/1.466s). Gauss found one narrow remaining R12 control-pool starvation path during concurrent duplicate replay; owner fixes it without API/schema change. Feynman received composed `e57d233` for immediate fresh migration/browser execution. Socrates generated dist and capability golden are integrated; build and focused92 pass. Boole baseline vet passes; unit/race failures are migration41 checksum snapshot and measured old structural budgets, with N6/N8 lint cleanup assigned by file ownership. Final G5 is still open.
 
 - 2026-09-10 08:36 KST — all N8 backend findings close at owner `752d38c`; browser candidate `e57d233` passed 13 real Chromium scenarios. A screenshot-only result table overflow is receiving a narrow existing-scroll-class/spacing fix; no new browser mechanism or repeated matrix. Main full PG18/MinIO race remains immutable at `d4fb6a2`. Lead stages final composition separately in `codex/n6-n9-final-candidate`, to fast-forward integration after that command exits. Reviewed N6 cleanup `c4ebdeb` passes actual CLI/JSVM/public-facade race; Luna fixed the PG watch test capture race as `1f429e4` (2.494s). Lead fixed missing integration build tags and final41 identity-table rewind fixture; affected checks run separately. Six builds, native metadata and Windows package compiles passed at `6e010f1`; final UI dist will be embedded before final artifact acceptance. No runtime safety finding remains open.
+
+- 2026-09-10 08:45 KST — full PG18/MinIO command finished at immutable `d4fb6a2`:43 packages passed and two test fixture failures were isolated. Watch output capture `433a753` passes exact PG race2.494s; final41 rewind fixture `a31975f` passes1.902s. Missing integration tags, new41 checksum and measured budgets close the earlier no-DB unit failures. No unapproved skips were reported. Final typed helper cleanup exposed a real terminal-publication interleaving; controlled row-lock repro failed before, then `b7674f7` persisted a local terminal snapshot before publication and all five affected PG race cases passed3.439s. Gauss reviewed that exact delta.
+- 2026-09-10 08:48 KST — final `b7674f7` pinned lint0/vet/affected unit-race, TS7/live HTTP+file/SSE/localpack consumer, composed UI build/repro and six binaries/native metadata/Windows compiles/checksums all pass. N8 real-browser13 plus only the exact-read/scroll/clipboard presentation rerun pass. Gauss final `0b7fcb65` is Standards PASS / Spec PASS / open0; owner/reviewer/Luna tasks are closed. Six task-owned N7/N8/G5 containers were stopped without removal after label/AutoRemove verification; data/evidence preserved and live8090/55440/59000 untouched. Central documents now record completed local scope and the known native/platform/publication boundaries. No further product checks are scheduled.

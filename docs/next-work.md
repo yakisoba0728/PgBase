@@ -1,6 +1,6 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6/N7/N9 로컬 구현·핵심 인수는 끝났고 N8과 전체 G5는 일시정지 checkpoint 이후 사용자 요청으로 재개했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료했다. 원격 병합·공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
@@ -12,12 +12,12 @@
 | 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
 | 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
 | 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. PR34 병합·schema40 설치 인수 완료 |
-| 로컬 완료·G5 대기 | N6 | JSVM | external Go+JS·PG/file/SMTP/job·same-origin browser·review zero 완료 |
-| 로컬 완료·G5 대기 | N7 | Dart SDK | Dart/Flutter external consumer·cross-flow·browser·review zero 완료 |
-| **ACTIVE** | N8 | SQL 콘솔 | integration `6bb6dbb`; unintegrated WIP `codex/n8-sql-console@4d773b5`; acceptance open |
-| 로컬 완료·G5 대기 | N9 | self-update | private+shared review closure, Darwin fixture·six-build/Windows compile 근거 완료 |
+| 로컬 인수 완료 | N6 | JSVM | external Go+JS·PG/file/SMTP/job·same-origin browser·review zero 완료 |
+| 로컬 인수 완료 | N7 | Dart SDK | Dart/Flutter external consumer·cross-flow·browser·review zero 완료 |
+| 로컬 인수 완료 | N8 | SQL 콘솔 | 최종 `b7674f7`, PG17/18·race·실제 browser13·Gauss PASS/PASS/open0 |
+| 로컬 인수 완료 | N9 | self-update | private+shared review closure, Darwin fixture·six-build/Windows compile 근거 완료 |
 
-통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유한다. N6/N7/N9은 로컬 범위에서 완료됐으나 전체 G5는 실행하지 않았다. N8의 integrated product/UI checkpoint는 pre-pause `6bb6dbb`까지이며 owner WIP `4d773b5`는 clean branch에만 보존하고 통합하지 않았다. 불완전 review checkpoint `9ac351a`는 docs-only로 통합했으며 full PASS가 아니다. 재개 시 R12의 수정된 assertion을 먼저 재실행하고 R1–R4/R8–R10/R12를 독립 review로 닫은 뒤 PG17/18·race·six-build·실제 browser와 G5를 진행한다. live 설치·ports는 검증 대상이 아니다.
+통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유했다. 최종 제품/UI `b7674f7` 및 [G5 인수 기록](workstreams/n6-n9/acceptance.md)에 모든 안정 worker 수정과 focused closure를 통합했다. 과거 pause checkpoint는 이력으로 남기며 미통합 제품 WIP나 open finding은 없다. 모든 task fixture는 정지·보존했고 설치 N1–N5/schema40은 유지한다.
 
 N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `tool/live_conformance.dart`의 upload 404를 재현했다. 무인증 file route도 인증 오류가 아닌 generic router 404였고 컨테이너에 `PGBASE_FILES_DRIVER`/`PGBASE_FILES_LOCAL_DIRECTORY`가 없었다. `withFileServices`가 file routes를 등록하지 않은 fixture 설정 누락으로 확정했다. N7 `52e23ce`가 task-owned local storage를 추가한 뒤 실제 user upload/list/token/byte-exact download/delete와 admin upload가 통과했다. SDK·Go server 계약 변경 사유는 없었고 해당 404 검사는 종료했다.
 
@@ -85,7 +85,7 @@ N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `t
 
 완료 기준: 등록 가능한 이름뿐 아니라 실제 API 호출 경로와 최종 결과가 연결된다. 외부 효과의 durable delivery는 outbox 계약과 분리한다.
 
-## N6 — JSVM (로컬 완료, G5 대기)
+## N6 — JSVM (로컬 인수 완료)
 
 - [x] 엔진·지원 문법·모듈 로딩·타입 정의·개발 reload와 PB API 호환 범위를 정했다.
 - [x] Go API 위에 route/hook/migration/job 및 필요한 DB/mail/file 바인딩을 구현했다.
@@ -94,25 +94,25 @@ N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `t
 
 완료 기준: 실행 파일에 script를 넣어 읽는 수준을 넘어 문서화된 바인딩과 실패 계약을 갖춘다. PB JS API 전체 호환 여부는 별도로 표시한다.
 
-## N7 — Dart SDK (로컬 완료, G5 대기)
+## N7 — Dart SDK (로컬 인수 완료)
 
 - [x] 패키지 구조, auth store, 정확 숫자·UUID·에러·취소 계약을 정의했다.
 - [x] auth/CRUD/필터·페이지/ETag·idempotency/Batch/file/SSE 및 필요한 관리 API를 구현했다.
 - [x] 실제 PgBase HTTP conformance, reconnect·로그아웃·에러·파일 전송을 검증했다.
 - [x] 로컬 Dart/Flutter 예제와 설치 문서를 제공했다. pub.dev 공개 발행은 대기로 둔다.
 
-## N8 — SQL 콘솔 (ACTIVE, 미완료)
+## N8 — SQL 콘솔 (로컬 인수 완료)
 
-통합된 UI/shared/backend 기반은 `6bb6dbb`까지다. 추가 backend candidate는 `codex/n8-sql-console@4d773b5`에 clean WIP로만 보존한다. R1–R4/R8–R12, current PG/race/build, 실제 browser와 final review가 열려 있으므로 아래 항목은 완료 처리하지 않는다. API/UI fixture와 credential file은 생성되지 않았고 N8 PG 컨테이너는 data를 보존한 정지 상태다.
+최종 제품 `b7674f7`의 backend/UI/shared composition은 Gauss Standards PASS/Spec PASS/open0이며 실제 browser13 시나리오와 PG17/18·전체 G5의 실패 범위 closure를 완료했다. [N8 계약](workstreams/n6-n9/N8.md), [browser 증거](workstreams/n6-n9/N8-browser.md), [최종 인수](workstreams/n6-n9/acceptance.md)를 따른다.
 
-- [ ] 허용 statement·읽기/쓰기·transaction·PgBase 소유 schema 변경 경계를 정한다.
-- [ ] 관리자 인가, timeout/cancel·행/본문 상한·실행 로그 및 오류 표시를 구현한다.
-- [ ] UI에서 쿼리 실행·결과 탐색·취소·정확 숫자를 지원한다.
-- [ ] rollback·lock contention·연결 종료와 schema/record/audit/outbox 불변식 보존을 검증한다.
+- [x] 허용 statement·읽기/쓰기·transaction·PgBase 소유 schema 변경 경계 확정.
+- [x] 관리자 인가, timeout/cancel·행/본문 상한·durable 실행 로그/identity 및 오류 표시 구현.
+- [x] UI 쿼리 실행·결과 탐색·취소·정확 숫자·bounded scroll 구현/실브라우저 검증.
+- [x] rollback·lock/cancel·연결 종료·retention/replay·durable publication과 기존 불변식 검증.
 
 완료 기준: 현재 SQL View 편집과 독립된 기능으로 구현하고, 직접 SQL이 우회할 수 있는 제품 불변식의 처리 방식을 문서화한다.
 
-## N9 — self-update (로컬 완료, G5 대기)
+## N9 — self-update (로컬 인수 완료)
 
 - [x] 버전/플랫폼 artifact 선택, checksum·서명 검증, 현재 파일 보존과 원자적 교체 계약을 정했다.
 - [x] 다운로드 중단·검증 실패·권한 부족·실행 실패 시 복구를 로컬 fixture로 검증했다.

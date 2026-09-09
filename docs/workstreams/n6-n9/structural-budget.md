@@ -1,6 +1,6 @@
 # N6–N9 measured structural budget
 
-Source candidate: `94d8300`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. N6 mechanical cleanup `c4ebdeb` is included; actual CLI/JSVM/public-facade race tests pass. Gauss independently confirmed the unchanged classifier, baseline metrics and scoped rationale at `d4fb6a2`; the final mechanical delta adds exactly 17 Go lines.
+Final source: `b7674f704e14b07104ebf6f1c9ee5e53092f367e`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. N6 mechanical cleanup `c4ebdeb` is included; actual CLI/JSVM/public-facade race tests pass. Gauss independently confirmed the unchanged classifier, baseline metrics and scoped rationale at `d4fb6a2`; the final mechanical delta adds exactly 17 Go lines.
 
 `go run ./tools/repostats -compare 2939f1543e4889c0ffa967eae398c91d0ecbb6ce` measures every Git-tracked runtime file using the existing classifier. No files or comments were excluded and no unused growth allowance is added. The data-group ceiling remains 22,693; no database/query/record/schema runtime file changes in this feature group. Every production file remains at or below 800 lines.
 
@@ -36,3 +36,5 @@ Migration 41 is the sole new system migration. Its current checksum is `628b3920
 Final pinned lint exposed two always-false private replay return values after PostgreSQL tests moved under their proper integration tag. Removing those private booleans keeps the public admission result `false` at the two call sites and adds exactly two Go lines; no SQL, connection lifetime, API, or replay behavior changes.
 
 The concrete terminal-publication race correction adds 12 further Go lines: a local terminal snapshot is persisted before publication, and cancel/replay surface persistence failure consistently with GET. A deterministic PostgreSQL row-lock regression fails before the change and passes afterward; the five affected persistence/replay/cancellation cases pass under race. Final measured Go runtime is 69,323 and handwritten runtime 75,990, with all other ceilings unchanged.
+
+Gauss final report `0b7fcb65` independently confirms all final metrics and the complete scoped rationale. Separately, Dart SDK production `sdk/dart/lib` contains11 files/2,323 lines (largest578); the existing Go/UI classifier intentionally reports Dart outside its Go/UI ceilings. No Dart source was hidden or counted as Go/UI runtime.
