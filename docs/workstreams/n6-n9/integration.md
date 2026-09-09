@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:01 KST
+Last updated: 2026-09-10 04:03 KST
 
 ## Current milestone
 
@@ -36,7 +36,7 @@ No N6–N9 test may target the installed PostgreSQL 17.9 on `55440`, MinIO on `5
 | Owner | Docker project / resources | Loopback ports | State |
 | --- | --- | --- | --- |
 | N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter web | PostgreSQL `55441`, API `58091`, Flutter `58092` | active through browser/review closure; file route fixed |
-| N6 | worker-assigned names only | unallocated until worker reports exact values | no container observed at 03:35 KST |
+| N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9 | PostgreSQL `55469` | active for worker integration tests; no N6 app/MinIO port allocated yet |
 | Integration | `pgbase-n6n9-integration` or another recorded unique name | unallocated; check running ports first | not provisioned |
 | N8/N9 | each worker owns a distinct project/name/port row before startup | unallocated | gated |
 
@@ -67,3 +67,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 03:56 KST — N6 reported no blocker after foundation. Current WIP is the admitted-request public Go facade for real records/mail/files, exact raw JSON DTO, shared bridge, lifecycle priority/veto/paired After adapter and jobs. The next stable gate is isolated PostgreSQL with real domain service, authorization/context-forgery rejection and hook ordering/outcomes; migrations, CLI, external JS app and stress remain afterward.
 - 2026-09-10 03:56 KST — Newton's independent N7 review reproduced P1 stale-token persistence when delayed storage write completes after clear/logout, non-canceling stalled upload hashing, and an old admin request's late 401 clearing a newer login's CSRF state; P2 retry of terminal SSE 410/400/401/403 and realm profile envelope mismatch. It also found the typed approved schema/import plan snapshot with stable replay IDs and server request ID propagation absent, plus live-contract coverage gaps. Findings were returned to Einstein with exact narrow fixes/tests; Newton remains assigned through re-review.
 - 2026-09-10 04:00 KST — integrated Newton's review-only `7fbe383` as `0128a9b`. `N7-review.md` records Standards 0 and Spec 7: three reproduced P1 findings and four P2 findings including approved plan/replay binding and structured request-ID/network errors. The review changed no product file and used no shared/live fixture. Einstein is implementing the returned fixes; Newton remains the sole reviewer for focused closure.
+- 2026-09-10 04:03 KST — observed N6's first dedicated database fixture: container `pgbase-n6-pg-20260910`, pinned `postgres:17.9-bookworm` image, loopback `55469`. It does not collide with N7 or installed ports. Worker WIP now includes JS migrations and an integration test, but no stable commit or PG pass has been reported; the gate remains active.
