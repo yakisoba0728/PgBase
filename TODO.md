@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 05:03 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 05:14 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -10,7 +10,7 @@
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
 | G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | alias fix+migration 확대 `21b8293` 통합, focused race/PG green, Nash Standards/Spec 0 | 외부 JS 앱/browser·cross-flow·stress |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | core acceptance 완료 — data/admin/browser/revoke와 실제 open-SSE logout·cursor 410·cancel upload cleanup green | N6 외부 앱 cross-flow에 동일 SDK 재사용 |
-| G3 N6/N7 통합 | Sol 통합 | 핵심 마지막 구간 — N7 core와 N6 review/migration accepted; plan 중복 skip | 외부 Go+JS↔Dart/Flutter 실제 흐름, focused CPU/queue/cancel/Close |
+| G3 N6/N7 통합 | Sol 통합 | N7 core와 N6 review/migration accepted; file streaming/cleanup과 stress tests WIP, 외부 앱·cross-flow 아직 미실행 | stable N6 file/cleanup, 외부 Go+JS 앱, 병렬 Dart/Flutter cross-flow, focused CPU/queue/cancel/Close 결과 |
 | G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | N8 준비 `a8e3a86`, N9 준비·scope `08ce58c`/`7453dd1` 통합; 둘 다 G3 대기 | G3 뒤 migration/parser/shared seam 확정과 main 시작 신호 |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
