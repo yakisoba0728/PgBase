@@ -129,3 +129,25 @@ func TestCloneExecutionOwnsEveryNestedResultSlice(t *testing.T) {
 		t.Fatalf("source row length = %d", got)
 	}
 }
+
+func TestCanonicalJSONRejectsDuplicateKeysAtEveryDepth(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{
+		`{"same":1,"same":2}`,
+		`{"nested":{"same":1,"same":2}}`,
+		`[{"same":1,"same":2}]`,
+	} {
+		if _, err := CanonicalJSON([]byte(value)); err == nil {
+			t.Fatalf("duplicate JSON %s was accepted", value)
+		}
+	}
+	value := []byte(` { "unsafe": 9007199254740993.125, "missing": null } `)
+	canonical, err := CanonicalJSON(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonical) != `{"unsafe":9007199254740993.125,"missing":null}` {
+		t.Fatalf("canonical JSON = %s", canonical)
+	}
+}

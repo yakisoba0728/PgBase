@@ -329,6 +329,60 @@ func validatePoolPrivileges(ctx context.Context, pools *Pools, targets map[Relat
 			return err
 		}
 	}
+	return validateReceiptPrivileges(ctx, pools)
+}
+
+func validateReceiptPrivileges(ctx context.Context, pools *Pools) error {
+	relation := RelationRef{Schema: "pgbase_meta", Name: "sql_console_write_receipts"}
+	insertColumns := stringSet([]string{
+		"execution_id", "administrator_id", "idempotency_hash", "request_hash",
+		"row_count", "affected_rows", "result_bytes", "committed_at",
+	})
+	for label, pool := range map[string]*database.Pool{"compiler": pools.compiler, "read": pools.read, "writer": pools.writer} {
+		var schemaUsage bool
+		if err := pool.QueryRow(ctx, `select has_schema_privilege(current_user,$1,'USAGE')`, relation.Schema).Scan(&schemaUsage); err != nil {
+			return fmt.Errorf("%w: inspect %s receipt schema privilege: %v", ErrUnsafeDatabaseRole, label, err)
+		}
+		if schemaUsage != (label == "writer") {
+			return fmt.Errorf("%w: %s receipt schema privilege", ErrUnsafeDatabaseRole, label)
+		}
+		rows, err := pool.Query(ctx, `select a.attname,
+			has_column_privilege(current_user,c.oid,a.attnum,'SELECT'),
+			has_column_privilege(current_user,c.oid,a.attnum,'INSERT'),
+			has_column_privilege(current_user,c.oid,a.attnum,'UPDATE')
+			from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+			join pg_catalog.pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
+			where n.nspname=$1 and c.relname=$2 order by a.attnum`, relation.Schema, relation.Name)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var column string
+			var readable, insertable, updateable bool
+			if err := rows.Scan(&column, &readable, &insertable, &updateable); err != nil {
+				rows.Close()
+				return err
+			}
+			_, wanted := insertColumns[column]
+			if readable || updateable || insertable != (label == "writer" && wanted) {
+				rows.Close()
+				return fmt.Errorf("%w: %s receipt column privilege on %s", ErrUnsafeDatabaseRole, label, column)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		var unsafe bool
+		if err := pool.QueryRow(ctx, `select
+			has_table_privilege(current_user,c.oid,'DELETE') or has_table_privilege(current_user,c.oid,'TRUNCATE') or
+			has_table_privilege(current_user,c.oid,'REFERENCES') or has_table_privilege(current_user,c.oid,'TRIGGER')
+			from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+			where n.nspname=$1 and c.relname=$2`, relation.Schema, relation.Name).Scan(&unsafe); err != nil || unsafe {
+			return fmt.Errorf("%w: %s receipt table privilege", ErrUnsafeDatabaseRole, label)
+		}
+	}
 	return nil
 }
 

@@ -48,10 +48,24 @@ func TestOpenPoolsRejectsExtensionSideEffects(t *testing.T) {
 	}
 }
 
+func TestOpenPoolsRejectsWriterWithoutFixedReceiptGrant(t *testing.T) {
+	fixture := newPoolFixture(t)
+	if _, err := fixture.owner.Exec(context.Background(), `revoke insert (result_bytes)
+		on pgbase_meta.sql_console_write_receipts from `+pgx.Identifier{fixture.writerRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(context.Background(), fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("writer without the fixed receipt grant was accepted")
+	}
+}
+
 type poolFixture struct {
-	owner    *database.Pool
-	options  PoolOptions
-	readRole string
+	owner      *database.Pool
+	options    PoolOptions
+	readRole   string
+	writerRole string
+	actorID    uuid.UUID
 }
 
 func newPoolFixture(t *testing.T) poolFixture {
@@ -74,6 +88,7 @@ func newPoolFixture(t *testing.T) poolFixture {
 	readRole := "n8_read_" + suffix
 	writerRole := "n8_writer_" + suffix
 	password := "n8-test-password-" + suffix
+	actorID := uuid.New()
 	parsed, err := url.Parse(databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -99,20 +114,28 @@ func newPoolFixture(t *testing.T) poolFixture {
 		grant connect,temp on database %s to %s;
 		grant connect on database %s to %s,%s;
 		grant usage on schema app,ext to %s,%s;
-		grant usage on schema ext to %s;
+		grant usage on schema ext,pgbase_meta to %s;
 		grant select (id,created_at,updated_at,visible) on app.accounts to %s,%s,%s;
 		grant select (id,amount,label) on ext.items to %s,%s,%s;
 		grant insert (id,amount,label),update (id,amount,label),delete on ext.items to %s;
+		grant insert (execution_id,administrator_id,idempotency_hash,request_hash,row_count,affected_rows,result_bytes,committed_at)
+			on pgbase_meta.sql_console_write_receipts to %s;
 		alter role %s in database %s set default_transaction_read_only=on`,
 		pgx.Identifier{databaseName}.Sanitize(),
 		identifiers[0], quoteLiteral(password), identifiers[1], quoteLiteral(password), identifiers[2], quoteLiteral(password),
 		pgx.Identifier{databaseName}.Sanitize(), identifiers[0],
 		pgx.Identifier{databaseName}.Sanitize(), identifiers[1], identifiers[2],
 		identifiers[0], identifiers[1], identifiers[2],
-		identifiers[0], identifiers[1], identifiers[2], identifiers[0], identifiers[1], identifiers[2], identifiers[2],
+		identifiers[0], identifiers[1], identifiers[2], identifiers[0], identifiers[1], identifiers[2], identifiers[2], identifiers[2],
 		identifiers[1], pgx.Identifier{databaseName}.Sanitize(),
 	)); err != nil {
 		t.Fatalf("provision N8 roles: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `insert into pgbase_meta.admins
+		(id,email,password_hash,active,created_at,updated_at)
+		values($1,$2,'n8-test',true,current_timestamp,current_timestamp)`,
+		actorID, actorID.String()+"@example.com"); err != nil {
+		t.Fatalf("provision N8 administrator: %v", err)
 	}
 	t.Cleanup(func() {
 		for _, identifier := range identifiers {
@@ -133,7 +156,7 @@ func newPoolFixture(t *testing.T) poolFixture {
 		},
 	}}
 	return poolFixture{
-		owner: owner, readRole: readRole,
+		owner: owner, readRole: readRole, writerRole: writerRole, actorID: actorID,
 		options: PoolOptions{
 			CompilerURL:  roleURL(parsed, compilerRole, password),
 			ReadURL:      roleURL(parsed, readRole, password),

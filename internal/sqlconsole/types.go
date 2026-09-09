@@ -275,7 +275,7 @@ func validateParameter(parameter Parameter) error {
 			return errors.New("decimal is not canonical")
 		}
 	case ParameterJSON:
-		if !json.Valid([]byte(parameter.Text)) {
+		if _, err := CanonicalJSON([]byte(parameter.Text)); err != nil {
 			return errors.New("JSON is invalid")
 		}
 	case ParameterBytes:
@@ -421,9 +421,68 @@ func CanonicalJSON(value []byte) ([]byte, error) {
 	if !json.Valid(value) {
 		return nil, errors.New("invalid JSON")
 	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	if err := consumeUniqueJSONValue(decoder); err != nil {
+		return nil, err
+	}
+	if decoder.More() {
+		return nil, errors.New("invalid trailing JSON value")
+	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, value); err != nil {
 		return nil, err
 	}
 	return compact.Bytes(), nil
+}
+
+func consumeUniqueJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, compound := token.(json.Delim)
+	if !compound {
+		return nil
+	}
+	var expectedClosing json.Delim
+	switch delimiter {
+	case '{':
+		expectedClosing = '}'
+		keys := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("invalid JSON object key")
+			}
+			if _, duplicate := keys[key]; duplicate {
+				return fmt.Errorf("duplicate JSON object key %q", key)
+			}
+			keys[key] = struct{}{}
+			if err := consumeUniqueJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+	case '[':
+		expectedClosing = ']'
+		for decoder.More() {
+			if err := consumeUniqueJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+	default:
+		return errors.New("invalid JSON delimiter")
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if closing != expectedClosing {
+		return errors.New("invalid JSON closing delimiter")
+	}
+	return nil
 }
