@@ -22,7 +22,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 )
 
-const maximumBatchRequestBytes = 1 << 20
+const maximumBatchRequestBytes = maximumRecordRequestBytes
 const maximumMultipartBatchRequestBytes = (100 << 20) + maximumBatchRequestBytes
 
 type batchRecordService interface {
@@ -76,6 +76,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	if media == "multipart/form-data" {
 		limit = maximumMultipartBatchRequestBytes
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if r.ContentLength > limit {
 		writeInvalidRecordRequest(w, r)
 		return

@@ -121,6 +121,9 @@ func newWithCatalogPreflight(
 		})},
 	}}
 	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
+	if normalized.Hooks != nil {
+		schemaService.SetCollectionMutationLifecycle(schemaLifecycleHooks{normalized.Hooks})
+	}
 	schemaListener := schema.NewListener(pool, schemaCache, metrics, schemaService)
 	readiness.dependencies = append(readiness.dependencies, schemaListener)
 	membershipRuntime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
@@ -183,12 +186,15 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	if normalized.Hooks != nil {
+		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
+	}
 	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
 	if err != nil {
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
-	dependencies, backupManager, err := withBackupServices(dependencies, fileService, normalized)
+	dependencies, backupManager, err := withBackupServices(ctx, dependencies, fileService, pool, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +215,7 @@ func newWithCatalogPreflight(
 	}
 	handler = requestHooks(normalized.Hooks, handler)
 	app := &App{
+		schemaCache:      schemaCache,
 		options:          normalized,
 		backupManager:    backupManager,
 		requestLog:       dependencies.RequestLog,
@@ -232,6 +239,9 @@ func newWithCatalogPreflight(
 	}
 	if fileService != nil {
 		app.fileWorker = fileService
+	}
+	if worker, ok := dependencies.StorageMigrations.(backgroundRunner); ok {
+		app.storageMigrationWorker = worker
 	}
 	app.httpServer = &http.Server{
 		Addr:              normalized.HTTPAddress,

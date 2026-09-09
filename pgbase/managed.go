@@ -13,13 +13,18 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/backup"
+	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
 )
 
 // RunManaged hosts an application behind a stable HTTP listener. Web restore
 // builds and checks a fresh target, drains requests, swaps the app, and retains
 // the previous target for recovery. An activation receipt survives restart.
 func RunManaged(ctx context.Context, options Options) error {
+	if err := validateBackupOptions(options.Backups); err != nil {
+		return err
+	}
 	if options.Backups.Directory == "" {
 		app, err := New(ctx, options)
 		if err != nil {
@@ -35,17 +40,49 @@ func RunManaged(ctx context.Context, options Options) error {
 	if err = h.loadTarget(); err != nil {
 		return err
 	}
-	manager, err := backup.NewManager(backup.ManagerOptions{Directory: normalized.Backups.Directory, LogError: func(ctx context.Context, err error) {
-		normalized.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
-	}, Create: h.createBackup, Restore: h.restoreBackup})
+	controllerPool, err := database.Open(ctx, h.options.DatabaseURL, h.options.StatementTimeout, h.options.AllowInsecureDatabase)
 	if err != nil {
 		return err
 	}
+	if normalized.AutoMigrate {
+		runner := migrate.New(controllerPool, normalized.Logger)
+		status, statusErr := runner.Status(ctx)
+		if statusErr != nil {
+			controllerPool.Close()
+			return statusErr
+		}
+		if status.Current == 0 {
+			if err = runner.Up(ctx); err != nil {
+				controllerPool.Close()
+				return err
+			}
+		}
+	}
+	controller, err := backup.NewStorageController(ctx, controllerPool, h.options.TokenSecret, backup.NewLocalRepository(h.options.Backups.Directory), backup.StorageConfig{Driver: func() string {
+		if h.options.Backups.S3.Bucket != "" {
+			return "s3"
+		}
+		return "local"
+	}(), Bucket: h.options.Backups.S3.Bucket, Prefix: h.options.Backups.S3.Prefix, Region: h.options.Backups.S3.Region, Endpoint: h.options.Backups.S3.Endpoint, AccessKey: h.options.Backups.S3.AccessKey, SecretKey: h.options.Backups.S3.SecretKey, UsePathStyle: h.options.Backups.S3.UsePathStyle, Retention: h.options.Backups.Retention})
+	if err != nil {
+		controllerPool.Close()
+		return err
+	}
+	h.controller, h.controllerPool = controller, controllerPool
+	manager, err := backup.NewManager(backup.ManagerOptions{Directory: normalized.Backups.Directory, Repository: controller, Retention: normalized.Backups.Retention, Lifecycle: backupLifecycle(normalized.Hooks), LogError: func(ctx context.Context, err error) {
+		normalized.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
+	}, Create: h.createBackup, Restore: h.restoreBackup})
+	if err != nil {
+		controllerPool.Close()
+		return err
+	}
 	h.options.Backups.manager = manager
+	h.options.Backups.controller = controller
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
 		defer cancel()
 		_ = manager.Shutdown(shutdown)
+		h.controllerPool.Close()
 	}()
 	app, err := New(ctx, h.options)
 	if err != nil {
@@ -76,12 +113,14 @@ func RunManaged(ctx context.Context, options Options) error {
 }
 
 type managedHost struct {
-	options     Options
-	mu          sync.Mutex
-	app         *App
-	active      int
-	maintenance bool
-	drained     chan struct{}
+	options        Options
+	mu             sync.Mutex
+	app            *App
+	active         int
+	maintenance    bool
+	drained        chan struct{}
+	controller     *backup.StorageController
+	controllerPool *database.Pool
 }
 
 func (h *managedHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +161,22 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	h.mu.Unlock()
 	target, err := backup.RestoreNew(ctx, directory, options.DatabaseURL, filepath.Join(options.Backups.Directory, "targets"))
 	if err != nil {
+		return err
+	}
+	targetPool, err := database.Open(ctx, target.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
+	if err != nil {
+		return err
+	}
+	targetPoolAdopted := false
+	defer func() {
+		if !targetPoolAdopted {
+			targetPool.Close()
+		}
+	}()
+	if err = filestore.ResetRestoredStorage(ctx, targetPool); err != nil {
+		return err
+	}
+	if _, err = targetPool.Exec(ctx, `delete from pgbase_meta.backup_storage_operations`); err != nil {
 		return err
 	}
 	activated := false
@@ -181,9 +236,19 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	if err = backup.Progress(ctx, "activating_target"); err != nil {
 		return err
 	}
-	if err = h.persistTarget(target); err != nil {
+	nextControllerPool := targetPool
+	if err = h.controller.ValidatePool(ctx, nextControllerPool); err != nil {
+		nextControllerPool.Close()
 		return err
 	}
+	if err = h.persistTarget(target); err != nil {
+		nextControllerPool.Close()
+		return err
+	}
+	previousControllerPool := h.controllerPool
+	h.controller.RebindPool(nextControllerPool)
+	h.controllerPool = nextControllerPool
+	targetPoolAdopted = true
 	h.mu.Lock()
 	h.app = candidate
 	h.options = nextOptions
@@ -195,6 +260,7 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	if err = old.Close(closeCtx); err != nil {
 		options.Logger.Error("restored target activated; previous app shutdown failed", "error", err)
 	}
+	previousControllerPool.Close()
 	return nil
 }
 func restoredFileOptions(previous FileOptions, directory string) FileOptions {

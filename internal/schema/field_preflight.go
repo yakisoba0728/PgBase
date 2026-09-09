@@ -30,6 +30,12 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 			}
 			continue
 		}
+		// Password columns contain irreversible Argon2id hashes. Existing values
+		// cannot be checked against a new plaintext length/pattern contract; the
+		// changed policy applies to the next explicit password write.
+		if field.Type == TypePassword {
+			continue
+		}
 		if field.Type != TypeText && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && !(field.Type == TypeJSONB && len(field.Options.AllowedValues) > 0) {
 			continue
 		}

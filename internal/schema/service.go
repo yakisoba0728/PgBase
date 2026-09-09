@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
@@ -42,10 +41,11 @@ type Service struct {
 	catalogWireLimit int
 
 	// The listener heartbeat and Apply fence share one immutable writer identity.
-	instanceOnce    sync.Once
-	instanceID      uuid.UUID
-	instanceErr     error
-	compilerVersion int16
+	instanceOnce        sync.Once
+	instanceID          uuid.UUID
+	instanceErr         error
+	compilerVersion     int16
+	collectionLifecycle CollectionMutationLifecycle
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
@@ -344,7 +344,8 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				}
 				continue
 			}
-			if err := fieldvalue.ValidateDefinition(string(field.Type), fieldValueOptions(field.Options)); err != nil {
+			options := cloneFieldOptions(field.Options)
+			if err := validateFieldOptions(field.Type, &options); err != nil {
 				return ErrConflict
 			}
 			if len(field.Default) != 0 {
@@ -403,7 +404,7 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				}
 				seen[name] = true
 				for _, field := range collection.Fields {
-					if field.Name == name && (field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB) {
+					if field.Name == name && (field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB || field.Type == TypeGeoPoint || field.Type == TypePassword) {
 						return ErrConflict
 					}
 				}
@@ -444,7 +445,7 @@ func validateCatalogIntegrity(catalog Catalog) error {
 				}
 				found := false
 				for _, field := range source.Fields {
-					if field.Name == name && field.Type == collection.Fields[position].Type && field.Type != TypeFile && field.Type != TypeRelation {
+					if field.Name == name && field.Type == collection.Fields[position].Type && field.Type != TypeFile && field.Type != TypeRelation && field.Type != TypePassword {
 						found = true
 					}
 				}

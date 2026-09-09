@@ -134,7 +134,10 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	defer cancel()
 	// Rewind to exactly v6. Remove every later object and history row so Up sees
 	// a contiguous pre-membership history even as new migrations are embedded.
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.user_email_otps, pgbase_meta.schema_import_operations;
+	if _, err := pool.Exec(ctx, `drop table pgbase_meta.backup_storage_operations, pgbase_meta.backup_storage_settings;
+		drop table pgbase_meta.file_storage_source_cleanup, pgbase_meta.file_storage_migration_objects,
+			pgbase_meta.file_storage_migrations, pgbase_meta.user_migrations, pgbase_meta.file_storage_settings;
+		drop table pgbase_meta.user_email_otps, pgbase_meta.schema_import_operations;
         alter table pgbase_meta.fields drop column hidden, drop column presentable, drop column help;
         drop table pgbase_meta.record_file_variants, pgbase_meta.request_logs, pgbase_meta.user_oauth_avatars;
         drop function pgbase_meta.queue_record_file_variant_object();

@@ -1,3 +1,5 @@
+import { BackupStoragePage } from "./pages/backup-storage-page";
+import { StorageSettingsPage } from "./pages/storage-settings-page";
 import { useRef, useState } from "react";
 import { SessionProvider, useSession } from "./auth/session";
 import { AdminLink } from "./routing/admin-link";
@@ -23,6 +25,8 @@ type Navigate = (route: AdminRoute) => void;
 // state before the next one renders instead of each page unwinding it.
 function outlet(route: AdminRoute, key: string, navigate: Navigate) {
   if (route.kind === "collection-create") return <CollectionDesignerPage key={key} mode={{ kind: "create" }} navigate={navigate} />;
+  if (route.kind === "backup-storage") return <BackupStoragePage key={key} />;
+  if (route.kind === "storage") return <StorageSettingsPage key={key} />;
   if (route.kind === "operations") return <SchemaOperationsPage key={key} />;
   if (route.kind === "system") return <SystemPage key={key} />;
   if (route.kind === "users") return <UsersPage key={key} />;
@@ -76,7 +80,7 @@ function AuthenticatedShell({ history }: { history?: AdminHistory }) {
     </header>
     <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
       {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
       <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate)}</UnsavedDrafts>
     </fieldset>
   </main>;

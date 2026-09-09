@@ -74,27 +74,33 @@ func InspectSQLView(ctx context.Context, tx pgx.Tx, catalog Catalog, sql string)
 }
 
 func inspectSQLViewDependencies(ctx context.Context, tx pgx.Tx, viewOID uint32, catalog Catalog) ([]uuid.UUID, error) {
-	allowed := make(map[string]uuid.UUID, len(catalog.Collections))
+	allowed := make(map[string]Collection, len(catalog.Collections))
 	for _, c := range catalog.Collections {
-		allowed[c.TableName] = c.ID
+		allowed[c.TableName] = c
 	}
-	rows, err := tx.Query(ctx, `select distinct n.nspname,c.relname from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_class c on d.refclassid='pg_class'::regclass and d.refobjid=c.oid join pg_namespace n on n.oid=c.relnamespace where r.ev_class=$1 and c.oid<>$1`, viewOID)
+	rows, err := tx.Query(ctx, `select distinct n.nspname,c.relname,coalesce(a.attname,'') from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_class c on d.refclassid='pg_class'::regclass and d.refobjid=c.oid join pg_namespace n on n.oid=c.relnamespace left join pg_attribute a on a.attrelid=c.oid and a.attnum=d.refobjsubid where r.ev_class=$1 and c.oid<>$1`, viewOID)
 	if err != nil {
 		return nil, err
 	}
 	deps := map[uuid.UUID]bool{}
 	for rows.Next() {
-		var namespace, name string
-		if rows.Scan(&namespace, &name) != nil {
+		var namespace, name, column string
+		if rows.Scan(&namespace, &name, &column) != nil {
 			rows.Close()
 			return nil, ErrConflict
 		}
-		id, ok := allowed[name]
+		collection, ok := allowed[name]
 		if namespace != "app" || !ok {
 			rows.Close()
 			return nil, ErrConflict
 		}
-		deps[id] = true
+		for _, field := range collection.Fields {
+			if column != "" && field.ColumnName == column && field.Type == TypePassword {
+				rows.Close()
+				return nil, ErrConflict
+			}
+		}
+		deps[collection.ID] = true
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()

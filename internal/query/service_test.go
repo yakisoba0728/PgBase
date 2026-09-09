@@ -282,18 +282,28 @@ func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
 }
 
 func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
+	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeText, Required: true}}})
-	large := strings.Repeat("x", 900_000)
-	wantIDs := make([]string, 0, 6)
-	for index := 0; index < 6; index++ {
-		created, err := records.Create(ctx, "large_records", map[string]json.RawMessage{"payload": json.RawMessage(fmt.Sprintf("%q", large))})
-		if err != nil {
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeJSONB, Required: true}}})
+	wantIDs := make([]string, 0, 8)
+	rows, err := pool.Query(ctx, `insert into app.large_records(id,created_at,updated_at,payload)
+		select md5('large-record-' || value::text)::uuid, now(), now(), to_jsonb(repeat('x', 7<<20))
+		from generate_series(1,8) generated(value) returning id::text`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			t.Fatal(err)
 		}
-		wantIDs = append(wantIDs, created["id"].(string))
+		wantIDs = append(wantIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	syncMembershipOrdinals(t, ctx, pool)
 	first, err := records.listScalar(ctx, "large_records", "", 100, "", "")
 	if err != nil {
 		t.Fatal(err)

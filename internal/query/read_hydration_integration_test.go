@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,6 @@ const (
 	r0HydrationRootCount   = 200
 	r0HydrationTargetCount = 1_000
 	r0HydrationEdgeCount   = r0HydrationRootCount * r0HydrationTargetCount
-	r0HydrationEmitted     = 107
 )
 
 type r0HydrationTraceContextKey struct{}
@@ -65,6 +65,7 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	root := applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{
 		Name: "r0_hydration_roots",
 		Fields: []schema.FieldInput{
+			{Name: "payload", Type: schema.TypeJSONB},
 			{Name: "links", Type: schema.TypeRelation, Relation: &schema.RelationInput{
 				TargetCollection: "r0_hydration_targets", Cardinality: schema.RelationMultiple,
 				MaxSelect: &maximum, OnDelete: schema.RelationRestrict,
@@ -85,11 +86,15 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	} else if tag.RowsAffected() != r0HydrationTargetCount {
 		t.Fatalf("target rows = %d, want %d", tag.RowsAffected(), r0HydrationTargetCount)
 	}
-	if tag, err := pool.Exec(ctx, `INSERT INTO `+rootTable+` (id, created_at, updated_at)
+	rootPayload, err := json.Marshal(strings.Repeat("x", 250<<10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag, err := pool.Exec(ctx, `INSERT INTO `+rootTable+` (id, created_at, updated_at, payload)
 		SELECT md5('r0-hydration-root-' || value::text)::uuid,
 			'2026-01-02 00:00:00+00'::timestamptz + value * interval '1 microsecond',
-			'2026-01-02 00:00:00+00'::timestamptz + value * interval '1 microsecond'
-		FROM generate_series(1, $1::integer) AS generated(value)`, r0HydrationRootCount); err != nil {
+			'2026-01-02 00:00:00+00'::timestamptz + value * interval '1 microsecond', $2::jsonb
+		FROM generate_series(1, $1::integer) AS generated(value)`, r0HydrationRootCount, rootPayload); err != nil {
 		t.Fatal(err)
 	} else if tag.RowsAffected() != r0HydrationRootCount {
 		t.Fatalf("root rows = %d, want %d", tag.RowsAffected(), r0HydrationRootCount)
@@ -102,32 +107,33 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	} else if tag.RowsAffected() != r0HydrationEdgeCount {
 		t.Fatalf("edge fixture rows = %d, want %d", tag.RowsAffected(), r0HydrationEdgeCount)
 	}
-	// Root 108 is the one hydrated lookahead that establishes the byte
-	// boundary. Corruption in root 109 must remain outside this page: a batch
-	// reader may prefetch and decode its base row, but it must not materialize or
-	// validate that speculative root's relation values before finalizing.
-	if _, err := pool.Exec(ctx, `ALTER TABLE `+edgeTable+` DISABLE TRIGGER USER`); err != nil {
-		t.Fatal(err)
-	}
-	if tag, err := pool.Exec(ctx, `DELETE FROM `+edgeTable+`
-		WHERE source_id = md5('r0-hydration-root-109')::uuid AND position = $1`,
-		r0HydrationTargetCount/2); err != nil {
-		t.Fatal(err)
-	} else if tag.RowsAffected() != 1 {
-		t.Fatalf("corrupted speculative edges = %d, want 1", tag.RowsAffected())
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE `+edgeTable+` ENABLE TRIGGER USER`); err != nil {
-		t.Fatal(err)
-	}
 	syncMembershipOrdinals(t, ctx, pool)
 	operationTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	publicPage, err := records.listScalar(ctx, root.Name, "", r0HydrationRootCount, "", "")
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
-	if len(publicPage.Items) != r0HydrationEmitted || publicPage.NextCursor == "" {
-		t.Fatalf("public List items/cursor = %d/%t, want %d/true",
-			len(publicPage.Items), publicPage.NextCursor != "", r0HydrationEmitted)
+	emitted := len(publicPage.Items)
+	if emitted == 0 || emitted >= r0HydrationRootCount || publicPage.NextCursor == "" {
+		t.Fatalf("public List items/cursor = %d/%t, want a nonempty trimmed page",
+			emitted, publicPage.NextCursor != "")
+	}
+
+	// Corrupt the first root beyond the hydrated lookahead. A batch reader may
+	// prefetch its base row, but it must not materialize or validate that
+	// speculative root's relation values before finalizing.
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+edgeTable+` DISABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	if tag, err := pool.Exec(ctx, `DELETE FROM `+edgeTable+`
+		WHERE source_id = md5('r0-hydration-root-' || $1::text)::uuid AND position = $2`,
+		strconv.Itoa(emitted+2), r0HydrationTargetCount/2); err != nil {
+		t.Fatal(err)
+	} else if tag.RowsAffected() != 1 {
+		t.Fatalf("corrupted speculative edges = %d, want 1", tag.RowsAffected())
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+edgeTable+` ENABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
 	}
 
 	trace := &r0HydrationTrace{}
@@ -180,7 +186,7 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatal(err)
 	}
 
-	wantHydrated := r0HydrationEmitted + 1
+	wantHydrated := emitted + 1
 	wantPrefetched := ((wantHydrated + rootHydrationBatchSize - 1) / rootHydrationBatchSize) * rootHydrationBatchSize
 	wantQueries := wantPrefetched / rootHydrationBatchSize
 	wantRows := wantPrefetched // one replay result row per requested root
@@ -197,9 +203,9 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 		t.Fatalf("maximum retained root maps = %d, emitted = %d; want emitted + one lookahead",
 			result.maxRetainedRoots, len(result.page.Items))
 	}
-	if len(result.page.Items) != r0HydrationEmitted || result.page.NextCursor == "" {
+	if len(result.page.Items) != emitted || result.page.NextCursor == "" {
 		t.Fatalf("emitted page items/cursor = %d/%t, want %d/true",
-			len(result.page.Items), result.page.NextCursor != "", r0HydrationEmitted)
+			len(result.page.Items), result.page.NextCursor != "", emitted)
 	}
 	if !reflect.DeepEqual(recordIDs(publicPage.Items), recordIDs(result.page.Items)) {
 		t.Fatalf("public List and traced root kernel disagree: public=%v/%q traced=%v/%q",
@@ -223,7 +229,7 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 	root := applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{
 		Name: "large_scalar_roots",
 		Fields: []schema.FieldInput{
-			{Name: "payload", Type: schema.TypeText, Required: true},
+			{Name: "payload", Type: schema.TypeEditor, Required: true},
 			{Name: "links_a", Type: schema.TypeRelation, Relation: &schema.RelationInput{
 				TargetCollection: "large_scalar_targets", Cardinality: schema.RelationMultiple,
 				MaxSelect: &maximum, OnDelete: schema.RelationRestrict,
@@ -236,7 +242,7 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 	})
 
 	const rootCount = 8
-	const payloadBytes = maximumUnindexedTextBytes
+	const payloadBytes = 7 << 20
 	table := pgx.Identifier{"app", root.TableName}.Sanitize()
 	if tag, err := pool.Exec(ctx, `INSERT INTO `+table+` (id, created_at, updated_at, payload)
 		SELECT md5('large-scalar-root-' || value::text)::uuid,
@@ -255,9 +261,10 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
-	if len(publicPage.Items) != 3 || publicPage.NextCursor == "" {
-		t.Fatalf("large scalar public page items/cursor = %d/%t, want 3/true",
-			len(publicPage.Items), publicPage.NextCursor != "")
+	emitted := len(publicPage.Items)
+	if emitted == 0 || emitted >= rootCount || publicPage.NextCursor == "" {
+		t.Fatalf("large scalar public page items/cursor = %d/%t, want a nonempty trimmed page",
+			emitted, publicPage.NextCursor != "")
 	}
 
 	var result rootPageReadResult
@@ -285,7 +292,7 @@ func TestReadKernelLargeScalarRootsRetainExactlyEmittedPlusOneMap(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("large scalar root kernel: %v", err)
 	}
-	if result.maxRetainedRoots != 4 || result.totalHydrated != 4 {
+	if result.maxRetainedRoots != emitted+1 || result.totalHydrated != emitted+1 {
 		t.Fatalf("large scalar retained/hydrated/emitted = %d/%d/%d, want emitted+1/emitted+1/emitted",
 			result.maxRetainedRoots, result.totalHydrated, len(result.page.Items))
 	}
@@ -316,10 +323,10 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 	root := applyR0QueryCollection(t, schemas, schema.CreateCollectionInput{
 		Name: "cursor_recovery_roots",
 		Fields: []schema.FieldInput{
-			{Name: "payload_a", Type: schema.TypeText},
-			{Name: "payload_b", Type: schema.TypeText},
-			{Name: "payload_c", Type: schema.TypeText},
-			{Name: "payload_d", Type: schema.TypeText},
+			{Name: "payload_a", Type: schema.TypeJSONB},
+			{Name: "payload_b", Type: schema.TypeJSONB},
+			{Name: "payload_c", Type: schema.TypeJSONB},
+			{Name: "payload_d", Type: schema.TypeJSONB},
 			{Name: "links", Type: schema.TypeRelation, Relation: &schema.RelationInput{
 				TargetCollection: "cursor_recovery_targets", Cardinality: schema.RelationMultiple,
 				MaxSelect: &maximum, OnDelete: schema.RelationRestrict,
@@ -331,10 +338,10 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 	firstTime := time.Date(2026, 9, 2, 1, 0, 0, 0, time.UTC)
 	secondTime := firstTime.Add(time.Microsecond)
 	payloads := []string{
-		strings.Repeat("x", maximumUnindexedTextBytes),
-		strings.Repeat("x", maximumUnindexedTextBytes),
-		strings.Repeat("x", maximumUnindexedTextBytes),
-		strings.Repeat("x", maximumUnindexedTextBytes-8*1024),
+		strings.Repeat("x", 12<<20),
+		strings.Repeat("x", 12<<20),
+		strings.Repeat("x", 12<<20),
+		strings.Repeat("x", 12<<20-8*1024),
 	}
 	buildCandidates := func() []pageCandidate {
 		first := map[string]any{
@@ -377,7 +384,7 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 		t.Fatal(err)
 	}
 	adjustment := maximumRecordPageBytes - terminalBytes
-	if adjustment <= 0 || len(payloads[3])+adjustment > maximumUnindexedTextBytes {
+	if adjustment <= 0 {
 		t.Fatalf("cursor recovery fixture adjustment = %d from terminal bytes %d", adjustment, terminalBytes)
 	}
 	payloads[3] += strings.Repeat("x", adjustment)
@@ -404,10 +411,15 @@ func TestReadKernelContinuesPastProvisionalCursorOverflowAtDatasetEnd(t *testing
 	}
 
 	table := pgx.Identifier{"app", root.TableName}.Sanitize()
+	databasePayloads := make([][]byte, len(payloads))
+	for index := range payloads {
+		databasePayloads[index], _ = json.Marshal(payloads[index])
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+table+`
 		(id, created_at, updated_at, payload_a, payload_b, payload_c, payload_d)
-		VALUES ($1, $2, $2, $3, $4, $5, $6), ($7, $8, $8, '', '', '', '')`,
-		firstID, firstTime, payloads[0], payloads[1], payloads[2], payloads[3], secondID, secondTime); err != nil {
+		VALUES ($1, $2, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb),
+			($7, $8, $8, '""'::jsonb, '""'::jsonb, '""'::jsonb, '""'::jsonb)`,
+		firstID, firstTime, databasePayloads[0], databasePayloads[1], databasePayloads[2], databasePayloads[3], secondID, secondTime); err != nil {
 		t.Fatal(err)
 	}
 	syncMembershipOrdinals(t, ctx, pool)

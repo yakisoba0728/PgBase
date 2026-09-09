@@ -113,9 +113,9 @@ func TestLegacyOversizedRecordBlocksListButStaysShrinkable(t *testing.T) {
 	ctx := context.Background()
 
 	legacyID := uuid.Must(uuid.NewV7())
-	// Above the 4 MiB read budget, not merely above the 2 MiB write bound, so
-	// the record is genuinely unreachable through list.
-	payload := jsonStringOfSize(5 << 20)
+	// Plant a row just beyond the current canonical record bound so it is
+	// genuinely unreachable through list, while PATCH can still repair it.
+	payload := jsonStringOfSize(49 << 20)
 	if _, err := pool.Exec(ctx, `INSERT INTO app.records (id, created_at, updated_at, title, count, metadata)
 		VALUES ($1, transaction_timestamp(), transaction_timestamp(), 'legacy', 0, $2::jsonb)`,
 		legacyID, string(payload)); err != nil {
@@ -180,7 +180,8 @@ func TestSchemaDefaultsCannotGrowExistingRecordsPastTheWriteLimit(t *testing.T) 
 		{Name: "metadata", Type: schema.TypeJSONB},
 	}
 	payload, _ := json.Marshal(strings.Repeat("x", 256<<10))
-	for index := 0; index < 8; index++ {
+	rejectedIndex := -1
+	for index := 0; index < 40; index++ {
 		for f := range fields {
 			fields[f].Default = nil
 		}
@@ -191,13 +192,11 @@ func TestSchemaDefaultsCannotGrowExistingRecordsPastTheWriteLimit(t *testing.T) 
 			t.Fatal(err)
 		}
 		_, err = schemas.Apply(ctx, schema.LegacyApply(change, plan, principal.ID))
-		if index < 7 {
-			if err != nil {
-				t.Fatalf("bounded apply %d: %v", index, err)
-			}
+		if err == nil {
 			continue
 		}
 		assertQueryValidation(t, err, "record", "record_too_large")
+		rejectedIndex = index
 		catalog, err := schemas.Catalog(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -205,15 +204,19 @@ func TestSchemaDefaultsCannotGrowExistingRecordsPastTheWriteLimit(t *testing.T) 
 		if catalog.Version != plan.BaseVersion || len(catalog.Collections["records"].Fields) != len(fields)-1 {
 			t.Fatal("refused apply changed the catalog")
 		}
+		break
+	}
+	if rejectedIndex < 1 {
+		t.Fatalf("default growth never crossed the %d-byte record limit", maximumRecordBytes)
 	}
 	got, err := records.Get(ctx, GetRequest{Principal: principal, RequestID: "schema-size-get", Collection: "records", ID: id})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := got.Data["extra_7"]; exists {
+	if _, exists := got.Data[fmt.Sprintf("extra_%d", rejectedIndex)]; exists {
 		t.Fatal("refused column survived rollback")
 	}
-	if got.Data["extra_6"] == nil {
+	if got.Data[fmt.Sprintf("extra_%d", rejectedIndex-1)] == nil {
 		t.Fatal("previously committed default disappeared")
 	}
 	if _, err := records.Update(ctx, UpdateRequest{

@@ -1,3 +1,4 @@
+import type { FileStorageMigration, FileStorageSettings } from "../backend/storage-port";
 import type {
   AuthenticatedSession,
   CollectionDefinition,
@@ -113,6 +114,15 @@ export interface BackendScript {
   remove: Step<void>[];
   status: Step<SystemStatus>[];
 	health: Step<SchemaHealth>[];
+	storageSettings: Step<FileStorageSettings>[];
+	saveStorageSettings: Step<FileStorageSettings>[];
+	testStorage: Step<void>[];
+	previewStorageMigration: Step<FileStorageMigration>[];
+	startStorageMigration: Step<FileStorageMigration>[];
+	storageMigration: Step<FileStorageMigration>[];
+	latestStorageMigration: Step<FileStorageMigration>[];
+	resumeStorageMigration: Step<void>[];
+	cancelStorageMigration: Step<void>[];
 	userAccess: Step<{ collection: string; enabled: boolean }>[];
 	setUserAccess: Step<{ collection: string; enabled: boolean }>[];
 	users: Step<UserPage>[];
@@ -142,7 +152,8 @@ export function backendScript(): BackendScript {
     resume: [], setup: [], login: [], logout: [],
     catalog: [], plan: [], apply: [], operation: [], operations: [],
 	list: [], read: [], create: [], createWithFiles: [], update: [], updateWithFiles: [], remove: [],
-	status: [], health: [], calls: [],
+	status: [], health: [], storageSettings: [], saveStorageSettings: [], testStorage: [],
+	previewStorageMigration: [], startStorageMigration: [], storageMigration: [], latestStorageMigration: [], resumeStorageMigration: [], cancelStorageMigration: [], calls: [],
 	users: [], setUserActive: [], revokeUserSessions: [], impersonateUser: [],
 	listFiles: [], uploadFile: [], deleteFile: [], createDownloadToken: [], downloadBlob: [],
 	getRules: [], setRules: [],

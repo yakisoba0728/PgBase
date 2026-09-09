@@ -34,7 +34,7 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 	fields := make([]PlannedField, 0, len(input.View.Projection))
 	for i, name := range input.View.Projection {
 		field, ok := byName[name]
-		if !ok || seen[name] || field.Type == TypeFile || field.Type == TypeRelation {
+		if !ok || seen[name] || field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypePassword {
 			return Plan{}, validation(fmt.Sprintf("view.projection.%d", i), "invalid_field")
 		}
 		seen[name] = true
@@ -164,7 +164,7 @@ func compileStaticViewFilter(rule ViewFilter, collection Collection, alias strin
 			return "", ErrConflict
 		}
 		switch field.Type {
-		case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeTimestampTZ, TypeUUID:
+		case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeEditor, TypeTimestampTZ, TypeAutoDate, TypeUUID:
 		default:
 			return "", ErrConflict
 		}

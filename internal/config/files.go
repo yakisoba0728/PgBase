@@ -21,6 +21,9 @@ func loadFiles(lookup func(string) (string, bool), options *pgbase.Options) erro
 	if err := fileBool(lookup, "PGBASE_FILES_S3_PATH_STYLE", &files.S3UsePathStyle); err != nil {
 		return err
 	}
+	if err := fileBool(lookup, "PGBASE_FILES_S3_ALLOW_INSECURE_LOOPBACK", &files.S3AllowInsecureLoopback); err != nil {
+		return err
+	}
 	if err := fileInt64(lookup, "PGBASE_FILES_MAX_BYTES", &files.MaximumBytes); err != nil {
 		return err
 	}

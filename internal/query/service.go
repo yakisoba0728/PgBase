@@ -24,7 +24,7 @@ var (
 
 const (
 	cursorTTL              = membership.CursorTTL
-	maximumRecordPageBytes = 4 << 20
+	maximumRecordPageBytes = 48<<20 + 4<<10
 )
 
 type RecordPage struct {

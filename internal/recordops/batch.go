@@ -11,8 +11,9 @@ import (
 
 const maximumBatchOperations = 50
 
-// Reserve framing for event IDs, ETags, versions and the outer JSON envelope.
-const maximumBatchResponseBytes = (4 << 20) - (32 << 10)
+// Match the escaped record-page budget. The HTTP layer reserves a further
+// 32 KiB for event IDs, ETags, versions and the outer JSON envelope.
+const maximumBatchResponseBytes = 48<<20 + 4<<10
 
 // Batch executes ordered mutations in one PostgreSQL transaction. Existing
 // mutation kernels detect the transaction context and never open a nested tx.

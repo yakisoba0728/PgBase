@@ -40,7 +40,20 @@ func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyRe
 	if !claim.acquired {
 		return replayedApplyResult(claim.row)
 	}
-	return s.applyClaimedOperation(ctx, intent, claim, &relationOperation)
+	if s.collectionLifecycle == nil {
+		return s.applyClaimedOperation(ctx, intent, claim, &relationOperation)
+	}
+	event := collectionMutationEvent(intent)
+	finish, hookErr := s.collectionLifecycle.BeginCollectionMutation(ctx, event)
+	if hookErr != nil {
+		result, finalErr := s.failClaimedOperation(claim, hookErr)
+		finish(finalErr)
+		return result, finalErr
+	}
+	result, applyErr := s.applyClaimedOperation(ctx, intent, claim, &relationOperation)
+	event.Result = result
+	finish(applyErr)
+	return result, applyErr
 }
 
 // Legacy callers historically learned about a stale version before request

@@ -1,7 +1,7 @@
 import type { FieldOptions } from "../backend/ports";
 
 export type DraftFieldOptions = Partial<Record<keyof FieldOptions, string>>;
-const counts = ["minLength", "maxLength", "minSelect", "maxSelect", "maxFileSize"] as const;
+const counts = ["minLength", "maxLength", "minSelect", "maxSelect", "maxFileSize", "maxSize"] as const;
 
 export function draftFieldOptions(value?: FieldOptions): DraftFieldOptions | undefined {
   if (!value) return undefined;
@@ -16,6 +16,11 @@ export function fieldOptionsInput(draft?: DraftFieldOptions): FieldOptions | und
     if (value === undefined || value === "") continue;
     if (!/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error(`${key} must be a non-negative integer.`);
     result[key] = Number(value);
+  }
+  for (const key of ["convertURLs", "onCreate", "onUpdate"] as const) {
+    if (draft[key] === undefined || draft[key] === "") continue;
+    if (draft[key] !== "true" && draft[key] !== "false") throw new Error(`${key} must be true or false.`);
+    result[key] = draft[key] === "true";
   }
   for (const key of ["pattern", "min", "max"] as const) if (draft[key]) result[key] = draft[key];
   if (draft.format) {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -16,9 +17,13 @@ import (
 type streamEvent struct{ id, event, data string }
 
 func openUserStream(t *testing.T, app *publicUsersFixture, token, cursor string) (<-chan streamEvent, context.CancelFunc) {
+	return openUserStreamForCollection(t, app, token, cursor, "notes")
+}
+
+func openUserStreamForCollection(t *testing.T, app *publicUsersFixture, token, cursor, collection string) (<-chan streamEvent, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	request, err := http.NewRequestWithContext(ctx, "GET", app.server.URL+"/api/v1/user/collections/notes/events", nil)
+	request, err := http.NewRequestWithContext(ctx, "GET", app.server.URL+"/api/v1/user/collections/"+collection+"/events", nil)
 	if err != nil {
 		cancel()
 		t.Fatal(err)
@@ -65,6 +70,30 @@ func openUserStream(t *testing.T, app *publicUsersFixture, token, cursor string)
 		}
 	}()
 	return events, cancel
+}
+
+func TestRealtimeLifecycleHooksThroughPGHTTPDelivery(t *testing.T) {
+	registry := &HookRegistry{}
+	var connects, subscribes, messages atomic.Int32
+	for kind, counter := range map[string]*atomic.Int32{HookRealtimeConnect: &connects, HookRealtimeSubscribe: &subscribes, HookRealtimeMessage: &messages} {
+		counter := counter
+		if _, err := registry.On(kind, Hook{Before: func(context.Context, *HookEvent) error { counter.Add(1); return nil }}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Hooks = registry })
+	admin, csrf := setupPublicUsersAdministrator(t, app)
+	createPublicUsersCollection(t, app, admin, csrf, "hook_events")
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, "PUT", "/api/admin/collections/hook_events/user-access", map[string]any{"enabled": true}, "", admin, map[string]string{"X-PgBase-CSRF": csrf}), 200)
+	owner := registerPublicUser(t, app, "hook-stream@example.com", publicUserOnePass)
+	events, cancel := openUserStreamForCollection(t, app, owner.Token, "", "hook_events")
+	nextStreamEvent(t, events, "cursor")
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/v1/user/collections/hook_events/records", map[string]any{"title": "deliver"}, owner.Token, nil, nil), 201)
+	nextStreamEvent(t, events, "record")
+	cancel()
+	if connects.Load() != 1 || subscribes.Load() < 1 || messages.Load() != 1 {
+		t.Fatalf("connect=%d subscribe=%d message=%d", connects.Load(), subscribes.Load(), messages.Load())
+	}
 }
 
 func nextStreamEvent(t *testing.T, events <-chan streamEvent, kind string) streamEvent {

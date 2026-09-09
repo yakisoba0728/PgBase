@@ -20,6 +20,33 @@ type Realtime interface {
 	Read(context.Context, uuid.UUID, string, *int64) ([]realtime.Event, int64, error)
 }
 
+type RealtimeLifecycleEvent struct {
+	UserID     uuid.UUID
+	Collection string
+	Cursor     *int64
+	Event      *realtime.Event
+}
+
+type RealtimeLifecycle interface {
+	BeginRealtimeConnect(context.Context, *RealtimeLifecycleEvent) (func(error), error)
+	BeginRealtimeSubscribe(context.Context, *RealtimeLifecycleEvent) (func(error), error)
+	BeginRealtimeMessage(context.Context, *RealtimeLifecycleEvent) (func(error), error)
+}
+
+func beginRealtime(hooks RealtimeLifecycle, ctx context.Context, phase string, event *RealtimeLifecycleEvent) (func(error), error) {
+	if hooks == nil {
+		return func(error) {}, nil
+	}
+	switch phase {
+	case "connect":
+		return hooks.BeginRealtimeConnect(ctx, event)
+	case "subscribe":
+		return hooks.BeginRealtimeSubscribe(ctx, event)
+	default:
+		return hooks.BeginRealtimeMessage(ctx, event)
+	}
+}
+
 // Admission is bounded globally and per user; all memory remains bounded even
 // when clients hold idle connections or stop reading from their sockets.
 func realtimeHandler(dependencies Dependencies) http.Handler {
@@ -33,6 +60,15 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 			return
 		}
 		id := current.principal.User.ID
+		lifecycleEvent := &RealtimeLifecycleEvent{UserID: id, Collection: r.PathValue("collection")}
+		connectFinish, err := beginRealtime(dependencies.RealtimeLifecycle, r.Context(), "connect", lifecycleEvent)
+		if err != nil {
+			connectFinish(err)
+			writeRealtimeError(w, r, err)
+			return
+		}
+		var connectErr error
+		defer func() { connectFinish(connectErr) }()
 		mu.Lock()
 		admitted := total < 128 && users[id] < 4
 		if admitted {
@@ -41,6 +77,7 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 		}
 		mu.Unlock()
 		if !admitted {
+			connectErr = errors.New("realtime admission limit reached")
 			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 			return
 		}
@@ -55,18 +92,32 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 		}()
 		cursor, err := realtimeCursor(r)
 		if err != nil {
+			connectErr = err
 			writeRealtimeError(w, r, err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 		defer cancel()
-		events, next, err := dependencies.Realtime.Read(ctx, id, r.PathValue("collection"), cursor)
+		read := func(cursor *int64) ([]realtime.Event, int64, error) {
+			event := &RealtimeLifecycleEvent{UserID: id, Collection: r.PathValue("collection"), Cursor: cursor}
+			finish, err := beginRealtime(dependencies.RealtimeLifecycle, ctx, "subscribe", event)
+			if err != nil {
+				finish(err)
+				return nil, 0, err
+			}
+			events, next, err := dependencies.Realtime.Read(ctx, id, event.Collection, cursor)
+			finish(err)
+			return events, next, err
+		}
+		events, next, err := read(cursor)
 		if err != nil {
+			connectErr = err
 			writeRealtimeError(w, r, err)
 			return
 		}
 		control := http.NewResponseController(w)
 		if err := control.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			connectErr = err
 			writeRealtimeError(w, r, err)
 			return
 		}
@@ -80,34 +131,55 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 			// while the database batch was being read.
 			principal, err := dependencies.UserAuth.Authenticate(ctx, current.token)
 			if err != nil || principal.User.ID != id {
+				if err == nil {
+					err = userauth.ErrInvalidCredentials
+				}
+				connectErr = err
 				return
 			}
 			if err := control.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				connectErr = err
 				return
 			}
 			for _, event := range events {
+				messageEvent := &RealtimeLifecycleEvent{UserID: id, Collection: r.PathValue("collection"), Cursor: &next, Event: &event}
+				messageFinish, messageErr := beginRealtime(dependencies.RealtimeLifecycle, ctx, "message", messageEvent)
+				if messageErr != nil {
+					messageFinish(messageErr)
+					connectErr = messageErr
+					return
+				}
 				payload, err := json.Marshal(event)
 				if err != nil {
+					messageFinish(err)
+					connectErr = err
 					return
 				}
 				if _, err := fmt.Fprintf(w, "id: %d\nevent: record\ndata: %s\n\n", event.Sequence, payload); err != nil {
+					messageFinish(err)
+					connectErr = err
 					return
 				}
+				messageFinish(nil)
 			}
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: cursor\ndata: {}\n\n", next); err != nil {
+				connectErr = err
 				return
 			}
 			if err := control.Flush(); err != nil {
+				connectErr = err
 				return
 			}
 			select {
 			case <-ctx.Done():
+				connectErr = ctx.Err()
 				return
 			case <-ticker.C:
 			}
 			cursor = &next
-			events, next, err = dependencies.Realtime.Read(ctx, id, r.PathValue("collection"), cursor)
+			events, next, err = read(cursor)
 			if err != nil {
+				connectErr = err
 				return
 			}
 		}

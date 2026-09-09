@@ -22,7 +22,7 @@ var schemaBoundaryTimestamp = time.Date(2026, 9, 7, 16, 2, 3, 123456000, time.UT
 
 // Schema changes use the same encoded-record bound as record writes. These
 // cases exercise both growth shapes against records containing every scalar
-// codec and a populated edge-table relation: exactly 2 MiB commits, while the
+// codec and a populated edge-table relation: exactly 8 MiB commits, while the
 // first byte beyond it rejects and rolls the physical and catalog changes back.
 func TestSchemaChangesHonorTheEncodedRecordSizeBoundary(t *testing.T) {
 	for _, test := range []struct {
@@ -62,7 +62,7 @@ func TestSchemaChangesHonorTheEncodedRecordSizeBoundary(t *testing.T) {
 				test.change, plan.BaseVersion, exactID, overID, targets)
 
 			// Repair only the over-limit fixture to the exact boundary, then retry
-			// the same public plan/apply flow. Both rows must now land on 2 MiB.
+			// the same public plan/apply flow. Both rows must now land on 8 MiB.
 			schemaBoundarySeedProjectedSize(t, ctx, pool, records, principal, test.collection, overID,
 				test.change, schema.MaximumRecordBytes)
 			plan, err = schemas.Preview(ctx, change)
@@ -265,11 +265,13 @@ func schemaBoundaryGet(
 
 func schemaBoundaryRecordBytes(t *testing.T, record map[string]any) int {
 	t.Helper()
-	encoded, err := json.Marshal(record)
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(record); err != nil {
 		t.Fatal(err)
 	}
-	return len(encoded)
+	return encoded.Len() - 1
 }
 
 func schemaBoundaryAssertRolledBack(

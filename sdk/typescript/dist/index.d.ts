@@ -14,6 +14,10 @@ export type UserSession = {
     impersonated?: boolean;
     impersonatingAdministratorId?: string;
 };
+export type GeoPoint = {
+    lon: number;
+    lat: number;
+};
 export type RecordData = Record<string, unknown>;
 export type RecordPage<T extends RecordData> = {
     items: T[];

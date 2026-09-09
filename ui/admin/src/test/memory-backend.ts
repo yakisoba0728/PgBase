@@ -1,3 +1,4 @@
+import type { FileStorageMigration, FileStorageSettings } from "../backend/storage-port";
 import {
   CollectionCatalog,
   PlannedChange,
@@ -174,6 +175,22 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 	system: {
       status: (signal) => guard(signal, () => take<SystemStatus>("status", {}, "system")),
       health: (signal) => guard(signal, () => take<SchemaHealth>("health", {}, "system")),
+	},
+	storage: {
+		getFiles: (signal) => guard(signal, () => take<FileStorageSettings>("storageSettings", {}, "system")),
+		saveFiles: (input, signal) => guard(signal, () => take<FileStorageSettings>("saveStorageSettings", input as unknown as Record<string, unknown>, "system")),
+		testFiles: (signal) => guard(signal, () => take<void>("testStorage", {}, "system")),
+		previewMigration: (input, signal) => guard(signal, () => take<FileStorageMigration>("previewStorageMigration", input as unknown as Record<string, unknown>, "system")),
+		startMigration: (input, operationID, signal) => guard(signal, () => take<FileStorageMigration>("startStorageMigration", { ...input, operationID } as unknown as Record<string, unknown>, "system")),
+		migration: (id, signal) => guard(signal, () => take<FileStorageMigration>("storageMigration", { id }, "system")),
+		latestMigration: (signal) => guard(signal, () => take<FileStorageMigration>("latestStorageMigration", {}, "system")),
+		resumeMigration: (id, signal) => guard(signal, () => take<void>("resumeStorageMigration", { id }, "system")),
+		cancelMigration: (id, signal) => guard(signal, () => take<void>("cancelStorageMigration", { id }, "system")),
+	},
+	backupStorage: {
+		get: async () => ({driver:"local" as const,bucket:"",prefix:"",region:"",endpoint:"",accessKey:"",usePathStyle:false,retention:0,secretConfigured:false,revision:1}),
+		save: async (input) => ({...input,secretConfigured:!!input.secretKey,revision:input.revision+1}),
+		test: async () => undefined,
 	},
 	users: {
 		list: (after, signal) => guard(signal, () => take<UserPage>("users", after ? { after } : {}, "system")),

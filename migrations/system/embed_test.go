@@ -47,9 +47,15 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		30: "c0abd6cb2699e9ab1d563ec2dd14b254e1e550bf174a41360aad1354836a1a04",
 		31: "9d69b647922968b13e38ae5296b4ce14fae058181cf7990c01f0a6d2d85b76ca",
 		32: "eaee2beac3dfbf8ee9138ade05511adfefd8f06b60fa659c49188edb3681ef1b",
+		33: "7cc64253f7fb79635b13c70f4cea3666c56b1410712c9f51f122af44e8ca1100",
+		34: "3852567d4227770481d0a80b2409d21c40ae2ddb1f03e64b875b37bb7a163a3b",
+		35: "e54150f3de976e134befa4041764b3b81252efc2c1c0499feff5727d8fb40625",
+		36: "9b5905e5e63918a41ac2c95ebe92332828b2aa162b9d72670b054756f0362b1c",
+		37: "68488c5f1ac96f1b6c5ad09f9e4e7d115c32d1e0832df5ff8d3d0e1b8274b3b2",
+		38: "530ffdd30ea33fb293469e050abac8a5a1ebed055bcf94634d9d4336d6f89b97",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 32 || migrations[7].Version != 8 ||
+	if len(migrations) != 38 || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

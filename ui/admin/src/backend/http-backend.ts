@@ -1,4 +1,7 @@
+import { StorageMigrationNotFound, StorageMigrationRejected } from "./storage-port";
 import { parseJSON, stringifyJSON } from "./json";
+import type { FileStorageMigration, FileStorageMigrationInput, FileStorageSettings, FileStorageUpdate } from "./storage-port";
+import type { BackupStorageSettings, BackupStorageUpdate } from "./backup-storage-port";
 import { providerInput, smtpInput, templateInput } from "./auth-input";
 import {
   CollectionCatalog,
@@ -369,6 +372,33 @@ class HTTPBackend implements AdminBackend {
     deleteBackup: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/backups/${encodeURIComponent(id)}`, method: "DELETE", csrf: true, signal }); },
     restoreBackup: async (id: string, signal?: AbortSignal): Promise<BackupJob> => (await this.#send({ path: `/api/admin/backups/${encodeURIComponent(id)}/restore`, method: "POST", csrf: true, signal })).data as BackupJob,
     backupJob: async (id: string, signal?: AbortSignal): Promise<BackupJob> => (await this.#send({ path: `/api/admin/backup-jobs/${encodeURIComponent(id)}`, signal })).data as BackupJob,
+  };
+
+  readonly storage = {
+    getFiles: async (signal?: AbortSignal): Promise<FileStorageSettings> => (await this.#send({ path: "/api/admin/storage/files", signal })).data as FileStorageSettings,
+    saveFiles: async (input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings> => (await this.#send({ path: "/api/admin/storage/files", method: "PUT", body: input, csrf: true, signal })).data as FileStorageSettings,
+    testFiles: async (signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/storage/files/test", method: "POST", csrf: true, signal }); },
+    previewMigration: async (input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration> => (await this.#send({ path: "/api/admin/storage/files/migrations/preview", method: "POST", body: input, csrf: true, signal })).data as FileStorageMigration,
+    startMigration: async (input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration> => {
+      try { return (await this.#send({ path: "/api/admin/storage/files/migrations", method: "POST", body: input, headers: { "PgBase-Operation-ID": operationID }, csrf: true, signal })).data as FileStorageMigration; }
+      catch (error) { if (error instanceof WireError && error.wire.status >= 400 && error.wire.status < 500) throw new StorageMigrationRejected(error.wire.code); throw this.#systemFailure(error); }
+    },
+    migration: async (id: string, signal?: AbortSignal): Promise<FileStorageMigration> => {
+      try { return (await this.#send({ path: `/api/admin/storage/files/migrations/${encodeURIComponent(id)}`, signal })).data as FileStorageMigration; }
+      catch (error) { if (error instanceof WireError && error.wire.status === 404) throw new StorageMigrationNotFound(); throw this.#systemFailure(error); }
+    },
+    latestMigration: async (signal?: AbortSignal): Promise<FileStorageMigration | null> => {
+      try { return (await this.#send({ path: "/api/admin/storage/files/migrations/latest", signal })).data as FileStorageMigration; }
+      catch (error) { if (error instanceof WireError && error.wire.status === 404) return null; throw this.#systemFailure(error); }
+    },
+    resumeMigration: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/storage/files/migrations/${encodeURIComponent(id)}/resume`, method: "POST", csrf: true, signal }); },
+    cancelMigration: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/storage/files/migrations/${encodeURIComponent(id)}/cancel`, method: "POST", csrf: true, signal }); },
+  };
+
+  readonly backupStorage = {
+    get: async (signal?:AbortSignal):Promise<BackupStorageSettings> => (await this.#send({path:"/api/admin/storage/backups",signal})).data as BackupStorageSettings,
+    save: async (input:BackupStorageUpdate,signal?:AbortSignal):Promise<BackupStorageSettings> => (await this.#send({path:"/api/admin/storage/backups",method:"PUT",body:input,csrf:true,signal})).data as BackupStorageSettings,
+    test: async (signal?:AbortSignal):Promise<void> => { await this.#send({path:"/api/admin/storage/backups/test",method:"POST",csrf:true,signal}); },
   };
 
   readonly users = {

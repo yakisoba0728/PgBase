@@ -6,24 +6,25 @@ import (
 )
 
 type FileOptions struct {
-	Driver             string
-	LocalDirectory     string
-	S3Bucket           string
-	S3Region           string
-	S3Endpoint         string
-	S3AccessKey        string
-	S3SecretKey        string
-	S3UsePathStyle     bool
-	MaximumBytes       int64
-	MaximumImagePixels int64
-	ThumbnailDimension int
-	DownloadTokenTTL   time.Duration
-	AllowedTypes       []string
+	Driver                  string
+	LocalDirectory          string
+	S3Bucket                string
+	S3Region                string
+	S3Endpoint              string
+	S3AccessKey             string
+	S3SecretKey             string
+	S3UsePathStyle          bool
+	S3AllowInsecureLoopback bool
+	MaximumBytes            int64
+	MaximumImagePixels      int64
+	ThumbnailDimension      int
+	DownloadTokenTTL        time.Duration
+	AllowedTypes            []string
 }
 
 func (o FileOptions) normalized() (FileOptions, error) {
 	if o.Driver == "" {
-		if o.LocalDirectory != "" || o.S3Bucket != "" || o.S3Region != "" || o.S3Endpoint != "" || o.S3AccessKey != "" || o.S3SecretKey != "" || o.S3UsePathStyle || o.MaximumBytes != 0 || o.MaximumImagePixels != 0 || o.ThumbnailDimension != 0 || o.DownloadTokenTTL != 0 || len(o.AllowedTypes) != 0 {
+		if o.LocalDirectory != "" || o.S3Bucket != "" || o.S3Region != "" || o.S3Endpoint != "" || o.S3AccessKey != "" || o.S3SecretKey != "" || o.S3UsePathStyle || o.S3AllowInsecureLoopback || o.MaximumBytes != 0 || o.MaximumImagePixels != 0 || o.ThumbnailDimension != 0 || o.DownloadTokenTTL != 0 || len(o.AllowedTypes) != 0 {
 			return FileOptions{}, fmt.Errorf("Files.Driver: required when Files options are set")
 		}
 		return o, nil

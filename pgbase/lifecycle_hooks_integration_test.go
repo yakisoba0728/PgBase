@@ -8,13 +8,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/filestore"
 )
 
 func TestLifecycleRecordAndFileHooksThroughHTTP(t *testing.T) {
 	registry := &HookRegistry{}
 	var mu sync.Mutex
 	events := map[string]int{}
-	for _, kind := range []string{HookRequest, HookRecordBefore, HookRecordAfter, HookFileUpload, HookFileDelete} {
+	for _, kind := range []string{HookAppBoot, HookRequest, HookCollectionCreate, HookRecordBefore, HookRecordAfter, HookFileUpload, HookFileDelete, HookStorageSettingsList} {
 		_, err := registry.On(kind, Hook{After: func(_ context.Context, e *HookEvent) {
 			if e.Err == nil {
 				mu.Lock()
@@ -31,6 +33,19 @@ func TestLifecycleRecordAndFileHooksThroughHTTP(t *testing.T) {
 		o.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
 	})
 	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	settingsResponse := publicUsersRequest(t, fixture, "GET", "/api/admin/storage/files", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, settingsResponse, 200)
+	var settings filestore.StorageSettings
+	decodePublicUsersJSON(t, settingsResponse, &settings)
+	removeStorage, err := registry.On(HookStorageSettingsUpdate, Hook{Before: func(context.Context, *HookEvent) error { return errors.New("storage veto") }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageUpdate := publicUsersRequest(t, fixture, "PUT", "/api/admin/storage/files", map[string]any{"driver": "local", "revision": settings.Revision}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	if storageUpdate.Code < 400 {
+		t.Fatal("vetoed storage update succeeded")
+	}
+	removeStorage()
 	change := map[string]any{"operation": "create", "name": "hook_documents", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file"}}}
 	plan := publicUsersRequest(t, fixture, "POST", "/api/admin/collections/plan", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, plan, 200)
@@ -72,7 +87,7 @@ func TestLifecycleRecordAndFileHooksThroughHTTP(t *testing.T) {
 	assertPublicUsersStatus(t, publicUsersRequest(t, fixture, "DELETE", "/api/admin/files/"+file.ID, nil, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), 204)
 	mu.Lock()
 	defer mu.Unlock()
-	for _, kind := range []string{HookRequest, HookRecordBefore, HookRecordAfter, HookFileUpload, HookFileDelete} {
+	for _, kind := range []string{HookAppBoot, HookRequest, HookCollectionCreate, HookRecordBefore, HookRecordAfter, HookFileUpload, HookFileDelete, HookStorageSettingsList} {
 		if events[kind] < 1 {
 			t.Errorf("hook %s not observed: %v", kind, events)
 		}

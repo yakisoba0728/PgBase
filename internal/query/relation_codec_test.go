@@ -154,6 +154,9 @@ func TestFinalizeRecordPageRejectsOneOversizedHydratedRelationRecord(t *testing.
 		}
 		record["relation_"+strconv.Itoa(field)] = values
 	}
+	// Defensive response assembly must still reject a row enlarged outside the
+	// record API (for example by operator SQL or legacy data).
+	record["payload"] = strings.Repeat("x", maximumRecordPageBytes)
 	page := RecordPage{Items: []map[string]any{record}}
 	encoded, err := json.Marshal(page)
 	if err != nil {

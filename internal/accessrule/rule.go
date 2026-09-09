@@ -209,7 +209,7 @@ func (c *compiler) field(name string) (string, schema.FieldType, error) {
 	for _, field := range c.collection.Fields {
 		if field.Name == name {
 			switch field.Type {
-			case schema.TypeText, schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeUUID, schema.TypeTimestampTZ:
+			case schema.TypeText, schema.TypeEditor, schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeUUID, schema.TypeTimestampTZ, schema.TypeAutoDate:
 				return c.alias + "." + pgx.Identifier{field.ColumnName}.Sanitize(), field.Type, nil
 			}
 		}
@@ -263,7 +263,7 @@ func typedValue(kind schema.FieldType, raw json.RawMessage) (any, error) {
 			}
 			return parsed, nil
 		}
-		if kind == schema.TypeTimestampTZ {
+		if kind == schema.TypeTimestampTZ || kind == schema.TypeAutoDate {
 			if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
 				return nil, ErrInvalid
 			}

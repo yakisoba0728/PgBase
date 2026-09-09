@@ -213,9 +213,14 @@ func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFun
 var fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
 
 func (s *Service) Upload(ctx context.Context, principal identity.Subject, input Upload) (File, error) {
+	ctx, release, err := s.beginStorageOperation(ctx)
+	if err != nil {
+		return File{}, err
+	}
+	defer release()
 	event := &lifecycle.Event{Kind: "file.upload", Data: &FileEvent{File: File{CollectionID: input.CollectionID, RecordID: input.RecordID, Field: input.Field, Filename: input.Filename, ContentType: input.ContentType, Size: input.Size, SHA256: input.SHA256}, Principal: principal}}
 	var output File
-	err := s.options.Hooks.Run(ctx, event, func() error {
+	err = s.options.Hooks.Run(ctx, event, func() error {
 		var err error
 		output, err = s.upload(ctx, principal, input)
 		if err == nil {
@@ -310,6 +315,9 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 	}
 	file.ReadyAt = s.options.Now().UTC()
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := s.guardStoragePublication(ctx, tx); err != nil {
+			return err
+		}
 		if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite); err != nil {
 			return err
 		}

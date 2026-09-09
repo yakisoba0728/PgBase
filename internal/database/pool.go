@@ -173,6 +173,31 @@ func (p *Pool) Ping(ctx context.Context) error {
 	return p.inner.Ping(ctx)
 }
 
+// OpenCoordinationSession opens a connection outside the request pool for a
+// session-scoped advisory lock. Long-lived coordination must not borrow one of
+// the bounded request connections or concurrent workers can exhaust the pool
+// while each waits for a transaction on that same pool.
+func (p *Pool) OpenCoordinationSession(ctx context.Context) (*pgx.Conn, error) {
+	if p == nil || p.inner == nil {
+		return nil, errors.New("database pool is unavailable")
+	}
+	config := p.inner.Config().ConnConfig.Copy()
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	var admitted bool
+	if err := conn.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock_shared($1)`, backupGateKey).Scan(&admitted); err != nil {
+		_ = conn.Close(context.Background())
+		return nil, err
+	}
+	if !admitted {
+		_ = conn.Close(context.Background())
+		return nil, ErrBackupGateBusy
+	}
+	return conn, nil
+}
+
 // Close closes the pool and waits for borrowed connections to be returned.
 func (p *Pool) Close() {
 	if p == nil {

@@ -2,12 +2,13 @@ package backup
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ type Entry struct {
 	CreatedAt       time.Time `json:"createdAt"`
 	Size            int64     `json:"size"`
 	PostgreSQLMajor int       `json:"postgresqlMajor"`
+	SHA256          string    `json:"sha256,omitempty"`
+	StorageFormat   string    `json:"storageFormat,omitempty"`
 }
 type Job struct {
 	ID        string    `json:"id"`
@@ -34,10 +37,22 @@ type Job struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 type ManagerOptions struct {
-	LogError  func(context.Context, error)
-	Directory string
-	Create    func(context.Context, string) error
-	Restore   func(context.Context, string) error
+	LogError   func(context.Context, error)
+	Directory  string
+	Create     func(context.Context, string) error
+	Restore    func(context.Context, string) error
+	Repository Repository
+	Retention  int
+	Lifecycle  Lifecycle
+}
+
+type LifecycleEvent struct {
+	Operation string
+	BackupID  string
+	Job       Job
+}
+type Lifecycle interface {
+	BeginBackupOperation(context.Context, *LifecycleEvent) (func(error), error)
 }
 
 // Manager owns a private local archive directory and one serialized operation at
@@ -71,6 +86,12 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		return nil, errors.New("backup directory must be a real private directory")
 	}
 	if err = os.Chmod(absolute, 0700); err != nil {
+		return nil, err
+	}
+	if options.Repository == nil {
+		options.Repository = NewLocalRepository(absolute)
+	}
+	if err = ensureRepositoryIdentity(absolute, options.Repository); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -108,8 +129,6 @@ func validID(id string) bool {
 	u, err := uuid.Parse(id)
 	return err == nil && u != uuid.Nil && u.String() == id
 }
-func (m *Manager) archive(id string) string  { return filepath.Join(m.options.Directory, id+".tar.gz") }
-func (m *Manager) metadata(id string) string { return filepath.Join(m.options.Directory, id+".json") }
 func writeAtomic(path string, value any) error {
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -135,32 +154,7 @@ func (m *Manager) List(ctx context.Context) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	paths, err := filepath.Glob(filepath.Join(m.options.Directory, "*.json"))
-	if err != nil {
-		return nil, err
-	}
-	entries := []Entry{}
-	for _, path := range paths {
-		var entry Entry
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		if json.Unmarshal(raw, &entry) != nil || !validID(entry.ID) {
-			continue
-		}
-		if filepath.Base(path) != entry.ID+".json" {
-			continue
-		}
-		if _, err = os.Stat(m.archive(entry.ID)); err != nil {
-			continue
-		}
-		entries = append(entries, entry)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].CreatedAt.After(entries[j].CreatedAt) })
-	return entries, nil
+	return m.options.Repository.List(ctx)
 }
 func (m *Manager) Job(ctx context.Context, id string) (Job, error) {
 	if err := ctx.Err(); err != nil {
@@ -187,7 +181,12 @@ func (m *Manager) reserve() error {
 	m.wg.Add(1)
 	return nil
 }
-func (m *Manager) release() { m.mu.Lock(); m.busy = false; m.mu.Unlock(); m.wg.Done() }
+func (m *Manager) release() {
+	m.mu.Lock()
+	m.busy = false
+	m.mu.Unlock()
+	m.wg.Done()
+}
 func (m *Manager) Create(ctx context.Context) (Job, error) {
 	return m.start(ctx, "create", uuid.NewString())
 }
@@ -195,7 +194,7 @@ func (m *Manager) Restore(ctx context.Context, id string) (Job, error) {
 	if !validID(id) {
 		return Job{}, ErrNotFound
 	}
-	if _, err := os.Stat(m.archive(id)); err != nil {
+	if _, err := m.options.Repository.Get(ctx, id); err != nil {
 		return Job{}, ErrNotFound
 	}
 	return m.start(ctx, "restore", id)
@@ -204,22 +203,34 @@ func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) 
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
 	}
+	event := &LifecycleEvent{Operation: operation, BackupID: id}
+	finish := func(error) {}
+	if m.options.Lifecycle != nil {
+		var err error
+		finish, err = m.options.Lifecycle.BeginBackupOperation(ctx, event)
+		if err != nil {
+			finish(err)
+			return Job{}, err
+		}
+	}
 	if err := m.reserve(); err != nil {
+		finish(err)
 		return Job{}, err
 	}
 	now := time.Now().UTC()
 	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now}
 	if err := m.persistJob(job); err != nil {
 		m.release()
+		finish(err)
 		return Job{}, err
 	}
 	m.mu.Lock()
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
-	go m.execute(job)
+	go m.execute(job, event, finish)
 	return job, nil
 }
-func (m *Manager) execute(job Job) {
+func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	defer m.release()
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Minute)
 	defer cancel()
@@ -237,12 +248,15 @@ func (m *Manager) execute(job Job) {
 		job.Error = "Backup operation failed; the previous target was retained. Check the server diagnostic log."
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if receiptErr := m.persistJob(job); receiptErr != nil {
 		job.Status = "failed"
 		job.Error = "Unable to persist the final backup receipt."
+		err = errors.Join(err, receiptErr)
 	}
 	m.jobs[job.ID] = job
+	m.mu.Unlock()
+	event.Job = job
+	finish(err)
 }
 func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 	temp, err := os.MkdirTemp(m.options.Directory, ".job-")
@@ -261,7 +275,7 @@ func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 		_, err = m.publish(ctx, directory, job.BackupID)
 		return err
 	}
-	file, err := os.Open(m.archive(job.BackupID))
+	file, err := m.options.Repository.Open(ctx, job.BackupID)
 	if err != nil {
 		return err
 	}
@@ -269,8 +283,14 @@ func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 		_ = file.Close()
 		return err
 	}
-	err = Unpack(ctx, file, directory)
-	err = errors.Join(err, file.Close())
+	entry, metadataErr := m.options.Repository.Get(ctx, job.BackupID)
+	if metadataErr != nil {
+		_ = file.Close()
+		return metadataErr
+	}
+	verified := newVerifiedReadCloser(file, entry)
+	err = Unpack(ctx, verified, directory)
+	err = errors.Join(err, verified.Close())
 	if err != nil {
 		return err
 	}
@@ -287,7 +307,8 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 	}
 	name := file.Name()
 	defer func() { _ = os.Remove(name) }()
-	err = Pack(ctx, directory, file)
+	digest := sha256.New()
+	err = Pack(ctx, directory, io.MultiWriter(file, digest))
 	err = errors.Join(err, file.Sync(), file.Close())
 	if err != nil {
 		return Entry{}, err
@@ -299,17 +320,49 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 	if info.Size() > MaximumArchiveBytes {
 		return Entry{}, errors.New("backup archive exceeds limit")
 	}
-	entry := Entry{ID: id, CreatedAt: manifest.CreatedAt, Size: info.Size(), PostgreSQLMajor: manifest.PostgreSQLMajor}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err = os.Rename(name, m.archive(id)); err != nil {
+	entry := Entry{ID: id, CreatedAt: manifest.CreatedAt, Size: info.Size(), PostgreSQLMajor: manifest.PostgreSQLMajor, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageFormat: s3StorageFormat}
+	archive, err := os.Open(name)
+	if err != nil {
 		return Entry{}, err
 	}
-	if err = writeAtomic(m.metadata(id), entry); err != nil {
-		_ = os.Remove(m.archive(id))
+	err = m.options.Repository.Publish(ctx, entry, archive)
+	err = errors.Join(err, archive.Close())
+	if err != nil {
+		return Entry{}, err
+	}
+	if err = m.prune(ctx, id); err != nil {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func (m *Manager) prune(ctx context.Context, currentID string) error {
+	retention := m.options.Retention
+	if provider, ok := m.options.Repository.(interface{ Retention() int }); ok {
+		retention = provider.Retention()
+	}
+	if retention <= 0 {
+		return nil
+	}
+	entries, err := m.options.Repository.List(ctx)
+	if err != nil {
+		return err
+	}
+	if len(entries) <= retention {
+		return nil
+	}
+	remove := len(entries) - retention
+	for index := len(entries) - 1; index >= 0 && remove > 0; index-- {
+		entry := entries[index]
+		if entry.ID == currentID {
+			continue
+		}
+		if err := m.options.Repository.Delete(ctx, entry.ID); err != nil {
+			return err
+		}
+		remove--
+	}
+	return nil
 }
 func (m *Manager) Upload(ctx context.Context, source io.Reader) (Entry, error) {
 	if err := m.reserve(); err != nil {
@@ -334,11 +387,15 @@ func (m *Manager) Open(ctx context.Context, id string) (io.ReadCloser, error) {
 	if !validID(id) {
 		return nil, ErrNotFound
 	}
-	file, err := os.Open(m.archive(id))
-	if os.IsNotExist(err) {
-		return nil, ErrNotFound
+	entry, err := m.options.Repository.Get(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	return file, err
+	source, err := m.options.Repository.Open(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return newVerifiedReadCloser(source, entry), nil
 }
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
@@ -351,12 +408,19 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	defer m.release()
-	if err := os.Remove(m.archive(id)); os.IsNotExist(err) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
+	finish := func(error) {}
+	if m.options.Lifecycle != nil {
+		event := &LifecycleEvent{Operation: "delete", BackupID: id}
+		var err error
+		finish, err = m.options.Lifecycle.BeginBackupOperation(ctx, event)
+		if err != nil {
+			finish(err)
+			return err
+		}
 	}
-	return os.Remove(m.metadata(id))
+	err := m.options.Repository.Delete(ctx, id)
+	finish(err)
+	return err
 }
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()

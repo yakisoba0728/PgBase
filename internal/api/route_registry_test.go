@@ -178,7 +178,7 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 			delete(want, key)
 			continue
 		}
-		if !declared.streamedUpload && declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
+		if !declared.streamedUpload && !declared.recordDocument && declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
 			t.Fatalf("route %q unexpectedly narrows the global request cap to %d", key, declared.maximumRequestBytes)
 		}
 	}
@@ -209,8 +209,8 @@ func TestBufferedCapsMatchTheKernelBudgetsTheyMirror(t *testing.T) {
 		"GET /api/v1/collections/{collection}/records",
 		"GET /api/v1/collections/{collection}/records/{id}",
 	} {
-		if got := caps[pattern]; got != 4<<20+responseFraming {
-			t.Fatalf("%s cap = %d, want the 4 MiB record page budget plus framing", pattern, got)
+		if got := caps[pattern]; got != 48<<20+2*responseFraming {
+			t.Fatalf("%s cap = %d, want the escaped record page budget plus framing", pattern, got)
 		}
 	}
 	if got := caps["GET /api/admin/schema-operations"]; got != 256<<10+responseFraming {

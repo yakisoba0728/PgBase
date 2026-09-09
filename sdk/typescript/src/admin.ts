@@ -1,5 +1,6 @@
-export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file";
+export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file" | "editor" | "geoPoint" | "autodate" | "password";
 export type FieldOptions = {
+  maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean;
   minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url";
   allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string;
   minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[];
@@ -27,6 +28,12 @@ export type AdministratorSession = { administrator: { id: string; email: string;
 export type ImpersonatedUserSession = { token: string; user: { id: string; email: string; verified: boolean; createdAt: string }; expiresAt: string; impersonated: true; impersonatingAdministratorId: string };
 export type ScheduledJob = { id: string; name: string; schedule: string; enabled: boolean; registered: boolean; running: boolean; nextRunAt: string; lastStartedAt?: string; lastFinishedAt?: string; attempts: number; failed: boolean };
 export type RequestLogPage = { items: Array<{ id: number; at: string; method: string; route: string; status: number; durationMs: number }>; nextBefore?: number; oldestId: number };
+export type FileStorageSettings = { driver: "local" | "s3"; bucket: string; region: string; endpoint: string; accessKey: string; usePathStyle: boolean; secretConfigured: boolean; revision: number };
+export type FileStorageUpdate = { driver: "local" | "s3"; bucket: string; region: string; endpoint: string; accessKey: string; usePathStyle: boolean; revision: number; secretKey?: string; clearSecret?: boolean };
+export type FileStorageMigrationInput = Omit<FileStorageUpdate, "revision">;
+export type FileStorageMigration = { id: string; status: "preview" | "copying" | "canceling" | "canceled" | "failed" | "ready" | "activating" | "committed"; copiedObjects: number; totalObjects: number; failure?: string; createdAt?: string; updatedAt?: string };
+export type BackupStorageSettings = { driver: "local" | "s3"; bucket: string; prefix: string; region: string; endpoint: string; accessKey: string; usePathStyle: boolean; retention: number; secretConfigured: boolean; revision: number };
+export type BackupStorageUpdate = Omit<BackupStorageSettings, "secretConfigured"> & { secretKey?: string; clearSecret?: boolean };
 
 export class AdminAPIError extends Error {
   constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
@@ -125,6 +132,18 @@ export class PgBaseAdminClient {
   jobs(signal?: AbortSignal): Promise<{ items: ScheduledJob[]; workerEnabled: boolean }> { return this.request("/api/admin/jobs", {}, signal); }
   configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
   queueJob(id: string, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
+  fileStorageSettings(signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", {}, signal); }
+  updateFileStorage(input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", { method: "PUT", body: JSON.stringify(input) }, signal); }
+  async testFileStorage(signal?: AbortSignal): Promise<void> { await this.request("/api/admin/storage/files/test", { method: "POST" }, signal); }
+  backupStorageSettings(signal?: AbortSignal): Promise<BackupStorageSettings> { return this.request("/api/admin/storage/backups", {}, signal); }
+  updateBackupStorage(input: BackupStorageUpdate, signal?: AbortSignal): Promise<BackupStorageSettings> { return this.request("/api/admin/storage/backups", { method: "PUT", body: JSON.stringify(input) }, signal); }
+  async testBackupStorage(signal?: AbortSignal): Promise<void> { await this.request("/api/admin/storage/backups/test", { method: "POST" }, signal); }
+  previewFileStorageMigration(input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request("/api/admin/storage/files/migrations/preview", { method: "POST", body: JSON.stringify(input) }, signal); }
+  startFileStorageMigration(input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request("/api/admin/storage/files/migrations", { method: "POST", body: JSON.stringify(input), headers: { "PgBase-Operation-ID": operationID } }, signal); }
+  fileStorageMigration(id: string, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}`, {}, signal); }
+  latestFileStorageMigration(signal?: AbortSignal): Promise<FileStorageMigration> { return this.request("/api/admin/storage/files/migrations/latest", {}, signal); }
+  async resumeFileStorageMigration(id: string, signal?: AbortSignal): Promise<void> { await this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}/resume`, { method: "POST" }, signal); }
+  async cancelFileStorageMigration(id: string, signal?: AbortSignal): Promise<void> { await this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}/cancel`, { method: "POST" }, signal); }
   impersonateUser(id: string, durationSeconds = 300, signal?: AbortSignal): Promise<ImpersonatedUserSession> {
     return this.request(`/api/admin/users/${encodeURIComponent(id)}/impersonate`, { method: "POST", body: JSON.stringify({ durationSeconds }) }, signal);
   }

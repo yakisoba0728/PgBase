@@ -96,7 +96,7 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	root := t.TempDir()
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	manager, err := NewManager(ManagerOptions{Directory: root, Create: func(ctx context.Context, path string) error {
+	manager, err := NewManager(ManagerOptions{Directory: root, Retention: 1, Create: func(ctx context.Context, path string) error {
 		close(entered)
 		select {
 		case <-release:
@@ -163,6 +163,9 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	}
 	if uploaded.ID == list[0].ID {
 		t.Fatal("upload reused archive identity")
+	}
+	if retained, listErr := manager.List(context.Background()); listErr != nil || len(retained) != 1 || retained[0].ID != uploaded.ID {
+		t.Fatalf("retention entries=%+v err=%v", retained, listErr)
 	}
 	if err = manager.Delete(context.Background(), uploaded.ID); err != nil {
 		t.Fatal(err)

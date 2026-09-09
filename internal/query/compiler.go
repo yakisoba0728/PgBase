@@ -200,7 +200,7 @@ func (b *statementBuilder) placeholder(value any) string {
 // null placement when a request touches a relation and another when it does
 // not -- a cursor issued by either path anchors against the same ordering.
 func rootOrderTerm(key SortKey, field schema.Field, allowViewScan ...bool) (orderTerm, error) {
-	if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return orderTerm{}, validation("sort", "unsupported_type")
 	}
 	indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
@@ -263,7 +263,7 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	if !ok {
 		return "", validation("filter", "unknown_field")
 	}
-	if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", validation("filter", "unsupported_type")
 	}
 	if isMultipleRelation(field) {
@@ -344,12 +344,12 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 			return mismatch()
 		}
 		return numeric, nil
-	case schema.TypeText:
+	case schema.TypeText, schema.TypeEditor:
 		if literal.kind != filterLiteralString {
 			return mismatch()
 		}
 		return text, nil
-	case schema.TypeTimestampTZ:
+	case schema.TypeTimestampTZ, schema.TypeAutoDate:
 		if literal.kind != filterLiteralString {
 			return mismatch()
 		}

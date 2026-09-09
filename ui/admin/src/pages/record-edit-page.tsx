@@ -1,3 +1,5 @@
+import { RichTextField } from "./rich-text-field";
+import { GeoPointField } from "./geo-point-field";
 import { useEffect, useRef, useState } from "react";
 import type { FieldDefinition, FileInfo } from "../backend/ports";
 import { useBackend } from "../auth/session";
@@ -20,12 +22,14 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
   const target = editor.targetOf(field);
   const allowed = field.options?.allowedValues ?? [];
 
+  if (field.type === "autodate") return <div className="record-field"><label htmlFor={`record-${field.name}`}>{field.name}</label><input id={`record-${field.name}`} readOnly value={state.kind === "value" ? String(state.value) : ""} /><p>Set by the server{field.options?.onCreate ? " on creation" : ""}{field.options?.onUpdate ? " on update" : ""}.</p>{field.help && <p>{field.help}</p>}</div>;
+  const fixed = ["editor", "geoPoint", "password"].includes(field.type);
   return <div className="record-field">
 		{field.help && <p id={helpID}>{field.help}</p>}
     <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
     <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}-state`} onChange={(event) => editor.setKind(field, event.target.value as FieldState["kind"])} value={state.kind}>
-      {editor.isCreate && <option value="unset">Use default / omit</option>}
-      {!multipleRelation && (field.type !== "relation" || (relation?.minSelect ?? 0) === 0 || state.kind === "null") && <option value="null">NULL</option>}
+      {(editor.isCreate || fixed) && <option value="unset">{editor.isCreate ? "Use default / omit" : "Keep stored value"}</option>}
+      {!fixed && !multipleRelation && (field.type !== "relation" || (relation?.minSelect ?? 0) === 0 || state.kind === "null") && <option value="null">NULL</option>}
       <option value="value">Value</option>
     </select>
     {relation !== undefined && <p id={relationHintID}>
@@ -35,11 +39,13 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
     </p>}
     {state.kind === "value" && <>
       <label htmlFor={`record-${field.name}`}>{field.name}</label>
-      {field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.checked)} type="checkbox" /> :
+      {field.type === "editor" ? <RichTextField id={`record-${field.name}`} label={field.name} value={String(state.value)} disabled={editor.pending || editor.stale} describedBy={describedBy} invalid={Boolean(error)} convertURLs={field.options?.convertURLs} onChange={value => editor.setValue(field, value)} /> :
+        field.type === "geoPoint" ? <GeoPointField id={`record-${field.name}`} label={field.name} value={String(state.value)} disabled={editor.pending || editor.stale} describedBy={describedBy} invalid={Boolean(error)} onChange={value => editor.setValue(field, value)} /> :
+        field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.checked)} type="checkbox" /> :
         field.type === "text" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)}><option disabled value="">Choose a value</option>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} multiple onChange={(event) => editor.setValue(field, JSON.stringify(Array.from(event.target.selectedOptions, (option) => option.value)))} value={jsonSelections(String(state.value))}>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" || multipleRelation ? <textarea aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} rows={multipleRelation ? Math.min(8, Math.max(3, relation?.maxSelect ?? 3)) : 5} value={String(state.value)} /> :
-          <input aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)} />}
+          <input type={field.type === "password" ? "password" : "text"} autoComplete={field.type === "password" ? "new-password" : undefined} aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)} />}
       {relation !== undefined && target !== undefined && <RelationTargetPicker
         disabled={editor.pending || editor.stale}
         draft={String(state.value)}
@@ -49,6 +55,7 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
         target={target}
       />}
     </>}
+    {field.type === "password" && <p>Stored passwords are never shown, copied, or saved in draft recovery. {field.required ? "Enter a password when creating a record." : "Choose Value and leave it empty to clear the password."}</p>}
     {error && <p className="field-error" id={`record-${field.name}-error`}>{error}</p>}
   </div>;
 }

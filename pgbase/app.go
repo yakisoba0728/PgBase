@@ -14,31 +14,34 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/backup"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 type App struct {
-	backupManager    *backup.Manager
-	requestLog       *observability.RequestLog
-	options          Options
-	pool             *database.Pool
-	backupGate       *database.BackupGate
-	handler          http.Handler
-	httpServer       *http.Server
-	readiness        *readinessState
-	cleaner          backgroundRunner
-	recordCleaner    backgroundRunner
-	realtimeWorker   backgroundRunner
-	jobWorker        backgroundRunner
-	fileWorker       backgroundRunner
-	schemaOperations backgroundRunner
-	schemaListener   backgroundRunner
-	membershipWriter backgroundRunner
-	systemStatus     backgroundRunner
-	schemaHealth     backgroundRunner
-	listen           func(string, string) (net.Listener, error)
-	shutdownMu       sync.Mutex
-	shutdownStarted  bool
-	shutdownDone     chan struct{}
+	schemaCache            *schema.Cache
+	backupManager          *backup.Manager
+	requestLog             *observability.RequestLog
+	options                Options
+	pool                   *database.Pool
+	backupGate             *database.BackupGate
+	handler                http.Handler
+	httpServer             *http.Server
+	readiness              *readinessState
+	cleaner                backgroundRunner
+	recordCleaner          backgroundRunner
+	realtimeWorker         backgroundRunner
+	jobWorker              backgroundRunner
+	fileWorker             backgroundRunner
+	storageMigrationWorker backgroundRunner
+	schemaOperations       backgroundRunner
+	schemaListener         backgroundRunner
+	membershipWriter       backgroundRunner
+	systemStatus           backgroundRunner
+	schemaHealth           backgroundRunner
+	listen                 func(string, string) (net.Listener, error)
+	shutdownMu             sync.Mutex
+	shutdownStarted        bool
+	shutdownDone           chan struct{}
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -292,7 +295,7 @@ func (a *App) Handler() http.Handler { return a.handler }
 // still draining; Run escapes this only because it owns the server and drains
 // first. Pass a context that outlives the server and shut down through Close,
 // which drains before it cancels.
-func (a *App) Start(ctx context.Context) error {
+func (a *App) Start(ctx context.Context) (err error) {
 	if a == nil || a.httpServer == nil {
 		return errors.New("pgbase app is not initialized")
 	}
@@ -303,10 +306,18 @@ func (a *App) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	finish, err := a.beginApplicationStart(ctx, false)
+	if err != nil {
+		finish(err)
+		a.abortStartup(startupDone)
+		return err
+	}
 	backgroundDone, activated := a.activate(ctx, nil, nil, startupDone)
 	if !activated {
+		finish(errAppClosed)
 		return errAppClosed
 	}
+	finish(nil)
 	go func() {
 		<-backgroundDone
 		a.readiness.setAccepting(context.Background(), false)
@@ -316,7 +327,7 @@ func (a *App) Start(ctx context.Context) error {
 
 // Run serves HTTP until the context is cancelled, the server is closed, or it
 // encounters an operational error.
-func (a *App) Run(ctx context.Context) error {
+func (a *App) Run(ctx context.Context) (err error) {
 	if a == nil || a.httpServer == nil {
 		return errors.New("pgbase app is not initialized")
 	}
@@ -325,6 +336,12 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	startupDone, err := a.beginStartup()
 	if err != nil {
+		return err
+	}
+	finish, err := a.beginApplicationStart(ctx, true)
+	if err != nil {
+		finish(err)
+		a.abortStartup(startupDone)
 		return err
 	}
 	listen := a.listen
@@ -336,7 +353,9 @@ func (a *App) Run(ctx context.Context) error {
 		a.finishStartup()
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
 		defer cancel()
-		return errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
+		err = errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
+		finish(err)
+		return err
 	}
 	serverDone := make(chan error, 1)
 	// Background tasks are deliberately detached from Run's parent context. A
@@ -348,8 +367,10 @@ func (a *App) Run(ctx context.Context) error {
 	// caller's context does cancel background work directly.
 	backgroundDone, activated := a.activate(context.WithoutCancel(ctx), listener, serverDone, startupDone)
 	if !activated {
+		finish(errAppClosed)
 		return errAppClosed
 	}
+	finish(nil)
 
 	select {
 	case serverErr := <-serverDone:
@@ -428,6 +449,15 @@ func (a *App) finishStartup() {
 	a.completeStartupLocked(a.startupDone)
 }
 
+func (a *App) abortStartup(startupDone chan struct{}) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.lifecycleState == appLifecycleStarting && a.startupDone == startupDone {
+		a.lifecycleState = appLifecycleInactive
+	}
+	a.completeStartupLocked(startupDone)
+}
+
 func (a *App) completeStartupLocked(startupDone chan struct{}) {
 	if startupDone == nil || a.startupDone != startupDone {
 		return
@@ -475,7 +505,9 @@ func (a *App) Close(ctx context.Context) error {
 }
 
 func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, done chan struct{}) {
+	terminateFinish, terminateErr := a.beginApplicationTerminate(ctx)
 	var closeErr error
+	closeErr = errors.Join(closeErr, terminateErr)
 	if err := waitForDone(ctx, startupDone, "application startup"); err != nil {
 		closeErr = errors.Join(closeErr, err)
 	}
@@ -526,7 +558,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 
 	a.closeMu.Lock()
 	a.closeErr = errors.Join(closeErr, a.backgroundErr)
+	finalErr := a.closeErr
 	a.closeMu.Unlock()
+	terminateFinish(finalErr)
 	a.lifecycleMu.Lock()
 	a.lifecycleState = appLifecycleClosed
 	a.lifecycleMu.Unlock()

@@ -50,7 +50,9 @@ import (
 // recorded in docs/phase2-local-contracts.md, with no unused allowance.
 // P7 adds portable schema transactions and field visibility. Measured growth
 // and the unchanged per-file limit are recorded in docs/phase3-local-contracts.md.
-const dataGroupRuntimeLimit = 21243
+// P8 adds advanced fields and coordination sessions; scope and measured growth
+// are recorded in docs/phase4-local-contracts.md. No spare allowance is added.
+const dataGroupRuntimeLimit = 21747
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -306,14 +308,14 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 56002, "plan 22,484"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 5415, "plan 2,050"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 45, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 829, "plan 285"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 39, "plan 16"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 61410, "plan 22,484"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6238, "plan 2,050"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 57, "plan 12"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 973, "plan 285"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 46, "plan 16"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 97, "plan 30"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 187, "plan 65"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 129, "plan 30"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 203, "plan 65"},
 }
 
 type repositoryMetrics struct {

@@ -17,6 +17,10 @@ const (
 	TypeBigInt      FieldType = "bigint"
 	TypeNumeric     FieldType = "numeric"
 	TypeText        FieldType = "text"
+	TypeEditor      FieldType = "editor"
+	TypeGeoPoint    FieldType = "geoPoint"
+	TypeAutoDate    FieldType = "autodate"
+	TypePassword    FieldType = "password"
 	TypeTimestampTZ FieldType = "timestamptz"
 	TypeUUID        FieldType = "uuid"
 	TypeJSONB       FieldType = "jsonb"
@@ -60,6 +64,10 @@ type FieldOptions struct {
 	MaxFileSize *int64   `json:"maxFileSize,omitempty"`
 	MimeTypes   []string `json:"mimeTypes,omitempty"`
 	Thumbs      []string `json:"thumbs,omitempty"`
+	MaxSize     *int64   `json:"maxSize,omitempty"`
+	ConvertURLs bool     `json:"convertURLs,omitempty"`
+	OnCreate    bool     `json:"onCreate,omitempty"`
+	OnUpdate    bool     `json:"onUpdate,omitempty"`
 }
 
 type IndexInput struct {
@@ -190,6 +198,7 @@ func cloneFieldOptions(source FieldOptions) FieldOptions {
 	result.Min = clonePointer(source.Min)
 	result.Max = clonePointer(source.Max)
 	result.MaxFileSize = clonePointer(source.MaxFileSize)
+	result.MaxSize = clonePointer(source.MaxSize)
 	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
 	result.AllowedValues = append([]string(nil), source.AllowedValues...)
 	result.MimeTypes = append([]string(nil), source.MimeTypes...)

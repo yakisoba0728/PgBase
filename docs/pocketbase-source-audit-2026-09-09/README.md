@@ -1,5 +1,7 @@
 # PocketBase 전체 소스 대조 감사 — 완료 보고
 
+> 이 감사는 당시 커밋의 전체 소스 대조 기록입니다. 후속 구현을 반영한 현재 상태는 [구현 이력](../project-status.md), 남은 작업은 [후속 작업](../next-work.md), 최신 비교는 [재평가](../pocketbase-current-reassessment.md)를 참고하세요.
+
 요청: PocketBase 소스 전체를 내려받아 파일별로 읽고, GPT 5.6 Sol 에이전트로 현재 PgBase와 대조한다. 문서상의 기능 이름이나 기존 65–70% 추정을 결론으로 삼지 않는다.
 
 - Upstream: `pocketbase/pocketbase`, tag `v0.40.3`, commit `5684ee24f1e88f71a2ede73d20cf547fbd509e16`.

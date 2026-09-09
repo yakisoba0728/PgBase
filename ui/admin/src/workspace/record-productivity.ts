@@ -1,4 +1,5 @@
 import { parse, stringify } from "lossless-json";
+import type { FieldDefinition } from "../backend/ports";
 import type { Draft } from "./record-codec";
 
 const namespace = "pgbase.admin.records.v1";
@@ -23,15 +24,23 @@ export function writeColumns(scope: RecordScope, columns: readonly string[]): vo
   try { localStorage.setItem(key("columns", scope), JSON.stringify(columns)); } catch { /* Storage is optional; keep the current in-memory selection. */ }
 }
 
-export function readDraft(scope: RecordScope): Draft | null {
+export function readDraft(scope: RecordScope, fields?: readonly FieldDefinition[]): Draft | null {
   try {
     const value = parse(localStorage.getItem(key("draft", scope)) ?? "null");
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Draft : null;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+    const safe = persistentDraft(value as Draft, fields);
+    if (fields) writeDraft(scope, safe, fields);
+    return safe;
   } catch { return null; }
 }
 
-export function writeDraft(scope: RecordScope, draft: Draft): void {
-  const safe = Object.fromEntries(Object.entries(draft).filter(([name]) => !/(password|passwd|secret|token|api_?key|credential)/i.test(name)));
+function persistentDraft(draft: Draft, fields?: readonly FieldDefinition[]): Draft {
+  const allowed = fields && new Set(fields.filter(field => !["password", "autodate", "file"].includes(field.type)).map(field => field.name));
+  return Object.fromEntries(Object.entries(draft).filter(([name]) => (!allowed || allowed.has(name)) && !/(password|passwd|secret|token|api_?key|credential)/i.test(name)));
+}
+
+export function writeDraft(scope: RecordScope, draft: Draft, fields?: readonly FieldDefinition[]): void {
+  const safe = persistentDraft(draft, fields);
   try { localStorage.setItem(key("draft", scope), stringify(safe) ?? "{}"); } catch { /* A denied or full storage area must not interrupt editing. */ }
 }
 

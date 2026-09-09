@@ -21,8 +21,10 @@ var errStagedRollback = errors.New("staged upload rolled back")
 // transaction. Its fields are intentionally private so callers cannot swap an
 // object key, digest, or declared metadata between Stage and Commit.
 type StagedFile struct {
-	file   File
-	finish func(error)
+	file           File
+	finish         func(error)
+	storageRelease func()
+	storageLease   storageLease
 }
 
 func (s StagedFile) ID() uuid.UUID       { return s.file.ID }
@@ -43,19 +45,27 @@ type AttachmentChange struct {
 // record exists yet. Call Commit in the record transaction or Cleanup on every
 // failure path.
 func (s *Service) Stage(ctx context.Context, principal identity.Subject, input Upload) (StagedFile, error) {
+	ctx, release, err := s.beginStorageOperation(ctx)
+	if err != nil {
+		return StagedFile{}, err
+	}
 	event := &lifecycle.Event{Kind: "file.upload", Data: &FileEvent{File: File{Filename: input.Filename, ContentType: input.ContentType, Size: input.Size, SHA256: input.SHA256}, Principal: principal, Staged: true}}
 	finish, err := s.options.Hooks.Begin(ctx, event)
 	if err != nil {
+		release()
 		finish(err)
 		return StagedFile{}, err
 	}
 	staged, err := s.stage(ctx, principal, input)
 	if err != nil {
+		release()
 		finish(err)
 		return StagedFile{}, err
 	}
 	event.Data.(*FileEvent).File = staged.file
 	staged.finish = finish
+	staged.storageRelease = release
+	staged.storageLease, _ = ctx.Value(storageLeaseContextKey{}).(storageLease)
 	return staged, nil
 }
 
@@ -103,6 +113,25 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subject, changes []AttachmentChange) ([]File, error) {
 	if tx == nil || !principal.Valid() {
 		return nil, ErrInvalid
+	}
+	publicationCtx := ctx
+	hasAddition := false
+	for _, change := range changes {
+		for _, staged := range change.Additions {
+			hasAddition = true
+			if staged.storageLease.store == nil {
+				continue
+			}
+			if existing, ok := publicationCtx.Value(storageLeaseContextKey{}).(storageLease); ok && existing.revision != staged.storageLease.revision {
+				return nil, ErrStorageConflict
+			}
+			publicationCtx = context.WithValue(publicationCtx, storageLeaseContextKey{}, staged.storageLease)
+		}
+	}
+	if hasAddition {
+		if err := s.guardStoragePublication(publicationCtx, tx); err != nil {
+			return nil, err
+		}
 	}
 	result := make([]File, 0)
 	for _, change := range changes {
@@ -220,6 +249,9 @@ func (s *Service) CompleteStaged(staged []StagedFile, operationErr error) {
 	for _, item := range staged {
 		if item.finish != nil {
 			item.finish(operationErr)
+		}
+		if item.storageRelease != nil {
+			item.storageRelease()
 		}
 	}
 }
