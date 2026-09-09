@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:37 KST
+Last updated: 2026-09-10 04:39 KST
 
 ## Current milestone
 
@@ -84,3 +84,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:32 KST — Nash/Terra task `01a087a7-5a52-7983-b515-1145f58142cf` is the sole independent N6 reviewer. Its read-only target is exactly the foundation/domain-service/hooks/migrations slice through integrated `94b32b3`, excluding N7 and unfinished jobs/CLI/watch. Findings must include reproduction evidence and go directly to owner and lead; the same reviewer will inspect the next stable N6 delta.
 - 2026-09-10 04:35 KST — integrated N6 jobs/CLI/types/watch commit `bc24fb0` as `41852b5`. On the combined branch, focused race passed for `internal/cli`, `internal/config`, `internal/jsvm`, and `pgbase`; dedicated PG17.9 `55469` passed CLI migration/watch 2 tests, existing jobs fencing/timeout/admin-lease 3 tests, and JS durable retry/cron/admin-persistence 1 test. Nash will review this stable delta after closing the already assigned `94b32b3` slice.
 - 2026-09-10 04:37 KST — integrated Nash's review-only `15c5138` as `dc64f18`. Standards has no finding; Spec has two reproduced P1s: a captured `ExtensionContext` can retain original user authority after its admitted request ends, and a migration's undeclared nested/Down-only local dependency can pass startup validation then fail only during Up/Down. Both exact fixes/tests were returned to Chandrasekhar. Nash is now reviewing only the stable `94b32b3..41852b5` jobs/CLI/types/watch delta and remains assigned for fix closure.
+- 2026-09-10 04:39 KST — fixed the shortest G3-green boundary: close Nash's two P1s and the `41852b5` delta review; finish N6 hook DTO/patch and migration snapshot/history-sync/cancel-lock; pass one external Go+JS application through PG/file/SMTP/job retry and browser+Dart/Flutter record/ETag/exact-number/SSE; pass focused CPU-loop, queue/quota, cancellation and Close resource checks; close N7 revocation and controllable cursor/upload edges. Full regression and six builds stay at G5. N8 was asked to end preparation with its concise one-file implementation map.
