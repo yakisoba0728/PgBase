@@ -140,15 +140,6 @@ func cloneFieldOptionsPointer(options FieldOptions) *FieldOptions {
 	return &cloned
 }
 
-func collectionByID(catalog Catalog, id uuid.UUID) (Collection, bool) {
-	for _, collection := range catalog.Collections {
-		if collection.ID == id {
-			return collection, true
-		}
-	}
-	return Collection{}, false
-}
-
 func (s *Service) PreviewSchemaImport(ctx context.Context, document SchemaDocument) (SchemaImportPlan, error) {
 	var result SchemaImportPlan
 	err := database.Retry(ctx, func() error {

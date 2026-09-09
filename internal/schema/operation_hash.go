@@ -3,10 +3,12 @@ package schema
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
+	"sort"
 
 	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
 )
@@ -122,4 +124,37 @@ func writeSchemaOperationDigestPart(destination hash.Hash, part []byte) {
 	binary.BigEndian.PutUint64(length[:], uint64(len(part)))
 	_, _ = destination.Write(length[:])
 	_, _ = destination.Write(part)
+}
+
+func planChecksumWithCompilerVersion(plan Plan, compilerVersion string) (string, error) {
+	if compilerVersion == "" {
+		return "", errors.New("schema plan compiler version is required")
+	}
+	definition := plan.Definition
+	definition.Fields = append([]PlannedField(nil), definition.Fields...)
+	sort.Slice(definition.Fields, func(i, j int) bool {
+		if definition.Fields[i].Ordinal != definition.Fields[j].Ordinal {
+			return definition.Fields[i].Ordinal < definition.Fields[j].Ordinal
+		}
+		return definition.Fields[i].Name < definition.Fields[j].Name
+	})
+	canonical := struct {
+		CompilerVersion string
+		Operation       string
+		BaseVersion     int64
+		Definition      PlannedCollection
+		Statements      []string
+	}{
+		CompilerVersion: compilerVersion,
+		Operation:       plan.Operation,
+		BaseVersion:     plan.BaseVersion,
+		Definition:      definition,
+		Statements:      plan.Statements,
+	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return "", fmt.Errorf("marshal schema plan checksum: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }

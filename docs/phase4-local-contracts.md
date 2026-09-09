@@ -134,6 +134,40 @@ dedicated coordination connection. The query public service still exposes only
 Get/List. Runtime ceilings equal the measurements; the 800-line per-file limit
 is unchanged. The built-in route registry is separately capped at 146 routes.
 
+## N1–N5 integrated budget update
+
+The integrated N1–N5 product scope is measured against `238cc37`, the P8
+baseline. `GOTOOLCHAIN=go1.26.8 go run ./tools/repostats --compare 238cc37
+--pretty` reports runtime diff accounting of +3,670/-325 lines (net +3,345);
+the mechanical runtime total grows by 3,352 because migration embedding is
+classified as support in the comparison. This is approved implementation scope:
+N1 adds deterministic snapshot migrations and automatic recording; N2/N3 add
+public serving and administrator OTP/IP policy; N4 adds field generation,
+domain and query contracts; and N5 adds typed lifecycle boundaries.
+
+| Metric | P8 baseline | N1–N5 measured ceiling | Delta |
+| --- | ---: | ---: | ---: |
+| Handwritten runtime | 61,410 | 64,762 | +3,352 |
+| UI runtime | 6,238 | 6,249 | +11 |
+| Data package group | 21,747 | 22,693 | +946 |
+| Go interfaces | 57 | 60 | +3 |
+| Go exported declarations | 973 | 1,053 | +80 |
+| Go constructors | 46 | 49 | +3 |
+| UI page state/effect calls | 129 | 131 | +2 |
+| UI runtime exports | 203 | 203 | 0 |
+| Production files over 800 lines | 0 | 0 | 0 |
+
+The data-group source delta is +946: `internal/schema` +875 for N1 snapshots,
+recording and schema apply plus N4 option validation; `internal/recordops` +76
+for generated values; and `internal/query` -5 after modifier/cursor
+consolidation. The exact new ceiling is 22,693. These are schema-private
+transaction and planner/store paths;
+moving them outside the group would require a broad redesign, so the policy
+continues to count every file. The 800-line hard cap remains fixed. To retain
+it without adding LOC, index-name hashing now lives with schema name helpers
+and catalog ID lookup with catalog helpers; `planner.go` and
+`schema_document.go` are each 798 lines.
+
 ## Independent review
 
 Standards review found no mandatory breach in the inspected changes. It recorded
