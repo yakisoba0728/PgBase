@@ -59,7 +59,7 @@ func openExecutable(executable string) (*os.File, error) {
 	if err = ensureRegular(canonical); err != nil {
 		return nil, err
 	}
-	file, err := os.Open(canonical)
+	file, err := openExistingRegularFile(canonical, os.O_RDONLY)
 	if err != nil {
 		return nil, ErrReplaceFailed
 	}

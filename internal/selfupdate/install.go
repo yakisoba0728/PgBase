@@ -246,6 +246,9 @@ func ReadStatus(target, stateDir string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	if entry.Target != filepath.Base(canonical) {
+		return Status{}, ErrRecoveryRequired
+	}
 	status := statusFromJournal(entry)
 	if current, probeErr := ProbeBinary(context.Background(), canonical); probeErr == nil {
 		status.Current = current

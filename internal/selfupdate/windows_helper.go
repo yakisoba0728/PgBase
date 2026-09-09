@@ -23,6 +23,8 @@ func RunWindowsHelper(request WindowsHelperRequest) error {
 		if status, waitErr := windows.WaitForSingleObject(process, windows.INFINITE); waitErr != nil || status != windows.WAIT_OBJECT_0 {
 			return fmt.Errorf("%w: wait parent", ErrReplaceFailed)
 		}
+	} else if err != windows.ERROR_INVALID_PARAMETER {
+		return fmt.Errorf("%w: inspect parent", ErrReplaceFailed)
 	}
 	state, target, lock, err := prepareInstallation(request.Target, request.StateDir)
 	if err != nil {
@@ -62,9 +64,15 @@ func RunWindowsHelper(request WindowsHelperRequest) error {
 		return err
 	}
 	if digest, _, digestErr := fileDigestAndMode(target); digestErr != nil || digest != entry.NewSHA256 {
+		if _, rollbackErr := rollbackLocked(context.Background(), state, target, entry, ProbeBinary); rollbackErr != nil {
+			return rollbackErr
+		}
 		return ErrProbeFailed
 	}
 	if build, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || !sameBuild(build, entry.New) {
+		if _, rollbackErr := rollbackLocked(context.Background(), state, target, entry, ProbeBinary); rollbackErr != nil {
+			return rollbackErr
+		}
 		return ErrProbeFailed
 	}
 	entry.Phase = "committed"

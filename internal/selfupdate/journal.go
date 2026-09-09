@@ -92,7 +92,7 @@ func writeEvidence(stateDir, suffix string, manifest, signature []byte) (string,
 			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 				return "", "", ErrRecoveryRequired
 			}
-			existing, readErr := os.ReadFile(path)
+			existing, readErr := readRegularFile(path, ManifestMaxBytes)
 			if readErr != nil || !bytes.Equal(existing, item.data) {
 				return "", "", ErrRecoveryRequired
 			}
