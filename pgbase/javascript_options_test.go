@@ -36,3 +36,14 @@ func TestValidateJavaScriptReturnsSourceBoundManifestAndClonesCapabilities(t *te
 		t.Fatal("Normalized retained caller-owned JavaScript capability map")
 	}
 }
+
+func TestJavaScriptCapabilitiesRequireConfiguredServices(t *testing.T) {
+	base := Options{DatabaseURL: "postgres://postgres:postgres@localhost/pgbase", TokenSecret: make([]byte, 32)}
+	for _, capability := range []string{"files", "mail"} {
+		options := base
+		options.JavaScript = &JavaScriptOptions{Directory: "/tmp/application", Capabilities: map[string]bool{capability: true}}
+		if _, err := options.Normalized(); err == nil {
+			t.Fatalf("capability %s accepted without its configured service", capability)
+		}
+	}
+}

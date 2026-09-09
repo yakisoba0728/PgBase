@@ -84,6 +84,71 @@ type Bundle struct {
 	digest   string
 }
 
+type migrationSourceFile struct {
+	Path   string `json:"path"`
+	Length int    `json:"length"`
+	SHA256 string `json:"sha256"`
+	Source []byte `json:"source"`
+}
+
+type migrationSourceEnvelope struct {
+	Format    string                `json:"format"`
+	Migration Migration             `json:"migration"`
+	Sources   []migrationSourceFile `json:"sources"`
+}
+
+// MigrationBundle freezes one migration and only its declared module graph.
+// The returned envelope is the checksum authority stored by UserMigration.
+func (b *Bundle) MigrationBundle(id string) (*Bundle, []byte, error) {
+	if b == nil {
+		return nil, nil, errors.New("JavaScript bundle is nil")
+	}
+	var migration Migration
+	found := false
+	for _, candidate := range b.manifest.Migrations {
+		if candidate.ID == id {
+			migration, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return nil, nil, fmt.Errorf("JavaScript migration %q is not in the manifest", id)
+	}
+	names := append([]string{migration.Module}, migration.Dependencies...)
+	for index, name := range names {
+		canonical, err := b.canonicalModule(name)
+		if err != nil {
+			return nil, nil, fmt.Errorf("JavaScript migration %q source: %w", id, err)
+		}
+		names[index] = canonical
+	}
+	slices.Sort(names)
+	names = slices.Compact(names)
+	sources := make(map[string][]byte, len(names))
+	files := make([]migrationSourceFile, 0, len(names))
+	for _, name := range names {
+		source := append([]byte(nil), b.sources[name]...)
+		digest := sha256.Sum256(source)
+		sources[name] = source
+		files = append(files, migrationSourceFile{Path: name, Length: len(source), SHA256: hex.EncodeToString(digest[:]), Source: source})
+	}
+	envelope, err := json.Marshal(migrationSourceEnvelope{Format: "pgbase.js-migration-source/v1", Migration: migration, Sources: files})
+	if err != nil {
+		return nil, nil, err
+	}
+	manifest := Manifest{Format: ManifestFormat, Migrations: []Migration{migration}}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := &Bundle{root: b.root, manifest: manifest, sources: sources}
+	if err := result.validateReferences(); err != nil {
+		return nil, nil, err
+	}
+	result.digest = bundleDigest(manifestBytes, sources)
+	return result, envelope, nil
+}
+
 func LoadBundle(directory string) (*Bundle, error) {
 	if directory == "" || !filepath.IsAbs(directory) || strings.IndexByte(directory, 0) >= 0 {
 		return nil, errors.New("JavaScript directory must be an absolute path")

@@ -42,6 +42,7 @@ type App struct {
 	userMigrationSources   backgroundRunner
 	userMigrationRecorder  *usermigrate.AutoRecorder
 	javaScriptRuntime      *javaScriptRuntime
+	extensions             *extensionBridge
 	listen                 func(string, string) (net.Listener, error)
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool

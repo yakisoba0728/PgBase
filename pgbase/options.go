@@ -165,6 +165,14 @@ func validateOptions(o Options) error {
 	if err := o.validateEmail(); err != nil {
 		return err
 	}
+	if o.JavaScript != nil {
+		if o.JavaScript.Capabilities["files"] && o.Files.Driver == "" {
+			return fmt.Errorf("JavaScript.Capabilities: files requires Files.Driver")
+		}
+		if o.JavaScript.Capabilities["mail"] && o.SMTP.Address == "" {
+			return fmt.Errorf("JavaScript.Capabilities: mail requires SMTP configuration")
+		}
+	}
 	if err := validateDatabaseURL(o.DatabaseURL, o.AllowInsecureDatabase); err != nil {
 		return fmt.Errorf("DatabaseURL: %w", err)
 	}

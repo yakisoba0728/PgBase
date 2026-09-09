@@ -14,6 +14,15 @@ type recordingHost struct {
 	calls []string
 }
 
+type nestedHost struct {
+	runtime *jsvm.Runtime
+	handler jsvm.HandlerRef
+}
+
+func (h nestedHost) Call(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+	return h.runtime.Invoke(ctx, jsvm.Invocation{Handler: h.handler})
+}
+
 func (h *recordingHost) Call(_ context.Context, method string, input json.RawMessage) (json.RawMessage, error) {
 	h.calls = append(h.calls, method+":"+string(input))
 	return json.RawMessage(`{"id":"018f3b2e-4200-7000-8000-000000000001","amount":9007199254740993}`), nil
@@ -89,5 +98,25 @@ func TestRuntimeCancelsInfiniteLoopAndRemainsAvailable(t *testing.T) {
 	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[1].Handler})
 	if err != nil || string(output) != `{"ok":true}` {
 		t.Fatalf("subsequent invocation output=%s err=%v", output, err)
+	}
+}
+
+func TestRuntimeNestedInvocationInheritsRootSlot(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/nested","access":"public","handler":{"module":"route.js","export":"parent"},"capabilities":["log"]}]}`)
+	writeFile(t, directory, "route.js", `const pg=require("pgbase"); exports.parent=()=>({nested:pg.log.info({message:"nested"})}); exports.child=()=>({ok:true});`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{Concurrency: 1, Queue: 1, AdmissionTimeout: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler,
+		Capabilities: []string{"log"}, Host: nestedHost{runtime: runtime, handler: jsvm.HandlerRef{Module: "route.js", Export: "child"}}})
+	if err != nil || string(output) != `{"nested":{"ok":true}}` {
+		t.Fatalf("nested output=%s error=%v", output, err)
 	}
 }

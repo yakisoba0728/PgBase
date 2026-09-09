@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/jsvm"
 )
@@ -15,8 +16,11 @@ import (
 // JavaScriptOptions enables trusted local JavaScript extensions. Scripts run
 // in process and are not an operating-system sandbox for hostile tenants.
 type JavaScriptOptions struct {
-	Directory          string
-	Capabilities       map[string]bool
+	Directory    string
+	Capabilities map[string]bool
+	// JobServiceSubjects binds each manifest job to an operator-provisioned
+	// service token identity. The script cannot select or change this subject.
+	JobServiceSubjects map[string]uuid.UUID
 	Concurrency        int
 	Queue              int
 	AdmissionTimeout   time.Duration
@@ -48,10 +52,12 @@ type JavaScriptHook struct {
 }
 
 type JavaScriptJob struct {
-	Name     string
-	Schedule string
-	Timezone string
-	Handler  JavaScriptHandler
+	Name             string
+	Schedule         string
+	Timezone         string
+	Handler          JavaScriptHandler
+	Capabilities     []string
+	ServiceSubjectID uuid.UUID
 }
 
 type JavaScriptMigration struct {
@@ -83,6 +89,14 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 		capabilities[name] = enabled
 	}
 	options.Capabilities = capabilities
+	subjects := make(map[string]uuid.UUID, len(options.JobServiceSubjects))
+	for name, id := range options.JobServiceSubjects {
+		if name == "" || id == uuid.Nil {
+			return JavaScriptOptions{}, errors.New("JavaScript.JobServiceSubjects requires job names and non-zero UUIDs")
+		}
+		subjects[name] = id
+	}
+	options.JobServiceSubjects = subjects
 	limits, err := options.limits().NormalizedForPublic()
 	if err != nil {
 		return JavaScriptOptions{}, fmt.Errorf("JavaScript: %w", err)
@@ -127,7 +141,11 @@ func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (JavaScr
 	if err := validateJavaScriptRegistration(bundle.Manifest(), normalized.Capabilities); err != nil {
 		return JavaScriptManifest{}, err
 	}
-	return publicJavaScriptManifest(bundle), nil
+	result := publicJavaScriptManifest(bundle)
+	for index := range result.Jobs {
+		result.Jobs[index].ServiceSubjectID = normalized.JobServiceSubjects[result.Jobs[index].Name]
+	}
+	return result, nil
 }
 
 func validateJavaScriptRegistration(manifest jsvm.Manifest, enabled map[string]bool) error {
@@ -222,7 +240,8 @@ func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
 		result.Hooks = append(result.Hooks, converted)
 	}
 	for _, job := range manifest.Jobs {
-		result.Jobs = append(result.Jobs, JavaScriptJob{Name: job.Name, Schedule: job.Schedule, Timezone: job.Timezone, Handler: publicHandler(job.Handler)})
+		result.Jobs = append(result.Jobs, JavaScriptJob{Name: job.Name, Schedule: job.Schedule, Timezone: job.Timezone,
+			Handler: publicHandler(job.Handler), Capabilities: append([]string(nil), job.Capabilities...)})
 	}
 	for _, migration := range manifest.Migrations {
 		result.Migrations = append(result.Migrations, JavaScriptMigration{ID: migration.ID,

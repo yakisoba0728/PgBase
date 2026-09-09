@@ -27,6 +27,7 @@ type extensionBridge struct {
 	files   *filestore.Service
 	mailer  mailer.Sender
 	logger  *slog.Logger
+	hooks   *HookRegistry
 }
 
 type extensionHost struct {
@@ -34,6 +35,7 @@ type extensionHost struct {
 	principal identity.Subject
 	requestID string
 	valid     bool
+	hookEvent string
 }
 
 func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
@@ -45,9 +47,23 @@ func (bridge *extensionBridge) forSubject(principal identity.Subject, requestID 
 	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: principal.Valid() && requestID != ""}
 }
 
+func (bridge *extensionBridge) forHook(ctx context.Context, event string) jsvm.Host {
+	host := bridge.forRequest(ctx).(*extensionHost)
+	host.hookEvent = event
+	return host
+}
+
 func (host *extensionHost) Call(ctx context.Context, method string, input json.RawMessage) (json.RawMessage, error) {
+	if host != nil && host.bridge != nil && strings.HasPrefix(method, "log.") {
+		return host.callLog(ctx, method, input)
+	}
 	if host == nil || host.bridge == nil || !host.valid {
 		return nil, extensionError("extension_context_unavailable", errors.New("request admission context is unavailable"))
+	}
+	if strings.HasPrefix(host.hookEvent, "record.") && (method == "records.create" || method == "records.update" || method == "records.delete" || method == "records.batch") ||
+		strings.HasPrefix(host.hookEvent, "mail.") && method == "mail.send" ||
+		strings.HasPrefix(host.hookEvent, "file.") && (method == "files.upload" || method == "files.delete") {
+		return nil, extensionError("js_reentrant_operation", errors.New("hook cannot reenter its mutating operation family"))
 	}
 	switch method {
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
@@ -56,8 +72,6 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callMail(ctx, input)
 	case "files.list", "files.upload", "files.delete", "files.token", "files.read":
 		return host.callFiles(ctx, method, input)
-	case "log.debug", "log.info", "log.warn", "log.error":
-		return host.callLog(ctx, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
@@ -111,40 +125,101 @@ func (host *extensionHost) callRecords(ctx context.Context, method string, raw j
 		if request.Limit == 0 {
 			request.Limit = 50
 		}
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection,
+			Cursor: request.Cursor, Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand}
+		finish, err := host.beginRecordLifecycle(ctx, HookRecordListRequest, event)
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
 		page, err := host.bridge.records.List(ctx, recordops.ListRequest{Principal: host.principal, RequestID: host.requestID,
-			Collection: request.Collection, Cursor: request.Cursor, Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand})
+			Collection: request.Collection, Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand})
+		finish(err)
 		return marshalExtensionResult(extensionRecordResult{Items: page.Items, NextCursor: page.NextCursor}, err)
 	case "records.get":
 		id, err := requiredUUID(request.ID)
 		if err != nil {
 			return nil, extensionError("invalid_record_request", err)
 		}
-		record, err := host.bridge.records.Get(ctx, recordops.GetRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, ID: id, Expand: request.Expand})
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: id, Expand: request.Expand}
+		finish, err := host.beginRecordLifecycle(ctx, HookRecordViewRequest, event)
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
+		record, err := host.bridge.records.Get(ctx, recordops.GetRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, ID: id, Expand: event.Expand})
+		finish(err)
 		return marshalExtensionResult(publicRecordResult(record, recordops.MutationResult{}), err)
 	case "records.create":
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection,
+			IdempotencyKey: request.IdempotencyKey, Input: cloneRawFields(request.Input)}
+		finish, err := host.beginRecordLifecycle(ctx, HookRecordCreateRequest, event)
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
 		result, err := host.bridge.records.Create(ctx, recordops.CreateRequest{Principal: host.principal, RequestID: host.requestID,
-			Collection: request.Collection, Input: request.Input, IdempotencyKey: request.IdempotencyKey})
+			Collection: request.Collection, Input: event.Input, IdempotencyKey: request.IdempotencyKey})
+		event.Result = cloneExtensionMutationResult(result)
+		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
 	case "records.update":
 		id, err := requiredUUID(request.ID)
 		if err != nil {
 			return nil, extensionError("invalid_record_request", err)
 		}
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection,
+			RecordID: id, Input: cloneRawFields(request.Input)}
+		finish, err := host.beginRecordLifecycle(ctx, HookRecordUpdateRequest, event)
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
 		result, err := host.bridge.records.Update(ctx, recordops.UpdateRequest{Principal: host.principal, RequestID: host.requestID,
-			Collection: request.Collection, ID: id, Input: request.Input, IfMatch: extensionIfMatch(request.IfMatch)})
+			Collection: request.Collection, ID: id, Input: event.Input, IfMatch: extensionIfMatch(request.IfMatch)})
+		event.Result = cloneExtensionMutationResult(result)
+		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
 	case "records.delete":
 		id, err := requiredUUID(request.ID)
 		if err != nil {
 			return nil, extensionError("invalid_record_request", err)
 		}
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: id}
+		finish, err := host.beginRecordLifecycle(ctx, HookRecordDeleteRequest, event)
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
 		result, err := host.bridge.records.Delete(ctx, recordops.DeleteRequest{Principal: host.principal, RequestID: host.requestID,
 			Collection: request.Collection, ID: id, IfMatch: extensionIfMatch(request.IfMatch)})
+		event.Result = cloneExtensionMutationResult(result)
+		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
 	case "records.batch":
 		return host.callRecordBatch(ctx, request.Operations)
 	}
 	return nil, extensionError("unsupported_operation", nil)
+}
+
+func (host *extensionHost) beginRecordLifecycle(ctx context.Context, kind string, event *api.RecordRequestEvent) (func(error), error) {
+	if host.bridge.hooks == nil {
+		return func(error) {}, nil
+	}
+	return host.bridge.hooks.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+}
+
+func cloneExtensionMutationResult(result recordops.MutationResult) *recordops.MutationResult {
+	cloned := result
+	if result.Record != nil {
+		record := *result.Record
+		record.Data = make(map[string]any, len(result.Record.Data))
+		for name, value := range result.Record.Data {
+			record.Data[name] = value
+		}
+		cloned.Record = &record
+	}
+	return &cloned
 }
 
 func (host *extensionHost) callRecordBatch(ctx context.Context, operations []extensionBatchOperation) (json.RawMessage, error) {
@@ -174,7 +249,19 @@ func (host *extensionHost) callRecordBatch(ctx context.Context, operations []ext
 			return nil, extensionError("invalid_record_request", errors.New("batch operation is invalid"))
 		}
 	}
-	results, err := host.bridge.records.Batch(ctx, recordops.BatchRequest{Principal: host.principal, RequestID: host.requestID, Operations: converted})
+	event := &api.BatchRequestEvent{Actor: host.principal, RequestID: host.requestID, Operations: converted}
+	finish := func(error) {}
+	var err error
+	if host.bridge.hooks != nil {
+		finish, err = host.bridge.hooks.Begin(ctx, &HookEvent{Kind: HookRecordBatchRequest, Data: event})
+		if err != nil {
+			finish(err)
+			return nil, err
+		}
+	}
+	results, err := host.bridge.records.Batch(ctx, recordops.BatchRequest{Principal: host.principal, RequestID: host.requestID, Operations: event.Operations})
+	event.Results = append([]recordops.MutationResult(nil), results...)
+	finish(err)
 	if err != nil {
 		return nil, mapExtensionError(err)
 	}

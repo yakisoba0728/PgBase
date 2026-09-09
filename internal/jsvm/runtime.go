@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
@@ -139,8 +140,15 @@ type callState struct {
 	ctx          context.Context
 	host         Host
 	capabilities map[string]bool
-	hostCalls    int
+	hostCalls    *atomic.Int64
 	limits       Limits
+}
+
+type executionChainKey struct{}
+type executionChain struct {
+	runtime   *Runtime
+	depth     int
+	hostCalls *atomic.Int64
 }
 
 const virtualRoot = "/pgbase-js"
@@ -183,11 +191,22 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (json.RawMe
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	release, err := r.acquire(ctx)
-	if err != nil {
-		return nil, err
+	chain, nested := ctx.Value(executionChainKey{}).(*executionChain)
+	if nested && chain.runtime == r {
+		if chain.depth >= 8 {
+			return nil, &Error{Code: CodeLimitExceeded, cause: errors.New("JavaScript nested execution depth exceeded")}
+		}
+		chain = &executionChain{runtime: r, depth: chain.depth + 1, hostCalls: chain.hostCalls}
+		ctx = context.WithValue(ctx, executionChainKey{}, chain)
+	} else {
+		release, err := r.acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		chain = &executionChain{runtime: r, hostCalls: &atomic.Int64{}}
+		ctx = context.WithValue(ctx, executionChainKey{}, chain)
 	}
-	defer release()
 	if len(invocation.Input) == 0 {
 		invocation.Input = json.RawMessage(`{}`)
 	}
@@ -207,7 +226,7 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (json.RawMe
 		stopRuntimeCancel()
 		cancel()
 	}()
-	state := &callState{ctx: callContext, host: invocation.Host, capabilities: capabilitySet(invocation.Capabilities), limits: r.limits}
+	state := &callState{ctx: callContext, host: invocation.Host, capabilities: capabilitySet(invocation.Capabilities), hostCalls: chain.hostCalls, limits: r.limits}
 	return r.invoke(callContext, invocation.Handler, invocation.Input, state)
 }
 
@@ -374,7 +393,7 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 		}
 	}
 	for _, ref := range refs {
-		state := &callState{ctx: ctx, capabilities: map[string]bool{}, limits: r.limits}
+		state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
 		vm := goja.New()
 		vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 		vm.SetParserOptions(parser.WithDisableSourceMaps)
@@ -473,8 +492,7 @@ func (r *Runtime) hostFunction(vm *goja.Runtime, state *callState, capability, m
 		if state.host == nil {
 			panic(vm.NewGoError(errors.New("host operations are unavailable during module validation")))
 		}
-		state.hostCalls++
-		if state.hostCalls > state.limits.MaximumHostCalls {
+		if state.hostCalls.Add(1) > int64(state.limits.MaximumHostCalls) {
 			panic(vm.ToValue(map[string]any{"name": "PgBaseError", "code": string(CodeLimitExceeded)}))
 		}
 		input := goja.Value(goja.Undefined())

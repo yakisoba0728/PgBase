@@ -52,6 +52,17 @@ func newWithCatalogPreflight(
 			_ = javascript.Close(context.Background())
 			return nil, err
 		}
+		if len(javascript.bundle.Manifest().Hooks) > 0 && normalized.Hooks == nil {
+			normalized.Hooks = &HookRegistry{}
+		}
+		if err := javascript.installHooks(normalized.Hooks); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
+		if err := installJavaScriptJobs(&normalized, javascript); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
 	}
 	keepJavaScript := false
 	defer func() {
@@ -201,7 +212,7 @@ func newWithCatalogPreflight(
 			_ = requestLog.Shutdown(ctx)
 		}
 	}()
-	dependencies, err := withUserServices(api.Dependencies{
+	dependencies, extensionMailer, err := withUserServices(api.Dependencies{
 		Realtime:           realtimeService,
 		RequestLog:         requestLog,
 		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
@@ -234,10 +245,9 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
+	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, logger: normalized.Logger, hooks: normalized.Hooks}
 	if javascript != nil {
-		javascript.bridge.records = recordService
-		javascript.bridge.files = fileService
-		javascript.bridge.logger = normalized.Logger
+		javascript.bridge = extensions
 	}
 	dependencies, backupManager, err := withBackupServices(ctx, dependencies, fileService, pool, normalized)
 	if err != nil {
@@ -279,6 +289,7 @@ func newWithCatalogPreflight(
 		userMigrationSources:  userMigrationSources,
 		userMigrationRecorder: userMigrationRecorder,
 		javaScriptRuntime:     javascript,
+		extensions:            extensions,
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}

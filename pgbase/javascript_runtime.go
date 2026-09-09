@@ -15,10 +15,11 @@ import (
 )
 
 type javaScriptRuntime struct {
-	bundle  *jsvm.Bundle
-	engine  *jsvm.Runtime
-	options JavaScriptOptions
-	bridge  *extensionBridge
+	bundle       *jsvm.Bundle
+	engine       *jsvm.Runtime
+	options      JavaScriptOptions
+	bridge       *extensionBridge
+	hookRemovers []func()
 }
 
 func prepareJavaScript(options JavaScriptOptions) (*javaScriptRuntime, error) {
@@ -40,6 +41,7 @@ func (runtime *javaScriptRuntime) Close(ctx context.Context) error {
 	if runtime == nil || runtime.engine == nil {
 		return nil
 	}
+	runtime.removeHooks()
 	return runtime.engine.Close(ctx)
 }
 
