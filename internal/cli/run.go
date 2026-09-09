@@ -58,6 +58,8 @@ func productionCommands() commandTable {
 		"healthcheck":  runHealthcheck,
 		"backup":       runBackup,
 		"js":           runJavaScript,
+		"version":      runVersion,
+		"update":       runUpdate,
 	}
 }
 
@@ -93,6 +95,19 @@ func execute(ctx context.Context, args []string, env environment, streams IO, co
 			}
 			return 2
 		}
+		var updateErr updateOperationalError
+		if errors.As(err, &updateErr) {
+			if encodeErr := json.NewEncoder(stderr).Encode(map[string]any{
+				"schemaVersion": updateJSONSchemaVersion,
+				"error": map[string]string{
+					"code":    updateErr.Error(),
+					"message": "update command failed",
+				},
+			}); encodeErr != nil {
+				return 1
+			}
+			return 1
+		}
 		if _, writeErr := fmt.Fprintln(stderr, "pgbase: command failed"); writeErr != nil {
 			return 1
 		}
@@ -111,7 +126,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js, version, update> [arguments]")
 	return err
 }
 
