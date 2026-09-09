@@ -158,6 +158,40 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/auth-collections/{id}/mail-templates/{purpose}/preview": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "purpose",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/admin/auth-collections/{id}/oauth-providers/{provider}": {
       "delete": {
         "parameters": [
@@ -722,7 +756,58 @@
       }
     },
     "/api/admin/logs": {
+      "delete": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      },
       "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
+    "/api/admin/logs/statistics": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
+    "/api/admin/logs/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "default": {
             "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
@@ -1084,6 +1169,20 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/v1/auth/avatar": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/change-password": {
       "post": {
         "responses": {
@@ -1158,6 +1257,17 @@
       }
     },
     "/api/v1/auth/mfa/complete": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/v1/auth/oauth/apple/callback": {
       "post": {
         "responses": {
           "default": {
@@ -1508,7 +1618,7 @@
           }
         ],
         "x-pgbase-csrf-required": true,
-        "x-pgbase-maximum-request-bytes": 1048576
+        "x-pgbase-maximum-request-bytes": 105906176
       }
     },
     "/api/v1/collections/{collection}/records": {
@@ -1664,7 +1774,7 @@
             "userBearer": []
           }
         ],
-        "x-pgbase-maximum-request-bytes": 1048576
+        "x-pgbase-maximum-request-bytes": 105906176
       }
     },
     "/api/v1/user/collections/{collection}/events": {

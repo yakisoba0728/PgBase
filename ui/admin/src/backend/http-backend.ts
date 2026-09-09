@@ -7,7 +7,7 @@ import {
   SessionError,
   VersionedRecord,
   type AdminBackend,
-  type RequestLogPage, type JobPage,
+  type RequestLogPage, type RequestLogEntry, type RequestLogFilter, type RequestLogStatistics, type JobPage, type BackupEntry, type BackupJob,
   type ApplyAttempt,
   type ApplyOutcome,
   type AuthenticatedSession,
@@ -32,7 +32,7 @@ import {
   type RecordRules,
   type RulePreview,
   type AuthCollection,
-  type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthSMTPSettings,
+  type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthMailPreview, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
 } from "./ports";
@@ -131,6 +131,10 @@ function applyOutcome(data: unknown, operationId: string): ApplyOutcome {
 function recordPath(collection: string, id?: string): string {
   const base = `/api/v1/collections/${encodeURIComponent(collection)}/records`;
   return id === undefined ? base : `${base}/${encodeURIComponent(id)}`;
+}
+
+function fileIdentity(files: Record<string, File[]>): Record<string, string[]> {
+	return Object.fromEntries(Object.entries(files).map(([field, selected]) => [field, selected.map((file) => `${file.name}:${file.size}:${file.type}:${file.lastModified}`)]));
 }
 
 function definitions(raw: unknown): CollectionDefinition[] {
@@ -256,7 +260,7 @@ class HTTPBackend implements AdminBackend {
     get: async (collection: string, id: string, signal?: AbortSignal): Promise<VersionedRecord> => {
       return this.#versioned(collection, id, await this.#recordCall({ path: recordPath(collection, id), signal }));
     },
-    create: async (attempt: CreateAttempt, input: RecordData): Promise<VersionedRecord> => {
+		create: async (attempt: CreateAttempt, input: RecordData): Promise<VersionedRecord> => {
       const reply = await this.#recordCall({
         path: recordPath(attempt.collection),
         method: "POST",
@@ -264,9 +268,11 @@ class HTTPBackend implements AdminBackend {
         csrf: true,
         headers: { "Idempotency-Key": attempt.keyFor(input) },
       });
-      return this.#versioned(attempt.collection, String((reply.data as RecordData).id ?? ""), reply);
-    },
-    update: async (record: VersionedRecord, patch: RecordData): Promise<VersionedRecord> => {
+			return this.#versioned(attempt.collection, String((reply.data as RecordData).id ?? ""), reply);
+		},
+		createWithFiles: async (attempt: CreateAttempt, input: RecordData, files: Record<string, File[]>): Promise<VersionedRecord> =>
+			this.#multipartRecord(attempt.collection, undefined, input, files, { "Idempotency-Key": attempt.keyFor({ ...input, $files: fileIdentity(files) }) }),
+		update: async (record: VersionedRecord, patch: RecordData): Promise<VersionedRecord> => {
       const reply = await this.#recordCall({
         path: recordPath(record.collection, record.id),
         method: "PATCH",
@@ -274,8 +280,10 @@ class HTTPBackend implements AdminBackend {
         csrf: true,
         headers: { "If-Match": record.precondition() },
       });
-      return this.#versioned(record.collection, record.id, reply);
-    },
+			return this.#versioned(record.collection, record.id, reply);
+		},
+		updateWithFiles: async (record: VersionedRecord, patch: RecordData, files: Record<string, File[]>): Promise<VersionedRecord> =>
+			this.#multipartRecord(record.collection, record.id, patch, files, { "If-Match": record.precondition() }),
     remove: async (record: VersionedRecord): Promise<void> => {
       await this.#recordCall({
         path: recordPath(record.collection, record.id),
@@ -310,13 +318,47 @@ class HTTPBackend implements AdminBackend {
       if (statusClass !== undefined) query.set("statusClass", String(statusClass));
       return (await this.#send({ path: `/api/admin/logs?${query}`, signal })).data as RequestLogPage;
     },
+    searchLogs: async (filter: RequestLogFilter, signal?: AbortSignal): Promise<RequestLogPage> => {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(filter)) if (value !== undefined && value !== "") query.set(key, String(value));
+      return (await this.#send({ path: `/api/admin/logs?${query}`, signal })).data as RequestLogPage;
+    },
+    logDetail: async (id: number, signal?: AbortSignal): Promise<RequestLogEntry> =>
+      (await this.#send({ path: `/api/admin/logs/${encodeURIComponent(id)}`, signal })).data as RequestLogEntry,
+    logStatistics: async (signal?: AbortSignal): Promise<RequestLogStatistics> =>
+      (await this.#send({ path: "/api/admin/logs/statistics", signal })).data as RequestLogStatistics,
+    truncateLogs: async (signal?: AbortSignal): Promise<void> => {
+      await this.#send({ path: "/api/admin/logs", method: "DELETE", csrf: true, signal });
+    },
     jobs: async (signal?: AbortSignal): Promise<JobPage> => (await this.#send({ path: "/api/admin/jobs", signal })).data as JobPage,
     configureJob: async (id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> => {
       await this.#send({ path: `/api/admin/jobs/${encodeURIComponent(id)}`, method: "PUT", body: { schedule, enabled }, csrf: true, signal });
     },
+    configureJobInTimezone: async (id: string, schedule: string, timezone: string, enabled: boolean, signal?: AbortSignal): Promise<void> => {
+      await this.#send({ path: `/api/admin/jobs/${encodeURIComponent(id)}`, method: "PUT", body: { schedule, timezone, enabled }, csrf: true, signal });
+    },
     runJob: async (id: string, signal?: AbortSignal): Promise<void> => {
       await this.#send({ path: `/api/admin/jobs/${encodeURIComponent(id)}/run`, method: "POST", csrf: true, signal });
     },
+    backups: async (signal?: AbortSignal): Promise<BackupEntry[] | null> => {
+      try { return ((await this.#send({ path: "/api/admin/backups", signal })).data as { items: BackupEntry[] }).items; }
+      catch (error) { if (error instanceof WireError && error.wire.status === 404) return null; throw this.#systemFailure(error); }
+    },
+    createBackup: async (signal?: AbortSignal): Promise<BackupJob> => (await this.#send({ path: "/api/admin/backups", method: "POST", csrf: true, signal })).data as BackupJob,
+    uploadBackup: async (archive: File, signal?: AbortSignal): Promise<BackupEntry> => {
+      const response = await fetch("/api/admin/backups/upload", { method: "POST", body: archive, headers: { "Content-Type": "application/gzip", "X-PgBase-CSRF": this.#csrfToken }, credentials: "include", signal });
+      if (!response.ok) throw new Error(`backup_upload_${response.status}`);
+      return await decode(response) as BackupEntry;
+    },
+    backupDownloadURL: (id: string): string => `/api/admin/backups/${encodeURIComponent(id)}`,
+    downloadBackup: async (id: string, signal?: AbortSignal): Promise<Blob> => {
+      const response = await fetch(`/api/admin/backups/${encodeURIComponent(id)}`, { credentials: "include", signal });
+      if (!response.ok) throw new Error(`backup_download_${response.status}`);
+      return response.blob();
+    },
+    deleteBackup: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/backups/${encodeURIComponent(id)}`, method: "DELETE", csrf: true, signal }); },
+    restoreBackup: async (id: string, signal?: AbortSignal): Promise<BackupJob> => (await this.#send({ path: `/api/admin/backups/${encodeURIComponent(id)}/restore`, method: "POST", csrf: true, signal })).data as BackupJob,
+    backupJob: async (id: string, signal?: AbortSignal): Promise<BackupJob> => (await this.#send({ path: `/api/admin/backup-jobs/${encodeURIComponent(id)}`, signal })).data as BackupJob,
   };
 
   readonly users = {
@@ -384,6 +426,7 @@ class HTTPBackend implements AdminBackend {
     putProvider: async (id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(value.name)}`, method: "PUT", body: value, csrf: true, signal })).data as OAuthProviderSettings,
     deleteProvider: async (id: string, name: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(name)}`, method: "DELETE", csrf: true, signal }); },
     putTemplate: async (id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}`, method: "PUT", body: value, csrf: true, signal })).data as AuthMailTemplate,
+    previewTemplate: async (id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}/preview`, method: "POST", body: value, csrf: true, signal })).data as AuthMailPreview,
     putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: value, csrf: true, signal })).data as AuthSMTPSettings,
     testSMTP: async (id: string, recipient: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp/test`, method: "POST", body: { recipient }, csrf: true, signal }); },
   };
@@ -472,14 +515,43 @@ class HTTPBackend implements AdminBackend {
     return new SchemaError("catalog-moved", code, details);
   }
 
-  async #recordCall(request: Request): Promise<Reply> {
+	async #recordCall(request: Request): Promise<Reply> {
     try {
       return await this.#send(request);
     } catch (caught: unknown) {
       if (!(caught instanceof WireError)) throw caught;
       throw recordFailure(caught.wire);
-    }
-  }
+		}
+	}
+
+	async #multipartRecord(collection: string, id: string | undefined, input: RecordData, files: Record<string, File[]>, headers: Record<string, string>): Promise<VersionedRecord> {
+		const body = new FormData();
+		const recordBody: RecordData = { ...input };
+		const parts: Array<{ name: string; file: File }> = [];
+		let part = 0;
+		for (const [field, selected] of Object.entries(files)) {
+			const references = selected.map((file) => {
+				const name = `file_${part++}`;
+				parts.push({ name, file });
+				return { $file: name };
+			});
+			if (references.length > 0) recordBody[field] = references.length === 1 ? references[0] : references;
+		}
+		const method = id === undefined ? "POST" : "PATCH";
+		body.append("requests", stringifyJSON({ requests: [{ method, url: recordPath(collection, id), body: recordBody, headers }] }));
+		for (const value of parts) body.append(value.name, value.file, value.file.name);
+		const response = await fetch("/api/v1/collections/batch", { method: "POST", body, headers: { "X-PgBase-CSRF": this.#csrfToken }, credentials: "include" });
+		const decoded = await decode(response).catch(() => undefined);
+		if (!response.ok) {
+			const reported = envelope(decoded);
+			throw recordFailure({ status: response.status, code: reported?.code ?? "request_failed", details: reported?.details ?? {} });
+		}
+		const result = (decoded as { results?: Array<{ body?: RecordData; etag?: string }> })?.results?.[0];
+		const record = result?.body;
+		const etag = result?.etag;
+		if (record === undefined || typeof etag !== "string") throw new RecordError("failed");
+		return new VersionedRecord(collection, String(record.id ?? id ?? ""), record, etag);
+	}
 
   #versioned(collection: string, id: string, reply: Reply): VersionedRecord {
     const etag = strongETag(reply.headers);

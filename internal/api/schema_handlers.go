@@ -226,10 +226,13 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 		}
 		return schema.NewCreateChange(schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: c.View}), true
 	case "update":
-		if c.Fields == nil {
-			return schema.Change{}, false
-		}
 		if c.View != nil {
+			if c.Fields != nil || c.Indexes != nil {
+				return schema.Change{}, false
+			}
+			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, View: c.View}), true
+		}
+		if c.Fields == nil {
 			return schema.Change{}, false
 		}
 		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: c.Indexes}), true

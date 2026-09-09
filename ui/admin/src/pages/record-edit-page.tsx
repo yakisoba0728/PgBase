@@ -57,7 +57,8 @@ export function FileField({ collection, recordID, field }: { collection: string;
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const lifetime = useRef(0);
+	const lifetime = useRef(0);
+	const maximum = field.options?.maxSelect ?? 1;
   useEffect(() => {
     lifetime.current += 1;
     const controller = new AbortController();
@@ -72,26 +73,56 @@ export function FileField({ collection, recordID, field }: { collection: string;
     try { const uploaded = await files.uploadFile(collection, recordID, field.name, file); if (generation === lifetime.current) { setItems((current) => [...current, uploaded]); if (input.current) input.current.value = ""; } }
     catch { if (generation === lifetime.current) setMessage("Upload failed."); } finally { if (generation === lifetime.current) setPending(false); }
   }
-  async function download(item: FileInfo) {
-    try { const token = await files.createDownloadToken(item.id); const blob = await files.downloadBlob(item.id, token); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = item.filename; link.click(); URL.revokeObjectURL(url); }
+  async function download(item: FileInfo, variant = "original") {
+	try { const token = await files.createDownloadToken(item.id, variant); const blob = await files.downloadBlob(item.id, token, variant); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = variant === "original" ? item.filename : `${variant}-${item.filename}`; link.click(); URL.revokeObjectURL(url); }
     catch { setMessage("Download failed."); }
   }
-  return <fieldset className="record-field"><legend>{field.name} files</legend>
-    {message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending} /><button type="button" onClick={upload} disabled={pending}>Upload</button>
-    <ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button><button disabled={pending} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
+	return <fieldset className="record-field"><legend>{field.name} files</legend>
+		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
+		{message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>Upload</button>
+		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
   </fieldset>;
 }
 
-export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(route: AdminRoute): void }) {
-  const editor = useRecordEditor(collectionName, id, navigate);
+function AtomicFileInput({ field, files, error, disabled, onChange }: { field: FieldDefinition; files: File[]; error?: string; disabled: boolean; onChange(files: File[]): void }) {
+	const maximum = field.options?.maxSelect ?? 1;
+	return <fieldset className="record-field">
+		<legend>{field.name} replacement files on save</legend>
+		<input aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
+		<p>On an existing record, selecting files replaces the current set when you save. Select {maximum === 1 ? "one file" : `up to ${maximum} files`}. File selections stay only in this page and must be selected again after a reload.</p>
+		{files.length > 0 && <ul>{files.map((file, index) => <li key={`${file.name}:${index}`}>{file.name}</li>)}</ul>}
+		{error && <p className="field-error" id={`record-${field.name}-file-error`}>{error}</p>}
+	</fieldset>;
+}
 
-  return <section>
+export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(route: AdminRoute): void }) {
+	const editor = useRecordEditor(collectionName, id, navigate);
+	const [files, setFiles] = useState<Record<string, File[]>>({});
+	const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
+	useEffect(() => { setFiles({}); setFileErrors({}); }, [collectionName, id]);
+	function save() {
+		const errors: Record<string, string> = {};
+		for (const field of editor.fields.filter((candidate) => candidate.type === "file")) {
+			const selected = files[field.name] ?? [];
+			const minimum = field.required ? 1 : 0;
+			const maximum = field.options?.maxSelect ?? 1;
+			if (editor.isCreate && selected.length < minimum) errors[field.name] = `Select at least ${minimum} file${minimum === 1 ? "" : "s"}.`;
+			else if (selected.length > maximum) errors[field.name] = `Select no more than ${maximum} file${maximum === 1 ? "" : "s"}.`;
+		}
+		setFileErrors(errors);
+		if (Object.keys(errors).length === 0) editor.save(files);
+	}
+
+	return <section>
     <h2>{editor.isCreate ? "Create" : "Edit"} {collectionName} record</h2>
     {editor.message && <p role="alert">{editor.message}</p>}
     {editor.stale && <button onClick={editor.reload} type="button">Reload record</button>}
     {!editor.collection && !editor.message && <p aria-live="polite">Loading record…</p>}
-    {editor.collection && <form onSubmit={(event) => { event.preventDefault(); editor.save(); }}>
-      {editor.fields.map((field) => field.type === "file" && id ? <FileField collection={collectionName} recordID={id} field={field} key={field.name} /> : <RecordField editor={editor} field={field} key={field.name} />)}
+		{editor.collection && <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+			{editor.fields.map((field) => field.type === "file" ? <div key={field.name}>
+				<AtomicFileInput disabled={editor.pending || editor.stale} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
+				{id && <FileField collection={collectionName} recordID={id} field={field} />}
+			</div> : <RecordField editor={editor} field={field} key={field.name} />)}
       <button disabled={editor.pending || editor.stale} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</button>
       {!editor.isCreate && <button disabled={editor.pending} onClick={editor.duplicate} type="button">Duplicate record</button>}
       {!editor.isCreate && <button className="danger" disabled={editor.pending || editor.stale} onClick={editor.remove} type="button">Delete record</button>}

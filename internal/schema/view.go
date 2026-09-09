@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
+	if input.View != nil && input.View.SQL != "" {
+		return planSQLViewCreate(catalog, input)
+	}
 	if len(input.Fields) > 0 || len(input.Indexes) > 0 || input.View == nil {
 		return Plan{}, validation("view", "invalid_shape")
 	}
@@ -50,6 +55,76 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM " + pgx.Identifier{"app", source.TableName}.Sanitize() + ` AS "source" WHERE ` + predicate
 	view := &PlannedView{SourceCollectionID: source.ID, Source: source.Name, Projection: append([]string(nil), input.View.Projection...), Filter: cloneViewFilter(input.View.Filter)}
 	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, View: view}, Statements: []string{statement}}, nil
+}
+
+func planSQLViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
+	view := input.View
+	if view == nil || view.SQL == "" || view.Source != "" || len(view.Projection) != 0 || view.Filter != nil ||
+		len(input.Fields) != 0 || len(input.Indexes) != 0 || view.inspection == nil {
+		return Plan{}, validation("view", "invalid_shape")
+	}
+	inspection := view.inspection
+	fields := append([]PlannedField(nil), inspection.Fields...)
+	for i := range fields {
+		fields[i].ID = uuid.Nil
+		fields[i].Required = false
+		fields[i].Unique = false
+		fields[i].Indexed = false
+		fields[i].Default = nil
+		fields[i].Relation = nil
+		fields[i].Options = FieldOptions{}
+		fields[i].Ordinal = i
+	}
+	alias := pgx.Identifier{"source"}.Sanitize()
+	projection := []string{alias + `."id"`}
+	if inspection.HasCreatedAt {
+		projection = append(projection, alias+`."created_at"`)
+	} else {
+		projection = append(projection, `'1970-01-01 00:00:00+00'::timestamptz AS "created_at"`)
+	}
+	if inspection.HasUpdatedAt {
+		projection = append(projection, alias+`."updated_at"`)
+	} else {
+		projection = append(projection, `'1970-01-01 00:00:00+00'::timestamptz AS "updated_at"`)
+	}
+	for _, field := range fields {
+		projection = append(projection, alias+"."+pgx.Identifier{field.ColumnName}.Sanitize())
+	}
+	sql := strings.TrimSpace(view.SQL)
+	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
+	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM (" + sql + ") AS " + alias
+	plannedView := &PlannedView{SQL: view.SQL, Dependencies: append([]uuid.UUID(nil), inspection.Dependencies...)}
+	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, View: plannedView}, Statements: []string{statement}}, nil
+}
+
+func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if validateInputName("name", input.Name) != nil || input.Name != current.Name || current.TableName != current.Name || len(input.Fields) != 0 || input.Indexes != nil {
+		return Plan{}, validation("view", "invalid_shape")
+	}
+	for _, candidate := range catalog.Collections {
+		if candidate.ID != current.ID && candidate.View != nil && slices.Contains(candidate.View.Dependencies, current.ID) {
+			return Plan{}, validation("view", "collection_referenced")
+		}
+	}
+	created, err := planSQLViewCreate(catalog, CreateCollectionInput{Name: current.Name, View: input.View})
+	if err != nil {
+		return Plan{}, err
+	}
+	if slices.Contains(created.Definition.View.Dependencies, current.ID) {
+		return Plan{}, validation("view.sql", "self_reference")
+	}
+	prior := make(map[string]Field, len(current.Fields))
+	for _, field := range current.Fields {
+		prior[field.Name] = field
+	}
+	for i := range created.Definition.Fields {
+		if field, ok := prior[created.Definition.Fields[i].Name]; ok && field.Type == created.Definition.Fields[i].Type {
+			created.Definition.Fields[i].ID = field.ID
+		}
+	}
+	created.Operation = updateCollectionOperation
+	created.Statements = append([]string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}, created.Statements...)
+	return created, nil
 }
 
 func compileStaticViewFilter(rule ViewFilter, collection Collection, alias string, depth int) (string, error) {
@@ -169,4 +244,37 @@ func viewFilterFields(filter *ViewFilter, result map[string]struct{}) {
 	for i := range filter.Args {
 		viewFilterFields(&filter.Args[i], result)
 	}
+}
+
+func viewReferencesCollection(view Collection, collectionID uuid.UUID) bool {
+	return view.View != nil && (view.View.SourceCollectionID == collectionID || slices.Contains(view.View.Dependencies, collectionID))
+}
+
+func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField) error {
+	for _, candidate := range catalog.Collections {
+		if candidate.IsSQLView() && slices.Contains(candidate.View.Dependencies, sourceID) {
+			return validation("fields", "field_used_by_view")
+		}
+		if candidate.View == nil || candidate.View.SourceCollectionID != sourceID {
+			continue
+		}
+		dependencies := map[string]struct{}{}
+		for _, name := range candidate.View.Projection {
+			dependencies[name] = struct{}{}
+		}
+		viewFilterFields(candidate.View.Filter, dependencies)
+		for name := range dependencies {
+			found := false
+			for _, field := range desired {
+				if field.Name == name || (current[name].ID != uuid.Nil && field.ID == current[name].ID) {
+					found = field.Type == current[name].Type
+					break
+				}
+			}
+			if !found {
+				return validation("fields", "field_used_by_view")
+			}
+		}
+	}
+	return nil
 }

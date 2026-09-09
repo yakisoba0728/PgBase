@@ -15,6 +15,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.70.1
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 )

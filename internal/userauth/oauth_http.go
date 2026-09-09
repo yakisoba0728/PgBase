@@ -18,6 +18,9 @@ const maximumOAuthResponseBytes = 64 << 10
 // HTTPOAuthConfig describes a standard authorization-code OAuth2 provider.
 // SubjectField, EmailField and EmailVerifiedField are top-level JSON fields.
 type HTTPOAuthConfig struct {
+	// ProviderName selects a built-in profile normalizer. Empty preserves the
+	// configurable top-level-field behavior for custom OAuth/OIDC servers.
+	ProviderName          string
 	AuthorizationURL      string
 	TokenURL              string
 	UserInfoURL           string
@@ -27,6 +30,7 @@ type HTTPOAuthConfig struct {
 	SubjectField          string
 	EmailField            string
 	EmailVerifiedField    string
+	AvatarField           string
 	HTTPClient            *http.Client
 	AllowInsecureLoopback bool
 }
@@ -34,6 +38,7 @@ type HTTPOAuthConfig struct {
 type HTTPOAuthProvider struct {
 	config HTTPOAuthConfig
 	client *http.Client
+	apple  appleKeyCache
 }
 
 func NewHTTPOAuthProvider(config HTTPOAuthConfig) (*HTTPOAuthProvider, error) {
@@ -50,7 +55,10 @@ func NewHTTPOAuthProvider(config HTTPOAuthConfig) (*HTTPOAuthProvider, error) {
 	if config.EmailVerifiedField == "" {
 		config.EmailVerifiedField = "email_verified"
 	}
-	for _, field := range []string{config.SubjectField, config.EmailField, config.EmailVerifiedField} {
+	if config.AvatarField == "" {
+		config.AvatarField = "picture"
+	}
+	for _, field := range []string{config.SubjectField, config.EmailField, config.EmailVerifiedField, config.AvatarField} {
 		if field == "" || len(field) > 128 {
 			return nil, ErrValidation
 		}
@@ -79,6 +87,10 @@ func (p *HTTPOAuthProvider) AuthorizationURL(state, challenge, redirectURI strin
 	q.Set("state", state)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
+	if p.config.ProviderName == "apple" {
+		q.Set("nonce", challenge)
+		q.Set("response_mode", "form_post")
+	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
@@ -88,29 +100,65 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 	if p.config.ClientSecret != "" {
 		form.Set("client_secret", p.config.ClientSecret)
 	}
+	basicTokenAuth := p.config.ProviderName == "bitbucket" || p.config.ProviderName == "notion"
+	if basicTokenAuth {
+		form.Del("client_id")
+		form.Del("client_secret")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.config.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return OAuthIdentity{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if basicTokenAuth {
+		req.SetBasicAuth(p.config.ClientID, p.config.ClientSecret)
+	}
 	var token struct {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
+		IDToken     string `json:"id_token"`
 	}
 	if err := p.doJSON(req, &token); err != nil {
 		return OAuthIdentity{}, err
 	}
-	if token.AccessToken == "" || len(token.AccessToken) > 8192 || !strings.EqualFold(token.TokenType, "Bearer") {
+	if token.AccessToken == "" || len(token.AccessToken) > 8192 || token.TokenType != "" && !strings.EqualFold(token.TokenType, "Bearer") {
 		return OAuthIdentity{}, errors.New("OAuth token response is invalid")
+	}
+	if p.config.ProviderName == "apple" {
+		return p.exchangeAppleIdentity(ctx, token.IDToken, verifier)
 	}
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, p.config.UserInfoURL, nil)
 	if err != nil {
 		return OAuthIdentity{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	switch p.config.ProviderName {
+	case "twitch":
+		req.Header.Set("Client-Id", p.config.ClientID)
+	case "trakt":
+		req.Header.Set("trakt-api-key", p.config.ClientID)
+		req.Header.Set("trakt-api-version", "2")
+	case "linear", "monday":
+		query := `{"query":"query { viewer { id name email avatarUrl } }"}`
+		if p.config.ProviderName == "monday" {
+			query = `{"query":"query { me { id name email photo_thumb is_verified } }"}`
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, p.config.UserInfoURL, strings.NewReader(query))
+		if err != nil {
+			return OAuthIdentity{}, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Content-Type", "application/json")
+	}
 	fields := make(map[string]json.RawMessage)
 	if err := p.doJSON(req, &fields); err != nil {
 		return OAuthIdentity{}, err
+	}
+	if p.config.ProviderName != "" {
+		if identity, handled, err := normalizeProviderProfile(p.config.ProviderName, fields, token.AccessToken, p); handled {
+			identity.AvatarAllowInsecureLoopback = p.config.AllowInsecureLoopback
+			return identity, err
+		}
 	}
 	var identity OAuthIdentity
 	if err := json.Unmarshal(fields[p.config.SubjectField], &identity.Subject); err != nil {
@@ -124,6 +172,12 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 			return OAuthIdentity{}, errors.New("OAuth email verification is invalid")
 		}
 	}
+	if raw, ok := fields[p.config.AvatarField]; ok && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &identity.AvatarURL); err != nil {
+			return OAuthIdentity{}, errors.New("OAuth avatar is invalid")
+		}
+	}
+	identity.AvatarAllowInsecureLoopback = p.config.AllowInsecureLoopback
 	return identity, nil
 }
 

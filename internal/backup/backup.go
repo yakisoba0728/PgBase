@@ -320,7 +320,7 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 	if err = os.WriteFile(filepath.Join(temporary, "manifest.json"), append(encoded, '\n'), 0600); err != nil {
 		return err
 	}
-	if _, err = Verify(temporary); err != nil {
+	if _, err = VerifyContext(ctx, temporary); err != nil {
 		return err
 	}
 	if err = ctx.Err(); err != nil {
@@ -347,8 +347,19 @@ func copyRegular(ctx context.Context, source, target string) (resultErr error) {
 	return errors.Join(copyErr, out.Close())
 }
 
+// Verify validates a backup using a non-cancelable background context.
+// Operations that already have a context should call VerifyContext.
 func Verify(directory string) (Manifest, error) {
+	return VerifyContext(context.Background(), directory)
+}
+
+// VerifyContext validates the manifest, hashes every artifact, and rejects
+// extra files while honoring cancellation throughout potentially large trees.
+func VerifyContext(ctx context.Context, directory string) (Manifest, error) {
 	var manifest Manifest
+	if err := ctx.Err(); err != nil {
+		return manifest, err
+	}
 	root, err := os.Lstat(directory)
 	if err != nil || !root.IsDir() || root.Mode()&os.ModeSymlink != 0 {
 		return manifest, errors.New("backup must be a real directory")
@@ -374,6 +385,9 @@ func Verify(directory string) (Manifest, error) {
 	seen := make(map[string]bool)
 	all := append([]File{manifest.Database}, manifest.Files...)
 	for index, entry := range all {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
 		clean, err := cleanRelative(entry.Path)
 		digest, digestErr := hex.DecodeString(entry.SHA256)
 		if err != nil || entry.Size < 0 || digestErr != nil || len(digest) != sha256.Size {
@@ -393,13 +407,19 @@ func Verify(directory string) (Manifest, error) {
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return Manifest{}, errors.New("missing or unsafe backup artifact")
 		}
-		actual, err := checksum(context.Background(), path, entry.Path)
-		if err != nil || actual.Size != entry.Size || actual.SHA256 != entry.SHA256 {
+		actual, err := checksum(ctx, path, entry.Path)
+		if err != nil {
+			return Manifest{}, err
+		}
+		if actual.Size != entry.Size || actual.SHA256 != entry.SHA256 {
 			return Manifest{}, errors.New("backup artifact hash mismatch")
 		}
 	}
-	actualFiles, err := safeTree(context.Background(), filepath.Join(directory, "files"))
-	if err != nil || len(actualFiles) != len(manifest.Files) {
+	actualFiles, err := safeTree(ctx, filepath.Join(directory, "files"))
+	if err != nil {
+		return Manifest{}, err
+	}
+	if len(actualFiles) != len(manifest.Files) {
 		return Manifest{}, errors.New("backup file inventory mismatch")
 	}
 	for index := range actualFiles {
@@ -411,7 +431,7 @@ func Verify(directory string) (Manifest, error) {
 }
 
 func Restore(ctx context.Context, directory, databaseURL, files string) (resultErr error) {
-	manifest, err := Verify(directory)
+	manifest, err := VerifyContext(ctx, directory)
 	if err != nil {
 		return err
 	}

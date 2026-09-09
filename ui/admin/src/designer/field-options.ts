@@ -1,7 +1,7 @@
 import type { FieldOptions } from "../backend/ports";
 
 export type DraftFieldOptions = Partial<Record<keyof FieldOptions, string>>;
-const counts = ["minLength", "maxLength", "minSelect", "maxSelect"] as const;
+const counts = ["minLength", "maxLength", "minSelect", "maxSelect", "maxFileSize"] as const;
 
 export function draftFieldOptions(value?: FieldOptions): DraftFieldOptions | undefined {
   if (!value) return undefined;
@@ -23,6 +23,8 @@ export function fieldOptionsInput(draft?: DraftFieldOptions): FieldOptions | und
     result.format = draft.format;
   }
   if (draft.allowedDomains) result.allowedDomains = draft.allowedDomains.split("\n").filter(value => value !== "");
+  if (draft.mimeTypes) result.mimeTypes = draft.mimeTypes.split("\n").filter(value => value !== "");
+  if (draft.thumbs) result.thumbs = draft.thumbs.split("\n").filter(value => value !== "");
   if (draft.allowedValues) {
     let values: unknown;
     try { values = JSON.parse(draft.allowedValues); } catch { throw new Error('Allowed values must be a JSON string array, for example ["draft", "published"].'); }

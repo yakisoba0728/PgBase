@@ -1,7 +1,101 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/local-product-completion`. 직전 M2–M6 구현은 PR #28 / main `35af64c`에 병합 완료. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase2`. 직전 M2–M6 구현은 PR #28 / main `35af64c`에 병합 완료. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
+
+## P6 — PocketBase 비교의 부분 구현 영역 마무리 (구현·로컬 인수 완료)
+
+기준 main `33816df` / PR #29. 사용자가 ② 부분 구현 영역 전체를 승인했다. 아래는 **구현·연결·검증까지 끝난 항목만** 체크한다. 외부 배포·실제 외부 계정 검증은 수행하지 않으며, ③의 JSVM/Dart/이메일 OTP/impersonation 등은 이번 범위에 포함하지 않는다. SQL View 표현력은 이번 범위이고, 임의 SQL 실행 콘솔은 별도다.
+
+| 영역 | 담당 | 상태 |
+| --- | --- | --- |
+| 파일 필드·변환·트랜잭션 연결 | Sol / phase2_files | 파일·multipart Batch 통합 검증 통과 |
+| OAuth 제공자·아바타·HTML 메일 | Sol / phase2_oauth_catalog | 30개 프리셋·Apple bridge·PG mock 검증 통과 |
+| 영구 로그·달력 스케줄러 | Sol / phase2_operations | PG/UI 검증 통과 |
+| SQL View backend | Sol / phase2_sql_planner + Root | planner·수정·권한·페이지 조회 통합 통과 |
+| 범용 batch | Sol / phase2_files | multipart·멱등성 검증 통과 |
+| 웹 백업·Go lifecycle hooks | Root | 백업 PG18/MinIO/HTTP·hook HTTP 검증 통과 |
+
+### P6-A 파일
+- [x] 필드별 크기/MIME/최소·최대 개수 정책과 관리자 편집·SDK 타입.
+- [x] 기존 파일과 충돌하는 정책 강화의 preview/preflight 거절.
+- [x] 업로드·삭제·레코드 쓰기의 필수 파일/개수 제약 및 경쟁 검증. direct create 누락을 최종 transaction 검증으로 해결; storage 미설정도 우회 불가.
+- [x] multipart batch를 위한 파일 staging/transaction commit/실패 정리.
+- [x] WxH/crop/fit/top/bottom 변환·캐시·상한·인가·실패 정리.
+- [x] 로컬/S3 및 실제 DB·HTTP·UI 회귀 검증. 필수 파일 생성·원자적 교체 포함 브라우저 11/11 통과.
+
+- [x] 필수 파일 포함 관리자 생성/교체를 multipart Batch로 연결하고 실패 시 선택 파일·입력 보존.
+- [x] 변환 객체 저장 후 metadata 실패·commit 결과 불확실 시 동일 publication 잠금으로 결과를 기다린 뒤 참조 확인·정리. PG18 실패/경쟁 회귀 통과.
+- [x] 같은 레코드/파일 필드의 여러 Batch 작업을 요청 순서대로 교체.
+
+### P6-B OAuth·메일
+- [x] 제공자 카탈로그·설정 프리셋·관리자 구성 UI.
+- [x] provider별 설정과 generic adapter의 런타임 적용·로컬 mock 검증.
+- [x] 프로필 이미지 가져오기와 기존 사용자 데이터 보존.
+- [x] redirect/교환 흐름의 브라우저 완료·취소·오류 처리.
+- [x] HTML 템플릿·공통 레이아웃·plain-text 대체 본문.
+- [x] 변수 검증·미리보기·시험 발송·실제 로컬 SMTP 검증.
+
+### P6-C View
+- [x] 읽기 전용 SQL View 정의·미리보기·결과 타입 추론.
+- [x] JOIN·집계·그룹화와 안정적인 UUID 행 식별자 계약.
+- [x] 쓰기/위험 함수/잘못된 타입/중복 ID 거절과 쿼리 실행 상한.
+- [x] 의존 컬렉션 변경·삭제 시 보존 또는 원자적 거절.
+- [x] 관리자 SQL View 편집·표본 결과·SDK 타입.
+- [x] 실제 PostgreSQL/HTTP/브라우저 조회·권한·회귀 검증.
+
+### P6-D Batch
+- [x] collection을 가로지르는 경로 기반 JSON 요청 묶음.
+- [x] create/update/delete/PUT upsert와 부모 인증·권한 적용.
+- [x] multipart 파일 입력과 레코드·첨부 metadata의 단일 DB transaction.
+- [x] 실패/취소/응답 손실/retry에서 DB·파일·outbox 정합성.
+- [x] 요청별 상태·본문·ETag와 제한 오류의 명확한 응답.
+- [x] TypeScript SDK·예제·실제 DB/HTTP 연동 검증.
+
+### P6-E 로그
+- [x] 영구 요청 로그 저장·제한된 비동기 큐·종료 시 flush.
+- [x] 보관 기간·용량·drop 관측과 성능 상한.
+- [x] 검색·상세·통계·삭제 HTTP/UI와 관리자 인가.
+- [x] 민감 입력 비저장·재시작 지속성·경쟁·UI 검증.
+
+### P6-F 예약 작업
+- [x] 달력 cron 표현식·timezone·DST·다음 실행 계산.
+- [x] 기존 @every·lease/fence·재시도·설정 지속성 보존.
+- [x] Go handler 런타임 등록·해제 및 미등록 상태 처리.
+- [x] 관리자 편집·검증·수동 실행 UI와 실제 실행 회귀.
+
+### P6-G 웹 백업·복원
+- [x] 백업 목록·생성·작업 진행/실패 조회·다운로드·삭제.
+- [x] 업로드된 recovery set의 구조·크기·해시 검증.
+- [x] PostgreSQL snapshot과 immutable 파일/S3 객체의 일관된 온라인 백업.
+- [x] 파일 GC와 백업의 배타 처리·중단/실패 정리.
+- [x] 새 대상 복원·검증·관리자 활성화 흐름과 기존 대상 보존.
+- [x] 재시작/복원 중 관리 화면·작업 상태·인증 재확인.
+- [x] 로컬 PostgreSQL+MinIO 실제 복원 및 브라우저 회귀.
+
+### P6-H Go 확장
+- [x] 공개 lifecycle hook 등록/해제·정렬·취소·오류 전파 계약.
+- [x] 요청·응답·모델·메일·파일 동작에 실제 hook 연결.
+- [x] 트랜잭션 내부 재시도와 commit 이후 동작 구분.
+- [x] 기존 mutation hooks 호환·문서·Go 예제.
+- [x] 순서·실패·동시성·취소·실제 end-to-end 호출 검증.
+
+### P6 검증 기록
+- 2026-09-09: PostgreSQL 18·MinIO 온라인 snapshot 복원, 활성화 실패 정리, record/mail/file/request hook, SQL View 집계·수정·독립 권한, multipart Batch 회귀 통과.
+- 2026-09-09: 실제 관리자 브라우저 10/10 통과(기존 8개 + SQL View 생성·조회, 백업 생성·다운로드·업로드·삭제). SQL 정의 수정 브라우저와 최종 전체 회귀는 추가 실행 중.
+- 2026-09-09: Apple form_post bridge·nonce/JWKS·DB state 소비 로컬 통합 통과. PocketBase 현재 registry는 30개이며 오래된 upstream 테스트의 32개 기대값과 구분함.
+- 2026-09-09: 과거 v6로 되감는 fixture 정리 누락과 file maxSelect catalog 검증 충돌 수정. 이후 전체 Go unit/race·PostgreSQL 18 integration/race·lint/vet 통과. 최종 필수파일 생성/변환 실패 정리 수정은 추가 인수 중.
+
+- 2026-09-09: 필수 파일 JSON 생성 우회/스토리지 미설정 우회, 동일 레코드 Batch 파일 교체 순서, 미확정 commit cleanup의 선행 삭제, ready 파일 failUpload 삭제 경로를 수정하고 PG18 실제 경쟁·rollback 검증 완료.
+- 2026-09-09: 최종 UI 459개·인증 브라우저 11개 통과. 원본 로컬 PostgreSQL 17 DB·파일·이전 실행 파일 백업 후 v23→v28 업그레이드, doctor 이상 없음. 같은 로컬 서버의 관리자 로그인·온라인 웹 백업·다운로드·아카이브 hash 검증 완료.
+
+### P6-I 통합 인수
+- [x] migration/과거 checksum·OpenAPI·측정 기반 구조 예산 갱신. v24–28 추가, 과거 1–23 checksum 유지, production 800줄 초과 0.
+- [x] Go unit/integration/race·lint/vet 및 필요한 skip 정책. 최종 전체 PostgreSQL 18+MinIO race suite와 단위 suite 통과, lint 0 issues, vet 통과.
+- [x] UI typecheck/unit/build·브라우저·SDK conformance. UI 459/459, 인증 브라우저 11/11, SDK 패키징·HTTP 검증 통과.
+- [x] 데이터가 있는 기존 로컬 프로젝트의 백업·upgrade·doctor 검증. PostgreSQL 17 로컬 DB 23→28, doctor ok, 실제 관리자 로그인·웹 백업·다운로드·해시 검증 통과.
+- [x] 구현/부분 구현/미구현 상태표와 정확한 제약 갱신. `docs/phase2-local-contracts.md`에 8개 영역 및 유지하는 차이·③ 제외 범위를 명시.
+- [x] [PR #30](https://github.com/yakisoba0728/PgBase/pull/30) 생성과 원격 CI·병합 상태 연결. 로컬 최종 확인 완료. CI·병합의 현재 결과는 이 PR의 GitHub 상태를 따른다.
 
 ## P1–P5 — PocketBase 소스 감사 후 로컬 제품 완성 (구현·로컬 검증 완료)
 

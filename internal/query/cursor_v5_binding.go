@@ -10,7 +10,7 @@ import (
 
 func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Traversal) (*cursor.V5Descriptor, error) {
 	if plan.catalogVersion < 1 || !plan.principal.Valid() ||
-		traversal.ValidateV5(traversal.Generation, traversal.HighWater) != nil {
+		(!plan.order().root.IsSQLView() && traversal.ValidateV5(traversal.Generation, traversal.HighWater) != nil) {
 		return nil, invalidCursor()
 	}
 	queryHash, err := cursorV5QueryFingerprint(s.cursors, plan.relation.filter)
@@ -20,6 +20,10 @@ func (s *Service) newCursorV5Descriptor(plan rootPlan, traversal membership.Trav
 	order, err := plan.order().cursorV5Order()
 	if err != nil {
 		return nil, cursorV5RequestError(err)
+	}
+	if plan.order().root.IsSQLView() {
+		traversal.Generation = 1
+		traversal.HighWater = 0
 	}
 	return &cursor.V5Descriptor{
 		CatalogVersion:       plan.catalogVersion,
@@ -45,6 +49,12 @@ func (s *Service) bindCursorV5(page cursor.Page, plan rootPlan, traversal member
 	}
 	if !page.V5.Matches(plan.catalogVersion, expectedQuery, s.cursorV5PlanScope(plan), expectedOrder) {
 		return nil, invalidCursor()
+	}
+	if plan.order().root.IsSQLView() {
+		if !sqlViewDescriptor(plan, page.V5) {
+			return nil, invalidCursor()
+		}
+		return nil, nil
 	}
 	if traversal.ValidateV5(page.V5.MembershipGeneration, page.V5.HighWater) != nil {
 		return nil, invalidCursor()
@@ -74,6 +84,9 @@ func cursorV5RequestError(err error) error {
 
 func (s *Service) cursorV5PlanScope(plan rootPlan) []byte {
 	hops := relationPolicyRevisionString(plan.relation)
+	if plan.order().root.IsSQLView() {
+		hops += "sql-view-current-snapshot-v1"
+	}
 	hops += plan.outputRuleScope
 	if plan.ruleRevision == 0 && hops == "" {
 		return s.cursorV5ScopeFingerprint(plan.principal)

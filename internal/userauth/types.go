@@ -118,6 +118,7 @@ type Service struct {
 	sessionSlots        chan struct{}
 	cleanupCounter      atomic.Uint64
 	mailer              mailer.Sender
+	decorateMailer      func(mailer.Sender) mailer.Sender
 	emailBaseURL        string
 	emailActionTTL      time.Duration
 	oauthProviders      map[string]OAuthProvider
@@ -128,9 +129,11 @@ type Service struct {
 }
 
 type OAuthIdentity struct {
-	Subject       string
-	Email         string
-	EmailVerified bool
+	Subject                     string
+	Email                       string
+	EmailVerified               bool
+	AvatarURL                   string
+	AvatarAllowInsecureLoopback bool
 }
 
 type OAuthProvider interface {

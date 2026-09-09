@@ -4,6 +4,8 @@ A valid pgBase backup contains the project database's `pgbase_meta`, `app`, and 
 
 Environment configuration and secrets are outside PostgreSQL. Store the deployment configuration, `PGBASE_TOKEN_SECRET`, setup policy, TLS configuration, and database credentials separately in a protected secret/configuration system. Never put them in the database dump or backup logs.
 
+Administrator backup archive uploads and downloads are bounded to 2 GiB and a 30-minute transfer window. PgBase overrides the normal HTTP connection read and write deadlines only for those two streaming routes. Configure any reverse proxy or load balancer in front of PgBase with compatible request-body, response, and idle timeouts; an upstream timeout can still end the transfer earlier.
+
 ## Logical backup with pg_dump
 
 Use client tools compatible with the server. Keep connection parameters in a protected libpq service file and passwords in a separate mode-`600` passfile so neither the URL nor the password appears in shell history or process arguments. Create the files outside the repository and open them with an editor:

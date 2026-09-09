@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 )
 
 type Operation string
@@ -35,6 +36,16 @@ const (
 
 type AuthorizeFunc func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error
 
+type FieldPolicy struct {
+	MaximumBytes int64
+	MaximumCount int
+	MimeTypes    []string
+	Thumbs       []string
+	Required     bool
+}
+
+type PolicyFunc func(context.Context, pgx.Tx, uuid.UUID, string) (FieldPolicy, error)
+
 type Options struct {
 	MaximumBytes       int64
 	MaximumImagePixels int64
@@ -43,6 +54,8 @@ type Options struct {
 	TokenSecret        []byte
 	TokenTTL           time.Duration
 	Now                func() time.Time
+	Policy             PolicyFunc
+	Hooks              *lifecycle.Registry
 }
 
 type Service struct {
@@ -51,6 +64,27 @@ type Service struct {
 	authorize AuthorizeFunc
 	options   Options
 	allowed   map[string]struct{}
+}
+
+func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, field string) (FieldPolicy, error) {
+	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...)}
+	if s.options.Policy != nil {
+		resolved, err := s.options.Policy(ctx, tx, collectionID, field)
+		if err != nil {
+			return FieldPolicy{}, err
+		}
+		if resolved.MaximumBytes > 0 {
+			policy.MaximumBytes = min(resolved.MaximumBytes, s.options.MaximumBytes)
+		}
+		if resolved.MaximumCount > 0 {
+			policy.MaximumCount = resolved.MaximumCount
+		}
+		if len(resolved.MimeTypes) > 0 {
+			policy.MimeTypes = append([]string(nil), resolved.MimeTypes...)
+		}
+		policy.Thumbs = append([]string(nil), resolved.Thumbs...)
+	}
+	return policy, nil
 }
 
 func (s *Service) Run(ctx context.Context) error {
@@ -104,12 +138,27 @@ type File struct {
 	ReadyAt      time.Time
 }
 
+type FileEvent struct {
+	File      File
+	Principal identity.Subject
+	Staged    bool
+}
+
 type Variant string
 
 const (
 	Original  Variant = "original"
 	Thumbnail Variant = "thumbnail"
 )
+
+// OpenObject is the read-only backup seam for keys obtained from a trusted,
+// transactionally consistent metadata inventory.
+func (s *Service) OpenObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	if !storedObjectKey.MatchString(key) {
+		return nil, ErrInvalid
+	}
+	return s.objects.Open(ctx, key)
+}
 
 func (s *Service) CollectionID(ctx context.Context, name string) (uuid.UUID, error) {
 	if !fieldPattern.MatchString(name) {
@@ -147,6 +196,20 @@ func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFun
 var fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
 
 func (s *Service) Upload(ctx context.Context, principal identity.Subject, input Upload) (File, error) {
+	event := &lifecycle.Event{Kind: "file.upload", Data: &FileEvent{File: File{CollectionID: input.CollectionID, RecordID: input.RecordID, Field: input.Field, Filename: input.Filename, ContentType: input.ContentType, Size: input.Size, SHA256: input.SHA256}, Principal: principal}}
+	var output File
+	err := s.options.Hooks.Run(ctx, event, func() error {
+		var err error
+		output, err = s.upload(ctx, principal, input)
+		if err == nil {
+			event.Data.(*FileEvent).File = output
+		}
+		return err
+	})
+	return output, err
+}
+
+func (s *Service) upload(ctx context.Context, principal identity.Subject, input Upload) (File, error) {
 	if !principal.Valid() || input.CollectionID == uuid.Nil || input.RecordID == uuid.Nil || !fieldPattern.MatchString(input.Field) || !validFilename(input.Filename) || input.Body == nil || input.Size < 0 {
 		return File{}, ErrInvalid
 	}
@@ -166,7 +229,29 @@ func (s *Service) Upload(ctx context.Context, principal identity.Subject, input 
 		if err := s.authorize(ctx, tx, principal, input.CollectionID, input.RecordID, input.Field, OperationWrite); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_files
+		policy, err := s.policy(ctx, tx, input.CollectionID, input.Field)
+		if err != nil {
+			return err
+		}
+		if input.Size > policy.MaximumBytes {
+			return ErrTooLarge
+		}
+		if !mimeAllowed(input.ContentType, policy.MimeTypes) {
+			return ErrInvalid
+		}
+		// Serialize membership changes for this record field so concurrent
+		// uploads cannot both observe capacity and exceed MaximumCount.
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, input.CollectionID.String()+"/"+input.RecordID.String()+"/"+input.Field); err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
+			return err
+		}
+		if count >= policy.MaximumCount {
+			return ErrTooMany
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO pgbase_meta.record_files
 			(id,collection_id,record_id,owner_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)`, file.ID, file.CollectionID, file.RecordID, nullableUUID(file.OwnerID), file.Field, file.Filename, file.ContentType, file.Size, file.SHA256[:], file.ObjectKey, now)
 		return err
@@ -225,8 +310,19 @@ func (s *Service) Upload(ctx context.Context, principal identity.Subject, input 
 	return file, nil
 }
 
+func mimeAllowed(value string, allowed []string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	for _, candidate := range allowed {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if candidate == value || strings.HasSuffix(candidate, "/*") && strings.HasPrefix(value, strings.TrimSuffix(candidate, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.UUID, variant Variant, token string) (File, io.ReadCloser, error) {
-	if !principal.Valid() || id == uuid.Nil || (variant != Original && variant != Thumbnail) {
+	if !principal.Valid() || id == uuid.Nil || !validVariant(variant) {
 		return File{}, nil, ErrInvalid
 	}
 	if token != "" && !s.verifyToken(token, principal, id, variant, s.options.Now()) {
@@ -238,7 +334,19 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
 			return err
 		}
-		return s.authorize(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
+		if err := s.authorize(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead); err != nil {
+			return err
+		}
+		if variant != Original && variant != Thumbnail {
+			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+			if err != nil {
+				return err
+			}
+			if !containsVariant(policy.Thumbs, string(variant)) {
+				return ErrNotFound
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return File{}, nil, err
@@ -250,6 +358,12 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 			return File{}, nil, ErrNotFound
 		}
 	}
+	if variant != Original && variant != Thumbnail {
+		key, err = s.variantObject(ctx, file, string(variant))
+		if err != nil {
+			return File{}, nil, err
+		}
+	}
 	reader, err := s.objects.Open(ctx, key)
 	return file, reader, err
 }
@@ -258,19 +372,48 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 	if !principal.Valid() || id == uuid.Nil {
 		return ErrInvalid
 	}
-	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var file File
-		if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+	var preview File
+	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := scanFile(tx.QueryRow(ctx, `select id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, id), &preview); err != nil {
+			return err
+		}
+		return s.authorize(ctx, tx, principal, preview.CollectionID, preview.RecordID, preview.Field, OperationWrite)
+	}); err != nil {
+		return err
+	}
+	event := &lifecycle.Event{Kind: "file.delete", Data: &FileEvent{File: preview, Principal: principal}}
+	return s.options.Hooks.Run(ctx, event, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			var file File
+			if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready' FOR UPDATE`, id), &file); err != nil {
-			return err
-		}
-		if err := s.authorize(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE pgbase_meta.record_files SET status='deleted',deleted_at=CURRENT_TIMESTAMP WHERE id=$1`, id); err != nil {
-			return err
-		}
-		return enqueueObjects(ctx, tx, file.ObjectKey, file.ThumbnailKey)
+				return err
+			}
+			event.Data.(*FileEvent).File = file
+			if err := s.authorize(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite); err != nil {
+				return err
+			}
+			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, file.CollectionID.String()+"/"+file.RecordID.String()+"/"+file.Field); err != nil {
+				return err
+			}
+			if policy.Required {
+				var count int
+				if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status='ready'`, file.CollectionID, file.RecordID, file.Field).Scan(&count); err != nil {
+					return err
+				}
+				if count <= 1 {
+					return ErrRequired
+				}
+			}
+			if _, err := tx.Exec(ctx, `UPDATE pgbase_meta.record_files SET status='deleted',deleted_at=CURRENT_TIMESTAMP WHERE id=$1`, id); err != nil {
+				return err
+			}
+			return enqueueFileObjects(ctx, tx, file)
+		})
 	})
 }
 
@@ -350,6 +493,9 @@ func (s *Service) SweepPending(ctx context.Context, olderThan time.Time, limit i
 func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 	worked := false
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock_shared($1)`, ObjectGCKey); err != nil {
+			return err
+		}
 		var key string
 		err := tx.QueryRow(ctx, `SELECT object_key FROM pgbase_meta.file_object_deletions ORDER BY queued_at,object_key LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&key)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -371,7 +517,7 @@ func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 }
 
 func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subject, id uuid.UUID, variant Variant) (string, error) {
-	if !principal.Valid() || id == uuid.Nil || (variant != Original && variant != Thumbnail) {
+	if !principal.Valid() || id == uuid.Nil || !validVariant(variant) {
 		return "", ErrInvalid
 	}
 	var file File
@@ -382,6 +528,15 @@ func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subj
 		}
 		if variant == Thumbnail && file.ThumbnailKey == "" {
 			return ErrNotFound
+		}
+		if variant != Original && variant != Thumbnail {
+			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+			if err != nil {
+				return err
+			}
+			if !containsVariant(policy.Thumbs, string(variant)) {
+				return ErrNotFound
+			}
 		}
 		return s.authorize(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
 	}); err != nil {
@@ -426,7 +581,12 @@ func (s *Service) verifyToken(token string, principal identity.Subject, id uuid.
 
 func (s *Service) failUpload(ctx context.Context, file File) {
 	_ = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		_, _ = tx.Exec(ctx, `UPDATE pgbase_meta.record_files SET status='deleted',deleted_at=CURRENT_TIMESTAMP WHERE id=$1 AND status='pending'`, file.ID)
+		var id uuid.UUID
+		if err := tx.QueryRow(ctx, `UPDATE pgbase_meta.record_files SET status='deleted',deleted_at=CURRENT_TIMESTAMP WHERE id=$1 AND status='pending' RETURNING id`, file.ID).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 		return enqueueObjects(ctx, tx, file.ObjectKey, file.ThumbnailKey)
 	})
 	for {
@@ -447,6 +607,27 @@ func enqueueObjects(ctx context.Context, tx pgx.Tx, keys ...string) error {
 		}
 	}
 	return nil
+}
+
+func enqueueFileObjects(ctx context.Context, tx pgx.Tx, file File) error {
+	if err := enqueueObjects(ctx, tx, file.ObjectKey, file.ThumbnailKey); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `delete from pgbase_meta.record_file_variants where file_id=$1 returning object_key`, file.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return err
+		}
+		if err := enqueueObjects(ctx, tx, key); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 func scanFile(row pgx.Row, file *File) error {

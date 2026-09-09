@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ type AuthCollections interface {
 	Logout(context.Context, string) error
 	RequestPasswordResetInCollection(context.Context, uuid.UUID, string, string) error
 	BeginOAuthInCollection(context.Context, uuid.UUID, string, string, string) (userauth.OAuthAuthorization, error)
+	BeginOAuthInCollectionWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error)
 	GetProfile(context.Context, uuid.UUID) (map[string]any, error)
 	SetProfile(context.Context, uuid.UUID, map[string]any) (map[string]any, error)
 }
@@ -63,7 +65,13 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	value, err := e.dependencies.AuthCollections.BeginOAuthInCollection(r.Context(), collection.ID, in.Provider, in.RedirectURI, address)
+	var value userauth.OAuthAuthorization
+	if in.Provider == "apple" && e.dependencies.PublicURL != nil {
+		bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
+		value, err = e.dependencies.AuthCollections.BeginOAuthInCollectionWithProviderRedirect(r.Context(), collection.ID, in.Provider, in.RedirectURI, bridge, address)
+	} else {
+		value, err = e.dependencies.AuthCollections.BeginOAuthInCollection(r.Context(), collection.ID, in.Provider, in.RedirectURI, address)
+	}
 	if err != nil {
 		writeUserAuthError(w, r, err)
 		return

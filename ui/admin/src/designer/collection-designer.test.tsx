@@ -20,6 +20,7 @@ const users = collection("users", "users-id");
 const headlined = collection("posts", "posts-id", [textField("headline", 0, { required: true })]);
 const withExtra = collection("posts", "posts-id", [textField("title", 0, { required: true }), textField("extra", 1)]);
 const articles = collection("articles", "articles-id", [textField("title", 0)]);
+const sqlTotals: CollectionDefinition = { ...collection("totals", "totals-id", [textField("total", 0)]), view: { sql: "SELECT id, total FROM app.source", dependencies: ["source-id"] } };
 
 // The designer holds its draft in the same ledger the shell mounts, so a test
 // that asks whether a draft survived can read the ledger rather than infer it.
@@ -135,6 +136,20 @@ describe("CollectionDesigner drafting", () => {
 });
 
 describe("CollectionDesigner previewing", () => {
+	it("edits an existing SQL view by sending only its SQL definition", async () => {
+		const { result, script } = open({ kind: "edit", collection: "totals" }, [sqlTotals]);
+		await ready(result);
+		expect(result.current.isSQLView).toBe(true);
+		expect(result.current.view).toEqual({ sql: "SELECT id, total FROM app.source" });
+		plan(script, "approved", ["DROP VIEW totals", "CREATE VIEW totals"], [{ name: "total", type: "text" }]);
+		act(() => result.current.setView({ sql: "SELECT id, total * 2 AS total FROM app.source" }));
+		act(() => result.current.requestPreview());
+		await waitFor(() => expect(callsTo(script, "plan")).toHaveLength(1));
+		expect(callsTo(script, "plan")[0].detail.change).toEqual({
+			operation: "update", name: "totals", view: { sql: "SELECT id, total * 2 AS total FROM app.source" },
+		});
+	});
+
   it("invalidates the preview as soon as the draft changes", async () => {
     const { result, script } = open({ kind: "edit", collection: "posts" });
     await ready(result);

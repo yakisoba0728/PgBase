@@ -159,6 +159,9 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 		return configurationError{err: err}
 	}
 	options.Logger = observability.NewJSONLogger(streams.stderr())
+	if options.Backups.Directory != "" {
+		return pgbase.RunManaged(ctx, options)
+	}
 	app, err := pgbase.New(ctx, options)
 	if err != nil {
 		options.Logger.Error("construct pgbase application", "error", err)

@@ -163,6 +163,19 @@ export class PgBaseClient {
     batch(operations, signal) {
         return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ operations }) }, signal);
     }
+    batchRequests(requests, signal) {
+        return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ requests }) }, signal);
+    }
+    batchMultipart(requests, files, signal) {
+        const body = new FormData();
+        body.append("requests", JSON.stringify({ requests }));
+        for (const [key, file] of Object.entries(files)) {
+            if (key === "requests" || key === "" || file.filename === "")
+                throw new PgBaseError(0, "invalid_batch_file");
+            body.append(key, file.blob, file.filename);
+        }
+        return this.request("/api/v1/user/collections/batch", { method: "POST", body }, signal);
+    }
     files(collection, recordID) {
         return new Files(this, collection, recordID);
     }
@@ -289,6 +302,25 @@ export class AuthRealm {
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
     async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
         this.client.auth.save(session.token); return session; }
+    oauthCompleteFromURL(provider, callbackURL, signal) {
+        const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
+        const providerError = url.searchParams.get("error");
+        if (providerError)
+            throw new OAuthCallbackError(providerError, url.searchParams.get("error_description") ?? undefined);
+        const state = url.searchParams.get("state");
+        const code = url.searchParams.get("code");
+        if (!state || !code)
+            throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
+        return this.oauthComplete(provider, state, code, signal);
+    }
+}
+export class OAuthCallbackError extends Error {
+    code;
+    constructor(code, message) {
+        super(message ?? code);
+        this.code = code;
+        this.name = "OAuthCallbackError";
+    }
 }
 export class Records {
     client;

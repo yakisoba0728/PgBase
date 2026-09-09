@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 )
 
 const (
@@ -131,7 +130,13 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 // that appears is an add.
 func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
 	if current.IsView() {
+		if current.IsSQLView() && input.View != nil && input.View.SQL != "" {
+			return planSQLViewUpdate(catalog, current, input)
+		}
 		return Plan{}, validation("name", "view_read_only")
+	}
+	if input.View != nil {
+		return Plan{}, validation("view", "not_allowed")
 	}
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
@@ -228,28 +233,8 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		desired = append(desired, planned)
 	}
-	for _, candidate := range catalog.Collections {
-		if candidate.View != nil && candidate.View.SourceCollectionID == current.ID {
-			dependencies := map[string]struct{}{}
-			for _, name := range candidate.View.Projection {
-				dependencies[name] = struct{}{}
-			}
-			viewFilterFields(candidate.View.Filter, dependencies)
-			for name := range dependencies {
-				var desiredField PlannedField
-				found := false
-				for _, field := range desired {
-					if field.Name == name || (currentFields[name].ID != uuid.Nil && field.ID == currentFields[name].ID) {
-						desiredField = field
-						found = true
-						break
-					}
-				}
-				if !found || desiredField.Type != currentFields[name].Type {
-					return Plan{}, validation("fields", "field_used_by_view")
-				}
-			}
-		}
+	if err := validateViewSourceUpdate(catalog, current.ID, currentFields, desired); err != nil {
+		return Plan{}, err
 	}
 
 	table := pgx.Identifier{"app", current.TableName}.Sanitize()
@@ -356,12 +341,12 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 		return Plan{}, validation("name", "collection_referenced")
 	}
 	for _, candidate := range catalog.Collections {
-		if candidate.View != nil && candidate.View.SourceCollectionID == current.ID {
+		if viewReferencesCollection(candidate, current.ID) {
 			return Plan{}, validation("name", "collection_referenced")
 		}
 	}
 	if current.View != nil {
-		return Plan{Operation: deleteCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: current.Name, TableName: current.TableName, View: &PlannedView{SourceCollectionID: current.View.SourceCollectionID, Source: current.View.Source, Projection: append([]string(nil), current.View.Projection...), Filter: cloneViewFilter(current.View.Filter)}}, Statements: []string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}}, nil
+		return Plan{Operation: deleteCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: current.Name, TableName: current.TableName, View: &PlannedView{SourceCollectionID: current.View.SourceCollectionID, Source: current.View.Source, Projection: append([]string(nil), current.View.Projection...), Filter: cloneViewFilter(current.View.Filter), SQL: current.View.SQL, Dependencies: append([]uuid.UUID(nil), current.View.Dependencies...)}}, Statements: []string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}}, nil
 	}
 	fields := make([]PlannedField, 0, len(current.Fields))
 	for _, field := range current.Fields {
@@ -426,13 +411,13 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
-	if err := fieldvalue.ValidateDefinition(string(field.Type), fieldInputValueOptions(field.Options)); err != nil {
+	if err := validateFieldOptions(field.Type, field.Options); err != nil {
 		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
 	}
 	if !isSupportedType(field.Type) {
 		return PlannedField{}, validation(fieldPath+".type", "unsupported_type")
 	}
-	if field.Type == TypeFile && (field.Required || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil) {
+	if field.Type == TypeFile && (field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil) {
 		return PlannedField{}, validation(fieldPath, "invalid_file_field")
 	}
 

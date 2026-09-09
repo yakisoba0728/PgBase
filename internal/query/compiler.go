@@ -29,7 +29,7 @@ func CompileInsert(collection schema.Collection, input map[string]json.RawMessag
 	}
 	fields := fieldsByOrdinal(collection)
 	for _, field := range fields {
-		if field.Required && len(field.Default) == 0 {
+		if field.Required && field.Type != schema.TypeFile && len(field.Default) == 0 {
 			if _, present := decoded[field.Name]; !present {
 				if field.Type == schema.TypeRelation {
 					return Statement{}, validation(field.Name, "relation_min_select")
@@ -79,7 +79,17 @@ func compileSelectByIDWithMembership(collection schema.Collection, id uuid.UUID,
 }
 
 func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
-	if len(input) == 0 {
+	return compileUpdate(collection, id, input, false)
+}
+
+// CompileUpdateWithSidecar permits an otherwise empty patch whose sidecar
+// participant will mutate transaction-bound metadata before commit.
+func CompileUpdateWithSidecar(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
+	return compileUpdate(collection, id, input, true)
+}
+
+func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage, sidecar bool) (Statement, error) {
+	if len(input) == 0 && !sidecar {
 		return Statement{}, validation("", "empty_patch")
 	}
 	decoded, err := decodeInput(collection, input)
@@ -162,7 +172,7 @@ type ruleBinding struct {
 }
 
 func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int) (string, []any, error) {
-	if !visible.IsView() {
+	if !visible.IsView() || visible.IsSQLView() {
 		return accessrule.Compile(rule, policyCollection(visible), alias, principal, offset, false)
 	}
 	if policy.ID == uuid.Nil {
@@ -189,12 +199,12 @@ func (b *statementBuilder) placeholder(value any) string {
 // table's own column. Every page compiler shares it, so a sort cannot get one
 // null placement when a request touches a relation and another when it does
 // not -- a cursor issued by either path anchors against the same ordering.
-func rootOrderTerm(key SortKey, field schema.Field) (orderTerm, error) {
+func rootOrderTerm(key SortKey, field schema.Field, allowViewScan ...bool) (orderTerm, error) {
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
 		return orderTerm{}, validation("sort", "unsupported_type")
 	}
 	indexHint, indexed := indexedOrderHint(field, orderIndexRoot)
-	if !indexed {
+	if !indexed && (len(allowViewScan) == 0 || !allowViewScan[0]) {
 		return orderTerm{}, validation("sort", "unindexed_field")
 	}
 	term := orderTerm{

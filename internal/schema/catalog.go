@@ -112,6 +112,9 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 			return Catalog{}, err
 		}
 		current.Indexes = indexes
+		if plan.Definition.View != nil {
+			current.View = resolvedViewSpec(plan.Definition.View)
+		}
 		next.Collections[current.Name] = current
 		for name, dependent := range next.Collections {
 			if dependent.View == nil || dependent.View.SourceCollectionID != current.ID {
@@ -221,6 +224,7 @@ func cloneCatalog(source Catalog) Catalog {
 			view := *collection.View
 			view.Projection = append([]string(nil), collection.View.Projection...)
 			view.Filter = cloneViewFilter(collection.View.Filter)
+			view.Dependencies = append([]uuid.UUID(nil), collection.View.Dependencies...)
 			collection.View = &view
 		}
 		clone.Collections[name] = collection

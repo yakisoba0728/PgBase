@@ -240,7 +240,7 @@ export interface RecordEditor {
   setKind(field: FieldDefinition, kind: FieldState["kind"]): void;
   setValue(field: FieldDefinition, value: string | boolean): void;
   reload(): void;
-  save(): void;
+	save(files?: Record<string, File[]>): void;
   remove(): void;
   duplicate(): void;
 }
@@ -323,7 +323,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   const live = useRef(state.draft);
   live.current = state.draft;
 
-  const save = useCallback(async () => {
+	const save = useCallback(async (files: Record<string, File[]> = {}) => {
     const collection = state.collection;
     if (collection === null) return;
     const { input, errors } = encodeDraft(collection.fields, state.draft, dirty, isCreate);
@@ -332,9 +332,10 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     update(identity, { pending: true, message: null });
     try {
       if (!isCreate && state.loaded === null) throw new Error("record version is unavailable");
-      const stored = isCreate || state.loaded === null
-        ? await records.create(attempt.current, input)
-        : await records.update(state.loaded, input);
+			const withFiles = Object.values(files).some((selected) => selected.length > 0);
+			const stored = isCreate || state.loaded === null
+				? withFiles ? await records.createWithFiles(attempt.current, input, files) : await records.create(attempt.current, input)
+				: withFiles ? await records.updateWithFiles(state.loaded, input, files) : await records.update(state.loaded, input);
       if (isCreate) attempt.current.reset();
       if (!active()) return;
       // The server accepted the draft it was sent, so that draft is the saved one
@@ -389,7 +390,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     setKind: (field, kind) => setField(field, blankState(field, kind)),
     setValue: (field, value) => setField(field, { kind: "value", value }),
     reload: () => update(identity, (current) => ({ reloads: current.reloads + 1 })),
-    save: () => void save(),
+		save: (files) => void save(files),
     remove: () => void remove(),
     duplicate: () => {
       if (state.collection === null || isCreate) return;

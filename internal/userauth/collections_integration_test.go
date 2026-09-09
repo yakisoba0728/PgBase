@@ -100,6 +100,9 @@ func TestOAuthCallbackPersistsNonDefaultRealm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.CompleteOAuth(ctx, "local", parsed.Query().Get("state"), "local-code"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("replayed OAuth callback = %v", err)
+	}
 	if session.User.AuthCollectionID != realmID {
 		t.Fatalf("OAuth user realm = %s, want %s", session.User.AuthCollectionID, realmID)
 	}

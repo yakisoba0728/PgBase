@@ -115,17 +115,21 @@ export function buildInput(operation: "create" | "update", name: string, fields:
       if (new Set(index.fields).size !== index.fields.length || index.fields.some((field) => !known.has(field))) throw new DraftError("Compound indexes can use each scalar field once.");
     }
   }
-  return {
-    operation,
-    name,
-    fields: view === undefined ? fields.map((field, index) => {
-      const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
-      if (operation === "update" && field.id) base.id = field.id;
-      base.options = fieldOptionsInput(field.options) ?? (field.id ? {} : undefined);
-      if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
-      return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
-    }) : [], ...(indexes === undefined ? {} : { indexes }), ...(view === undefined ? {} : { view }),
-  };
+	if (view !== undefined) {
+		if (operation === "update") {
+			if (typeof view.sql !== "string") throw new DraftError("Only SQL view definitions can be updated.");
+			return { operation, name, view };
+		}
+		return { operation, name, fields: [], view };
+	}
+	const fieldInputs = fields.map((field, index) => {
+			const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
+			if (operation === "update" && field.id) base.id = field.id;
+			base.options = fieldOptionsInput(field.options) ?? (field.id ? {} : undefined);
+			if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
+			return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
+	});
+	return { operation, name, fields: fieldInputs, ...(indexes === undefined ? {} : { indexes }) };
 }
 
 export function previewField(field: PlannedField): string {
@@ -327,10 +331,11 @@ function loadedState(current: State, catalog: CollectionCatalog): Partial<State>
   if (current.create) return base;
   const definition = catalog.get(current.name);
   if (definition === undefined) return { ...base, phase: "missing" };
-  const fields = draftFields(definition, catalog);
-  return {
-    ...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields,
-    indexes: undefined, pristine: draftSignature(definition.name, fields),
+	const fields = draftFields(definition, catalog);
+	const view = definition.view !== undefined && "sql" in definition.view ? { sql: definition.view.sql } as ViewDefinition : undefined;
+	return {
+		...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields,
+		indexes: undefined, view, pristine: draftSignature(definition.name, fields, undefined, view),
   };
 }
 
@@ -359,7 +364,7 @@ export interface CollectionDesigner {
   deleteTarget: DeleteTarget | null; deleteConfirmText: string; deleteConfirmed: boolean;
   deletePending: boolean; deleteError: string | null;
   recovery: OperationRecovery | null;
-  indexes: CompoundIndex[]; indexesTouched: boolean; setIndexes(indexes: CompoundIndex[]): void; view?: ViewDefinition; setView(view?: ViewDefinition): void; viewSources: CollectionDefinition[]; isView: boolean;
+	indexes: CompoundIndex[]; indexesTouched: boolean; setIndexes(indexes: CompoundIndex[]): void; view?: ViewDefinition; setView(view?: ViewDefinition): void; viewSources: CollectionDefinition[]; isView: boolean; isSQLView: boolean;
   rename(name: string): void; editField(index: number, edit: DraftEdit): void; addField(): void; removeField(index: number): void;
   confirmDestructive(confirmed: boolean): void; confirmDeleteName(typed: string): void; requestPreview(): void; requestApply(): void;
   requestDeletePlan(): void; cancelDelete(): void; requestDelete(): void;
@@ -594,7 +599,8 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     indexesTouched: state.indexes !== undefined,
     view: state.view,
     viewSources: (state.catalog?.all() ?? []).filter((collection) => collection.view === undefined),
-    isView: state.definition?.view !== undefined,
+		isView: state.definition?.view !== undefined,
+		isSQLView: state.definition?.view !== undefined && "sql" in state.definition.view,
     relationTargets: relationTargets(state.catalog, state.name),
     relationTargetsLoading: state.targetsLoading,
     relationTargetsFailed: state.targetsFailed,

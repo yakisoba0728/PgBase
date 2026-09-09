@@ -77,21 +77,46 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		return Catalog{}, err
 	}
 	if hasViews {
-		viewRows, err := s.db.Query(ctx, `select collection_id,source_collection_id,projection,filter_json from pgbase_meta.collection_views`)
+		var hasSQLViews bool
+		if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='collection_views' and column_name='sql')`).Scan(&hasSQLViews); err != nil {
+			return Catalog{}, err
+		}
+		query := `select collection_id,source_collection_id,projection,filter_json,null::text,null::uuid[] from pgbase_meta.collection_views`
+		if hasSQLViews {
+			query = `select collection_id,source_collection_id,projection,filter_json,sql,dependencies from pgbase_meta.collection_views`
+		}
+		viewRows, err := s.db.Query(ctx, query)
 		if err != nil {
 			return Catalog{}, fmt.Errorf("read collection views: %w", err)
 		}
 		for viewRows.Next() {
-			var collectionID, sourceID uuid.UUID
+			var collectionID uuid.UUID
+			var sourceID *uuid.UUID
 			var projection []string
 			var raw []byte
-			if err := viewRows.Scan(&collectionID, &sourceID, &projection, &raw); err != nil {
+			var sql *string
+			var dependencies []uuid.UUID
+			if err := viewRows.Scan(&collectionID, &sourceID, &projection, &raw, &sql, &dependencies); err != nil {
 				viewRows.Close()
 				return Catalog{}, err
 			}
 			name, ok := collectionNames[collectionID]
-			sourceName, sourceOK := collectionNames[sourceID]
-			if !ok || !sourceOK {
+			if !ok {
+				viewRows.Close()
+				return Catalog{}, errCatalogIntegrity
+			}
+			if sql != nil {
+				collection := collections[name]
+				collection.View = &ViewSpec{SQL: *sql, Dependencies: append([]uuid.UUID(nil), dependencies...)}
+				collections[name] = collection
+				continue
+			}
+			if sourceID == nil {
+				viewRows.Close()
+				return Catalog{}, errCatalogIntegrity
+			}
+			sourceName, sourceOK := collectionNames[*sourceID]
+			if !sourceOK {
 				viewRows.Close()
 				return Catalog{}, errCatalogIntegrity
 			}
@@ -105,7 +130,7 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 				filter = &value
 			}
 			collection := collections[name]
-			collection.View = &ViewSpec{SourceCollectionID: sourceID, Source: sourceName, Projection: append([]string(nil), projection...), Filter: filter}
+			collection.View = &ViewSpec{SourceCollectionID: *sourceID, Source: sourceName, Projection: append([]string(nil), projection...), Filter: filter}
 			collections[name] = collection
 		}
 		if err := viewRows.Err(); err != nil {
@@ -312,11 +337,30 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 		if err != nil {
 			return err
 		}
-		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collection_views(collection_id,source_collection_id,projection,filter_json,created_at) values($1,$2,$3,$4::jsonb,$5)`, collection.ID, collection.View.SourceCollectionID, collection.View.Projection, encoded, createdAt); err != nil {
+		var source any = collection.View.SourceCollectionID
+		var projection any = collection.View.Projection
+		if collection.View.SQL != "" {
+			source, projection = nil, nil
+		}
+		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collection_views(collection_id,source_collection_id,projection,filter_json,sql,dependencies,created_at) values($1,$2,$3,$4::jsonb,$5,$6,$7)`, collection.ID, source, projection, encoded, nullableString(collection.View.SQL), nullableUUIDs(collection.View.Dependencies), createdAt); err != nil {
 			return fmt.Errorf("insert collection view metadata: %w", err)
 		}
 	}
 	return s.insertMembershipMetadata(ctx, collection.ID, createdAt)
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableUUIDs(values []uuid.UUID) any {
+	if values == nil {
+		return nil
+	}
+	return values
 }
 
 func (s *Store) UpdateCollection(ctx context.Context, collection Collection, definition PlannedCollection, updatedAt time.Time) error {
@@ -325,6 +369,11 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 		where id = $1`,
 		collection.ID, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
+	}
+	if collection.IsSQLView() {
+		if _, err := s.db.Exec(ctx, `update pgbase_meta.collection_views set sql=$2,dependencies=$3 where collection_id=$1`, collection.ID, collection.View.SQL, collection.View.Dependencies); err != nil {
+			return fmt.Errorf("update SQL view metadata: %w", err)
+		}
 	}
 	var hasCompoundIndexes bool
 	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.compound_indexes') is not null`).Scan(&hasCompoundIndexes); err != nil {

@@ -15,4 +15,8 @@ describe("field options", () => {
     expect(() => fieldOptionsInput({ minSelect: "1.5" })).toThrow();
     expect(() => fieldOptionsInput({ minLength: "5", maxLength: "4" })).toThrow();
   });
+  it("round trips file limits, MIME wildcards, and thumbnail modes", () => {
+    const options = { maxFileSize: 5242880, maxSelect: 4, mimeTypes: ["image/*", "application/pdf"], thumbs: ["100x100", "100x50t", "100x50b", "100x50f"] };
+    expect(fieldOptionsInput(draftFieldOptions(options))).toEqual(options);
+  });
 });

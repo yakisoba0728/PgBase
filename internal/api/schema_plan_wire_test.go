@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -37,5 +38,21 @@ func TestMetadataOnlySchemaPlanSerializesEmptySQLArray(t *testing.T) {
 	}
 	if string(body["sql"]) != "[]" {
 		t.Fatalf("sql=%s body=%s", body["sql"], response.Body.String())
+	}
+}
+
+func TestSQLViewUpdatePlanAcceptsOnlyDefinition(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	schemas := &fakeSchemaService{plan: schema.Plan{BaseVersion: 4, Checksum: "sql-view-update", Definition: schema.PlannedCollection{Name: "totals", TableName: "totals"}}}
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"totals","view":{"sql":"SELECT id, total FROM app.source"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(request)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	want := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "totals", View: &schema.ViewInput{SQL: "SELECT id, total FROM app.source"}})
+	if response.Code != http.StatusOK || !reflect.DeepEqual(schemas.planChange, want) {
+		t.Fatalf("status=%d change=%+v body=%s", response.Code, schemas.planChange, response.Body.String())
 	}
 }

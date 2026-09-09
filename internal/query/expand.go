@@ -94,6 +94,9 @@ func (s *Service) readGetInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "view"); err != nil {
 		return err
 	}
+	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
+		return err
+	}
 	statement := CompileSelectByID(collection, request.ID)
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
 		rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
@@ -223,6 +226,9 @@ func (s *Service) readListInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
 		return listResult{}, false, err
 	}
+	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
+		return listResult{}, false, err
+	}
 	var expansion expandPlan
 	var usage *expansionUsage
 	var err error
@@ -269,7 +275,7 @@ func (s *Service) readListInTx(
 			return listResult{}, false, err
 		}
 	}
-	traversal, err := s.resolveTraversal(ctx, tx, collection.AccessCollectionID())
+	traversal, err := s.resolveReadTraversal(ctx, tx, collection)
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}

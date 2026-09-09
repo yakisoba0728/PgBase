@@ -148,14 +148,26 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       }),
       get: (collection: string, id: string, signal) =>
         guard(signal, async () => versioned(collection, id, await take<ScriptedRecord>("read", { collection, id }, "record"))),
-      create: (attempt: CreateAttempt, input: RecordData) => guard(undefined, async () => {
+		create: (attempt: CreateAttempt, input: RecordData) => guard(undefined, async () => {
         const scripted = await take<ScriptedRecord>("create", { collection: attempt.collection, input, key: attempt.keyFor(input) }, "record");
         return versioned(attempt.collection, String(scripted.data.id ?? ""), scripted);
-      }),
-      update: (record: VersionedRecord, patch: RecordData) => guard(undefined, async () => {
+		}),
+		createWithFiles: (attempt: CreateAttempt, input: RecordData, files: Record<string, File[]>) => guard(undefined, async () => {
+			const named = Object.fromEntries(Object.entries(files).map(([field, values]) => [field, values.map((file) => file.name)]));
+			const identity = Object.fromEntries(Object.entries(files).map(([field, values]) => [field, values.map((file) => `${file.name}:${file.size}:${file.type}:${file.lastModified}`)]));
+			const detail = { collection: attempt.collection, input, files: named, key: attempt.keyFor({ ...input, $files: identity }) };
+			const scripted = await take<ScriptedRecord>("createWithFiles", detail, "record");
+			return versioned(attempt.collection, String(scripted.data.id ?? ""), scripted);
+		}),
+		update: (record: VersionedRecord, patch: RecordData) => guard(undefined, async () => {
         const scripted = await take<ScriptedRecord>("update", { collection: record.collection, id: record.id, patch, etag: record.precondition() }, "record");
         return versioned(record.collection, record.id, scripted);
-      }),
+		}),
+		updateWithFiles: (record: VersionedRecord, patch: RecordData, files: Record<string, File[]>) => guard(undefined, async () => {
+			const detail = { collection: record.collection, id: record.id, patch, files: Object.fromEntries(Object.entries(files).map(([field, values]) => [field, values.map((file) => file.name)])), etag: record.precondition() };
+			const scripted = await take<ScriptedRecord>("updateWithFiles", detail, "record");
+			return versioned(record.collection, record.id, scripted);
+		}),
       remove: (record: VersionedRecord) =>
         guard(undefined, () => take<void>("remove", { collection: record.collection, id: record.id, etag: record.precondition() }, "record")),
     },
@@ -193,6 +205,7 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 		putProvider: (id, value, signal) => guard(signal, () => take<OAuthProviderSettings>("putOAuthProvider", { id, value }, "schema")),
 		deleteProvider: (id, name, signal) => guard(signal, () => take<void>("deleteOAuthProvider", { id, name }, "schema")),
 		putTemplate: (id, value, signal) => guard(signal, () => take<AuthMailTemplate>("putAuthMailTemplate", { id, value }, "schema")),
+		previewTemplate: (id, value, signal) => guard(signal, () => take("previewAuthMailTemplate", { id, value }, "schema")),
 		putSMTP: (id, value, signal) => guard(signal, () => take<AuthSMTPSettings>("putAuthSMTP", { id, value }, "schema")),
 		testSMTP: (id, recipient, signal) => guard(signal, () => take<void>("testAuthSMTP", { id, recipient }, "schema")),
 	},

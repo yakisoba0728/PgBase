@@ -22,10 +22,11 @@ type OAuthProviderOptions struct {
 	SubjectField          string   `json:"subjectField"`
 	EmailField            string   `json:"emailField"`
 	EmailVerifiedField    string   `json:"emailVerifiedField"`
+	AvatarField           string   `json:"avatarField"`
 }
 
 func (o OAuthProviderOptions) config() userauth.HTTPOAuthConfig {
-	return userauth.HTTPOAuthConfig{AllowInsecureLoopback: o.AllowInsecureLoopback, AuthorizationURL: o.AuthorizationURL, TokenURL: o.TokenURL, UserInfoURL: o.UserInfoURL, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Scopes: append([]string(nil), o.Scopes...), SubjectField: o.SubjectField, EmailField: o.EmailField, EmailVerifiedField: o.EmailVerifiedField}
+	return userauth.HTTPOAuthConfig{ProviderName: o.Name, AllowInsecureLoopback: o.AllowInsecureLoopback, AuthorizationURL: o.AuthorizationURL, TokenURL: o.TokenURL, UserInfoURL: o.UserInfoURL, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Scopes: append([]string(nil), o.Scopes...), SubjectField: o.SubjectField, EmailField: o.EmailField, EmailVerifiedField: o.EmailVerifiedField, AvatarField: o.AvatarField}
 }
 
 func (o Options) validateOAuth() error {

@@ -82,6 +82,21 @@ var fieldContractsSQL string
 //go:embed 000023_auth_administration.sql
 var authAdministrationSQL string
 
+//go:embed 000024_file_variants.sql
+var fileVariantsSQL string
+
+//go:embed 000025_request_logs_and_calendar_jobs.sql
+var requestLogsCalendarSQL string
+
+//go:embed 000026_auth_mail_html.sql
+var authMailHTMLSQL string
+
+//go:embed 000027_sql_collection_views.sql
+var sqlCollectionViewsSQL string
+
+//go:embed 000028_oauth_callback_bridge.sql
+var oauthCallbackBridgeSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -151,6 +166,11 @@ var migrations = []Migration{
 	{Version: 21, Name: "collection_views", SQL: collectionViewsSQL, SHA256: sha256.Sum256([]byte(collectionViewsSQL))},
 	{Version: 22, Name: "field_contracts", SQL: fieldContractsSQL, SHA256: sha256.Sum256([]byte(fieldContractsSQL))},
 	{Version: 23, Name: "auth_administration", SQL: authAdministrationSQL, SHA256: sha256.Sum256([]byte(authAdministrationSQL))},
+	{Version: 24, Name: "file_variants", SQL: fileVariantsSQL, SHA256: sha256.Sum256([]byte(fileVariantsSQL))},
+	{Version: 25, Name: "request_logs_and_calendar_jobs", SQL: requestLogsCalendarSQL, SHA256: sha256.Sum256([]byte(requestLogsCalendarSQL))},
+	{Version: 26, Name: "auth_mail_html", SQL: authMailHTMLSQL, SHA256: sha256.Sum256([]byte(authMailHTMLSQL))},
+	{Version: 27, Name: "sql_collection_views", SQL: sqlCollectionViewsSQL, SHA256: sha256.Sum256([]byte(sqlCollectionViewsSQL))},
+	{Version: 28, Name: "oauth_callback_bridge", SQL: oauthCallbackBridgeSQL, SHA256: sha256.Sum256([]byte(oauthCallbackBridgeSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

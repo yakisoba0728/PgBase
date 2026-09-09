@@ -37,6 +37,10 @@ const (
 )
 
 type Options struct {
+	Backups BackupOptions
+	// Hooks is shared with the application for runtime registration.
+	Hooks          *HookRegistry
+	Operations     OperationsOptions
 	Files          FileOptions
 	OAuthProviders []OAuthProviderOptions
 	OAuthRedirects []string

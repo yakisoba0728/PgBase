@@ -57,6 +57,24 @@ const session = (csrfToken = "csrf-token") => respond(200, JSON.stringify({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HTTP adapter wire contract", () => {
+	it("sends record files and create metadata in one multipart batch", async () => {
+		const mock = stub(session(), respond(200, JSON.stringify({ results: [{ status: 201, body: { id: recordID, title: "contract" }, etag: '"pgb1.atomic"' }] })));
+		const backend = await authenticated(mock);
+		const file = new File(["signed"], "contract.txt", { type: "text/plain" });
+
+		const stored = await backend.records.createWithFiles(new CreateAttempt("documents", () => "atomic-create-key"), { title: "contract" }, { attachment: [file] });
+
+		expect(stored.id).toBe(recordID);
+		const [path, options] = mock.mock.calls[1] as [string, RequestInit];
+		expect(path).toBe("/api/v1/collections/batch");
+		expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
+		expect(headerOf(mock, 1, "Content-Type")).toBeNull();
+		const body = options.body as FormData;
+		const requests = JSON.parse(String(body.get("requests")));
+		expect(requests).toEqual({ requests: [{ method: "POST", url: "/api/v1/collections/documents/records", body: { title: "contract", attachment: { $file: "file_0" } }, headers: { "Idempotency-Key": "atomic-create-key" } }] });
+		expect((body.get("file_0") as File).name).toBe("contract.txt");
+	});
+
   it("reads and writes bodies losslessly", async () => {
     const mock = stub(session(), respond(200, `{"items":[{"sequence":9007199254740993,"ratio":1.234567890123456789}]}`));
     const backend = await authenticated(mock);

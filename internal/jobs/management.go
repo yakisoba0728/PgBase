@@ -14,6 +14,7 @@ type Status struct {
 	ID             uuid.UUID  `json:"id"`
 	Name           string     `json:"name"`
 	Schedule       string     `json:"schedule"`
+	Timezone       string     `json:"timezone"`
 	Enabled        bool       `json:"enabled"`
 	Registered     bool       `json:"registered"`
 	Running        bool       `json:"running"`
@@ -27,19 +28,21 @@ type Status struct {
 // EnsureScheduled supplies deployment defaults once. Administrator edits must
 // survive process restarts; explicit Schedule remains available to embedders.
 func (s *Service) EnsureScheduled(ctx context.Context, name, schedule string) error {
+	return s.EnsureScheduledInTimezone(ctx, name, schedule, "UTC")
+}
+
+func (s *Service) EnsureScheduledInTimezone(ctx context.Context, name, schedule, timezone string) error {
 	if _, ok := s.registry.handler(name); !ok {
 		return ErrNotManageable
 	}
-	if _, err := ParseSchedule(schedule); err != nil {
+	if _, err := ParseScheduleInLocation(schedule, timezone); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,next_run_at)
- VALUES($1,$2,$3,clock_timestamp()) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule)
-	return err
+	return s.ensureScheduledInTimezone(ctx, name, schedule, timezone)
 }
 
 func (s *Service) ListJobs(ctx context.Context) ([]Status, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,name,schedule,enabled,
+	rows, err := s.pool.Query(ctx, `SELECT id,name,schedule,timezone,enabled,
  COALESCE(lease_until>clock_timestamp(),false),next_run_at,last_started_at,last_finished_at,
  attempts,last_error IS NOT NULL FROM pgbase_meta.scheduled_jobs ORDER BY name LIMIT 501`)
 	if err != nil {
@@ -49,7 +52,7 @@ func (s *Service) ListJobs(ctx context.Context) ([]Status, error) {
 	items := make([]Status, 0)
 	for rows.Next() {
 		var item Status
-		if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.Enabled, &item.Running, &item.NextRunAt, &item.LastStartedAt, &item.LastFinishedAt, &item.Attempts, &item.Failed); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.Timezone, &item.Enabled, &item.Running, &item.NextRunAt, &item.LastStartedAt, &item.LastFinishedAt, &item.Attempts, &item.Failed); err != nil {
 			return nil, err
 		}
 		_, item.Registered = s.registry.handler(item.Name)
@@ -62,12 +65,21 @@ func (s *Service) ListJobs(ctx context.Context) ([]Status, error) {
 }
 
 func (s *Service) ConfigureJob(ctx context.Context, id uuid.UUID, schedule string, enabled bool) error {
-	if _, err := ParseSchedule(schedule); err != nil {
+	return s.ConfigureJobInTimezone(ctx, id, schedule, "UTC", enabled)
+}
+
+func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, schedule, timezone string, enabled bool) error {
+	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	if err != nil {
 		return err
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET schedule=$2,enabled=$3,
- next_run_at=CASE WHEN schedule<>$2 THEN clock_timestamp() ELSE next_run_at END,updated_at=clock_timestamp()
- WHERE id=$1 AND name=ANY($4::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, enabled, s.registry.names())
+	next := time.Now()
+	if parsed.interval == 0 {
+		next = parsed.Next(next)
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET schedule=$2,timezone=$3,enabled=$4,
+	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN $5 ELSE next_run_at END,updated_at=clock_timestamp()
+	 WHERE id=$1 AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, s.registry.names())
 	if err != nil {
 		return err
 	}
@@ -75,6 +87,45 @@ func (s *Service) ConfigureJob(ctx context.Context, id uuid.UUID, schedule strin
 		return ErrNotManageable
 	}
 	return nil
+}
+
+func (s *Service) Register(ctx context.Context, name, schedule, timezone string, handler Handler) error {
+	if _, err := ParseScheduleInLocation(schedule, timezone); err != nil {
+		return err
+	}
+	if err := s.registry.Register(name, handler); err != nil {
+		return err
+	}
+	if err := s.ensureScheduledInTimezone(ctx, name, schedule, timezone); err != nil {
+		s.registry.Unregister(name)
+		return err
+	}
+	return nil
+}
+
+func (s *Service) Unregister(ctx context.Context, name string) error {
+	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET enabled=false,updated_at=clock_timestamp() WHERE name=$1 AND (lease_until IS NULL OR lease_until<clock_timestamp())`, name)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrNotManageable
+	}
+	s.registry.Unregister(name)
+	return nil
+}
+
+func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string) error {
+	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	if err != nil {
+		return err
+	}
+	next := time.Now()
+	if parsed.interval == 0 {
+		next = parsed.Next(next)
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next)
+	return err
 }
 
 // RequestRun queues the normal worker; it never runs a handler on an HTTP

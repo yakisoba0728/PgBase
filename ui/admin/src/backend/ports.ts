@@ -37,16 +37,23 @@ export type RelationDeleteAction = typeof relationDeleteActions[number];
 interface RelationInput { targetCollection: string; cardinality: RelationCardinality; minSelect: number; maxSelect: number; onDelete: RelationDeleteAction }
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
-export interface FieldOptions { minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url"; allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number }
+export interface FieldOptions { minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url"; allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
 export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
 export interface CompoundIndex { id?: string; name: string; indexName?: string; fields: string[]; unique: boolean }
 export interface ViewFilter { op: "all" | "any" | "eq" | "ne" | "lt" | "lte" | "gt" | "gte"; args?: ViewFilter[]; field?: string; value?: unknown }
-export interface ViewDefinition { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter }
+export type SQLViewDefinition = { sql: string; dependencies?: string[]; source?: never; projection?: never; filter?: never; sourceCollectionId?: never };
+export type ViewDefinition =
+	| { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter; sql?: never; dependencies?: never }
+	| SQLViewDefinition;
 export interface CollectionDefinition { id?: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
-export interface CollectionChange { operation: "create" | "update" | "delete"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export type CollectionChange =
+	| { operation: "create"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+	| { operation: "update"; name: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+	| { operation: "update"; name: string; view: SQLViewDefinition; fields?: never; indexes?: never }
+	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 
 // A Map keyed by own entries, so a collection named `constructor` or
 // `__proto__` can neither be found by accident nor shadow a real one.
@@ -258,13 +265,14 @@ export interface RecordRulesPort {
 }
 export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
 export interface AuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; mfaEnabled: boolean }
-export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; allowInsecureLoopback: boolean }
-export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change"; subject: string; body: string }
+export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; avatarField: string; allowInsecureLoopback: boolean }
+export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change"; subject: string; body: string; htmlBody: string }
+export interface AuthMailPreview { subject: string; text: string; html: string }
 export interface AuthSMTPSettings { address: string; from: string; username: string; password?: string; passwordConfigured: boolean; serverName: string; implicitTls: boolean; allowInsecureLoopback: boolean }
 export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProviderSettings[]; templates: AuthMailTemplate[]; smtp?: AuthSMTPSettings }
 export interface AuthCollectionsPort {
   listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
-  getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
+  getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; previewTemplate(id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
 }
 export interface ServiceTokenScope { collectionId: string; action: "read" | "create" | "update" | "delete" }
 export interface ServiceToken { id: string; name: string; active: boolean; expiresAt: string; revokedAt?: string; createdAt: string; scopes: ServiceTokenScope[] }
@@ -279,7 +287,9 @@ export interface RecordPort {
   list(collection: string, options: ListOptions, signal?: AbortSignal): Promise<RecordPage>;
   get(collection: string, id: string, signal?: AbortSignal): Promise<VersionedRecord>;
   create(attempt: CreateAttempt, input: RecordData): Promise<VersionedRecord>;
+	createWithFiles(attempt: CreateAttempt, input: RecordData, files: Record<string, File[]>): Promise<VersionedRecord>;
   update(record: VersionedRecord, patch: RecordData): Promise<VersionedRecord>;
+	updateWithFiles(record: VersionedRecord, patch: RecordData, files: Record<string, File[]>): Promise<VersionedRecord>;
   remove(record: VersionedRecord): Promise<void>;
 }
 export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean }
@@ -309,13 +319,31 @@ export interface UsersPort {
 
 export interface RequestLogEntry { id: number; at: string; method: string; route: string; status: number; durationMs: number }
 export interface RequestLogPage { items: RequestLogEntry[]; nextBefore?: number; oldestId: number }
-export interface ScheduledJob { id: string; name: string; schedule: string; enabled: boolean; registered: boolean; running: boolean; nextRunAt: string; lastStartedAt?: string; lastFinishedAt?: string; attempts: number; failed: boolean }
+export interface RequestLogFilter { before?: number; statusClass?: number; method?: string; route?: string; from?: string; to?: string }
+export interface RequestLogStatistics { total: number; dropped: number; oldestAt?: string; newestAt?: string; averageDurationMs: number; statusClasses: Record<string, number> }
+export interface ScheduledJob { id: string; name: string; schedule: string; timezone?: string; enabled: boolean; registered: boolean; running: boolean; nextRunAt: string; lastStartedAt?: string; lastFinishedAt?: string; attempts: number; failed: boolean }
 export interface JobPage { items: ScheduledJob[]; workerEnabled: boolean }
+export interface BackupEntry { id: string; createdAt: string; size: number; postgresqlMajor: number }
+export interface BackupJob { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: string; error?: string; createdAt: string; updatedAt: string }
 export interface OperationsPort {
   logs(before?: number, statusClass?: number, signal?: AbortSignal): Promise<RequestLogPage>;
+  searchLogs?(filter: RequestLogFilter, signal?: AbortSignal): Promise<RequestLogPage>;
+  logDetail?(id: number, signal?: AbortSignal): Promise<RequestLogEntry>;
+  logStatistics?(signal?: AbortSignal): Promise<RequestLogStatistics>;
+  truncateLogs?(signal?: AbortSignal): Promise<void>;
   jobs(signal?: AbortSignal): Promise<JobPage>;
   configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
+  configureJobInTimezone?(id: string, schedule: string, timezone: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
   runJob(id: string, signal?: AbortSignal): Promise<void>;
+  // null means this server has no managed backup configuration.
+  backups?(signal?: AbortSignal): Promise<BackupEntry[] | null>;
+  createBackup?(signal?: AbortSignal): Promise<BackupJob>;
+  uploadBackup?(archive: File, signal?: AbortSignal): Promise<BackupEntry>;
+  downloadBackup?(id: string, signal?: AbortSignal): Promise<Blob>;
+  backupDownloadURL?(id: string): string;
+  deleteBackup?(id: string, signal?: AbortSignal): Promise<void>;
+  restoreBackup?(id: string, signal?: AbortSignal): Promise<BackupJob>;
+  backupJob?(id: string, signal?: AbortSignal): Promise<BackupJob>;
 }
 
 export interface AdminBackend {

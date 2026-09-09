@@ -48,6 +48,33 @@ func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyRe
 // that observable ordering before allocating a durable operation claim; the
 // explicit apply transaction repeats every check under the schema locks.
 func (s *Service) preflightLegacyApply(ctx context.Context, intent ApplyIntent) error {
+	if isSQLViewChange(intent.change) {
+		return database.Retry(ctx, func() error {
+			return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+				catalog, err := s.EnsureCurrent(ctx, tx)
+				if err != nil {
+					return err
+				}
+				if catalog.Version != intent.baseVersion {
+					return ErrConflict
+				}
+				change, err := inspectSQLViewChange(ctx, tx, catalog, intent.change)
+				if err != nil {
+					return err
+				}
+				plan, alternate, err := compileMixedFleetPlan(catalog, change, false)
+				if err != nil {
+					return err
+				}
+				if plan.Checksum != intent.checksum && alternate.Checksum != intent.checksum {
+					return ErrConflict
+				}
+				return nil
+			})
+		}, func(cause database.RetryCause, exhausted bool) {
+			s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
+		})
+	}
 	catalog, err := s.Catalog(ctx)
 	if err != nil {
 		return err
@@ -192,6 +219,12 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
 	}
 	catalog := currentCatalog.catalog
+	if isSQLViewChange(intent.change) {
+		intent.change, err = inspectSQLViewChange(ctx, tx, catalog, intent.change)
+		if err != nil {
+			return ApplyResult{}, nil, operationRow{}, err
+		}
+	}
 	// D2-2 makes the capability row the only source of truth for the plan format this
 	// binary issues. Reading it under the schema advisory lock this transaction holds
 	// keeps the plan and the DDL below on one side of an activation or rollback.
@@ -251,7 +284,7 @@ func (s *Service) executeClaimedOperation(
 		}
 		result.Collection = Collection{
 			ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName,
-			Fields: fields, Indexes: indexes, CreatedAt: current.CreatedAt,
+			Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt,
 		}
 	case changeDelete:
 		current = catalog.Collections[intent.change.deleteName]
@@ -498,5 +531,5 @@ func resolvedViewSpec(view *PlannedView) *ViewSpec {
 	if view == nil {
 		return nil
 	}
-	return &ViewSpec{SourceCollectionID: view.SourceCollectionID, Source: view.Source, Projection: append([]string(nil), view.Projection...), Filter: cloneViewFilter(view.Filter)}
+	return &ViewSpec{SourceCollectionID: view.SourceCollectionID, Source: view.Source, Projection: append([]string(nil), view.Projection...), Filter: cloneViewFilter(view.Filter), SQL: view.SQL, Dependencies: append([]uuid.UUID(nil), view.Dependencies...)}
 }

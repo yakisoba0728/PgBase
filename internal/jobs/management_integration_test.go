@@ -68,7 +68,7 @@ func TestAdministratorJobChangesPersistAndRespectLease(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("calls=%d", calls)
 	}
-	if err := service.ConfigureJob(ctx, id, "* * * * *", true); !errors.Is(err, ErrInvalidSchedule) {
+	if err := service.ConfigureJob(ctx, id, "* * * *", true); !errors.Is(err, ErrInvalidSchedule) {
 		t.Fatalf("invalid schedule: %v", err)
 	}
 	unknown := NewService(pool, NewRegistry(), nil, uuid.New())
