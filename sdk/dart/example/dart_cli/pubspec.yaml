@@ -1,0 +1,7 @@
+name: pgbase_dart_cli_example
+publish_to: none
+environment:
+  sdk: ^3.13.0
+dependencies:
+  pgbase:
+    path: ../..
