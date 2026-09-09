@@ -66,6 +66,49 @@ describe("SQL console page", () => {
     expect(screen.queryByRole("button", { name: "Add statement" })).not.toBeInTheDocument();
   });
 
+  it("reconciles a lost write submission with its retained identity before another write can be sent", async () => {
+    const backend = port({ submit: vi.fn(async () => { throw new Error("response lost"); }), execution: vi.fn(async () => sample({ mode: "write", status: "succeeded" })) });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValueOnce("write-operation-id").mockReturnValueOnce("write-idempotency-key") });
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+
+    expect(await screen.findByRole("button", { name: "Recheck write execution" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Recheck write execution" }));
+
+    expect(backend.submit).toHaveBeenCalledTimes(1);
+    expect(backend.submit).toHaveBeenCalledWith(expect.objectContaining({ operationID: "write-operation-id", idempotencyKey: "write-idempotency-key", mode: "write" }));
+    expect(backend.execution).toHaveBeenCalledWith("write-operation-id");
+  });
+
+  it("re-fetches an inspected durable receipt while its bounded result is still available", async () => {
+    const historyExecution = sample({ result: undefined, resultUntil: "2099-01-01T00:00:00Z" });
+    const backend = port({ history: vi.fn(async () => ({ executions: [historyExecution], writeEnabled: false, writeTargets: [] })), execution: vi.fn(async () => sample()) });
+    render(<SQLConsolePage port={backend} />);
+    expect(await screen.findByRole("button", { name: "Inspect" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Inspect" }));
+
+    expect(backend.execution).toHaveBeenCalledWith(id);
+    expect(await screen.findByText("9223372036854775807")).toBeVisible();
+  });
+
+  it("omits an untouched timeout and validates an edited timeout against the server capability", async () => {
+    const backend = port({ history: vi.fn(async () => ({ executions: [], writeEnabled: true, writeTargets: [], defaultTimeoutMs: 1500, maximumTimeoutMs: 2000 })) });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => id) });
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText(/Server default: 1500 ms/);
+    await userEvent.click(screen.getByRole("button", { name: "Run read query" }));
+    expect((backend.submit as ReturnType<typeof vi.fn>).mock.calls[0][0]).not.toHaveProperty("timeoutMS");
+
+    await userEvent.clear(screen.getByLabelText("Timeout in milliseconds"));
+    await userEvent.type(screen.getByLabelText("Timeout in milliseconds"), "2001");
+    await userEvent.click(screen.getByRole("button", { name: "Run read query" }));
+    expect(await screen.findByText("Timeout must be a whole number from 1 to 2000 ms.")).toBeVisible();
+    expect(backend.submit).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels a running execution and polls until the server gives its final state", async () => {
     vi.useFakeTimers();
     const running = sample({ status: "running", result: undefined });

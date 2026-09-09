@@ -44,7 +44,7 @@ export interface SQLConsoleExecution {
   failure?: SQLConsoleFailure;
 }
 export interface SQLConsoleWriteTarget { schema: string; table: string; columns: string[] }
-export interface SQLConsoleHistory { executions: SQLConsoleExecution[]; nextCursor?: string; writeEnabled: boolean; writeTargets: SQLConsoleWriteTarget[] }
+export interface SQLConsoleHistory { executions: SQLConsoleExecution[]; nextCursor?: string; writeEnabled: boolean; writeTargets: SQLConsoleWriteTarget[]; defaultTimeoutMs?: number; maximumTimeoutMs?: number }
 
 export interface SQLConsoleTransportRequest { path: string; method: "GET" | "POST"; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal }
 export interface SQLConsoleTransportResponse { status: number; body: unknown }
@@ -130,8 +130,11 @@ export function createSQLConsoleBackend(transport: SQLConsoleTransport): SQLCons
       const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
       const decoded = object(await send(transport, { path: `/api/admin/sql/queries${query}`, method: "GET", signal }));
       if (!Array.isArray(decoded.executions) || !Array.isArray(decoded.writeTargets)) throw new SQLConsoleError(502, "invalid_response");
+      const defaultTimeoutMs = decoded.defaultTimeoutMs === undefined ? undefined : number(decoded.defaultTimeoutMs);
+      const maximumTimeoutMs = decoded.maximumTimeoutMs === undefined ? undefined : number(decoded.maximumTimeoutMs);
+      if ((defaultTimeoutMs === undefined) !== (maximumTimeoutMs === undefined) || (defaultTimeoutMs !== undefined && (defaultTimeoutMs < 1 || maximumTimeoutMs === undefined || maximumTimeoutMs < defaultTimeoutMs))) throw new SQLConsoleError(502, "invalid_response");
       return {
-        executions: decoded.executions.map(execution), nextCursor: optionalString(decoded.nextCursor), writeEnabled: boolean(decoded.writeEnabled),
+        executions: decoded.executions.map(execution), nextCursor: optionalString(decoded.nextCursor), writeEnabled: boolean(decoded.writeEnabled), ...(defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs, maximumTimeoutMs }),
         writeTargets: decoded.writeTargets.map((target) => { const value = object(target); if (!Array.isArray(value.columns)) throw new SQLConsoleError(502, "invalid_response"); return { schema: string(value.schema), table: string(value.table), columns: value.columns.map(string) }; }),
       };
     },

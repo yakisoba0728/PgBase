@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   sqlConsoleParameterKinds, SQLConsoleError, type SQLConsoleCell, type SQLConsoleExecution, type SQLConsoleParameter,
-  type SQLConsoleParameterKind, type SQLConsolePort, type SQLConsoleStatementInput, type SQLConsoleStatementResult,
+  type SQLConsoleParameterKind, type SQLConsolePort, type SQLConsoleStatementInput, type SQLConsoleStatementResult, type SQLConsoleSubmitInput,
 } from "../backend/sql-console-backend";
 
 const terminal = new Set(["succeeded", "failed", "canceled", "timed_out", "unknown"]);
@@ -11,6 +11,7 @@ const statusText: Record<SQLConsoleExecution["status"], string> = {
 const cellText: Record<SQLConsoleCell["kind"], string> = {
   null: "NULL", string: "text", boolean: "boolean", integer: "integer", decimal: "decimal", json: "JSON", bytes: "bytes", temporal: "time",
 };
+function resolvedWrite(status: SQLConsoleExecution["status"]): boolean { return terminal.has(status) && status !== "unknown"; }
 
 interface DraftStatement { sql: string; params: SQLConsoleParameter[] }
 const newStatement = (): DraftStatement => ({ sql: "SELECT 1", params: [] });
@@ -51,7 +52,8 @@ function ExecutionResult({ execution }: { execution: SQLConsoleExecution }) {
     void navigator.clipboard.writeText(value).catch(() => setCopyError("The value could not be copied. Select it and copy it manually."));
   }, []);
   if (result === undefined) {
-    if (execution.resultUntil !== undefined && terminal.has(execution.status)) return <p>The bounded result expired at {execution.resultUntil}; the durable execution record remains available.</p>;
+    if (execution.resultUntil !== undefined && Date.parse(execution.resultUntil) <= Date.now()) return <p>The bounded result expired at {execution.resultUntil}; the durable execution record remains available.</p>;
+    if (execution.resultUntil !== undefined) return <p>The bounded result is not present in this response. Recheck this execution before {execution.resultUntil}.</p>;
     return null;
   }
   const statements = result.statements ?? [];
@@ -84,13 +86,18 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
   const [statements, setStatements] = useState<DraftStatement[]>([newStatement()]);
   const [mode, setMode] = useState<"read" | "write">("read");
   const [dryRun, setDryRun] = useState(false);
-  const [timeoutMS, setTimeoutMS] = useState("5000");
+  const [timeoutMS, setTimeoutMS] = useState("");
   const [writeConfirmed, setWriteConfirmed] = useState(false);
   const [history, setHistory] = useState<SQLConsoleExecution[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [writeEnabled, setWriteEnabled] = useState(false);
+  const [defaultTimeoutMS, setDefaultTimeoutMS] = useState<number | undefined>();
+  const [maximumTimeoutMS, setMaximumTimeoutMS] = useState<number | undefined>();
   const [targets, setTargets] = useState<Array<{ schema: string; table: string; columns: string[] }>>([]);
   const [execution, setExecution] = useState<SQLConsoleExecution | null>(null);
+  // A write may have reached the server even when its HTTP response did not.
+  // Retain the complete request identity until the server itself settles it.
+  const [unresolvedWrite, setUnresolvedWrite] = useState<SQLConsoleSubmitInput | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +105,7 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
   const loadHistory = useCallback(async (next?: string) => {
     try {
       const page = await port.history(next);
-      setWriteEnabled(page.writeEnabled); setTargets(page.writeTargets); setCursor(page.nextCursor);
+      setWriteEnabled(page.writeEnabled); setTargets(page.writeTargets); setCursor(page.nextCursor); setDefaultTimeoutMS(page.defaultTimeoutMs); setMaximumTimeoutMS(page.maximumTimeoutMs);
       setHistory((current) => next === undefined ? page.executions : [...current, ...page.executions]);
     } catch (caught) { setError(executionMessage(caught)); }
   }, [port]);
@@ -106,24 +113,51 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
   useEffect(() => {
     if (execution === null || terminal.has(execution.status)) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => void port.execution(execution.id, controller.signal).then(setExecution).catch((caught) => { if (!controller.signal.aborted) setError(executionMessage(caught)); }), 750);
+    const timer = window.setTimeout(() => void port.execution(execution.id, controller.signal).then((next) => {
+      setExecution(next);
+      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
+    }).catch((caught) => { if (!controller.signal.aborted) setError(executionMessage(caught)); }), 750);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [execution, port]);
+  }, [execution, port, unresolvedWrite]);
 
   const draft = useMemo<SQLConsoleStatementInput[]>(() => statements.map((statement) => ({ sql: statement.sql, ...(statement.params.length === 0 ? {} : { params: statement.params.map((parameter) => parameter.kind === "null" ? { kind: "null" } : parameter) }) })), [statements]);
+  const reconcileWrite = async () => {
+    const attempt = unresolvedWrite;
+    if (attempt === null) return;
+    setSubmitting(true); setError(null);
+    try {
+      const next = await port.execution(attempt.operationID);
+      setExecution(next);
+      if (resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
+    } catch (caught) { setError(`The earlier write might still have run. ${executionMessage(caught)} Recheck it before submitting a new write.`); } finally { setSubmitting(false); }
+  };
+  const inspectExecution = async (id: string) => {
+    setError(null);
+    try {
+      const next = await port.execution(id);
+      setExecution(next);
+      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
+    } catch (caught) { setError(executionMessage(caught)); }
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setError(null);
+    if (mode === "write" && unresolvedWrite !== null) { await reconcileWrite(); return; }
     if (mode === "write" && !writeEnabled) { setError("Writes are not configured for this SQL console."); return; }
     if (mode === "write" && !dryRun && !writeConfirmed) { setError("Confirm the transactional write before executing it."); return; }
-    const timeout = Number(timeoutMS);
-    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30000) { setError("Timeout must be a whole number from 1 to 30000 ms."); return; }
+    const timeout = timeoutMS.trim() === "" ? undefined : Number(timeoutMS);
+    if (timeout !== undefined && (!Number.isInteger(timeout) || timeout < 1 || (maximumTimeoutMS !== undefined && timeout > maximumTimeoutMS))) { setError(`Timeout must be a whole number from 1 to ${maximumTimeoutMS ?? "the server maximum"} ms.`); return; }
     setSubmitting(true);
     try {
       const operationID = crypto.randomUUID();
       const idempotencyKey = mode === "write" ? crypto.randomUUID() : undefined;
-      const next = await port.submit({ operationID, idempotencyKey, mode, dryRun: mode === "write" && dryRun, timeoutMS: timeout, statements: draft });
+      const request = { operationID, idempotencyKey, mode, dryRun: mode === "write" && dryRun, ...(timeout === undefined ? {} : { timeoutMS: timeout }), statements: draft } as SQLConsoleSubmitInput;
+      if (mode === "write") setUnresolvedWrite(request);
+      const next = await port.submit(request);
       setExecution(next); setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)]); setWriteConfirmed(false);
-    } catch (caught) { setError(executionMessage(caught)); } finally { setSubmitting(false); }
+      if (mode === "write" && resolvedWrite(next.status)) setUnresolvedWrite(null);
+    } catch (caught) {
+      setError(mode === "write" ? "The write response was lost or unavailable. Recheck this execution before submitting a new write." : executionMessage(caught));
+    } finally { setSubmitting(false); }
   };
   const cancel = async () => {
     if (execution === null || terminal.has(execution.status)) return;
@@ -141,13 +175,13 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
         <label><input checked={mode === "write"} disabled={!writeEnabled} name="sql-mode" onChange={() => setMode("write")} type="radio" />Transactional write</label>
         {mode === "write" && <><label><input checked={dryRun} onChange={(event) => { setDryRun(event.target.checked); setWriteConfirmed(false); }} type="checkbox" />Dry run and roll back</label>{!dryRun && <label><input checked={writeConfirmed} onChange={(event) => setWriteConfirmed(event.target.checked)} type="checkbox" />I confirm this allowed write transaction should execute once</label>}</>}
       </fieldset>
-      <label>Timeout in milliseconds<input aria-label="Timeout in milliseconds" inputMode="numeric" onChange={(event) => setTimeoutMS(event.target.value)} value={timeoutMS} /></label>
+      <label>Timeout in milliseconds<input aria-label="Timeout in milliseconds" inputMode="numeric" onChange={(event) => setTimeoutMS(event.target.value)} placeholder={defaultTimeoutMS === undefined ? "Server default" : `Server default: ${defaultTimeoutMS} ms`} value={timeoutMS} /></label>{defaultTimeoutMS !== undefined && <p>Server default: {defaultTimeoutMS} ms{maximumTimeoutMS === undefined ? "" : `; maximum: ${maximumTimeoutMS} ms`}.</p>}
       {statements.map((statement, index) => <StatementEditor index={index} key={index} remove={() => setStatements((current) => current.filter((_, currentIndex) => currentIndex !== index))} statement={statement} update={(value) => setStatements((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))} />)}
       {mode === "write" && statements.length < 10 && <button onClick={() => setStatements((current) => [...current, newStatement()])} type="button">Add statement</button>}
-      <button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</button>
+      <button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && unresolvedWrite !== null ? "Recheck write execution" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</button>
     </form>
     <section aria-label="Allowed write targets"><h3>Allowed write targets</h3>{!writeEnabled && <p>No extension write target is configured.</p>}<ul>{targets.map((target) => <li key={`${target.schema}.${target.table}`}><code>{target.schema}.{target.table}</code> — {target.columns.join(", ")}</li>)}</ul></section>
-    {execution !== null && <section aria-live="polite"><h3>Execution</h3><p><strong>{statusText[execution.status]}</strong> — {execution.id}</p>{!terminal.has(execution.status) && <button disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? "Canceling…" : "Cancel execution"}</button>}{execution.status === "unknown" && <p>The server could not determine the final commit state. Recheck this execution before deciding whether any write can be retried.</p>}{execution.failure !== undefined && <p role="alert">{execution.failure.message}{execution.failure.statementIndex !== undefined ? ` Statement ${execution.failure.statementIndex + 1}.` : ""}{execution.failure.position !== undefined && execution.failure.position > 0 ? ` Character ${execution.failure.position}.` : ""}{execution.failure.sqlState !== undefined ? ` SQLSTATE ${execution.failure.sqlState}.` : ""}</p>}<ExecutionResult execution={execution} /></section>}
-    <section aria-label="SQL execution history"><h3>Execution history</h3>{history.length === 0 && <p>No SQL executions are recorded for this administrator session.</p>}<ol>{history.map((item) => <li key={item.id}><button onClick={() => setExecution(item)} type="button">Inspect</button> {statusText[item.status]} <time dateTime={item.createdAt}>{item.createdAt}</time></li>)}</ol>{cursor !== undefined && <button onClick={() => void loadHistory(cursor)} type="button">Next history page</button>}</section>
+    {execution !== null && <section aria-live="polite"><h3>Execution</h3><p><strong>{statusText[execution.status]}</strong> — {execution.id}</p>{!terminal.has(execution.status) && <button disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? "Canceling…" : "Cancel execution"}</button>}{execution.status === "unknown" && <><p>The server could not determine the final commit state. Recheck this execution before deciding whether any write can be retried.</p><button onClick={() => void inspectExecution(execution.id)} type="button">Recheck execution</button></>}{execution.failure !== undefined && <p role="alert">{execution.failure.message}{execution.failure.statementIndex !== undefined ? ` Statement ${execution.failure.statementIndex + 1}.` : ""}{execution.failure.position !== undefined && execution.failure.position > 0 ? ` Character ${execution.failure.position}.` : ""}{execution.failure.sqlState !== undefined ? ` SQLSTATE ${execution.failure.sqlState}.` : ""}</p>}<ExecutionResult execution={execution} /></section>}
+    <section aria-label="SQL execution history"><h3>Execution history</h3>{history.length === 0 && <p>No SQL executions are recorded for this administrator session.</p>}<ol>{history.map((item) => <li key={item.id}><button onClick={() => void inspectExecution(item.id)} type="button">Inspect</button> {statusText[item.status]} <time dateTime={item.createdAt}>{item.createdAt}</time></li>)}</ol>{cursor !== undefined && <button onClick={() => void loadHistory(cursor)} type="button">Next history page</button>}</section>
   </section>;
 }
