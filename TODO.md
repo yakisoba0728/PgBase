@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 인수·N8/N9 구현 병렬 진행 (최종 동기화 2026-09-10 05:26 KST)
+## N6–N9 병렬 실행 — N6/N7 인수·N8/N9 구현 병렬 진행 (최종 동기화 2026-09-10 05:31 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,10 +8,10 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | alias/migration `21b8293`와 bounded file stream `8917969` 통합; focused race/PG green, Nash core Standards/Spec 0 | 외부 JS 앱/browser·cross-flow·stress |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | migration `21b8293`, bounded single file stream/lock fix `bb569af` 통합; focused race/PG green, Nash core Standards/Spec 0 | 외부 JS 앱/browser·cross-flow |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | core acceptance 완료 — data/admin/browser/revoke와 실제 open-SSE logout·cursor 410·cancel upload cleanup green | N6 외부 앱 cross-flow에 동일 SDK 재사용 |
-| G3 N6/N7 통합 | Sol 통합 | N7 core와 N6 review/migration accepted; fifth-open fix 뒤에도 within-cap second-open 504 lock queue 재현, fix 중; 외부 앱·cross-flow 미실행 | invocation storage-lock topology fix, 외부 Go+JS 앱, Dart/Flutter cross-flow, focused stress 확인 |
-| G4 N8/N9 병렬 착수 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | Astra 조정으로 clean `91a0bda` 기반 제품 구현 시작; G3 완료·최종 통합 claim은 여전히 금지 | N8 migration 41/전용 모듈, N9 private updater/platform helper의 stable handoff |
+| G3 N6/N7 통합 | Sol 통합 | N7 core, N6 review/migration, CPU/queue/cancel/Close와 within-cap file lock 모두 green; 외부 앱·cross-flow 미실행 | 외부 Go+JS 앱 PG/file/SMTP/job retry와 Dart/Flutter 동일 상태 검증 |
+| G4 N8/N9 병렬 착수 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | clean `91a0bda` 기반 구현; N9 private core `5fea1d4` integrated/race green, N8 private slices active | N8 stable handoff; N9 faults/6 builds; 공통 seam 합성·독립 review |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
