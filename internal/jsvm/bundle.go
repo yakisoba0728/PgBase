@@ -78,10 +78,11 @@ type Manifest struct {
 }
 
 type Bundle struct {
-	root     string
-	manifest Manifest
-	sources  map[string][]byte
-	digest   string
+	root           string
+	manifestSource []byte
+	manifest       Manifest
+	sources        map[string][]byte
+	digest         string
 }
 
 type migrationSourceFile struct {
@@ -141,7 +142,7 @@ func (b *Bundle) MigrationBundle(id string) (*Bundle, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	result := &Bundle{root: b.root, manifest: manifest, sources: sources}
+	result := &Bundle{root: b.root, manifestSource: manifestBytes, manifest: manifest, sources: sources}
 	if err := result.validateReferences(); err != nil {
 		return nil, nil, err
 	}
@@ -225,7 +226,7 @@ func LoadBundle(directory string) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	bundle := &Bundle{root: root, manifest: manifest, sources: sources}
+	bundle := &Bundle{root: root, manifestSource: append([]byte(nil), manifestBytes...), manifest: manifest, sources: sources}
 	if err := bundle.validateReferences(); err != nil {
 		return nil, err
 	}
@@ -368,4 +369,41 @@ func (b *Bundle) Source(name string) []byte {
 		return nil
 	}
 	return append([]byte(nil), b.sources[canonical]...)
+}
+
+// WriteSnapshot creates a private immutable input directory for a development
+// supervisor. The caller owns removal of the returned directory.
+func (b *Bundle) WriteSnapshot(parent string) (string, error) {
+	if b == nil || len(b.manifestSource) == 0 {
+		return "", errors.New("JavaScript bundle is nil")
+	}
+	directory, err := os.MkdirTemp(parent, "pgbase-js-snapshot-")
+	if err != nil {
+		return "", err
+	}
+	failed := true
+	defer func() {
+		if failed {
+			_ = os.RemoveAll(directory)
+		}
+	}()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return "", err
+	}
+	files := make(map[string][]byte, len(b.sources)+1)
+	files["pgbase.scripts.json"] = b.manifestSource
+	for name, source := range b.sources {
+		files[name] = source
+	}
+	for name, source := range files {
+		filename := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filename, source, 0o600); err != nil {
+			return "", err
+		}
+	}
+	failed = false
+	return directory, nil
 }

@@ -89,6 +89,29 @@ func TestMigrationBundleFreezesOnlyDeclaredSources(t *testing.T) {
 	}
 }
 
+func TestBundleWriteSnapshotPreservesLoadedBytes(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/snapshot","access":"public","handler":{"module":"app.js","export":"run"}}]}`)
+	writeFile(t, directory, "app.js", `exports.run=()=>({status:204});`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, directory, "app.js", `throw new Error("changed");`)
+	snapshot, err := bundle.WriteSnapshot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(snapshot) })
+	loaded, err := jsvm.LoadBundle(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Digest() != bundle.Digest() || string(loaded.Source("app.js")) != `exports.run=()=>({status:204});` {
+		t.Fatal("snapshot did not preserve the loaded bundle")
+	}
+}
+
 func writeFile(t *testing.T, directory, name, contents string) {
 	t.Helper()
 	path := filepath.Join(directory, filepath.FromSlash(name))

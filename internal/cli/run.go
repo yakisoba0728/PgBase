@@ -55,6 +55,7 @@ func productionCommands() commandTable {
 		"membership":   runMembership,
 		"healthcheck":  runHealthcheck,
 		"backup":       runBackup,
+		"js":           runJavaScript,
 	}
 }
 
@@ -108,7 +109,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js> [arguments]")
 	return err
 }
 
@@ -156,8 +157,9 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 	flags.SetOutput(io.Discard)
 	publicDir := flags.String("public-dir", "", "")
 	publicSPAFallback := flags.Bool("public-spa-fallback", false, "")
+	javaScriptDirectory := flags.String("js-dir", "", "")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback]"}
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR]"}
 	}
 	options, err := config.LoadEnv(env)
 	if err != nil {
@@ -169,6 +171,11 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 			options.PublicDir = *publicDir
 		case "public-spa-fallback":
 			options.PublicSPAFallback = *publicSPAFallback
+		case "js-dir":
+			if options.JavaScript == nil {
+				options.JavaScript = &pgbase.JavaScriptOptions{}
+			}
+			options.JavaScript.Directory = *javaScriptDirectory
 		}
 	})
 	options.Logger = observability.NewJSONLogger(streams.stderr())
