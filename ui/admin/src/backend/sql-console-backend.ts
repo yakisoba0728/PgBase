@@ -108,9 +108,8 @@ function execution(value: unknown): SQLConsoleExecution {
 }
 
 function error(response: SQLConsoleTransportResponse): never {
-  const body = object(response.body);
-  const reported = typeof body.code === "string" ? body.code : "request_failed";
-  throw new SQLConsoleError(response.status, reported);
+  const envelope = object(object(response.body).error);
+  throw new SQLConsoleError(response.status, string(envelope.code));
 }
 async function send(transport: SQLConsoleTransport, request: SQLConsoleTransportRequest): Promise<unknown> {
   const response = await transport.request(request);

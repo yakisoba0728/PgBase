@@ -41,7 +41,10 @@ describe("SQL console backend", () => {
     const malformed = transport({ ...execution, result: { ...execution.result, statements: [{ affectedRows: 0, rows: [[{ kind: "null", text: "must not be here" }]] }] } });
     await expect(createSQLConsoleBackend(malformed.transport).execution(execution.id)).rejects.toMatchObject({ name: "SQLConsoleError", code: "invalid_response" });
 
-    const rejected = transport({ code: "forbidden" }, 403);
+    const rejected = transport({ error: { code: "forbidden", message: "SQL execution is not allowed", details: {}, requestId: "request-1" } }, 403);
     await expect(createSQLConsoleBackend(rejected.transport).execution(execution.id)).rejects.toEqual(new SQLConsoleError(403, "forbidden"));
+
+    const malformedError = transport({ error: { message: "missing code" } }, 403);
+    await expect(createSQLConsoleBackend(malformedError.transport).execution(execution.id)).rejects.toMatchObject({ status: 502, code: "invalid_response" });
   });
 });
