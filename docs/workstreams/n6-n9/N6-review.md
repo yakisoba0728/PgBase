@@ -53,3 +53,26 @@ This contradicts the N6 shutdown contract, which requires the supervisor to reta
 ### Review-only confirmation
 
 `js check` currently accepts a job manifest without the mandatory `JobServiceSubjects` entry: `go test ./internal/cli -run '^TestReviewJavaScriptCheckAcceptsJobWithoutServiceSubject$' -count=1 -v` exited 0. This is not filed as a defect because the current `js check` contract can reasonably be read as bundle validation rather than full runnable-app validation; the fixture was removed. If the CLI is intended to certify runnable configuration, make it reject that case before reporting the bundle valid.
+
+## Re-review — `ceacdf087562b54f76f191b7d9c5367d874ba4ad`
+
+Reviewed the four reported P1 remediation paths and the new hook DTO/patch surface. The prior retained-facade, direct/nested and `Down`-only dependency, migration preflight, and initial-watch-status-write cases are addressed by this commit: request authority is now cancellation-bound, direct static requires are checked against the declared set, JS configuration is validated before `openDatabase`, and the initial watch error closes then joins `Run`.
+
+### Standards
+
+No documented repository-standard finding. `git diff --check ceacdf0^ ceacdf0` is clean. The new code stays at the existing loader, bridge, CLI, and hook seams. The hook type switch accepts the supported N5 payload kinds and rejects unknown Go values; the DTO codec preserves JSON numbers, copies patch inputs, redacts the present storage/credential/error fields, and keeps batch/schema mutation boundaries narrow.
+
+### Spec
+
+#### P1 — aliased CommonJS `require` bypasses frozen migration dependency closure
+
+[`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:382`](/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:382) recognizes a require only when the call callee is the identifier literally named `require`; [`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:357`](/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:357) otherwise has no binding/escape analysis. A migration can therefore write `const load = require; exports.down = () => load("./hidden").run();`. `LoadBundle` accepts it, and [`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:122`](/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:122) freezes only the entry plus explicitly declared dependencies, leaving `hidden.js` out. The migration consequently still defers its source error to `Down` execution.
+
+This was reproduced in a review-local temporary unit fixture: `go test ./internal/jsvm -run '^TestReviewMigrationAliasRequireBypassesDeclaredClosure$' -count=1 -v` passed because both `LoadBundle` and `MigrationBundle` accepted the alias while the subset lacked `hidden.js`; the fixture was removed immediately afterward. Migration validation must either resolve aliases/indirect calls to `require` or reject any non-direct escape/use of `require`, so every executable import remains within the declared frozen set.
+
+### Verification
+
+- `go test -race ./internal/jsvm -run '^(TestMigrationBundleFreezesOnlyDeclaredSources|TestLoadBundleRejectsUndeclaredMigrationDependencyClosure|TestLoadBundleRejectsDynamicRequireInMigrationSource)$' -count=1` — pass.
+- `go test -race ./internal/cli -run '^TestJavaScriptMigrationPreflightsBundleBeforeDatabase$' -count=1` — pass.
+- `go test -race ./pgbase -run '^TestJavaScriptHook' -count=1` — pass.
+- The review did not run PostgreSQL integration tests, a live listener, Docker, UserData, or the coordinated N6 fixture.
