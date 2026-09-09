@@ -7,15 +7,15 @@
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 제품 병합 기준 | PR #31, `701256b` |
-| 작업 브랜치 / HEAD | `codex/pocketbase-parity-phase4` / `6346160`(P7 설치 인수 기록) 및 미커밋 P8 변경 |
-| 실제 로컬 설치 | P7, PostgreSQL 17, schema v32, `http://127.0.0.1:8090/admin` |
+| 최신 제품 병합 기준 | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` |
+| 설치 제품 커밋 | `0d28446b4003679465103c5fe2d4f1c65364cc79`. 설치 기록 문서의 후속 커밋과 구분 |
+| 실제 로컬 설치 | P8, PostgreSQL 17, schema v38, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
 | 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. P8 릴리스는 없음 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
 | 승인된 범위 | 로컬에서 구현·검증 가능한 제품 기능. 외부 서버·도메인·실제 provider 계정·공개 패키지 배포는 대기 |
 
-현재 브랜치에는 다수의 구현 파일과 생성물이 함께 변경되어 있다. P8 로컬 통합 인수는 완료했다. PR·원격 CI·병합·로컬 설치는 남아 있다. 구현, 개별 검증, 통합 인수, 병합, 설치, 공개 배포를 서로 다른 상태로 기록한다. 저장소 이전과 협업 요청은 있었지만 과거 저장소 상태·현재 collaborator 권한은 이 문서 작성에서 재조회하지 않았으므로 완료 상태를 새로 단정하지 않는다.
+P8 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 로컬 설치까지 완료했다. 구현, 개별 검증, 통합 인수, 병합, 설치, 공개 배포를 서로 다른 상태로 기록한다. 저장소 이전과 협업 요청은 있었지만 과거 저장소 상태·현재 collaborator 권한은 이 문서 작성에서 재조회하지 않았으므로 완료 상태를 새로 단정하지 않는다.
 
 ## 2. 작업 이력
 
@@ -31,7 +31,7 @@
 | P1–P5 | 필드 계약·데이터 보존 rename, 레코드 작업, 인증 설정, 운영 콘솔, API 예제·SDK | [PR #29](https://github.com/yakisoba0728/PgBase/pull/29), `33816df` 병합, 로컬 v21→v23 |
 | P6 | 파일 정책/변환, OAuth·HTML 메일, SQL View, multipart Batch, 영구 로그·달력 cron, 웹 백업·Go hooks | [PR #30](https://github.com/yakisoba0728/PgBase/pull/30), `b942391` 병합, 로컬 v23→v28 |
 | P7 | hidden/presentable/help, schema import/export, 이메일 OTP, impersonation, Go custom routes | [PR #31](https://github.com/yakisoba0728/PgBase/pull/31), `701256b` 병합, 필수 CI 5개 및 로컬 v28→v32 인수 완료 |
-| P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | 구현·최종 로컬 통합 인수 완료. PR·CI·병합·설치 전 |
+| P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` 병합, 필수 CI 5개·로컬 v32→v38 인수 완료 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -52,7 +52,7 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 
 여기의 '완료'는 정의한 PgBase 계약의 로컬 인수를 뜻한다. 예를 들어 Required는 기본 scalar에서 SQL NULL 기준이며 파일은 최소 1개 기준이다. PB의 모든 빈 값·필드 수정자·요청 payload와 같다는 뜻이 아니다. 파일의 별도 minSelect는 지원하지 않는다.
 
-## 4. 구현·로컬 인수를 마친 P8 — 병합·설치 대기
+## 4. 구현·로컬 인수·설치를 마친 P8
 
 | 작업 | 구현 / 확인한 증거 | 남은 경계 |
 | --- | --- | --- |
@@ -74,6 +74,7 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 | P1–P5 | UI 450개, 브라우저 8개, Go/PG18 race·SDK·lint/vet·6종 빌드 | 당시 최종 코드 인수 |
 | P6 | UI 459개, 브라우저 11개, Go/PG18+MinIO race·SDK·lint/vet | 당시 최종 코드 인수 및 v28 설치 |
 | P7 | UI 466개, 전체 브라우저 15개와 후속 P7 5개, Go/PG18+MinIO race, CI 5개 | 병합·v32 설치까지 완료. 테스트 수를 합산하지 않음 |
+| P8 병합·설치 | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) 필수 CI 5개 통과, 로컬 PG17 v32→v38, doctor/readiness·관리자 세션·4종 필드 preview·두 저장소 probe·managed 백업 다운로드/hash | DB·파일·기존 백업·환경·바이너리 사전 보존. S3 실제 왕복은 격리된 MinIO 환경에서 인수 |
 | P8 전체 로컬 검사 | Go unit/race·PG18+MinIO integration/race·skip 정책, UI 489/489·typecheck/build, SDK live conformance/pack, lint/vet·6종 빌드·migration/OpenAPI·구조 예산 | 최종 백업 테스트 수정은 패키지 전체 재검사 및 race 100회로 보완 |
 | P8 브라우저 | 고급 필드, 실제 파일 local→S3→local, 독립 S3 백업 설정/생성/다운로드/삭제 3개 통과 | 전체 관리자 브라우저 19/19 통과 후 최신 probe 수정에서도 P8 3/3 재검증. 중복 시나리오를 합산하지 않음 |
 | P8 DB 업그레이드 | 구버전 실제 CLI/API로 text·integer·JSONB·relation 4레코드 생성 → v32→v38, 해시·행 수 보존, doctor OK | 인수 당시 원본 v32 유지, 복사본/임시 서버 정리. 실제 설치 상태는 상단을 따름 |

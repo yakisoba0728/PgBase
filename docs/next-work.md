@@ -1,12 +1,12 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-09, P7 설치 / P8 작업 트리. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 새 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-09, P8 병합·schema v38 로컬 설치 완료. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 새 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
 | 순서 | ID | 작업 | 시작 조건 |
 | --- | --- | --- | --- |
-| 1 | N0 | P8 최종 인수·PR·설치 | 현재 진행 중 |
+| 완료 | N0 | P8 최종 인수·PR·설치 | PR #32 및 로컬 v38 인수 완료 |
 | 2 | N1 | 사용자 migration 자동화 | N0의 schema/migration 계약 확정 |
 | 3 | N2 | public 정적 사이트·SPA | N0 완료, route 충돌 계약 확정 |
 | 4 | N3 | 관리자 CLI 확장 | N0 완료, 기존 관리 서비스 재사용 |
@@ -29,10 +29,12 @@
 - [x] 최종 변경 집합으로 Go unit/race, PostgreSQL+MinIO integration/race 및 skip 정책, UI unit/typecheck/build, SDK conformance/pack, 실제 브라우저 흐름을 실행한다.
 - [x] OpenAPI·lint/vet·생성물 재현·지원 OS/architecture 빌드와 구조 실측을 확인한다. production 파일 800줄 제한을 유지하고 근거 있는 구조 예산·순증가량을 문서화한다.
 - [x] 독립 Standards/Spec 검토를 완료했다. 백업 startup recovery 경합, 소유 metadata/객체 검증과 probe 삭제 문제를 수정하고 PG18+MinIO/race 및 최신 P8 브라우저 3/3을 통과했다.
-- [ ] PR에 구현 범위·검증·제약을 작성하고 required CI 통과 후 병합한다.
-- [ ] 원본 로컬 DB·파일·실행 파일을 백업하고 새 바이너리/DB를 적용한다. doctor/readiness·관리자 로그인·필드/S3/백업 smoke와 설치 커밋을 기록한다.
+- [x] PR에 구현 범위·검증·제약을 작성하고 required CI 통과 후 병합한다.
+- [x] 원본 로컬 DB·파일·실행 파일을 백업하고 새 바이너리/DB를 적용한다. doctor/readiness·관리자 로그인·고급 필드 preview·local 파일/백업 저장소 probe·PG17 백업/download/hash가 통과했고 설치 커밋을 기록했다. 실제 S3 왕복은 격리된 MinIO/브라우저로 검증했다.
 
 완료 기준: 최신 변경 전체의 인수 증거, 병합 커밋, 원본 백업 위치, 실제 설치 버전이 모두 기록되어야 한다. P8 완료가 아래 N1–N9 완료를 의미하지 않는다.
+
+완료 근거: [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), 제품 커밋 `0d28446`, 로컬 PostgreSQL 17/schema v38. 외부 배포·공개 릴리스는 별도다.
 
 ## N1 — 자동 migration
 

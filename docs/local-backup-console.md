@@ -1,8 +1,8 @@
-# Local backup and restore
+# Offline CLI backup and restore
 
 PgBase can create a consistent local backup of PostgreSQL and local file storage. Stop every PgBase server and any external SQL writer connected to the database before either operation. Older PgBase binaries and external SQL clients do not participate in this advisory-lock protocol and must remain stopped for the entire operation. The command takes an exclusive PostgreSQL advisory lock and refuses to run while a participating server is active.
 
-The database URL and file settings come from the normal `PGBASE_*` environment. Backups support local file storage; S3-backed files need the storage provider's backup tooling.
+The database URL and file settings come from the normal `PGBASE_*` environment. These offline CLI commands support local file storage. The running administrator backup console can also snapshot S3-backed file bytes and store archives in an [independent local/S3 backup repository](backup-s3.md); its managed snapshot/restore contract is separate from these commands.
 
 ```sh
 pgbase backup create --directory /srv/backups/pgbase-2026-09-09

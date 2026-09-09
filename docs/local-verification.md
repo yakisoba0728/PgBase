@@ -1,4 +1,6 @@
-# Local verification of M2–M6
+# Local verification and historical M2–M6 results
+
+Current P8 acceptance, PR/CI and installation evidence is in [project status](project-status.md) and [P8 contracts](phase4-local-contracts.md). The workload numbers and 431-test UI result below describe the earlier M2–M6 snapshot and are not current totals.
 
 These checks use a source build and disposable local resources. They do not qualify a production deployment or establish a production SLO.
 

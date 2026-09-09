@@ -4,6 +4,8 @@ PgBase embeds Go hooks and scheduled jobs in the application process. Before-mut
 
 Go embedding applications can register [custom HTTP routes](custom-routes.md) with explicit public/user/administrator/service authentication. They share the application's request middleware and expose a credential-free principal. This buffered `http.Handler` contract does not claim PocketBase route-group or event API compatibility.
 
+[Compiled user migrations](user-migrations.md) provide source-bound create/list/up/down. The [lifecycle mapping](lifecycle-parity.md) lists the additional app, schema, authentication, realtime, storage and backup hooks, including remaining per-request gaps.
+
 No embedded JavaScript engine is included in this milestone. An in-process JavaScript VM would require a separate module-loading, cancellation, memory, and API compatibility contract. Go extensions are trusted application code and have the same filesystem/network access as the host application; they are not a sandbox. Handler contexts are cooperative cancellation, not a way to kill uncooperative Go code. Scheduled jobs include fencing and a stable run identity; handlers must make repeated external actions idempotent. See [local jobs](local-jobs.md).
 
 The TypeScript SDK is the supported client implemented here. Its package can be built, tested, packed and installed locally without publishing to npm. It wraps PgBase's HTTP contracts rather than claiming drop-in compatibility with PocketBase SDKs. A Dart SDK is deferred; Dart clients can call the documented HTTP endpoints directly, but no generated or maintained Dart client is claimed.
