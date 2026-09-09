@@ -173,6 +173,9 @@ func TestRunCancellationClosesListenerAndPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
+	if app.userMigrationRecorder != nil || app.userMigrationSources != nil {
+		t.Fatalf("automatic migration recording is enabled without a configured directory: recorder=%v runner=%v", app.userMigrationRecorder, app.userMigrationSources)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

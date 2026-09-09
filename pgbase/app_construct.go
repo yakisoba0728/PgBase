@@ -124,12 +124,14 @@ func newWithCatalogPreflight(
 	}}
 	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
 	var userMigrationRecorder *usermigrate.AutoRecorder
+	var userMigrationSources backgroundRunner
 	if normalized.UserMigrationAutoRecordDirectory != "" {
 		userMigrationRecorder, err = usermigrate.NewAutoRecorder(pool, normalized.UserMigrationAutoRecordDirectory, normalized.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("initialize automatic user migration recorder: %w", err)
 		}
 		schemaService.SetMigrationRecorder(userMigrationRecorder)
+		userMigrationSources = userMigrationRecorder
 	}
 	if normalized.Hooks != nil {
 		schemaService.SetCollectionMutationLifecycle(schemaLifecycleHooks{normalized.Hooks})
@@ -250,7 +252,7 @@ func newWithCatalogPreflight(
 		membershipWriter:      membershipRuntime,
 		systemStatus:          systemStatus,
 		schemaHealth:          schemaHealth,
-		userMigrationSources:  userMigrationRecorder,
+		userMigrationSources:  userMigrationSources,
 		userMigrationRecorder: userMigrationRecorder,
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
