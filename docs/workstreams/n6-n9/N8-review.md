@@ -10,7 +10,8 @@
 - Follow-up read-mode fix reviewed: `485d9af2b0b8b5878baec62a76bfef999a16b200`
 - UI recovery fix reviewed: worker `16ce11ff857aa81ef7c19cd8a351b8e8bb27b7f7`, integrated as `c90412cfac93735f4deaa21ee281d831af78d870`
 - UI exact-replay follow-up reviewed: `8df87575464622b33e356c087dcc746894e86827`
-- Verdict: **changes required**. Five backend P1 defects and one UI cross-session P1 defect block acceptance.
+- UI session-scope and durable-summary fix reviewed: worker `cd092fb41859812dc333774d4522586f22642757`, integrated as `35712f4`
+- Verdict: **changes required**. Five backend P1 defects block acceptance; the reviewed UI findings are closed at `35712f4` subject to final backend capability composition.
 - Scope: N8 executor, service, API, parser/catalog checks, database roles, ledger/receipt flows, migration, and committed options. The final closure must review only the later stable Options/shared-route/navigation/UI and lead-composition delta plus backend fixes.
 
 No `AGENTS.md` exists in this repository or its checked parent directories. The review used `docs/workstreams/n6-n9/N8.md`, N8 section 6 and acceptance gates in `docs/superpowers/plans/2026-09-10-n6-n9-execution.md`, and the code-review skill. The user explicitly prohibited subagents, so the same independent reviewer performed the Standards and Spec axes separately.
@@ -113,6 +114,16 @@ The single `pgbase.sql-console.pending-write/v1` session-storage key contains th
 
 This violates same-session ownership and crosses raw SQL/parameter and mutation intent between administrators. A focused composition regression must persist A's attempt, transition through explicit logout and expired-session login to distinct administrator B, and prove B cannot inspect or replay it. Persistence must be bound to the authenticated session or cleared on every session transition while preserving same-session reload recovery.
 
+Worker commit `cd092fb` closes N8-R11 by keying recovery under an optional opaque session capability, refusing persistence without it, and deleting the legacy global key unread. It also closes the R6 composition follow-up by detecting durable summary DTOs whose statement rows are omitted and labeling them expired or unavailable while retaining commit/row/byte metadata. The independent focused adapter/page run passed all 17 tests. Final composition must verify that the backend capability is non-secret, changes across distinct/expired sessions, and remains stable across same-session reload.
+
+### N8-R12 — P2 — retention and no-replay policy has no implementation
+
+**Path:** `migrations/system/000041_sql_console.sql:56-91`, `internal/sqlconsole/ledger.go`.
+
+The migration creates cleanup indexes, but no retention duration or cleanup path exists, so full execution and receipt rows grow indefinitely. Deleting both rows naïvely removes the unique administrator/idempotency digest and permits the old mutation to run again.
+
+The clarified acceptance is bounded cleanup of heavy execution/history/result data with an indefinitely retained minimal redacted idempotency tombstone. The total tombstone key count may remain globally unbounded if that storage tradeoff is documented. Closure must validate foreign-key/deletion order and prove that an aged same-actor/key/body replay cannot execute another mutation after cleanup.
+
 ## Standards review
 
 The candidate is clean under `git diff --check`, `gofmt -d`, and `go vet` for the changed backend packages. Changed production modules stay below the repository's 800-line ceiling. Naming and package boundaries are consistent with nearby code, and the code uses structured errors rather than panics for request failures.
@@ -155,4 +166,4 @@ No database was started or mutated. Ports `8090`, `55440`, and `59000` and all u
 
 ## Remaining handoff
 
-Euclid and Linnaeus received N8-R1 through N8-R4 and N8-R8 through N8-R10 with path, line, contract, and focused regression requirements. Feynman and Linnaeus received N8-R5 through N8-R7, the N8-R5 follow-up, and N8-R11. Backend closure requires stable owner fix SHAs plus the authorized PG17/18 evidence. Final same-reviewer closure reviews only those backend and UI fix deltas plus any later lead-composition delta; unchanged backend and shared/UI code will not be re-reviewed.
+Euclid and Linnaeus received N8-R1 through N8-R4 and N8-R8 through N8-R10 plus N8-R12 with path, line, contract, and focused regression requirements. Feynman and Linnaeus received N8-R5 through N8-R7, the N8-R5 follow-up, and N8-R11; those UI findings are closed at `35712f4` pending final capability composition. Backend closure requires stable owner fix SHAs plus the authorized PG17/18 evidence. Final same-reviewer closure reviews only those backend and UI fix deltas plus any later lead-composition delta; unchanged backend and shared/UI code will not be re-reviewed.
