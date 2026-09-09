@@ -10,6 +10,9 @@ export type FieldOptions = {
     max?: string;
     minSelect?: number;
     maxSelect?: number;
+    maxFileSize?: number;
+    mimeTypes?: string[];
+    thumbs?: string[];
 };
 export type RelationInput = {
     targetCollection: string;
@@ -57,17 +60,43 @@ export type ViewFilter = {
     field?: string;
     value?: unknown;
 };
+export type SQLViewInput = {
+    sql: string;
+    dependencies?: string[];
+    source?: never;
+    projection?: never;
+    filter?: never;
+};
 export type ViewInput = {
     source: string;
     projection: string[];
     filter?: ViewFilter;
-};
+    sql?: never;
+} | SQLViewInput;
 export type CollectionChange = {
-    operation: "create" | "update" | "delete";
+    operation: "create";
     name: string;
     fields?: FieldInput[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
+} | {
+    operation: "update";
+    name: string;
+    fields: FieldInput[];
+    indexes?: CompoundIndex[];
+    view?: never;
+} | {
+    operation: "update";
+    name: string;
+    view: SQLViewInput;
+    fields?: never;
+    indexes?: never;
+} | {
+    operation: "delete";
+    name: string;
+    fields?: never;
+    indexes?: never;
+    view?: never;
 };
 export type SchemaPlan = {
     baseVersion: number;

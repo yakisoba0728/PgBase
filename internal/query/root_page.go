@@ -99,7 +99,9 @@ func (s *Service) readRootPageInTx(
 			return rootPageReadResult{}, err
 		}
 		result.cursorV5 = descriptor
-		after = &pageBoundary{membership: &descriptor.HighWater, membershipOnly: true}
+		if !order.root.IsSQLView() {
+			after = &pageBoundary{membership: &descriptor.HighWater, membershipOnly: true}
+		}
 	}
 	assembler := pageAssembler{
 		cursors: s.cursors, order: order, expiresAt: result.expiresAt, maximumBytes: maximumRecordPageBytes,

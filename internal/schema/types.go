@@ -51,6 +51,12 @@ type FieldOptions struct {
 	MaxSelect      *int     `json:"maxSelect,omitempty"`
 	Min            *string  `json:"min,omitempty"`
 	Max            *string  `json:"max,omitempty"`
+	// File options are evaluated per attachment. MaxFileSize uses bytes;
+	// MaxSelect defaults to one when omitted. MimeTypes accepts exact media
+	// types and type wildcards such as image/*.
+	MaxFileSize *int64   `json:"maxFileSize,omitempty"`
+	MimeTypes   []string `json:"mimeTypes,omitempty"`
+	Thumbs      []string `json:"thumbs,omitempty"`
 }
 
 type IndexInput struct {
@@ -70,6 +76,8 @@ type ViewInput struct {
 	Source     string      `json:"source"`
 	Projection []string    `json:"projection"`
 	Filter     *ViewFilter `json:"filter,omitempty"`
+	SQL        string      `json:"sql,omitempty"`
+	inspection *SQLViewInspection
 }
 
 type ViewFilter struct {
@@ -83,6 +91,7 @@ type UpdateCollectionInput struct {
 	Name    string        `json:"name"`
 	Fields  []FieldInput  `json:"fields"`
 	Indexes *[]IndexInput `json:"indexes,omitempty"`
+	View    *ViewInput    `json:"view,omitempty"`
 }
 
 type changeKind uint8
@@ -110,6 +119,7 @@ func NewCreateChange(input CreateCollectionInput) Change {
 		view := *input.View
 		view.Projection = append([]string(nil), view.Projection...)
 		view.Filter = cloneViewFilter(view.Filter)
+		view.inspection = cloneSQLViewInspection(view.inspection)
 		input.View = &view
 	}
 	return Change{kind: changeCreate, create: input}
@@ -134,6 +144,13 @@ func NewUpdateChange(input UpdateCollectionInput) Change {
 	if input.Indexes != nil {
 		cloned := cloneIndexInputs(*input.Indexes)
 		input.Indexes = &cloned
+	}
+	if input.View != nil {
+		view := *input.View
+		view.Projection = append([]string(nil), view.Projection...)
+		view.Filter = cloneViewFilter(view.Filter)
+		view.inspection = cloneSQLViewInspection(view.inspection)
+		input.View = &view
 	}
 	return Change{kind: changeUpdate, update: input}
 }
@@ -169,8 +186,11 @@ func cloneFieldOptions(source FieldOptions) FieldOptions {
 	result.MaxSelect = clonePointer(source.MaxSelect)
 	result.Min = clonePointer(source.Min)
 	result.Max = clonePointer(source.Max)
+	result.MaxFileSize = clonePointer(source.MaxFileSize)
 	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
 	result.AllowedValues = append([]string(nil), source.AllowedValues...)
+	result.MimeTypes = append([]string(nil), source.MimeTypes...)
+	result.Thumbs = append([]string(nil), source.Thumbs...)
 	return result
 }
 
@@ -235,11 +255,14 @@ type ViewSpec struct {
 	Source             string      `json:"source"`
 	Projection         []string    `json:"projection"`
 	Filter             *ViewFilter `json:"filter,omitempty"`
+	SQL                string      `json:"sql,omitempty"`
+	Dependencies       []uuid.UUID `json:"dependencies,omitempty"`
 }
 
-func (c Collection) IsView() bool { return c.View != nil }
+func (c Collection) IsView() bool    { return c.View != nil }
+func (c Collection) IsSQLView() bool { return c.View != nil && c.View.SQL != "" }
 func (c Collection) AccessCollectionID() uuid.UUID {
-	if c.View != nil {
+	if c.View != nil && !c.IsSQLView() {
 		return c.View.SourceCollectionID
 	}
 	return c.ID
@@ -279,6 +302,8 @@ type PlannedView struct {
 	Source             string      `json:"source"`
 	Projection         []string    `json:"projection"`
 	Filter             *ViewFilter `json:"filter,omitempty"`
+	SQL                string      `json:"sql,omitempty"`
+	Dependencies       []uuid.UUID `json:"dependencies,omitempty"`
 }
 
 type PlannedIndex struct {

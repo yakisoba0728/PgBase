@@ -31,9 +31,26 @@ func newJobService(ctx context.Context, pool *database.Pool, options Options) (*
 	}
 	service := jobs.NewService(pool, registry, options.Logger, uuid.New())
 	for _, configured := range options.Jobs {
-		if err := service.EnsureScheduled(ctx, configured.Name, configured.Schedule); err != nil {
+		timezone := configured.Timezone
+		if timezone == "" {
+			timezone = "UTC"
+		}
+		if err := service.EnsureScheduledInTimezone(ctx, configured.Name, configured.Schedule, timezone); err != nil {
 			return nil, fmt.Errorf("schedule job %q: %w", configured.Name, err)
 		}
 	}
 	return service, nil
+}
+
+func registerRuntimeJob(ctx context.Context, service *jobs.Service, configured ScheduledJob) error {
+	if configured.Handler == nil {
+		return fmt.Errorf("register scheduled job %q: handler is required", configured.Name)
+	}
+	timezone := configured.Timezone
+	if timezone == "" {
+		timezone = "UTC"
+	}
+	return service.Register(ctx, configured.Name, configured.Schedule, timezone, func(ctx context.Context, run jobs.Job) error {
+		return configured.Handler(ctx, JobRun{JobID: run.ID, Name: run.Name, FenceGeneration: run.FenceGeneration})
+	})
 }

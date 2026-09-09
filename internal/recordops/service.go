@@ -36,14 +36,15 @@ const (
 // remains in package query, while this type owns every transaction-level
 // invariant around identity, revisions, audit, outbox, and replay.
 type Service struct {
-	pool     *database.Pool
-	schemas  *schema.Service
-	reader   *query.Service
-	logger   *slog.Logger
-	recorder observability.Recorder
-	random   io.Reader
-	members  *membershipWriterProvider
-	hooks    []MutationHook
+	pool       *database.Pool
+	schemas    *schema.Service
+	reader     *query.Service
+	logger     *slog.Logger
+	recorder   observability.Recorder
+	random     io.Reader
+	members    *membershipWriterProvider
+	hooks      []MutationHook
+	validators []TransactionValidator
 }
 
 type batchTransactionKey struct{}
@@ -124,6 +125,13 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		return MutationResult{}, err
 	}
 	requestHash := recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest)
+	if len(request.IdempotencyContext) > 0 && request.ID != uuid.Nil {
+		requestHash = recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest, request.ID[:], request.IdempotencyContext)
+	} else if len(request.IdempotencyContext) > 0 {
+		requestHash = recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest, request.IdempotencyContext)
+	} else if request.ID != uuid.Nil {
+		requestHash = recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest, request.ID[:])
+	}
 
 	compatibility := CompatibilityNone
 	var keyHash []byte
@@ -137,9 +145,12 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		keyHash = digest[:]
 	}
 
-	recordID, err := uuid.NewV7()
-	if err != nil {
-		return MutationResult{}, fmt.Errorf("generate record id: %w", err)
+	recordID := request.ID
+	if recordID == uuid.Nil {
+		recordID, err = uuid.NewV7()
+		if err != nil {
+			return MutationResult{}, fmt.Errorf("generate record id: %w", err)
+		}
 	}
 	eventID, err := uuid.NewV7()
 	if err != nil {
@@ -265,6 +276,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			Record:  &Record{Data: data, ETag: etag, Version: 1},
 			EventID: eventID, Compatibility: compatibility,
 		}
+		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
+			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Create: &request}}}
+			return s.validateTransaction(ctx, tx, request, []MutationResult{result})
+		}
 		return nil
 	})
 	if err != nil {
@@ -290,6 +305,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		return MutationResult{}, err
 	}
 	inputHash := recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest)
+	if len(request.SidecarContext) != 0 {
+		inputHash = recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest, request.SidecarContext)
+	}
 	eventID, err := uuid.NewV7()
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
@@ -322,7 +340,12 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return err
 		}
-		statement, err := query.CompileUpdate(collection, request.ID, relations.Scalar())
+		var statement query.Statement
+		if len(request.SidecarFields) != 0 {
+			statement, err = query.CompileUpdateWithSidecar(collection, request.ID, relations.Scalar())
+		} else {
+			statement, err = query.CompileUpdate(collection, request.ID, relations.Scalar())
+		}
 		if err != nil {
 			return err
 		}
@@ -380,7 +403,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				eventID: eventID, recordID: request.ID,
 				previousVersion: &previousVersion, newVersion: newVersion,
 				previousETag: previousETag, newETag: newETag,
-				changedFields: sortedInputFields(request.Input), changes: after,
+				changedFields: mutationChangedFields(request.Input, request.SidecarFields), changes: after,
 				compatibility: compatibility, validator: validator,
 			}},
 		}); err != nil {
@@ -389,6 +412,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		result = MutationResult{
 			Record:  &Record{Data: after, ETag: newETag, Version: newVersion},
 			EventID: eventID, Compatibility: compatibility,
+		}
+		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
+			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Update: &request}}}
+			return s.validateTransaction(ctx, tx, request, []MutationResult{result})
 		}
 		return nil
 	})

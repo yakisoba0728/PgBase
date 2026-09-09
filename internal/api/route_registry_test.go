@@ -178,7 +178,7 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 			delete(want, key)
 			continue
 		}
-		if declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
+		if !declared.streamedUpload && declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
 			t.Fatalf("route %q unexpectedly narrows the global request cap to %d", key, declared.maximumRequestBytes)
 		}
 	}
@@ -401,6 +401,29 @@ func TestDefaultDeadlinePolicyLeavesTheRequestAndConnectionAlone(t *testing.T) {
 	}
 	if !connection.writeDeadline.IsZero() {
 		t.Fatalf("default-deadline route set a write deadline of %s", connection.writeDeadline)
+	}
+}
+
+func TestBackupTransferDeadlineExtendsConnectionAndCancelsHandler(t *testing.T) {
+	var observed time.Time
+	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		observed, _ = r.Context().Deadline()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	connection := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	before := time.Now()
+	applyDeadline(deadlineBackupTransfer, time.Second, probe).
+		ServeHTTP(connection, httptest.NewRequest(http.MethodGet, "/api/admin/backups/id", nil))
+	after := time.Now()
+
+	if observed.Before(before.Add(backupTransferTimeout)) || observed.After(after.Add(backupTransferTimeout)) {
+		t.Fatalf("handler deadline = %s, want about %s from now", observed, backupTransferTimeout)
+	}
+	if !connection.readDeadline.Equal(observed) {
+		t.Fatalf("read deadline = %s, want %s", connection.readDeadline, observed)
+	}
+	if want := observed.Add(responseMargin); !connection.writeDeadline.Equal(want) {
+		t.Fatalf("write deadline = %s, want %s", connection.writeDeadline, want)
 	}
 }
 

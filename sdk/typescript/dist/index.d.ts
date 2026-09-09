@@ -67,6 +67,24 @@ export type BatchResult<T extends RecordData = RecordData> = {
     etag?: string;
     version?: number;
 };
+export type BatchHTTPRequest<T extends RecordData = RecordData> = {
+    method: "POST" | "PATCH" | "PUT" | "DELETE";
+    url: string;
+    body?: Partial<T>;
+    headers?: Record<string, string>;
+};
+export type BatchHTTPResult<T extends RecordData = RecordData> = {
+    status: number;
+    headers?: Record<string, string>;
+    body?: T;
+    eventId: string;
+    etag?: string;
+    version?: number;
+};
+export type BatchFilePart = {
+    blob: Blob;
+    filename: string;
+};
 export type FileInfo = {
     id: string;
     field: string;
@@ -137,6 +155,12 @@ export declare class PgBaseClient {
     batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], signal?: AbortSignal): Promise<{
         results: BatchResult<T>[];
     }>;
+    batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], signal?: AbortSignal): Promise<{
+        results: BatchHTTPResult<T>[];
+    }>;
+    batchMultipart<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], files: Record<string, BatchFilePart>, signal?: AbortSignal): Promise<{
+        results: BatchHTTPResult<T>[];
+    }>;
     files(collection: string, recordID: string): Files;
     completeMFA(challengeToken: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     beginTOTPEnrollment(currentPassword: string, signal?: AbortSignal): Promise<{
@@ -179,6 +203,11 @@ export declare class AuthRealm {
         expiresAt: string;
     }>;
     oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession>;
+    oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession>;
+}
+export declare class OAuthCallbackError extends Error {
+    readonly code: string;
+    constructor(code: string, message?: string);
 }
 export declare class Records<T extends RecordData> {
     private readonly client;

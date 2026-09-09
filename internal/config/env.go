@@ -32,6 +32,9 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	}
 
 	opts := pgbase.Options{DatabaseURL: databaseURL, TokenSecret: tokenSecret}
+	if raw, ok := value(lookup, "PGBASE_BACKUPS_DIRECTORY"); ok {
+		opts.Backups.Directory = raw
+	}
 	if err := loadFiles(lookup, &opts); err != nil {
 		return pgbase.Options{}, err
 	}

@@ -145,7 +145,7 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 		field, ok := filterField(root, key.Field)
 		inline, isRoot := rootSortField(field)
 		if ok && isRoot && !strings.Contains(key.Field, ".") {
-			term, err := rootOrderTerm(key, inline)
+			term, err := rootOrderTerm(key, inline, root.IsSQLView())
 			if err != nil {
 				return orderSpec{}, err
 			}

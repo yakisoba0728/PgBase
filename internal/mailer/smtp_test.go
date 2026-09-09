@@ -52,6 +52,27 @@ func TestSMTPDeliversBoundedMessageToLocalInsecureFixture(t *testing.T) {
 	}
 }
 
+func TestSMTPDeliversMultipartAlternative(t *testing.T) {
+	address, messages := startSMTPFixture(t)
+	sender, err := NewSMTP(SMTPConfig{Address: address, From: "sender@example.test", ServerName: "localhost", AllowInsecure: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.Send(context.Background(), Message{To: "user@example.test", Subject: "Verify", Text: "Open https://example.test", HTML: "<p>Open <a href=\"https://example.test\">this link</a>.</p>"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case message := <-messages:
+		for _, expected := range []string{"multipart/alternative", "Content-Type: text/plain", "Content-Type: text/html", "<a href=\"https://example.test\">"} {
+			if !strings.Contains(message, expected) {
+				t.Fatalf("message missing %q: %q", expected, message)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SMTP fixture received no message")
+	}
+}
+
 func startSMTPFixture(t *testing.T) (string, <-chan string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

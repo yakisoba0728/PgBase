@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/webisnoteasy/PgBase/internal/backup"
 )
 
 // accessPolicy names the admission a route requires. Exactly one applies to
@@ -38,15 +40,15 @@ func atomicJSON(maximumBytes int) responseMode {
 
 func passthrough() responseMode { return responseMode{} }
 
-// deadlinePolicy names which server deadline a route runs under. Schema apply
-// is the only operation whose DDL legitimately outlives the default write
-// timeout, and it carries that exception explicitly rather than by widening
-// the timeout for every route.
+// deadlinePolicy names which server deadline a route runs under. Long-running
+// operations carry their exception explicitly rather than widening timeouts
+// for every route.
 type deadlinePolicy uint8
 
 const (
 	deadlineDefault deadlinePolicy = iota + 1
 	deadlineSchemaApply
+	deadlineBackupTransfer
 )
 
 type route struct {
@@ -84,7 +86,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 113
+	maximumRegisteredRoutes     = 122
 	maximumMethodAgnosticRoutes = 3
 )
 
@@ -102,7 +104,7 @@ func validateRoutes(routes []route) error {
 		if !declared.response.atomic && declared.response.maximumBytes != 0 {
 			return fmt.Errorf("%w: %q", errRouteIncomplete, declared)
 		}
-		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > 100<<20+64<<10 {
+		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > backup.MaximumArchiveBytes {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
 		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload {

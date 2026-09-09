@@ -157,7 +157,13 @@ func completeDependencies(dependencies Dependencies) Dependencies {
 // reason no deployed server has.
 type deadlineWriter struct {
 	http.ResponseWriter
+	readDeadline  time.Time
 	writeDeadline time.Time
+}
+
+func (w *deadlineWriter) SetReadDeadline(deadline time.Time) error {
+	w.readDeadline = deadline
+	return nil
 }
 
 func (w *deadlineWriter) SetWriteDeadline(deadline time.Time) error {

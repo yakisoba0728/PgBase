@@ -33,13 +33,15 @@ type OAuthProviderConfig struct {
 	SubjectField          string   `json:"subjectField"`
 	EmailField            string   `json:"emailField"`
 	EmailVerifiedField    string   `json:"emailVerifiedField"`
+	AvatarField           string   `json:"avatarField"`
 	ClientSecret          string   `json:"-"`
 }
 
 type MailTemplate struct {
-	Purpose string `json:"purpose"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
+	Purpose  string `json:"purpose"`
+	Subject  string `json:"subject"`
+	Body     string `json:"body"`
+	HTMLBody string `json:"htmlBody"`
 }
 type SMTPAdminConfig struct {
 	Address               string `json:"address"`
@@ -69,7 +71,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	} else if err != nil {
 		return out, err
 	}
-	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 order by name limit 32`, collectionID)
+	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 order by name limit 32`, collectionID)
 	if err != nil {
 		return out, err
 	}
@@ -77,7 +79,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	for rows.Next() {
 		var p OAuthProviderConfig
 		var scopes, redirects []byte
-		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AllowInsecureLoopback); err != nil {
+		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AvatarField, &p.AllowInsecureLoopback); err != nil {
 			return out, err
 		}
 		if json.Unmarshal(scopes, &p.Scopes) != nil || json.Unmarshal(redirects, &p.RedirectURIs) != nil {
@@ -94,14 +96,14 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	rows, err = s.pool.Query(ctx, `select purpose,subject,body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 order by purpose`, collectionID)
+	rows, err = s.pool.Query(ctx, `select purpose,subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 order by purpose`, collectionID)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var t MailTemplate
-		if err := rows.Scan(&t.Purpose, &t.Subject, &t.Body); err != nil {
+		if err := rows.Scan(&t.Purpose, &t.Subject, &t.Body, &t.HTMLBody); err != nil {
 			return out, err
 		}
 		out.Templates = append(out.Templates, t)
@@ -171,7 +173,7 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 	if p.RedirectURIs == nil {
 		p.RedirectURIs = []string{}
 	}
-	provider, err := NewHTTPOAuthProvider(HTTPOAuthConfig{AuthorizationURL: p.AuthorizationURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, SubjectField: p.SubjectField, EmailField: p.EmailField, EmailVerifiedField: p.EmailVerifiedField, AllowInsecureLoopback: p.AllowInsecureLoopback})
+	provider, err := NewHTTPOAuthProvider(HTTPOAuthConfig{ProviderName: p.Name, AuthorizationURL: p.AuthorizationURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, SubjectField: p.SubjectField, EmailField: p.EmailField, EmailVerifiedField: p.EmailVerifiedField, AvatarField: p.AvatarField, AllowInsecureLoopback: p.AllowInsecureLoopback})
 	if err != nil {
 		return p, err
 	}
@@ -192,9 +194,9 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if encrypted == nil {
-			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured)
+			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured)
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AllowInsecureLoopback)
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback)
 		p.SecretConfigured = true
 		return err
 	})
@@ -217,18 +219,36 @@ func validTemplate(t MailTemplate) bool {
 	if t.Purpose != "verify" && t.Purpose != "password_reset" && t.Purpose != "email_change" {
 		return false
 	}
-	if len(t.Subject) < 1 || len(t.Subject) > 200 || strings.ContainsAny(t.Subject, "\r\n") || len(t.Body) < 1 || len(t.Body) > 16384 {
+	if len(t.Subject) < 1 || len(t.Subject) > 200 || strings.ContainsAny(t.Subject, "\r\n") || len(t.Body) < 1 || len(t.Body) > 16384 || len(t.HTMLBody) > 32768 {
 		return false
 	}
-	cleaned := strings.ReplaceAll(t.Body, "{{action_url}}", "")
+	if strings.Count(t.Body, "{{action_url}}") == 0 || t.HTMLBody != "" && strings.Count(t.HTMLBody, "{{action_url}}") == 0 {
+		return false
+	}
+	cleaned := strings.ReplaceAll(t.Body+t.HTMLBody, "{{action_url}}", "")
 	return !strings.Contains(cleaned, "{{") && !strings.Contains(cleaned, "}}")
 }
 func (s *Service) PutMailTemplate(ctx context.Context, collectionID uuid.UUID, t MailTemplate) (MailTemplate, error) {
 	if collectionID == uuid.Nil || !validTemplate(t) {
 		return t, ErrValidation
 	}
-	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.auth_mail_templates(auth_collection_id,purpose,subject,body) values($1,$2,$3,$4) on conflict(auth_collection_id,purpose) do update set subject=excluded.subject,body=excluded.body,updated_at=CURRENT_TIMESTAMP`, collectionID, t.Purpose, t.Subject, t.Body)
+	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.auth_mail_templates(auth_collection_id,purpose,subject,body,html_body) values($1,$2,$3,$4,$5) on conflict(auth_collection_id,purpose) do update set subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,updated_at=CURRENT_TIMESTAMP`, collectionID, t.Purpose, t.Subject, t.Body, t.HTMLBody)
 	return t, err
+}
+
+func (s *Service) PreviewMailTemplate(_ context.Context, t MailTemplate, actionURL string) (mailer.Message, error) {
+	if !validTemplate(t) || !validEndpoint(actionURL, true) {
+		return mailer.Message{}, ErrValidation
+	}
+	message := mailer.Message{Subject: t.Subject, Text: strings.ReplaceAll(t.Body, "{{action_url}}", actionURL)}
+	if t.HTMLBody != "" {
+		var err error
+		message.HTML, err = mailer.WrapHTML(strings.ReplaceAll(t.HTMLBody, "{{action_url}}", actionURL))
+		if err != nil {
+			return mailer.Message{}, ErrValidation
+		}
+	}
+	return message, nil
 }
 
 func (s *Service) PutSMTPConfig(ctx context.Context, collectionID uuid.UUID, c SMTPAdminConfig) (SMTPAdminConfig, error) {
@@ -306,7 +326,12 @@ func (s *Service) authPolicy(ctx context.Context, collectionID uuid.UUID) (AuthP
 	err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MFAEnabled)
 	return p, err
 }
-func (s *Service) smtpSender(ctx context.Context, collectionID uuid.UUID) (mailer.Sender, error) {
+func (s *Service) smtpSender(ctx context.Context, collectionID uuid.UUID) (sender mailer.Sender, resultErr error) {
+	defer func() {
+		if resultErr == nil && sender != nil && s.decorateMailer != nil {
+			sender = s.decorateMailer(sender)
+		}
+	}()
 	var c mailer.SMTPConfig
 	var encrypted []byte
 	err := s.pool.QueryRow(ctx, `select address,sender,username,password_ciphertext,server_name,implicit_tls,allow_insecure_loopback from pgbase_meta.auth_smtp_configs where auth_collection_id=$1`, collectionID).Scan(&c.Address, &c.From, &c.Username, &encrypted, &c.ServerName, &c.ImplicitTLS, &c.AllowInsecure)
@@ -332,8 +357,9 @@ func (s *Service) smtpSender(ctx context.Context, collectionID uuid.UUID) (maile
 
 func (s *Service) configuredOAuthProvider(ctx context.Context, collectionID uuid.UUID, name string) (OAuthProvider, map[string]struct{}, error) {
 	var c HTTPOAuthConfig
+	c.ProviderName = name
 	var encrypted, scopesRaw, redirectsRaw []byte
-	err := s.pool.QueryRow(ctx, `select authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2 and enabled`, collectionID, name).Scan(&c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AllowInsecureLoopback)
+	err := s.pool.QueryRow(ctx, `select authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2 and enabled`, collectionID, name).Scan(&c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AvatarField, &c.AllowInsecureLoopback)
 	if errors.Is(err, pgx.ErrNoRows) {
 		p, ok := s.oauthProviders[name]
 		if !ok {

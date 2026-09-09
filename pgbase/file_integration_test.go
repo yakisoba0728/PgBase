@@ -25,7 +25,7 @@ func TestPrivateRecordFileHTTPContract(t *testing.T) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
 	})
 	adminCookie, csrf := setupPublicUsersAdministrator(t, app)
-	change := map[string]any{"operation": "create", "name": "documents", "fields": []map[string]any{{"name": "title", "type": "text", "required": true}, {"name": "attachment", "type": "file", "required": false}}}
+	change := map[string]any{"operation": "create", "name": "documents", "fields": []map[string]any{{"name": "title", "type": "text", "required": true}, {"name": "attachment", "type": "file", "required": false, "options": map[string]any{"maxSelect": 3}}}}
 	plan := publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/plan", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, plan, http.StatusOK)
 	var planned struct {

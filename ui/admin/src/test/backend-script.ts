@@ -105,8 +105,10 @@ export interface BackendScript {
   operations: Step<OperationHistory>[];
   list: Step<RecordPage>[];
   read: Step<ScriptedRecord>[];
-  create: Step<ScriptedRecord>[];
-  update: Step<ScriptedRecord>[];
+	create: Step<ScriptedRecord>[];
+	createWithFiles: Step<ScriptedRecord>[];
+	update: Step<ScriptedRecord>[];
+	updateWithFiles: Step<ScriptedRecord>[];
   remove: Step<void>[];
   status: Step<SystemStatus>[];
 	health: Step<SchemaHealth>[];
@@ -137,7 +139,7 @@ export function backendScript(): BackendScript {
   return {
     resume: [], setup: [], login: [], logout: [],
     catalog: [], plan: [], apply: [], operation: [], operations: [],
-    list: [], read: [], create: [], update: [], remove: [],
+	list: [], read: [], create: [], createWithFiles: [], update: [], updateWithFiles: [], remove: [],
 	status: [], health: [], calls: [],
 	users: [], setUserActive: [], revokeUserSessions: [],
 	listFiles: [], uploadFile: [], deleteFile: [], createDownloadToken: [], downloadBlob: [],

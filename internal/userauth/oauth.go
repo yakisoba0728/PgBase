@@ -57,7 +57,21 @@ func (s *Service) BeginOAuth(ctx context.Context, provider, redirectURI, clientA
 	if err := s.consumeRateLimit(ctx, bucket, loginNetworkLimit, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
-	return s.beginOAuth(ctx, DefaultCollectionID, provider, redirectURI, uuid.Nil, "")
+	return s.beginOAuth(ctx, DefaultCollectionID, provider, redirectURI, redirectURI, uuid.Nil, "")
+}
+
+func (s *Service) BeginOAuthWithProviderRedirect(ctx context.Context, provider, returnURI, providerRedirectURI, clientAddress string) (OAuthAuthorization, error) {
+	if err := validateClientAddress(clientAddress); err != nil {
+		return OAuthAuthorization{}, err
+	}
+	now, err := s.databaseNow(ctx)
+	if err != nil {
+		return OAuthAuthorization{}, err
+	}
+	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", "network", clientAddress), loginNetworkLimit, now); err != nil {
+		return OAuthAuthorization{}, err
+	}
+	return s.beginOAuth(ctx, DefaultCollectionID, provider, returnURI, providerRedirectURI, uuid.Nil, "")
 }
 
 func (s *Service) BeginOAuthInCollection(ctx context.Context, collectionID uuid.UUID, provider, redirectURI, clientAddress string) (OAuthAuthorization, error) {
@@ -71,7 +85,21 @@ func (s *Service) BeginOAuthInCollection(ctx context.Context, collectionID uuid.
 	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), loginNetworkLimit, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
-	return s.beginOAuth(ctx, collectionID, provider, redirectURI, uuid.Nil, "")
+	return s.beginOAuth(ctx, collectionID, provider, redirectURI, redirectURI, uuid.Nil, "")
+}
+
+func (s *Service) BeginOAuthInCollectionWithProviderRedirect(ctx context.Context, collectionID uuid.UUID, provider, returnURI, providerRedirectURI, clientAddress string) (OAuthAuthorization, error) {
+	if collectionID == uuid.Nil || validateClientAddress(clientAddress) != nil {
+		return OAuthAuthorization{}, ErrValidation
+	}
+	now, err := s.databaseNow(ctx)
+	if err != nil {
+		return OAuthAuthorization{}, err
+	}
+	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), loginNetworkLimit, now); err != nil {
+		return OAuthAuthorization{}, err
+	}
+	return s.beginOAuth(ctx, collectionID, provider, returnURI, providerRedirectURI, uuid.Nil, "")
 }
 
 func (s *Service) BeginOAuthLink(ctx context.Context, userID uuid.UUID, currentPassword, provider, redirectURI string) (OAuthAuthorization, error) {
@@ -79,10 +107,18 @@ func (s *Service) BeginOAuthLink(ctx context.Context, userID uuid.UUID, currentP
 	if err != nil {
 		return OAuthAuthorization{}, err
 	}
-	return s.beginOAuth(ctx, user.AuthCollectionID, provider, redirectURI, user.ID, hash)
+	return s.beginOAuth(ctx, user.AuthCollectionID, provider, redirectURI, redirectURI, user.ID, hash)
 }
 
-func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provider, redirectURI string, linkUser uuid.UUID, passwordHash string) (OAuthAuthorization, error) {
+func (s *Service) BeginOAuthLinkWithProviderRedirect(ctx context.Context, userID uuid.UUID, currentPassword, provider, returnURI, providerRedirectURI string) (OAuthAuthorization, error) {
+	user, hash, err := s.verifyUserPassword(ctx, userID, currentPassword, "oauth-link")
+	if err != nil {
+		return OAuthAuthorization{}, err
+	}
+	return s.beginOAuth(ctx, user.AuthCollectionID, provider, returnURI, providerRedirectURI, user.ID, hash)
+}
+
+func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provider, returnURI, providerRedirectURI string, linkUser uuid.UUID, passwordHash string) (OAuthAuthorization, error) {
 	release, err := admit(s.credentialSlots)
 	if err != nil {
 		return OAuthAuthorization{}, err
@@ -92,7 +128,7 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 	if configErr != nil || configured == nil {
 		return OAuthAuthorization{}, ErrValidation
 	}
-	if _, ok := redirects[redirectURI]; !ok {
+	if _, ok := redirects[returnURI]; !ok || !validEndpoint(providerRedirectURI, true) {
 		return OAuthAuthorization{}, ErrValidation
 	}
 	stateBytes := make([]byte, 32)
@@ -122,11 +158,11 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 		link = linkUser
 		credential = s.credentialHash(passwordHash)
 	}
-	_, err = s.pool.Exec(ctx, `insert into pgbase_meta.user_oauth_states(id,auth_collection_id,provider,state_hash,verifier_ciphertext,redirect_uri,link_user_id,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, uuid.New(), collectionID, provider, s.oauthStateHash(provider, state), ciphertext, redirectURI, link, credential, expires, now)
+	_, err = s.pool.Exec(ctx, `insert into pgbase_meta.user_oauth_states(id,auth_collection_id,provider,state_hash,verifier_ciphertext,redirect_uri,provider_redirect_uri,link_user_id,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, uuid.New(), collectionID, provider, s.oauthStateHash(provider, state), ciphertext, returnURI, providerRedirectURI, link, credential, expires, now)
 	if err != nil {
 		return OAuthAuthorization{}, fmt.Errorf("create OAuth state: %w", err)
 	}
-	authorizationURL, err := configured.AuthorizationURL(state, challenge, redirectURI)
+	authorizationURL, err := configured.AuthorizationURL(state, challenge, providerRedirectURI)
 	if err != nil {
 		return OAuthAuthorization{}, errors.New("create OAuth authorization URL")
 	}
@@ -140,7 +176,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	var encrypted []byte
 	var redirect string
 	var collectionID uuid.UUID
-	err := s.pool.QueryRow(ctx, `select auth_collection_id,verifier_ciphertext,redirect_uri from pgbase_meta.user_oauth_states where provider=$1 and state_hash=$2 and consumed_at is null and expires_at>CURRENT_TIMESTAMP`, provider, s.oauthStateHash(provider, state)).Scan(&collectionID, &encrypted, &redirect)
+	err := s.pool.QueryRow(ctx, `select auth_collection_id,verifier_ciphertext,provider_redirect_uri from pgbase_meta.user_oauth_states where provider=$1 and state_hash=$2 and consumed_at is null and expires_at>CURRENT_TIMESTAMP`, provider, s.oauthStateHash(provider, state)).Scan(&collectionID, &encrypted, &redirect)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrInvalidCredentials
 	}
@@ -162,23 +198,26 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	if !validOAuthIdentity(identity) {
 		return Session{}, ErrInvalidCredentials
 	}
-	normalized, err := normalizeEmail(identity.Email)
-	if err != nil {
-		return Session{}, ErrInvalidCredentials
+	if identity.Email != "" {
+		normalized, err := normalizeEmail(identity.Email)
+		if err != nil {
+			return Session{}, ErrInvalidCredentials
+		}
+		identity.Email = normalized
 	}
-	identity.Email = normalized
 	now, err := s.databaseNow(ctx)
 	if err != nil {
 		return Session{}, err
 	}
 	var issued Session
 	var operationErr error
+	var newlyCreated bool
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var stateID uuid.UUID
 		var persistedCollectionID uuid.UUID
 		var linkUser *uuid.UUID
 		var binding []byte
-		err := tx.QueryRow(ctx, `select id,auth_collection_id,link_user_id,credential_hash from pgbase_meta.user_oauth_states where provider=$1 and state_hash=$2 and redirect_uri=$3 and auth_collection_id=$4 and consumed_at is null and expires_at>CURRENT_TIMESTAMP for update`, provider, s.oauthStateHash(provider, state), redirect, collectionID).Scan(&stateID, &persistedCollectionID, &linkUser, &binding)
+		err := tx.QueryRow(ctx, `select id,auth_collection_id,link_user_id,credential_hash from pgbase_meta.user_oauth_states where provider=$1 and state_hash=$2 and provider_redirect_uri=$3 and auth_collection_id=$4 and consumed_at is null and expires_at>CURRENT_TIMESTAMP for update`, provider, s.oauthStateHash(provider, state), redirect, collectionID).Scan(&stateID, &persistedCollectionID, &linkUser, &binding)
 		if errors.Is(err, pgx.ErrNoRows) {
 			operationErr = ErrInvalidCredentials
 			return nil
@@ -191,6 +230,13 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 			var hash string
 			err = tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,created_at,password_hash from pgbase_meta.users where id=$1 and active for update`, *linkUser).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &hash)
 			if errors.Is(err, pgx.ErrNoRows) {
+				// A new account needs a provider-verified email. Providers that do
+				// not expose one remain usable through the explicit password-bound
+				// account-link flow.
+				if identity.Email == "" || !identity.EmailVerified {
+					operationErr = ErrInvalidCredentials
+					return nil
+				}
 				operationErr = ErrInvalidCredentials
 				return nil
 			}
@@ -245,6 +291,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 				if err != nil {
 					return err
 				}
+				newlyCreated = true
 				_, err = tx.Exec(ctx, `insert into pgbase_meta.user_oauth_identities(auth_collection_id,provider,subject,user_id,created_at) values($1,$2,$3,$4,$5)`, persistedCollectionID, provider, identity.Subject, user.ID, now)
 				if database.Classify(err) == database.KindConflict {
 					operationErr = ErrConflict
@@ -281,7 +328,44 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	if operationErr != nil {
 		return Session{}, operationErr
 	}
+	if newlyCreated && identity.AvatarURL != "" {
+		_ = s.importOAuthAvatar(ctx, issued.User.ID, identity.AvatarURL, identity.AvatarAllowInsecureLoopback)
+	}
 	return issued, nil
+}
+
+// AcceptOAuthCallback atomically claims a provider form-post callback and
+// returns the state-bound frontend URL. It never accepts a redirect target from
+// the callback itself.
+func (s *Service) AcceptOAuthCallback(ctx context.Context, provider, state, code, providerError, description string) (string, error) {
+	if provider != "apple" || validateToken(state) != nil || len(code) > 4096 || len(providerError) > 256 || len(description) > 1024 || code == "" && providerError == "" {
+		return "", ErrInvalidCredentials
+	}
+	var returnURI string
+	consume := providerError != ""
+	err := s.pool.QueryRow(ctx, `update pgbase_meta.user_oauth_states set callback_received_at=CURRENT_TIMESTAMP,consumed_at=case when $3 then CURRENT_TIMESTAMP else consumed_at end where provider=$1 and state_hash=$2 and callback_received_at is null and consumed_at is null and expires_at>CURRENT_TIMESTAMP returning redirect_uri`, provider, s.oauthStateHash(provider, state), consume).Scan(&returnURI)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidCredentials
+	}
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(returnURI)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("state", state)
+	if providerError != "" {
+		q.Set("error", providerError)
+		if description != "" {
+			q.Set("error_description", description)
+		}
+	} else {
+		q.Set("code", code)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 func (s *Service) oauthStateHash(provider, state string) []byte {

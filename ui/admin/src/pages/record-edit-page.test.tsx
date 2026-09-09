@@ -15,10 +15,47 @@ const tags: FieldDefinition = {
 };
 const posts = collection("posts", "posts-id", [textField("title", 0), tags]);
 const tagsCollection = collection("tags", "tags-id", [textField("label", 0, { unique: true })]);
+const requiredAttachment: FieldDefinition = { name: "attachment", type: "file", required: true, unique: false, indexed: false, ordinal: 1, options: { maxSelect: 2 } };
+const documents = collection("documents", "documents-id", [textField("title", 0), requiredAttachment]);
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("record editor page", () => {
+	it("requires and atomically creates a record with its selected files", async () => {
+		const harness = scriptedAdmin("/admin/collections/documents/records/new");
+		harness.script.catalog.push({ value: { version: 4, collections: [documents] } });
+		harness.script.createWithFiles.push({ value: { data: { id: recordID, title: "contract" }, etag: '"pgb1.atomic"' } });
+		const user = userEvent.setup(); renderAdmin(harness);
+		await user.selectOptions(await screen.findByLabelText("title state"), "value");
+		await user.type(screen.getByLabelText("title"), "contract");
+		await user.click(screen.getByRole("button", { name: "Create record" }));
+		expect(await screen.findByText("Select at least 1 file.")).toBeVisible();
+		expect(callsTo(harness.script, "createWithFiles")).toHaveLength(0);
+
+		const input = screen.getByLabelText("attachment files for save");
+		await user.upload(input, [new File(["a"], "a.txt"), new File(["b"], "b.txt"), new File(["c"], "c.txt")]);
+		await user.click(screen.getByRole("button", { name: "Create record" }));
+		expect(await screen.findByText("Select no more than 2 files.")).toBeVisible();
+		expect(callsTo(harness.script, "createWithFiles")).toHaveLength(0);
+		await user.upload(input, new File(["signed"], "contract.txt", { type: "text/plain" }));
+		await user.click(screen.getByRole("button", { name: "Create record" }));
+		await waitFor(() => expect(callsTo(harness.script, "createWithFiles")).toHaveLength(1));
+		expect(callsTo(harness.script, "createWithFiles")[0].detail).toMatchObject({ collection: "documents", input: { title: "contract" }, files: { attachment: ["contract.txt"] } });
+	});
+
+	it("atomically attaches selected files while preserving the edit precondition", async () => {
+		const harness = scriptedAdmin(`/admin/collections/documents/records/${recordID}`);
+		harness.script.catalog.push({ value: { version: 4, collections: [documents] } });
+		harness.script.read.push({ value: { data: { id: recordID, title: "contract" }, etag: '"pgb1.before"' } });
+		harness.script.listFiles.push({ value: [] });
+		harness.script.updateWithFiles.push({ value: { data: { id: recordID, title: "contract" }, etag: '"pgb1.after"' } });
+		const user = userEvent.setup(); renderAdmin(harness);
+		await user.upload(await screen.findByLabelText("attachment files for save"), new File(["revision"], "revision.txt", { type: "text/plain" }));
+		await user.click(screen.getByRole("button", { name: "Save changes" }));
+		await waitFor(() => expect(callsTo(harness.script, "updateWithFiles")).toHaveLength(1));
+		expect(callsTo(harness.script, "updateWithFiles")[0].detail).toMatchObject({ id: recordID, patch: {}, files: { attachment: ["revision.txt"] }, etag: '"pgb1.before"' });
+	});
+
   it("duplicates into a fresh create attempt without copying system identity", async () => {
     const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
     harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } }, { value: { version: 4, collections: [posts, tagsCollection] } });

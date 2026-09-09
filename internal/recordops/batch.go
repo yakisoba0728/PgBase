@@ -41,8 +41,20 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 			txContext := context.WithValue(ctx, batchTransactionKey{}, tx)
 			for index, operation := range request.Operations {
-				if operation.kind() == "" || (operation.Create != nil && (operation.Update != nil || operation.Delete != nil)) ||
-					(operation.Update != nil && operation.Delete != nil) {
+				members := 0
+				if operation.Create != nil {
+					members++
+				}
+				if operation.Update != nil {
+					members++
+				}
+				if operation.Delete != nil {
+					members++
+				}
+				if operation.Upsert != nil {
+					members++
+				}
+				if operation.kind() == "" || members != 1 {
 					return &Error{Code: CodeInvalidRequest}
 				}
 				result, err := s.batchOperation(txContext, request, operation)
@@ -59,7 +71,15 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 					return &Error{Code: CodeInvalidRequest}
 				}
 			}
-			return nil
+			for _, participant := range request.Participants {
+				if participant == nil {
+					return &Error{Code: CodeInvalidRequest}
+				}
+				if err := participant.CommitBatch(ctx, tx, results); err != nil {
+					return err
+				}
+			}
+			return s.validateTransaction(ctx, tx, request, results)
 		})
 	}, nil)
 	if err != nil {
@@ -78,6 +98,19 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 		request := *operation.Update
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
 		return s.Update(ctx, request)
+	}
+	if operation.Upsert != nil {
+		request := *operation.Upsert
+		request.Principal, request.RequestID = batch.Principal, batch.RequestID
+		tx, _ := ctx.Value(batchTransactionKey{}).(pgx.Tx)
+		var exists bool
+		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_revisions r join pgbase_meta.collections c on c.id=r.collection_id where c.name=$1 and r.record_id=$2)`, request.Collection, request.ID).Scan(&exists); err != nil {
+			return MutationResult{}, err
+		}
+		if exists {
+			return s.Update(ctx, request)
+		}
+		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, ID: request.ID, Input: request.Input})
 	}
 	request := *operation.Delete
 	request.Principal, request.RequestID = batch.Principal, batch.RequestID

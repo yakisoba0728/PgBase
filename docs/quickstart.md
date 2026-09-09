@@ -97,6 +97,8 @@ In the administrator UI:
 
 Names use lowercase letters, digits, and underscores, begin with a lowercase letter, and are at most 48 characters.
 
+To create a read-only SQL view, choose **Read-only view**, switch **Definition mode** to **SQL query**, and enter one `SELECT` such as `SELECT id, title FROM app.notes`. Preview shows PostgreSQL's inferred fields and the exact view statement before apply. SQL uses physical `app` schema table and column names; inspect the collection catalog after renames rather than assuming a display name is unchanged.
+
 ## 5. Make the first REST call
 
 The current record API is protected by the administrator session; this is not public user authentication. The following POSIX example requires `curl`, `jq`, and an editor. It keeps the password, session cookie, login response, CSRF header, and request bodies in a private temporary directory instead of placing secret values in process arguments or shell history.

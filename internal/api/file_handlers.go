@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/filestore"
 	"github.com/webisnoteasy/PgBase/internal/identity"
 )
@@ -23,6 +24,10 @@ type FileService interface {
 	Open(context.Context, identity.Subject, uuid.UUID, filestore.Variant, string) (filestore.File, io.ReadCloser, error)
 	Delete(context.Context, identity.Subject, uuid.UUID) error
 	MintDownloadToken(context.Context, identity.Subject, uuid.UUID, filestore.Variant) (string, error)
+	Stage(context.Context, identity.Subject, filestore.Upload) (filestore.StagedFile, error)
+	Commit(context.Context, pgx.Tx, identity.Subject, []filestore.AttachmentChange) ([]filestore.File, error)
+	Cleanup(context.Context, []filestore.StagedFile) error
+	CompleteStaged([]filestore.StagedFile, error)
 }
 
 func fileRoutes(dependencies Dependencies) []route {
@@ -225,6 +230,10 @@ func writeFileError(w http.ResponseWriter, r *http.Request, err error) {
 		response = APIError{Status: 400, Code: "invalid_file", Message: "Invalid file request"}
 	case errors.Is(err, filestore.ErrTooLarge):
 		response = APIError{Status: 413, Code: "file_too_large", Message: "File is too large"}
+	case errors.Is(err, filestore.ErrTooMany):
+		response = APIError{Status: 409, Code: "file_limit_reached", Message: "File field limit reached"}
+	case errors.Is(err, filestore.ErrRequired):
+		response = APIError{Status: 409, Code: "file_required", Message: "At least one file is required"}
 	case errors.Is(err, filestore.ErrDenied):
 		response = APIError{Status: 403, Code: "file_access_denied", Message: "File access denied"}
 	case errors.Is(err, filestore.ErrNotFound):

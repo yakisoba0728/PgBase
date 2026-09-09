@@ -72,17 +72,42 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	operationStarted := time.Now()
 	relationOperation := changeHasRelationInput(change)
 	defer s.finishOperation(ctx, observability.OperationRelationSchema, operationStarted, &err, &relationOperation)
-	catalog, err := s.Catalog(ctx)
-	if err != nil {
-		return Plan{}, err
+	var catalog Catalog
+	var companions bool
+	if isSQLViewChange(change) {
+		err = database.Retry(ctx, func() error {
+			return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+				var inner error
+				catalog, inner = s.EnsureCurrent(ctx, tx)
+				if inner != nil {
+					return inner
+				}
+				companions, inner = companionCapabilityReady(ctx, tx)
+				if inner != nil {
+					return inner
+				}
+				change, inner = inspectSQLViewChange(ctx, tx, catalog, change)
+				return inner
+			})
+		}, func(cause database.RetryCause, exhausted bool) {
+			s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
+		})
+		if err != nil {
+			return Plan{}, err
+		}
+	} else {
+		catalog, err = s.Catalog(ctx)
+		if err != nil {
+			return Plan{}, err
+		}
+		companions, err = companionCapabilityReady(ctx, s.pool)
+		if err != nil {
+			return Plan{}, err
+		}
 	}
 	// A preview must show the plan this binary would really apply, so it reads the
 	// capability row D2-2 makes authoritative instead of assuming a format. Apply accepts
 	// both generations, so a capability that moves in between costs the caller nothing.
-	companions, err := companionCapabilityReady(ctx, s.pool)
-	if err != nil {
-		return Plan{}, err
-	}
 	plan, err = compilePlan(catalog, change, companions)
 	if err != nil {
 		return Plan{}, err
@@ -106,6 +131,40 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 		return Plan{}, err
 	}
 	return plan, nil
+}
+
+func isSQLViewChange(change Change) bool {
+	switch change.kind {
+	case changeCreate:
+		return change.create.View != nil && change.create.View.SQL != ""
+	case changeUpdate:
+		return change.update.View != nil && change.update.View.SQL != ""
+	default:
+		return false
+	}
+}
+
+func inspectSQLViewChange(ctx context.Context, tx pgx.Tx, catalog Catalog, change Change) (Change, error) {
+	if !isSQLViewChange(change) {
+		return change, nil
+	}
+	view := change.create.View
+	if change.kind == changeUpdate {
+		view = change.update.View
+	}
+	inspection, err := InspectSQLView(ctx, tx, catalog, view.SQL)
+	if err != nil {
+		return Change{}, err
+	}
+	var prepared Change
+	if change.kind == changeCreate {
+		prepared = NewCreateChange(change.create)
+		prepared.create.View.inspection = cloneSQLViewInspection(&inspection)
+	} else {
+		prepared = NewUpdateChange(change.update)
+		prepared.update.View.inspection = cloneSQLViewInspection(&inspection)
+	}
+	return prepared, nil
 }
 
 func validateRequiredRelationAdds(
@@ -275,14 +334,15 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			if err := validateName("", field.ColumnName); err != nil {
 				return ErrConflict
 			}
-			if err := fieldvalue.ValidateDefinition(string(field.Type), fieldValueOptions(field.Options)); err != nil {
-				return ErrConflict
-			}
 			if field.Type == TypeFile {
-				if field.Required || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil {
+				options := cloneFieldOptions(field.Options)
+				if validateFieldOptions(TypeFile, &options) != nil || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil {
 					return ErrConflict
 				}
 				continue
+			}
+			if err := fieldvalue.ValidateDefinition(string(field.Type), fieldValueOptions(field.Options)); err != nil {
+				return ErrConflict
 			}
 			if len(field.Default) != 0 {
 				// Stored defaults carry the bounds of the binary that wrote
@@ -347,8 +407,32 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			}
 		}
 		if collection.View != nil {
+			if len(collection.Indexes) > 0 || len(collection.Fields) > 128 {
+				return ErrConflict
+			}
+			if collection.IsSQLView() {
+				if collection.View.Source != "" || collection.View.SourceCollectionID != uuid.Nil || len(collection.View.Projection) != 0 || collection.View.Filter != nil || len(collection.View.SQL) > maximumSQLViewBytes {
+					return ErrConflict
+				}
+				seenDependencies := map[uuid.UUID]bool{}
+				for _, field := range collection.Fields {
+					if field.Required || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil || !reflect.DeepEqual(field.Options, FieldOptions{}) {
+						return ErrConflict
+					}
+				}
+				for _, dependency := range collection.View.Dependencies {
+					if dependency == collection.ID || !collectionIDs[dependency] || seenDependencies[dependency] {
+						return ErrConflict
+					}
+					seenDependencies[dependency] = true
+				}
+				continue
+			}
+			if len(collection.View.Dependencies) != 0 {
+				return ErrConflict
+			}
 			source, ok := catalog.Collections[collection.View.Source]
-			if !ok || source.ID != collection.View.SourceCollectionID || source.IsView() || len(collection.Indexes) > 0 || len(collection.View.Projection) != len(collection.Fields) {
+			if !ok || source.ID != collection.View.SourceCollectionID || source.IsView() || len(collection.View.Projection) != len(collection.Fields) {
 				return ErrConflict
 			}
 			for position, name := range collection.View.Projection {

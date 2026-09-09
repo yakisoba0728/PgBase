@@ -1,9 +1,17 @@
 import { parseJSON } from "../backend/json";
 import type { CollectionDefinition, ViewDefinition, ViewFilter } from "../backend/ports";
 
-export function ViewDefinitionEditor({ view, sources, disabled, onChange }: {
-  view: ViewDefinition; sources: CollectionDefinition[]; disabled: boolean; onChange(view: ViewDefinition): void;
+export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = false, onChange }: {
+	view: ViewDefinition; sources: CollectionDefinition[]; disabled: boolean; modeLocked?: boolean; onChange(view: ViewDefinition): void;
 }) {
+	const sqlMode = "sql" in view;
+	if (sqlMode) return <fieldset disabled={disabled}>
+		<legend>View definition</legend>
+		<label>Definition mode<select disabled={modeLocked} value="sql" onChange={() => onChange({ source: "", projection: [] })}><option value="builder">Source and projection</option><option value="sql">SQL query</option></select></label>
+		<label>SQL SELECT<textarea required rows={12} maxLength={65_536} value={view.sql} onChange={(event) => onChange({ sql: event.target.value })} placeholder={'SELECT id, title\nFROM app.notes\nWHERE published = true'} /></label>
+		<p>Enter one read-only SELECT query using app collection and physical column names. Preview asks PostgreSQL to validate it and infer the fields before anything is applied.</p>
+		{view.dependencies && view.dependencies.length > 0 && <p>Depends on: {view.dependencies.join(", ")}</p>}
+	</fieldset>;
   const source = sources.find((collection) => collection.name === view.source);
   const fields = (source?.fields ?? []).filter((field) => field.type !== "relation" && field.type !== "file");
   const filterField = fields.find((field) => field.name === view.filter?.field);
@@ -15,6 +23,7 @@ export function ViewDefinitionEditor({ view, sources, disabled, onChange }: {
   const setFilter = (filter?: ViewFilter) => onChange({ ...view, filter });
   return <fieldset disabled={disabled}>
     <legend>View definition</legend>
+	<label>Definition mode<select value="builder" onChange={() => onChange({ sql: "" })}><option value="builder">Source and projection</option><option value="sql">SQL query</option></select></label>
     <label>Source collection <select value={view.source} onChange={(event) => onChange({ source: event.target.value, projection: [] })} required>
       <option value="">Choose a source</option>
       {sources.map((collection) => <option key={collection.name} value={collection.name}>{collection.name}</option>)}

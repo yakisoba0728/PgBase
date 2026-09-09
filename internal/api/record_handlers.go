@@ -26,7 +26,10 @@ type RecordService interface {
 	Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error)
 }
 
-type recordEndpoints struct{ service RecordService }
+type recordEndpoints struct {
+	service RecordService
+	files   FileService
+}
 
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	values, err := neturl.ParseQuery(r.URL.RawQuery)

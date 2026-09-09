@@ -3,7 +3,9 @@ package mailer
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -55,7 +57,7 @@ func localSMTPHost(host string) bool {
 }
 
 func (s *SMTP) Send(ctx context.Context, message Message) error {
-	if s == nil || message.To == "" || strings.ContainsAny(message.To+message.Subject, "\r\n") || len(message.Text) > 64<<10 {
+	if s == nil || message.To == "" || strings.ContainsAny(message.To+message.Subject, "\r\n") || len(message.Text)+len(message.HTML) > 64<<10 || message.Text == "" {
 		return errors.New("invalid email message")
 	}
 	deadline := time.Now().Add(s.config.Timeout)
@@ -108,7 +110,11 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 	if err != nil {
 		return fmt.Errorf("start SMTP message: %w", err)
 	}
-	body := "From: " + s.config.From + "\r\nTo: " + message.To + "\r\nSubject: " + message.Subject + "\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" + message.Text
+	body, err := encodeMessage(s.config.From, message)
+	if err != nil {
+		_ = w.Close()
+		return err
+	}
 	writer := bufio.NewWriter(w)
 	if _, err := writer.WriteString(body); err != nil {
 		_ = w.Close()
@@ -125,4 +131,20 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 		return fmt.Errorf("quit SMTP client: %w", err)
 	}
 	return nil
+}
+
+func encodeMessage(from string, message Message) (string, error) {
+	headers := "From: " + from + "\r\nTo: " + message.To + "\r\nSubject: " + message.Subject + "\r\nMIME-Version: 1.0\r\n"
+	if message.HTML == "" {
+		return headers + "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.Text, nil
+	}
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", fmt.Errorf("create MIME boundary: %w", err)
+	}
+	boundary := "pgbase-" + hex.EncodeToString(random[:])
+	return headers + "Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n" +
+		"--" + boundary + "\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.Text + "\r\n" +
+		"--" + boundary + "\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.HTML + "\r\n" +
+		"--" + boundary + "--\r\n", nil
 }

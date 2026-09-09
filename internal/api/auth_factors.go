@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,8 +18,12 @@ type AuthFactors interface {
 	DisableTOTP(context.Context, uuid.UUID, string, string) error
 	CompleteMFA(context.Context, string, string) (userauth.Session, error)
 	BeginOAuth(context.Context, string, string, string) (userauth.OAuthAuthorization, error)
+	BeginOAuthWithProviderRedirect(context.Context, string, string, string, string) (userauth.OAuthAuthorization, error)
 	BeginOAuthLink(context.Context, uuid.UUID, string, string, string) (userauth.OAuthAuthorization, error)
+	BeginOAuthLinkWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error)
 	CompleteOAuth(context.Context, string, string, string) (userauth.Session, error)
+	AcceptOAuthCallback(context.Context, string, string, string, string, string) (string, error)
+	GetOAuthAvatar(context.Context, uuid.UUID) (userauth.OAuthAvatar, error)
 }
 
 func (e userEndpoints) factorRoutes() []route {
@@ -34,7 +41,45 @@ func (e userEndpoints) factorRoutes() []route {
 	for _, action := range actions {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/auth/" + action.name, access: action.access, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.factorAction(action.name)})
 	}
+	routes = append(routes, route{method: http.MethodGet, pattern: "/api/v1/auth/avatar", access: accessUserSession, response: passthrough(), deadline: deadlineDefault, handler: http.HandlerFunc(e.oauthAvatar)})
+	routes = append(routes, route{method: http.MethodPost, pattern: "/api/v1/auth/oauth/apple/callback", access: accessPublic, response: passthrough(), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.appleOAuthCallback)})
 	return routes
+}
+
+func (e userEndpoints) appleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" || r.ParseForm() != nil || len(r.PostForm) == 0 {
+		http.Error(w, "invalid OAuth callback", http.StatusBadRequest)
+		return
+	}
+	allowed := map[string]bool{"code": true, "state": true, "error": true, "error_description": true, "user": true}
+	for key, values := range r.PostForm {
+		if !allowed[key] || len(values) != 1 {
+			http.Error(w, "invalid OAuth callback", http.StatusBadRequest)
+			return
+		}
+	}
+	destination, err := e.dependencies.AuthFactors.AcceptOAuthCallback(r.Context(), "apple", r.PostForm.Get("state"), r.PostForm.Get("code"), r.PostForm.Get("error"), r.PostForm.Get("error_description"))
+	if err != nil {
+		http.Error(w, "invalid OAuth callback", http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, destination, http.StatusSeeOther)
+}
+
+func (e userEndpoints) oauthAvatar(w http.ResponseWriter, r *http.Request) {
+	current, _ := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
+	avatar, err := e.dependencies.AuthFactors.GetOAuthAvatar(r.Context(), current.principal.User.ID)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", avatar.MediaType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("ETag", `"`+fmt.Sprintf("%x", avatar.SHA256)+`"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(avatar.Content)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(avatar.Content)
 }
 
 func (e userEndpoints) factorAction(action string) http.Handler {
@@ -88,9 +133,19 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 					writeUserAuthError(w, r, userauth.ErrValidation)
 					return
 				}
-				value, err = service.BeginOAuth(r.Context(), input.Provider, input.RedirectURI, address)
+				if input.Provider == "apple" && e.dependencies.PublicURL != nil {
+					bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
+					value, err = service.BeginOAuthWithProviderRedirect(r.Context(), input.Provider, input.RedirectURI, bridge, address)
+				} else {
+					value, err = service.BeginOAuth(r.Context(), input.Provider, input.RedirectURI, address)
+				}
 			} else {
-				value, err = service.BeginOAuthLink(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI)
+				if input.Provider == "apple" && e.dependencies.PublicURL != nil {
+					bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
+					value, err = service.BeginOAuthLinkWithProviderRedirect(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI, bridge)
+				} else {
+					value, err = service.BeginOAuthLink(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI)
+				}
 			}
 			result = struct {
 				AuthorizationURL string    `json:"authorizationUrl"`

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { AuthAdministration, AuthMailTemplate, AuthPolicy, AuthSMTPSettings, OAuthProviderSettings } from "../backend/ports";
+import { providerPresets } from "../oauth-provider-presets";
 
 const purposes: AuthMailTemplate["purpose"][] = ["verify", "password_reset", "email_change"];
-const emptyProvider = (): OAuthProviderSettings => ({ name: "", enabled: true, authorizationUrl: "", tokenUrl: "", userInfoUrl: "", clientId: "", clientSecret: "", secretConfigured: false, scopes: [], redirectUris: [], subjectField: "sub", emailField: "email", emailVerifiedField: "email_verified", allowInsecureLoopback: false });
+const emptyProvider = (): OAuthProviderSettings => ({ name: "", enabled: true, authorizationUrl: "", tokenUrl: "", userInfoUrl: "", clientId: "", clientSecret: "", secretConfigured: false, scopes: [], redirectUris: [], subjectField: "sub", emailField: "email", emailVerifiedField: "email_verified", avatarField: "picture", allowInsecureLoopback: false });
 const emptySMTP = (): AuthSMTPSettings => ({ address: "", from: "", username: "", password: "", passwordConfigured: false, serverName: "", implicitTls: false, allowInsecureLoopback: false });
 
 export function AuthAdministrationPanel({ collectionId }: { collectionId: string }) {
@@ -50,6 +51,7 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
     </fieldset>
     <fieldset disabled={busy}><legend>OAuth providers</legend>
       {value.providers.map((item) => <div key={item.name}><strong>{item.name}</strong> ({item.enabled ? "enabled" : "disabled"}) <button type="button" onClick={() => setProvider({ ...item, clientSecret: "" })}>Edit</button> <button type="button" onClick={() => removeProvider(item.name)}>Remove</button></div>)}
+      <label>Provider preset <select value="" onChange={(e) => { const preset = providerPresets.find((item) => item.value.name === e.target.value); if (preset) setProvider({ ...emptyProvider(), ...preset.value }); }}><option value="">Custom OAuth 2.0 / OIDC</option>{providerPresets.map((item) => <option key={item.value.name} value={item.value.name}>{item.label}</option>)}</select></label>
       <label>Name <input value={provider.name} onChange={(e) => setProvider({ ...provider, name: e.target.value })} /></label>
       <label>Authorization URL <input value={provider.authorizationUrl} onChange={(e) => setProvider({ ...provider, authorizationUrl: e.target.value })} /></label>
       <label>Token URL <input value={provider.tokenUrl} onChange={(e) => setProvider({ ...provider, tokenUrl: e.target.value })} /></label>
@@ -57,13 +59,14 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
       <label>Client ID <input value={provider.clientId} onChange={(e) => setProvider({ ...provider, clientId: e.target.value })} /></label>
       <label>Client secret <input type="password" placeholder={provider.secretConfigured ? "Stored; leave blank to keep" : ""} value={provider.clientSecret ?? ""} onChange={(e) => setProvider({ ...provider, clientSecret: e.target.value })} /></label>
       <label>Scopes (space separated) <input value={provider.scopes.join(" ")} onChange={(e) => setProvider({ ...provider, scopes: e.target.value.split(/\s+/).filter(Boolean) })} /></label>
+      <label>Avatar URL field <input value={provider.avatarField} onChange={(e) => setProvider({ ...provider, avatarField: e.target.value })} /></label>
       <label>Redirect URIs (one per line) <textarea value={provider.redirectUris.join("\n")} onChange={(e) => setProvider({ ...provider, redirectUris: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })} /></label>
       <label><input type="checkbox" checked={provider.enabled} onChange={(e) => setProvider({ ...provider, enabled: e.target.checked })} />Enabled</label>
       <label><input type="checkbox" checked={provider.allowInsecureLoopback} onChange={(e) => setProvider({ ...provider, allowInsecureLoopback: e.target.checked })} />Allow HTTP for loopback development endpoints</label>
       <button type="button" onClick={saveProvider}>Save provider</button>
     </fieldset>
     <fieldset disabled={busy}><legend>Mail templates</legend><p>Use only <code>{"{{action_url}}"}</code> as a placeholder.</p>
-      {purposes.map((purpose) => { const current = value.templates.find((t) => t.purpose === purpose) ?? { purpose, subject: "", body: "{{action_url}}" }; return <TemplateEditor key={`${purpose}:${current.subject}:${current.body}`} value={current} save={saveTemplate} />; })}
+      {purposes.map((purpose) => { const current = value.templates.find((t) => t.purpose === purpose) ?? { purpose, subject: "", body: "{{action_url}}", htmlBody: "<p><a class=\"button\" href=\"{{action_url}}\">Continue</a></p>" }; return <TemplateEditor key={`${purpose}:${current.subject}:${current.body}`} value={current} save={saveTemplate} preview={(draft, signal) => authCollections.previewTemplate(collectionId, { ...draft, actionUrl: "https://app.example/auth/action" }, signal)} />; })}
     </fieldset>
     <fieldset disabled={busy}><legend>SMTP</legend>
       <label>Server address <input placeholder="localhost:1025" value={smtp.address} onChange={(e) => setSMTP({ ...smtp, address: e.target.value })} /></label><label>From <input value={smtp.from} onChange={(e) => setSMTP({ ...smtp, from: e.target.value })} /></label><label>Username <input value={smtp.username} onChange={(e) => setSMTP({ ...smtp, username: e.target.value })} /></label><label>Password <input type="password" placeholder={smtp.passwordConfigured ? "Stored; leave blank to keep" : ""} value={smtp.password ?? ""} onChange={(e) => setSMTP({ ...smtp, password: e.target.value })} /></label><label>Server name <input value={smtp.serverName} onChange={(e) => setSMTP({ ...smtp, serverName: e.target.value })} /></label>
@@ -73,4 +76,4 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
   </details>;
 }
 
-function TemplateEditor({ value, save }: { value: AuthMailTemplate; save: (value: AuthMailTemplate) => void }) { const [draft, setDraft] = useState(value); return <div><h4>{value.purpose.replace("_", " ")}</h4><label>Subject <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label><label>Text body <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label><button type="button" onClick={() => save(draft)}>Save template</button></div>; }
+function TemplateEditor({ value, save, preview }: { value: AuthMailTemplate; save: (value: AuthMailTemplate) => void; preview: (value: AuthMailTemplate, signal: AbortSignal) => Promise<{ subject: string; text: string; html: string }> }) { const [draft, setDraft] = useState(value); const [rendered, setRendered] = useState<{ subject: string; text: string; html: string } | null>(null); const [previewError, setPreviewError] = useState(""); function runPreview() { const c = new AbortController(); setPreviewError(""); void preview(draft, c.signal).then(setRendered).catch(() => setPreviewError("Template is invalid or could not be previewed.")); } return <div><h4>{value.purpose.replace("_", " ")}</h4><label>Subject <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label><label>Plain text alternative <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label><label>HTML body <textarea value={draft.htmlBody} onChange={(e) => setDraft({ ...draft, htmlBody: e.target.value })} /></label><button type="button" onClick={runPreview}>Validate and preview</button>{previewError && <p role="alert">{previewError}</p>}{rendered && <details open><summary>{rendered.subject}</summary><pre>{rendered.text}</pre>{rendered.html && <iframe title={`${draft.purpose} email preview`} sandbox="" srcDoc={rendered.html} />}</details>}<button type="button" onClick={() => save(draft)}>Save template</button></div>; }

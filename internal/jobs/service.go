@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/robfig/cron/v3"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
@@ -56,6 +57,16 @@ func (r *Registry) Register(name string, handler Handler) error {
 	return nil
 }
 
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.handlers[name]; !ok {
+		return false
+	}
+	delete(r.handlers, name)
+	return true
+}
+
 func (r *Registry) handler(name string) (Handler, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -97,17 +108,26 @@ func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger, in
 // Schedule creates or enables a named durable job. Changing its schedule makes
 // it due immediately so a deployment does not wait for an obsolete interval.
 func (s *Service) Schedule(ctx context.Context, name, schedule string) error {
+	return s.ScheduleInTimezone(ctx, name, schedule, "UTC")
+}
+
+func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezone string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("schedule job: name is required")
 	}
-	if _, err := ParseSchedule(schedule); err != nil {
+	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	if err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,next_run_at)
- VALUES($1,$2,$3,clock_timestamp()) ON CONFLICT (name) DO UPDATE SET
- enabled=true,next_run_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
- THEN pgbase_meta.scheduled_jobs.next_run_at ELSE clock_timestamp() END,
- schedule=excluded.schedule,updated_at=clock_timestamp()`, uuid.New(), name, schedule)
+	next := time.Now()
+	if parsed.interval == 0 {
+		next = parsed.Next(next)
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
+	 VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO UPDATE SET
+	 enabled=true,next_run_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
+	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.next_run_at ELSE $5 END,
+	 schedule=excluded.schedule,timezone=$4,updated_at=clock_timestamp()`, uuid.New(), name, schedule, timezone, next)
 	return err
 }
 
@@ -153,7 +173,9 @@ func (s *Service) RunOnce(ctx context.Context) error {
 
 type claimedJob struct {
 	Job
-	token uuid.UUID
+	token       uuid.UUID
+	timezone    string
+	scheduledAt time.Time
 }
 
 func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
@@ -173,14 +195,14 @@ func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
  lease_until=clock_timestamp()+interval '1 minute', fence_generation=fence_generation+1,
  attempts=attempts+1,last_started_at=clock_timestamp(),updated_at=clock_timestamp()
  FROM due WHERE j.id=due.id
- RETURNING j.id,j.name,j.schedule,j.fence_generation`, claimBatch, token, names)
+	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.next_run_at`, claimBatch, token, names)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var item claimedJob
-			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration); err != nil {
+			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration, &item.timezone, &item.scheduledAt); err != nil {
 				return err
 			}
 			item.token = token
@@ -192,15 +214,26 @@ func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
 }
 
 func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) error {
-	interval, err := ParseSchedule(claim.Schedule)
+	schedule, err := ParseScheduleInLocation(claim.Schedule, claim.timezone)
 	if err != nil {
 		runErr = errors.Join(runErr, err)
 	}
 	if runErr == nil {
+		if schedule.interval == 0 {
+			next := schedule.Next(claim.scheduledAt)
+			now := time.Now()
+			if !next.After(now) {
+				next = schedule.Next(now)
+			}
+			_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
+	 next_run_at=$3,last_scheduled_at=$4,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
+	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$5`, claim.ID, claim.token, next, claim.scheduledAt, claim.FenceGeneration)
+			return err
+		}
 		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
- next_run_at=clock_timestamp()+make_interval(secs=>$3),attempts=0,last_error=NULL,
- last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
- WHERE id=$1 AND lease_token=$2 AND fence_generation=$4`, claim.ID, claim.token, interval.Seconds(), claim.FenceGeneration)
+	 next_run_at=clock_timestamp()+make_interval(secs=>$3),attempts=0,last_error=NULL,
+	 last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
+	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$4`, claim.ID, claim.token, schedule.interval.Seconds(), claim.FenceGeneration)
 		return err
 	}
 	// The SQL bounds retries at five minutes, keeps failure text bounded, and
@@ -234,4 +267,41 @@ func ParseSchedule(schedule string) (time.Duration, error) {
 		return 0, fmt.Errorf("%w: duration must be 1s through 24h at second precision", ErrInvalidSchedule)
 	}
 	return duration, nil
+}
+
+type Schedule struct {
+	interval time.Duration
+	calendar cron.Schedule
+}
+
+func ParseScheduleInLocation(value, timezone string) (Schedule, error) {
+	if interval, err := ParseSchedule(value); err == nil {
+		return Schedule{interval: interval}, nil
+	}
+	location, err := time.LoadLocation(strings.TrimSpace(timezone))
+	if err != nil {
+		return Schedule{}, fmt.Errorf("%w: unknown timezone", ErrInvalidSchedule)
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	calendar, err := parser.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return Schedule{}, fmt.Errorf("%w: expected @every <duration> or five-field cron", ErrInvalidSchedule)
+	}
+	return Schedule{calendar: locationSchedule{location, calendar}}, nil
+}
+
+func (s Schedule) Next(after time.Time) time.Time {
+	if s.interval > 0 {
+		return after.Add(s.interval)
+	}
+	return s.calendar.Next(after)
+}
+
+type locationSchedule struct {
+	location *time.Location
+	schedule cron.Schedule
+}
+
+func (s locationSchedule) Next(after time.Time) time.Time {
+	return s.schedule.Next(after.In(s.location))
 }

@@ -34,6 +34,8 @@ const server = createServer(async (request, response) => {
   if (request.url === "/api/v1/auth/oauth/complete") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ token: "oauth-token", user: { id: "oauth", email: "oauth@example.test", createdAt: "" }, expiresAt: "" })); return; }
   if (request.url === "/api/v1/user/collections/batch") {
     response.setHeader("content-type", "application/json");
+    const input=body.startsWith("{")?JSON.parse(body):{};
+    if(input.requests){response.end(JSON.stringify({results:[{eventId:"00000000-0000-0000-0000-000000000005",status:200,headers:{ETag:'"pgb1.upsert"'},body:{id:"note-upsert",title:"upserted"},etag:'"pgb1.upsert"',version:1}]}));return;}
     response.end(JSON.stringify({ results: [
       { eventId: "00000000-0000-0000-0000-000000000003", record: { id: "note-3", title: "batched" }, etag: '"pgb1.batch"', version: 1 },
       { eventId: "00000000-0000-0000-0000-000000000004" },
@@ -132,6 +134,10 @@ try {
   assert.equal(requests.at(-1).headers.authorization, "Bearer realm-token");
   await realm.oauthComplete("github", "state", "code");
   assert.equal(client.auth.token, "oauth-token");
+  await realm.oauthCompleteFromURL("github", "https://app.test/callback?code=browser-code&state=browser-state");
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", state: "browser-state", code: "browser-code" });
+  assert.throws(() => realm.oauthCompleteFromURL("github", "https://app.test/callback?error=access_denied&error_description=Cancelled"), (error) => error.name === "OAuthCallbackError" && error.code === "access_denied" && error.message === "Cancelled");
+  assert.throws(() => realm.oauthCompleteFromURL("github", "https://app.test/callback?state=only"), (error) => error.code === "invalid_callback");
   client.auth.save("first-token");
 
   const page = await client.records("notes").list({ filter: 'title = "private"', sort: "-createdAt", expand: "author", cursor: "current", limit: 20 });
@@ -154,6 +160,9 @@ try {
   assert.equal(batch.results[0].etag, '"pgb1.batch"');
   assert.equal(batch.results[1].record, undefined, "delete results intentionally omit a record");
   assert.equal(JSON.parse(requests.at(-1).body).operations[1].operation, "delete");
+
+  const generic=await client.batchRequests([{method:"PUT",url:"/api/v1/collections/notes/records/00000000-0000-4000-8000-000000000099",body:{title:"upserted"}}]);
+  assert.equal(generic.results[0].status,200);assert.equal(generic.results[0].body.title,"upserted");
 
 	const created = await client.records("notes").createWithETag({ title: "created" }, "create-note-0001");
 	assert.equal(created.etag, '"pgb1.created"');

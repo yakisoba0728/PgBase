@@ -23,6 +23,12 @@ test('admin preview snapshots input and retries exact operation while retaining 
   assert.equal(applies[0].init.headers.get('PgBase-Operation-ID'),applies[1].init.headers.get('PgBase-Operation-ID'));
   assert.equal(applies[0].init.headers.get('X-PgBase-CSRF'),'csrf');
   assert.equal(applies[0].init.headers.has('Authorization'),false);assert.equal(applies[0].init.credentials,'include');
+	await client.plan({operation:'create',name:'post_titles',view:{sql:'SELECT id, title FROM app.posts'}});
+	const sqlView=JSON.parse(calls.filter(c=>c.url.endsWith('/plan')).at(-1).init.body);
+	assert.deepEqual(sqlView.view,{sql:'SELECT id, title FROM app.posts'});
+	await client.plan({operation:'update',name:'post_titles',view:{sql:'SELECT id, upper(title) AS title FROM app.posts'}});
+	const sqlViewUpdate=JSON.parse(calls.filter(c=>c.url.endsWith('/plan')).at(-1).init.body);
+	assert.deepEqual(sqlViewUpdate,{operation:'update',name:'post_titles',view:{sql:'SELECT id, upper(title) AS title FROM app.posts'}});
   await client.logout();await client.queueJob('job');assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),'');
 });
 

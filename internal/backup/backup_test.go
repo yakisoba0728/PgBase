@@ -6,8 +6,43 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+type cancelAfterChecks struct {
+	context.Context
+	remaining atomic.Int32
+}
+
+func newCancelAfterChecks(count int32) *cancelAfterChecks {
+	ctx := &cancelAfterChecks{Context: context.Background()}
+	ctx.remaining.Store(count)
+	return ctx
+}
+
+func (c *cancelAfterChecks) Err() error {
+	if c.remaining.Add(-1) <= 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
+func validEmptyBackup(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "files"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "database.dump"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"format":1,"createdAt":"2026-01-01T00:00:00Z","postgresqlMajor":18,"database":{"path":"database.dump","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","size":0},"files":[]}`
+	if err := os.WriteFile(filepath.Join(directory, "manifest.json"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
 
 func TestSafeTreeRejectsSymlinks(t *testing.T) {
 	root := t.TempDir()
@@ -44,6 +79,22 @@ func TestCopyRegularHonorsCancelledContext(t *testing.T) {
 	cancel()
 	if err := copyRegular(ctx, source, target); !errors.Is(err, context.Canceled) {
 		t.Fatalf("copyRegular error = %v", err)
+	}
+}
+
+func TestVerifyContextPropagatesCancellationWhileHashing(t *testing.T) {
+	// Checks occur at entry, before the manifest item, and in checksum's reader.
+	ctx := newCancelAfterChecks(3)
+	if _, err := VerifyContext(ctx, validEmptyBackup(t)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("VerifyContext error = %v", err)
+	}
+}
+
+func TestVerifyContextPropagatesCancellationWhileWalkingInventory(t *testing.T) {
+	// Let the empty database hash complete, then cancel in safeTree's walk.
+	ctx := newCancelAfterChecks(4)
+	if _, err := VerifyContext(ctx, validEmptyBackup(t)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("VerifyContext error = %v", err)
 	}
 }
 

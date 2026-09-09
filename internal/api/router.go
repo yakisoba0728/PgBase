@@ -16,6 +16,7 @@ type Dependencies struct {
 	AuthAdministration      AuthAdministration
 	RequestLog              *observability.RequestLog
 	Jobs                    ManagedJobs
+	Backups                 ManagedBackups
 	ServiceTokens           ServiceTokens
 	RecordRules             RecordRules
 	AuthCollections         AuthCollections
@@ -57,7 +58,7 @@ type Dependencies struct {
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
 	schemas := schemaEndpoints{service: dependencies.Schema}
-	records := recordEndpoints{service: dependencies.Records}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files}
 	logout := http.HandlerFunc(admin.logout)
 	login := http.HandlerFunc(admin.login)
 
@@ -135,9 +136,9 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			route{method: "PUT", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
 		)
 	}
-	routes = append(routes, route{method: "POST", pattern: "/api/v1/collections/batch", access: accessAdminSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumBatchRequestBytes, handler: http.HandlerFunc(records.batch)})
+	routes = append(routes, route{method: "POST", pattern: "/api/v1/collections/batch", access: accessAdminSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	if dependencies.UserAuth != nil {
-		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumBatchRequestBytes, handler: http.HandlerFunc(records.batch)})
+		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
 	routes = append(routes, authAdministrationRoutes(dependencies)...)

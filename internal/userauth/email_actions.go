@@ -313,16 +313,22 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 		return errors.New("send user email action")
 	}
 	actionURL := s.emailBaseURL + "/auth/action#action=" + action + "&token=" + url.QueryEscape(raw)
-	body := actionURL
-	var configuredSubject, configuredBody string
+	body, htmlBody := actionURL, ""
+	var configuredSubject, configuredBody, configuredHTML string
 	templatePurpose := action
 	if action == "reset" {
 		templatePurpose = "password_reset"
 	} else if action == "email-change" {
 		templatePurpose = "email_change"
 	}
-	if err := s.pool.QueryRow(ctx, `select subject,body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose=$2`, collectionID, templatePurpose).Scan(&configuredSubject, &configuredBody); err == nil {
+	if err := s.pool.QueryRow(ctx, `select subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose=$2`, collectionID, templatePurpose).Scan(&configuredSubject, &configuredBody, &configuredHTML); err == nil {
 		subject, body = configuredSubject, strings.ReplaceAll(configuredBody, "{{action_url}}", actionURL)
+		if configuredHTML != "" {
+			htmlBody, err = mailer.WrapHTML(strings.ReplaceAll(configuredHTML, "{{action_url}}", actionURL))
+			if err != nil {
+				return errors.New("send user email action")
+			}
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return errors.New("send user email action")
 	}
@@ -330,7 +336,7 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 	if err != nil {
 		return errors.New("send user email action")
 	}
-	message := mailer.Message{To: to, Subject: subject, Text: body}
+	message := mailer.Message{To: to, Subject: subject, Text: body, HTML: htmlBody}
 	if err := sender.Send(ctx, message); err != nil {
 		return errors.New("send user email action")
 	}
@@ -344,3 +350,9 @@ func (s *Service) credentialHash(hash string) []byte {
 	return s.digest("user-credential-version\x00", hash)
 }
 func postgresInterval(ttl time.Duration) string { return fmt.Sprintf("%f seconds", ttl.Seconds()) }
+
+// ConfigureMailerDecorator installs a startup-only transport wrapper for both
+// environment and per-collection SMTP settings.
+func (s *Service) ConfigureMailerDecorator(decorate func(mailer.Sender) mailer.Sender) {
+	s.decorateMailer = decorate
+}

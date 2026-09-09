@@ -10,9 +10,80 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/filestore"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
+	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
+
+type requiredFileValidator struct{ schemas *schema.Service }
+
+func (v requiredFileValidator) ValidateRecords(ctx context.Context, tx pgx.Tx, request recordops.BatchRequest, results []recordops.MutationResult) error {
+	catalog, err := v.schemas.EnsureCurrent(ctx, tx)
+	if err != nil {
+		return err
+	}
+	checked := map[string]bool{}
+	required := map[uuid.UUID]bool{}
+	for _, collection := range catalog.Collections {
+		for _, field := range collection.Fields {
+			if field.Type == schema.TypeFile && field.Required {
+				required[collection.ID] = true
+				break
+			}
+		}
+	}
+	for index, result := range results {
+		if result.Record == nil || index >= len(request.Operations) {
+			continue
+		}
+		operation := request.Operations[index]
+		collectionName := recordOperationCollection(operation)
+		if collectionName == "" {
+			continue
+		}
+		collection, ok := catalog.Collections[collectionName]
+		rawID, idOK := result.Record.Data["id"].(string)
+		recordID, parseErr := uuid.Parse(rawID)
+		if !ok || !idOK || parseErr != nil {
+			return schema.ErrConflict
+		}
+		if !required[collection.ID] {
+			continue
+		}
+		key := collection.ID.String() + "/" + recordID.String()
+		if checked[key] {
+			continue
+		}
+		checked[key] = true
+		var missing string
+		err = tx.QueryRow(ctx, `select coalesce((select f.name from pgbase_meta.fields f
+			where f.collection_id=$1 and f.field_type='file' and f.required
+			and exists(select 1 from pgbase_meta.record_revisions r where r.collection_id=$1 and r.record_id=$2)
+			and not exists(select 1 from pgbase_meta.record_files rf where rf.collection_id=$1 and rf.record_id=$2 and rf.field_name=f.name and rf.status='ready')
+			order by f.ordinal limit 1),'')`, collection.ID, recordID).Scan(&missing)
+		if err != nil {
+			return err
+		}
+		if missing != "" {
+			return &query.ValidationError{Details: []query.ValidationDetail{{Field: missing, Code: "required_file"}}}
+		}
+	}
+	return nil
+}
+
+func recordOperationCollection(operation recordops.BatchOperation) string {
+	switch {
+	case operation.Create != nil:
+		return operation.Create.Collection
+	case operation.Update != nil:
+		return operation.Update.Collection
+	case operation.Upsert != nil:
+		return operation.Upsert.Collection
+	default:
+		return ""
+	}
+}
 
 func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *database.Pool, options Options, schemas *schema.Service) (api.Dependencies, *filestore.Service, error) {
 	if options.Files.Driver == "" {
@@ -80,7 +151,35 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 		}
 		return nil
 	}
-	service, err := filestore.NewService(pool, objects, authorize, filestore.Options{MaximumBytes: options.Files.MaximumBytes, MaximumImagePixels: options.Files.MaximumImagePixels, ThumbnailDimension: options.Files.ThumbnailDimension, AllowedTypes: options.Files.AllowedTypes, TokenSecret: options.TokenSecret, TokenTTL: options.Files.DownloadTokenTTL})
+	policy := func(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, fieldName string) (filestore.FieldPolicy, error) {
+		catalog, err := schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return filestore.FieldPolicy{}, err
+		}
+		for _, collection := range catalog.Collections {
+			if collection.ID != collectionID {
+				continue
+			}
+			for _, field := range collection.Fields {
+				if field.Name != fieldName || field.Type != schema.TypeFile {
+					continue
+				}
+				result := filestore.FieldPolicy{MaximumBytes: 5 << 20, MaximumCount: 1, MimeTypes: append([]string(nil), options.Files.AllowedTypes...), Thumbs: append([]string(nil), field.Options.Thumbs...), Required: field.Required}
+				if field.Options.MaxFileSize != nil {
+					result.MaximumBytes = *field.Options.MaxFileSize
+				}
+				if field.Options.MaxSelect != nil {
+					result.MaximumCount = *field.Options.MaxSelect
+				}
+				if len(field.Options.MimeTypes) != 0 {
+					result.MimeTypes = append([]string(nil), field.Options.MimeTypes...)
+				}
+				return result, nil
+			}
+		}
+		return filestore.FieldPolicy{}, filestore.ErrNotFound
+	}
+	service, err := filestore.NewService(pool, objects, authorize, filestore.Options{MaximumBytes: options.Files.MaximumBytes, MaximumImagePixels: options.Files.MaximumImagePixels, ThumbnailDimension: options.Files.ThumbnailDimension, AllowedTypes: options.Files.AllowedTypes, TokenSecret: options.TokenSecret, TokenTTL: options.Files.DownloadTokenTTL, Policy: policy, Hooks: options.Hooks})
 	if err != nil {
 		return api.Dependencies{}, nil, fmt.Errorf("configure file service: %w", err)
 	}

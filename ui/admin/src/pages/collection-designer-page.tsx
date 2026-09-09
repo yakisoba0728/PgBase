@@ -40,14 +40,14 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
     {designer.relationTargetsFailed && <p role="alert">Unable to load relation targets. Reload this page before adding a relation field.</p>}
-    {designer.isView && <p>This view is read-only. Its definition cannot be edited; delete and recreate the view to change it.</p>}
-    {!designer.isView && <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
+		{designer.isView && <p>{designer.isSQLView ? "Records in this SQL view are read-only. You can edit its SQL definition." : "This view is read-only. Its definition cannot be edited; delete and recreate the view to change it."}</p>}
+		{(!designer.isView || designer.isSQLView) && <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
       {designer.create && <>
         <label htmlFor="collection-name">Collection name</label>
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
       {designer.create && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
-      {designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} onChange={designer.setView} /> : <>
+		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} /> : <>
       <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor

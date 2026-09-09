@@ -75,6 +75,51 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := identity.Subject{Kind: identity.User, ID: userID}
+	unknownData := []byte("commit outcome")
+	unknownHash := sha256.Sum256(unknownData)
+	staged, err := service.Stage(ctx, principal, Upload{Filename: "unknown.txt", ContentType: "text/plain", Size: int64(len(unknownData)), SHA256: unknownHash, Body: bytes.NewReader(unknownData)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, release, committed := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		committed <- pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := service.Commit(ctx, tx, principal, []AttachmentChange{{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Additions: []StagedFile{staged}}}); err != nil {
+				return err
+			}
+			close(prepared)
+			<-release
+			return nil
+		})
+	}()
+	<-prepared
+	cleaned := make(chan error, 1)
+	go func() { cleaned <- service.Cleanup(ctx, []StagedFile{staged}) }()
+	select {
+	case err := <-cleaned:
+		t.Fatalf("cleanup did not wait for committing reference: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-cleaned; err != nil {
+		t.Fatal(err)
+	}
+	if reader, err := objects.Open(ctx, staged.file.ObjectKey); err != nil {
+		t.Fatalf("commit-unknown cleanup deleted referenced object: %v", err)
+	} else {
+		_ = reader.Close()
+	}
+	service.CompleteStaged([]StagedFile{staged}, nil)
+	if err := service.Delete(ctx, principal, staged.file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.DrainOne(ctx); err != nil || !worked {
+		t.Fatalf("cleanup committed test file = %t, %v", worked, err)
+	}
+
 	data := []byte("private attachment")
 	digest := sha256.Sum256(data)
 	file, err := service.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "notes.txt", ContentType: "text/plain", Size: int64(len(data)), SHA256: digest, Body: bytes.NewReader(data)})
@@ -101,6 +146,16 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 	other := identity.Subject{Kind: identity.User, ID: uuid.New()}
 	if _, _, err := service.Open(ctx, other, file.ID, Original, token); !errors.Is(err, ErrDenied) {
 		t.Fatalf("cross-user token Open = %v", err)
+	}
+	service.failUpload(ctx, file)
+	var readyStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM pgbase_meta.record_files WHERE id=$1`, file.ID).Scan(&readyStatus); err != nil || readyStatus != "ready" {
+		t.Fatalf("failUpload changed ready file status=%q err=%v", readyStatus, err)
+	}
+	if reader, err := objects.Open(ctx, file.ObjectKey); err != nil {
+		t.Fatalf("failUpload deleted ready object: %v", err)
+	} else {
+		_ = reader.Close()
 	}
 	if err := service.Delete(ctx, principal, file.ID); err != nil {
 		t.Fatal(err)

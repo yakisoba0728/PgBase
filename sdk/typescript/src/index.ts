@@ -32,6 +32,9 @@ export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
   | { operation: "delete"; collection: string; id: string; ifMatch?: string };
 export type BatchResult<T extends RecordData = RecordData> = { eventId: string; record?: T; etag?: string; version?: number };
+export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T>; headers?: Record<string,string> };
+export type BatchHTTPResult<T extends RecordData = RecordData> = { status: number; headers?: Record<string,string>; body?: T; eventId: string; etag?: string; version?: number };
+export type BatchFilePart = { blob: Blob; filename: string };
 export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean };
 export type MFAChallenge = { challengeToken: string; expiresAt: string };
 
@@ -230,6 +233,16 @@ export class PgBaseClient {
     return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ operations }) }, signal);
   }
 
+  batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], signal?: AbortSignal): Promise<{ results: BatchHTTPResult<T>[] }> {
+    return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ requests }) }, signal);
+  }
+
+  batchMultipart<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], files: Record<string,BatchFilePart>, signal?: AbortSignal): Promise<{ results: BatchHTTPResult<T>[] }> {
+    const body=new FormData();body.append("requests",JSON.stringify({requests}));
+    for(const [key,file] of Object.entries(files)){if(key==="requests"||key===""||file.filename==="")throw new PgBaseError(0,"invalid_batch_file");body.append(key,file.blob,file.filename)}
+    return this.request("/api/v1/user/collections/batch",{method:"POST",body},signal);
+  }
+
   files(collection: string, recordID: string): Files {
     return new Files(this, collection, recordID);
   }
@@ -361,6 +374,18 @@ export class AuthRealm {
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
   async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token); return session; }
+  oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession> {
+    const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
+    const providerError = url.searchParams.get("error");
+    if (providerError) throw new OAuthCallbackError(providerError, url.searchParams.get("error_description") ?? undefined);
+    const state = url.searchParams.get("state"); const code = url.searchParams.get("code");
+    if (!state || !code) throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
+    return this.oauthComplete(provider, state, code, signal);
+  }
+}
+
+export class OAuthCallbackError extends Error {
+  constructor(readonly code: string, message?: string) { super(message ?? code); this.name = "OAuthCallbackError"; }
 }
 
 export class Records<T extends RecordData> {

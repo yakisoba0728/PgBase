@@ -10,12 +10,12 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/jobs"
 )
 
-// ScheduledJob binds a durable database schedule to application code. Only
-// @every durations from one second through 24 hours are supported. They run
-// against PostgreSQL's UTC clock.
+// ScheduledJob binds a durable database schedule to application code. Schedule
+// accepts @every durations or standard five-field calendar cron expressions.
 type ScheduledJob struct {
 	Name     string
 	Schedule string
+	Timezone string
 	Handler  func(context.Context, JobRun) error
 }
 
@@ -42,7 +42,11 @@ func validateScheduledJobs(configured []ScheduledJob) error {
 		if _, exists := seen[job.Name]; exists {
 			return fmt.Errorf("Jobs: duplicate job name %q", job.Name)
 		}
-		if _, err := jobs.ParseSchedule(job.Schedule); err != nil {
+		timezone := job.Timezone
+		if timezone == "" {
+			timezone = "UTC"
+		}
+		if _, err := jobs.ParseScheduleInLocation(job.Schedule, timezone); err != nil {
 			return fmt.Errorf("Jobs[%q]: %w", job.Name, err)
 		}
 		seen[job.Name] = struct{}{}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/mailer"
 	"github.com/webisnoteasy/PgBase/internal/userauth"
 )
 
@@ -15,6 +16,7 @@ type AuthAdministration interface {
 	PutOAuthProvider(context.Context, uuid.UUID, userauth.OAuthProviderConfig) (userauth.OAuthProviderConfig, error)
 	DeleteOAuthProvider(context.Context, uuid.UUID, string) error
 	PutMailTemplate(context.Context, uuid.UUID, userauth.MailTemplate) (userauth.MailTemplate, error)
+	PreviewMailTemplate(context.Context, userauth.MailTemplate, string) (mailer.Message, error)
 	PutSMTPConfig(context.Context, uuid.UUID, userauth.SMTPAdminConfig) (userauth.SMTPAdminConfig, error)
 	TestSMTP(context.Context, uuid.UUID, string) error
 	SetUserVerified(context.Context, uuid.UUID, bool) (userauth.ManagedUser, error)
@@ -41,6 +43,7 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/oauth-providers/{provider}", e.provider),
 		write(http.MethodDelete, "/api/admin/auth-collections/{id}/oauth-providers/{provider}", e.provider),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/mail-templates/{purpose}", e.template),
+		write(http.MethodPost, "/api/admin/auth-collections/{id}/mail-templates/{purpose}/preview", e.templatePreview),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/smtp", e.smtp),
 		write(http.MethodPost, "/api/admin/auth-collections/{id}/smtp/test", e.smtpTest),
 		write(http.MethodPut, "/api/admin/users/{id}/verification", e.userVerification),
@@ -129,14 +132,35 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 func (e authAdministrationEndpoints) template(w http.ResponseWriter, r *http.Request) {
 	id, err := collectionID(r)
 	var in struct {
-		Subject string `json:"subject"`
-		Body    string `json:"body"`
+		Subject  string `json:"subject"`
+		Body     string `json:"body"`
+		HTMLBody string `json:"htmlBody"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutMailTemplate(r.Context(), id, userauth.MailTemplate{Purpose: r.PathValue("purpose"), Subject: in.Subject, Body: in.Body})
+	v, err := e.service.PutMailTemplate(r.Context(), id, userauth.MailTemplate{Purpose: r.PathValue("purpose"), Subject: in.Subject, Body: in.Body, HTMLBody: in.HTMLBody})
+	if err != nil {
+		writeAuthAdministrationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (e authAdministrationEndpoints) templatePreview(w http.ResponseWriter, r *http.Request) {
+	_, err := collectionID(r)
+	var in struct {
+		Subject   string `json:"subject"`
+		Body      string `json:"body"`
+		HTMLBody  string `json:"htmlBody"`
+		ActionURL string `json:"actionUrl"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	v, err := e.service.PreviewMailTemplate(r.Context(), userauth.MailTemplate{Purpose: r.PathValue("purpose"), Subject: in.Subject, Body: in.Body, HTMLBody: in.HTMLBody}, in.ActionURL)
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return

@@ -5,9 +5,11 @@
 package recordops
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/query"
 )
@@ -62,20 +64,24 @@ type GetRequest struct {
 }
 
 type CreateRequest struct {
-	Principal      Principal
-	RequestID      string
-	Collection     string
-	Input          map[string]json.RawMessage
-	IdempotencyKey string
+	Principal          Principal
+	RequestID          string
+	Collection         string
+	Input              map[string]json.RawMessage
+	IdempotencyKey     string
+	ID                 uuid.UUID
+	IdempotencyContext []byte
 }
 
 type UpdateRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	ID         uuid.UUID
-	Input      map[string]json.RawMessage
-	IfMatch    EntityTagSet
+	Principal      Principal
+	RequestID      string
+	Collection     string
+	ID             uuid.UUID
+	Input          map[string]json.RawMessage
+	IfMatch        EntityTagSet
+	SidecarFields  []string
+	SidecarContext []byte
 }
 
 type DeleteRequest struct {
@@ -90,15 +96,29 @@ type DeleteRequest struct {
 // intentionally limited at the API boundary to 50 operations and one MiB of
 // decoded JSON; callers should not use it for bulk import workloads.
 type BatchRequest struct {
-	Principal  Principal
-	RequestID  string
-	Operations []BatchOperation
+	Principal    Principal
+	RequestID    string
+	Operations   []BatchOperation
+	Participants []BatchParticipant
+}
+
+// BatchParticipant joins sidecar state to the same transaction after all
+// ordered record mutations have produced their final record IDs.
+type BatchParticipant interface {
+	CommitBatch(context.Context, pgx.Tx, []MutationResult) error
+}
+
+// TransactionValidator checks sidecar invariants after every participant has
+// written its final state and before the record transaction commits.
+type TransactionValidator interface {
+	ValidateRecords(context.Context, pgx.Tx, BatchRequest, []MutationResult) error
 }
 
 type BatchOperation struct {
 	Create *CreateRequest
 	Update *UpdateRequest
 	Delete *DeleteRequest
+	Upsert *UpdateRequest
 }
 
 func (operation BatchOperation) kind() string {
@@ -109,6 +129,8 @@ func (operation BatchOperation) kind() string {
 		return "update"
 	case operation.Delete != nil:
 		return "delete"
+	case operation.Upsert != nil:
+		return "upsert"
 	default:
 		return ""
 	}

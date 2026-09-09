@@ -20,7 +20,7 @@ func policyCollection(collection schema.Collection) schema.Collection {
 }
 
 func sourcePolicyCollection(catalog schema.Catalog, collection schema.Collection) (schema.Collection, error) {
-	if !collection.IsView() {
+	if !collection.IsView() || collection.IsSQLView() {
 		return policyCollection(collection), nil
 	}
 	source, ok := catalogCollectionByID(catalog, collection.AccessCollectionID())

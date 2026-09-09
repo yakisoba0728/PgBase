@@ -4,9 +4,10 @@ package mailer
 import "context"
 
 type Message struct {
-	To      string
-	Subject string
-	Text    string
+	To      string `json:"-"`
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	HTML    string `json:"html"`
 }
 
 type Sender interface {
