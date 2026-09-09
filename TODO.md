@@ -1,9 +1,9 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase3`, 기준 main `b942391` / PR #30 병합 완료. P1–P5는 PR #29, P6의 8개 영역은 PR #30으로 로컬 구현·검증 완료. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase4`, 기준 main `701256b` / PR #31 병합 완료. P1–P5는 PR #29, P6는 PR #30, P7은 PR #31로 구현·로컬 검증·병합 완료했고 실행 서버도 v32로 업그레이드했다. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
-## P7 — 남은 로컬 제품 기능 (진행 중)
+## P7 — 필드 표시·인증 확장·스키마 입출력·Go 라우트 (로컬 적용 완료)
 
 전체 후속 범위를 유지한다. 아래 작업 묶음의 완료는 PocketBase 전체 호환이나 외부 운영 검증 완료를 뜻하지 않는다. 비교 기준은 로컬에 고정한 PocketBase v0.40.3 소스다.
 
@@ -32,9 +32,9 @@
 - [x] 새 migration 순서·기존 checksum·OpenAPI·구조 예산 검증. 1–28 원본 동일, 신규 29–32 및 현재 사용 DB 복사본 upgrade/doctor 통과. 실측 예산·800줄 제한 및 전체 Go unit/race 통과.
 - [x] 전체 Go/UI/SDK 회귀와 새 기능 브라우저 인수. Go unit/race·PostgreSQL18+MinIO 전체 integration/race·skip 정책, lint/vet, UI 466개·전체 브라우저 15개와 추가 응답 유실 복구, SDK·6종 로컬 빌드 통과.
 - [x] [PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 생성.
-- [ ] 필수 원격 CI 통과·병합 및 기존 로컬 데이터 백업/업그레이드.
+- [x] 필수 원격 CI 5개 통과·[PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 병합(`701256b`). 기존 DB·파일·실행 파일 백업 후 v28→v32 적용. doctor 이상 없음, 관리자 로그인·schema export/preview·PG17 웹 백업/download/hash 검증 통과.
 
-현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)을 생성했고 원격 CI 진행 중이다. 실행 중 로컬 설치 기준은 PR #30 `b942391`이다.
+현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)의 필수 원격 CI 5개가 통과했고 병합 완료. 실행 중 로컬 설치 기준은 PR #31 `701256b`, schema v32이며 readiness 정상이다.
 
 - [x] 기존 실행 DB의 별도 복사본에 v28→v32 마이그레이션 적용 및 doctor 확인. 원본 DB/서버는 그대로 유지했고 readiness 정상.
 - [x] 구버전 field metadata 읽기 호환 수정 및 mixed-fleet CLI 회귀 2개 통과.
@@ -43,9 +43,9 @@
 
 후속 묶음(미완료): editor/geoPoint/사용자 autodate/일반 password 필드, S3 설정·시험 UI, 사용자 migration 작성/up/down, 나머지 lifecycle hooks, JSVM·Dart·SQL 콘솔·self-update의 제품 범위와 구현. 외부 검증 항목은 기존 대기 목록을 유지한다.
 
-## P8 — 다음 로컬 기능 묶음 (미착수)
+## P8 — 고급 필드·S3 설정·사용자 migration (설계 조사 완료, 구현 대기)
 
-P7의 최종 인수·PR·병합·로컬 적용 후 진행한다. PocketBase v0.40.3 원본의 각 필드/관리 기능 계약을 대조하고, PgBase의 PostgreSQL·UUID·세션 계약에 맞춰 구현한다. 아래 항목을 구현했다는 의미는 아니며, 테스트·UI 연결까지 확인한 뒤 개별 완료 처리한다.
+P7의 최종 인수·PR·병합·로컬 적용을 완료했다. Sol 에이전트 3명이 editor/geoPoint, autodate/password, S3 설정의 원본 계약·구현 지점·검증 목록 조사를 마쳤다. PocketBase v0.40.3 원본의 각 필드/관리 기능 계약을 대조하고, PgBase의 PostgreSQL·UUID·세션 계약에 맞춰 구현한다. 아래 항목을 구현했다는 의미는 아니며, 테스트·UI 연결까지 확인한 뒤 개별 완료 처리한다.
 
 ### P8-A 고급 필드
 - [ ] editor: 저장 형식·크기/필수 검증·출력 방식과 관리자 편집기 계약 대조.
