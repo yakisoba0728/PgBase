@@ -55,6 +55,23 @@ func TestNormalizeRequestAppliesReadDefaultsAndHardLimits(t *testing.T) {
 	}
 }
 
+func TestNormalizeRequestAppliesConfiguredTimeoutNarrowing(t *testing.T) {
+	t.Parallel()
+
+	request := Request{ExecutionID: uuid.New(), Statements: []Statement{{SQL: "select 1"}}}
+	normalized, err := NormalizeRequestWithTimeouts(request, false, 2*time.Second, 3*time.Second)
+	if err != nil || normalized.Timeout != 2*time.Second {
+		t.Fatalf("normalized timeout = %s, %v", normalized.Timeout, err)
+	}
+	request.Timeout = 4 * time.Second
+	if _, err := NormalizeRequestWithTimeouts(request, false, 2*time.Second, 3*time.Second); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("oversized timeout error = %v", err)
+	}
+	if _, err := NormalizeRequestWithTimeouts(request, false, 4*time.Second, 3*time.Second); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("invalid configured bounds error = %v", err)
+	}
+}
+
 func TestRequestDigestIsStableAndDomainSeparated(t *testing.T) {
 	t.Parallel()
 

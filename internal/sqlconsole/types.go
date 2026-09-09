@@ -178,6 +178,13 @@ var (
 )
 
 func NormalizeRequest(request Request, writeEnabled bool) (Request, error) {
+	return NormalizeRequestWithTimeouts(request, writeEnabled, DefaultTimeout, MaximumTimeout)
+}
+
+func NormalizeRequestWithTimeouts(request Request, writeEnabled bool, defaultTimeout, maximumTimeout time.Duration) (Request, error) {
+	if defaultTimeout < time.Millisecond || maximumTimeout < defaultTimeout || maximumTimeout > MaximumTimeout {
+		return Request{}, fmt.Errorf("%w: invalid configured timeout bounds", ErrInvalidRequest)
+	}
 	if request.ExecutionID == uuid.Nil {
 		return Request{}, fmt.Errorf("%w: execution ID is required", ErrInvalidRequest)
 	}
@@ -194,10 +201,10 @@ func NormalizeRequest(request Request, writeEnabled bool) (Request, error) {
 		return Request{}, fmt.Errorf("%w: at most %d statements are allowed", ErrRequestTooLarge, MaximumStatements)
 	}
 	if request.Timeout == 0 {
-		request.Timeout = DefaultTimeout
+		request.Timeout = defaultTimeout
 	}
-	if request.Timeout < time.Millisecond || request.Timeout > MaximumTimeout {
-		return Request{}, fmt.Errorf("%w: timeout must be between 1ms and %s", ErrInvalidRequest, MaximumTimeout)
+	if request.Timeout < time.Millisecond || request.Timeout > maximumTimeout {
+		return Request{}, fmt.Errorf("%w: timeout must be between 1ms and %s", ErrInvalidRequest, maximumTimeout)
 	}
 	if request.Mode == ModeRead && request.DryRun {
 		return Request{}, fmt.Errorf("%w: dry-run is only valid for write mode", ErrInvalidRequest)

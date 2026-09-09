@@ -47,10 +47,12 @@ type executorCloser interface {
 }
 
 type Service struct {
-	executor     Executor
-	ledger       *Ledger
-	secret       []byte
-	writeEnabled bool
+	executor       Executor
+	ledger         *Ledger
+	secret         []byte
+	writeEnabled   bool
+	defaultTimeout time.Duration
+	maximumTimeout time.Duration
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -64,6 +66,12 @@ type Service struct {
 	jobs      map[uuid.UUID]*executionJob
 	sessions  map[SessionKey]*sessionLimiter
 	closeDone chan struct{}
+}
+
+type ServiceOptions struct {
+	WriteEnabled   bool
+	DefaultTimeout time.Duration
+	MaximumTimeout time.Duration
 }
 
 type sessionLimiter struct {
@@ -83,15 +91,25 @@ type executionJob struct {
 }
 
 func NewService(ctx context.Context, executor Executor, ledger *Ledger, secret []byte, writeEnabled bool) (*Service, error) {
+	return NewServiceWithOptions(ctx, executor, ledger, secret, ServiceOptions{
+		WriteEnabled: writeEnabled, DefaultTimeout: DefaultTimeout, MaximumTimeout: MaximumTimeout,
+	})
+}
+
+func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledger, secret []byte, options ServiceOptions) (*Service, error) {
 	if ctx == nil || executor == nil || ledger == nil || len(secret) < 32 {
 		return nil, errors.New("SQL console service configuration is incomplete")
+	}
+	if options.DefaultTimeout < time.Millisecond || options.MaximumTimeout < options.DefaultTimeout || options.MaximumTimeout > MaximumTimeout {
+		return nil, errors.New("SQL console service timeout configuration is invalid")
 	}
 	if err := ledger.Reconcile(ctx); err != nil {
 		return nil, fmt.Errorf("reconcile SQL console ledger: %w", err)
 	}
 	serviceContext, cancel := context.WithCancel(context.Background())
 	return &Service{
-		executor: executor, ledger: ledger, secret: append([]byte(nil), secret...), writeEnabled: writeEnabled,
+		executor: executor, ledger: ledger, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
+		defaultTimeout: options.DefaultTimeout, maximumTimeout: options.MaximumTimeout,
 		ctx: serviceContext, cancel: cancel, global: make(chan struct{}, MaximumGlobalRunning),
 		pending: make(chan struct{}, MaximumPending), jobs: make(map[uuid.UUID]*executionJob),
 		sessions: make(map[SessionKey]*sessionLimiter), closeDone: make(chan struct{}),
@@ -102,7 +120,7 @@ func (service *Service) Submit(ctx context.Context, actor Actor, request Request
 	if err := validateActor(actor); err != nil {
 		return Execution{}, err
 	}
-	normalized, err := NormalizeRequest(request, service.writeEnabled)
+	normalized, err := NormalizeRequestWithTimeouts(request, service.writeEnabled, service.defaultTimeout, service.maximumTimeout)
 	if err != nil {
 		return Execution{}, err
 	}
