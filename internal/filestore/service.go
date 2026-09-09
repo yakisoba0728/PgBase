@@ -161,6 +161,26 @@ type FileEvent struct {
 	Staged    bool
 }
 
+// FileAccessEvent is the credential-free read boundary. File identity and
+// principal are observations of completed authorization; changing either does
+// not change the storage operation. Variant is also observational so a hook
+// cannot turn an authorized request into a different rendition.
+type FileAccessEvent struct {
+	FileID       uuid.UUID
+	CollectionID uuid.UUID
+	RecordID     uuid.UUID
+	Field        string
+	Filename     string
+	ContentType  string
+	Size         int64
+	Principal    identity.Subject
+	Variant      Variant
+}
+
+func publicFileAccessEvent(file File, principal identity.Subject, variant Variant) *FileAccessEvent {
+	return &FileAccessEvent{FileID: file.ID, CollectionID: file.CollectionID, RecordID: file.RecordID, Field: file.Field, Filename: file.Filename, ContentType: file.ContentType, Size: file.Size, Principal: principal, Variant: variant}
+}
+
 type Variant string
 
 const (
@@ -384,12 +404,19 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 		}
 	}
 	if variant != Original && variant != Thumbnail {
-		key, err = s.variantObject(ctx, file, string(variant))
+		err = s.options.Hooks.Run(ctx, &lifecycle.Event{Kind: "file.transform", Data: publicFileAccessEvent(file, principal, variant)}, func() error {
+			key, err = s.variantObject(ctx, file, string(variant))
+			return err
+		})
 		if err != nil {
 			return File{}, nil, err
 		}
 	}
-	reader, err := s.objects.Open(ctx, key)
+	var reader io.ReadCloser
+	err = s.options.Hooks.Run(ctx, &lifecycle.Event{Kind: "file.download", Data: publicFileAccessEvent(file, principal, variant)}, func() error {
+		reader, err = s.objects.Open(ctx, key)
+		return err
+	})
 	return file, reader, err
 }
 
@@ -567,7 +594,12 @@ func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subj
 	}); err != nil {
 		return "", err
 	}
-	return s.signDownloadToken(principal, id, variant), nil
+	var token string
+	err := s.options.Hooks.Run(ctx, &lifecycle.Event{Kind: "file.token", Data: publicFileAccessEvent(file, principal, variant)}, func() error {
+		token = s.signDownloadToken(principal, id, variant)
+		return nil
+	})
+	return token, err
 }
 
 func (s *Service) signDownloadToken(principal identity.Subject, id uuid.UUID, variant Variant) string {

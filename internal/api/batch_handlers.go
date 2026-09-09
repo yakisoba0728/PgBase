@@ -148,9 +148,21 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		participant := &fileBatchParticipant{service: e.files, principal: principal, attachments: attachments}
 		participants = []recordops.BatchParticipant{participant}
 	}
+	event := &BatchRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Operations: operations}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.batch", event)
+	if err != nil {
+		finish(err)
+		if len(staged) > 0 && e.files != nil {
+			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
+		}
+		writeRecordError(w, r, err)
+		return
+	}
 	results, err := service.Batch(r.Context(), recordops.BatchRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Operations: operations, Participants: participants,
+		Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants,
 	})
+	event.Results = results
+	finish(err)
 	if err != nil {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())

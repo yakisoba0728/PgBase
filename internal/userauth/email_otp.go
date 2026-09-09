@@ -172,5 +172,5 @@ func (s *Service) sendOTP(ctx context.Context, collectionID uuid.UUID, to, otpID
 	if err != nil {
 		return err
 	}
-	return sender.Send(ctx, mailer.Message{To: to, Subject: subject, Text: body, HTML: htmlBody})
+	return sender.Send(ctx, mailer.Message{Purpose: "otp", To: to, Subject: subject, Text: body, HTML: htmlBody})
 }

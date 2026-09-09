@@ -13,6 +13,7 @@ import (
 )
 
 type Dependencies struct {
+	LifecycleHooks              LifecycleHooks
 	CustomRoutes                []CustomRoute
 	AuthAdministration          AuthAdministration
 	RequestLog                  *observability.RequestLog
@@ -63,7 +64,7 @@ type Dependencies struct {
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
 	schemas := schemaEndpoints{service: dependencies.Schema}
-	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
 	logout := http.HandlerFunc(admin.logout)
 	login := http.HandlerFunc(admin.login)
 

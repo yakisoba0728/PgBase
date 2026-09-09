@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/filestore"
 	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/mailer"
@@ -23,8 +24,24 @@ const (
 	HookRecordBefore             = "record.before"
 	HookRecordAfter              = "record.after"
 	HookMailSend                 = "mail.send"
+	HookMailOTP                  = "mail.otp"
+	HookMailVerification         = "mail.verification"
+	HookMailPasswordReset        = "mail.password_reset"
+	HookMailEmailChange          = "mail.email_change"
+	HookMailSMTPTest             = "mail.smtp_test"
 	HookFileUpload               = "file.upload"
 	HookFileDelete               = "file.delete"
+	HookFileToken                = "file.token"
+	HookFileDownload             = "file.download"
+	HookFileTransform            = "file.transform"
+	HookRecordListRequest        = "record.list"
+	HookRecordViewRequest        = "record.view"
+	HookRecordCreateRequest      = "record.create"
+	HookRecordUpdateRequest      = "record.update"
+	HookRecordDeleteRequest      = "record.delete"
+	HookRecordBatchRequest       = "record.batch"
+	HookSchemaImportPreview      = "schema.import.preview"
+	HookSchemaImportApply        = "schema.import.apply"
 	HookCollectionCreate         = "collection.create"
 	HookCollectionUpdate         = "collection.update"
 	HookCollectionDelete         = "collection.delete"
@@ -73,6 +90,20 @@ type MailMessage = mailer.Message
 
 // FileEvent describes file metadata without retaining uploaded bytes.
 type FileEvent = filestore.FileEvent
+type FileAccessEvent = filestore.FileAccessEvent
+
+// RecordRequestEvent and BatchRequestEvent are typed request payloads. Their
+// documented mutable fields are passed to the service; identity fields are
+// copied observations and cannot alter authorization or idempotency.
+type RecordRequestEvent = api.RecordRequestEvent
+type BatchRequestEvent = api.BatchRequestEvent
+type SchemaImportRequestEvent = api.SchemaImportRequestEvent
+
+type lifecycleAPIHooks struct{ registry *HookRegistry }
+
+func (h lifecycleAPIHooks) Begin(ctx context.Context, event *api.LifecycleEvent) (func(error), error) {
+	return h.registry.Begin(ctx, &HookEvent{Kind: event.Kind, Data: event.Data})
+}
 
 func requestHooks(registry *HookRegistry, next http.Handler) http.Handler {
 	if registry == nil {
@@ -115,7 +146,59 @@ type hookedMailer struct {
 }
 
 func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
-	return m.registry.Run(ctx, &HookEvent{Kind: HookMailSend, Data: &message}, func() error { return m.sender.Send(ctx, message) })
+	// Preserve the established mail.send payload. Purpose-specific hooks receive
+	// the richer MailEvent after generic hooks have adjusted the message.
+	purpose := message.Purpose
+	finish, err := m.registry.Begin(ctx, &HookEvent{Kind: HookMailSend, Data: &message})
+	if err != nil {
+		finish(err)
+		return err
+	}
+	// Purpose belongs to the trusted calling service. A generic mail hook may
+	// edit deliverable fields but cannot recategorize a send into another hook.
+	message.Purpose = purpose
+	if kind := mailPurposeHook(message.Purpose); kind != "" {
+		event := &MailEvent{Purpose: message.Purpose, Message: message}
+		purposeFinish, purposeErr := m.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+		if purposeErr != nil {
+			purposeFinish(purposeErr)
+			finish(purposeErr)
+			return purposeErr
+		}
+		err = m.sender.Send(ctx, event.Message)
+		message = event.Message
+		purposeFinish(err)
+		finish(err)
+		return err
+	}
+	err = m.sender.Send(ctx, message)
+	finish(err)
+	return err
+}
+
+// MailEvent deliberately has no SMTP configuration or credentials. Message
+// content can be adjusted before delivery, while Purpose identifies the
+// trusted service path and is observational.
+type MailEvent struct {
+	Purpose string
+	Message mailer.Message
+}
+
+func mailPurposeHook(purpose string) string {
+	switch purpose {
+	case "otp":
+		return HookMailOTP
+	case "verification":
+		return HookMailVerification
+	case "password_reset":
+		return HookMailPasswordReset
+	case "email_change":
+		return HookMailEmailChange
+	case "smtp_test":
+		return HookMailSMTPTest
+	default:
+		return ""
+	}
 }
 
 func applicationMutationHooks(options Options) []MutationHook {

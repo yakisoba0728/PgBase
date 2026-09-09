@@ -336,7 +336,13 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 	if err != nil {
 		return errors.New("send user email action")
 	}
-	message := mailer.Message{To: to, Subject: subject, Text: body, HTML: htmlBody}
+	purpose := "verification"
+	if action == "reset" {
+		purpose = "password_reset"
+	} else if action == "email-change" {
+		purpose = "email_change"
+	}
+	message := mailer.Message{Purpose: purpose, To: to, Subject: subject, Text: body, HTML: htmlBody}
 	if err := sender.Send(ctx, message); err != nil {
 		return errors.New("send user email action")
 	}
