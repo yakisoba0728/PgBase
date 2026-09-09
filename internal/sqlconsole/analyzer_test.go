@@ -72,6 +72,15 @@ func TestAnalyzeWriteKeepsReadAndThreeDMLFormsAtomic(t *testing.T) {
 			t.Fatalf("statement %d target = %#v", index, target)
 		}
 	}
+	if got := plan.Statements[1].WriteColumns; !sameStrings(got, []string{"amount", "id"}) {
+		t.Fatalf("INSERT write columns = %#v", got)
+	}
+	if got := plan.Statements[2].WriteColumns; !sameStrings(got, []string{"amount"}) {
+		t.Fatalf("UPDATE write columns = %#v", got)
+	}
+	if got := plan.Statements[3].WriteColumns; len(got) != 0 {
+		t.Fatalf("DELETE write columns = %#v", got)
+	}
 }
 
 func TestAnalyzeRejectsEveryUnmodelledOrEffectfulShape(t *testing.T) {
@@ -95,8 +104,10 @@ func TestAnalyzeRejectsEveryUnmodelledOrEffectfulShape(t *testing.T) {
 		{name: "metadata write", mode: ModeWrite, sql: "DELETE FROM pgbase_meta.collections"},
 		{name: "default values", mode: ModeWrite, sql: "INSERT INTO ext.items DEFAULT VALUES"},
 		{name: "implicit insert columns", mode: ModeWrite, sql: "INSERT INTO ext.items VALUES (1)"},
+		{name: "duplicate insert columns", mode: ModeWrite, sql: "INSERT INTO ext.items(id,id) VALUES (1,2)"},
 		{name: "on conflict", mode: ModeWrite, sql: "INSERT INTO ext.items(id) VALUES (1) ON CONFLICT (id) DO NOTHING"},
 		{name: "indirected update", mode: ModeWrite, sql: "UPDATE ext.items SET tags[1]='x'"},
+		{name: "duplicate update columns", mode: ModeWrite, sql: "UPDATE ext.items SET amount=1,amount=2"},
 		{name: "user function", mode: ModeRead, sql: "SELECT ext.steal()"},
 		{name: "unknown function", mode: ModeRead, sql: "SELECT pg_catalog.lo_import('/tmp/x')"},
 		{name: "unsafe cast", mode: ModeRead, sql: "SELECT 'x'::ext.secret_type"},
@@ -114,6 +125,18 @@ func TestAnalyzeRejectsEveryUnmodelledOrEffectfulShape(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestAnalyzeRequiresExactBoundParameters(t *testing.T) {

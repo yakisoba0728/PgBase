@@ -31,12 +31,13 @@ type FunctionRef struct {
 }
 
 type AnalyzedStatement struct {
-	Kind        StatementKind
-	Relations   []RelationRef
-	Functions   []FunctionRef
-	Casts       []string
-	Operators   []string
-	WriteTarget *RelationRef
+	Kind         StatementKind
+	Relations    []RelationRef
+	Functions    []FunctionRef
+	Casts        []string
+	Operators    []string
+	WriteTarget  *RelationRef
+	WriteColumns []string
 }
 
 type Plan struct {
@@ -143,6 +144,7 @@ func analyzeStatement(index int, mode Mode, statement Statement) (AnalyzedStatem
 			return AnalyzedStatement{}, reject(index, err.Error())
 		}
 		analyzed.WriteTarget = &target
+		analyzed.WriteColumns = sortedStrings(typed.Columns)
 	case *pgparse.UpdateStmt:
 		if mode != ModeWrite {
 			return AnalyzedStatement{}, reject(index, "UPDATE requires write mode")
@@ -153,6 +155,11 @@ func analyzeStatement(index int, mode Mode, statement Statement) (AnalyzedStatem
 			return AnalyzedStatement{}, reject(index, err.Error())
 		}
 		analyzed.WriteTarget = &target
+		columns := make([]string, 0, len(typed.Set))
+		for _, assignment := range typed.Set {
+			columns = append(columns, assignment.Column)
+		}
+		analyzed.WriteColumns = sortedStrings(columns)
 	case *pgparse.DeleteStmt:
 		if mode != ModeWrite {
 			return AnalyzedStatement{}, reject(index, "DELETE requires write mode")
@@ -225,6 +232,9 @@ func validateInsert(statement *pgparse.InsertStmt) (RelationRef, error) {
 	if statement.DefaultValues || len(statement.Columns) == 0 {
 		return RelationRef{}, errors.New("INSERT must name every target column and explicit values")
 	}
+	if hasDuplicateStrings(statement.Columns) {
+		return RelationRef{}, errors.New("INSERT target columns must be unique")
+	}
 	if statement.OnConflict != nil {
 		return RelationRef{}, errors.New("ON CONFLICT is not in the allowed write grammar")
 	}
@@ -247,10 +257,15 @@ func validateUpdate(statement *pgparse.UpdateStmt) (RelationRef, error) {
 	if len(statement.Set) == 0 {
 		return RelationRef{}, errors.New("UPDATE must assign at least one column")
 	}
+	columns := make([]string, 0, len(statement.Set))
 	for _, assignment := range statement.Set {
 		if assignment.Column == "" || assignment.Target != nil || len(assignment.Columns) != 0 || len(assignment.Values) != 0 {
 			return RelationRef{}, errors.New("UPDATE permits direct single-column assignments only")
 		}
+		columns = append(columns, assignment.Column)
+	}
+	if hasDuplicateStrings(columns) {
+		return RelationRef{}, errors.New("UPDATE target columns must be unique")
 	}
 	return target, nil
 }
@@ -444,6 +459,24 @@ func sortedKeys(values map[string]struct{}) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func sortedStrings(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
+}
+
+func hasDuplicateStrings(values []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			return true
+		}
+		seen[key] = struct{}{}
+	}
+	return false
 }
 
 func reject(statement int, reason string) error {
