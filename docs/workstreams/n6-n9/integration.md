@@ -7,11 +7,11 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 07:36 KST
+Last updated: 2026-09-10 08:15 KST
 
 ## Current milestone
 
-**PAUSED by user request.** G0 through G3 are complete. N6 and N7 are accepted with their independent review and actual external/cross/browser evidence. N9 private implementation and shared composition are closed pending G5. N8 remains incomplete: the integrated pre-pause checkpoint is `6bb6dbb0c6de8f99de66e94cd1838db12ac93eed`, while Euclid's clean but unaccepted WIP is preserved only on `codex/n8-sql-console` at `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`. No G5 or final N6–N9 acceptance is claimed.
+**ACTIVE after explicit user resume from `9acc7b2`.** G0 through G3 are complete. N6 and N7 are accepted with their independent review and actual external/cross/browser evidence. N9 private implementation and shared composition are closed pending G5. N8 remains incomplete: the integrated pre-pause checkpoint is `6bb6dbb0c6de8f99de66e94cd1838db12ac93eed`, while Euclid's clean but unaccepted WIP is preserved only on `codex/n8-sql-console` at `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`. No G5 or final N6–N9 acceptance is claimed.
 
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
@@ -23,7 +23,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | N8 UI | Feynman, Terra / `codex/n8-sql-console-ui` | clean source `cd092fb`, integrated as `35712f4`; focused 17 green, real browser unrun; worker closed | resume only after accepted backend fixture/credentials exist |
 | N8 review | Gauss, Sol / `codex/n8-review` | clean incomplete pause checkpoint `9ac351a`, integrated docs-only as `0b1ecc8`; no full PASS | R1–R4/R8–R10/R12 and backend `sessionIdentity` composition remain open; R5–R7/R11 closed |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private PASS/PASS `b74a49a`; build metadata `d6d9a9a`/`203ae3e` seam closure | G5 integrated checks only |
-| Integration | GPT-5.6 Sol / this branch | paused after completed composition/review checkpoint `6bb6dbb`; pause docs follow | no product/test/review work until explicit resume |
+| Integration | GPT-5.6 Sol / this branch | active from clean checkpoint `9acc7b2` | shared composition and final parallel G5 execution |
 
 ## Ownership and invariants
 
@@ -142,3 +142,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 07:32 KST — integrated Gauss's R6/R11 delta closure `d579b88` as `465b8f5`. Independent source inspection and the same 17 focused adapter/page tests found no remaining UI issue in session-scoped recovery or durable-summary rendering. Final UI review is now limited to Euclid's exact `sessionIdentity` capability composition and the real isolated browser run; R1–R4/R8–R10/R12 remain backend-owner work.
 - 2026-09-10 07:36 KST — **user pause checkpoint.** No new implementation, review, test or G5 work continues. Integration product/UI content is clean through `6bb6dbb`. Feynman's clean `cd092fb` is already represented by integration `35712f4`; its 17 focused tests passed before pause, but no browser was run. Euclid preserved the unintegrated clean WIP `4d773b5` with candidates for R1–R4/R8–R12 and `sessionIdentity`; all remain unaccepted. Its current R12 PG17/18 run failed only an obsolete `>=5` history-count assertion after cleanup returned 4, the assertion was changed to `>=4` plus old-write absence, and that change was not rerun. Current full PG17/18, race, six-build and browser were not run after the WIP checkpoint; no API/UI server or credential file was created. Gauss preserved the explicitly incomplete review `9ac351a`, integrated docs-only as `0b1ecc8`: R5–R7/R11 and early parser/clone are closed, while R1–R4/R8–R10/R12, backend identity composition and final evidence remain open with no full PASS.
 - 2026-09-10 07:36 KST — pause resource handoff: N8-owned PG17/PG18 containers on `55470`/`55471` were verified by Compose project/name and stopped without removal; their container/data state remains for resume. The completed N6 disposable PG `55469` container had Docker AutoRemove enabled, so stopping it removed that container and its anonymous volume; committed N6 evidence remains and the fixture is reproducible. No process or command targeted live HTTP `8090`, PostgreSQL `55440`, MinIO `59000`, or existing userdata.
+
+- 2026-09-10 08:15 KST — user resumed N8 completion and final G5 from clean `9acc7b2`. Euclid reruns the patched R12 case before stabilizing the backend delta; Gauss reviews `4d773b5` immediately in parallel; Feynman prepares the isolated browser fixture after the ownership handshake. Lead owns shared composition and central TODO. Spark/Luna helpers may run independent final command groups at fixed SHAs. Unchanged green N6/N7/N9 scopes and closed UI review are not repeated.
