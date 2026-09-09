@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:24 KST
+Last updated: 2026-09-10 04:26 KST
 
 ## Current milestone
 
@@ -20,7 +20,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | domain services/hooks/migrations integrated through `94b32b3`; focused race and isolated PG exact 3-test green, no blocker | durable jobs, broader migrations, CLI, external JS app, stress and review |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | Standards 0/Spec 0; actual `58091` stale ETag, idempotency replay/conflict, cursor exact JSONB and batch rollback added through `d0deb9d` | revocation/SSE, admin 401/403, cursor-expired/cancel upload, same-origin admin browser |
 | N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | active pre-G3 preparation, `N8.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
-| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | active pre-G3 preparation, `N9.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
+| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | preparation `823ccbc` integrated as `08ce58c`; `N9.md` only, clean, blocker none | waiting; product start only on G3 signal |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
 
 ## Ownership and invariants
@@ -76,3 +76,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:20 KST — integrated Newton's final review-only `4c19f7f` as `d4598ff`; bounded N7 result is Standards 0 and Spec 0. On the exact integrated source exported to a disposable archive, dependency resolution, Dart analyze, and all 20 tests passed. The first archive attempt had placed `PUB_CACHE` inside the analyzed tree and was discarded as a fixture error; the corrected cache was outside the source tree.
 - 2026-09-10 04:20 KST — Astra assigned pre-G3 preparation to Euclid/Sol (`01a0879d-2152-7770-89da-2db5b4e51cc9`, `codex/n8-sql-console`, N8 worktree) and Sagan/Terra (`01a0879d-21cf-73a0-8762-3db86df2f9f6`, `codex/n9-self-update`, N9 worktree). Both tasks are active and restricted to their single status document and seam inventory; no product, dependency or database change is authorized before G3.
 - 2026-09-10 04:24 KST — integrated N7 actual-conformance expansion `a5bff01` as `d0deb9d`. On dedicated `58091`, the worker passed real stale 412 with current ETag, same-key/same-body idempotent replay, same-key/different-body 409, cursor paging with lossless `900719925474099312345.0001`, and failed batch rollback. Revocation/SSE adoption, admin 401/403, cursor expiry/canceled upload where supported, and same-origin admin browser remain; installed endpoints were excluded.
+- 2026-09-10 04:26 KST — integrated Sagan's N9 preparation `823ccbc` as `08ce58c`. The only changed file is `N9.md`; it fixes the trust-key/signed-manifest contract, bounded retrieval, durable journal/lock/backup/atomic replace/probe rollback, six-build evidence and separate database recovery order. There is no blocker. Windows completion requires an N9-private `ReplaceFile` binding/helper and Windows-native evidence; the only shared composition seam is the N6/N9 CLI command table after G3.
