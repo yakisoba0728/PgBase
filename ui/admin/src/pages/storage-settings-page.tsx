@@ -81,7 +81,6 @@ export function StorageSettingsPage() {
           return;
         }
         if (value.status === "failed") { setMessage("Storage migration failed. Resume or cancel this migration before starting another."); return; }
-        setMessage(undefined);
       } catch (error) {
         if (controller.signal.aborted) return;
         setMissingMigration(error instanceof StorageMigrationNotFound);
