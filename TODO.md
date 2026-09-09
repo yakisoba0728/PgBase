@@ -1,5 +1,20 @@
 # pgBase 구현 현황 / TODO
 
+## N1–N5 원격 병합·기존 설치 반영 — 새 승인 범위 진행 중
+
+2026-09-10 사용자 승인: 검증된 N1–N5를 push→PR→필수 CI→merge한 뒤 기존 PG17/schema38/HTTP8090 설치를 별도 백업하고 binary/schema40 적용·실제 인수를 수행한다. 과거의 원격/설치 제외 기록은 당시 범위이며 이 승인으로 갱신된다. 통합 담당은 현재 checkout과 공용 문서 단일 소유자, Sol/Terra 작업자는 CI 수정·검증·설치를 담당한다. N6–N9 구현, 공개 release/npm/pub.dev, cloud deploy와 외부 provider 설정은 이번 단계에 포함하지 않는다.
+
+- [x] 시작점 확인: `codex/n1-n5-integration`, clean `edf5569`.
+- [x] origin/default branch·기존 PR·보호 정책 확인: `origin/main=238cc37`, N1–N5 기존 PR 없음. active ruleset `22511139`, strict 필수 CI 5개, bypass actor 없음.
+- [ ] concrete PR 작성·push.
+- [ ] 필수 CI 통과 및 정상 merge. 보호 규칙 우회·force push 없음.
+- [ ] 정확한 live 설치 식별, 중단→별도 DB/files/archives/config/binary 백업→복구 절차 기록·검토.
+- [ ] merge 제품 binary와 schema38→40 적용·재시작.
+- [ ] canary/hash·doctor/readiness/login·N1–N5 실제 smoke·데이터 보존 및 복구 증거 확인.
+- [ ] TODO/project-status/next-work에 PR·CI·merge·설치 제품 commit·별도 문서 commit 관계를 기록.
+
+현재 단계(2026-09-10 02:25 KST): 원격 정책 확인 완료, PR 작성 중. 필수 CI는 `Go unit`, `Observability artifacts`, `PostgreSQL integration / 17.9`, `test`, `audit`; approving review 0개·미해결 review thread 없음이 필요하다. 기존 worker 재호출이 실패해 isolated `install-stage`/GPT-5.6 Sol과 `ci-stage`/GPT-5.6 Terra를 실행했다. Sol은 기존 `.local/verification/phase4-*` 기록으로 설치 경계·백업/복구 절차 준비, Terra는 CI·설치 절차 독립 검토 담당이다. 정확 live 경계는 확인 중이며 기존 설치 변경은 아직 없다. 권한/자동승인 거절 없음. 설치는 필수 CI green 및 merge 후 실행한다. 상세 기록: [원격·설치 단계](docs/workstreams/n1-n5/release-install.md).
+
 ## N1–N5 병렬 실행 — 로컬 통합·인수 완료 (최종 동기화 2026-09-10 02:13 KST)
 
 실행 계획: [N1–N5 계획](docs/superpowers/plans/2026-09-09-n1-n5-execution.md). Astra는 조율, GPT-5.6 Sol/Terra는 구현·통합·검증을 담당한다.
