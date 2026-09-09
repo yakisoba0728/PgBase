@@ -76,3 +76,9 @@ This was reproduced in a review-local temporary unit fixture: `go test ./interna
 - `go test -race ./internal/cli -run '^TestJavaScriptMigrationPreflightsBundleBeforeDatabase$' -count=1` — pass.
 - `go test -race ./pgbase -run '^TestJavaScriptHook' -count=1` — pass.
 - The review did not run PostgreSQL integration tests, a live listener, Docker, UserData, or the coordinated N6 fixture.
+
+## Follow-up re-review — `007e5242a14110000042c92d0ead712b923eb536`
+
+The aliased-`require` P1 is resolved. [`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:383`](/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:383) counts each `require` identifier and [`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:428`](/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n6/internal/jsvm/bundle.go:428) rejects every occurrence that is not a direct, single static-string call. The added unit covers `const load = require`; direct, nested, `Down`-only, and dynamic cases remain covered. A review-local fixture also confirmed that an ordinary object property named `require` is not rejected; it was removed afterward.
+
+No Standards or Spec finding remains in this narrow fix. `git diff --check 007e524^ 007e524` is clean, and `go test -race ./internal/jsvm -run '^(TestMigrationBundleFreezesOnlyDeclaredSources|TestLoadBundleRejectsUndeclaredMigrationDependencyClosure|TestLoadBundleRejectsDynamicRequireInMigrationSource|TestLoadBundleRejectsAliasedRequireInMigrationSource)$' -count=1` passed. PostgreSQL acceptance was not run by this review because it requires the coordinated fixture.
