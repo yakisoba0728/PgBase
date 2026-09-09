@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:05 KST
+Last updated: 2026-09-10 04:08 KST
 
 ## Current milestone
 
@@ -18,7 +18,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | Workstream | Worker / branch / worktree | State at 03:38 KST | Integration requirement |
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | foundation `218f276` integrated as `15676e5`; focused race green. WIP adds admitted-request record/mail/file facade, exact DTO, lifecycle priority/veto/After and jobs; no blocker | first isolated PG/domain authorization/hook gate, migrations, CLI, external JS app, stress and review |
-| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | initial through `85c249a`; Newton review `0128a9b` Standards 0/Spec 7. Owner fixes `2bd50f2` integrated as `5c218ab`, evidence `fb5111c`; integrated analyze and 17 tests green; live/browser green | Newton exact re-review and remaining live-contract inventory closure |
+| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | initial review 7 findings; owner fixes integrated as `5c218ab`, analyze/17 tests and live/browser green. Newton re-review closes six topics but leaves one P1 and two P2 | second narrow fix/re-review, actual failure matrix and same-origin admin browser |
 | N8 | Sol worker, assignment through Astra after G3 | not started | detailed N8 design/status first; SQL authorization, parser, transaction/cancel/result limits and UI/browser acceptance |
 | N9 | Terra worker, assignment through Astra after G3 | not started | detailed N9 design/status first; signed manifest, atomic replacement, interruption/rollback and native fixture acceptance |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
@@ -69,3 +69,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:00 KST — integrated Newton's review-only `7fbe383` as `0128a9b`. `N7-review.md` records Standards 0 and Spec 7: three reproduced P1 findings and four P2 findings including approved plan/replay binding and structured request-ID/network errors. The review changed no product file and used no shared/live fixture. Einstein is implementing the returned fixes; Newton remains the sole reviewer for focused closure.
 - 2026-09-10 04:03 KST — observed N6's first dedicated database fixture: container `pgbase-n6-pg-20260910`, pinned `postgres:17.9-bookworm` image, loopback `55469`. It does not collide with N7 or installed ports. Worker WIP now includes JS migrations and an integration test, but no stable commit or PG pass has been reported; the gate remains active.
 - 2026-09-10 04:05 KST — integrated N7 owner fixes `2bd50f2` as `5c218ab` and acceptance evidence `c266bc5` as `fb5111c`, without rebased plan `39b170c`. The changes address all seven review topics and add the browser fixture. On the integrated branch, Dart 3.13.3 analyze and all 17 focused tests passed. Newton received the exact fix SHA for reproduction-based re-review; N7 remains open until that closure and remaining live-contract coverage are resolved.
+- 2026-09-10 04:08 KST — Newton re-review confirmed the prior 17 tests/analyze and closed stale admin 401, stalled file cancellation, terminal SSE classification, realm profile, request ID and save-vs-clear behavior. Exact repros still fail for clear-started-before-restore ordering, mutation of a nested approved-plan payload during/after preview, and unmapped `http.ClientException` network failures. Returned those one P1/two P2 items to Einstein; no N7 completion is claimed.
