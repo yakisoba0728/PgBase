@@ -68,6 +68,14 @@ func TestRandomStringByPatternIsBoundedAndMatching(t *testing.T) {
 			t.Errorf("accepted random pattern %q", invalid)
 		}
 	}
+	for _, unbounded := range []string{`a*`, `a+`, `a{3,}`} {
+		if ValidateRandomPattern(unbounded, 2048) == nil {
+			t.Errorf("validated unbounded random pattern %q", unbounded)
+		}
+		if _, err := RandomStringByPattern(bytes.NewReader(make([]byte, 16)), unbounded); err == nil {
+			t.Errorf("generated from unbounded random pattern %q", unbounded)
+		}
+	}
 }
 
 func TestInvalidDefinitionsNeverPanicAtRuntime(t *testing.T) {

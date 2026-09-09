@@ -31,6 +31,9 @@ func TestN4TextOptionsRejectAmbiguousOrUnsafeDefinitions(t *testing.T) {
 		{Name: "number", Type: TypeInteger, Options: &FieldOptions{AutogeneratePattern: `[0-9]{8}`}},
 		{Name: "defaulted", Type: TypeText, Default: []byte(`"fixed"`), Options: &FieldOptions{AutogeneratePattern: `[a-z]{8}`}},
 		{Name: "unbounded", Type: TypeText, Options: &FieldOptions{AutogeneratePattern: `^value$`}},
+		{Name: "star", Type: TypeText, Options: &FieldOptions{AutogeneratePattern: `a*`}},
+		{Name: "plus", Type: TypeText, Options: &FieldOptions{AutogeneratePattern: `a+`}},
+		{Name: "open_repeat", Type: TypeText, Options: &FieldOptions{AutogeneratePattern: `a{3,}`}},
 		{Name: "domains", Type: TypeText, Options: &FieldOptions{DeniedDomains: []string{"example.com"}}},
 		{Name: "bad_domain", Type: TypeText, Options: &FieldOptions{Format: "email", DeniedDomains: []string{"bad_domain"}}},
 	}

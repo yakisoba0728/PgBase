@@ -5,6 +5,8 @@ PgBase supports four PocketBase-style advanced field types: `editor`, `geoPoint`
 ## Text generation and domains
 
 Text `options.autogeneratePattern` is a bounded generatable Go/RE2 expression.
+Unbounded quantifiers (`*`, `+`, and `{m,}`) are rejected; use an explicit
+upper bound such as `{0,6}`, `{1,6}`, or `{m,n}`.
 When the field key is absent on create, PgBase uses cryptographic randomness to
 produce a matching value. Any explicit value, including an empty string or
 `null`, wins and is validated normally; updates never generate. Generated

@@ -11,8 +11,6 @@ import (
 	"unicode/utf8"
 )
 
-const randomPatternUnboundedRepeat = 6
-
 // ValidateRandomPattern accepts only regexp operations for which
 // RandomStringByPattern can construct a value directly. The maximum byte bound
 // prevents an autogenerate expression from bypassing the record text budget.
@@ -87,19 +85,13 @@ func writeRandomPattern(reader io.Reader, expression *syntax.Regexp, result *str
 		return writeRandomPattern(reader, expression.Sub[index], result)
 	case syntax.OpQuest:
 		return writeRandomRepeat(reader, expression.Sub[0], result, 0, 1)
-	case syntax.OpStar:
-		return writeRandomRepeat(reader, expression.Sub[0], result, 0, randomPatternUnboundedRepeat)
-	case syntax.OpPlus:
-		return writeRandomRepeat(reader, expression.Sub[0], result, 1, randomPatternUnboundedRepeat)
 	case syntax.OpRepeat:
-		maximum := expression.Max
-		if maximum < 0 {
-			maximum = randomPatternUnboundedRepeat
-			if maximum < expression.Min {
-				maximum = expression.Min
-			}
+		if expression.Max < 0 {
+			return errors.New("unbounded pattern repetition")
 		}
-		return writeRandomRepeat(reader, expression.Sub[0], result, expression.Min, maximum)
+		return writeRandomRepeat(reader, expression.Sub[0], result, expression.Min, expression.Max)
+	case syntax.OpStar, syntax.OpPlus:
+		return errors.New("unbounded pattern repetition")
 	default:
 		return fmt.Errorf("unsupported pattern operation %d", expression.Op)
 	}
@@ -211,7 +203,7 @@ func randomPatternBounds(expression *syntax.Regexp) (int, int, error) {
 			}
 		}
 		return minimum, maximum, nil
-	case syntax.OpQuest, syntax.OpStar, syntax.OpPlus, syntax.OpRepeat:
+	case syntax.OpQuest, syntax.OpRepeat:
 		childMinimum, childMaximum, err := randomPatternBounds(expression.Sub[0])
 		if err != nil {
 			return 0, 0, err
@@ -220,19 +212,14 @@ func randomPatternBounds(expression *syntax.Regexp) (int, int, error) {
 		switch expression.Op {
 		case syntax.OpQuest:
 			minimum, maximum = 0, 1
-		case syntax.OpStar:
-			minimum, maximum = 0, randomPatternUnboundedRepeat
-		case syntax.OpPlus:
-			minimum, maximum = 1, randomPatternUnboundedRepeat
 		case syntax.OpRepeat:
 			if maximum < 0 {
-				maximum = randomPatternUnboundedRepeat
-				if maximum < minimum {
-					maximum = minimum
-				}
+				return 0, 0, errors.New("unbounded pattern repetition")
 			}
 		}
 		return childMinimum * minimum, childMaximum * maximum, nil
+	case syntax.OpStar, syntax.OpPlus:
+		return 0, 0, errors.New("unbounded pattern repetition")
 	default:
 		return 0, 0, fmt.Errorf("unsupported pattern operation %d", expression.Op)
 	}
