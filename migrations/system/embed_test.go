@@ -55,7 +55,7 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		38: "530ffdd30ea33fb293469e050abac8a5a1ebed055bcf94634d9d4336d6f89b97",
 		39: "c6acb137040bbe69bc7f276aa74f0f1b94f1aa2bfd5fdc3f1d109dbffe2d35ed",
 		40: "ffecb2cff732be1c1922fa893d61ba3f0ad77c1d8c8d1e2159ece97c967d64ee",
-		41: "e53bde961d49fcd5f5a3b50cba3f1eb073a519cf90a86e6a1ed4db500625f890",
+		41: "628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699",
 	}
 	migrations := system.Migrations()
 	if len(migrations) != 41 || migrations[len(migrations)-1].Version != 41 ||

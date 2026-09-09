@@ -7,11 +7,11 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 08:15 KST
+Last updated: 2026-09-10 08:27 KST
 
 ## Current milestone
 
-**ACTIVE after explicit user resume from `9acc7b2`.** G0 through G3 are complete. N6 and N7 are accepted with their independent review and actual external/cross/browser evidence. N9 private implementation and shared composition are closed pending G5. N8 remains incomplete: the integrated pre-pause checkpoint is `6bb6dbb0c6de8f99de66e94cd1838db12ac93eed`, while Euclid's checkpoint `4d773b5` is now integrated as unaccepted candidate `769440e` and shared composition `66fec8f` passes focused API/options/OpenAPI checks. No G5 or final N6–N9 acceptance is claimed.
+**ACTIVE.** G3 and N6/N7/N9 core are complete. Current composed candidate is `e57d233`: N8 residual owner `0e4ba42` integrates as `00b7fc4`, generated UI as `5987da9`, additive capability expectation as `e57d233`. Owner full SQLconsole PG17 race/PG18 and API/options focused race pass. Browser is dispatched on the fresh isolated fixture. Final R12 duplicate-replay pool saturation correction, Gauss closure and G5 remain; no final acceptance is claimed.
 
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
@@ -19,9 +19,9 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | occurrence `ee806dd`, exact PG five times/race, Nash re-review zero findings | complete; retain disposable PG only for G5 |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | core accepted; native `4575a02` and final browser `58106` same-state cross green; clean handoff | task safely closed; no repeat |
-| N8 backend | Euclid, Sol / `codex/n8-sql-console` | clean WIP checkpoint `4d773b5`, based on `91a0bda`; not integrated or accepted | resume with R12 focused rerun, then current full PG17/18/race/build and Gauss closure |
-| N8 UI | Feynman, Terra / `codex/n8-sql-console-ui` | clean source `cd092fb`, integrated as `35712f4`; focused 17 green, real browser unrun; worker closed | resume only after accepted backend fixture/credentials exist |
-| N8 review | Gauss, Sol / `codex/n8-review` | clean incomplete pause checkpoint `9ac351a`, integrated docs-only as `0b1ecc8`; no full PASS | R1–R4/R8–R10/R12 and backend `sessionIdentity` composition remain open; R5–R7/R11 closed |
+| N8 backend | Euclid / `codex/n8-sql-console` | `0e4ba42` integrated; PG17 race/PG18 green | narrow R12 nested replay acquisition fix and migration-only evidence |
+| N8 UI | Feynman / `codex/n8-sql-console-ui` | focused17 green; launcher/unique DB/protected secret ready | actual Chromium on composed `e57d233`, ports58097→58096 |
+| N8 review | Gauss / `codex/n8-review` | current shared identity/options source closed; R4/R8 corrected | R12 admission residual, final evidence/budget delta only |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private PASS/PASS `b74a49a`; build metadata `d6d9a9a`/`203ae3e` seam closure | G5 integrated checks only |
 | Integration | GPT-5.6 Sol / this branch | active from clean checkpoint `9acc7b2` | shared composition and final parallel G5 execution |
 
@@ -150,3 +150,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 08:20 KST — patched R12 first focused cases passed on both PG17/18. Concrete remaining checks are accepted unknown/failed-write identity retention (Euclid), custom enum CoerceViaIO through managed views (Gauss reproduced; Euclid fixing), and coordinator-connection loss. Browser launcher and protected credentials are ready in Feynman’s separate `n8_browser_ui_20260910` DB; no acceptance on stale backend. Socrates starts full UI tests/build at the unchanged stable UI source while backend closure proceeds.
 
 - 2026-09-10 08:22 KST — checkpoint `4d773b5` is integrated as explicitly unaccepted candidate `769440e`, allowing shared composition `66fec8f` to compile while owner fixes proceed. Live catalog-version callback, handler timeout options and session identity route composition passed focused API/public-option/OpenAPI checks. Browser preparation is complete. Boole runs no-DB unit/race/vet/lint at fixed compiled `3f868f3`; Socrates runs full UI/build at stable UI `7dbda78` and owns the additive session-capability expectation fix. Only later changed packages will be rerun.
+
+- 2026-09-10 08:27 KST — integrated residual backend `0e4ba42` as `00b7fc4`; owner entire SQLconsole passed PG17 race (8.526s), PG18 (6.982s), API/options focused race (1.422s/1.466s). Gauss found one narrow remaining R12 control-pool starvation path during concurrent duplicate replay; owner fixes it without API/schema change. Feynman received composed `e57d233` for immediate fresh migration/browser execution. Socrates generated dist and capability golden are integrated; build and focused92 pass. Boole baseline vet passes; unit/race failures are migration41 checksum snapshot and measured old structural budgets, with N6/N8 lint cleanup assigned by file ownership. Final G5 is still open.
