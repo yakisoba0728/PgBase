@@ -381,7 +381,7 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 			if err = writeJournal(state, entry); err != nil {
 				t.Fatal(err)
 			}
-			status, err := Rollback(context.Background(), target, state, nil)
+			status, err := Recover(context.Background(), target, state, nil)
 			if err != nil || status.Phase != "rolled_back" {
 				t.Fatalf("status=%+v err=%v", status, err)
 			}

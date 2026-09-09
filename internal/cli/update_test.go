@@ -44,6 +44,18 @@ func TestCandidateCompatibilityUsesOnlyExplicitBuildSchema(t *testing.T) {
 	}
 }
 
+func TestRollbackSchemaUsesPreviousBuildAndStableMigrationCode(t *testing.T) {
+	status := selfupdate.Status{Previous: selfupdate.Build{SchemaMin: "40", SchemaMax: "40"}, Candidate: selfupdate.Build{SchemaMin: "41", SchemaMax: "41"}}
+	running := selfupdate.Build{SchemaMin: "41", SchemaMax: "41"}
+	previous := candidateCompatibility(running, selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(status.Previous)}})
+	if previous != "migration_required" {
+		t.Fatalf("previous compatibility=%q", previous)
+	}
+	if got := selfupdate.ErrorCode(selfupdate.ErrMigrationRequired); got != "migration_required" {
+		t.Fatalf("migration code=%q", got)
+	}
+}
+
 func TestUpdateInputRequiresExplicitTrustAndSourceMode(t *testing.T) {
 	for _, args := range [][]string{
 		{"--source", "https://example.test/manifest.json"},
