@@ -77,6 +77,10 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	if err = ensureRegular(target); err != nil {
 		return Status{}, err
 	}
+	targetIdentity, err := os.Lstat(target)
+	if err != nil || !validInstallationTarget(targetIdentity) {
+		return Status{}, ErrInvalidInput
+	}
 	probe := options.Probe
 	if probe == nil {
 		probe = ProbeBinary
@@ -164,6 +168,9 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	}
 	if err = runBeforePhase(options.BeforePhase, entry.Phase); err != nil {
 		return Status{}, err
+	}
+	if !sameTargetIdentity(target, targetIdentity) {
+		return Status{}, ErrRecoveryRequired
 	}
 	if runtime.GOOS == "windows" {
 		if options.WindowsLaunch == nil {
@@ -443,9 +450,13 @@ func validateInstallation(target, stateDir string, createState bool) (string, st
 	if err = ensureRegular(canonical); err != nil {
 		return "", "", err
 	}
+	targetInfo, targetErr := os.Lstat(canonical)
+	if targetErr != nil || !validInstallationTarget(targetInfo) {
+		return "", "", ErrInvalidInput
+	}
 	directory := filepath.Dir(canonical)
 	directoryInfo, statErr := os.Lstat(directory)
-	if statErr != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 {
+	if statErr != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 || !validInstallationDirectory(directoryInfo) {
 		return "", "", ErrInvalidInput
 	}
 	requestedParent, err := os.Stat(filepath.Dir(stateDir))
@@ -465,6 +476,11 @@ func validateInstallation(target, stateDir string, createState bool) (string, st
 		return "", "", ErrInvalidInput
 	}
 	return stateDir, canonical, nil
+}
+
+func sameTargetIdentity(path string, expected os.FileInfo) bool {
+	current, err := os.Lstat(path)
+	return err == nil && current.Mode().IsRegular() && current.Mode()&os.ModeSymlink == 0 && os.SameFile(expected, current)
 }
 
 func ensureRegular(path string) error {

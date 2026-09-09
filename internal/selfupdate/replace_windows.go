@@ -5,6 +5,7 @@ package selfupdate
 import (
 	"errors"
 	"os"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -45,7 +46,13 @@ func replaceFile(source, target string) error {
 	if err != nil {
 		return err
 	}
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	result, _, callErr := windows.NewLazySystemDLL("kernel32.dll").NewProc("ReplaceFileW").Call(
+		uintptr(unsafe.Pointer(to)), uintptr(unsafe.Pointer(from)), 0, 0, 0, 0,
+	)
+	if result == 0 {
+		return callErr
+	}
+	return nil
 }
 
 func syncDirectory(string) error { return nil }

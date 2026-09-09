@@ -12,6 +12,14 @@ func validPrivateStateDirectory(info os.FileInfo) bool {
 	return info.Mode().Perm()&0o022 == 0
 }
 
+func validInstallationTarget(info os.FileInfo) bool {
+	return info.Mode().IsRegular() && info.Mode().Perm()&0o022 == 0
+}
+
+func validInstallationDirectory(info os.FileInfo) bool {
+	return info.IsDir() && info.Mode().Perm()&0o022 == 0
+}
+
 func validPrivateStateFile(file *os.File) bool {
 	info, err := file.Stat()
 	return err == nil && info.Mode().IsRegular() && validPrivateStateDirectory(info)
