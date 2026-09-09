@@ -36,6 +36,10 @@ Future<void> main() async {
             'mimeTypes': JsonArray([const JsonString('text/plain')]),
           }),
         }),
+        JsonObject({
+          'name': const JsonString('metadata'),
+          'type': const JsonString('jsonb'),
+        }),
       ]),
     });
     final plan = await admin.schemaPlan(change);
@@ -51,7 +55,12 @@ Future<void> main() async {
     );
     final records = user.records(name);
     final created = await records.createWithEtag(
-      JsonObject({'title': const JsonString('exact')}),
+      JsonObject({
+        'title': const JsonString('exact'),
+        'metadata': JsonObject({
+          'large': JsonNumber('900719925474099312345.0001'),
+        }),
+      }),
       'create-record-key-$suffix',
     );
     final updated = await records.updateWithEtag(
@@ -62,6 +71,49 @@ Future<void> main() async {
     if ((updated.record['title']! as JsonString).value != 'updated')
       throw StateError('record update did not round trip');
     final recordId = (updated.record['id']! as JsonString).value;
+    final exact =
+        ((await records.get(recordId))['metadata']! as JsonObject)['large'];
+    if (exact is! JsonNumber || exact.source != '900719925474099312345.0001')
+      throw StateError('JSONB number was not lossless');
+    try {
+      await records.update(
+        recordId,
+        JsonObject({'title': const JsonString('stale')}),
+        created.etag!,
+      );
+      throw StateError('stale ETag unexpectedly updated a record');
+    } on PgBaseError catch (error) {
+      if (error.status != 412 || error.etag == null)
+        throw StateError('stale ETag did not return 412 with current ETag');
+    }
+    final replayKey = 'replay-create-key-$suffix';
+    final replayInput = JsonObject({'title': const JsonString('replay')});
+    final replayOne = await records.createWithEtag(replayInput, replayKey);
+    final replayTwo = await records.createWithEtag(replayInput, replayKey);
+    final replayOneID = (replayOne.record['id']! as JsonString).value;
+    final replayTwoID = (replayTwo.record['id']! as JsonString).value;
+    if (replayOneID != replayTwoID)
+      throw StateError('idempotent replay created $replayOneID and $replayTwoID');
+    try {
+      await records.create(
+        JsonObject({'title': const JsonString('replay conflict')}),
+        replayKey,
+      );
+      throw StateError('idempotency conflict unexpectedly succeeded');
+    } on PgBaseError catch (error) {
+      if (error.status != 409 || error.code != 'idempotency_conflict')
+        throw StateError('wrong idempotency conflict result');
+    }
+    final firstPage = await records.list(const Query(limit: 1));
+    final iterated = await records.iterate(const Query(limit: 1)).toList();
+    if (firstPage.nextCursor == null ||
+        !iterated.any(
+          (record) =>
+              record['id'] is JsonString &&
+              (record['id']! as JsonString).value == recordId,
+        )) {
+      throw StateError('cursor iteration did not traverse the collection');
+    }
     final event = records
         .events(maxReconnects: 0)
         .first
@@ -81,6 +133,31 @@ Future<void> main() async {
     ]);
     if (batchResult['results'] is! JsonArray)
       throw StateError('batch did not return results');
+    final beforeFailedBatch = (await records.list()).items.length;
+    try {
+      await user.batch([
+        BatchOperation(
+          JsonObject({
+            'operation': const JsonString('create'),
+            'collection': JsonString(name),
+            'input': JsonObject({'title': const JsonString('rollback')}),
+            'idempotencyKey': JsonString('rollback-create-key-$suffix'),
+          }),
+        ),
+        BatchOperation(
+          JsonObject({
+            'operation': const JsonString('create'),
+            'collection': const JsonString('missing_collection'),
+            'input': JsonObject({'title': const JsonString('invalid')}),
+            'idempotencyKey': JsonString('rollback-invalid-key-$suffix'),
+          }),
+        ),
+      ]);
+      throw StateError('invalid batch unexpectedly succeeded');
+    } on PgBaseError {
+      if ((await records.list()).items.length != beforeFailedBatch)
+        throw StateError('failed batch partially committed');
+    }
     final received = await event;
     if (received.collection != name || received.operation != 'create')
       throw StateError('SSE did not deliver the batch create');
