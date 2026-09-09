@@ -55,10 +55,11 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		38: "530ffdd30ea33fb293469e050abac8a5a1ebed055bcf94634d9d4336d6f89b97",
 		39: "c6acb137040bbe69bc7f276aa74f0f1b94f1aa2bfd5fdc3f1d109dbffe2d35ed",
 		40: "ffecb2cff732be1c1922fa893d61ba3f0ad77c1d8c8d1e2159ece97c967d64ee",
+		41: "e53bde961d49fcd5f5a3b50cba3f1eb073a519cf90a86e6a1ed4db500625f890",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 40 || migrations[len(migrations)-1].Version != 40 ||
-		migrations[len(migrations)-1].Name != "user_migration_sources" || migrations[7].Version != 8 ||
+	if len(migrations) != 41 || migrations[len(migrations)-1].Version != 41 ||
+		migrations[len(migrations)-1].Name != "sql_console" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||
