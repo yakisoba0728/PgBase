@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/identity"
 )
 
@@ -63,6 +64,28 @@ func CustomPrincipalFromContext(ctx context.Context) (CustomPrincipal, bool) {
 		return CustomPrincipal{Kind: string(identity.Service), ID: subject.ID.String()}, true
 	}
 	return CustomPrincipal{}, false
+}
+
+// ExtensionRequestContext returns the already-admitted domain subject and the
+// normalized request identity for in-process extension adapters. It never
+// returns bearer, cookie, CSRF, or impersonation credentials. The request ID
+// marker prevents a plain context.Background from being treated as an admitted
+// anonymous HTTP request.
+func ExtensionRequestContext(ctx context.Context) (identity.Subject, string, bool) {
+	id := requestID(ctx)
+	if id == "" {
+		return identity.Subject{}, "", false
+	}
+	if admin, ok := AdminPrincipalFromContext(ctx); ok && admin.Administrator.ID != uuid.Nil {
+		return identity.Subject{Kind: identity.Administrator, ID: admin.Administrator.ID}, id, true
+	}
+	if user, ok := ctx.Value(userPrincipalKey{}).(authenticatedUser); ok && user.principal.User.ID != uuid.Nil {
+		return identity.Subject{Kind: identity.User, ID: user.principal.User.ID}, id, true
+	}
+	if subject, ok := ctx.Value(publicRecordPrincipalKey{}).(identity.Subject); ok && subject.Valid() {
+		return subject, id, true
+	}
+	return identity.Subject{Kind: identity.Anonymous}, id, true
 }
 
 // ValidateCustomRoutes is also called before opening the database so malformed

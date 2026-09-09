@@ -1,0 +1,237 @@
+package pgbase
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"slices"
+	"time"
+
+	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/webisnoteasy/PgBase/internal/jsvm"
+)
+
+// JavaScriptOptions enables trusted local JavaScript extensions. Scripts run
+// in process and are not an operating-system sandbox for hostile tenants.
+type JavaScriptOptions struct {
+	Directory          string
+	Capabilities       map[string]bool
+	Concurrency        int
+	Queue              int
+	AdmissionTimeout   time.Duration
+	DefaultTimeout     time.Duration
+	MaximumTimeout     time.Duration
+	MaximumHostCalls   int
+	MaximumInputBytes  int
+	MaximumOutputBytes int
+}
+
+type JavaScriptHandler struct {
+	Module string
+	Export string
+}
+
+type JavaScriptRoute struct {
+	Method       string
+	Pattern      string
+	Access       string
+	Handler      JavaScriptHandler
+	Capabilities []string
+}
+
+type JavaScriptHook struct {
+	Event    string
+	Priority int
+	Before   *JavaScriptHandler
+	After    *JavaScriptHandler
+}
+
+type JavaScriptJob struct {
+	Name     string
+	Schedule string
+	Timezone string
+	Handler  JavaScriptHandler
+}
+
+type JavaScriptMigration struct {
+	ID                 string
+	Handler            JavaScriptHandler
+	Down               string
+	IrreversibleReason string
+}
+
+type JavaScriptManifest struct {
+	Digest     string
+	Routes     []JavaScriptRoute
+	Hooks      []JavaScriptHook
+	Jobs       []JavaScriptJob
+	Migrations []JavaScriptMigration
+}
+
+func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
+	if options.Directory == "" {
+		return JavaScriptOptions{}, errors.New("JavaScript.Directory is required")
+	}
+	capabilities := make(map[string]bool, len(options.Capabilities))
+	for name, enabled := range options.Capabilities {
+		switch name {
+		case "records", "mail", "files", "log":
+		default:
+			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
+		}
+		capabilities[name] = enabled
+	}
+	options.Capabilities = capabilities
+	limits, err := options.limits().NormalizedForPublic()
+	if err != nil {
+		return JavaScriptOptions{}, fmt.Errorf("JavaScript: %w", err)
+	}
+	options.Concurrency = limits.Concurrency
+	options.Queue = limits.Queue
+	options.AdmissionTimeout = limits.AdmissionTimeout
+	options.DefaultTimeout = limits.DefaultTimeout
+	options.MaximumTimeout = limits.MaximumTimeout
+	options.MaximumHostCalls = limits.MaximumHostCalls
+	options.MaximumInputBytes = limits.MaximumInputBytes
+	options.MaximumOutputBytes = limits.MaximumOutputBytes
+	return options, nil
+}
+
+func (options JavaScriptOptions) limits() jsvm.Limits {
+	return jsvm.Limits{
+		Concurrency: options.Concurrency, Queue: options.Queue, AdmissionTimeout: options.AdmissionTimeout,
+		DefaultTimeout: options.DefaultTimeout, MaximumTimeout: options.MaximumTimeout,
+		MaximumHostCalls: options.MaximumHostCalls, MaximumInputBytes: options.MaximumInputBytes,
+		MaximumOutputBytes: options.MaximumOutputBytes,
+	}
+}
+
+// ValidateJavaScript loads an immutable source snapshot, validates every
+// handler export without database or transport effects, and returns its public
+// registration manifest.
+func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (JavaScriptManifest, error) {
+	normalized, err := options.normalized()
+	if err != nil {
+		return JavaScriptManifest{}, err
+	}
+	bundle, err := jsvm.LoadBundle(normalized.Directory)
+	if err != nil {
+		return JavaScriptManifest{}, err
+	}
+	runtime, err := jsvm.NewRuntime(bundle, normalized.limits())
+	if err != nil {
+		return JavaScriptManifest{}, err
+	}
+	defer runtime.Close(ctx)
+	if err := validateJavaScriptRegistration(bundle.Manifest(), normalized.Capabilities); err != nil {
+		return JavaScriptManifest{}, err
+	}
+	return publicJavaScriptManifest(bundle), nil
+}
+
+func validateJavaScriptRegistration(manifest jsvm.Manifest, enabled map[string]bool) error {
+	routes := make([]CustomRoute, 0, len(manifest.Routes))
+	for _, route := range manifest.Routes {
+		access := CustomRouteAccess(route.Access)
+		routes = append(routes, CustomRoute{Method: route.Method, Pattern: route.Pattern, Access: access,
+			Handler: http.NotFoundHandler(), MaximumRequestBytes: route.MaximumRequestBytes,
+			MaximumResponseBytes: route.MaximumResponseBytes})
+		if err := validateRequestedCapabilities(route.Capabilities, enabled, "route "+route.Pattern); err != nil {
+			return err
+		}
+	}
+	if err := api.ValidateCustomRoutes(routes); err != nil {
+		return err
+	}
+	jobs := make([]ScheduledJob, 0, len(manifest.Jobs))
+	for _, job := range manifest.Jobs {
+		if err := validateRequestedCapabilities(job.Capabilities, enabled, "job "+job.Name); err != nil {
+			return err
+		}
+		jobs = append(jobs, ScheduledJob{Name: job.Name, Schedule: job.Schedule, Timezone: job.Timezone, Handler: func(context.Context, JobRun) error { return nil }})
+	}
+	if err := validateScheduledJobs(jobs); err != nil {
+		return err
+	}
+	seenHooks := make(map[string]bool)
+	for _, hook := range manifest.Hooks {
+		if !knownJavaScriptHook(hook.Event) {
+			return fmt.Errorf("JavaScript hook event %q is not supported", hook.Event)
+		}
+		if err := validateRequestedCapabilities(hook.Capabilities, enabled, "hook "+hook.Event); err != nil {
+			return err
+		}
+		key := fmt.Sprintf("%s:%d", hook.Event, hook.Priority)
+		if seenHooks[key] {
+			return fmt.Errorf("duplicate JavaScript hook event and priority %q", key)
+		}
+		seenHooks[key] = true
+	}
+	return nil
+}
+
+func validateRequestedCapabilities(requested []string, enabled map[string]bool, owner string) error {
+	seen := make(map[string]bool, len(requested))
+	for _, capability := range requested {
+		if seen[capability] {
+			return fmt.Errorf("JavaScript %s repeats capability %q", owner, capability)
+		}
+		seen[capability] = true
+		if !enabled[capability] {
+			return fmt.Errorf("JavaScript %s requests disabled capability %q", owner, capability)
+		}
+	}
+	return nil
+}
+
+func knownJavaScriptHook(kind string) bool {
+	return slices.Contains([]string{
+		HookRequest, HookRecordBefore, HookRecordAfter, HookMailSend, HookMailOTP, HookMailVerification,
+		HookMailPasswordReset, HookMailEmailChange, HookMailSMTPTest, HookFileUpload, HookFileDelete,
+		HookFileToken, HookFileDownload, HookFileTransform, HookRecordListRequest, HookRecordViewRequest,
+		HookRecordCreateRequest, HookRecordUpdateRequest, HookRecordDeleteRequest, HookRecordBatchRequest,
+		HookSchemaImportPreview, HookSchemaImportApply, HookCollectionCreate, HookCollectionUpdate,
+		HookCollectionDelete, HookAppBoot, HookAppServe, HookAppTerminate, HookAuthPassword,
+		HookAuthOAuthBegin, HookAuthOAuthComplete, HookAuthOTPRequest, HookAuthOTPComplete,
+		HookAuthVerificationRequest, HookAuthVerificationConfirm, HookAuthPasswordResetRequest,
+		HookAuthPasswordResetConfirm, HookAuthEmailChangeRequest, HookAuthEmailChangeConfirm,
+		HookAuthImpersonate, HookRealtimeConnect, HookRealtimeSubscribe, HookRealtimeMessage,
+		HookStorageSettingsList, HookStorageSettingsUpdate, HookStorageSettingsTest,
+		HookBackupCreate, HookBackupRestore, HookBackupDelete,
+	}, kind)
+}
+
+func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
+	manifest := bundle.Manifest()
+	result := JavaScriptManifest{Digest: bundle.Digest()}
+	for _, route := range manifest.Routes {
+		result.Routes = append(result.Routes, JavaScriptRoute{Method: route.Method, Pattern: route.Pattern, Access: route.Access,
+			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...)})
+	}
+	for _, hook := range manifest.Hooks {
+		converted := JavaScriptHook{Event: hook.Event, Priority: hook.Priority}
+		if hook.Before != nil {
+			value := publicHandler(*hook.Before)
+			converted.Before = &value
+		}
+		if hook.After != nil {
+			value := publicHandler(*hook.After)
+			converted.After = &value
+		}
+		result.Hooks = append(result.Hooks, converted)
+	}
+	for _, job := range manifest.Jobs {
+		result.Jobs = append(result.Jobs, JavaScriptJob{Name: job.Name, Schedule: job.Schedule, Timezone: job.Timezone, Handler: publicHandler(job.Handler)})
+	}
+	for _, migration := range manifest.Migrations {
+		result.Migrations = append(result.Migrations, JavaScriptMigration{ID: migration.ID,
+			Handler: JavaScriptHandler{Module: migration.Module, Export: migration.Up}, Down: migration.Down,
+			IrreversibleReason: migration.IrreversibleReason})
+	}
+	return result
+}
+
+func publicHandler(ref jsvm.HandlerRef) JavaScriptHandler {
+	return JavaScriptHandler{Module: ref.Module, Export: ref.Export}
+}

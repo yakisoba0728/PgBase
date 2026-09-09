@@ -41,6 +41,7 @@ type App struct {
 	schemaHealth           backgroundRunner
 	userMigrationSources   backgroundRunner
 	userMigrationRecorder  *usermigrate.AutoRecorder
+	javaScriptRuntime      *javaScriptRuntime
 	listen                 func(string, string) (net.Listener, error)
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool
@@ -547,6 +548,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	}
 	if a.requestLog != nil {
 		closeErr = errors.Join(closeErr, a.requestLog.Shutdown(ctx))
+	}
+	if a.javaScriptRuntime != nil {
+		closeErr = errors.Join(closeErr, a.javaScriptRuntime.Close(ctx))
 	}
 	if a.pool != nil {
 		if err := a.pool.CloseContext(ctx); err != nil {

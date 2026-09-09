@@ -42,7 +42,10 @@ const (
 type Options struct {
 	// CustomRoutes installs up to 64 application handlers with explicit access.
 	CustomRoutes []CustomRoute
-	Backups      BackupOptions
+	// JavaScript enables trusted local scripts after validating an immutable
+	// source manifest. A nil value keeps the runtime entirely disabled.
+	JavaScript *JavaScriptOptions
+	Backups    BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions
@@ -120,6 +123,13 @@ func (o Options) Normalized() (Options, error) {
 	}
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	}
+	if o.JavaScript != nil {
+		javascript, err := o.JavaScript.normalized()
+		if err != nil {
+			return Options{}, err
+		}
+		o.JavaScript = &javascript
 	}
 	if err := validateOptions(o); err != nil {
 		return Options{}, err

@@ -42,6 +42,25 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	var javascript *javaScriptRuntime
+	if normalized.JavaScript != nil {
+		javascript, err = prepareJavaScript(*normalized.JavaScript)
+		if err != nil {
+			return nil, fmt.Errorf("initialize JavaScript: %w", err)
+		}
+		if err := installJavaScriptRoutes(&normalized, javascript); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
+	}
+	keepJavaScript := false
+	defer func() {
+		if !keepJavaScript && javascript != nil {
+			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
+			defer cancel()
+			_ = javascript.Close(shutdown)
+		}
+	}()
 	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false)
 	if err != nil {
 		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
@@ -215,6 +234,11 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
+	if javascript != nil {
+		javascript.bridge.records = recordService
+		javascript.bridge.files = fileService
+		javascript.bridge.logger = normalized.Logger
+	}
 	dependencies, backupManager, err := withBackupServices(ctx, dependencies, fileService, pool, normalized)
 	if err != nil {
 		return nil, err
@@ -254,6 +278,7 @@ func newWithCatalogPreflight(
 		schemaHealth:          schemaHealth,
 		userMigrationSources:  userMigrationSources,
 		userMigrationRecorder: userMigrationRecorder,
+		javaScriptRuntime:     javascript,
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
@@ -277,5 +302,6 @@ func newWithCatalogPreflight(
 	}
 	keepPool = true
 	keepGate = true
+	keepJavaScript = true
 	return app, nil
 }
