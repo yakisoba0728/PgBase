@@ -33,6 +33,7 @@ describe("SQL console page", () => {
     expect((backend.submit as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ operationID: id, mode: "read", dryRun: false });
     expect(await screen.findByText("9223372036854775807")).toBeVisible();
     expect(screen.getByText("NULL", { selector: "td span" })).toBeVisible();
+    expect(document.querySelector(".sql-console-results.table-scroll")).toBeInTheDocument();
   });
 
   it("requires an explicit confirmation for a configured transactional write and sends one idempotency key", async () => {

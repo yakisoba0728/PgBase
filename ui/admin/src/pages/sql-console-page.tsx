@@ -54,11 +54,11 @@ function ResultTable({ statement, filter, copy }: { statement: SQLConsoleStateme
   const rows = statement.rows ?? [];
   const shown = filter.trim() === "" ? rows : rows.filter((row) => row.some((cell) => copiedText(cell).toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
   if ((statement.columns?.length ?? 0) === 0) return <p>{statement.command ?? "Command completed"}: {statement.affectedRows} affected rows.</p>;
-  return <div className="sql-console-results" tabIndex={0}>
+  return <div className="table-scroll sql-console-results" tabIndex={0}>
     <table>
-      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col">{column.name}<small>{column.typeName}</small></th>)}</tr></thead>
+      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col">{column.name} <small>{column.typeName}</small></th>)}</tr></thead>
       <tbody>{shown.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} data-cell-kind={cell.kind}>
-        <span>{copiedText(cell)}</span><small>{cellText[cell.kind]}</small><button aria-label={`Copy row ${rowIndex + 1} column ${cellIndex + 1}`} onClick={() => copy(copiedText(cell))} type="button">Copy</button>
+        <span>{copiedText(cell)}</span> <small>{cellText[cell.kind]}</small>{" "}<button aria-label={`Copy row ${rowIndex + 1} column ${cellIndex + 1}`} onClick={() => copy(copiedText(cell))} type="button">Copy</button>
       </td>)}</tr>)}</tbody>
     </table>
     {shown.length === 0 && <p>No returned values match this bounded result.</p>}
