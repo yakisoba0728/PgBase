@@ -43,6 +43,7 @@ require (
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/zkrebbekx/pgparse v1.3.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
