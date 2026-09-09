@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 05:14 KST)
+## N6–N9 병렬 실행 — N6/N7 인수·N8/N9 구현 병렬 진행 (최종 동기화 2026-09-10 05:16 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,24 +8,24 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | alias fix+migration 확대 `21b8293` 통합, focused race/PG green, Nash Standards/Spec 0 | 외부 JS 앱/browser·cross-flow·stress |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | alias/migration `21b8293`와 bounded file stream `8917969` 통합; focused race/PG green, Nash core Standards/Spec 0 | 외부 JS 앱/browser·cross-flow·stress |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | core acceptance 완료 — data/admin/browser/revoke와 실제 open-SSE logout·cursor 410·cancel upload cleanup green | N6 외부 앱 cross-flow에 동일 SDK 재사용 |
-| G3 N6/N7 통합 | Sol 통합 | N7 core와 N6 review/migration accepted; file streaming/cleanup과 stress tests WIP, 외부 앱·cross-flow 아직 미실행 | stable N6 file/cleanup, 외부 Go+JS 앱, 병렬 Dart/Flutter cross-flow, focused CPU/queue/cancel/Close 결과 |
-| G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | N8 준비 `a8e3a86`, N9 준비·scope `08ce58c`/`7453dd1` 통합; 둘 다 G3 대기 | G3 뒤 migration/parser/shared seam 확정과 main 시작 신호 |
+| G3 N6/N7 통합 | Sol 통합 | N7 core와 N6 review/migration/file stream accepted; 외부 앱·cross-flow 아직 미실행, stress owner green/lead 재현 대기 | 외부 Go+JS 앱, 병렬 Dart/Flutter cross-flow, focused stress 통합 확인 |
+| G4 N8/N9 병렬 착수 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | Astra 조정으로 clean `91a0bda` 기반 제품 구현 시작; G3 완료·최종 통합 claim은 여전히 금지 | N8 migration 41/전용 모듈, N9 private updater/platform helper의 stable handoff |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
-소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이며 신규 schema가 실제로 필요할 때만 통합 lead가 41부터 번호를 배정한다. 현재 N6/N7는 migration을 요청하지 않았다.
+소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
 
-Nash의 N6 review와 migration snapshot/history-sync/cancel-lock은 완료됐다. G3 green은 외부 Go+JS 앱의 PG/file/SMTP/job retry, 브라우저+Dart/Flutter 공통 record/ETag/exact-number/SSE, focused CPU/queue/cancel/Close 자원 검사가 실제로 통과한 시점이다. N7 revocation/cursor/upload edge도 완료됐다. 그때 안정된 공통 API/CLI를 기준으로 main에 N8/N9 제품 시작을 즉시 요청한다. 전체 회귀와 6 builds는 G5까지 반복하지 않는다.
+Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료됐다. G3 green은 외부 Go+JS 앱의 PG/file/SMTP/job retry, 브라우저+Dart/Flutter 공통 record/ETag/exact-number/SSE, focused CPU/queue/cancel/Close 자원 검사가 실제로 통과한 시점이다. N7 revocation/cursor/upload edge도 완료됐다. Astra의 05:14 gate 조정은 독립 N8/N9 제품 착수만 허용하며 G3 완료나 최종 통합을 뜻하지 않는다. 전체 회귀와 6 builds는 G5까지 반복하지 않는다.
 
-격리 환경: N6은 `pgbase-n6-pg-20260910`/PG17.9/`55469`를, N7 Docker project `pgbase-n7`은 PostgreSQL `55441`·API `58091`, repo-external Flutter `58092`, same-origin admin proxy `58093`을 소유한다. N7 task-owned local file volume의 실제 file/browser 검증이 통과했다. N8·N9·통합 fixture는 시작 전에 별도 이름/port를 이 표와 통합 상태에 배정한다. live PostgreSQL `55440`, MinIO `59000`, HTTP `8090`, 기존 Docker/userdata는 모든 N6–N9 검사 대상에서 제외한다.
+격리 환경: N6은 `pgbase-n6-pg-20260910`/PG17.9 `55469`, 외부 앱 `58094`, SMTP `58095`; N7은 `pgbase-n7`/PG `55441`, API `58091`, Flutter `58092`, admin proxy `58093`; N8은 `pgbase-n8-20260910`/PG17 `55470`, PG18 `55471`, API `58096`, UI `58097`; N9는 task-owned temp install과 필요 시 TLS/health `58098`을 소유한다. live PostgreSQL `55440`, MinIO `59000`, HTTP `8090`, 기존 Docker/userdata는 모든 N6–N9 검사 대상에서 제외한다.
 
 - [x] `117a1db`에서 통합 branch 생성 및 두 docs-only plan 적용.
 - [x] 중앙 live board·소유·단계 gate와 수분 단위 통합 기록 생성.
 - [x] N7 404 red loop 재현 후 generic router 404와 file env 부재로 원인 확정; SDK/서버 동작 변경 없이 fixture narrow fix를 N7에 반환.
 - [ ] N6 기반·도메인·첫 migration·durable jobs·CLI/types/watch 안정 commit과 focused/PG gate 완료; hook/migration 확대·외부 JS 앱/browser·stress·review closure 수령 및 통합.
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
-- [ ] N6/N7 교차 인수 뒤 Astra에 N8 Sol·N9 Terra 병렬 stage 요청.
+- [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
 - [ ] N8/N9 구현·독립 review·전체 로컬 최종 인수·문서 동기화·clean final commit.
 
 ## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)

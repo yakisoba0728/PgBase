@@ -7,27 +7,27 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 05:14 KST
+Last updated: 2026-09-10 05:16 KST
 
 ## Current milestone
 
-G0 and G1 are complete. N7 core acceptance is complete. N6's review findings and broader migration gate are also closed with focused race and isolated PostgreSQL evidence. G3 remains in its final segment: N6 is implementing bounded file handles and invocation cleanup plus the exact CPU/queue/cancel/Close tests; the external Go+JS app and Dart/Flutter cross-flow have not run yet. N8/N9 product work remains gated, and no final acceptance is claimed.
+G0 and G1 are complete. N7 core acceptance is complete. N6's review, migration and bounded file-stream slices are integrated with focused evidence. G3 still requires the external Go+JS app, Dart/Flutter same-state cross-flow and lead-confirmed focused stress. Astra's explicit gate adjustment started independent N8/N9 product work from clean `91a0bda` without treating G3 or final integration as complete. No final acceptance is claimed.
 
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
 | Workstream | Worker / branch / worktree | Current state | Integration requirement |
 | --- | --- | --- | --- |
-| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | review/migration accepted through `21b8293`; Nash follow-up Standards/Spec 0; focused race/PG green | external app/browser cross-flow and focused stress |
+| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | review/migration accepted through `21b8293`; bounded file stream integrated `8917969`; owner focused race/PG green | external app/browser cross-flow and lead-confirmed focused stress |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | core accepted: data/admin/browser/revocation plus actual open-SSE logout, cursor 410 and canceled-upload cleanup green | reuse the same SDK in N6 external cross-flow |
-| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | preparation `6d6b907` integrated as `a8e3a86`; `N8.md` only, clean | waiting; G3 then migration/parser/shared seam decision and product signal |
-| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | preparation `08ce58c`, Windows scope correction `7453dd1`; docs only, blocker none | waiting; product start only on G3 signal |
+| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | product implementation active from `91a0bda`; migration 41 reserved; private module/migration/parser evaluation first | stable private slices, then lead-owned composition/OpenAPI/UI nav/dependency resolution |
+| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | product implementation active from `91a0bda`; private updater/platform/CLI handlers first | stable private slices, then lead-owned command table/help/build composition |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
 
 ## Ownership and invariants
 
 N6 owns `internal/jsvm`, JS public facade/options/CLI/hooks and required API commons. N7 owns `sdk/dart`, its scripts, examples and N7 docs. Workers do not overwrite each other. The integration lead owns common composition, route/OpenAPI/generated files, `go.mod`/`go.sum` resolution and all shared status documents: `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, and this file.
 
-System migrations 1–40 are immutable. N6/N7 currently require no new system migration. If N8 or N9 proves a durable schema requirement, this document allocates 41 or later before code is written. Product Go files retain the 800-line limit; final global budget movement requires measured feature delta and independent rationale.
+System migrations 1–40 are immutable. Migration 41 is reserved exclusively for N8's durable redacted execution log and same-transaction write receipt as of 05:16 KST. N6/N7/N9 require no system migration. Product Go files retain the 800-line limit; final global budget movement requires measured feature delta and independent rationale.
 
 No N6–N9 test may target the installed PostgreSQL 17.9 on `55440`, MinIO on `59000`, HTTP on `8090`, its binary, Docker resources or userdata. Completed N1–N5 install/rollback validation is historical evidence and will not be rerun.
 
@@ -36,9 +36,10 @@ No N6–N9 test may target the installed PostgreSQL 17.9 on `55440`, MinIO on `5
 | Owner | Docker project / resources | Loopback ports | State |
 | --- | --- | --- | --- |
 | N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter and admin proxy | PostgreSQL `55441`, API `58091`, Flutter `58092`, admin `58093` | active through final edge acceptance; file route fixed |
-| N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9 | PostgreSQL `55469` | active for worker integration tests; no N6 app/MinIO port allocated yet |
+| N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9; task-owned local files/SMTP | PostgreSQL `55469`, external app `58094`, SMTP `58095` | PG active; app/SMTP reserved for G3 |
 | Integration | `pgbase-n6n9-integration` or another recorded unique name | unallocated; check running ports first | not provisioned |
-| N8/N9 | each worker owns a distinct project/name/port row before startup | unallocated | gated |
+| N8 | `pgbase-n8-20260910`; isolated PG17/PG18 and task-owned UI | PG17 `55470`, PG18 `55471`, API `58096`, UI `58097` | allocated; worker records before startup |
+| N9 | task-owned disposable install directory; no Docker/DB | optional local TLS/health `58098` | allocated; native Darwin fixture only |
 
 Port and container allocation is written here before starting a new fixture. A worker cleans only resources it created and names explicitly.
 
@@ -48,7 +49,7 @@ Port and container allocation is written here before starting a new fixture. A w
 - G2 N7: stable product commits, Dart analyze/test, external Dart and Flutter consumers, actual file/SSE/admin HTTP, browser-driven Flutter flow, cancellation/auth-generation/exact-number contracts.
 - Independent review: Standards and Spec remain separate against merge base `2939f15`, the N6–N9 plan and each stream status document. Reproducible contract findings return to the owning worker before integration acceptance.
 - G3: integrate stable N6/N7 commits, resolve only common seams, verify Go JS facade and Dart/Flutter consume the same route/auth/ETag/idempotency/exact-number/SSE/file contract.
-- G4: request Astra to assign N8 Sol and N9 Terra only after G3 core evidence is green. Preparation research may be separately scoped; product implementation remains gated.
+- G4 start: Astra explicitly allowed independent N8/N9 product implementation from clean `91a0bda` while G3 external acceptance continues. Stable private slices may proceed; G3 completion and N8/N9 integration remain gated on their respective evidence and seam review.
 - G5: focused failures first, then final all-package Go unit/race, isolated PostgreSQL/MinIO integration/race and skip policy, CLI, browser, Dart/Flutter/native fixture, lint/vet, OpenAPI and generated reproducibility, structural measurement, six supported builds. A passed gate is not repeated unless relevant code changes.
 
 No public release, npm/pub.dev publication, cloud deployment, remote merge or replacement of the installed live service is in scope.
@@ -93,3 +94,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:58 KST — integrated Nash's remediation review record `5005d49` as `b828b62`. The original four P1 repros are closed and the direct/Down/dynamic import, CLI preflight and hook race checks pass. Nash reproduced one remaining P1: aliasing `require` in a migration lets an undeclared Down-only dependency pass `LoadBundle`/`MigrationBundle` but omit the file from the frozen subset. The exact finding is with Chandrasekhar; the owner is modifying only the static-closure code/tests while the broader migration acceptance remains WIP. N7 core remains accepted, and N8/N9 stay prepared until the unchanged external-app/cross-flow/stress G3 gate closes.
 - 2026-09-10 05:03 KST — integrated N6 alias closure and broader migration acceptance `007e524` as `21b8293`, then Nash's no-finding follow-up `20262a5` as `8c2a1f7`. The integration lead independently passed the exact alias/dynamic/nested/Down-only/frozen-source race tests and both isolated PG17.9 migration tests: snapshot create/rename/Down with relations, views, indexes and N4 options, mixed Go+JS ordering/duplicate rejection/history-sync, cancellation rollback and concurrent-runner fencing. Nash closed the alias P1 and reported Standards 0/Spec 0 without scheduling automation. G3 now has only the external Go+JS application, shared browser+Dart/Flutter flow and focused CPU/queue/cancel/Close stress before the immediate N8/N9 start signal.
 - 2026-09-10 05:14 KST — G3 exact-progress audit: the external Go+JS application has not started because its bounded file-stream/handle cleanup is still a dirty N6 product slice; the Dart/Flutter cross-flow is also unrun and waits only for that stable endpoint/port. CPU interrupt, bounded queue, active/waiting Close and invocation/file-handle cleanup tests are being written but have no result or stable SHA yet. No item was marked green from WIP. Einstein's existing N7 task is reused for the cross-flow once N6 hands off the endpoint; no new worker, review, full regression, six-build or acceptance scope is added.
+- 2026-09-10 05:16 KST — integrated N6 bounded file streams `cac3f53` as `8917969`: authorized opaque open/readChunk/close handles are capped at four, 64 KiB per chunk and 3 MiB per invocation; host readers close on success/error/interrupt, and owner focused race/isolated PG file+SMTP checks pass. Lead confirmation and external app/cross-flow remain. Astra separately authorized N8/N9 product starts from clean `91a0bda` to avoid idle time without weakening G3. Migration 41 is reserved only for N8; fixtures are N6 `58094/58095`, N8 project `pgbase-n8-20260910` on `55470/55471/58096/58097`, and N9 task-local install with optional `58098`. Common Options/API/OpenAPI/UI nav/go.mod and CLI table/help/build composition remain lead-owned.
