@@ -1,6 +1,6 @@
 export * from "./admin.js";
 export type User = { id: string; email: string; createdAt: string; verified?: boolean; authCollectionId?: string; authCollection?: string };
-export type UserSession = { token?: string; user: User; expiresAt: string };
+export type UserSession = { token?: string; user: User; expiresAt: string; impersonated?: boolean; impersonatingAdministratorId?: string };
 export type RecordData = Record<string, unknown>;
 export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string };
 export type RecordResult<T extends RecordData> = { record: T; etag?: string };
@@ -183,6 +183,16 @@ export class PgBaseClient {
       method: "POST",
       body: JSON.stringify({ email }),
     }, signal);
+  }
+
+  requestOTP(email: string, signal?: AbortSignal): Promise<{ otpId: string; expiresAt: string }> {
+    return this.request("/api/v1/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }, signal);
+  }
+
+  async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
+    const generation = this.auth.generation;
+    try { const session = await this.request<UserSession>("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.auth.generation) this.auth.save(session.token); return session; }
+    catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code,error.details,{challengeToken,expiresAt}); } throw error; }
   }
 
   confirmPasswordReset(token: string, newPassword: string, signal?: AbortSignal): Promise<void> {
@@ -369,6 +379,12 @@ export class AuthRealm {
   session(signal?: AbortSignal): Promise<UserSession> { return this.client._request(this.path("session"), {}, signal); }
   async logout(signal?: AbortSignal): Promise<void> { try { await this.client._request<void>(this.path("logout"), { method: "POST" }, signal); } finally { this.client.auth.clear(); } }
   requestPasswordReset(email: string, signal?: AbortSignal): Promise<void> { return this.client._request(this.path("request-password-reset"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
+  requestOTP(email: string, signal?: AbortSignal): Promise<{ otpId: string; expiresAt: string }> { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
+  async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
+    const generation = this.client.auth.generation;
+    try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token); return session; }
+    catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt }); } throw error; }
+  }
   async profile<T extends RecordData = RecordData>(signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), {}, signal)).attributes; }
   async updateProfile<T extends RecordData = RecordData>(profile: T, signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }

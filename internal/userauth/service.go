@@ -206,7 +206,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	defer release()
 	var p Principal
-	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active`, s.tokenHash(rawToken)).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt)
+	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, s.tokenHash(rawToken)).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalidCredentials
 	}

@@ -87,14 +87,18 @@ type User struct {
 }
 
 type Session struct {
-	User      User
-	RawToken  string
-	ExpiresAt time.Time
+	User                         User
+	RawToken                     string
+	ExpiresAt                    time.Time
+	Impersonated                 bool
+	ImpersonatingAdministratorID uuid.UUID
 }
 
 type Principal struct {
-	User      User
-	ExpiresAt time.Time
+	User                         User
+	ExpiresAt                    time.Time
+	Impersonated                 bool
+	ImpersonatingAdministratorID uuid.UUID
 }
 
 type ManagedUser struct {

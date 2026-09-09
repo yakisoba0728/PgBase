@@ -51,6 +51,10 @@ func (e userEndpoints) emailAction(action string) http.Handler {
 			return
 		}
 		current, _ := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
+		if current.principal.Impersonated && (action == "request-verification" || action == "request-email-change") {
+			writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+			return
+		}
 		service := e.dependencies.EmailActions
 		var err error
 		switch action {

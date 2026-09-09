@@ -78,12 +78,30 @@ func (e authAdministrationEndpoints) policy(w http.ResponseWriter, r *http.Reque
 		PasswordEnabled      *bool `json:"passwordEnabled"`
 		MinimumPasswordBytes *int  `json:"minimumPasswordBytes"`
 		MFAEnabled           *bool `json:"mfaEnabled"`
+		OTPEnabled           *bool `json:"otpEnabled"`
+		OTPDurationSeconds   *int  `json:"otpDurationSeconds"`
+		OTPMaxAttempts       *int  `json:"otpMaxAttempts"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil || in.PasswordEnabled == nil || in.MinimumPasswordBytes == nil || in.MFAEnabled == nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.SetAuthPolicy(r.Context(), id, userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled})
+	policy := userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled}
+	if in.OTPEnabled == nil || in.OTPDurationSeconds == nil || in.OTPMaxAttempts == nil {
+		current, getErr := e.service.GetAuthAdministration(r.Context(), id)
+		if getErr != nil {
+			writeAuthAdministrationError(w, r, getErr)
+			return
+		}
+		policy.OTPEnabled = current.Policy.OTPEnabled
+		policy.OTPDurationSeconds = current.Policy.OTPDurationSeconds
+		policy.OTPMaxAttempts = current.Policy.OTPMaxAttempts
+	} else {
+		policy.OTPEnabled = *in.OTPEnabled
+		policy.OTPDurationSeconds = *in.OTPDurationSeconds
+		policy.OTPMaxAttempts = *in.OTPMaxAttempts
+	}
+	v, err := e.service.SetAuthPolicy(r.Context(), id, policy)
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return
@@ -116,13 +134,14 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		SubjectField          string   `json:"subjectField"`
 		EmailField            string   `json:"emailField"`
 		EmailVerifiedField    string   `json:"emailVerifiedField"`
+		AvatarField           string   `json:"avatarField"`
 		AllowInsecureLoopback bool     `json:"allowInsecureLoopback"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return

@@ -11,6 +11,8 @@ export type UserSession = {
     token?: string;
     user: User;
     expiresAt: string;
+    impersonated?: boolean;
+    impersonatingAdministratorId?: string;
 };
 export type RecordData = Record<string, unknown>;
 export type RecordPage<T extends RecordData> = {
@@ -146,6 +148,11 @@ export declare class PgBaseClient {
     logout(signal?: AbortSignal): Promise<void>;
     changePassword(currentPassword: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
+    requestOTP(email: string, signal?: AbortSignal): Promise<{
+        otpId: string;
+        expiresAt: string;
+    }>;
+    completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     confirmPasswordReset(token: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestVerification(signal?: AbortSignal): Promise<void>;
     confirmVerification(token: string, signal?: AbortSignal): Promise<void>;
@@ -192,6 +199,11 @@ export declare class AuthRealm {
     session(signal?: AbortSignal): Promise<UserSession>;
     logout(signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
+    requestOTP(email: string, signal?: AbortSignal): Promise<{
+        otpId: string;
+        expiresAt: string;
+    }>;
+    completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     profile<T extends RecordData = RecordData>(signal?: AbortSignal): Promise<T>;
     updateProfile<T extends RecordData = RecordData>(profile: T, signal?: AbortSignal): Promise<T>;
     oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{

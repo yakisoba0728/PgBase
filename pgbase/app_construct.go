@@ -168,6 +168,7 @@ func newWithCatalogPreflight(
 		Logger:             normalized.Logger,
 		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
 		AdminAuth:          authService,
+		CustomRoutes:       normalized.CustomRoutes,
 		Schema:             schemaService,
 		Records:            recordService,
 		PublicURL:          normalized.PublicURL,

@@ -24,6 +24,10 @@ type UserAuth interface {
 	ChangePassword(context.Context, uuid.UUID, string, string) error
 }
 
+type UserImpersonator interface {
+	Impersonate(context.Context, uuid.UUID, string, time.Duration) (userauth.Session, error)
+}
+
 type RecordAccess interface {
 	Get(context.Context, string) (recordaccess.Policy, error)
 	Set(context.Context, string, bool) (recordaccess.Policy, error)
@@ -122,9 +126,23 @@ func publicUser(user userauth.User) userResponse {
 }
 
 type userSessionResponse struct {
-	Token     string       `json:"token,omitempty"`
-	User      userResponse `json:"user"`
-	ExpiresAt time.Time    `json:"expiresAt"`
+	Token                        string       `json:"token,omitempty"`
+	User                         userResponse `json:"user"`
+	ExpiresAt                    time.Time    `json:"expiresAt"`
+	Impersonated                 bool         `json:"impersonated,omitempty"`
+	ImpersonatingAdministratorID string       `json:"impersonatingAdministratorId,omitempty"`
+}
+
+func userSessionFromResult(session userauth.Session) userSessionResponse {
+	actor := ""
+	if session.ImpersonatingAdministratorID != uuid.Nil {
+		actor = session.ImpersonatingAdministratorID.String()
+	}
+	return userSessionResponse{Token: session.RawToken, User: publicUser(session.User), ExpiresAt: session.ExpiresAt, Impersonated: session.Impersonated, ImpersonatingAdministratorID: actor}
+}
+
+func userSessionFromPrincipal(principal userauth.Principal) userSessionResponse {
+	return userSessionFromResult(userauth.Session{User: principal.User, ExpiresAt: principal.ExpiresAt, Impersonated: principal.Impersonated, ImpersonatingAdministratorID: principal.ImpersonatingAdministratorID})
 }
 
 func (e userEndpoints) session(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +151,7 @@ func (e userEndpoints) session(w http.ResponseWriter, r *http.Request) {
 		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionResponse{User: publicUser(current.principal.User), ExpiresAt: current.principal.ExpiresAt})
+	writeJSON(w, http.StatusOK, userSessionFromPrincipal(current.principal))
 }
 
 func (e userEndpoints) logout(w http.ResponseWriter, r *http.Request) {

@@ -57,6 +57,12 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 		if !ok {
 			return ErrNotFound
 		}
+		// Schema imports use the collection row as the common lock even before
+		// either optional policy row exists. This prevents concurrent first
+		// inserts from escaping FOR UPDATE on an empty collection_access/rules set.
+		if _, err := tx.Exec(ctx, `SELECT id FROM pgbase_meta.collections WHERE id=$1 FOR UPDATE`, collection.ID); err != nil {
+			return err
+		}
 
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.collection_access WHERE collection_id=$1 FOR UPDATE`, collection.ID); err != nil {
 			return err

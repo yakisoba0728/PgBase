@@ -79,13 +79,40 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 					return err
 				}
 			}
-			return s.validateTransaction(ctx, tx, request, results)
+			if err := s.validateTransaction(ctx, tx, request, results); err != nil {
+				return err
+			}
+			catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+			if err != nil {
+				return err
+			}
+			for index, operation := range request.Operations {
+				name := operationCollection(operation)
+				if collection, ok := catalog.Collections[name]; ok {
+					projectMutationResult(collection, request.Principal, &results[index])
+				}
+			}
+			return nil
 		})
 	}, nil)
 	if err != nil {
 		return nil, membershipBoundaryError(err)
 	}
 	return results, nil
+}
+
+func operationCollection(operation BatchOperation) string {
+	switch {
+	case operation.Create != nil:
+		return operation.Create.Collection
+	case operation.Update != nil:
+		return operation.Update.Collection
+	case operation.Upsert != nil:
+		return operation.Upsert.Collection
+	case operation.Delete != nil:
+		return operation.Delete.Collection
+	}
+	return ""
 }
 
 func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operation BatchOperation) (MutationResult, error) {

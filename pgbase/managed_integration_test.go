@@ -256,9 +256,35 @@ func waitManagedJob(t *testing.T, origin, id string, cookie *http.Cookie) backup
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		job := managedJSON[backup.Job](t, http.MethodGet, origin+"/api/admin/backup-jobs/"+id, nil, cookie, "", http.StatusOK)
-		if job.Status != "running" {
-			return job
+		request, err := http.NewRequest(http.MethodGet, origin+"/api/admin/backup-jobs/"+id, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.AddCookie(cookie)
+		response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The managed host deliberately pauses requests while switching targets.
+		// Treat only that advertised transition as pending, not as completion.
+		if response.StatusCode == http.StatusServiceUnavailable && strings.TrimSpace(string(raw)) == "Restore activation in progress. Retry shortly." {
+			// Keep polling the same durable job after activation releases admission.
+		} else {
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("backup job status = %d: %s", response.StatusCode, raw)
+			}
+			var job backup.Job
+			if err := json.Unmarshal(raw, &job); err != nil {
+				t.Fatal(err)
+			}
+			if job.Status != "running" {
+				return job
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("backup job %s timed out", id)

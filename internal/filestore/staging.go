@@ -109,7 +109,7 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subj
 		if change.CollectionID == uuid.Nil || change.RecordID == uuid.Nil || !fieldPattern.MatchString(change.Field) {
 			return nil, ErrInvalid
 		}
-		if err := s.authorize(ctx, tx, principal, change.CollectionID, change.RecordID, change.Field, OperationWrite); err != nil {
+		if err := s.authorizeField(ctx, tx, principal, change.CollectionID, change.RecordID, change.Field, OperationWrite); err != nil {
 			return nil, err
 		}
 		policy, err := s.policy(ctx, tx, change.CollectionID, change.Field)

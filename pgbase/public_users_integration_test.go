@@ -35,7 +35,9 @@ type publicUserSession struct {
 		Email     string    `json:"email"`
 		CreatedAt time.Time `json:"createdAt"`
 	} `json:"user"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	ExpiresAt                    time.Time `json:"expiresAt"`
+	Impersonated                 bool      `json:"impersonated"`
+	ImpersonatingAdministratorID uuid.UUID `json:"impersonatingAdministratorId"`
 }
 
 type publicAdminSession struct {

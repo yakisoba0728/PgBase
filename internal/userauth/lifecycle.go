@@ -246,5 +246,8 @@ func revokeSessionsInTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (int64, er
 	if _, err := tx.Exec(ctx, `delete from pgbase_meta.user_mfa_challenges where user_id=$1`, id); err != nil {
 		return 0, fmt.Errorf("revoke user MFA challenges: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where user_id=$1 and consumed_at is null`, id); err != nil {
+		return 0, fmt.Errorf("revoke user email OTPs: %w", err)
+	}
 	return tag.RowsAffected(), nil
 }

@@ -383,6 +383,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error)
 		Default:  field.Default,
 		Ordinal:  field.Ordinal,
 		Options:  cloneFieldOptions(field.Options),
+		Hidden:   field.Hidden, Presentable: field.Presentable, Help: field.Help,
 	}
 	if field.Type != TypeRelation {
 		if field.Relation != nil {
@@ -411,6 +412,12 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
+	if len([]rune(field.Help)) > 300 {
+		return PlannedField{}, validation(fieldPath+".help", "too_long")
+	}
+	if field.Hidden && field.Presentable {
+		return PlannedField{}, validation(fieldPath+".presentable", "hidden_field")
+	}
 	if err := validateFieldOptions(field.Type, field.Options); err != nil {
 		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
 	}
@@ -467,6 +474,7 @@ func planInputField(
 		Relation:   relation,
 		Ordinal:    ordinal,
 		Options:    clonedInputOptions(normalized.Options),
+		Hidden:     normalized.Hidden, Presentable: normalized.Presentable, Help: normalized.Help,
 	}
 	if len(normalized.Default) != 0 {
 		canonical, _, err := normalizeDefault(normalized.Type, normalized.Default)

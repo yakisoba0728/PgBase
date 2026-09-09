@@ -51,6 +51,12 @@ func (f *callbackFactors) AcceptOAuthCallback(_ context.Context, provider, state
 func (*callbackFactors) GetOAuthAvatar(context.Context, uuid.UUID) (userauth.OAuthAvatar, error) {
 	return userauth.OAuthAvatar{}, nil
 }
+func (*callbackFactors) RequestEmailOTP(context.Context, string, string) (userauth.EmailOTPRequest, error) {
+	return userauth.EmailOTPRequest{}, nil
+}
+func (*callbackFactors) CompleteEmailOTP(context.Context, string, string) (userauth.Session, error) {
+	return userauth.Session{}, nil
+}
 
 func TestAppleOAuthCallbackRedirectsBoundDestination(t *testing.T) {
 	f := &callbackFactors{destination: "https://app.example/callback?code=code&state=state"}

@@ -103,7 +103,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// ceiling. No extra headroom is allocated.
 	// M2–M6 adds relation target rules, visibility hydration and source-backed views.
 	// See docs/local-milestone-design.md for the measured scope change.
-	if runtimeLines > 5543 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 5543", runtimeLines)
+	// P7 adds hidden-field path validation and response projection; measured
+	// accounting is in docs/phase3-local-contracts.md with no spare allowance.
+	if runtimeLines > 5704 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 5704", runtimeLines)
 	}
 }

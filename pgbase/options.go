@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/webisnoteasy/PgBase/internal/api"
 )
 
 const (
@@ -37,7 +39,9 @@ const (
 )
 
 type Options struct {
-	Backups BackupOptions
+	// CustomRoutes installs up to 64 application handlers with explicit access.
+	CustomRoutes []CustomRoute
+	Backups      BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions
@@ -113,6 +117,7 @@ func (o Options) Normalized() (Options, error) {
 		}
 	}
 	o.MutationHooks = append([]MutationHook(nil), o.MutationHooks...)
+	o.CustomRoutes = append([]CustomRoute(nil), o.CustomRoutes...)
 	o.OAuthProviders = append([]OAuthProviderOptions(nil), o.OAuthProviders...)
 	for i := range o.OAuthProviders {
 		o.OAuthProviders[i].Scopes = append([]string(nil), o.OAuthProviders[i].Scopes...)
@@ -125,6 +130,9 @@ func (o Options) Normalized() (Options, error) {
 }
 
 func validateOptions(o Options) error {
+	if err := api.ValidateCustomRoutes(o.CustomRoutes); err != nil {
+		return err
+	}
 	if err := validateScheduledJobs(o.Jobs); err != nil {
 		return err
 	}

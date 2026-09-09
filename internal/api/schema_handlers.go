@@ -31,16 +31,19 @@ type schemaEndpoints struct {
 }
 
 type plannedFieldResponse struct {
-	ID       uuid.UUID                `json:"id,omitzero"`
-	Options  schema.FieldOptions      `json:"options,omitzero"`
-	Name     string                   `json:"name"`
-	Type     schema.FieldType         `json:"type"`
-	Required bool                     `json:"required"`
-	Unique   bool                     `json:"unique"`
-	Indexed  bool                     `json:"indexed"`
-	Default  json.RawMessage          `json:"default,omitempty"`
-	Relation *plannedRelationResponse `json:"relation,omitempty"`
-	Ordinal  int                      `json:"ordinal"`
+	ID          uuid.UUID                `json:"id,omitzero"`
+	Options     schema.FieldOptions      `json:"options,omitzero"`
+	Name        string                   `json:"name"`
+	Type        schema.FieldType         `json:"type"`
+	Required    bool                     `json:"required"`
+	Unique      bool                     `json:"unique"`
+	Indexed     bool                     `json:"indexed"`
+	Default     json.RawMessage          `json:"default,omitempty"`
+	Relation    *plannedRelationResponse `json:"relation,omitempty"`
+	Ordinal     int                      `json:"ordinal"`
+	Hidden      bool                     `json:"hidden"`
+	Presentable bool                     `json:"presentable"`
+	Help        string                   `json:"help,omitempty"`
 }
 
 type relationStorageResponse struct {
@@ -75,17 +78,20 @@ type schemaPlanResponse struct {
 }
 
 type fieldResponse struct {
-	Options    schema.FieldOptions `json:"options,omitzero"`
-	ID         uuid.UUID           `json:"id"`
-	Name       string              `json:"name"`
-	ColumnName string              `json:"columnName"`
-	Type       schema.FieldType    `json:"type"`
-	Required   bool                `json:"required"`
-	Unique     bool                `json:"unique"`
-	Indexed    bool                `json:"indexed"`
-	Default    json.RawMessage     `json:"default,omitempty"`
-	Relation   *relationResponse   `json:"relation,omitempty"`
-	Ordinal    int                 `json:"ordinal"`
+	Options     schema.FieldOptions `json:"options,omitzero"`
+	ID          uuid.UUID           `json:"id"`
+	Name        string              `json:"name"`
+	ColumnName  string              `json:"columnName"`
+	Type        schema.FieldType    `json:"type"`
+	Required    bool                `json:"required"`
+	Unique      bool                `json:"unique"`
+	Indexed     bool                `json:"indexed"`
+	Default     json.RawMessage     `json:"default,omitempty"`
+	Relation    *relationResponse   `json:"relation,omitempty"`
+	Ordinal     int                 `json:"ordinal"`
+	Hidden      bool                `json:"hidden"`
+	Presentable bool                `json:"presentable"`
+	Help        string              `json:"help,omitempty"`
 }
 
 type relationResponse struct {
@@ -311,7 +317,7 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 			ID: field.ID, Options: field.Options,
 			Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique,
 			Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...),
-			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal,
+			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help,
 		})
 	}
 	return plannedCollectionResponse{Name: collection.Name, TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
@@ -325,7 +331,7 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 			ID:      field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: field.Type,
 			Required: field.Required, Unique: field.Unique, Indexed: field.Indexed,
 			Default:  append(json.RawMessage(nil), field.Default...),
-			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal,
+			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help,
 		})
 	}
 	return collectionResponse{

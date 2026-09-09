@@ -164,7 +164,7 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 				if field.Name != fieldName || field.Type != schema.TypeFile {
 					continue
 				}
-				result := filestore.FieldPolicy{MaximumBytes: 5 << 20, MaximumCount: 1, MimeTypes: append([]string(nil), options.Files.AllowedTypes...), Thumbs: append([]string(nil), field.Options.Thumbs...), Required: field.Required}
+				result := filestore.FieldPolicy{MaximumBytes: 5 << 20, MaximumCount: 1, MimeTypes: append([]string(nil), options.Files.AllowedTypes...), Thumbs: append([]string(nil), field.Options.Thumbs...), Required: field.Required, Hidden: field.Hidden}
 				if field.Options.MaxFileSize != nil {
 					result.MaximumBytes = *field.Options.MaxFileSize
 				}

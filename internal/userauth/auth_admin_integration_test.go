@@ -23,9 +23,25 @@ func TestAuthAdministrationPolicyTakesEffectAndRevokesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := service.SetAuthPolicy(ctx, realmID, AuthPolicy{PasswordEnabled: true, MinimumPasswordBytes: 32, MFAEnabled: true})
-	if err != nil || policy.MinimumPasswordBytes != 32 {
+	policy, err := service.SetAuthPolicy(ctx, realmID, AuthPolicy{PasswordEnabled: true, MinimumPasswordBytes: 32, MFAEnabled: true, OTPEnabled: true, OTPDurationSeconds: 120, OTPMaxAttempts: 4})
+	if err != nil || policy.MinimumPasswordBytes != 32 || !policy.OTPEnabled || policy.OTPDurationSeconds != 120 || policy.OTPMaxAttempts != 4 {
 		t.Fatalf("set policy = %#v, %v", policy, err)
+	}
+	if _, err := service.PutMailTemplate(ctx, realmID, MailTemplate{Purpose: "otp", Subject: "Realm code", Body: "Code {{otp}} / {{otp_id}}", HTMLBody: "<p>Code <strong>{{otp}}</strong></p>"}); err != nil {
+		t.Fatal(err)
+	}
+	administration, err := service.GetAuthAdministration(ctx, realmID)
+	if err != nil || !administration.Policy.OTPEnabled {
+		t.Fatalf("OTP administration=%#v %v", administration.Policy, err)
+	}
+	foundOTP := false
+	for _, template := range administration.Templates {
+		if template.Purpose == "otp" {
+			foundOTP = true
+		}
+	}
+	if !foundOTP {
+		t.Fatal("OTP template missing from administration")
 	}
 	if _, err := service.RegisterInCollection(ctx, realmID, "short@example.test", "correct horse battery staple", "policy-short"); !errors.Is(err, ErrValidation) {
 		t.Fatalf("short realm password = %v", err)

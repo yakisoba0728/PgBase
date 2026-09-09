@@ -30,6 +30,7 @@ export interface DraftField {
   id?: string; options?: DraftFieldOptions;
   name: string; type: FieldType;
   required: boolean; unique: boolean; indexed: boolean;
+  hidden?: boolean; presentable?: boolean; help?: string;
   hasDefault: boolean; defaultText: string; relation?: DraftRelation;
   // Keeps an explicit self choice from being inferred from a half-typed name.
   selfRelation?: boolean;
@@ -39,8 +40,8 @@ export interface RelationTargetOption { name: string; label: string }
 
 export type DraftEdit =
   | { set: "options"; value: DraftFieldOptions }
-  | { set: "name" | "defaultText" | "target" | "minSelect" | "maxSelect"; value: string }
-  | { set: "required" | "unique" | "indexed" | "hasDefault"; value: boolean }
+  | { set: "name" | "defaultText" | "target" | "minSelect" | "maxSelect" | "help"; value: string }
+  | { set: "required" | "unique" | "indexed" | "hasDefault" | "hidden" | "presentable"; value: boolean }
   | { set: "type"; value: FieldType }
   | { set: "cardinality"; value: RelationCardinality } | { set: "onDelete"; value: RelationDeleteAction };
 
@@ -54,7 +55,7 @@ const appliedText = "The change was applied. The edits you made after sending it
 const createdText = "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.";
 
 const newRelation = (): DraftRelation => ({ targetCollection: "", cardinality: "single", minSelect: "0", maxSelect: "1", onDelete: "restrict" });
-const newField = (): DraftField => ({ name: "", type: "text", required: false, unique: false, indexed: false, hasDefault: false, defaultText: "" });
+const newField = (): DraftField => ({ name: "", type: "text", required: false, unique: false, indexed: false, hidden: false, presentable: false, help: "", hasDefault: false, defaultText: "" });
 
 function parseDefault(type: FieldType, value: string): unknown {
   if (type === "boolean") {
@@ -123,9 +124,15 @@ export function buildInput(operation: "create" | "update", name: string, fields:
 		return { operation, name, fields: [], view };
 	}
 	const fieldInputs = fields.map((field, index) => {
+			if ((field.help?.length ?? 0) > 300) throw new DraftError(`Field ${index + 1} help must be at most 300 characters.`);
+			if (field.hidden && field.presentable) throw new DraftError(`Field ${index + 1} cannot be hidden and presentable.`);
 			const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
+			if (field.hidden) base.hidden = true;
+			if (field.presentable) base.presentable = true;
+			if (field.help) base.help = field.help;
 			if (operation === "update" && field.id) base.id = field.id;
-			base.options = fieldOptionsInput(field.options) ?? (field.id ? {} : undefined);
+			const options = fieldOptionsInput(field.options) ?? (field.id ? {} : undefined);
+			if (options !== undefined) base.options = options;
 			if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
 			return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
 	});
@@ -171,6 +178,7 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
       required: field.required,
       unique: field.unique,
       indexed: field.indexed,
+      hidden: field.hidden, presentable: field.presentable, help: field.help,
       hasDefault: field.default !== undefined,
       defaultText: defaultTextFor(field.type, field.default),
       relation: field.relation === undefined ? undefined : {
@@ -208,6 +216,9 @@ function applyEdit(field: DraftField, edit: DraftEdit, collectionName: string): 
   if (edit.set === "hasDefault") return { ...field, hasDefault: edit.value };
   if (edit.set === "unique") return { ...field, unique: edit.value };
   if (edit.set === "indexed") return { ...field, indexed: edit.value };
+	if (edit.set === "help") return { ...field, help: edit.value };
+	if (edit.set === "hidden") return { ...field, hidden: edit.value, presentable: edit.value ? false : field.presentable };
+	if (edit.set === "presentable") return { ...field, presentable: edit.value };
   if (edit.set === "type") return withType(field, edit.value);
   if (edit.set === "required") {
     if (relation === undefined) return { ...field, required: edit.value };

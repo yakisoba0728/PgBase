@@ -23,6 +23,8 @@ type AuthFactors interface {
 	BeginOAuthLinkWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error)
 	CompleteOAuth(context.Context, string, string, string) (userauth.Session, error)
 	AcceptOAuthCallback(context.Context, string, string, string, string, string) (string, error)
+	RequestEmailOTP(context.Context, string, string) (userauth.EmailOTPRequest, error)
+	CompleteEmailOTP(context.Context, string, string) (userauth.Session, error)
 	GetOAuthAvatar(context.Context, uuid.UUID) (userauth.OAuthAvatar, error)
 }
 
@@ -36,6 +38,7 @@ func (e userEndpoints) factorRoutes() []route {
 	}{
 		{"totp/enroll", accessUserSession}, {"totp/confirm", accessUserSession}, {"totp/disable", accessUserSession},
 		{"mfa/complete", accessPublic}, {"oauth/start", accessPublic}, {"oauth/link", accessUserSession}, {"oauth/complete", accessPublic},
+		{"otp/request", accessPublic}, {"otp/complete", accessPublic},
 	}
 	routes := make([]route, 0, len(actions))
 	for _, action := range actions {
@@ -92,12 +95,18 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			Provider        string `json:"provider"`
 			RedirectURI     string `json:"redirectUri"`
 			State           string `json:"state"`
+			Email           string `json:"email"`
+			OTPID           string `json:"otpId"`
 		}
 		if decodeStrictJSON(r, &input) != nil {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
 		current, _ := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
+		if current.principal.Impersonated && (action == "totp/enroll" || action == "totp/confirm" || action == "totp/disable" || action == "oauth/link") {
+			writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+			return
+		}
 		service := e.dependencies.AuthFactors
 		var result any
 		var err error
@@ -124,6 +133,19 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			} else {
 				value, err = service.CompleteOAuth(r.Context(), input.Provider, input.State, input.Code)
 			}
+			result = userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt}
+		case "otp/request":
+			address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+			if !ok {
+				err = userauth.ErrValidation
+				break
+			}
+			var value userauth.EmailOTPRequest
+			value, err = service.RequestEmailOTP(r.Context(), input.Email, address)
+			result = value
+		case "otp/complete":
+			var value userauth.Session
+			value, err = service.CompleteEmailOTP(r.Context(), input.OTPID, input.Code)
 			result = userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt}
 		case "oauth/start", "oauth/link":
 			var value userauth.OAuthAuthorization

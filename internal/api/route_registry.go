@@ -59,6 +59,8 @@ type route struct {
 	deadline            deadlinePolicy
 	maximumRequestBytes int64
 	streamedUpload      bool
+	schemaDocument      bool
+	noStore             bool
 	handler             http.Handler
 }
 
@@ -86,7 +88,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 122
+	maximumRegisteredRoutes     = 134
 	maximumMethodAgnosticRoutes = 3
 )
 
@@ -107,7 +109,12 @@ func validateRoutes(routes []route) error {
 		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > backup.MaximumArchiveBytes {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
-		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload {
+		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload && !declared.schemaDocument {
+			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
+		}
+		if declared.schemaDocument && (declared.streamedUpload || declared.method != "POST" ||
+			declared.access != accessAdminSession || declared.maximumRequestBytes != maximumCatalogResponseBytes ||
+			(declared.pattern != "/api/admin/schema/import/preview" && declared.pattern != "/api/admin/schema/import/apply")) {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
 		if declared.streamedUpload && (declared.maximumRequestBytes == 0 || declared.method != "POST") {

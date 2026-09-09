@@ -12,6 +12,7 @@ export function UsersPage() {
   const [page, setPage] = useState<UserPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [impersonation, setImpersonation] = useState<{ token: string; email: string; expiresAt: string } | null>(null);
   const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const lifetime = useRef(0);
@@ -109,6 +110,14 @@ export function UsersPage() {
     void mutate(() => action, () => setNotice(`${kind === "verification" ? "Verification" : "Password reset"} email requested for ${user.email}.`), "Unable to request email action.");
   }
 
+  function impersonate(user: ManagedUser) {
+    if (!window.confirm(`Create a five-minute impersonation session for ${user.email}?`)) return;
+    void mutate(() => users.impersonate(user.id, 300), (session) => {
+      setImpersonation({ token: session.token, email: user.email, expiresAt: session.expiresAt });
+      setNotice(`Created an impersonation session for ${user.email}.`);
+    }, "Unable to create impersonation session.");
+  }
+
   const busy = pending || loading;
   return <section>
     <div className="page-heading">
@@ -117,6 +126,12 @@ export function UsersPage() {
     </div>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
+    {impersonation && <div role="region" aria-label="Impersonation session">
+      <p>This temporary token acts as {impersonation.email} until {displayDate(impersonation.expiresAt)}. Credential and MFA changes are blocked.</p>
+      <textarea readOnly aria-label="Impersonation token" value={impersonation.token} rows={3} />
+      <button type="button" onClick={() => void navigator.clipboard.writeText(impersonation.token)}>Copy token</button>
+      <button type="button" onClick={() => setImpersonation(null)}>Dismiss</button>
+    </div>}
     {loading && <p aria-live="polite">Loading users…</p>}
     {page && <>
       <div className="table-scroll" role="region" aria-label="Public users" tabIndex={0}><table className="users-table">
@@ -134,6 +149,7 @@ export function UsersPage() {
             <button type="button" disabled={busy} onClick={() => verification(user, !user.verified)}>{user.verified ? "Mark unverified" : "Mark verified"}</button>
             {!user.verified && <button type="button" disabled={busy} onClick={() => sendAction(user, "verification")}>Send verification</button>}
             <button type="button" disabled={busy} onClick={() => sendAction(user, "reset")}>Send password reset</button>
+            <button type="button" disabled={busy || !user.active} onClick={() => impersonate(user)}>Impersonate</button>
           </div></td>
         </tr>)}</tbody>
       </table></div>
