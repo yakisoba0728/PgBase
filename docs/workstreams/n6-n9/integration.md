@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:35 KST
+Last updated: 2026-09-10 04:37 KST
 
 ## Current milestone
 
@@ -17,7 +17,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 
 | Workstream | Worker / branch / worktree | State at 03:38 KST | Integration requirement |
 | --- | --- | --- | --- |
-| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | jobs/CLI/types/watch integrated through `41852b5`; combined focused race and PG six-test gate green; Nash review active | review fixes, broader hooks/migrations, external JS app/browser and stress |
+| N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | integrated through `41852b5`; Nash initial review has two P1 fixes open, CLI/jobs delta review active | authority/dependency fixes, broader hooks/migrations, external app/browser and stress |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | actual data/admin matrix and same-origin browser integrated through `f018df1`; lead Chrome reproduction green | revocation/SSE and controllable cursor-expired/cancel-upload edges |
 | N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | active pre-G3 preparation, `N8.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | preparation `08ce58c`, Windows scope correction `7453dd1`; docs only, blocker none | waiting; product start only on G3 signal |
@@ -83,3 +83,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:32 KST — integrated N7 same-origin browser harness `9926a77` as `f018df1`, allocating N7-only loopback proxy `58093`. The worker's Chrome run passed login/resume 200/200, missing CSRF 403 and protected logout 204 without changing server CORS/CSRF. The integration lead independently repeated all four visible states in a separate Chrome task session; browser warning/error output was empty.
 - 2026-09-10 04:32 KST — Nash/Terra task `01a087a7-5a52-7983-b515-1145f58142cf` is the sole independent N6 reviewer. Its read-only target is exactly the foundation/domain-service/hooks/migrations slice through integrated `94b32b3`, excluding N7 and unfinished jobs/CLI/watch. Findings must include reproduction evidence and go directly to owner and lead; the same reviewer will inspect the next stable N6 delta.
 - 2026-09-10 04:35 KST — integrated N6 jobs/CLI/types/watch commit `bc24fb0` as `41852b5`. On the combined branch, focused race passed for `internal/cli`, `internal/config`, `internal/jsvm`, and `pgbase`; dedicated PG17.9 `55469` passed CLI migration/watch 2 tests, existing jobs fencing/timeout/admin-lease 3 tests, and JS durable retry/cron/admin-persistence 1 test. Nash will review this stable delta after closing the already assigned `94b32b3` slice.
+- 2026-09-10 04:37 KST — integrated Nash's review-only `15c5138` as `dc64f18`. Standards has no finding; Spec has two reproduced P1s: a captured `ExtensionContext` can retain original user authority after its admitted request ends, and a migration's undeclared nested/Down-only local dependency can pass startup validation then fail only during Up/Down. Both exact fixes/tests were returned to Chandrasekhar. Nash is now reviewing only the stable `94b32b3..41852b5` jobs/CLI/types/watch delta and remains assigned for fix closure.
