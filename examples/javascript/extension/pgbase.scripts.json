@@ -1,0 +1,70 @@
+{
+  "format": "pgbase.scripts/v1",
+  "routes": [
+    {
+      "method": "POST",
+      "pattern": "/extensions/tasks",
+      "access": "user",
+      "handler": { "module": "routes.js", "export": "createTask" },
+      "capabilities": ["records"]
+    },
+    {
+      "method": "GET",
+      "pattern": "/extensions/tasks/{id}",
+      "access": "user",
+      "handler": { "module": "routes.js", "export": "getTask" },
+      "capabilities": ["records"]
+    },
+    {
+      "method": "POST",
+      "pattern": "/extensions/tasks/{id}/files",
+      "access": "user",
+      "handler": { "module": "routes.js", "export": "uploadFile" },
+      "capabilities": ["files"]
+    },
+    {
+      "method": "POST",
+      "pattern": "/extensions/files/{fileId}/read",
+      "access": "user",
+      "handler": { "module": "routes.js", "export": "readFile" },
+      "capabilities": ["files"]
+    },
+    {
+      "method": "POST",
+      "pattern": "/extensions/mail",
+      "access": "user",
+      "handler": { "module": "routes.js", "export": "sendMail" },
+      "capabilities": ["mail"]
+    }
+  ],
+  "hooks": [
+    {
+      "event": "record.create",
+      "priority": 20,
+      "after": { "module": "hooks.js", "export": "recordCreated" },
+      "capabilities": ["log"]
+    },
+    {
+      "event": "mail.send",
+      "priority": 20,
+      "before": { "module": "hooks.js", "export": "prefixMail" }
+    }
+  ],
+  "jobs": [
+    {
+      "name": "n6_delivery",
+      "schedule": "@every 1h",
+      "timezone": "UTC",
+      "handler": { "module": "job.js", "export": "run" },
+      "capabilities": ["records"]
+    }
+  ],
+  "migrations": [
+    {
+      "id": "20260910060000_n6_delivery_receipts",
+      "module": "migrations/delivery_receipts.js",
+      "up": "up",
+      "down": "down"
+    }
+  ]
+}

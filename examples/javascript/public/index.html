@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PgBase JavaScript extension acceptance</title>
+    <style>
+      body { font: 16px system-ui; max-width: 52rem; margin: 3rem auto; padding: 0 1rem; }
+      label { display: block; margin: .75rem 0; }
+      input { display: block; width: 100%; padding: .5rem; box-sizing: border-box; }
+      button { padding: .65rem 1rem; }
+      pre { padding: 1rem; background: #111; color: #d9ffe1; min-height: 12rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>PgBase JavaScript extension</h1>
+    <p>This page runs a real user, extension route, exact JSON number, file stream, and SSE flow.</p>
+    <label>Email for an existing disposable user <input id="email" type="email" autocomplete="username"></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+    <label>Shared record ID <input id="record-id"></label>
+    <label>Shared file ID <input id="file-id"></label>
+    <button id="run" type="button">Run acceptance</button>
+    <pre id="result" role="status">Ready</pre>
+    <script src="/app.js"></script>
+  </body>
+</html>
