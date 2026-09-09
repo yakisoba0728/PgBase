@@ -52,6 +52,13 @@ import (
 // and the unchanged per-file limit are recorded in docs/phase3-local-contracts.md.
 // P8 adds advanced fields and coordination sessions; scope and measured growth
 // are recorded in docs/phase4-local-contracts.md. No spare allowance is added.
+// N5 adds typed, process-local request lifecycle boundaries for record CRUD,
+// batch/schema import, purpose-specific mail, and file access. The measured
+// implementation is +394 handwritten runtime lines and +9 exported payload
+// declarations after removing the bridge interface/adapter and splitting the
+// file service below the 800-line hard limit. This is an authorized product
+// surface, not spare headroom; its contract and focused evidence are recorded
+// in docs/workstreams/n1-n5/N5.md.
 const dataGroupRuntimeLimit = 21747
 
 var dataGroupPackages = []string{
@@ -308,10 +315,10 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 61410, "plan 22,484"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 61804, "plan 22,484 + N5 lifecycle"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6238, "plan 2,050"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 57, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 973, "plan 285"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 982, "plan 285 + N5 lifecycle"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 46, "plan 16"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 129, "plan 30"},

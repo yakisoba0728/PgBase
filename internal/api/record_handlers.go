@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
@@ -29,7 +30,7 @@ type RecordService interface {
 type recordEndpoints struct {
 	service RecordService
 	files   FileService
-	hooks   LifecycleHooks
+	hooks   *lifecycle.Registry
 }
 
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
@@ -155,12 +156,15 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	result, err := e.service.Create(r.Context(), recordops.CreateRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		Input: event.Input, IdempotencyKey: idempotencyKey,
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Create(r.Context(), recordops.CreateRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+			Input: event.Input, IdempotencyKey: idempotencyKey,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
-	event.Result = &result
-	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
@@ -218,12 +222,15 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	result, err := e.service.Update(r.Context(), recordops.UpdateRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		ID: id, Input: event.Input, IfMatch: ifMatch,
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Update(r.Context(), recordops.UpdateRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+			ID: id, Input: event.Input, IfMatch: ifMatch,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
-	event.Result = &result
-	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
@@ -264,11 +271,14 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	result, err := e.service.Delete(r.Context(), recordops.DeleteRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Delete(r.Context(), recordops.DeleteRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
-	event.Result = &result
-	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
 		return

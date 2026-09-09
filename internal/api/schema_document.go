@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/accessrule"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -35,7 +36,7 @@ func schemaDocumentRoutes(dependencies Dependencies) []route {
 
 type schemaDocumentEndpoints struct {
 	service schemaDocumentService
-	hooks   LifecycleHooks
+	hooks   *lifecycle.Registry
 }
 
 func (e schemaDocumentEndpoints) status(w http.ResponseWriter, r *http.Request) {
@@ -74,18 +75,21 @@ func (e schemaDocumentEndpoints) preview(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 		return
 	}
-	event := &SchemaImportRequestEvent{Mode: "preview", ActorID: principal.Administrator.ID, Document: document}
+	event := &SchemaImportRequestEvent{Mode: "preview", ActorID: principal.Administrator.ID, RequestID: requestID(r.Context()), Document: document}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "schema.import.preview", event)
 	if err != nil {
 		finish(err)
 		writeSchemaError(w, r, err)
 		return
 	}
-	plan, err := e.service.PreviewSchemaImport(r.Context(), event.Document)
-	if err == nil {
-		err = e.service.ValidateSchemaImportPlan(plan, validateCollectionRules)
-	}
-	finish(err)
+	var plan schema.SchemaImportPlan
+	err = finishLifecycle(finish, func() error {
+		plan, err = e.service.PreviewSchemaImport(r.Context(), event.Document)
+		if err == nil {
+			err = e.service.ValidateSchemaImportPlan(plan, validateCollectionRules)
+		}
+		return err
+	})
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return
@@ -123,16 +127,19 @@ func (e schemaDocumentEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeInvalidSchemaDocument(w, r)
 		return
 	}
-	event := &SchemaImportRequestEvent{Mode: "apply", ActorID: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Document: request.Document}
+	event := &SchemaImportRequestEvent{Mode: "apply", ActorID: principal.Administrator.ID, RequestID: requestID(r.Context()), OperationID: identity.operationID, IdempotencyKey: identity.key, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Document: cloneSchemaDocument(request.Document)}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "schema.import.apply", event)
 	if err != nil {
 		finish(err)
 		writeSchemaError(w, r, err)
 		return
 	}
-	result, err := e.service.ApplySchemaImport(r.Context(), schema.SchemaImportIntent{Document: request.Document, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Actor: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, ValidateRules: validateCollectionRules})
-	event.Result = &result
-	finish(err)
+	var result schema.SchemaImportResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.ApplySchemaImport(r.Context(), schema.SchemaImportIntent{Document: request.Document, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Actor: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, ValidateRules: validateCollectionRules})
+		event.Result = cloneSchemaImportResult(result)
+		return err
+	})
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return

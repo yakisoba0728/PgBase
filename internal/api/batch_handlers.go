@@ -148,6 +148,8 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		participant := &fileBatchParticipant{service: e.files, principal: principal, attachments: attachments}
 		participants = []recordops.BatchParticipant{participant}
 	}
+	attachmentBindings := newBatchAttachmentBindings(operations)
+	identities := captureBatchIdentities(operations)
 	event := &BatchRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Operations: operations}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "record.batch", event)
 	if err != nil {
@@ -158,11 +160,30 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	results, err := service.Batch(r.Context(), recordops.BatchRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants,
+	if len(attachments) != 0 && !attachmentBindings.compatible(event.Operations) {
+		err = errors.New("batch hook changed a multipart attachment binding")
+		finish(err)
+		_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
+		writeInvalidRecordRequest(w, r)
+		return
+	}
+	if !identities.restore(event.Operations) {
+		err = errors.New("batch hook changed an idempotency identity")
+		finish(err)
+		if len(staged) > 0 && e.files != nil {
+			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
+		}
+		writeInvalidRecordRequest(w, r)
+		return
+	}
+	var results []recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		results, err = service.Batch(r.Context(), recordops.BatchRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants,
+		})
+		event.Results = cloneMutationResults(results)
+		return err
 	})
-	event.Results = results
-	finish(err)
 	if err != nil {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
@@ -195,6 +216,114 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Results []batchResult `json:"results"`
 	}{response})
+}
+
+// batchAttachmentBindings freezes operation routing metadata when a multipart
+// request contains uploaded files. Attachments are indexed before hooks run;
+// accepting a reordered or retargeted operation would attach a staged file to
+// the wrong committed record. Input remains mutable and is revalidated by the
+// record service.
+type batchAttachmentBindings []batchAttachmentBinding
+
+type batchAttachmentBinding struct {
+	kind               string
+	collection         string
+	id                 uuid.UUID
+	idempotencyKey     string
+	idempotencyContext []byte
+	ifMatch            recordops.EntityTagSet
+	sidecarFields      []string
+}
+
+func newBatchAttachmentBindings(operations []recordops.BatchOperation) batchAttachmentBindings {
+	bindings := make(batchAttachmentBindings, len(operations))
+	for index, operation := range operations {
+		bindings[index] = batchAttachmentBindingFor(operation)
+	}
+	return bindings
+}
+
+func batchAttachmentBindingFor(operation recordops.BatchOperation) batchAttachmentBinding {
+	if operation.Create != nil {
+		return batchAttachmentBinding{kind: "create", collection: operation.Create.Collection, id: operation.Create.ID, idempotencyKey: operation.Create.IdempotencyKey, idempotencyContext: append([]byte(nil), operation.Create.IdempotencyContext...)}
+	}
+	if operation.Update != nil {
+		return batchAttachmentBinding{kind: "update", collection: operation.Update.Collection, id: operation.Update.ID, idempotencyContext: append([]byte(nil), operation.Update.SidecarContext...), ifMatch: operation.Update.IfMatch, sidecarFields: append([]string(nil), operation.Update.SidecarFields...)}
+	}
+	if operation.Upsert != nil {
+		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
+	}
+	if operation.Delete != nil {
+		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, ifMatch: operation.Delete.IfMatch}
+	}
+	return batchAttachmentBinding{}
+}
+
+func (bindings batchAttachmentBindings) compatible(operations []recordops.BatchOperation) bool {
+	if len(bindings) != len(operations) {
+		return false
+	}
+	for index, expected := range bindings {
+		actual := batchAttachmentBindingFor(operations[index])
+		if expected.kind != actual.kind || expected.collection != actual.collection || expected.id != actual.id || expected.idempotencyKey != actual.idempotencyKey || !bytes.Equal(expected.idempotencyContext, actual.idempotencyContext) || !sameEntityTagSet(expected.ifMatch, actual.ifMatch) || !sameStrings(expected.sidecarFields, actual.sidecarFields) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameEntityTagSet(left, right recordops.EntityTagSet) bool {
+	return left.Present == right.Present && left.Any == right.Any && sameStrings(left.Values, right.Values)
+}
+
+func sameStrings(left, right []string) bool {
+	return len(left) == len(right) && func() bool {
+		for index := range left {
+			if left[index] != right[index] {
+				return false
+			}
+		}
+		return true
+	}()
+}
+
+type batchIdentities []batchIdentity
+
+type batchIdentity struct {
+	key     string
+	context []byte
+}
+
+func captureBatchIdentities(operations []recordops.BatchOperation) batchIdentities {
+	identities := make(batchIdentities, len(operations))
+	for index, operation := range operations {
+		if operation.Create != nil {
+			identities[index] = batchIdentity{key: operation.Create.IdempotencyKey, context: append([]byte(nil), operation.Create.IdempotencyContext...)}
+		}
+	}
+	return identities
+}
+
+func (identities batchIdentities) restore(operations []recordops.BatchOperation) bool {
+	if len(identities) != len(operations) {
+		for _, identity := range identities {
+			if identity.key != "" {
+				return false
+			}
+		}
+		return true
+	}
+	for index, identity := range identities {
+		if identity.key == "" {
+			continue
+		}
+		if operations[index].Create == nil {
+			return false
+		}
+		operations[index].Create.IdempotencyKey = identity.key
+		operations[index].Create.IdempotencyContext = append([]byte(nil), identity.context...)
+	}
+	return true
 }
 
 type batchAttachment struct {

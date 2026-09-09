@@ -3,29 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
-// LifecycleHooks is the process-local request lifecycle seam. Implementations
-// must pair the returned finish function with the final service outcome.
-// It deliberately contains no HTTP response writer, session, or credential.
-type LifecycleHooks interface {
-	Begin(context.Context, *LifecycleEvent) (func(error), error)
-}
-
-type LifecycleEvent struct {
-	Kind string
-	Data any
-}
-
-// RecordRequestEvent is emitted after route admission and before its typed
-// record service call. The service revalidates the mutable input and performs
-// collection/rule authorization after the hook. Actor, RequestID, record
-// identity, and idempotency identity are copied for observation; changes to
-// them are ignored.
 type RecordRequestEvent struct {
 	Actor          recordops.Principal
 	RequestID      string
@@ -41,12 +26,6 @@ type RecordRequestEvent struct {
 	Result         *recordops.MutationResult
 }
 
-// BatchRequestEvent is emitted once after the entire batch payload has been
-// decoded and route-admitted, before the atomic batch service call. Operations
-// are mutable and are used for the call. The service revalidates and authorizes
-// every resulting operation. Actor and RequestID are observational copies.
-// Results are populated only after the service has resolved commit or
-// rollback/replay.
 type BatchRequestEvent struct {
 	Actor      recordops.Principal
 	RequestID  string
@@ -54,15 +33,35 @@ type BatchRequestEvent struct {
 	Results    []recordops.MutationResult
 }
 
-// SchemaImportRequestEvent is emitted once for a schema-document preview or
-// apply after administrator admission. Preview uses a mutable Document; guarded
-// apply exposes its document for observation and veto only, preserving the
-// checksum and replay identity supplied by the caller. The actor, operation ID,
-// idempotency key, base version and checksum are immutable observations. Result
-// is populated after the schema service resolves its final outcome.
+func cloneMutationResult(result recordops.MutationResult) *recordops.MutationResult {
+	cloned := result
+	if result.Record == nil {
+		return &cloned
+	}
+	record := *result.Record
+	raw, err := json.Marshal(result.Record.Data)
+	if err == nil {
+		var data map[string]any
+		if json.Unmarshal(raw, &data) == nil {
+			record.Data = data
+		}
+	}
+	cloned.Record = &record
+	return &cloned
+}
+
+func cloneMutationResults(results []recordops.MutationResult) []recordops.MutationResult {
+	cloned := make([]recordops.MutationResult, len(results))
+	for index, result := range results {
+		cloned[index] = *cloneMutationResult(result)
+	}
+	return cloned
+}
+
 type SchemaImportRequestEvent struct {
 	Mode           string
 	ActorID        uuid.UUID
+	RequestID      string
 	OperationID    uuid.UUID
 	IdempotencyKey string
 	BaseVersion    int64
@@ -71,9 +70,37 @@ type SchemaImportRequestEvent struct {
 	Result         *schema.SchemaImportResult
 }
 
-func beginLifecycle(ctx context.Context, hooks LifecycleHooks, kind string, data any) (func(error), error) {
+func cloneSchemaDocument(document schema.SchemaDocument) schema.SchemaDocument {
+	raw, err := json.Marshal(document)
+	if err != nil {
+		return schema.SchemaDocument{}
+	}
+	var cloned schema.SchemaDocument
+	if json.Unmarshal(raw, &cloned) != nil {
+		return schema.SchemaDocument{}
+	}
+	return cloned
+}
+
+func cloneSchemaImportResult(result schema.SchemaImportResult) *schema.SchemaImportResult {
+	cloned := result
+	return &cloned
+}
+
+func beginLifecycle(ctx context.Context, hooks *lifecycle.Registry, kind string, data any) (func(error), error) {
 	if hooks == nil {
 		return func(error) {}, nil
 	}
-	return hooks.Begin(ctx, &LifecycleEvent{Kind: kind, Data: data})
+	return hooks.Begin(ctx, &lifecycle.Event{Kind: kind, Data: data})
+}
+
+func finishLifecycle(finish func(error), operation func() error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			finish(errors.New("request operation panicked"))
+			panic(recovered)
+		}
+		finish(err)
+	}()
+	return operation()
 }

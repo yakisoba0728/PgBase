@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 )
 
 type captureHookMail struct{ messages []MailMessage }
@@ -26,7 +26,7 @@ func TestLifecycleAPIHookCancellationHasPairedOutcome(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	finish, err := (lifecycleAPIHooks{registry}).Begin(ctx, &api.LifecycleEvent{Kind: HookRecordCreateRequest, Data: &RecordRequestEvent{}})
+	finish, err := registry.Begin(ctx, &lifecycle.Event{Kind: HookRecordCreateRequest, Data: &RecordRequestEvent{}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled request hook = %v", err)
 	}
@@ -79,12 +79,13 @@ func TestLifecycleRequestAndMailAdapters(t *testing.T) {
 		}
 		purposeSeen = true
 		mail.Message.Subject = "OTP customized"
+		mail.Message.Purpose = "smtp_test"
 		return nil
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = wrapped.Send(context.Background(), MailMessage{Purpose: "otp", To: "a@example.test", Text: "hello"}); err != nil || !purposeSeen || len(sender.messages) != 2 || sender.messages[1].Subject != "OTP customized" {
+	if err = wrapped.Send(context.Background(), MailMessage{Purpose: "otp", To: "a@example.test", Text: "hello"}); err != nil || !purposeSeen || len(sender.messages) != 2 || sender.messages[1].Subject != "OTP customized" || sender.messages[1].Purpose != "otp" {
 		t.Fatalf("purpose mail err=%v seen=%t messages=%v", err, purposeSeen, sender.messages)
 	}
 }

@@ -99,12 +99,6 @@ type RecordRequestEvent = api.RecordRequestEvent
 type BatchRequestEvent = api.BatchRequestEvent
 type SchemaImportRequestEvent = api.SchemaImportRequestEvent
 
-type lifecycleAPIHooks struct{ registry *HookRegistry }
-
-func (h lifecycleAPIHooks) Begin(ctx context.Context, event *api.LifecycleEvent) (func(error), error) {
-	return h.registry.Begin(ctx, &HookEvent{Kind: event.Kind, Data: event.Data})
-}
-
 func requestHooks(registry *HookRegistry, next http.Handler) http.Handler {
 	if registry == nil {
 		return next
@@ -165,8 +159,12 @@ func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
 			finish(purposeErr)
 			return purposeErr
 		}
+		// The purpose is chosen by the service, not an extension. Restore it
+		// after purpose-specific mutation as well as after the generic hook.
+		event.Message.Purpose = purpose
 		err = m.sender.Send(ctx, event.Message)
 		message = event.Message
+		message.Purpose = purpose
 		purposeFinish(err)
 		finish(err)
 		return err

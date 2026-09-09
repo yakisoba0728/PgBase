@@ -10,11 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 type Dependencies struct {
-	LifecycleHooks              LifecycleHooks
+	LifecycleHooks              *lifecycle.Registry
 	CustomRoutes                []CustomRoute
 	AuthAdministration          AuthAdministration
 	RequestLog                  *observability.RequestLog

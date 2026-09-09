@@ -124,6 +124,8 @@ func TestLifecycleRecordRequestAndBatchHooksThroughHTTP(t *testing.T) {
 	var mu sync.Mutex
 	success := map[string]int{}
 	batchReplay := false
+	batchRequestIDs := []string{}
+	batchIdempotencyKeys := []string{}
 	for _, kind := range []string{HookRecordListRequest, HookRecordViewRequest, HookRecordCreateRequest, HookRecordUpdateRequest, HookRecordDeleteRequest, HookRecordBatchRequest} {
 		kind := kind
 		_, err := registry.On(kind, Hook{Before: func(_ context.Context, event *HookEvent) error {
@@ -135,14 +137,33 @@ func TestLifecycleRecordRequestAndBatchHooksThroughHTTP(t *testing.T) {
 					input["title"] = json.RawMessage(`"rewritten by hook"`)
 				}
 			}
+			if kind == HookRecordBatchRequest {
+				batchEvent := event.Data.(*BatchRequestEvent)
+				batchRequestIDs = append(batchRequestIDs, batchEvent.RequestID)
+				if batchEvent.Operations[0].Create != nil && batchEvent.Operations[0].Create.IdempotencyKey == "n5-batch-create-0001" {
+					batchEvent.Operations[0].Create.IdempotencyKey = "n5-batch-rewritten-0001"
+				}
+			}
 			return nil
 		}, After: func(_ context.Context, event *HookEvent) {
 			if event.Err == nil {
 				mu.Lock()
 				success[kind]++
 				if kind == HookRecordBatchRequest {
-					for _, result := range event.Data.(*BatchRequestEvent).Results {
+					batchEvent := event.Data.(*BatchRequestEvent)
+					if batchEvent.Operations[0].Create != nil {
+						batchIdempotencyKeys = append(batchIdempotencyKeys, batchEvent.Operations[0].Create.IdempotencyKey)
+					}
+					for _, result := range batchEvent.Results {
 						batchReplay = batchReplay || result.Replayed
+						if result.Record != nil {
+							result.Record.Data["title"] = "after hook"
+						}
+					}
+				} else if kind == HookRecordCreateRequest {
+					result := event.Data.(*RecordRequestEvent).Result
+					if result != nil && result.Record != nil {
+						result.Record.Data["title"] = "after hook"
 					}
 				}
 				mu.Unlock()
@@ -180,30 +201,41 @@ func TestLifecycleRecordRequestAndBatchHooksThroughHTTP(t *testing.T) {
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodDelete, path, nil, "", cookie, map[string]string{"X-PgBase-CSRF": csrf, "If-Match": updated.Header().Get("ETag")}), http.StatusNoContent)
 	invalid := publicUsersRequest(t, app, http.MethodPost, base, map[string]any{"title": "make invalid"}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf, "Idempotency-Key": "n5-record-invalid-0001"})
 	assertPublicUsersStatus(t, invalid, http.StatusUnprocessableEntity)
-	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_records", "input": map[string]any{"title": "batch"}, "idempotencyKey": "n5-batch-create-0001"}}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_records", "input": map[string]any{"title": "batch"}, "idempotencyKey": "n5-batch-create-0001"}}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf, "X-Request-ID": "n5_batch_request_one"})
 	assertPublicUsersStatus(t, batch, http.StatusOK)
-	replay := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_records", "input": map[string]any{"title": "batch"}, "idempotencyKey": "n5-batch-create-0001"}}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	var batchBody struct {
+		Results []struct {
+			Record map[string]any `json:"record"`
+		} `json:"results"`
+	}
+	decodePublicUsersJSON(t, batch, &batchBody)
+	if batchBody.Results[0].Record["title"] != "batch" {
+		t.Fatalf("after hook changed batch response: %#v", batchBody)
+	}
+	replay := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_records", "input": map[string]any{"title": "batch"}, "idempotencyKey": "n5-batch-create-0001"}}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf, "X-Request-ID": "n5_batch_request_two"})
 	assertPublicUsersStatus(t, replay, http.StatusOK)
 	var vetoAfter error
-	removeVeto, err := registry.On(HookRecordBatchRequest, Hook{Before: func(context.Context, *HookEvent) error { return errors.New("batch veto") }, After: func(_ context.Context, event *HookEvent) { vetoAfter = event.Err }})
+	vetoAfterCount := 0
+	removeVeto, err := registry.On(HookRecordBatchRequest, Hook{Before: func(context.Context, *HookEvent) error { return errors.New("batch veto") }, After: func(_ context.Context, event *HookEvent) { vetoAfterCount++; vetoAfter = event.Err }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	vetoed := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_records", "input": map[string]any{"title": "blocked"}, "idempotencyKey": "n5-batch-veto-0001"}}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, vetoed, http.StatusInternalServerError)
 	removeVeto()
-	if vetoAfter == nil {
+	if vetoAfter == nil || vetoAfterCount != 1 {
 		t.Fatal("vetoed batch did not receive paired final error")
 	}
 	var panicAfter error
-	removePanic, err := registry.On(HookRecordCreateRequest, Hook{Before: func(context.Context, *HookEvent) error { panic("hook panic") }, After: func(_ context.Context, event *HookEvent) { panicAfter = event.Err }})
+	panicAfterCount := 0
+	removePanic, err := registry.On(HookRecordCreateRequest, Hook{Before: func(context.Context, *HookEvent) error { panic("hook panic") }, After: func(_ context.Context, event *HookEvent) { panicAfterCount++; panicAfter = event.Err }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	panicked := publicUsersRequest(t, app, http.MethodPost, base, map[string]any{"title": "panic"}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf, "Idempotency-Key": "n5-record-panic-0001"})
 	assertPublicUsersStatus(t, panicked, http.StatusInternalServerError)
 	removePanic()
-	if panicAfter == nil {
+	if panicAfter == nil || panicAfterCount != 1 {
 		t.Fatal("panicked hook did not receive paired final error")
 	}
 	mu.Lock()
@@ -215,6 +247,12 @@ func TestLifecycleRecordRequestAndBatchHooksThroughHTTP(t *testing.T) {
 	}
 	if !batchReplay {
 		t.Error("batch replay did not expose its final replay outcome")
+	}
+	if len(batchRequestIDs) < 2 || batchRequestIDs[0] != "n5_batch_request_one" || batchRequestIDs[1] != "n5_batch_request_two" {
+		t.Errorf("batch hook request identities=%v", batchRequestIDs)
+	}
+	if len(batchIdempotencyKeys) < 2 || batchIdempotencyKeys[0] != "n5-batch-create-0001" || batchIdempotencyKeys[1] != "n5-batch-create-0001" {
+		t.Errorf("batch hook idempotency identities=%v", batchIdempotencyKeys)
 	}
 }
 
@@ -230,9 +268,18 @@ func TestLifecycleSchemaImportHooksThroughHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = registry.On(HookSchemaImportApply, Hook{After: func(_ context.Context, event *HookEvent) {
+	applyRequestIDs := []string{}
+	_, err = registry.On(HookSchemaImportApply, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		apply := event.Data.(*SchemaImportRequestEvent)
+		applyRequestIDs = append(applyRequestIDs, apply.RequestID)
+		if len(apply.Document.Collections) > 0 {
+			apply.Document.Collections[0].Name = "hook_mutated_schema"
+		}
+		return nil
+	}, After: func(_ context.Context, event *HookEvent) {
 		if event.Err == nil && event.Data.(*SchemaImportRequestEvent).Result != nil {
 			committed++
+			event.Data.(*SchemaImportRequestEvent).Result.Status = "after hook"
 		}
 	}})
 	if err != nil {
@@ -258,16 +305,125 @@ func TestLifecycleSchemaImportHooksThroughHTTP(t *testing.T) {
 	}
 	decodePublicUsersJSON(t, preview, &plan)
 	body := map[string]any{"document": plan.Document, "baseVersion": plan.BaseVersion, "checksum": plan.Checksum}
-	headers := map[string]string{"X-PgBase-CSRF": csrf, "PgBase-Operation-ID": uuid.NewString(), "Idempotency-Key": "n5-schema-import-0001"}
+	headers := map[string]string{"X-PgBase-CSRF": csrf, "PgBase-Operation-ID": uuid.NewString(), "Idempotency-Key": "n5-schema-import-0001", "X-Request-ID": "n5_schema_request_one"}
 	vetoed := publicUsersRequest(t, app, http.MethodPost, "/api/admin/schema/import/apply", body, "", cookie, headers)
 	assertPublicUsersStatus(t, vetoed, http.StatusInternalServerError)
 	if vetoAfter == nil {
 		t.Fatal("schema veto did not receive paired final error")
 	}
 	removeVeto()
+	headers["X-Request-ID"] = "n5_schema_request_two"
 	committedResponse := publicUsersRequest(t, app, http.MethodPost, "/api/admin/schema/import/apply", body, "", cookie, headers)
 	assertPublicUsersStatus(t, committedResponse, http.StatusOK)
-	if previewed != 1 || committed != 1 {
+	var appliedResult struct {
+		Status string `json:"status"`
+	}
+	decodePublicUsersJSON(t, committedResponse, &appliedResult)
+	if appliedResult.Status == "after hook" {
+		t.Fatal("after hook changed schema response")
+	}
+	headers["X-Request-ID"] = "n5_schema_request_three"
+	replayedResponse := publicUsersRequest(t, app, http.MethodPost, "/api/admin/schema/import/apply", body, "", cookie, headers)
+	assertPublicUsersStatus(t, replayedResponse, http.StatusOK)
+	if previewed != 1 || committed != 2 || len(applyRequestIDs) != 3 || applyRequestIDs[1] != "n5_schema_request_two" || applyRequestIDs[2] != "n5_schema_request_three" {
 		t.Fatalf("schema hook results preview=%d committed=%d", previewed, committed)
+	}
+}
+
+func TestLifecycleMultipartBatchRejectsAttachmentRetargetingThroughHTTP(t *testing.T) {
+	registry := &HookRegistry{}
+	mode := "rewrite"
+	_, err := registry.On(HookRecordBatchRequest, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		operations := event.Data.(*BatchRequestEvent).Operations
+		switch mode {
+		case "rewrite":
+			operations[0].Create.Input["title"] = json.RawMessage(`"rewritten"`)
+		case "reorder":
+			operations[0], operations[1] = operations[1], operations[0]
+		case "retarget":
+			operations[0].Create.Collection = "n5_hook_other"
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) {
+		options.Hooks = registry
+		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}}
+	})
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	create := func(name string) {
+		change := map[string]any{"operation": "create", "name": name, "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file"}}}
+		plan := publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/plan", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+		assertPublicUsersStatus(t, plan, http.StatusOK)
+		var planned struct {
+			BaseVersion int64  `json:"baseVersion"`
+			Checksum    string `json:"checksum"`
+		}
+		decodePublicUsersJSON(t, plan, &planned)
+		change["baseVersion"], change["checksum"] = planned.BaseVersion, planned.Checksum
+		assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/apply", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusCreated)
+	}
+	create("n5_hook_files")
+	create("n5_hook_other")
+	requests := map[string]any{"requests": []map[string]any{
+		{"method": "POST", "url": "/api/v1/collections/n5_hook_files/records", "headers": map[string]string{"Idempotency-Key": "n5-hook-file-0001"}, "body": map[string]any{"title": "client", "attachment": map[string]any{"$file": "upload"}}},
+		{"method": "POST", "url": "/api/v1/collections/n5_hook_other/records", "headers": map[string]string{"Idempotency-Key": "n5-hook-other-0001"}, "body": map[string]any{"title": "other"}},
+	}}
+	accepted := multipartBatchRequest(t, app, cookie, csrf, requests, map[string][]byte{"upload": []byte("attachment")})
+	assertPublicUsersStatus(t, accepted, http.StatusOK)
+	var output struct {
+		Results []struct {
+			Body map[string]any `json:"body"`
+		} `json:"results"`
+	}
+	decodePublicUsersJSON(t, accepted, &output)
+	if output.Results[0].Body["title"] != "rewritten" {
+		t.Fatalf("mutable multipart field rewrite=%#v", output)
+	}
+	mode = "reorder"
+	reordered := multipartBatchRequest(t, app, cookie, csrf, requests, map[string][]byte{"upload": []byte("reordered")})
+	assertPublicUsersStatus(t, reordered, http.StatusBadRequest)
+	mode = "retarget"
+	retargeted := multipartBatchRequest(t, app, cookie, csrf, requests, map[string][]byte{"upload": []byte("retargeted")})
+	assertPublicUsersStatus(t, retargeted, http.StatusBadRequest)
+	page := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/n5_hook_files/records", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, page, http.StatusOK)
+	var listing struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodePublicUsersJSON(t, page, &listing)
+	if len(listing.Items) != 1 {
+		t.Fatalf("unsafe multipart hooks wrote records: %#v", listing.Items)
+	}
+}
+
+func TestLifecycleMutableBatchStillUsesPublicUserAuthorization(t *testing.T) {
+	registry := &HookRegistry{}
+	_, err := registry.On(HookRecordBatchRequest, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		event.Data.(*BatchRequestEvent).Operations[0].Create.Collection = "n5_hook_denied"
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Hooks = registry })
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	createPublicUsersCollection(t, app, cookie, csrf, "n5_hook_allowed")
+	createPublicUsersCollection(t, app, cookie, csrf, "n5_hook_denied")
+	enable := publicUsersRequest(t, app, http.MethodPut, "/api/admin/collections/n5_hook_allowed/user-access", map[string]any{"enabled": true}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, enable, http.StatusOK)
+	user := registerPublicUser(t, app, "n5-hook-user@example.test", publicUserOnePass)
+	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "n5_hook_allowed", "input": map[string]any{"title": "must not write"}, "idempotencyKey": "n5-hook-auth-0001"}}}, user.Token, nil, nil)
+	assertPublicUsersStatus(t, batch, http.StatusForbidden)
+	page := publicUsersRequest(t, app, http.MethodGet, "/api/v1/user/collections/n5_hook_allowed/records", nil, user.Token, nil, nil)
+	assertPublicUsersStatus(t, page, http.StatusOK)
+	var listing struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodePublicUsersJSON(t, page, &listing)
+	if len(listing.Items) != 0 {
+		t.Fatalf("denied hook rewrite committed records: %#v", listing.Items)
 	}
 }

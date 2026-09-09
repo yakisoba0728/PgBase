@@ -197,7 +197,7 @@ func newWithCatalogPreflight(
 	}
 	if normalized.Hooks != nil {
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
-		dependencies.LifecycleHooks = lifecycleAPIHooks{normalized.Hooks}
+		dependencies.LifecycleHooks = normalized.Hooks
 	}
 	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
 	if err != nil {
