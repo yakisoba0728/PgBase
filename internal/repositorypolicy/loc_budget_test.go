@@ -66,10 +66,11 @@ import (
 // the measured 22,693. Its product-code delta is +946: internal/schema +875
 // (snapshot/recording/apply and FieldOptions), internal/recordops +76
 // (generated values), and internal/query -5 (modifier/cursor consolidation).
-// P8 had one unused line below its ceiling, so the new exact ceiling changes by
-// +946. These schema-private transaction and planner/store paths cannot move
-// behind a different package boundary without broad product redesign; no file
-// is excluded from this group to manufacture headroom.
+// The P8 baseline equals its 21,747-line ceiling, so the measured +946 delta
+// establishes the new exact ceiling. These schema-private transaction and
+// planner/store paths cannot move behind a different package boundary without
+// broad product redesign; no file is excluded from this group to manufacture
+// headroom.
 const dataGroupRuntimeLimit = 22693
 
 var dataGroupPackages = []string{

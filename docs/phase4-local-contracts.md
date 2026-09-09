@@ -165,8 +165,8 @@ transaction and planner/store paths;
 moving them outside the group would require a broad redesign, so the policy
 continues to count every file. The 800-line hard cap remains fixed. To retain
 it without adding LOC, index-name hashing now lives with schema name helpers
-and catalog ID lookup with catalog helpers; `planner.go` and
-`schema_document.go` are each 798 lines.
+and catalog ID lookup with catalog helpers; `planner.go` is 763 lines and
+`schema_document.go` is 798 lines.
 
 ## Independent review
 
