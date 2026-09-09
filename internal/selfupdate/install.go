@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -107,7 +108,7 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	entry := journal{
 		SchemaVersion: 1, Phase: "manifest_verified", CreatedAt: time.Now().UTC(),
 		Target: filepath.Base(target), Candidate: candidateName, Backup: "backup-" + suffix,
-		Old: oldBuild, New: Build{Version: options.Fetched.Candidate.Release.Version, Commit: options.Fetched.Candidate.Release.Commit, GOOS: options.Fetched.Candidate.Artifact.GOOS, GOARCH: options.Fetched.Candidate.Artifact.GOARCH},
+		Old: oldBuild, New: Build{Version: options.Fetched.Candidate.Release.Version, Commit: options.Fetched.Candidate.Release.Commit, GOOS: options.Fetched.Candidate.Artifact.GOOS, GOARCH: options.Fetched.Candidate.Artifact.GOARCH, SchemaMin: strconv.FormatInt(options.Fetched.Candidate.Release.Schema.Min, 10), SchemaMax: strconv.FormatInt(options.Fetched.Candidate.Release.Schema.Max, 10)},
 		OldSHA256: targetDigest, ManifestSHA256: manifestSHA, SignatureSHA256: signatureSHA, TrustFingerprint: keyFingerprint,
 	}
 	if err = writeJournal(state, entry); err != nil {

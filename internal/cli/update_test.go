@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/webisnoteasy/PgBase/internal/buildinfo"
+	"github.com/webisnoteasy/PgBase/internal/selfupdate"
 )
 
 func TestRunVersionEmitsStableNetworkFreeJSON(t *testing.T) {
@@ -27,6 +28,19 @@ func TestRunVersionEmitsStableNetworkFreeJSON(t *testing.T) {
 	}
 	if err := runVersion(context.Background(), nil, emptyEnv, testIO(nil, io.Discard, io.Discard)); err == nil {
 		t.Fatal("missing --json accepted")
+	}
+}
+
+func TestCandidateCompatibilityUsesOnlyExplicitBuildSchema(t *testing.T) {
+	candidate := selfupdate.Candidate{Release: selfupdate.Release{Schema: selfupdate.Schema{Min: 40, Max: 40}}}
+	if got := candidateCompatibility(selfupdate.Build{SchemaMin: "40", SchemaMax: "40"}, candidate); got != "compatible" {
+		t.Fatalf("compatible=%q", got)
+	}
+	if got := candidateCompatibility(selfupdate.Build{SchemaMin: "39", SchemaMax: "39"}, candidate); got != "migration_required" {
+		t.Fatalf("migration=%q", got)
+	}
+	if got := candidateCompatibility(selfupdate.Build{}, candidate); got != "schema_unknown" {
+		t.Fatalf("unknown=%q", got)
 	}
 }
 

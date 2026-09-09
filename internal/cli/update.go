@@ -21,6 +21,21 @@ import (
 )
 
 const updateUsage = "usage: pgbase update <check|apply|status|rollback> ..."
+const updateJSONSchemaVersion = 1
+
+// updateOperationalError preserves only the stable updater code for the
+// shared executor; its Error string cannot leak paths, URLs, or key bytes.
+type updateOperationalError struct{ cause error }
+
+func (e updateOperationalError) Error() string { return selfupdate.ErrorCode(e.cause) }
+func (e updateOperationalError) Unwrap() error { return e.cause }
+
+func updateFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	return updateOperationalError{cause: err}
+}
 
 // runUpdate is private until integration composes it into commandTable. It
 // does not read PgBase environment settings or contact PostgreSQL.
@@ -92,17 +107,27 @@ func runUpdateCheck(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return err
 	}
+	target, state, err := updateTarget(input.stateDir)
+	if err != nil {
+		return updateFailure(err)
+	}
+	if status, statusErr := selfupdate.ReadStatus(target, state); statusErr != nil {
+		return updateFailure(statusErr)
+	} else if unresolvedUpdate(status) {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
+	}
+	reportUpdateProgress(streams, "checking signed update manifest")
 	fetched, err := fetchUpdate(ctx, input)
 	if errors.Is(err, selfupdate.ErrNoUpdate) {
-		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"status": "no_update"})
+		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": "no_update", "compatibility": "schema_unknown"})
 	}
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
 	return json.NewEncoder(streams.stdout()).Encode(map[string]any{
-		"status": "available", "version": fetched.Candidate.Release.Version,
+		"schemaVersion": updateJSONSchemaVersion, "status": "available", "version": fetched.Candidate.Release.Version,
 		"commit": fetched.Candidate.Release.Commit, "goos": fetched.Candidate.Artifact.GOOS,
-		"goarch": fetched.Candidate.Artifact.GOARCH, "size": fetched.Candidate.Artifact.Size,
+		"goarch": fetched.Candidate.Artifact.GOARCH, "size": fetched.Candidate.Artifact.Size, "compatibility": candidateCompatibility(currentBuild(), fetched.Candidate),
 	})
 }
 
@@ -111,26 +136,36 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return err
 	}
-	fetched, err := fetchUpdate(ctx, input)
-	if errors.Is(err, selfupdate.ErrNoUpdate) {
-		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"status": "no_update"})
-	}
-	if err != nil {
-		return err
-	}
 	target, state, err := updateTarget(input.stateDir)
 	if err != nil {
-		return err
+		return updateFailure(err)
+	}
+	if status, statusErr := selfupdate.ReadStatus(target, state); statusErr != nil {
+		return updateFailure(statusErr)
+	} else if unresolvedUpdate(status) {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
+	}
+	reportUpdateProgress(streams, "checking signed update manifest")
+	fetched, err := fetchUpdate(ctx, input)
+	if errors.Is(err, selfupdate.ErrNoUpdate) {
+		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": "no_update", "compatibility": "schema_unknown"})
+	}
+	if err != nil {
+		return updateFailure(err)
+	}
+	if compatibility := candidateCompatibility(currentBuild(), fetched.Candidate); compatibility != "compatible" {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
 	}
 	key, err := loadTrustKey(input.trustKey)
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
+	reportUpdateProgress(streams, "downloading and verifying update")
 	status, err := selfupdate.Apply(ctx, selfupdate.ApplyOptions{Target: target, StateDir: state, Fetched: fetched, TrustKey: key, Current: currentBuild(), WindowsLaunch: selfupdate.LaunchWindowsHelper})
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
-	return json.NewEncoder(streams.stdout()).Encode(status)
+	return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": status})
 }
 
 func runUpdateStatus(args []string, streams IO) error {
@@ -147,10 +182,10 @@ func runUpdateStatus(args []string, streams IO) error {
 	}
 	status, err := selfupdate.ReadStatus(target, state)
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
 	if *jsonOutput {
-		return json.NewEncoder(streams.stdout()).Encode(status)
+		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": status})
 	}
 	_, err = fmt.Fprintf(streams.stdout(), "phase=%s current=%s candidate=%s\n", status.Phase, status.Current.Version, status.Candidate.Version)
 	return err
@@ -165,14 +200,28 @@ func runUpdateRollback(ctx context.Context, args []string, streams IO) error {
 	}
 	target, state, err := updateTarget(*stateDir)
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
+	previous, err := selfupdate.ReadStatus(target, state)
+	if err != nil {
+		return updateFailure(err)
+	}
+	if candidateCompatibility(currentBuild(), selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(previous.Candidate)}}) != "compatible" {
+		return updateFailure(selfupdate.ErrRecoveryRequired)
+	}
+	reportUpdateProgress(streams, "restoring verified update backup")
 	status, err := selfupdate.Rollback(ctx, target, state, nil)
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
-	return json.NewEncoder(streams.stdout()).Encode(status)
+	return json.NewEncoder(streams.stdout()).Encode(map[string]any{"schemaVersion": updateJSONSchemaVersion, "status": status})
 }
+
+func unresolvedUpdate(status selfupdate.Status) bool {
+	return status.Phase != "idle" && status.Phase != "aborted" && status.Phase != "rolled_back" && status.Phase != "committed"
+}
+
+func reportUpdateProgress(streams IO, message string) { _, _ = fmt.Fprintln(streams.stderr(), message) }
 
 func fetchUpdate(ctx context.Context, input updateInput) (selfupdate.Fetched, error) {
 	key, err := loadTrustKey(input.trustKey)
@@ -198,6 +247,45 @@ func fetchUpdate(ctx context.Context, input updateInput) (selfupdate.Fetched, er
 func currentBuild() selfupdate.Build {
 	info := buildinfo.Current()
 	return selfupdate.Build{Version: info.Version, Commit: info.Commit, BuiltAt: info.BuiltAt, GOOS: info.GOOS, GOARCH: info.GOARCH, SchemaMin: info.SchemaMin, SchemaMax: info.SchemaMax}
+}
+
+func candidateCompatibility(current selfupdate.Build, candidate selfupdate.Candidate) string {
+	currentSchema, ok := schemaValue(current.SchemaMin, current.SchemaMax)
+	if !ok {
+		return "schema_unknown"
+	}
+	if candidate.Release.Schema.Min == 0 && candidate.Release.Schema.Max == 0 {
+		return "schema_unknown"
+	}
+	if currentSchema < candidate.Release.Schema.Min || currentSchema > candidate.Release.Schema.Max {
+		return "migration_required"
+	}
+	return "compatible"
+}
+
+func schemaFromBuild(build selfupdate.Build) selfupdate.Schema {
+	minimum, maximum, ok := schemaRange(build.SchemaMin, build.SchemaMax)
+	if !ok {
+		return selfupdate.Schema{}
+	}
+	return selfupdate.Schema{Min: minimum, Max: maximum}
+}
+
+func schemaValue(minimum, maximum string) (int64, bool) {
+	min, max, ok := schemaRange(minimum, maximum)
+	return min, ok && min == max
+}
+
+func schemaRange(minimum, maximum string) (int64, int64, bool) {
+	min, err := strconv.ParseInt(minimum, 10, 64)
+	if err != nil || min < 0 {
+		return 0, 0, false
+	}
+	max, err := strconv.ParseInt(maximum, 10, 64)
+	if err != nil || max < min {
+		return 0, 0, false
+	}
+	return min, max, true
 }
 
 func updateTarget(stateOverride string) (string, string, error) {
