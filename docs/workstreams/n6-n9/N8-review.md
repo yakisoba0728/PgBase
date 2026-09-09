@@ -6,7 +6,9 @@
 - Backend candidate: `10d9df44dded8ed908dc277c91852d3ab2554955` (`feat: configure SQL console bounds`)
 - Fixed comparison base: `91a0bdac9212cdf26207cdba619fc579b359b885`
 - Component anchors supplied by the owner: API `437995a`, service `f9840d0`, executor `4b46e1c`
-- Verdict: **changes required**. Four P1 defects block backend acceptance.
+- Shared route/UI candidate reviewed: `5e2ed00b64b0282c49ee60e653ecd70321abfa7f`
+- Follow-up read-mode fix reviewed: `485d9af2b0b8b5878baec62a76bfef999a16b200`
+- Verdict: **changes required**. Four backend P1 defects and one UI P1 defect block acceptance.
 - Scope: N8 executor, service, API, parser/catalog checks, database roles, ledger/receipt flows, migration, and committed options. The final closure must review only the later stable Options/shared-route/navigation/UI and lead-composition delta plus backend fixes.
 
 No `AGENTS.md` exists in this repository or its checked parent directories. The review used `docs/workstreams/n6-n9/N8.md`, N8 section 6 and acceptance gates in `docs/superpowers/plans/2026-09-10-n6-n9-execution.md`, and the code-review skill. The user explicitly prohibited subagents, so the same independent reviewer performed the Standards and Spec axes separately.
@@ -47,6 +49,30 @@ Every `NewServiceWithOptions` call immediately reconciles all shared `pending`, 
 
 This violates the durable state and commit reconciliation requirements in N8.2-log/N8.4. A focused PG17/18 test should run a blocked write in service A, construct service B against the same control database, release A, and prove that the durable row cannot contradict the committed receipt and data.
 
+### N8-R5 — P1 — the UI loses write identity after a lost submit response
+
+**Path:** `ui/admin/src/pages/sql-console-page.tsx:114-126` at shared candidate `5e2ed00`.
+
+Each submit click creates a new operation ID and write idempotency key inside the request attempt. If the server accepts or commits a write but the response is lost, the catch path retains neither identity nor request. The next click creates two new UUIDs and can execute the same mutation again; the page also cannot query the first execution by its known operation ID.
+
+This violates N8.4's same-identity reconciliation/replay contract and the page's execute-once promise. A focused UI regression should make `submit` capture the request and reject as a transport-loss simulation, then require the page to retain and query/replay that exact identity and body before it permits a fresh write.
+
+### N8-R6 — P2 — terminal history cannot reopen an unexpired result
+
+**Path:** `ui/admin/src/pages/sql-console-page.tsx:53-55`, `ui/admin/src/pages/sql-console-page.tsx:149-151` at shared candidate `5e2ed00`.
+
+Durable history entries contain summaries without result rows. Clicking `Inspect` only assigns that summary to local state; terminal status prevents polling or a GET. If `resultUntil` is present, the page says the result expired even when the timestamp is still in the future, and it never asks the service for the same-session in-memory result. The unknown-state instruction to recheck is likewise non-actionable.
+
+A focused test should return a succeeded history summary with a future `resultUntil`, make `execution(id)` return its bounded result, click `Inspect`, and require the GET and rendered values.
+
+### N8-R7 — P2 — the UI overrides configured timeout bounds
+
+**Path:** `ui/admin/src/pages/sql-console-page.tsx:87`, `ui/admin/src/pages/sql-console-page.tsx:118-124` at shared candidate `5e2ed00`.
+
+The page hardcodes `5000` and sends it on every request. This overrides `SQLConsoleOptions.DefaultTimeout`; a valid deployment whose configured maximum is below five seconds rejects the untouched form's first query, while the UI still claims every value through 30000 is valid. The API capability response exposes neither configured default nor maximum.
+
+A focused composition test should configure a two-second default/maximum and prove the untouched page sends a valid request using the server default, or omits the override. Edited values must be validated against the configured maximum.
+
 ## Standards review
 
 The candidate is clean under `git diff --check`, `gofmt -d`, and `go vet` for the changed backend packages. Changed production modules stay below the repository's 800-line ceiling. Naming and package boundaries are consistent with nearby code, and the code uses structured errors rather than panics for request failures.
@@ -66,7 +92,7 @@ The following required evidence is missing and is not counted as an additional p
 - Browser evidence for the independent SQL page, cancellation recovery, exact-value copy, write targets, multi-statement outcomes, and unknown final state. UI was intentionally outside this backend pass.
 - A fixed durable history/receipt retention policy and a no-mutation-replay proof after retention. `N8.md` says the policy must be set before migration, but the current migration only supplies cleanup indexes.
 
-Two source-contract questions remain for lead composition: the full execution plan says read mode is a single `SELECT`/`VALUES`, while the implementation accepts up to ten read statements; and the result model exposes `Truncated`, but the runner currently hard-fails the row/byte cap rather than producing a truncated result. These are recorded as contract/evidence gaps until the lead resolves the intended behavior.
+The full execution plan's single-statement read-mode requirement is now enforced by UI commit `485d9af`; backend request normalization still accepts up to ten read statements, so direct API conformance remains open. The result model also exposes `Truncated`, while the runner currently hard-fails the row/byte cap rather than producing a truncated result. The latter remains a contract/evidence gap until the lead resolves the intended behavior.
 
 ## Verification evidence
 
@@ -79,6 +105,9 @@ Passed against `10d9df4` without a database:
 - `go vet ./internal/sqlconsole ./internal/api ./pgbase ./migrations/system`
 - `git diff --check 91a0bdac...10d9df4`
 - `gofmt -d` on the N8 Go delta
+- `npm test -- src/backend/sql-console-backend.test.ts src/pages/sql-console-page.test.tsx src/app.test.tsx src/backend/http-backend.test.ts` at integration `485d9af` (66 tests)
+- `go test ./internal/api ./pgbase -run 'SQLConsole|SessionResponse' -count=1` at integration `485d9af`
+- `git diff --check 5e2ed00^..485d9af`
 
 The broad package test compiled and passed `internal/api` and `pgbase`; database integration tests in `internal/sqlconsole` and `migrations/system` stopped because `PGBASE_TEST_ADMIN_URL` is unset. That is an environment evidence gap, not a test failure attributed to the candidate.
 
@@ -86,4 +115,4 @@ No database was started or mutated. Ports `8090`, `55440`, and `59000` and all u
 
 ## Remaining handoff
 
-Euclid and Linnaeus received N8-R1 through N8-R4 with path, line, contract, and focused regression requirements. Backend closure requires stable owner fix SHAs plus the authorized PG17/18 evidence. Final same-reviewer closure then reviews only those backend fix deltas and the stable Options/shared route/navigation/UI/lead-composition delta; unchanged backend code will not be re-reviewed.
+Euclid and Linnaeus received N8-R1 through N8-R4 with path, line, contract, and focused regression requirements. Feynman and Linnaeus received N8-R5 through N8-R7. Backend closure requires stable owner fix SHAs plus the authorized PG17/18 evidence. Final same-reviewer closure reviews only those backend and UI fix deltas plus any later lead-composition delta; unchanged backend and shared/UI code will not be re-reviewed.
