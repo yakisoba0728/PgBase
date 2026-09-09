@@ -1,5 +1,43 @@
 # N8 independent Standards and Spec review
 
+## Paused checkpoint — 2026-09-10
+
+The user stopped this review at its current boundary. This document is an incomplete review checkpoint, **not a full-pass or acceptance verdict**. No further review, repro, test, database, or product work was performed after the stop request.
+
+Exact reviewed commits:
+
+- Backend candidate `10d9df44dded8ed908dc277c91852d3ab2554955`, compared with `91a0bdac9212cdf26207cdba619fc579b359b885`.
+- Supplied backend component anchors: API `437995a`, service `f9840d0`, executor `4b46e1c`.
+- Shared route/UI `5e2ed00b64b0282c49ee60e653ecd70321abfa7f` and read-mode follow-up `485d9af2b0b8b5878baec62a76bfef999a16b200`.
+- UI recovery `16ce11ff857aa81ef7c19cd8a351b8e8bb27b7f7` (integration `c90412cfac93735f4deaa21ee281d831af78d870`).
+- UI exact replay `8df87575464622b33e356c087dcc746894e86827`.
+- UI session scope/durable summary `cd092fb41859812dc333774d4522586f22642757` (integration `35712f45be41f8239383824c55401727d510e0ed`).
+
+Closed within the reviewed commits:
+
+- The early parser/clone correction at owner `93dda0c` (lead equivalent `aea47ab`) remained closed and was not recreated.
+- N8-R5 is closed by exact same-identity/body replay and reload persistence in `8df8757`; its cross-session regression became N8-R11.
+- N8-R6 and N8-R7 are closed by `16ce11f`, with R6's real durable-summary shape completed by `cd092fb`.
+- N8-R11 is closed in the reviewed UI delta `cd092fb`, subject to the unverified final backend session-identity capability composition below.
+- The browser enforces single-statement read mode at `485d9af`; direct API enforcement remains open as N8-R10.
+
+Open product findings at the stop point:
+
+- P1: N8-R1 catalog freshness, N8-R2 commit-unknown reconciliation, N8-R3 virtual-field startup, N8-R4 multi-service durable coordination, and N8-R8 exact/transitive dependency OID guarding.
+- P2: N8-R9 configured write-column preflight, N8-R10 direct API single-read enforcement, and N8-R12 bounded heavy-row retention with indefinite minimal no-replay tombstones.
+
+Unverified or missing evidence, kept separate from product defects:
+
+- No stable owner fix commit after `10d9df4` was reviewed. Private/uncommitted owner changes were not inspected.
+- The backend `sessionIdentity` capability and its final Options/shared-route/UI composition were not available as a stable reviewed delta.
+- The final lead integration composition after `35712f4` was not reviewed.
+- The authorized isolated PG17/PG18 matrix on ports `55470`/`55471` and API/browser evidence on `58096` were not run by this reviewer. No database was started or mutated.
+- Result-cap behavior (`Truncated` versus hard failure) and the remaining browser acceptance matrix remain contract/evidence gaps pending lead resolution.
+
+Resume point: obtain a clean stable owner SHA descended from `10d9df4`, review only that backend fix delta against N8-R1–R4/R8–R10/R12 and the session-identity capability, run the authorized focused PG17/18 evidence after owner coordination, then review only the final lead-composition delta after `35712f4`. Do not re-review unchanged backend or the closed UI delta.
+
+Reviewer-owned process state at pause: no reviewer-started database, API, test, or shell process remained running.
+
 ## Review pin and verdict
 
 - Review branch: `codex/n8-review`
@@ -11,7 +49,7 @@
 - UI recovery fix reviewed: worker `16ce11ff857aa81ef7c19cd8a351b8e8bb27b7f7`, integrated as `c90412cfac93735f4deaa21ee281d831af78d870`
 - UI exact-replay follow-up reviewed: `8df87575464622b33e356c087dcc746894e86827`
 - UI session-scope and durable-summary fix reviewed: worker `cd092fb41859812dc333774d4522586f22642757`, integrated as `35712f4`
-- Verdict: **changes required**. Five backend P1 defects block acceptance; the reviewed UI findings are closed at `35712f4` subject to final backend capability composition.
+- Verdict at pause: **incomplete; changes required on the reviewed backend candidate**. This is not a full-pass verdict. Five backend P1 defects remain open; the reviewed UI findings are closed at `35712f4` subject to final backend capability composition.
 - Scope: N8 executor, service, API, parser/catalog checks, database roles, ledger/receipt flows, migration, and committed options. The final closure must review only the later stable Options/shared-route/navigation/UI and lead-composition delta plus backend fixes.
 
 No `AGENTS.md` exists in this repository or its checked parent directories. The review used `docs/workstreams/n6-n9/N8.md`, N8 section 6 and acceptance gates in `docs/superpowers/plans/2026-09-10-n6-n9-execution.md`, and the code-review skill. The user explicitly prohibited subagents, so the same independent reviewer performed the Standards and Spec axes separately.
