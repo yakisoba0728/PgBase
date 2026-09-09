@@ -50,6 +50,10 @@ Record event delivery IDs are decimal strings. The SDK reconnects with
 UUIDs, and surfaces an expired replay cursor as the server's HTTP error so the
 application can reload records.
 
+`Files.download` returns the authenticated file bytes after a caller obtains a
+download token with `mintDownloadToken`; `downloadUri` remains available for
+platform-native download handling.
+
 ## Local verification
 
 The package is deliberately `publish_to: none`; Dart 3.13 has no `pub pack`

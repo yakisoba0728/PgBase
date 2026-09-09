@@ -1,0 +1,27 @@
+services:
+  n7-file-init:
+    image: alpine@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 65532:65532 /var/lib/pgbase/files"]
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - pgbase-n7-files:/var/lib/pgbase/files
+
+  pgbase:
+    environment:
+      PGBASE_FILES_DRIVER: local
+      PGBASE_FILES_LOCAL_DIRECTORY: /var/lib/pgbase/files
+    volumes:
+      - pgbase-n7-files:/var/lib/pgbase/files
+    depends_on:
+      n7-file-init:
+        condition: service_completed_successfully
+
+volumes:
+  pgbase-n7-files:

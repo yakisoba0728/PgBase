@@ -92,13 +92,14 @@ Future<void> main() async {
     final received = await event;
     if (received.collection != name || received.operation != 'create')
       throw StateError('SSE did not deliver the batch create');
+    const payload = 'N7 file payload';
     final uploaded = await user
         .files(name, recordId)
         .upload(
           'attachment',
           UploadSource(
-            open: () => Stream<List<int>>.value(utf8.encode('N7 file payload')),
-            length: utf8.encode('N7 file payload').length,
+            open: () => Stream<List<int>>.value(utf8.encode(payload)),
+            length: utf8.encode(payload).length,
             filename: 'n7.txt',
             contentType: 'text/plain',
           ),
@@ -112,6 +113,14 @@ Future<void> main() async {
     if (token.isEmpty ||
         !user.files(name, recordId).downloadUri(uploaded.id, token).hasQuery)
       throw StateError('file download token was not usable');
+    final downloaded = await user
+        .files(name, recordId)
+        .download(uploaded.id, token);
+    if (utf8.decode(downloaded) != payload)
+      throw StateError('file download did not preserve bytes');
+    await user.files(name, recordId).delete(uploaded.id);
+    if ((await user.files(name, recordId).list('attachment')).isNotEmpty)
+      throw StateError('file delete did not clean up');
     stdout.writeln('N7 live conformance passed for $name');
   } finally {
     user.close();

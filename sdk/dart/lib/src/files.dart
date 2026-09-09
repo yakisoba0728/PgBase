@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:convert/convert.dart';
 import 'package:crypto/crypto.dart';
@@ -104,6 +105,23 @@ final class Files {
         '/api/v1/user/files/${Uri.encodeComponent(fileId)}',
         {'token': token, if (variant != 'original') 'variant': variant},
       );
+
+  Future<Uint8List> download(
+    String fileId,
+    String token, {
+    String variant = 'original',
+    CancellationToken? cancellation,
+  }) async {
+    final response = await _client.transport.download(
+      '/api/v1/user/files/${Uri.encodeComponent(fileId)}',
+      query: {'token': token, if (variant != 'original') 'variant': variant},
+      headers: _client.headersFor(null),
+      cancellation: cancellation,
+    );
+    if (response.status < 200 || response.status >= 300)
+      throw pgBaseError(response);
+    return response.bytes;
+  }
 }
 
 FileInfo _fileInfo(JsonValue value) {

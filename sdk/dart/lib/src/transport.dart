@@ -115,6 +115,21 @@ final class PgBaseTransport {
     return _collect(request, cancellation);
   }
 
+  Future<PgBaseResponse> download(
+    String path, {
+    Map<String, String> headers = const {},
+    Map<String, String>? query,
+    CancellationToken? cancellation,
+  }) {
+    final request = http.AbortableRequest(
+      'GET',
+      uri(path, query),
+      abortTrigger: cancellation?.whenCancelled,
+    );
+    request.headers.addAll(headers);
+    return _collect(request, cancellation);
+  }
+
   Future<http.StreamedResponse> eventStream(
     String path, {
     required Map<String, String> headers,

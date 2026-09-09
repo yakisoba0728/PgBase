@@ -107,9 +107,11 @@ void main() {
         filename: 'n7.txt',
         contentType: 'text/plain',
       );
-      final file = await pgbase
-          .files('notes', '01900000-0000-7000-8000-000000000001')
-          .upload('attachment', source);
+      final files = pgbase.files(
+        'notes',
+        '01900000-0000-7000-8000-000000000001',
+      );
+      final file = await files.upload('attachment', source);
       final request = client.requests.single;
       expect(file.filename, 'n7.txt');
       expect(request.headers['x-pgbase-file-size'], '15');
@@ -118,6 +120,10 @@ void main() {
         'a9bb9324beb099ff2565a182f26b9db2d184b652b5a7cc664cb5fa8357d84190',
       );
       expect(utf8.decode(request.body), contains('N7 file payload'));
+      expect(
+        utf8.decode(await files.download(file.id, 'download-token')),
+        'N7 file payload',
+      );
     },
   );
 
@@ -216,6 +222,12 @@ final class _ScriptedClient extends http.BaseClient {
         'size': 15,
         'thumbnail': false,
       });
+    if (path.startsWith('/api/v1/user/files/') && request.method == 'GET')
+      return http.StreamedResponse(
+        http.ByteStream.fromBytes(utf8.encode('N7 file payload')),
+        200,
+        headers: const {'content-type': 'text/plain'},
+      );
     if (path.endsWith('/events')) {
       return http.StreamedResponse(
         http.ByteStream.fromBytes(
