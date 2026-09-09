@@ -16,15 +16,15 @@ Source candidate: `94d8300`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae
 | UI runtime exports | 203 | 229 |
 | Production files over 800 lines | 0 | 0 |
 
-Gross tracked runtime comparison is +11,283/−73 = +11,210. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,214. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
+Gross tracked runtime comparison is +11,258/−48 = +11,210. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,214. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
 
 | Runtime area | Added | Removed | Contract served |
 | --- | ---: | ---: | --- |
-| `internal/jsvm` | 1,247 | 9 | bounded JS engine, loader, cancellation and queue lifecycle |
-| `pgbase` | 2,593 | 29 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
+| `internal/jsvm` | 1,238 | 0 | bounded JS engine, loader, cancellation and queue lifecycle |
+| `pgbase` | 2,578 | 14 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
 | `internal/sqlconsole` | 3,630 | 0 | parser/native capability guard, restricted pools, executor, durable admission/recovery and heavy-data cleanup |
 | `internal/selfupdate` | 2,034 | 0 | signed local artifact verification, journaled swap/recovery and platform helpers |
-| `internal/cli` | 749 | 5 | JS migration/watch and local self-update command surfaces |
+| `internal/cli` | 748 | 4 | JS migration/watch and local self-update command surfaces |
 | `internal/api` | 457 | 9 | optional authenticated SQL routes, bounded DTOs and session capability |
 | `ui/admin` | 430 | 12 | SQL editor/results/history/recovery, session-scoped pending identity and nav |
 | other runtime/support | 147 | 9 | build metadata/config, storage guard, job occurrence identity, PublicDir CSP and external example |
