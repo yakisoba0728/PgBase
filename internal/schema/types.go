@@ -27,15 +27,18 @@ const (
 )
 
 type FieldInput struct {
-	ID       *uuid.UUID      `json:"id,omitempty"`
-	Name     string          `json:"name"`
-	Type     FieldType       `json:"type"`
-	Required bool            `json:"required"`
-	Unique   bool            `json:"unique"`
-	Indexed  bool            `json:"indexed"`
-	Default  json.RawMessage `json:"default,omitempty"`
-	Relation *RelationInput  `json:"relation,omitempty"`
-	Options  *FieldOptions   `json:"options,omitempty"`
+	ID          *uuid.UUID      `json:"id,omitempty"`
+	Name        string          `json:"name"`
+	Type        FieldType       `json:"type"`
+	Required    bool            `json:"required"`
+	Unique      bool            `json:"unique"`
+	Indexed     bool            `json:"indexed"`
+	Default     json.RawMessage `json:"default,omitempty"`
+	Relation    *RelationInput  `json:"relation,omitempty"`
+	Options     *FieldOptions   `json:"options,omitempty"`
+	Hidden      bool            `json:"hidden,omitempty"`
+	Presentable bool            `json:"presentable,omitempty"`
+	Help        string          `json:"help,omitempty"`
 }
 
 // FieldOptions contains value constraints enforced on record writes. Required
@@ -227,17 +230,20 @@ type ApplyResult struct {
 }
 
 type Field struct {
-	ID         uuid.UUID       `json:"id"`
-	Name       string          `json:"name"`
-	ColumnName string          `json:"columnName"`
-	Type       FieldType       `json:"type"`
-	Required   bool            `json:"required"`
-	Unique     bool            `json:"unique"`
-	Indexed    bool            `json:"indexed"`
-	Default    json.RawMessage `json:"default,omitempty"`
-	Relation   *RelationSpec   `json:"relation,omitempty"`
-	Options    FieldOptions    `json:"options,omitzero"`
-	Ordinal    int             `json:"ordinal"`
+	ID          uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	ColumnName  string          `json:"columnName"`
+	Type        FieldType       `json:"type"`
+	Required    bool            `json:"required"`
+	Unique      bool            `json:"unique"`
+	Indexed     bool            `json:"indexed"`
+	Default     json.RawMessage `json:"default,omitempty"`
+	Relation    *RelationSpec   `json:"relation,omitempty"`
+	Options     FieldOptions    `json:"options,omitzero"`
+	Hidden      bool            `json:"hidden,omitempty"`
+	Presentable bool            `json:"presentable,omitempty"`
+	Help        string          `json:"help,omitempty"`
+	Ordinal     int             `json:"ordinal"`
 }
 
 type Collection struct {
@@ -277,17 +283,20 @@ type Index struct {
 }
 
 type PlannedField struct {
-	ID         uuid.UUID `json:"id,omitzero"`
-	Name       string
-	ColumnName string
-	Type       FieldType
-	Required   bool
-	Unique     bool
-	Indexed    bool
-	Default    json.RawMessage
-	Relation   *PlannedRelation `json:"relation,omitempty"`
-	Options    FieldOptions     `json:"options,omitzero"`
-	Ordinal    int
+	ID          uuid.UUID `json:"id,omitzero"`
+	Name        string
+	ColumnName  string
+	Type        FieldType
+	Required    bool
+	Unique      bool
+	Indexed     bool
+	Default     json.RawMessage
+	Relation    *PlannedRelation `json:"relation,omitempty"`
+	Options     FieldOptions     `json:"options,omitzero"`
+	Hidden      bool             `json:"hidden,omitempty"`
+	Presentable bool             `json:"presentable,omitempty"`
+	Help        string           `json:"help,omitempty"`
+	Ordinal     int
 }
 
 type PlannedCollection struct {

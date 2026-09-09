@@ -23,6 +23,7 @@ These routes use the administrator cookie. Reads enforce the existing same-origi
 | `GET /api/admin/users` | Optional `after=<UUID>` and `limit=1..100` (default 50) | `200 {items:[user],nextAfter?:UUID}` |
 | `PATCH /api/admin/users/{id}` | JSON `{active:boolean}` | `200 user` |
 | `POST /api/admin/users/{id}/revoke-sessions` | No body | `200 {revokedSessions:number}` |
+| `POST /api/admin/users/{id}/impersonate` | `{durationSeconds?:60..900}` | Temporary user session with explicit administrator origin |
 
 The `user` shape is `{id,email,active,createdAt,updatedAt}`. It never includes password hashes, session tokens or rate-limit data. Empty lists return `items:[]`; the last page omits `nextAfter`. Unknown/duplicate query fields, invalid IDs and malformed bodies return 400. A missing target user returns 404. Database failures return a redacted 503. Responses use `Cache-Control: no-store`.
 

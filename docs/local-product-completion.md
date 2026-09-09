@@ -4,6 +4,8 @@ This increment implements the five local product areas approved after the source
 
 ## Field contracts and schema changes
 
+Every field also carries `hidden`, `presentable`, and optional `help` metadata. `help` is limited to 300 Unicode code points. A hidden field cannot be presentable. Administrators receive hidden values and the complete schema metadata; all other principals have hidden values removed from list, get, and nested expand responses and cannot filter, sort, create, or update through a hidden field. The explicit write rejection is PgBase's observable counterpart to PocketBase silently unsetting those inputs. Realtime record events contain identifiers and versions only, so they never carry hidden field values. `presentable` does not alter API data: the admin relation picker prefers the first visible, indexed or unique presentable text field for labels and falls back to the first eligible visible text field. `help` appears beside the admin record input.
+
 Field inputs accept `id` when updating an existing field. A rename keeps the ID and physical column; the public field name changes. A new field omits its ID. Existing clients can still identify unchanged fields by exact name. Renaming to an occupied name, duplicate field identities and physical-column collisions are rejected. Read the catalog again after apply before starting a new edit.
 
 `options` supports:

@@ -11,9 +11,52 @@ import (
 	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/testutil"
 	"github.com/webisnoteasy/PgBase/migrations/system"
 )
+
+func TestVersion28PopulatedCatalogUpgradesWithPresentationDefaults(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations()[:28])
+	pool, err := database.Open(ctx, databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	collectionID, fieldID := "019551d0-e9c0-7000-8000-000000000281", "019551d0-e9c0-7000-8000-000000000282"
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.collections(id,name,table_name,status,created_at,updated_at) values($1,'v28_items','v28_items','active',current_timestamp,current_timestamp)`, collectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.fields(id,collection_id,name,column_name,field_type,required,is_unique,is_indexed,has_default,default_json,ordinal,created_at,options_json) values($2,$1,'title','title','text',true,false,false,false,null,0,current_timestamp,'{}')`, collectionID, fieldID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `create table app.v28_items(id uuid primary key,created_at timestamptz not null,updated_at timestamptz not null,title text not null)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into app.v28_items values('019551d0-e9c0-7000-8000-000000000283',current_timestamp,current_timestamp,'kept')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := PreflightCatalog(ctx, pool, &Cache{}); err != nil {
+		t.Fatalf("v28 preflight: %v", err)
+	}
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	catalog, err := NewStore(pool).ReadCatalog(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := catalog.Collections["v28_items"].Fields[0]
+	if field.Hidden || field.Presentable || field.Help != "" || !field.Required {
+		t.Fatalf("upgraded field=%#v", field)
+	}
+	var title string
+	if err := pool.QueryRow(ctx, `select title from app.v28_items`).Scan(&title); err != nil || title != "kept" {
+		t.Fatalf("record=%q err=%v", title, err)
+	}
+}
 
 func TestCatalogPreflightIsANoOpBeforeCatalogTablesExist(t *testing.T) {
 	pool, err := database.Open(context.Background(), testutil.NewDatabase(t), time.Second)

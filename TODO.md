@@ -1,7 +1,79 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase2`. 직전 M2–M6 구현은 PR #28 / main `35af64c`에 병합 완료. M1과 M2-A는 PR #26/#27, main `09d6b7d`에 병합 완료. 사용자 지시에 따라 M2–M6의 로컬 개발·실행·검증 전체를 진행한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase3`, 기준 main `b942391` / PR #30 병합 완료. P1–P5는 PR #29, P6의 8개 영역은 PR #30으로 로컬 구현·검증 완료. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
+
+## P7 — 남은 로컬 제품 기능 (진행 중)
+
+전체 후속 범위를 유지한다. 아래 작업 묶음의 완료는 PocketBase 전체 호환이나 외부 운영 검증 완료를 뜻하지 않는다. 비교 기준은 로컬에 고정한 PocketBase v0.40.3 소스다.
+
+| 작업 | 담당 | 상태 |
+| --- | --- | --- |
+| Hidden/Presentable/Help 필드 계약·응답·관리 UI | Sol / phase2_files | scalar/관계/파일 및 기존 파일 토큰 차단 PG18 HTTP 검증 통과 |
+| 스키마 export/import 검토·원자적 적용·관리 UI | Sol / phase2_sql_planner | 상호 관계/복합 인덱스·View·동시성 PG18 및 SDK 정확 JSON 전체 경로 통과 |
+| 이메일 OTP 로그인·정책·메일·SDK | Sol / phase2_oauth_catalog + Root | 실제 SMTP/HTTP 정책·realm·MFA·SDK 및 설정 브라우저 검증 통과 |
+| 관리자 impersonation·임시 세션·관리 UI | Sol / phase2_oauth_catalog | PG18 실제 named-realm HTTP·민감 작업 제한·생성자 폐기 검증 통과 |
+| Go custom route 등록·인증·관찰·문서 | Root | 구현 및 단위/PG18 실제 HTTP 검증 통과 |
+
+- [x] 기준 main·clean checkout·로컬 readiness 재확인, 새 작업 브랜치 생성.
+- [x] 과거 PB-A 후보 목록을 P1–P6의 실제 완료 범위와 대조하여 동기화.
+- [x] 필드 표시 metadata의 persistence/validation/rename/export 보존. migration29, schema roundtrip 및 기존 rename 경로 검증.
+- [x] Hidden의 사용자·service·anonymous·expand·realtime 응답 계약 검증, 관리자 편집 보존. 공통 principal gate + PG18 관계/파일 HTTP; 파일이 숨겨진 뒤 기존 다운로드 토큰도 차단, 관리자 원본 접근 보존.
+- [x] Presentable 관계 표시·Help 편집/입력 안내·SDK 타입 및 UI 검증. UI 460개 통과, 실제 브라우저 표시 설정/도움말 저장 통과.
+- [x] 버전 있는 스키마 문서와 export/import round-trip; 상호 관계·복합 인덱스·View·정책의 실제 HTTP/DB 검증 및 지원하지 않는 View metadata 명시적 거절.
+- [x] import preview와 stale 계획 거절, 원자적 apply 및 실패 시 기존 데이터 보존. 늦은 실패 롤백·중복 요청 취소·DB backend 종료·권한 최초 삽입 경쟁 PG18 통과.
+- [x] 관리자 export/download·import 검토/apply·HTTP/SDK 연결. SDK raw JSON export→preview→apply 숫자 보존 및 immutable 요청 snapshot 검증 통과.
+- [x] 이메일 OTP 요청/확인·만료·재발송·시도 제한·동시 사용 방지. PG18 동시 재발송/사용/정책 비활성화 경쟁 검증 통과.
+- [x] realm 정책·메일 template/시험·MFA 연계·세션 무효화·SDK 검증. DTO 수정 후 실제 SMTP+HTTP default/named realm 및 정책 비활성화 검증 통과. 기존 사용자만 허용하고 이메일 인증 상태를 자동 변경하지 않음; 외부 SMTP 인증은 대기.
+- [x] 실제 관리자 OAuth·SMTP·메일 template 입력의 요청 전용 필드 매핑 검증. path-only/response-only metadata 전송 문제 수정 후 브라우저 저장·재조회·재저장 통과.
+- [x] 관리자 impersonation 임시 세션·생성자 추적·기간/폐기·HTTP/SDK/UI 및 실제 DB 검증. named realm HTTP의 민감 작업 제한·생성자 세션 폐기 및 브라우저 발급·폐기 통과.
+- [x] Go custom route의 공개 등록 interface·경로 충돌 검증·명시적 인증 정책. `Options.CustomRoutes`/`PrincipalFromContext`, 예제 및 `docs/custom-routes.md`.
+- [x] custom route에 기존 요청 제한·오류 처리·인증·로그/metric/hook 연결 및 실제 HTTP 검증. 단위: 충돌/상한/응답 실패 원자성/metric template; PG18: 관리자 CSRF·세션/사용자·service 인증 분리·폐기 후 차단.
+- [x] 새 migration 순서·기존 checksum·OpenAPI·구조 예산 검증. 1–28 원본 동일, 신규 29–32 및 현재 사용 DB 복사본 upgrade/doctor 통과. 실측 예산·800줄 제한 및 전체 Go unit/race 통과.
+- [x] 전체 Go/UI/SDK 회귀와 새 기능 브라우저 인수. Go unit/race·PostgreSQL18+MinIO 전체 integration/race·skip 정책, lint/vet, UI 466개·전체 브라우저 15개와 추가 응답 유실 복구, SDK·6종 로컬 빌드 통과.
+- [x] [PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 생성.
+- [ ] 필수 원격 CI 통과·병합 및 기존 로컬 데이터 백업/업그레이드.
+
+현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)을 생성했고 원격 CI 진행 중이다. 실행 중 로컬 설치 기준은 PR #30 `b942391`이다.
+
+- [x] 기존 실행 DB의 별도 복사본에 v28→v32 마이그레이션 적용 및 doctor 확인. 원본 DB/서버는 그대로 유지했고 readiness 정상.
+- [x] 구버전 field metadata 읽기 호환 수정 및 mixed-fleet CLI 회귀 2개 통과.
+- [x] 스키마 import 상호 관계 컬렉션·복합 인덱스의 실제 HTTP 왕복 회귀 수정/통과. 관계 ADD COLUMN 후 record-size 검증으로 순서를 수정.
+- [x] import 복구 중 새 preview 차단·저장 실패·export 후 계획 무효화 UI 회귀. 실제 응답·상태 조회 유실 뒤 브라우저 새로고침으로 committed 확인, recovery에 schema 본문 비저장 확인.
+
+후속 묶음(미완료): editor/geoPoint/사용자 autodate/일반 password 필드, S3 설정·시험 UI, 사용자 migration 작성/up/down, 나머지 lifecycle hooks, JSVM·Dart·SQL 콘솔·self-update의 제품 범위와 구현. 외부 검증 항목은 기존 대기 목록을 유지한다.
+
+## P8 — 다음 로컬 기능 묶음 (미착수)
+
+P7의 최종 인수·PR·병합·로컬 적용 후 진행한다. PocketBase v0.40.3 원본의 각 필드/관리 기능 계약을 대조하고, PgBase의 PostgreSQL·UUID·세션 계약에 맞춰 구현한다. 아래 항목을 구현했다는 의미는 아니며, 테스트·UI 연결까지 확인한 뒤 개별 완료 처리한다.
+
+### P8-A 고급 필드
+- [ ] editor: 저장 형식·크기/필수 검증·출력 방식과 관리자 편집기 계약 대조.
+- [ ] editor: schema preview/apply·기존 데이터 검사·API/SDK·생성/수정 UI 연결.
+- [ ] geoPoint: 좌표·범위·빈 값·정밀도·필터/정렬 지원 범위 대조 및 입력/응답 계약 구현.
+- [ ] geoPoint: PostgreSQL 저장·기존 데이터/인덱스·조회 및 관리자 좌표 입력 UI 통합 검증.
+- [ ] 사용자 autodate: 생성/수정 자동 갱신·사용자 입력 처리·batch/upsert 시점 계약 구현.
+- [ ] 사용자 autodate: 사용자 필드와 시스템 created/updated 의미를 구분하고 SDK/UI/실제 DB 회귀.
+- [ ] 일반 password 필드: 사용자 인증 암호와 별개인 해시 저장·조회 비노출·입력 변경 계약 대조.
+- [ ] 일반 password 필드: 숨김/기본값/필터/인덱스/복제/export 제약·로그 비노출·관리자 입력 UI 검증.
+- [ ] 새 타입의 rename·스키마 export/import·View·관계 표시·batch·권한 규칙 조합 검증.
+- [ ] 현재 데이터가 있는 DB 업그레이드·doctor·기존 migration checksum 및 전체 회귀.
+
+### P8-B S3 관리자 설정과 시험
+- [ ] 현재 환경 기반 S3 구성과 관리자 저장 설정의 우선순위·비밀 값 보존/비반환 계약 결정.
+- [ ] endpoint/bucket/region/path style/인증 설정 검증·읽기/갱신 API·UI 구현.
+- [ ] 시험 연결이 기존 객체를 변경하지 않도록 전용 시험 객체 생성/읽기/삭제 및 실패 정리.
+- [ ] 설정 변경 시 기존 파일 위치·다운로드 토큰·작업 중 업로드/변환/백업의 일관성 보장.
+- [ ] 실제 로컬 MinIO·관리자 브라우저·재시작·잘못된 설정/연결 실패 회귀 검증.
+
+### P8-C 사용자 migration과 확장
+- [ ] 시스템 migration과 사용자 migration을 분리한 기록·순서·checksum 계약 구현.
+- [ ] 사용자 migration 생성/목록/up/down CLI와 Go 작성 API·예제 구현.
+- [ ] 실패·중단·동시 실행·이미 적용된 파일 변경·되돌리기 불가 단계 처리 검증.
+- [ ] schema API·사용자 migration·관리자 동시 변경의 공통 잠금/캐시 무효화 검증.
+- [ ] PocketBase lifecycle hook 나머지 목록과 PgBase 이벤트를 매핑하고 누락 별 세부 TODO 추가.
+- [ ] JSVM·Dart SDK·SQL 콘솔·self-update 각각의 로컬 구현 계약·후속 작업을 별도 묶음으로 구체화.
+
 
 ## P6 — PocketBase 비교의 부분 구현 영역 마무리 (구현·로컬 인수 완료)
 
@@ -573,23 +645,23 @@
 진행 기록: [전체 소스 감사](docs/pocketbase-source-audit-2026-09-09/README.md). 본문 734개·생성물/자산 186개·역사 참고 3개를 구분해 검토 완료. 미판독 소스 0개이며, inventory 등록만으로 본문 판독 처리하지 않았다.
 
 
-### 소스 감사에서 도출한 후속 구현 후보 — 미착수
+### 소스 감사에서 도출한 후속 구현 후보 — 현재 구현과 동기화
 
 현재 소스 감사의 완료 표시와 아래 제품 구현 완료를 구분한다. 계약 차이와 상세 완료 기준은 [통합 평가](docs/pocketbase-source-audit-2026-09-09/assessment.md)에 기록한다.
 
-- [ ] PB-A01: Required·빈 값·숫자 정밀도·ID·relation 중복에 대한 PgBase 호환 정책과 wire 예제 확정.
-- [ ] PB-A02: 필드 ID 기반 데이터 보존 rename 계획/API/UI 및 관계·view·index 보존 검증.
-- [ ] PB-A03: text 길이/pattern, email/URL 형식·도메인, select 선택 수 검증을 스키마/API/UI/SDK에 연결.
+- [x] PB-A01: Required·빈 값·숫자 정밀도·ID·relation 중복에 대한 PgBase 호환 정책과 wire 예제 확정. P1 문서·wire 검증 완료.
+- [x] PB-A02: 필드 ID 기반 데이터 보존 rename 계획/API/UI 및 관계·view·index 보존 검증. P1 완료.
+- [x] PB-A03: text 길이/pattern, email/URL 형식·도메인, select 선택 수 검증을 스키마/API/UI/SDK에 연결. P1 완료.
 - [ ] PB-A04: editor·geoPoint·사용자 autodate 지원 범위와 전용 입력/조회 UI 결정 및 구현.
-- [ ] PB-A05: Hidden/Presentable/Help 등 필드 메타데이터의 API 응답·relation 표시 계약 구현.
-- [ ] PB-A06: 레코드 bulk 선택·삭제·export·duplicate와 부분 실패/동시 갱신 표시.
-- [ ] PB-A07: relation picker의 즉석 생성·수정 및 column preference·draft 복구.
-- [ ] PB-A08: auth realm별 OAuth provider/정책/메일 템플릿 설정과 로컬 inbox 시험.
-- [ ] PB-A09: 이메일 OTP·impersonation 필요 여부 및 세션/토큰 무효화 계약 확정 후 구현.
-- [ ] PB-A10: 파일 필드별 MIME·크기·개수·Required 설정과 기존 첨부 처리 정책.
-- [ ] PB-A11: 여러 썸네일 crop/fit·크기 설정 및 권한·캐시·저장 비용 검증.
-- [ ] PB-A12: 관리자 로그 검색/통계와 cron 목록·실행 상태·수동 실행 API/UI.
-- [ ] PB-A13: 로컬 PostgreSQL+파일 백업 작업 추적·다운로드·복원 UI와 일관성 검증.
-- [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI.
-- [ ] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증.
+- [x] PB-A05: Hidden/Presentable/Help 등 필드 메타데이터의 API 응답·relation 표시 계약 구현.
+- [x] PB-A06: 레코드 bulk 선택·삭제·export·duplicate와 부분 실패/동시 갱신 표시. P2 완료.
+- [x] PB-A07: relation picker의 즉석 생성·수정 및 column preference·draft 복구. P2 완료.
+- [x] PB-A08: auth realm별 OAuth provider/정책/메일 템플릿 설정과 로컬 inbox 시험. P3/P6-B 완료.
+- [x] PB-A09: 이메일 OTP·impersonation 필요 여부 및 세션/토큰 무효화 계약 확정 후 구현.
+- [x] PB-A10: 파일 필드별 MIME·크기·개수·Required 설정과 기존 첨부 처리 정책. P6-A 완료.
+- [x] PB-A11: 여러 썸네일 crop/fit·크기 설정 및 권한·캐시·저장 비용 검증. P6-A 완료.
+- [x] PB-A12: 관리자 로그 검색/통계와 cron 목록·실행 상태·수동 실행 API/UI. P6-E/F 완료.
+- [x] PB-A13: 로컬 PostgreSQL+파일 백업 작업 추적·다운로드·복원 UI와 일관성 검증. P6-G 완료.
+- [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI. SMTP는 P3/P6-B 완료; schema 입출력은 P7 로컬 검증 완료; S3 설정 UI는 남음.
+- [x] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증. P5 완료.
 - [ ] PB-A16: custom routes·hook 확대·migration authoring·JSVM/Dart의 제품 범위 결정; 구현 전 재시도/트랜잭션 계약 명시.

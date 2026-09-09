@@ -5,7 +5,7 @@ export type FieldOptions = {
   minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[];
 };
 export type RelationInput = { targetCollection: string; cardinality: "single" | "multiple"; minSelect: number; maxSelect: number; onDelete: "restrict" | "cascade" | "set_null" };
-export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; default?: unknown; relation?: RelationInput; options?: FieldOptions };
+export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput; options?: FieldOptions };
 export type FieldDefinition = Omit<FieldInput, "relation"> & { id: string; columnName: string; ordinal: number; relation?: Omit<RelationInput, "targetCollection"> & { targetCollectionId: string } };
 export type CollectionDefinition = { id: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewInput };
 export type CompoundIndex = { id?: string; name: string; fields: string[]; unique: boolean };
@@ -19,7 +19,12 @@ export type CollectionChange =
   | { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 export type SchemaPlan = { baseVersion: number; checksum: string; definition: { name: string; tableName: string; fields: Array<FieldInput & { ordinal: number }>; indexes?: CompoundIndex[]; view?: ViewInput }; sql: string[] };
 export type SchemaOperation = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; failureCode?: string };
+export type SchemaDocumentCollection = { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> };
+export type SchemaDocument = { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] };
+export type SchemaImportPlan = { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaPlan[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string };
+export type SchemaImportResult = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version?: number; applied?: number };
 export type AdministratorSession = { administrator: { id: string; email: string; createdAt: string }; expiresAt: string };
+export type ImpersonatedUserSession = { token: string; user: { id: string; email: string; verified: boolean; createdAt: string }; expiresAt: string; impersonated: true; impersonatingAdministratorId: string };
 export type ScheduledJob = { id: string; name: string; schedule: string; enabled: boolean; registered: boolean; running: boolean; nextRunAt: string; lastStartedAt?: string; lastFinishedAt?: string; attempts: number; failed: boolean };
 export type RequestLogPage = { items: Array<{ id: number; at: string; method: string; route: string; status: number; durationMs: number }>; nextBefore?: number; oldestId: number };
 
@@ -42,6 +47,30 @@ export class ApprovedSchemaPlan {
   get operationID(): string { return this.#operationID; }
   request(): { body: string; headers: Record<string, string> } {
     return { body: this.#body, headers: { "PgBase-Operation-ID": this.#operationID, "Idempotency-Key": this.#idempotencyKey } };
+  }
+}
+
+/** A preview plus the exact JSON document that produced it. The apply body is
+ * built from this private snapshot so large JSON integers survive preview. */
+export class ApprovedSchemaImportPlan implements SchemaImportPlan {
+  readonly baseVersion: number;
+  readonly checksum: string;
+  readonly policyChecksum: string;
+  readonly changes: SchemaPlan[];
+  readonly document: SchemaDocument;
+  readonly operationId = crypto.randomUUID();
+  readonly idempotencyKey = crypto.randomUUID();
+  readonly #applyBody: string;
+  constructor(preview: SchemaImportPlan, documentJSON: string) {
+    this.baseVersion = preview.baseVersion;
+    this.checksum = preview.checksum;
+    this.policyChecksum = preview.policyChecksum;
+    this.changes = preview.changes;
+    this.document = preview.document;
+    this.#applyBody = `{"document":${documentJSON},"baseVersion":${JSON.stringify(preview.baseVersion)},"checksum":${JSON.stringify(preview.checksum)}}`;
+  }
+  request(): { body: string; headers: Record<string, string> } {
+    return { body: this.#applyBody, headers: { "PgBase-Operation-ID": this.operationId, "Idempotency-Key": this.idempotencyKey } };
   }
 }
 
@@ -75,6 +104,18 @@ export class PgBaseAdminClient {
     return this.request("/api/admin/collections/apply", { method: "POST", ...plan.request() }, signal);
   }
   operation(id: string, signal?: AbortSignal): Promise<SchemaOperation> { return this.request(`/api/admin/schema-operations/${encodeURIComponent(id)}`, {}, signal); }
+  exportSchema(signal?: AbortSignal): Promise<SchemaDocument> { return this.request("/api/admin/schema/export", {}, signal); }
+  exportSchemaJSON(signal?: AbortSignal): Promise<string> { return this.requestText("/api/admin/schema/export", {}, signal); }
+  async previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
+    const raw = JSON.stringify(document); return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: raw }, signal), raw);
+  }
+  async previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
+    return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal), documentJSON);
+  }
+  applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult> {
+    const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
+    return this.request("/api/admin/schema/import/apply", { method: "POST", ...request }, signal);
+  }
   logs(options: { before?: number; statusClass?: number } = {}, signal?: AbortSignal): Promise<RequestLogPage> {
     const query = new URLSearchParams();
     if (options.before !== undefined) query.set("before", String(options.before));
@@ -84,6 +125,9 @@ export class PgBaseAdminClient {
   jobs(signal?: AbortSignal): Promise<{ items: ScheduledJob[]; workerEnabled: boolean }> { return this.request("/api/admin/jobs", {}, signal); }
   configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
   queueJob(id: string, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
+  impersonateUser(id: string, durationSeconds = 300, signal?: AbortSignal): Promise<ImpersonatedUserSession> {
+    return this.request(`/api/admin/users/${encodeURIComponent(id)}/impersonate`, { method: "POST", body: JSON.stringify({ durationSeconds }) }, signal);
+  }
 
   private async adopt(path: string, init: RequestInit, signal?: AbortSignal): Promise<AdministratorSession> {
     const generation = ++this.#generation;
@@ -106,5 +150,14 @@ export class PgBaseAdminClient {
     }
     if (response.status === 204) return undefined as T;
     try { return await response.json() as T; } catch { throw new AdminAPIError(response.status, "invalid_response_body"); }
+  }
+  private async requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
+    const headers = new Headers(init.headers); headers.set("Accept", "application/json");
+    if (init.body !== undefined) headers.set("Content-Type", "application/json");
+    if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
+    const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials:"include", signal });
+    const text = await response.text();
+    if (!response.ok) throw new AdminAPIError(response.status, "request_failed");
+    return text;
   }
 }

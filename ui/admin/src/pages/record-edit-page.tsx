@@ -13,13 +13,15 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
   const relation = field.type === "relation" ? field.relation : undefined;
   const multipleRelation = relation?.cardinality === "multiple";
   const relationHintID = relation === undefined ? undefined : `record-${field.name}-hint`;
+	const helpID = field.help ? `record-${field.name}-help` : undefined;
   const error = editor.errors[field.name];
   const errorID = error ? `record-${field.name}-error` : undefined;
-  const describedBy = [relationHintID, errorID].filter(Boolean).join(" ") || undefined;
+  const describedBy = [helpID, relationHintID, errorID].filter(Boolean).join(" ") || undefined;
   const target = editor.targetOf(field);
   const allowed = field.options?.allowedValues ?? [];
 
   return <div className="record-field">
+		{field.help && <p id={helpID}>{field.help}</p>}
     <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
     <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}-state`} onChange={(event) => editor.setKind(field, event.target.value as FieldState["kind"])} value={state.kind}>
       {editor.isCreate && <option value="unset">Use default / omit</option>}

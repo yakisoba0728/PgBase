@@ -97,6 +97,18 @@ var sqlCollectionViewsSQL string
 //go:embed 000028_oauth_callback_bridge.sql
 var oauthCallbackBridgeSQL string
 
+//go:embed 000029_field_presentation.sql
+var fieldPresentationSQL string
+
+//go:embed 000030_email_otp_login.sql
+var emailOTPLoginSQL string
+
+//go:embed 000031_schema_import_operations.sql
+var schemaImportOperationsSQL string
+
+//go:embed 000032_admin_impersonation.sql
+var adminImpersonationSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -171,6 +183,10 @@ var migrations = []Migration{
 	{Version: 26, Name: "auth_mail_html", SQL: authMailHTMLSQL, SHA256: sha256.Sum256([]byte(authMailHTMLSQL))},
 	{Version: 27, Name: "sql_collection_views", SQL: sqlCollectionViewsSQL, SHA256: sha256.Sum256([]byte(sqlCollectionViewsSQL))},
 	{Version: 28, Name: "oauth_callback_bridge", SQL: oauthCallbackBridgeSQL, SHA256: sha256.Sum256([]byte(oauthCallbackBridgeSQL))},
+	{Version: 29, Name: "field_presentation", SQL: fieldPresentationSQL, SHA256: sha256.Sum256([]byte(fieldPresentationSQL))},
+	{Version: 30, Name: "email_otp_login", SQL: emailOTPLoginSQL, SHA256: sha256.Sum256([]byte(emailOTPLoginSQL))},
+	{Version: 31, Name: "schema_import_operations", SQL: schemaImportOperationsSQL, SHA256: sha256.Sum256([]byte(schemaImportOperationsSQL))},
+	{Version: 32, Name: "admin_impersonation", SQL: adminImpersonationSQL, SHA256: sha256.Sum256([]byte(adminImpersonationSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

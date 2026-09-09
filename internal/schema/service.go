@@ -334,6 +334,9 @@ func validateCatalogIntegrity(catalog Catalog) error {
 			if err := validateName("", field.ColumnName); err != nil {
 				return ErrConflict
 			}
+			if len([]rune(field.Help)) > 300 || (field.Hidden && field.Presentable) {
+				return ErrConflict
+			}
 			if field.Type == TypeFile {
 				options := cloneFieldOptions(field.Options)
 				if validateFieldOptions(TypeFile, &options) != nil || field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil {
@@ -603,7 +606,7 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		fields = append(fields, Field{
 			ID: fieldID, Name: planned.Name, ColumnName: columnName, Type: planned.Type,
 			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
-			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Ordinal: planned.Ordinal,
+			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Hidden: planned.Hidden, Presentable: planned.Presentable, Help: planned.Help, Ordinal: planned.Ordinal,
 		})
 	}
 	return fields, nil

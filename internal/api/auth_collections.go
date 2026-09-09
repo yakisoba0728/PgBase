@@ -24,6 +24,8 @@ type AuthCollections interface {
 	RequestPasswordResetInCollection(context.Context, uuid.UUID, string, string) error
 	BeginOAuthInCollection(context.Context, uuid.UUID, string, string, string) (userauth.OAuthAuthorization, error)
 	BeginOAuthInCollectionWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error)
+	RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error)
+	CompleteEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.Session, error)
 	GetProfile(context.Context, uuid.UUID) (map[string]any, error)
 	SetProfile(context.Context, uuid.UUID, map[string]any) (map[string]any, error)
 }
@@ -44,11 +46,52 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.credentials(false)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/request-password-reset", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.reset)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/oauth/start", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.oauthStart)},
+		{method: "POST", pattern: "/api/v1/auth/{authCollection}/otp/request", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.otpRequest)},
+		{method: "POST", pattern: "/api/v1/auth/{authCollection}/otp/complete", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.otpComplete)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/session", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.session)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/logout", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.logout)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.profile)},
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.profile)},
 	}
+}
+
+func (e authCollectionEndpoints) otpRequest(w http.ResponseWriter, r *http.Request) {
+	collection, err := e.resolve(r)
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeUserAuthError(w, r, userauth.ErrValidation)
+		return
+	}
+	address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+	if !ok {
+		writeUserAuthError(w, r, userauth.ErrValidation)
+		return
+	}
+	value, err := e.dependencies.AuthCollections.RequestEmailOTPInCollection(r.Context(), collection.ID, in.Email, address)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+func (e authCollectionEndpoints) otpComplete(w http.ResponseWriter, r *http.Request) {
+	collection, err := e.resolve(r)
+	var in struct {
+		OTPID string `json:"otpId"`
+		Code  string `json:"code"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeUserAuthError(w, r, userauth.ErrValidation)
+		return
+	}
+	value, err := e.dependencies.AuthCollections.CompleteEmailOTPInCollection(r.Context(), collection.ID, in.OTPID, in.Code)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt})
 }
 func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Request) {
 	collection, err := e.resolve(r)
@@ -236,7 +279,7 @@ func (e authCollectionEndpoints) session(w http.ResponseWriter, r *http.Request)
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionResponse{User: publicUser(current.principal.User), ExpiresAt: current.principal.ExpiresAt})
+	writeJSON(w, http.StatusOK, userSessionFromPrincipal(current.principal))
 }
 func (e authCollectionEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 	current, err := e.current(r)

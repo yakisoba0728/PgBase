@@ -32,7 +32,45 @@ test('admin preview snapshots input and retries exact operation while retaining 
   await client.logout();await client.queueJob('job');assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),'');
 });
 
+test('administrator impersonation uses CSRF and preserves the explicit origin marker', async () => {
+  const calls=[];
+  const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin',email:'a@example.test'},expiresAt:'later',csrfToken:'csrf'});
+    return Response.json({token:'temporary',user:{id:'user'},expiresAt:'later',impersonated:true,impersonatingAdministratorId:'admin'});
+  }});
+  await client.resume();
+  const session=await client.impersonateUser('user',120);
+  assert.equal(session.impersonated,true);
+  assert.equal(session.impersonatingAdministratorId,'admin');
+  assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body),{durationSeconds:120});
+});
+
 test('admin rejects unreadable success instead of claiming an applied schema', async()=>{
   const client=new PgBaseAdminClient('http://localhost',{fetch:async()=>new Response('invalid',{status:200})});
   await assert.rejects(client.catalog(),error=>error instanceof AdminAPIError&&error.code==='invalid_response_body');
+});
+
+test('raw schema export preview and apply preserve integers beyond JavaScript precision', async()=>{
+  const raw='{"format":"pgbase.schema/v1","collections":[{"name":"precise","fields":[{"name":"counter","type":"bigint","default":9007199254740993}],"userAccess":false,"rules":{}}]}';
+  const calls=[];
+  const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/schema/export')) return new Response(raw,{headers:{'Content-Type':'application/json'}});
+    if(String(url).endsWith('/import/preview')) return Response.json({baseVersion:4,checksum:'exact',policyChecksum:'policy',changes:[],document:JSON.parse(raw)});
+    if(String(url).endsWith('/import/apply')) return Response.json({operationId:'done',status:'committed'});
+    throw new Error('unexpected request');
+  }});
+  const exported=await client.exportSchemaJSON(); assert.equal(exported,raw);
+  const plan=await client.previewSchemaImportJSON(exported);
+  plan.document.collections[0].fields[0].default=1;
+  const result=await client.applySchemaImport(plan);
+  assert.equal(result.version,undefined); assert.equal(result.applied,undefined);
+  const preview=calls.find(c=>c.url.endsWith('/import/preview')); const apply=calls.find(c=>c.url.endsWith('/import/apply'));
+  assert.equal(preview.init.body,raw);
+  assert.match(apply.init.body,/9007199254740993/);
+  assert.doesNotMatch(apply.init.body,/"default":1[,}]/);
+  assert.equal(apply.init.headers.get('PgBase-Operation-ID'),plan.operationId);
+  assert.equal(apply.init.headers.get('Idempotency-Key'),plan.idempotencyKey);
 });

@@ -12,6 +12,7 @@ import type {
 	SystemStatus,
 	ManagedUser,
 	UserPage,
+	ImpersonatedUserSession,
 	FileInfo,
 	RecordRules,
 	RulePreview,
@@ -117,6 +118,7 @@ export interface BackendScript {
 	users: Step<UserPage>[];
 	setUserActive: Step<ManagedUser>[];
 	revokeUserSessions: Step<number>[];
+	impersonateUser: Step<ImpersonatedUserSession>[];
 	listFiles: Step<FileInfo[]>[];
 	uploadFile: Step<FileInfo>[];
 	deleteFile: Step<void>[];
@@ -141,7 +143,7 @@ export function backendScript(): BackendScript {
     catalog: [], plan: [], apply: [], operation: [], operations: [],
 	list: [], read: [], create: [], createWithFiles: [], update: [], updateWithFiles: [], remove: [],
 	status: [], health: [], calls: [],
-	users: [], setUserActive: [], revokeUserSessions: [],
+	users: [], setUserActive: [], revokeUserSessions: [], impersonateUser: [],
 	listFiles: [], uploadFile: [], deleteFile: [], createDownloadToken: [], downloadBlob: [],
 	getRules: [], setRules: [],
 	previewRule: [],

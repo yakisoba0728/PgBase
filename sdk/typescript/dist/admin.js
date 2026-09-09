@@ -27,6 +27,29 @@ export class ApprovedSchemaPlan {
         return { body: this.#body, headers: { "PgBase-Operation-ID": this.#operationID, "Idempotency-Key": this.#idempotencyKey } };
     }
 }
+/** A preview plus the exact JSON document that produced it. The apply body is
+ * built from this private snapshot so large JSON integers survive preview. */
+export class ApprovedSchemaImportPlan {
+    baseVersion;
+    checksum;
+    policyChecksum;
+    changes;
+    document;
+    operationId = crypto.randomUUID();
+    idempotencyKey = crypto.randomUUID();
+    #applyBody;
+    constructor(preview, documentJSON) {
+        this.baseVersion = preview.baseVersion;
+        this.checksum = preview.checksum;
+        this.policyChecksum = preview.policyChecksum;
+        this.changes = preview.changes;
+        this.document = preview.document;
+        this.#applyBody = `{"document":${documentJSON},"baseVersion":${JSON.stringify(preview.baseVersion)},"checksum":${JSON.stringify(preview.checksum)}}`;
+    }
+    request() {
+        return { body: this.#applyBody, headers: { "PgBase-Operation-ID": this.operationId, "Idempotency-Key": this.idempotencyKey } };
+    }
+}
 /** Browser administrator client. Cookies are managed by the browser and CSRF
  * tokens stay in memory. Use a same-origin URL; a public user token is a
  * separate identity and is never attached to administrator requests. */
@@ -63,6 +86,19 @@ export class PgBaseAdminClient {
         return this.request("/api/admin/collections/apply", { method: "POST", ...plan.request() }, signal);
     }
     operation(id, signal) { return this.request(`/api/admin/schema-operations/${encodeURIComponent(id)}`, {}, signal); }
+    exportSchema(signal) { return this.request("/api/admin/schema/export", {}, signal); }
+    exportSchemaJSON(signal) { return this.requestText("/api/admin/schema/export", {}, signal); }
+    async previewSchemaImport(document, signal) {
+        const raw = JSON.stringify(document);
+        return new ApprovedSchemaImportPlan(await this.request("/api/admin/schema/import/preview", { method: "POST", body: raw }, signal), raw);
+    }
+    async previewSchemaImportJSON(documentJSON, signal) {
+        return new ApprovedSchemaImportPlan(await this.request("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal), documentJSON);
+    }
+    applySchemaImport(plan, signal) {
+        const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
+        return this.request("/api/admin/schema/import/apply", { method: "POST", ...request }, signal);
+    }
     logs(options = {}, signal) {
         const query = new URLSearchParams();
         if (options.before !== undefined)
@@ -74,6 +110,9 @@ export class PgBaseAdminClient {
     jobs(signal) { return this.request("/api/admin/jobs", {}, signal); }
     configureJob(id, schedule, enabled, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
     queueJob(id, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
+    impersonateUser(id, durationSeconds = 300, signal) {
+        return this.request(`/api/admin/users/${encodeURIComponent(id)}/impersonate`, { method: "POST", body: JSON.stringify({ durationSeconds }) }, signal);
+    }
     async adopt(path, init, signal) {
         const generation = ++this.#generation;
         const session = await this.request(path, init, signal, true);
@@ -108,5 +147,18 @@ export class PgBaseAdminClient {
         catch {
             throw new AdminAPIError(response.status, "invalid_response_body");
         }
+    }
+    async requestText(path, init, signal) {
+        const headers = new Headers(init.headers);
+        headers.set("Accept", "application/json");
+        if (init.body !== undefined)
+            headers.set("Content-Type", "application/json");
+        if (init.method && init.method !== "GET")
+            headers.set("X-PgBase-CSRF", this.#csrf);
+        const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
+        const text = await response.text();
+        if (!response.ok)
+            throw new AdminAPIError(response.status, "request_failed");
+        return text;
     }
 }

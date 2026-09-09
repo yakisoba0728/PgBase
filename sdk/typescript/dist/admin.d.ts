@@ -28,6 +28,9 @@ export type FieldInput = {
     required?: boolean;
     unique?: boolean;
     indexed?: boolean;
+    hidden?: boolean;
+    presentable?: boolean;
+    help?: string;
     default?: unknown;
     relation?: RelationInput;
     options?: FieldOptions;
@@ -117,6 +120,34 @@ export type SchemaOperation = {
     status: "running" | "unknown" | "committed" | "failed";
     failureCode?: string;
 };
+export type SchemaDocumentCollection = {
+    name: string;
+    fields?: FieldInput[];
+    indexes?: CompoundIndex[];
+    view?: ViewInput;
+    dependsOn?: string[];
+    userAccess: boolean;
+    rules: Record<string, unknown>;
+};
+export type SchemaDocument = {
+    format: "pgbase.schema/v1";
+    collections: SchemaDocumentCollection[];
+};
+export type SchemaImportPlan = {
+    baseVersion: number;
+    checksum: string;
+    policyChecksum: string;
+    changes: SchemaPlan[];
+    document: SchemaDocument;
+    operationId?: string;
+    idempotencyKey?: string;
+};
+export type SchemaImportResult = {
+    operationId: string;
+    status: "running" | "unknown" | "committed" | "failed";
+    version?: number;
+    applied?: number;
+};
 export type AdministratorSession = {
     administrator: {
         id: string;
@@ -124,6 +155,18 @@ export type AdministratorSession = {
         createdAt: string;
     };
     expiresAt: string;
+};
+export type ImpersonatedUserSession = {
+    token: string;
+    user: {
+        id: string;
+        email: string;
+        verified: boolean;
+        createdAt: string;
+    };
+    expiresAt: string;
+    impersonated: true;
+    impersonatingAdministratorId: string;
 };
 export type ScheduledJob = {
     id: string;
@@ -168,6 +211,23 @@ export declare class ApprovedSchemaPlan {
         headers: Record<string, string>;
     };
 }
+/** A preview plus the exact JSON document that produced it. The apply body is
+ * built from this private snapshot so large JSON integers survive preview. */
+export declare class ApprovedSchemaImportPlan implements SchemaImportPlan {
+    #private;
+    readonly baseVersion: number;
+    readonly checksum: string;
+    readonly policyChecksum: string;
+    readonly changes: SchemaPlan[];
+    readonly document: SchemaDocument;
+    readonly operationId: `${string}-${string}-${string}-${string}-${string}`;
+    readonly idempotencyKey: `${string}-${string}-${string}-${string}-${string}`;
+    constructor(preview: SchemaImportPlan, documentJSON: string);
+    request(): {
+        body: string;
+        headers: Record<string, string>;
+    };
+}
 /** Browser administrator client. Cookies are managed by the browser and CSRF
  * tokens stay in memory. Use a same-origin URL; a public user token is a
  * separate identity and is never attached to administrator requests. */
@@ -190,6 +250,11 @@ export declare class PgBaseAdminClient {
         name: string;
     }>;
     operation(id: string, signal?: AbortSignal): Promise<SchemaOperation>;
+    exportSchema(signal?: AbortSignal): Promise<SchemaDocument>;
+    exportSchemaJSON(signal?: AbortSignal): Promise<string>;
+    previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
+    previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
+    applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
     logs(options?: {
         before?: number;
         statusClass?: number;
@@ -200,6 +265,8 @@ export declare class PgBaseAdminClient {
     }>;
     configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
     queueJob(id: string, signal?: AbortSignal): Promise<void>;
+    impersonateUser(id: string, durationSeconds?: number, signal?: AbortSignal): Promise<ImpersonatedUserSession>;
     private adopt;
     private request;
+    private requestText;
 }

@@ -16,8 +16,40 @@ func (e userEndpoints) lifecycleRoutes() []route {
 		{method: "GET", pattern: "/api/admin/users", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.listUsers)},
 		{method: "PATCH", pattern: "/api/admin/users/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.setUserActive)},
 		{method: "POST", pattern: "/api/admin/users/{id}/revoke-sessions", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.revokeUserSessions)},
+		{method: "POST", pattern: "/api/admin/users/{id}/impersonate", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.impersonateUser)},
 		{method: "POST", pattern: "/api/v1/auth/change-password", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.changePassword)},
 	}
+}
+
+func (e userEndpoints) impersonateUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id, err := uuid.Parse(r.PathValue("id"))
+	var input struct {
+		DurationSeconds int `json:"durationSeconds"`
+	}
+	if err != nil || decodeStrictJSON(r, &input) != nil {
+		writeUserManagementError(w, r, userauth.ErrValidation)
+		return
+	}
+	if input.DurationSeconds == 0 {
+		input.DurationSeconds = 300
+	}
+	admin, ok := AdminPrincipalFromContext(r.Context())
+	if !ok {
+		writeUserManagementError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
+	impersonator, ok := e.dependencies.UserAuth.(UserImpersonator)
+	if !ok {
+		writeUserManagementError(w, r, errors.New("impersonation unavailable"))
+		return
+	}
+	session, err := impersonator.Impersonate(r.Context(), id, admin.RawSession, time.Duration(input.DurationSeconds)*time.Second)
+	if err != nil {
+		writeUserManagementError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, userSessionFromResult(session))
 }
 
 // The transport enumerates fields rather than serializing a persistence model,
@@ -127,6 +159,10 @@ func (e userEndpoints) changePassword(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	current, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
 	if !ok {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
+	if current.principal.Impersonated {
 		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
 		return
 	}

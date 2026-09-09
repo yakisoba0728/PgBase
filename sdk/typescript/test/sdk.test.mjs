@@ -32,6 +32,8 @@ const server = createServer(async (request, response) => {
   if (request.url === "/api/v1/auth/members/request-password-reset") { response.statusCode = 204; response.end(); return; }
   if (request.url === "/api/v1/auth/members/oauth/start" || request.url === "/api/v1/auth/oauth/link") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ authorizationUrl: "https://provider.test/authorize", expiresAt: "2026-01-02T00:00:00Z" })); return; }
   if (request.url === "/api/v1/auth/oauth/complete") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ token: "oauth-token", user: { id: "oauth", email: "oauth@example.test", createdAt: "" }, expiresAt: "" })); return; }
+  if (request.url.endsWith("/otp/request")) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ otpId: "otp-id", expiresAt: "2026-01-02T00:00:00Z" })); return; }
+  if (request.url.endsWith("/otp/complete")) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ token: "otp-token", user: { id: "otp", email: "otp@example.test", createdAt: "" }, expiresAt: "" })); return; }
   if (request.url === "/api/v1/user/collections/batch") {
     response.setHeader("content-type", "application/json");
     const input=body.startsWith("{")?JSON.parse(body):{};
@@ -117,6 +119,10 @@ try {
   assert.equal(client.auth.token, "first-token");
 
   const realm = client.realm("members");
+	assert.equal((await client.requestOTP("first@example.test")).otpId, "otp-id");
+	await client.completeOTP("otp-id", "123456");
+	assert.equal(client.auth.token, "otp-token");
+	client.auth.save("first-token");
   const realmSession = await realm.register("realm@example.test", "password");
   assert.equal(realmSession.user.verified, true);
   assert.equal(realmSession.user.authCollection, "members");
@@ -127,6 +133,11 @@ try {
   assert.deepEqual(JSON.parse(requests.at(-1).body), { nickname: "updated" });
   await realm.requestPasswordReset("realm@example.test");
   assert.equal(requests.at(-1).path, "/api/v1/auth/members/request-password-reset");
+  assert.equal((await realm.requestOTP("realm@example.test")).otpId, "otp-id");
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { email: "realm@example.test" });
+  await realm.completeOTP("otp-id", "123456");
+  assert.equal(client.auth.token, "otp-token");
+  client.auth.save("realm-token");
   await realm.oauthStart("github", "https://app.test/callback");
   assert.equal(requests.at(-1).path, "/api/v1/auth/members/oauth/start");
   assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", redirectUri: "https://app.test/callback" });

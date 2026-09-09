@@ -16,10 +16,11 @@ export const relationHydrationBatch = 50;
 export const relationHydrationLimit = relationHydrationBatch * 4;
 
 export function relationTargetSearchField(collection: CollectionDefinition): FieldDefinition | undefined {
-  return collection.fields
+	const ordered = collection.fields
     .slice()
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .find((field) => field.type === "text" && (field.indexed || field.unique) && filterFieldPattern.test(field.name));
+		.sort((left, right) => left.ordinal - right.ordinal);
+	return ordered.find((field) => field.presentable && !field.hidden && field.type === "text" && (field.indexed || field.unique) && filterFieldPattern.test(field.name))
+		?? ordered.find((field) => !field.hidden && field.type === "text" && (field.indexed || field.unique) && filterFieldPattern.test(field.name));
 }
 
 function quoted(value: string): string {

@@ -7,12 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"sort"
-	"strings"
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
@@ -24,6 +18,11 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/recordartifact"
 	"github.com/webisnoteasy/PgBase/internal/relation"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"io"
+	"log/slog"
+	"sort"
+	"strings"
+	"time"
 )
 
 const (
@@ -46,7 +45,6 @@ type Service struct {
 	hooks      []MutationHook
 	validators []TransactionValidator
 }
-
 type batchTransactionKey struct{}
 
 // A nil runtime is not a disabled membership: the writer provider registers
@@ -110,7 +108,6 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 		Principal: request.Principal, Collection: request.Collection, ID: request.ID, Expand: request.Expand,
 	})
 }
-
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
 	defer hooks.after(ctx, &err)
@@ -132,7 +129,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	} else if request.ID != uuid.Nil {
 		requestHash = recordartifact.Digest("pgbase-create-request-v1", []byte(request.Collection), canonicalRequest, request.ID[:])
 	}
-
 	compatibility := CompatibilityNone
 	var keyHash []byte
 	if request.IdempotencyKey == "" {
@@ -144,7 +140,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		digest := recordartifact.Digest("pgbase-idempotency-key-v1", []byte(request.IdempotencyKey))
 		keyHash = digest[:]
 	}
-
 	recordID := request.ID
 	if recordID == uuid.Nil {
 		recordID, err = uuid.NewV7()
@@ -172,6 +167,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
+		}
+		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
+			return err
 		}
 		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, uuid.Nil); err != nil {
 			return err
@@ -210,7 +208,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := createFence.Reserve(ctx); err != nil {
 			return transactionalMembership(err)
 		}
-
 		relations, err := prepareRelationWrite(catalog, collection, relation.CreateWrite, request.Input)
 		if err != nil {
 			return err
@@ -278,7 +275,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Create: &request}}}
-			return s.validateTransaction(ctx, tx, request, []MutationResult{result})
+			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
+				return err
+			}
+			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
 	})
@@ -328,6 +328,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
+		}
+		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
+			return err
 		}
 		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "update"); err != nil {
 			return err
@@ -415,7 +418,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Update: &request}}}
-			return s.validateTransaction(ctx, tx, request, []MutationResult{result})
+			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
+				return err
+			}
+			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
 	})

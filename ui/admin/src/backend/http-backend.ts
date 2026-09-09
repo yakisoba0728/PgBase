@@ -1,4 +1,5 @@
 import { parseJSON, stringifyJSON } from "./json";
+import { providerInput, smtpInput, templateInput } from "./auth-input";
 import {
   CollectionCatalog,
   PlannedChange,
@@ -28,6 +29,7 @@ import {
   type SystemStatus,
   type ManagedUser,
   type UserPage,
+  type ImpersonatedUserSession,
   type FileInfo,
   type RecordRules,
   type RulePreview,
@@ -35,6 +37,7 @@ import {
   type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthMailPreview, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
+	type SchemaDocument, type SchemaImportPlan, type SchemaImportResult,
 } from "./ports";
 
 interface Wire {
@@ -247,6 +250,13 @@ class HTTPBackend implements AdminBackend {
     },
     userAccess: async (collection: string, signal?: AbortSignal) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/user-access`, signal })).data as { collection: string; enabled: boolean },
     setUserAccess: async (collection: string, enabled: boolean) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/user-access`, method: "PUT", body: { enabled }, csrf: true })).data as { collection: string; enabled: boolean },
+		exportDocument: async (signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/schema/export", signal })).data as SchemaDocument,
+		previewImport: async (document: SchemaDocument, signal?: AbortSignal) => ({ ...((await this.#schemaCall({ path: "/api/admin/schema/import/preview", method: "POST", body: document, csrf: true, signal })).data as SchemaImportPlan), operationId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+		applyImport: async (plan: SchemaImportPlan, signal?: AbortSignal) => {
+			try { return (await this.#schemaCall({ path: "/api/admin/schema/import/apply", method: "POST", body: { document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }, headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, csrf: true, signal })).data as SchemaImportResult; }
+			catch (caught) { if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body")) return (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult; throw caught; }
+		},
+		importStatus: async (operationId: string, signal?: AbortSignal) => (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(operationId)}`, signal })).data as SchemaImportResult,
   };
 
   readonly records = {
@@ -375,6 +385,8 @@ class HTTPBackend implements AdminBackend {
       (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/verification`, method: "PUT", body: { verified }, csrf: true })).data as ManagedUser,
     sendVerification: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-verification`, method: "POST", csrf: true }); },
     sendPasswordReset: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-password-reset`, method: "POST", csrf: true }); },
+    impersonate: async (id: string, durationSeconds = 300) =>
+      (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/impersonate`, method: "POST", body: { durationSeconds }, csrf: true })).data as ImpersonatedUserSession,
   };
 
   readonly files = {
@@ -423,11 +435,11 @@ class HTTPBackend implements AdminBackend {
     deleteAuthCollection: async (id: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}`, method: "DELETE", csrf: true, signal }); },
     getAdministration: async (id: string, signal?: AbortSignal): Promise<AuthAdministration> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/administration`, signal })).data as AuthAdministration,
     setPolicy: async (id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/policy`, method: "PUT", body: value, csrf: true, signal })).data as AuthPolicy,
-    putProvider: async (id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(value.name)}`, method: "PUT", body: value, csrf: true, signal })).data as OAuthProviderSettings,
+    putProvider: async (id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(value.name)}`, method: "PUT", body: providerInput(value), csrf: true, signal })).data as OAuthProviderSettings,
     deleteProvider: async (id: string, name: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/oauth-providers/${encodeURIComponent(name)}`, method: "DELETE", csrf: true, signal }); },
-    putTemplate: async (id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}`, method: "PUT", body: value, csrf: true, signal })).data as AuthMailTemplate,
-    previewTemplate: async (id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}/preview`, method: "POST", body: value, csrf: true, signal })).data as AuthMailPreview,
-    putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: value, csrf: true, signal })).data as AuthSMTPSettings,
+    putTemplate: async (id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}`, method: "PUT", body: templateInput(value), csrf: true, signal })).data as AuthMailTemplate,
+    previewTemplate: async (id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}/preview`, method: "POST", body: { ...templateInput(value), actionUrl: value.actionUrl }, csrf: true, signal })).data as AuthMailPreview,
+    putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: smtpInput(value), csrf: true, signal })).data as AuthSMTPSettings,
     testSMTP: async (id: string, recipient: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp/test`, method: "POST", body: { recipient }, csrf: true, signal }); },
   };
   readonly serviceTokens = {

@@ -38,7 +38,7 @@ interface RelationInput { targetCollection: string; cardinality: RelationCardina
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
 export interface FieldOptions { minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url"; allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
-export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; default?: unknown; relation?: RelationInput }
+export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
@@ -255,7 +255,16 @@ export interface SchemaPort {
   operations(cursor?: string, signal?: AbortSignal): Promise<OperationHistory>;
 	userAccess(collection: string, signal?: AbortSignal): Promise<{ collection: string; enabled: boolean }>;
 	setUserAccess(collection: string, enabled: boolean): Promise<{ collection: string; enabled: boolean }>;
+	exportDocument?(signal?: AbortSignal): Promise<SchemaDocument>;
+	previewImport?(document: SchemaDocument, signal?: AbortSignal): Promise<SchemaImportPlan>;
+	applyImport?(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
+	importStatus?(operationId: string, signal?: AbortSignal): Promise<SchemaImportResult>;
 }
+export interface SchemaDocumentCollection { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
+export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] }
+export interface SchemaImportPreviewChange { operation: string; baseVersion: number; definition: { name: string; tableName: string; fields: PlannedField[] }; sql: string[] }
+export interface SchemaImportPlan { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaImportPreviewChange[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string }
+export interface SchemaImportResult { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version: number; applied: number }
 export interface RecordRules { collection: string; rules: Record<string, unknown>; revision: number }
 export interface RulePreview { items: Array<{ recordId: string; allowed: boolean }> }
 export interface RecordRulesPort {
@@ -264,9 +273,9 @@ export interface RecordRulesPort {
   previewRule(collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview>;
 }
 export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
-export interface AuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; mfaEnabled: boolean }
+export interface AuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; mfaEnabled: boolean; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
 export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; avatarField: string; allowInsecureLoopback: boolean }
-export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change"; subject: string; body: string; htmlBody: string }
+export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change" | "otp"; subject: string; body: string; htmlBody: string }
 export interface AuthMailPreview { subject: string; text: string; html: string }
 export interface AuthSMTPSettings { address: string; from: string; username: string; password?: string; passwordConfigured: boolean; serverName: string; implicitTls: boolean; allowInsecureLoopback: boolean }
 export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProviderSettings[]; templates: AuthMailTemplate[]; smtp?: AuthSMTPSettings }
@@ -308,6 +317,7 @@ export interface SystemPort {
 
 export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
 export interface UserPage { items: ManagedUser[]; nextAfter?: string }
+export interface ImpersonatedUserSession { token: string; user: { id: string; email: string; verified: boolean; createdAt: string }; expiresAt: string; impersonated: true; impersonatingAdministratorId: string }
 export interface UsersPort {
   list(after?: string, signal?: AbortSignal): Promise<UserPage>;
   setActive(id: string, active: boolean): Promise<ManagedUser>;
@@ -315,6 +325,7 @@ export interface UsersPort {
   setVerified(id: string, verified: boolean): Promise<ManagedUser>;
   sendVerification(id: string): Promise<void>;
   sendPasswordReset(id: string): Promise<void>;
+  impersonate(id: string, durationSeconds?: number): Promise<ImpersonatedUserSession>;
 }
 
 export interface RequestLogEntry { id: number; at: string; method: string; route: string; status: number; durationMs: number }

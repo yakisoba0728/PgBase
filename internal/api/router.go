@@ -13,6 +13,7 @@ import (
 )
 
 type Dependencies struct {
+	CustomRoutes            []CustomRoute
 	AuthAdministration      AuthAdministration
 	RequestLog              *observability.RequestLog
 	Jobs                    ManagedJobs
@@ -141,6 +142,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
+	routes = append(routes, schemaDocumentRoutes(dependencies)...)
 	routes = append(routes, authAdministrationRoutes(dependencies)...)
 	routes = append(routes, operationsConsoleRoutes(dependencies)...)
 	routes = append(routes, serviceTokenRoutes(dependencies)...)
@@ -191,19 +193,36 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	if err := validateRoutes(routes); err != nil {
 		return nil, err
 	}
+	extensions, err := dependencies.customRoutes()
+	if err != nil {
+		return nil, err
+	}
+	routes = append(routes, extensions...)
 	mux := http.NewServeMux()
 	for _, declared := range routes {
 		// Buffering is innermost so the write deadline is installed on the
 		// real connection before any byte is held, and so a rejected request
 		// never allocates a buffer for a body it will not produce.
-		handler := applyResponseMode(declared.response, declared.handler)
+		baseHandler := declared.handler
+		if declared.noStore {
+			// Enforce the policy on the buffered response after an extension
+			// handler returns, even if that handler tried to make it cacheable.
+			baseHandler = noStoreCustomHandler(baseHandler)
+		}
+		handler := applyResponseMode(declared.response, baseHandler)
 		handler = applyDeadline(declared.deadline, dependencies.SchemaApplyTimeout, handler)
 		requestLimit := declared.maximumRequestBytes
 		if requestLimit == 0 {
 			requestLimit = maxJSONBodyBytes
 		}
 		handler = requestBodyLimitMiddleware(requestLimit, handler)
-		mux.Handle(declared.muxPattern(), dependencies.admit(declared.access, handler))
+		handler = dependencies.admit(declared.access, handler)
+		if declared.noStore {
+			handler = noStoreCustomHandler(handler)
+		}
+		if err := registerRoute(mux, declared.muxPattern(), handler); err != nil {
+			return nil, err
+		}
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"})

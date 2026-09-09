@@ -23,6 +23,8 @@ The source branch implements the contracts below. Use `Content-Type: application
 | POST `/api/v1/auth/oauth/start` | `{provider,redirectUri}` → authorization URL and expiry |
 | POST `/api/v1/auth/oauth/link` | `{currentPassword,provider,redirectUri}` with bearer |
 | POST `/api/v1/auth/oauth/complete` | `{provider,state,code}` → user session |
+| POST `/api/v1/auth/otp/request` | `{email}` → opaque OTP id and expiry without disclosing account existence |
+| POST `/api/v1/auth/otp/complete` | `{otpId,code}` → user session or MFA challenge |
 
 The TypeScript SDK accepts a browser callback directly with `realm.oauthCompleteFromURL(provider, window.location.href)`. It reports provider cancellation and callback errors as `OAuthCallbackError` without sending an incomplete callback to the server. OAuth providers that do not return a verified email can only be used after the authenticated, current-password account-link flow; PgBase never invents an email or merges by an unverified address.
 
@@ -38,7 +40,9 @@ Named auth collections use `/api/v1/auth/{authCollection}/register`, `/login`, `
 
 Admin auth-collection management is GET/POST `/api/admin/auth-collections` and PATCH/DELETE `/api/admin/auth-collections/{id}`. Creation takes `{id,name,registrationEnabled,profileSchema}`. PATCH replaces settings and requires both `registrationEnabled` and `profileSchema`; omission is rejected. Profiles are typed scalar/JSON fields. There are at most 100 auth collections, including `users`; the default cannot be deleted.
 
-Administrator user lifecycle routes are GET `/api/admin/users?after={uuid}&limit=1..100`, PATCH `/api/admin/users/{id}` with `{active}`, and POST `/api/admin/users/{id}/revoke-sessions`. The list result is `{items:[{id,email,verified,active,createdAt,updatedAt}],nextAfter?}`. Deactivation and explicit revocation also invalidate pending MFA challenges; activation does not restore old sessions.
+Administrator user lifecycle routes are GET `/api/admin/users?after={uuid}&limit=1..100`, PATCH `/api/admin/users/{id}` with `{active}`, POST `/api/admin/users/{id}/revoke-sessions`, and POST `/api/admin/users/{id}/impersonate` with an optional `{durationSeconds}` from 60 through 900. The list result is `{items:[{id,email,verified,active,createdAt,updatedAt}],nextAfter?}`. Deactivation and explicit revocation also invalidate pending MFA challenges; activation does not restore old sessions.
+
+Impersonation returns a temporary user bearer session with `impersonated:true` and `impersonatingAdministratorId`. It expires after five minutes by default, never later than the administrator session that created it, and stops authenticating when that administrator session is revoked or its administrator is deactivated. Impersonated sessions carry no MFA proof and cannot change passwords, verification state, email, TOTP, or OAuth links. Custom Go routes receive the same origin fields through `CustomPrincipalFromContext`, so application-specific sensitive actions can reject impersonation explicitly.
 
 ## Records and permissions
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/userauth"
@@ -27,6 +28,24 @@ func (s *stubUserAuth) RevokeUserSessions(context.Context, uuid.UUID) (int64, er
 func (s *stubUserAuth) ChangePassword(context.Context, uuid.UUID, string, string) error {
 	s.calls++
 	return s.err
+}
+func (s *stubUserAuth) Impersonate(_ context.Context, id uuid.UUID, _ string, duration time.Duration) (userauth.Session, error) {
+	s.calls++
+	return userauth.Session{RawToken: "temporary", User: userauth.User{ID: id, AuthCollectionID: userauth.DefaultCollectionID}, ExpiresAt: time.Now().Add(duration), Impersonated: true, ImpersonatingAdministratorID: uuid.MustParse("019551d0-e9c0-7000-8000-000000000099")}, s.err
+}
+
+func TestImpersonationHandlerReturnsMarkedBoundedSession(t *testing.T) {
+	auth := &stubUserAuth{}
+	id := uuid.New()
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+id.String()+"/impersonate", strings.NewReader(`{"durationSeconds":120}`))
+	r.SetPathValue("id", id.String())
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), adminPrincipalKey{}, AdminPrincipal{RawSession: strings.Repeat("a", 43)}))
+	w := httptest.NewRecorder()
+	userEndpoints{Dependencies{UserAuth: auth}}.impersonateUser(w, r)
+	if w.Code != http.StatusOK || auth.calls != 1 || !strings.Contains(w.Body.String(), `"impersonated":true`) || !strings.Contains(w.Body.String(), `"impersonatingAdministratorId"`) {
+		t.Fatalf("status=%d calls=%d body=%s", w.Code, auth.calls, w.Body.String())
+	}
 }
 
 func TestUserPageInputRejectsAmbiguousAndUnboundedRequests(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/realtime"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/serviceauth"
 	"github.com/webisnoteasy/PgBase/internal/userauth"
 )
@@ -22,13 +23,18 @@ import (
 // TestOpenAPIRouteContract derives path/admission metadata from the same route
 // registry used by the server. Bodies remain extensible; this is a route
 // contract, not a claim to describe every dynamically configured record field.
-func TestOpenAPIRouteContract(t *testing.T) {
-	dependencies := Dependencies{
+func allOptionalRouteDependencies() Dependencies {
+	return completeDependencies(Dependencies{
+		Schema: (*schema.Service)(nil), Backups: &struct{ ManagedBackups }{}, AdminUI: http.NotFoundHandler(),
 		AuthAdministration: (*userauth.Service)(nil), Jobs: (*jobs.Service)(nil), RequestLog: &observability.RequestLog{},
 		UserAuth: (*userauth.Service)(nil), EmailActions: (*userauth.Service)(nil), AuthFactors: (*userauth.Service)(nil), AuthCollections: (*userauth.Service)(nil),
 		RecordAccess: &struct{ RecordAccess }{}, RecordRules: (*recordaccess.RuleService)(nil), ServiceTokens: (*serviceauth.Service)(nil), Files: (*filestore.Service)(nil), Realtime: (*realtime.Service)(nil),
 		MaximumFileUploadBytes: 100 << 20, MetricsExposition: http.NotFoundHandler(),
-	}
+	})
+}
+
+func TestOpenAPIRouteContract(t *testing.T) {
+	dependencies := allOptionalRouteDependencies()
 	paths := make(map[string]any)
 	parametersPattern := regexp.MustCompile(`\{([a-zA-Z][a-zA-Z0-9]*)\}`)
 	for _, route := range declareRoutes(dependencies, true) {

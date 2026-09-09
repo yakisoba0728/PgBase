@@ -35,6 +35,8 @@ export function CollectionFieldEditor({
   return <div className="field-card">
     <label htmlFor={`field-${index}-name`}>Field {fieldNumber} name</label>
     <input id={`field-${index}-name`} onChange={(event) => onEdit({ set: "name", value: event.target.value })} required value={field.name} />
+		<label htmlFor={`field-${index}-help`}>Field {fieldNumber} help</label>
+		<textarea id={`field-${index}-help`} maxLength={300} onChange={(event) => onEdit({ set: "help", value: event.target.value })} value={field.help ?? ""} />
     <label htmlFor={`field-${index}-type`}>Field {fieldNumber} type</label>
     <select id={`field-${index}-type`} onChange={(event) => onEdit({ set: "type", value: event.target.value as FieldType })} value={field.type}>
       {fieldTypes.map((type) => <option key={type}>{type}</option>)}
@@ -100,6 +102,8 @@ export function CollectionFieldEditor({
       <label><input aria-label={`Field ${fieldNumber} required`} checked={field.required} disabled={setNull} onChange={(event) => onEdit({ set: "required", value: event.target.checked })} type="checkbox" /> required</label>
       <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple || isFile} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>
       <label><input aria-label={`Field ${fieldNumber} indexed`} checked={field.indexed} disabled={isRelation || isFile} onChange={(event) => onEdit({ set: "indexed", value: event.target.checked })} type="checkbox" /> indexed</label>
+			<label><input aria-label={`Field ${fieldNumber} hidden`} checked={field.hidden ?? false} onChange={(event) => onEdit({ set: "hidden", value: event.target.checked })} type="checkbox" /> hidden</label>
+			<label><input aria-label={`Field ${fieldNumber} presentable`} checked={field.presentable ?? false} disabled={field.hidden} onChange={(event) => onEdit({ set: "presentable", value: event.target.checked })} type="checkbox" /> presentable</label>
     </div>
     {fieldCount > 1 && <button className="secondary" disabled={pending} onClick={onRemove} type="button">Remove field</button>}
   </div>;

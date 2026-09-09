@@ -7,6 +7,7 @@ import {
   relationHydrationFilter,
   relationTargetOption,
   relationTargetSearch,
+	relationTargetSearchField,
 } from "./relation-query";
 
 const first = "11111111-1111-4111-8111-111111111111";
@@ -20,6 +21,11 @@ function field(name: string, type: FieldType, patch: Partial<FieldDefinition> = 
 describe("relation target search", () => {
   const searchable = { id: "t", name: "users", tableName: "users", fields: [field("biography", "text", { ordinal: 0 }), field("name", "text", { ordinal: 1, indexed: true })] };
   const opaque = { id: "t", name: "tags", tableName: "tags", fields: [] };
+
+	it("prefers presentable text and excludes hidden candidates", () => {
+		const collection = { id: "t", name: "people", tableName: "people", fields: [field("internal", "text", { indexed: true, hidden: true }), field("fallback", "text", { indexed: true }), field("label", "text", { indexed: true, presentable: true })] };
+		expect(relationTargetSearchField(collection)?.name).toBe("label");
+	});
 
   it("looks up the first indexed text field and escapes the literal", () => {
     expect(relationTargetSearch(searchable, "O'Hara")).toEqual({

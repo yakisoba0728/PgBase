@@ -1,6 +1,6 @@
 # PgBase의 실제 PocketBase 대비 상태
 
-> 이 문서는 PR #29/P6 구현 이전 소스 감사의 역사적 스냅샷이다. 후속 현재 구현 계약은 [P6 로컬 구현 계약](../phase2-local-contracts.md), 완료 검증과 병합 상태는 [TODO](../../TODO.md)를 따른다.
+> 이 문서는 PR #29/P6 구현 이전 소스 감사의 역사적 스냅샷이다. 후속 구현 계약은 [P6 로컬 구현 계약](../phase2-local-contracts.md)과 [P7 로컬 구현 계약](../phase3-local-contracts.md), 완료 검증과 병합 상태는 [TODO](../../TODO.md)를 따른다.
 
 > 소스 대조 감사 완료: 본문 734개, 생성물·자산 186개, 역사 참고 문서 3개. [coverage.json](coverage.json)의 미판독 소스는 0개다. 아래 우선순위는 후속 구현 후보이며 구현 완료 표시가 아니다.
 

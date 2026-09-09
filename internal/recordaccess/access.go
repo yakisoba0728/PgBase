@@ -46,6 +46,9 @@ func (s *Service) Set(ctx context.Context, collection string, enabled bool) (Pol
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.schema_state WHERE singleton FOR SHARE`); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1 FOR UPDATE`, collection); err != nil {
+			return err
+		}
 		return tx.QueryRow(ctx, `INSERT INTO pgbase_meta.collection_access(collection_id, enabled)
 SELECT id, $2 FROM pgbase_meta.collections WHERE name=$1
 ON CONFLICT (collection_id) DO UPDATE SET enabled=EXCLUDED.enabled

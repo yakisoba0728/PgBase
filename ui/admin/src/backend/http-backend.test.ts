@@ -84,6 +84,18 @@ describe("HTTP adapter wire contract", () => {
     expect(String(page.items[0].ratio)).toBe("1.234567890123456789");
   });
 
+  it("preserves exact numeric defaults through schema import preview and apply", async () => {
+    const document = `{"format":"pgbase.schema/v1","collections":[{"name":"precise","fields":[{"name":"payload","type":"jsonb","required":false,"unique":false,"indexed":false,"default":9007199254740993}],"userAccess":false,"rules":{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}}]}`;
+    const mock = stub(session(), respond(200, `{"baseVersion":0,"checksum":"${"a".repeat(64)}","policyChecksum":"p","changes":[],"document":${document}}`), respond(200, `{"operationId":"${operationID}","status":"committed","version":1,"applied":1}`));
+    const backend = await authenticated(mock);
+    const parsed = (await import("./json")).parseJSON(document) as never;
+    const plan = await backend.schema.previewImport!(parsed);
+    await backend.schema.applyImport!(plan);
+
+    expect(String((plan.document.collections[0].fields![0].default))).toBe("9007199254740993");
+    expect(String((mock.mock.calls[2][1] as RequestInit).body)).toContain("9007199254740993");
+  });
+
   it("rejects a body that repeats a JSON key instead of keeping the last one", async () => {
     const mock = stub(session(), respond(200, `{"items":[],"items":[{"id":"one"}]}`));
     const backend = await authenticated(mock);

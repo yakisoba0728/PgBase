@@ -131,11 +131,15 @@ func (s *Service) readGetInTx(
 		if err := validateExpandedRecordSize(ExpandedRecord{Root: root}, usage.limits.maxBytes); err != nil {
 			return err
 		}
-		response = root
+		response = cloneRecord(root)
+		hideRecordFields(collection, request.Principal, response)
 	} else {
 		usage := &expansionUsage{limits: s.expandLimits}
 		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
 		if err != nil {
+			return err
+		}
+		if err := rejectHiddenExpand(request.Principal, plan.nodes); err != nil {
 			return err
 		}
 		if err := usage.takeQuerySteps(1); err != nil {
@@ -147,7 +151,7 @@ func (s *Service) readGetInTx(
 		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, usage); err != nil {
 			return err
 		}
-		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, []map[string]any{root}, plan, request.Principal, usage)
+		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, []map[string]any{root}, plan, request.Principal, usage)
 		if err != nil {
 			return err
 		}
@@ -223,6 +227,9 @@ func (s *Service) readListInTx(
 	filterNode filterNode,
 	requestedSort []SortKey,
 ) (listResult, bool, error) {
+	if err := rejectHiddenQueryFields(collection, request.Principal, filterNode, requestedSort); err != nil {
+		return listResult{}, false, err
+	}
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
 		return listResult{}, false, err
 	}
@@ -238,6 +245,9 @@ func (s *Service) readListInTx(
 		if err != nil {
 			return listResult{}, false, err
 		}
+		if err := rejectHiddenExpand(request.Principal, expansion.nodes); err != nil {
+			return listResult{}, false, err
+		}
 	}
 	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
 	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
@@ -245,6 +255,9 @@ func (s *Service) readListInTx(
 		if request.Cursor != "" && validationField(err, "sort") {
 			return listResult{}, relationOperation, invalidCursor()
 		}
+		return listResult{}, relationOperation, err
+	}
+	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
 		return listResult{}, relationOperation, err
 	}
 	if relationListPlanUsesRelation(relationPlan) {
@@ -308,10 +321,13 @@ func (s *Service) readListInTx(
 		return listResult{}, relationOperation, err
 	}
 	if usage == nil {
+		for _, item := range root.page.Items {
+			hideRecordFields(collection, request.Principal, item)
+		}
 		return listResult{page: root.page}, relationOperation, nil
 	}
 
-	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, root.page.Items, expansion, request.Principal, usage)
+	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, usage)
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}

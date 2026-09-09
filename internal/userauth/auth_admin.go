@@ -17,6 +17,9 @@ type AuthPolicy struct {
 	PasswordEnabled      bool `json:"passwordEnabled"`
 	MinimumPasswordBytes int  `json:"minimumPasswordBytes"`
 	MFAEnabled           bool `json:"mfaEnabled"`
+	OTPEnabled           bool `json:"otpEnabled"`
+	OTPDurationSeconds   int  `json:"otpDurationSeconds"`
+	OTPMaxAttempts       int  `json:"otpMaxAttempts"`
 }
 
 type OAuthProviderConfig struct {
@@ -66,7 +69,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 		return AuthAdministration{}, ErrValidation
 	}
 	out := AuthAdministration{Providers: []OAuthProviderConfig{}, Templates: []MailTemplate{}}
-	if err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&out.Policy.PasswordEnabled, &out.Policy.MinimumPasswordBytes, &out.Policy.MFAEnabled); errors.Is(err, pgx.ErrNoRows) {
+	if err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&out.Policy.PasswordEnabled, &out.Policy.MinimumPasswordBytes, &out.Policy.MFAEnabled, &out.Policy.OTPEnabled, &out.Policy.OTPDurationSeconds, &out.Policy.OTPMaxAttempts); errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	} else if err != nil {
 		return out, err
@@ -119,17 +122,23 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 }
 
 func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, policy AuthPolicy) (AuthPolicy, error) {
-	if collectionID == uuid.Nil || policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128 {
+	if policy.OTPDurationSeconds == 0 {
+		policy.OTPDurationSeconds = 300
+	}
+	if policy.OTPMaxAttempts == 0 {
+		policy.OTPMaxAttempts = 5
+	}
+	if collectionID == uuid.Nil || policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128 || policy.OTPDurationSeconds < 60 || policy.OTPDurationSeconds > 900 || policy.OTPMaxAttempts < 1 || policy.OTPMaxAttempts > 10 {
 		return AuthPolicy{}, ErrValidation
 	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var previous AuthPolicy
-		if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, collectionID).Scan(&previous.PasswordEnabled, &previous.MinimumPasswordBytes, &previous.MFAEnabled); errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, collectionID).Scan(&previous.PasswordEnabled, &previous.MinimumPasswordBytes, &previous.MFAEnabled, &previous.OTPEnabled, &previous.OTPDurationSeconds, &previous.OTPMaxAttempts); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `update pgbase_meta.auth_collection_policies set password_enabled=$2,minimum_password_bytes=$3,mfa_enabled=$4,updated_at=CURRENT_TIMESTAMP where auth_collection_id=$1`, collectionID, policy.PasswordEnabled, policy.MinimumPasswordBytes, policy.MFAEnabled)
+		tag, err := tx.Exec(ctx, `update pgbase_meta.auth_collection_policies set password_enabled=$2,minimum_password_bytes=$3,mfa_enabled=$4,otp_enabled=$5,otp_duration_seconds=$6,otp_max_attempts=$7,updated_at=CURRENT_TIMESTAMP where auth_collection_id=$1`, collectionID, policy.PasswordEnabled, policy.MinimumPasswordBytes, policy.MFAEnabled, policy.OTPEnabled, policy.OTPDurationSeconds, policy.OTPMaxAttempts)
 		if err != nil {
 			return err
 		}
@@ -137,7 +146,7 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 			return ErrNotFound
 		}
 		// A policy tightening takes effect for already-issued sessions too.
-		if (previous.PasswordEnabled && !policy.PasswordEnabled) || policy.MinimumPasswordBytes > previous.MinimumPasswordBytes || (!previous.MFAEnabled && policy.MFAEnabled) {
+		if (previous.PasswordEnabled && !policy.PasswordEnabled) || policy.MinimumPasswordBytes > previous.MinimumPasswordBytes || (!previous.MFAEnabled && policy.MFAEnabled) || (previous.OTPEnabled && !policy.OTPEnabled) {
 			_, err = tx.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
 		}
 		if err == nil && !policy.MFAEnabled {
@@ -145,6 +154,9 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 			if err == nil {
 				_, err = tx.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
 			}
+		}
+		if err == nil && previous.OTPEnabled && !policy.OTPEnabled {
+			_, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where auth_collection_id=$1 and consumed_at is null`, collectionID)
 		}
 		return err
 	})
@@ -216,16 +228,20 @@ func (s *Service) DeleteOAuthProvider(ctx context.Context, collectionID uuid.UUI
 }
 
 func validTemplate(t MailTemplate) bool {
-	if t.Purpose != "verify" && t.Purpose != "password_reset" && t.Purpose != "email_change" {
+	if t.Purpose != "verify" && t.Purpose != "password_reset" && t.Purpose != "email_change" && t.Purpose != "otp" {
 		return false
 	}
 	if len(t.Subject) < 1 || len(t.Subject) > 200 || strings.ContainsAny(t.Subject, "\r\n") || len(t.Body) < 1 || len(t.Body) > 16384 || len(t.HTMLBody) > 32768 {
 		return false
 	}
-	if strings.Count(t.Body, "{{action_url}}") == 0 || t.HTMLBody != "" && strings.Count(t.HTMLBody, "{{action_url}}") == 0 {
+	placeholder := "{{action_url}}"
+	if t.Purpose == "otp" {
+		placeholder = "{{otp}}"
+	}
+	if strings.Count(t.Body, placeholder) == 0 || t.HTMLBody != "" && strings.Count(t.HTMLBody, placeholder) == 0 {
 		return false
 	}
-	cleaned := strings.ReplaceAll(t.Body+t.HTMLBody, "{{action_url}}", "")
+	cleaned := strings.ReplaceAll(strings.ReplaceAll(t.Body+t.HTMLBody, placeholder, ""), "{{otp_id}}", "")
 	return !strings.Contains(cleaned, "{{") && !strings.Contains(cleaned, "}}")
 }
 func (s *Service) PutMailTemplate(ctx context.Context, collectionID uuid.UUID, t MailTemplate) (MailTemplate, error) {
@@ -240,10 +256,15 @@ func (s *Service) PreviewMailTemplate(_ context.Context, t MailTemplate, actionU
 	if !validTemplate(t) || !validEndpoint(actionURL, true) {
 		return mailer.Message{}, ErrValidation
 	}
-	message := mailer.Message{Subject: t.Subject, Text: strings.ReplaceAll(t.Body, "{{action_url}}", actionURL)}
+	replace := func(v string) string {
+		v = strings.ReplaceAll(v, "{{action_url}}", actionURL)
+		v = strings.ReplaceAll(v, "{{otp}}", "123456")
+		return strings.ReplaceAll(v, "{{otp_id}}", "00000000-0000-4000-8000-000000000000")
+	}
+	message := mailer.Message{Subject: t.Subject, Text: replace(t.Body)}
 	if t.HTMLBody != "" {
 		var err error
-		message.HTML, err = mailer.WrapHTML(strings.ReplaceAll(t.HTMLBody, "{{action_url}}", actionURL))
+		message.HTML, err = mailer.WrapHTML(replace(t.HTMLBody))
 		if err != nil {
 			return mailer.Message{}, ErrValidation
 		}
@@ -323,7 +344,7 @@ func (s *Service) AdminRequestPasswordReset(ctx context.Context, id uuid.UUID) e
 
 func (s *Service) authPolicy(ctx context.Context, collectionID uuid.UUID) (AuthPolicy, error) {
 	var p AuthPolicy
-	err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MFAEnabled)
+	err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MFAEnabled, &p.OTPEnabled, &p.OTPDurationSeconds, &p.OTPMaxAttempts)
 	return p, err
 }
 func (s *Service) smtpSender(ctx context.Context, collectionID uuid.UUID) (sender mailer.Sender, resultErr error) {

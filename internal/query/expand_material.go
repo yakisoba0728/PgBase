@@ -30,6 +30,7 @@ func (s *Service) executeMaterializedExpandPlan(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
+	rootCollection schema.Collection,
 	roots []map[string]any,
 	plan expandPlan,
 	principal Principal,
@@ -73,6 +74,7 @@ func (s *Service) executeMaterializedExpandPlan(
 			jobs = next
 		}
 	}
+	hideMaterializedFields(rootCollection, plan.nodes, principal, materials)
 
 	return materializedRecordsToExpanded(materials, usage)
 }

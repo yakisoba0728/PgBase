@@ -128,6 +128,57 @@ func TestPrivateRecordFileHTTPContract(t *testing.T) {
 	}
 }
 
+func TestHiddenFileFieldRevokesExistingUserTokens(t *testing.T) {
+	app := newPublicUsersAppOptions(t, true, func(options *Options) {
+		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
+	})
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	create := map[string]any{"operation": "create", "name": "hidden_files", "fields": []map[string]any{{"name": "title", "type": "text", "required": true}, {"name": "attachment", "type": "file"}}}
+	applyFieldVisibilityCollection(t, app, cookie, csrf, create)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPut, "/api/admin/collections/hidden_files/user-access", map[string]any{"enabled": true}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
+	owner := registerPublicUser(t, app, "hidden-file-owner@example.test", publicUserOnePass)
+	created := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/collections/hidden_files/records", map[string]any{"title": "private"}, owner.Token, nil, map[string]string{"Idempotency-Key": "hidden-file-record-0001"})
+	assertPublicUsersStatus(t, created, http.StatusCreated)
+	var record struct {
+		ID string `json:"id"`
+	}
+	decodePublicUsersJSON(t, created, &record)
+	base := "/api/v1/user/collections/hidden_files/records/" + record.ID + "/files/attachment"
+	content := []byte("still stored")
+	upload := multipartFileRequest(t, app, base, owner.Token, nil, "secret.txt", "text/plain", content, nil)
+	assertPublicUsersStatus(t, upload, http.StatusCreated)
+	var file struct {
+		ID string `json:"id"`
+	}
+	decodePublicUsersJSON(t, upload, &file)
+	tokenResponse := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/files/"+file.ID+"/token", map[string]any{"variant": "original"}, owner.Token, nil, nil)
+	assertPublicUsersStatus(t, tokenResponse, http.StatusOK)
+	var token struct {
+		Token string `json:"token"`
+	}
+	decodePublicUsersJSON(t, tokenResponse, &token)
+	userOpen := "/api/v1/user/files/" + file.ID + "?variant=original&token=" + url.QueryEscape(token.Token)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, userOpen, nil, owner.Token, nil, nil), http.StatusOK)
+	update := map[string]any{"operation": "update", "name": "hidden_files", "fields": []map[string]any{{"name": "title", "type": "text", "required": true}, {"name": "attachment", "type": "file", "hidden": true}}}
+	applyFieldVisibilityCollection(t, app, cookie, csrf, update)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, base, nil, owner.Token, nil, nil), http.StatusNotFound)
+	assertPublicUsersStatus(t, multipartFileRequest(t, app, base, owner.Token, nil, "blocked.txt", "text/plain", content, nil), http.StatusNotFound)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/files/"+file.ID+"/token", map[string]any{"variant": "original"}, owner.Token, nil, nil), http.StatusNotFound)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, userOpen, nil, owner.Token, nil, nil), http.StatusNotFound)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodDelete, "/api/v1/user/files/"+file.ID, nil, owner.Token, nil, nil), http.StatusNotFound)
+	adminList := "/api/admin/collections/hidden_files/records/" + record.ID + "/files/attachment"
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, adminList, nil, "", cookie, nil), http.StatusOK)
+	adminTokenResponse := publicUsersRequest(t, app, http.MethodPost, "/api/admin/files/"+file.ID+"/token", map[string]any{"variant": "original"}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, adminTokenResponse, http.StatusOK)
+	decodePublicUsersJSON(t, adminTokenResponse, &token)
+	adminOpen := "/api/admin/files/" + file.ID + "?variant=original&token=" + url.QueryEscape(token.Token)
+	adminDownload := publicUsersRequest(t, app, http.MethodGet, adminOpen, nil, "", cookie, nil)
+	assertPublicUsersStatus(t, adminDownload, http.StatusOK)
+	if !bytes.Equal(adminDownload.Body.Bytes(), content) {
+		t.Fatal("administrator download bytes changed")
+	}
+}
+
 func multipartFileRequest(t *testing.T, app *publicUsersFixture, path, bearer string, cookie *http.Cookie, filename, contentType string, content []byte, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer

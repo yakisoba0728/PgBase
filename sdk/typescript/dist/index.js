@@ -125,6 +125,27 @@ export class PgBaseClient {
             body: JSON.stringify({ email }),
         }, signal);
     }
+    requestOTP(email, signal) {
+        return this.request("/api/v1/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }, signal);
+    }
+    async completeOTP(otpId, code, signal) {
+        const generation = this.auth.generation;
+        try {
+            const session = await this.request("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
+            if (session.token && generation === this.auth.generation)
+                this.auth.save(session.token);
+            return session;
+        }
+        catch (error) {
+            if (error instanceof PgBaseError && error.code === "mfa_required") {
+                const [challengeToken] = error.details.challengeToken ?? [];
+                const [expiresAt] = error.details.expiresAt ?? [];
+                if (challengeToken && expiresAt)
+                    throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt });
+            }
+            throw error;
+        }
+    }
     confirmPasswordReset(token, newPassword, signal) {
         return this.request("/api/v1/auth/confirm-password-reset", {
             method: "POST",
@@ -296,6 +317,25 @@ export class AuthRealm {
         this.client.auth.clear();
     } }
     requestPasswordReset(email, signal) { return this.client._request(this.path("request-password-reset"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
+    requestOTP(email, signal) { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
+    async completeOTP(otpId, code, signal) {
+        const generation = this.client.auth.generation;
+        try {
+            const session = await this.client._request(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
+            if (session.token && generation === this.client.auth.generation)
+                this.client.auth.save(session.token);
+            return session;
+        }
+        catch (error) {
+            if (error instanceof PgBaseError && error.code === "mfa_required") {
+                const [challengeToken] = error.details.challengeToken ?? [];
+                const [expiresAt] = error.details.expiresAt ?? [];
+                if (challengeToken && expiresAt)
+                    throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt });
+            }
+            throw error;
+        }
+    }
     async profile(signal) { return (await this.client._request(this.path("profile"), {}, signal)).attributes; }
     async updateProfile(profile, signal) { return (await this.client._request(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
