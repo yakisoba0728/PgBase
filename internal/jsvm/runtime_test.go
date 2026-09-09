@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,35 @@ type recordingHost struct {
 type nestedHost struct {
 	runtime *jsvm.Runtime
 	handler jsvm.HandlerRef
+}
+
+type closingHost struct {
+	closed atomic.Int32
+}
+
+type blockingHost struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (h *blockingHost) Call(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+	h.once.Do(func() { close(h.entered) })
+	select {
+	case <-h.release:
+		return json.RawMessage(`{"logged":true}`), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (h *closingHost) Call(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"ok":true}`), nil
+}
+
+func (h *closingHost) Close() error {
+	h.closed.Add(1)
+	return nil
 }
 
 func (h nestedHost) Call(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
@@ -118,5 +149,95 @@ func TestRuntimeNestedInvocationInheritsRootSlot(t *testing.T) {
 		Capabilities: []string{"log"}, Host: nestedHost{runtime: runtime, handler: jsvm.HandlerRef{Module: "route.js", Export: "child"}}})
 	if err != nil || string(output) != `{"nested":{"ok":true}}` {
 		t.Fatalf("nested output=%s error=%v", output, err)
+	}
+}
+
+func TestRuntimeClosesInvocationHostAfterSuccessAndInterrupt(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[
+ {"method":"GET","pattern":"/call","access":"public","handler":{"module":"route.js","export":"call"},"capabilities":["log"]},
+ {"method":"GET","pattern":"/loop","access":"public","handler":{"module":"route.js","export":"loop"}}
+]}`)
+	writeFile(t, directory, "route.js", `const pg=require("pgbase");exports.call=()=>pg.log.info({message:"close"});exports.loop=()=>{for(;;){}};`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{DefaultTimeout: 25 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	first := &closingHost{}
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"log"}, Host: first}); err != nil || first.closed.Load() != 1 {
+		t.Fatalf("successful host closed=%d error=%v", first.closed.Load(), err)
+	}
+	second := &closingHost{}
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[1].Handler, Host: second}); err == nil || second.closed.Load() != 1 {
+		t.Fatalf("interrupted host closed=%d error=%v", second.closed.Load(), err)
+	}
+}
+
+func TestRuntimeBoundsQueueAndCloseCancelsActiveAndWaitingCalls(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[
+ {"method":"GET","pattern":"/block","access":"public","handler":{"module":"route.js","export":"block"},"capabilities":["log"]},
+ {"method":"GET","pattern":"/loop","access":"public","handler":{"module":"route.js","export":"loop"}}
+]}`)
+	writeFile(t, directory, "route.js", `const pg=require("pgbase");exports.block=()=>pg.log.info({message:"block"});exports.loop=()=>{for(;;){}};`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{Concurrency: 1, Queue: 1, AdmissionTimeout: 100 * time.Millisecond, DefaultTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &blockingHost{entered: make(chan struct{}), release: make(chan struct{})}
+	invoke := func() error {
+		_, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"log"}, Host: host})
+		return err
+	}
+	first, second := make(chan error, 1), make(chan error, 1)
+	go func() { first <- invoke() }()
+	<-host.entered
+	go func() { second <- invoke() }()
+	time.Sleep(20 * time.Millisecond)
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"log"}, Host: host}); err == nil {
+		t.Fatal("runtime accepted a call beyond the bounded queue")
+	} else {
+		var executionError *jsvm.Error
+		if !errors.As(err, &executionError) || executionError.Code != jsvm.CodeBusy {
+			t.Fatalf("queue overflow error = %v", err)
+		}
+	}
+	close(host.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+
+	loopErrors := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[1].Handler})
+			loopErrors <- err
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	closeContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := runtime.Close(closeContext); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := <-loopErrors; err == nil {
+			t.Fatal("runtime Close did not cancel an active or waiting call")
+		}
+	}
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler}); err == nil {
+		t.Fatal("closed runtime accepted a new invocation")
 	}
 }

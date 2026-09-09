@@ -184,9 +184,16 @@ func (r *Runtime) Digest() string {
 	return r.bundle.Digest()
 }
 
-func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (json.RawMessage, error) {
+func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (output json.RawMessage, err error) {
 	if r == nil {
 		return nil, &Error{Code: CodeRuntimeClosed}
+	}
+	if closer, ok := invocation.Host.(interface{ Close() error }); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil {
+				err = errors.Join(err, closeErr)
+			}
+		}()
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -455,7 +462,7 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 	for namespace, methods := range map[string][]string{
 		"records":   {"list", "get", "create", "update", "delete", "batch"},
 		"mail":      {"send"},
-		"files":     {"list", "upload", "delete", "token", "read"},
+		"files":     {"list", "upload", "delete", "token", "read", "open", "readChunk", "close"},
 		"migration": {"query", "exec", "applySnapshot"},
 		"log":       {"debug", "info", "warn", "error"},
 	} {

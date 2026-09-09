@@ -36,6 +36,9 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
     sha256?: string
     token?: string
     dataBase64?: string
+    handle?: string
+    eof?: boolean
+    closed?: boolean
     deleted?: boolean
     items?: FileResult[]
   }
@@ -82,6 +85,9 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
       delete(input: { fileId: string }): { deleted: true }
       token(input: { fileId: string; variant?: "original" | "thumbnail" }): { id: string; token: string }
       read(input: { fileId: string; variant?: "original" | "thumbnail"; token?: string }): FileResult
+      open(input: { fileId: string; variant?: "original" | "thumbnail"; token?: string }): FileResult & { handle: string }
+      readChunk(input: { handle: string; maximumBytes?: number }): FileResult
+      close(input: { handle: string }): { closed: true }
     }
     migration: {
       exec(input: MigrationStatement): { rowsAffected: ExactNumber }

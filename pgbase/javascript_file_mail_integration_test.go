@@ -23,6 +23,8 @@ func TestJavaScriptUsesRealFileAndMailServices(t *testing.T) {
  "routes":[
   {"method":"POST","pattern":"/extensions/file-upload","access":"user","handler":{"module":"route.js","export":"upload"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/file-read","access":"user","handler":{"module":"route.js","export":"read"},"capabilities":["files"]},
+  {"method":"POST","pattern":"/extensions/file-stream","access":"user","handler":{"module":"route.js","export":"stream"},"capabilities":["files"]},
+  {"method":"POST","pattern":"/extensions/file-handle-limit","access":"user","handler":{"module":"route.js","export":"handleLimit"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/file-delete","access":"user","handler":{"module":"route.js","export":"remove"},"capabilities":["files"]},
   {"method":"POST","pattern":"/extensions/mail","access":"user","handler":{"module":"route.js","export":"mail"},"capabilities":["mail"]}
  ],
@@ -31,6 +33,8 @@ func TestJavaScriptUsesRealFileAndMailServices(t *testing.T) {
 	source := `const pg=require("pgbase");
 exports.upload=request=>({status:201,json:pg.files.upload(request.json)});
 exports.read=request=>({status:200,json:pg.files.read(request.json)});
+exports.stream=request=>{try{const opened=pg.files.open(request.json),chunks=[];try{for(;;){const chunk=pg.files.readChunk({handle:opened.handle,maximumBytes:5});if(chunk.dataBase64)chunks.push(chunk.dataBase64);if(chunk.eof)break;}}finally{pg.files.close({handle:opened.handle});}return {status:200,json:{chunks}};}catch(error){return {status:200,json:{error:error.code}};}};
+exports.handleLimit=request=>{const handles=[];for(let i=0;i<4;i++)handles.push(pg.files.open(request.json));let code="";try{pg.files.open(request.json);}catch(error){code=error.code;}return {status:200,json:{code,handles:handles.length}};};
 exports.remove=request=>({status:200,json:pg.files.delete(request.json)});
 exports.mail=request=>{pg.mail.send(request.json);return {status:202,json:{sent:true}};};
 exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data.subject,text:event.data.text}});`
@@ -90,6 +94,37 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 	decoded, err := base64.StdEncoding.DecodeString(readResult.DataBase64)
 	if err != nil || !bytes.Equal(decoded, content) {
 		t.Fatalf("download data=%q error=%v", decoded, err)
+	}
+	streamed := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-stream", map[string]any{"fileId": file.ID, "variant": "original"}, owner.Token, nil, nil)
+	assertPublicUsersStatus(t, streamed, http.StatusOK)
+	var streamResult struct {
+		Chunks []string `json:"chunks"`
+		Error  string   `json:"error"`
+	}
+	decodePublicUsersJSON(t, streamed, &streamResult)
+	if streamResult.Error != "" {
+		t.Fatalf("stream error = %s", streamResult.Error)
+	}
+	var streamBytes []byte
+	for _, encoded := range streamResult.Chunks {
+		chunk, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		streamBytes = append(streamBytes, chunk...)
+	}
+	if !bytes.Equal(streamBytes, content) {
+		t.Fatalf("streamed data = %q", streamBytes)
+	}
+	limit := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-handle-limit", map[string]any{"fileId": file.ID}, owner.Token, nil, nil)
+	assertPublicUsersStatus(t, limit, http.StatusOK)
+	var limitResult struct {
+		Code    string `json:"code"`
+		Handles int    `json:"handles"`
+	}
+	decodePublicUsersJSON(t, limit, &limitResult)
+	if limitResult.Code != "file_handle_limit" || limitResult.Handles != 4 {
+		t.Fatalf("file handle limit = %#v", limitResult)
 	}
 	mail := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/mail", map[string]any{
 		"to": "recipient@example.test", "subject": "subject", "text": "body",

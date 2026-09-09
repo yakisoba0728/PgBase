@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/api"
@@ -37,6 +38,9 @@ type extensionHost struct {
 	valid            bool
 	hookEvent        string
 	authorityContext context.Context
+	fileMu           sync.Mutex
+	fileHandles      map[uuid.UUID]extensionFileHandle
+	fileBytesRead    int64
 }
 
 func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
@@ -76,7 +80,7 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callRecords(operationContext, method, input)
 	case "mail.send":
 		return host.callMail(operationContext, input)
-	case "files.list", "files.upload", "files.delete", "files.token", "files.read":
+	case "files.list", "files.upload", "files.delete", "files.token", "files.read", "files.open", "files.readChunk", "files.close":
 		return host.callFiles(operationContext, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
@@ -369,16 +373,18 @@ func (host *extensionHost) callMail(ctx context.Context, raw json.RawMessage) (j
 }
 
 type extensionFileRequest struct {
-	Collection  string `json:"collection,omitempty"`
-	RecordID    string `json:"recordId,omitempty"`
-	Field       string `json:"field,omitempty"`
-	FileID      string `json:"fileId,omitempty"`
-	Filename    string `json:"filename,omitempty"`
-	ContentType string `json:"contentType,omitempty"`
-	DataBase64  string `json:"dataBase64,omitempty"`
-	SHA256      string `json:"sha256,omitempty"`
-	Variant     string `json:"variant,omitempty"`
-	Token       string `json:"token,omitempty"`
+	Collection   string `json:"collection,omitempty"`
+	RecordID     string `json:"recordId,omitempty"`
+	Field        string `json:"field,omitempty"`
+	FileID       string `json:"fileId,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	ContentType  string `json:"contentType,omitempty"`
+	DataBase64   string `json:"dataBase64,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	Variant      string `json:"variant,omitempty"`
+	Token        string `json:"token,omitempty"`
+	Handle       string `json:"handle,omitempty"`
+	MaximumBytes int    `json:"maximumBytes,omitempty"`
 }
 
 type extensionFileResult struct {
@@ -392,6 +398,9 @@ type extensionFileResult struct {
 	Token       string                `json:"token,omitempty"`
 	DataBase64  string                `json:"dataBase64,omitempty"`
 	Deleted     bool                  `json:"deleted,omitempty"`
+	Handle      string                `json:"handle,omitempty"`
+	EOF         bool                  `json:"eof,omitempty"`
+	Closed      bool                  `json:"closed,omitempty"`
 	Items       []extensionFileResult `json:"items,omitempty"`
 }
 
@@ -475,6 +484,12 @@ func (host *extensionHost) callFiles(ctx context.Context, method string, raw jso
 		result := publicFileResult(file)
 		result.DataBase64 = base64.StdEncoding.EncodeToString(contents)
 		return json.Marshal(result)
+	case "files.open":
+		return host.openFileHandle(ctx, request)
+	case "files.readChunk":
+		return host.readFileChunk(request)
+	case "files.close":
+		return host.closeFileHandle(request)
 	}
 	return nil, extensionError("unsupported_operation", nil)
 }
