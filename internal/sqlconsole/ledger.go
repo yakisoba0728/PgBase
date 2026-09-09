@@ -4,14 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
-const MaximumHistoryEntries = 50
+const (
+	MaximumHistoryEntries = 50
+	coordinatorLockKey    = int64(0x7067626173650008)
+	HistoryRetention      = 30 * 24 * time.Hour
+	// Compact write receipts are retained indefinitely. Their unbounded key
+	// count is the deliberate cost of never making a committed mutation
+	// eligible for automatic replay after its heavier execution row expires.
+	DurableWriteReceiptRetention = "indefinite"
+)
+
+var ErrCoordinatorBusy = errors.New("another SQL console coordinator is active")
 
 type LedgerIdentity struct {
 	AdministratorID  uuid.UUID
@@ -35,11 +47,51 @@ type Ledger struct {
 	pool *database.Pool
 }
 
+type Coordinator struct {
+	connection *pgxpool.Conn
+	closeOnce  sync.Once
+}
+
 func NewLedger(pool *database.Pool) (*Ledger, error) {
 	if pool == nil {
 		return nil, errors.New("SQL console ledger pool is required")
 	}
 	return &Ledger{pool: pool}, nil
+}
+
+func (ledger *Ledger) AcquireCoordinator(ctx context.Context) (*Coordinator, error) {
+	connection, err := ledger.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var acquired bool
+	if err := connection.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock($1)`, coordinatorLockKey).Scan(&acquired); err != nil {
+		connection.Release()
+		return nil, err
+	}
+	if !acquired {
+		connection.Release()
+		return nil, ErrCoordinatorBusy
+	}
+	return &Coordinator{connection: connection}, nil
+}
+
+func (coordinator *Coordinator) Close() {
+	if coordinator == nil {
+		return
+	}
+	coordinator.closeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		var unlocked bool
+		err := coordinator.connection.QueryRow(ctx, `select pg_catalog.pg_advisory_unlock($1)`, coordinatorLockKey).Scan(&unlocked)
+		if err == nil && unlocked {
+			coordinator.connection.Release()
+			return
+		}
+		connection := coordinator.connection.Hijack()
+		_ = connection.Close(ctx)
+	})
 }
 
 func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
@@ -49,6 +101,9 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 	var idempotency any
 	if identity.Request.Mode == ModeWrite {
 		idempotency = identity.IdempotencyHash[:]
+		if receipt, found, err := ledger.receipt(ctx, identity); err != nil || found {
+			return receipt, false, err
+		}
 	}
 	row := ledger.pool.QueryRow(ctx, `insert into pgbase_meta.sql_console_executions
 		(execution_id,administrator_id,mode,dry_run,idempotency_hash,request_hash,query_fingerprint,status,
@@ -66,6 +121,37 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		return Execution{}, false, err
 	}
 	return ledger.existing(ctx, identity)
+}
+
+func (ledger *Ledger) receipt(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
+	row := ledger.pool.QueryRow(ctx, `select execution_id,committed_at,row_count,affected_rows,result_bytes,
+		administrator_id=$2 and request_hash=$3 as same_request
+		from pgbase_meta.sql_console_write_receipts
+		where execution_id=$1 or (administrator_id=$2 and idempotency_hash=$4)
+		order by (execution_id=$1) desc limit 1`, identity.Request.ExecutionID, identity.AdministratorID,
+		identity.RequestHash[:], identity.IdempotencyHash[:])
+	var execution Execution
+	var committedAt time.Time
+	var rows, resultBytes int
+	var affectedRows int64
+	var sameRequest bool
+	if err := row.Scan(&execution.ID, &committedAt, &rows, &affectedRows, &resultBytes, &sameRequest); errors.Is(err, pgx.ErrNoRows) {
+		return Execution{}, false, nil
+	} else if err != nil {
+		return Execution{}, false, err
+	}
+	if !sameRequest {
+		return Execution{}, true, ErrConflict
+	}
+	committed := true
+	execution.Mode = ModeWrite
+	execution.Status = StatusSucceeded
+	execution.CreatedAt = committedAt
+	execution.StartedAt = committedAt
+	execution.FinishedAt = committedAt
+	execution.ResultUntil = committedAt.Add(ResultTTL)
+	execution.Result = &Result{Rows: rows, AffectedRows: affectedRows, Bytes: resultBytes, Committed: &committed}
+	return execution, true, nil
 }
 
 func (ledger *Ledger) existing(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
@@ -95,7 +181,8 @@ func (ledger *Ledger) existing(ctx context.Context, identity LedgerIdentity) (Ex
 	if !sameRequest {
 		return Execution{}, false, ErrConflict
 	}
-	return execution, false, nil
+	execution, err = ledger.Get(ctx, identity.AdministratorID, execution.ID)
+	return execution, false, err
 }
 
 func (ledger *Ledger) MarkRunning(ctx context.Context, actorID, executionID uuid.UUID) (Execution, error) {
@@ -141,7 +228,13 @@ func (ledger *Ledger) Finish(ctx context.Context, actorID uuid.UUID, execution E
 	if tag.RowsAffected() != 1 {
 		return ErrConflict
 	}
-	return nil
+	return ledger.Cleanup(ctx)
+}
+
+func (ledger *Ledger) Cleanup(ctx context.Context) error {
+	_, err := ledger.pool.Exec(ctx, `delete from pgbase_meta.sql_console_executions
+		where finished_at < current_timestamp-$1::interval`, fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second)))
+	return err
 }
 
 func (ledger *Ledger) Get(ctx context.Context, actorID, executionID uuid.UUID) (Execution, error) {
@@ -177,7 +270,11 @@ func (ledger *Ledger) Reconcile(ctx context.Context) error {
 	if _, err := transaction.Exec(ctx, `update pgbase_meta.sql_console_executions set
 		status='failed',failure_code='abandoned',committed=false,
 		updated_at=current_timestamp,finished_at=current_timestamp,result_expires_at=current_timestamp+$1::interval
-		where status in ('pending','running','unknown')`, interval); err != nil {
+		where status in ('pending','running')`, interval); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(ctx, `delete from pgbase_meta.sql_console_executions
+		where finished_at < current_timestamp-$1::interval`, fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second))); err != nil {
 		return err
 	}
 	return transaction.Commit(ctx)

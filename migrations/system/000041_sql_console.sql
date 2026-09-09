@@ -65,23 +65,18 @@ CREATE INDEX sql_console_executions_reconcile_idx
     WHERE status IN ('pending','running','unknown');
 
 CREATE INDEX sql_console_executions_cleanup_idx
-    ON pgbase_meta.sql_console_executions (result_expires_at, execution_id)
-    WHERE result_expires_at IS NOT NULL;
+    ON pgbase_meta.sql_console_executions (finished_at, execution_id)
+    WHERE finished_at IS NOT NULL;
 
 CREATE TABLE pgbase_meta.sql_console_write_receipts (
     execution_id uuid PRIMARY KEY,
-    administrator_id uuid NOT NULL,
+    administrator_id uuid NOT NULL REFERENCES pgbase_meta.admins(id) ON DELETE RESTRICT,
     idempotency_hash bytea NOT NULL CHECK (octet_length(idempotency_hash) = 32),
     request_hash bytea NOT NULL CHECK (octet_length(request_hash) = 32),
     row_count integer NOT NULL CHECK (row_count BETWEEN 0 AND 1000),
     affected_rows integer NOT NULL CHECK (affected_rows BETWEEN 0 AND 1000),
     result_bytes integer NOT NULL CHECK (result_bytes BETWEEN 0 AND 4194304),
-    committed_at timestamptz NOT NULL,
-    CONSTRAINT sql_console_write_receipts_execution_fk FOREIGN KEY (
-        execution_id, administrator_id, idempotency_hash, request_hash
-    ) REFERENCES pgbase_meta.sql_console_executions (
-        execution_id, administrator_id, idempotency_hash, request_hash
-    ) ON DELETE RESTRICT
+    committed_at timestamptz NOT NULL
 );
 
 CREATE UNIQUE INDEX sql_console_write_receipts_idempotency_idx

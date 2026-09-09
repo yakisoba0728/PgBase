@@ -14,7 +14,9 @@ import (
 )
 
 var (
+	ErrCatalogChanged     = errors.New("SQL console catalog changed after role validation")
 	ErrUnsafeDatabaseRole = errors.New("SQL console database role is not least-privileged")
+	ErrUnsafeReadRelation = errors.New("SQL console read relation has unsafe dependencies")
 	ErrUnsafeWriteTarget  = errors.New("SQL console write target has unsafe side effects")
 )
 
@@ -30,33 +32,45 @@ type PoolOptions struct {
 	WriterURL             string
 	AllowInsecureDatabase bool
 	Catalog               schema.Catalog
+	CatalogVersion        func(context.Context) (int64, error)
 	WriteTargets          []WriteTarget
 }
 
 type targetSnapshot struct {
+	Reference       RelationRef
+	OID             uint32
+	Columns         map[string]uint32
+	PhysicalColumns map[string]uint32
+}
+
+type managedReadSnapshot struct {
 	Reference RelationRef
 	OID       uint32
-	Columns   map[string]uint32
+	Columns   map[string]struct{}
+	View      bool
 }
 
 type Pools struct {
-	compiler  *database.Pool
-	read      *database.Pool
-	writer    *database.Pool
-	targets   map[RelationRef]targetSnapshot
-	catalog   schema.Catalog
-	closeOnce sync.Once
+	compiler       *database.Pool
+	read           *database.Pool
+	writer         *database.Pool
+	targets        map[RelationRef]targetSnapshot
+	managed        map[RelationRef]managedReadSnapshot
+	dependencies   nativeDependencyScope
+	catalog        schema.Catalog
+	catalogVersion func(context.Context) (int64, error)
+	closeOnce      sync.Once
 }
 
 func OpenPools(ctx context.Context, options PoolOptions) (*Pools, error) {
-	if ctx == nil || options.CompilerURL == "" || options.ReadURL == "" || options.WriterURL == "" {
+	if ctx == nil || options.CompilerURL == "" || options.ReadURL == "" || options.WriterURL == "" || options.CatalogVersion == nil {
 		return nil, fmt.Errorf("open SQL console pools: configuration is incomplete")
 	}
 	targets, err := normalizeWriteTargets(options.WriteTargets)
 	if err != nil {
 		return nil, err
 	}
-	pools := &Pools{catalog: options.Catalog}
+	pools := &Pools{catalog: options.Catalog, catalogVersion: options.CatalogVersion}
 	defer func() {
 		if err != nil {
 			pools.Close()
@@ -90,12 +104,23 @@ func OpenPools(ctx context.Context, options PoolOptions) (*Pools, error) {
 			return nil, roleErr
 		}
 	}
+	pools.dependencies, err = inspectNativeDependencies(ctx, pools.compiler)
+	if err != nil {
+		return nil, err
+	}
 
 	pools.targets, err = inspectWriteTargets(ctx, pools.compiler, targets)
 	if err != nil {
 		return nil, err
 	}
+	pools.managed, err = inspectManagedReadRelations(ctx, pools.compiler, pools.catalog)
+	if err != nil {
+		return nil, err
+	}
 	if err = validatePoolPrivileges(ctx, pools, targets); err != nil {
+		return nil, err
+	}
+	if err = pools.validateCatalogVersion(ctx); err != nil {
 		return nil, err
 	}
 	return pools, nil
@@ -169,7 +194,7 @@ func validateRole(ctx context.Context, pool *database.Pool, label string, readOn
 		!sameUser || searchPath != "pg_catalog" || actualReadOnly != readOnly || actualTemporary != temporary {
 		return fmt.Errorf("%w: %s role attributes or session defaults", ErrUnsafeDatabaseRole, label)
 	}
-	var memberships, ownerships, creatableSchemas int
+	var memberships, ownerships, creatableSchemas, executableUserFunctions int
 	if err := pool.QueryRow(ctx, `select count(*) from pg_catalog.pg_auth_members m
 		join pg_catalog.pg_roles r on r.oid=m.member where r.rolname=current_user`).Scan(&memberships); err != nil {
 		return fmt.Errorf("%w: inspect %s memberships: %v", ErrUnsafeDatabaseRole, label, err)
@@ -186,8 +211,14 @@ func validateRole(ctx context.Context, pool *database.Pool, label string, readOn
 		where nspname !~ '^pg_temp_' and has_schema_privilege(current_user,oid,'CREATE')`).Scan(&creatableSchemas); err != nil {
 		return fmt.Errorf("%w: inspect %s schema privileges: %v", ErrUnsafeDatabaseRole, label, err)
 	}
-	if memberships != 0 || ownerships != 0 || creatableSchemas != 0 {
-		return fmt.Errorf("%w: %s role membership=%d ownership=%d creatable_schemas=%d", ErrUnsafeDatabaseRole, label, memberships, ownerships, creatableSchemas)
+	if err := pool.QueryRow(ctx, `select count(*) from pg_catalog.pg_proc p
+		join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+		where n.nspname not in ('pg_catalog','information_schema','pgbase_meta','pgbase_relation') and n.nspname !~ '^pg_(toast|temp_)'
+		and has_function_privilege(current_user,p.oid,'EXECUTE')`).Scan(&executableUserFunctions); err != nil {
+		return fmt.Errorf("%w: inspect %s function privileges: %v", ErrUnsafeDatabaseRole, label, err)
+	}
+	if memberships != 0 || ownerships != 0 || creatableSchemas != 0 || executableUserFunctions != 0 {
+		return fmt.Errorf("%w: %s role membership=%d ownership=%d creatable_schemas=%d executable_user_functions=%d", ErrUnsafeDatabaseRole, label, memberships, ownerships, creatableSchemas, executableUserFunctions)
 	}
 	return nil
 }
@@ -217,7 +248,7 @@ func inspectWriteTargets(ctx context.Context, pool *database.Pool, configured ma
 			return nil, fmt.Errorf("%w: %s.%s is not an ordinary side-effect-free base table", ErrUnsafeWriteTarget, reference.Schema, reference.Name)
 		}
 		snapshot.Reference = reference
-		snapshot.Columns = make(map[string]uint32)
+		snapshot.PhysicalColumns = make(map[string]uint32)
 		rows, err := pool.Query(ctx, `select a.attname,a.attnum,t.oid,n.nspname,t.typname,
 			a.atthasdef,a.attgenerated::text,a.attidentity::text
 			from pg_catalog.pg_attribute a join pg_catalog.pg_type t on t.oid=a.atttypid
@@ -239,17 +270,20 @@ func inspectWriteTargets(ctx context.Context, pool *database.Pool, configured ma
 				rows.Close()
 				return nil, fmt.Errorf("%w: %s.%s column %s has an unsafe type or expression", ErrUnsafeWriteTarget, reference.Schema, reference.Name, name)
 			}
-			snapshot.Columns[name] = typeOID
+			snapshot.PhysicalColumns[name] = typeOID
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		rows.Close()
+		snapshot.Columns = make(map[string]uint32, len(target.Columns))
 		for _, column := range target.Columns {
-			if _, exists := snapshot.Columns[column]; !exists {
+			typeOID, exists := snapshot.PhysicalColumns[column]
+			if !exists {
 				return nil, fmt.Errorf("%w: configured column %s.%s.%s does not exist", ErrUnsafeWriteTarget, reference.Schema, reference.Name, column)
 			}
+			snapshot.Columns[column] = typeOID
 		}
 		result[reference] = snapshot
 		allowedOIDs[snapshot.OID] = struct{}{}
@@ -329,6 +363,19 @@ func validatePoolPrivileges(ctx context.Context, pools *Pools, targets map[Relat
 			return err
 		}
 	}
+	allowedRelations := make(map[RelationRef]struct{}, len(managed)+len(targets)+1)
+	for relation := range managed {
+		allowedRelations[relation] = struct{}{}
+	}
+	for relation := range targets {
+		allowedRelations[relation] = struct{}{}
+	}
+	allowedRelations[RelationRef{Schema: "pgbase_meta", Name: "sql_console_write_receipts"}] = struct{}{}
+	for label, pool := range map[string]*database.Pool{"compiler": pools.compiler, "read": pools.read, "writer": pools.writer} {
+		if err := validateNoUnexpectedRelationPrivileges(ctx, pool, label, allowedRelations); err != nil {
+			return err
+		}
+	}
 	return validateReceiptPrivileges(ctx, pools)
 }
 
@@ -391,9 +438,11 @@ func managedReadColumns(catalog schema.Catalog) map[RelationRef]map[string]struc
 	for _, collection := range catalog.Collections {
 		columns := stringSet([]string{"id", "created_at", "updated_at"})
 		for _, field := range collection.Fields {
-			if field.Type != schema.TypePassword && !field.Hidden {
-				columns[field.ColumnName] = struct{}{}
+			if field.Type == schema.TypePassword || field.Hidden || field.Type == schema.TypeFile ||
+				(field.Type == schema.TypeRelation && field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple) {
+				continue
 			}
+			columns[field.ColumnName] = struct{}{}
 		}
 		result[RelationRef{Schema: "app", Name: collection.TableName}] = columns
 	}
@@ -498,11 +547,16 @@ func stringSet(values []string) map[string]struct{} {
 	return result
 }
 
-func (pools *Pools) ValidatePlan(plan Plan) error {
-	managed := managedReadColumns(pools.catalog)
+func (pools *Pools) ValidatePlan(ctx context.Context, plan Plan) error {
+	if err := pools.validateCatalogVersion(ctx); err != nil {
+		return err
+	}
+	if err := pools.dependencies.validate(plan); err != nil {
+		return err
+	}
 	for _, statement := range plan.Statements {
 		for _, relation := range statement.Relations {
-			if _, ok := managed[relation]; ok {
+			if _, ok := pools.managed[relation]; ok {
 				continue
 			}
 			if _, ok := pools.targets[relation]; !ok {
@@ -521,6 +575,20 @@ func (pools *Pools) ValidatePlan(plan Plan) error {
 				return fmt.Errorf("%w: write column %s.%s.%s is not configured", ErrSQLRejected, statement.WriteTarget.Schema, statement.WriteTarget.Name, column)
 			}
 		}
+	}
+	return nil
+}
+
+func (pools *Pools) validateCatalogVersion(ctx context.Context) error {
+	if pools == nil || pools.catalogVersion == nil {
+		return ErrCatalogChanged
+	}
+	current, err := pools.catalogVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCatalogChanged, err)
+	}
+	if current != pools.catalog.Version {
+		return fmt.Errorf("%w: validated=%d current=%d", ErrCatalogChanged, pools.catalog.Version, current)
 	}
 	return nil
 }

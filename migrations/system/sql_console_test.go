@@ -73,6 +73,13 @@ func TestSQLConsoleMigrationStoresOnlyRedactedExecutionAndReceipt(t *testing.T) 
 		where execution_id=$1`, execution)
 	requireSQLConsoleConstraint(t, ctx, pool, `update pgbase_meta.sql_console_executions
 		set result_bytes=4194305 where execution_id=$1`, execution)
+	if _, err := pool.Exec(ctx, `delete from pgbase_meta.sql_console_executions where execution_id=$1`, execution); err != nil {
+		t.Fatalf("delete retained execution detail: %v", err)
+	}
+	var receipts int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.sql_console_write_receipts where execution_id=$1`, execution).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatalf("durable compact receipt count=%d error=%v", receipts, err)
+	}
 }
 
 func requireSQLConsoleConstraint(t *testing.T, ctx context.Context, pool *database.Pool, statement string, arguments ...any) {

@@ -2,9 +2,11 @@ package sqlconsole
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +24,13 @@ func TestOpenPoolsAcceptsOnlyLeastPrivilegeRolesAndSafeTargets(t *testing.T) {
 	pools, err := OpenPools(context.Background(), fixture.options)
 	if err != nil {
 		t.Fatalf("OpenPools: %v", err)
+	}
+	if len(pools.dependencies.functions["abs"]) == 0 || len(pools.dependencies.operators["+"]) == 0 || pools.dependencies.casts["numeric"] == 0 {
+		t.Fatalf("native dependency OIDs = %#v", pools.dependencies)
+	}
+	forged := Plan{Statements: []AnalyzedStatement{{Functions: []FunctionRef{{Schema: "pg_catalog", Name: "pg_read_file"}}}}}
+	if err := pools.ValidatePlan(context.Background(), forged); !errors.Is(err, ErrSQLRejected) {
+		t.Fatalf("forged dependency error = %v", err)
 	}
 	pools.Close()
 
@@ -60,12 +69,144 @@ func TestOpenPoolsRejectsWriterWithoutFixedReceiptGrant(t *testing.T) {
 	}
 }
 
+func TestOpenPoolsRejectsUnexpectedUserRelationGrant(t *testing.T) {
+	fixture := newPoolFixture(t)
+	if _, err := fixture.owner.Exec(context.Background(), `create table ext.unlisted(id uuid);
+		grant select on ext.unlisted to `+pgx.Identifier{fixture.readRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(context.Background(), fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("read role with an unlisted relation grant was accepted")
+	}
+}
+
+func TestOpenPoolsValidatesManagedViewTransitiveDependencies(t *testing.T) {
+	fixture := newPoolFixture(t)
+	ctx := context.Background()
+	roles := strings.Join([]string{
+		pgx.Identifier{fixture.compilerRole}.Sanitize(),
+		pgx.Identifier{fixture.readRole}.Sanitize(),
+		pgx.Identifier{fixture.writerRole}.Sanitize(),
+	}, ",")
+	if _, err := fixture.owner.Exec(ctx, `create view app.visible_accounts as
+		select id,created_at,updated_at,upper(visible) as visible from app.accounts;
+		grant select (id,created_at,updated_at,visible) on app.visible_accounts to `+roles); err != nil {
+		t.Fatal(err)
+	}
+	fixture.options.Catalog.Collections["visible_accounts"] = schema.Collection{
+		ID: uuid.New(), Name: "visible_accounts", TableName: "visible_accounts",
+		View:   &schema.ViewSpec{Dependencies: []uuid.UUID{fixture.options.Catalog.Collections["accounts"].ID}},
+		Fields: []schema.Field{{ID: uuid.New(), Name: "visible", ColumnName: "visible", Type: schema.TypeText}},
+	}
+	pools, err := OpenPools(ctx, fixture.options)
+	if err != nil {
+		t.Fatalf("safe managed view: %v", err)
+	}
+	pools.Close()
+
+	if _, err := fixture.owner.Exec(ctx, `create or replace view app.visible_accounts as
+		select id,created_at,updated_at,current_setting('server_version') as visible from app.accounts`); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(ctx, fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("managed view with a stable pg_catalog function outside the exact allowlist was accepted")
+	}
+
+	if _, err := fixture.owner.Exec(ctx, `create view ext.unmanaged_accounts as
+		select id,created_at,updated_at,upper(visible) as visible from app.accounts;
+		create or replace view app.visible_accounts as select * from ext.unmanaged_accounts`); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(ctx, fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("managed view with a transitive unmanaged relation was accepted")
+	}
+
+	if _, err := fixture.owner.Exec(ctx, `create function ext.read_secret() returns text
+		language sql volatile as $$select secret from app.accounts limit 1$$;
+		revoke execute on function ext.read_secret() from public;
+		create or replace view app.visible_accounts as
+		select id,created_at,updated_at,ext.read_secret() as visible from app.accounts`); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(ctx, fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("managed view with a transitive custom function was accepted")
+	}
+}
+
+func TestOpenPoolsRejectsPlansAfterCatalogPolicyChanges(t *testing.T) {
+	fixture := newPoolFixture(t)
+	pools, err := OpenPools(context.Background(), fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pools.Close()
+	runner, err := NewRunner(pools, fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select visible from app.accounts"}}}
+	if err := runner.Validate(context.Background(), request); err != nil {
+		t.Fatalf("initial policy validation: %v", err)
+	}
+	fixture.catalogVersion.Store(fixture.options.Catalog.Version + 1)
+	if err := runner.Validate(context.Background(), request); !errors.Is(err, ErrCatalogChanged) {
+		t.Fatalf("stale policy error = %v", err)
+	}
+}
+
+func TestOpenPoolsSkipsCatalogFieldsWithoutPhysicalColumns(t *testing.T) {
+	fixture := newPoolFixture(t)
+	accounts := fixture.options.Catalog.Collections["accounts"]
+	accounts.Fields = append(accounts.Fields,
+		schema.Field{ID: uuid.New(), Name: "avatar", ColumnName: "avatar", Type: schema.TypeFile},
+		schema.Field{ID: uuid.New(), Name: "members", ColumnName: "members", Type: schema.TypeRelation,
+			Relation: &schema.RelationSpec{Cardinality: schema.RelationMultiple}},
+	)
+	fixture.options.Catalog.Collections["accounts"] = accounts
+	pools, err := OpenPools(context.Background(), fixture.options)
+	if err != nil {
+		t.Fatalf("valid virtual fields rejected: %v", err)
+	}
+	pools.Close()
+}
+
+func TestOpenPoolsKeepsConfiguredWriteColumnsExact(t *testing.T) {
+	fixture := newPoolFixture(t)
+	roles := strings.Join([]string{
+		pgx.Identifier{fixture.compilerRole}.Sanitize(), pgx.Identifier{fixture.readRole}.Sanitize(), pgx.Identifier{fixture.writerRole}.Sanitize(),
+	}, ",")
+	if _, err := fixture.owner.Exec(context.Background(), `revoke select (label) on ext.items from `+roles+`;
+		revoke insert (label),update (label) on ext.items from `+pgx.Identifier{fixture.writerRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.options.WriteTargets[0].Columns = []string{"id", "amount"}
+	pools, err := OpenPools(context.Background(), fixture.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pools.Close()
+	runner, _ := NewRunner(pools, fixture.owner)
+	request := Request{
+		ExecutionID: uuid.New(), Mode: ModeWrite, IdempotencyKey: "exact-write-columns-000000001",
+		Statements: []Statement{{SQL: "update ext.items set label='blocked'"}},
+	}
+	if err := runner.Validate(context.Background(), request); !errors.Is(err, ErrSQLRejected) {
+		t.Fatalf("unconfigured write column error = %v", err)
+	}
+}
+
 type poolFixture struct {
-	owner      *database.Pool
-	options    PoolOptions
-	readRole   string
-	writerRole string
-	actorID    uuid.UUID
+	owner          *database.Pool
+	options        PoolOptions
+	compilerRole   string
+	readRole       string
+	writerRole     string
+	actorID        uuid.UUID
+	catalogVersion *atomic.Int64
 }
 
 func newPoolFixture(t *testing.T) poolFixture {
@@ -155,14 +296,18 @@ func newPoolFixture(t *testing.T) poolFixture {
 			},
 		},
 	}}
+	catalogVersion := &atomic.Int64{}
+	catalogVersion.Store(catalog.Version)
 	return poolFixture{
-		owner: owner, readRole: readRole, writerRole: writerRole, actorID: actorID,
+		owner: owner, compilerRole: compilerRole, readRole: readRole, writerRole: writerRole, actorID: actorID,
+		catalogVersion: catalogVersion,
 		options: PoolOptions{
-			CompilerURL:  roleURL(parsed, compilerRole, password),
-			ReadURL:      roleURL(parsed, readRole, password),
-			WriterURL:    roleURL(parsed, writerRole, password),
-			Catalog:      catalog,
-			WriteTargets: []WriteTarget{{Schema: "ext", Table: "items", Columns: []string{"id", "amount", "label"}}},
+			CompilerURL:    roleURL(parsed, compilerRole, password),
+			ReadURL:        roleURL(parsed, readRole, password),
+			WriterURL:      roleURL(parsed, writerRole, password),
+			Catalog:        catalog,
+			CatalogVersion: func(context.Context) (int64, error) { return catalogVersion.Load(), nil },
+			WriteTargets:   []WriteTarget{{Schema: "ext", Table: "items", Columns: []string{"id", "amount", "label"}}},
 		},
 	}
 }

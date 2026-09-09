@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -86,6 +87,26 @@ func TestLedgerReconcilesReceiptAndAbandonsUnstartedWork(t *testing.T) {
 	if _, _, err := ledger.CreatePending(context.Background(), ledgerIdentity(fixture.actorID, abandonedRequest, secret)); err != nil {
 		t.Fatal(err)
 	}
+	unknownRequest := Request{
+		ExecutionID: uuid.New(), Mode: ModeWrite, IdempotencyKey: "ledger-unknown-0000000000001",
+		Statements: []Statement{{SQL: "delete from ext.items"}},
+	}
+	unknownIdentity := ledgerIdentity(fixture.actorID, unknownRequest, secret)
+	unknown, _, err := ledger.CreatePending(context.Background(), unknownIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err = ledger.MarkRunning(context.Background(), fixture.actorID, unknown.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown.Status = StatusUnknown
+	unknown.FinishedAt = time.Now().UTC()
+	unknown.Result = &Result{}
+	unknown.Failure = &Failure{Code: "commit_unknown"}
+	if err := ledger.Finish(context.Background(), fixture.actorID, unknown); err != nil {
+		t.Fatal(err)
+	}
 	if err := ledger.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +117,10 @@ func TestLedgerReconcilesReceiptAndAbandonsUnstartedWork(t *testing.T) {
 	abandoned, err := ledger.Get(context.Background(), fixture.actorID, abandonedRequest.ExecutionID)
 	if err != nil || abandoned.Status != StatusFailed || abandoned.Failure == nil || abandoned.Failure.Code != "abandoned" {
 		t.Fatalf("reconciled abandoned = %#v, %v", abandoned, err)
+	}
+	unknown, err = ledger.Get(context.Background(), fixture.actorID, unknownRequest.ExecutionID)
+	if err != nil || unknown.Status != StatusUnknown || unknown.Result == nil || unknown.Result.Committed != nil {
+		t.Fatalf("preserved unknown = %#v, %v", unknown, err)
 	}
 }
 

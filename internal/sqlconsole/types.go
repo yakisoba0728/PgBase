@@ -200,6 +200,9 @@ func NormalizeRequestWithTimeouts(request Request, writeEnabled bool, defaultTim
 	if len(request.Statements) > MaximumStatements {
 		return Request{}, fmt.Errorf("%w: at most %d statements are allowed", ErrRequestTooLarge, MaximumStatements)
 	}
+	if request.Mode == ModeRead && len(request.Statements) != 1 {
+		return Request{}, fmt.Errorf("%w: read mode requires exactly one statement", ErrInvalidRequest)
+	}
 	if request.Timeout == 0 {
 		request.Timeout = defaultTimeout
 	}

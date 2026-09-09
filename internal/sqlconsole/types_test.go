@@ -37,6 +37,7 @@ func TestNormalizeRequestAppliesReadDefaultsAndHardLimits(t *testing.T) {
 		{name: "missing execution id", request: Request{Statements: []Statement{{SQL: "SELECT 1"}}}, want: ErrInvalidRequest},
 		{name: "no statements", request: Request{ExecutionID: uuid.New()}, want: ErrInvalidRequest},
 		{name: "too many statements", request: Request{ExecutionID: uuid.New(), Statements: make([]Statement, MaximumStatements+1)}, want: ErrRequestTooLarge},
+		{name: "multiple read statements", request: Request{ExecutionID: uuid.New(), Statements: []Statement{{SQL: "SELECT 1"}, {SQL: "SELECT 2"}}}, want: ErrInvalidRequest},
 		{name: "invalid utf8", request: Request{ExecutionID: uuid.New(), Statements: []Statement{{SQL: string([]byte{0xff})}}}, want: ErrInvalidRequest},
 		{name: "sql bytes", request: Request{ExecutionID: uuid.New(), Statements: []Statement{{SQL: "SELECT '" + strings.Repeat("x", MaximumSQLBytes) + "'"}}}, want: ErrRequestTooLarge},
 		{name: "timeout", request: Request{ExecutionID: uuid.New(), Timeout: MaximumTimeout + time.Nanosecond, Statements: []Statement{{SQL: "SELECT 1"}}}, want: ErrInvalidRequest},

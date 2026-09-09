@@ -38,7 +38,7 @@ func DeriveSessionKey(secret, rawSession []byte) SessionKey {
 }
 
 type Executor interface {
-	Validate(Request) error
+	Validate(context.Context, Request) error
 	Run(context.Context, RunInput) (Result, error)
 }
 
@@ -49,6 +49,7 @@ type executorCloser interface {
 type Service struct {
 	executor       Executor
 	ledger         *Ledger
+	coordinator    *Coordinator
 	secret         []byte
 	writeEnabled   bool
 	defaultTimeout time.Duration
@@ -88,6 +89,7 @@ type executionJob struct {
 	limiter     *sessionLimiter
 	pendingOnce sync.Once
 	canceled    bool
+	persistErr  error
 }
 
 func NewService(ctx context.Context, executor Executor, ledger *Ledger, secret []byte, writeEnabled bool) (*Service, error) {
@@ -103,12 +105,17 @@ func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledge
 	if options.DefaultTimeout < time.Millisecond || options.MaximumTimeout < options.DefaultTimeout || options.MaximumTimeout > MaximumTimeout {
 		return nil, errors.New("SQL console service timeout configuration is invalid")
 	}
+	coordinator, err := ledger.AcquireCoordinator(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire SQL console coordinator: %w", err)
+	}
 	if err := ledger.Reconcile(ctx); err != nil {
+		coordinator.Close()
 		return nil, fmt.Errorf("reconcile SQL console ledger: %w", err)
 	}
 	serviceContext, cancel := context.WithCancel(context.Background())
 	return &Service{
-		executor: executor, ledger: ledger, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
+		executor: executor, ledger: ledger, coordinator: coordinator, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
 		defaultTimeout: options.DefaultTimeout, maximumTimeout: options.MaximumTimeout,
 		ctx: serviceContext, cancel: cancel, global: make(chan struct{}, MaximumGlobalRunning),
 		pending: make(chan struct{}, MaximumPending), jobs: make(map[uuid.UUID]*executionJob),
@@ -171,13 +178,19 @@ func (service *Service) Submit(ctx context.Context, actor Actor, request Request
 	service.wait.Add(1)
 	service.mu.Unlock()
 
-	if err := service.executor.Validate(normalized); err != nil {
+	if err := service.executor.Validate(ctx, normalized); err != nil {
 		reserved = false
 		service.releasePending(job)
 		execution := service.finishWithoutRun(job, StatusFailed, failureFromError(err, "rejected"), nil)
+		service.mu.Lock()
+		persistErr := job.persistErr
+		service.mu.Unlock()
 		service.releaseSession(job)
 		job.cancel()
 		service.wait.Done()
+		if persistErr != nil {
+			return Execution{}, fmt.Errorf("%w: %v", ErrClosed, persistErr)
+		}
 		return execution, nil
 	}
 
@@ -289,8 +302,15 @@ func (service *Service) finishWithoutRun(job *executionJob, status Status, failu
 	service.mu.Unlock()
 
 	finishContext, cancel := context.WithTimeout(context.Background(), time.Second)
-	_ = service.ledger.Finish(finishContext, job.actor.AdministratorID, execution)
+	persistErr := service.ledger.Finish(finishContext, job.actor.AdministratorID, execution)
 	cancel()
+	if persistErr != nil {
+		service.mu.Lock()
+		job.persistErr = fmt.Errorf("persist SQL console terminal state: %w", persistErr)
+		service.closed = true
+		service.mu.Unlock()
+		service.cancel()
+	}
 	service.scheduleExpiry(job)
 	return execution
 }
@@ -337,6 +357,11 @@ func (service *Service) Get(ctx context.Context, actor Actor, executionID uuid.U
 		if job.actor.AdministratorID != actor.AdministratorID || job.actor.SessionKey != actor.SessionKey {
 			service.mu.Unlock()
 			return Execution{}, ErrForbidden
+		}
+		if job.persistErr != nil {
+			err := job.persistErr
+			service.mu.Unlock()
+			return Execution{}, fmt.Errorf("%w: %v", ErrClosed, err)
 		}
 		execution := CloneExecution(job.execution)
 		service.mu.Unlock()
@@ -398,6 +423,7 @@ func (service *Service) Close(ctx context.Context) error {
 			if closer, ok := service.executor.(executorCloser); ok {
 				closer.Close()
 			}
+			service.coordinator.Close()
 			close(service.closeDone)
 		}()
 	})

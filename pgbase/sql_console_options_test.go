@@ -36,6 +36,10 @@ func TestSQLConsoleOptionsNormalizeReadOnlyDefaultsAndOwnCopies(t *testing.T) {
 	if !service.WriteEnabled || service.DefaultTimeout != 5*time.Second || service.MaximumTimeout != 30*time.Second {
 		t.Fatalf("service options = %#v", service)
 	}
+	handler := normalized.handlerOptions()
+	if handler.DefaultTimeout != service.DefaultTimeout || handler.MaximumTimeout != service.MaximumTimeout || len(handler.WriteTargets) != 1 {
+		t.Fatalf("handler options = %#v", handler)
+	}
 
 	readOnly := normalized
 	readOnly.WriteTargets = nil

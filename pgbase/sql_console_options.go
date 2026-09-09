@@ -1,6 +1,7 @@
 package pgbase
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/webisnoteasy/PgBase/internal/api"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 	"github.com/webisnoteasy/PgBase/internal/sqlconsole"
 )
@@ -114,19 +116,31 @@ func validSQLConsoleIdentifier(value string) bool {
 
 func (options SQLConsoleOptions) writeEnabled() bool { return len(options.WriteTargets) != 0 }
 
-func (options SQLConsoleOptions) poolOptions(catalog schema.Catalog, allowInsecureDatabase bool) sqlconsole.PoolOptions {
+func (options SQLConsoleOptions) poolOptions(catalog schema.Catalog, catalogVersion func(context.Context) (int64, error), allowInsecureDatabase bool) sqlconsole.PoolOptions {
 	targets := make([]sqlconsole.WriteTarget, len(options.WriteTargets))
 	for index, target := range options.WriteTargets {
 		targets[index] = sqlconsole.WriteTarget{Schema: target.Schema, Table: target.Table, Columns: append([]string(nil), target.Columns...)}
 	}
 	return sqlconsole.PoolOptions{
 		CompilerURL: options.CompilerURL, ReadURL: options.ReadURL, WriterURL: options.WriterURL,
-		AllowInsecureDatabase: allowInsecureDatabase, Catalog: catalog, WriteTargets: targets,
+		AllowInsecureDatabase: allowInsecureDatabase, Catalog: catalog, CatalogVersion: catalogVersion, WriteTargets: targets,
 	}
 }
 
 func (options SQLConsoleOptions) serviceOptions() sqlconsole.ServiceOptions {
 	return sqlconsole.ServiceOptions{
 		WriteEnabled: options.writeEnabled(), DefaultTimeout: options.DefaultTimeout, MaximumTimeout: options.MaximumTimeout,
+	}
+}
+
+func (options SQLConsoleOptions) handlerOptions() api.SQLConsoleHandlerOptions {
+	targets := make([]api.SQLConsoleWriteTarget, len(options.WriteTargets))
+	for index, target := range options.WriteTargets {
+		targets[index] = api.SQLConsoleWriteTarget{
+			Schema: target.Schema, Table: target.Table, Columns: append([]string(nil), target.Columns...),
+		}
+	}
+	return api.SQLConsoleHandlerOptions{
+		WriteTargets: targets, DefaultTimeout: options.DefaultTimeout, MaximumTimeout: options.MaximumTimeout,
 	}
 }

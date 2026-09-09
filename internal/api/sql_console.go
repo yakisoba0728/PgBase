@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -36,16 +38,34 @@ type SQLConsoleWriteTarget struct {
 	Columns []string `json:"columns"`
 }
 
-type SQLConsoleHandlers struct {
-	service       SQLConsoleService
-	sessionSecret []byte
-	writeTargets  []SQLConsoleWriteTarget
+type SQLConsoleHandlerOptions struct {
+	WriteTargets   []SQLConsoleWriteTarget
+	DefaultTimeout time.Duration
+	MaximumTimeout time.Duration
 }
 
-func NewSQLConsoleHandlers(service SQLConsoleService, sessionSecret []byte, targets []SQLConsoleWriteTarget) (*SQLConsoleHandlers, error) {
+type SQLConsoleHandlers struct {
+	service        SQLConsoleService
+	sessionSecret  []byte
+	writeTargets   []SQLConsoleWriteTarget
+	defaultTimeout time.Duration
+	maximumTimeout time.Duration
+}
+
+func NewSQLConsoleHandlers(service SQLConsoleService, sessionSecret []byte, options SQLConsoleHandlerOptions) (*SQLConsoleHandlers, error) {
 	if service == nil || len(sessionSecret) < 32 {
 		return nil, errors.New("SQL console HTTP handler configuration is incomplete")
 	}
+	if options.DefaultTimeout == 0 {
+		options.DefaultTimeout = sqlconsole.DefaultTimeout
+	}
+	if options.MaximumTimeout == 0 {
+		options.MaximumTimeout = sqlconsole.MaximumTimeout
+	}
+	if options.DefaultTimeout < time.Millisecond || options.MaximumTimeout < options.DefaultTimeout || options.MaximumTimeout > sqlconsole.MaximumTimeout {
+		return nil, errors.New("SQL console HTTP timeout configuration is invalid")
+	}
+	targets := options.WriteTargets
 	copyTargets := make([]SQLConsoleWriteTarget, len(targets))
 	for index, target := range targets {
 		copyTargets[index] = target
@@ -53,6 +73,7 @@ func NewSQLConsoleHandlers(service SQLConsoleService, sessionSecret []byte, targ
 	}
 	return &SQLConsoleHandlers{
 		service: service, sessionSecret: append([]byte(nil), sessionSecret...), writeTargets: copyTargets,
+		defaultTimeout: options.DefaultTimeout, maximumTimeout: options.MaximumTimeout,
 	}, nil
 }
 
@@ -89,7 +110,7 @@ func (handlers *SQLConsoleHandlers) Submit(w http.ResponseWriter, request *http.
 	}
 	timeout := time.Duration(0)
 	if input.TimeoutMS != nil {
-		if *input.TimeoutMS <= 0 || *input.TimeoutMS > sqlconsole.MaximumTimeout.Milliseconds() {
+		if *input.TimeoutMS <= 0 || *input.TimeoutMS > handlers.maximumTimeout.Milliseconds() {
 			writeSQLConsoleError(w, request, sqlconsole.ErrInvalidRequest)
 			return
 		}
@@ -171,14 +192,20 @@ func (handlers *SQLConsoleHandlers) List(w http.ResponseWriter, request *http.Re
 		return
 	}
 	response := struct {
-		Executions   []sqlConsoleExecutionDTO `json:"executions"`
-		NextCursor   string                   `json:"nextCursor,omitempty"`
-		WriteEnabled bool                     `json:"writeEnabled"`
-		WriteTargets []SQLConsoleWriteTarget  `json:"writeTargets"`
+		Executions       []sqlConsoleExecutionDTO `json:"executions"`
+		NextCursor       string                   `json:"nextCursor,omitempty"`
+		SessionIdentity  string                   `json:"sessionIdentity"`
+		WriteEnabled     bool                     `json:"writeEnabled"`
+		WriteTargets     []SQLConsoleWriteTarget  `json:"writeTargets"`
+		DefaultTimeoutMS int64                    `json:"defaultTimeoutMs"`
+		MaximumTimeoutMS int64                    `json:"maximumTimeoutMs"`
 	}{
-		Executions:   make([]sqlConsoleExecutionDTO, len(page.Executions)),
-		WriteEnabled: len(handlers.writeTargets) > 0,
-		WriteTargets: append([]SQLConsoleWriteTarget(nil), handlers.writeTargets...),
+		Executions:       make([]sqlConsoleExecutionDTO, len(page.Executions)),
+		SessionIdentity:  handlers.sessionIdentity(request),
+		WriteEnabled:     len(handlers.writeTargets) > 0,
+		WriteTargets:     append([]SQLConsoleWriteTarget(nil), handlers.writeTargets...),
+		DefaultTimeoutMS: handlers.defaultTimeout.Milliseconds(),
+		MaximumTimeoutMS: handlers.maximumTimeout.Milliseconds(),
 	}
 	for index, execution := range page.Executions {
 		response.Executions[index] = sqlConsoleExecutionResponse(execution)
@@ -187,6 +214,17 @@ func (handlers *SQLConsoleHandlers) List(w http.ResponseWriter, request *http.Re
 		response.NextCursor = encodeSQLConsoleCursor(*page.Next)
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (handlers *SQLConsoleHandlers) sessionIdentity(request *http.Request) string {
+	principal, ok := AdminPrincipalFromContext(request.Context())
+	if !ok || principal.RawSession == "" {
+		return ""
+	}
+	hash := hmac.New(sha256.New, handlers.sessionSecret)
+	_, _ = hash.Write([]byte("sql-console-ui-session-identity\x00"))
+	_, _ = hash.Write([]byte(principal.RawSession))
+	return base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 }
 
 func (handlers *SQLConsoleHandlers) actor(request *http.Request) (sqlconsole.Actor, bool) {

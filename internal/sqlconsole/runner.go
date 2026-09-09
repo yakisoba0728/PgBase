@@ -61,12 +61,12 @@ func NewRunner(pools *Pools, control *database.Pool) (*Runner, error) {
 	}}, nil
 }
 
-func (runner *Runner) Validate(request Request) error {
+func (runner *Runner) Validate(ctx context.Context, request Request) error {
 	plan, err := Analyze(request)
 	if err != nil {
 		return err
 	}
-	return runner.pools.ValidatePlan(plan)
+	return runner.pools.ValidatePlan(ctx, plan)
 }
 
 func (runner *Runner) Close() { runner.pools.Close() }
@@ -84,7 +84,7 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := runner.pools.ValidatePlan(plan); err != nil {
+	if err := runner.pools.ValidatePlan(ctx, plan); err != nil {
 		return Result{}, err
 	}
 
@@ -120,6 +120,9 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 			borrowed.discard()
 		}
 	}()
+	if err := runner.pools.validateCatalogVersion(runContext); err != nil {
+		return Result{}, err
+	}
 	cancelWatcherDone := make(chan struct{})
 	cancelWatcherExited := make(chan struct{})
 	go func() {
@@ -181,6 +184,9 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %v", ErrCommitUnknown, reconcileErr)
 	}
 	if !committed {
+		if SQLState(commitErr) == "" {
+			return result, fmt.Errorf("%w: receipt not visible after ambiguous commit: %v", ErrCommitUnknown, commitErr)
+		}
 		return Result{}, fmt.Errorf("commit SQL console transaction: %w", commitErr)
 	}
 	confirmed := true
@@ -306,7 +312,7 @@ func revalidateTarget(ctx context.Context, tx pgx.Tx, expected targetSnapshot, a
 		return err
 	}
 	rows.Close()
-	if !sameColumnOIDs(actualColumns, expected.Columns) {
+	if !sameColumnOIDs(actualColumns, expected.PhysicalColumns) {
 		return fmt.Errorf("%w: columns on %s.%s", ErrTargetChanged, expected.Reference.Schema, expected.Reference.Name)
 	}
 	allowedOIDs := make(map[uint32]struct{}, len(allowed))

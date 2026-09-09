@@ -3,12 +3,14 @@ package sqlconsole
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestServiceEnforcesConcurrencyAdmissionAndSessionOwnership(t *testing.T) {
@@ -159,6 +161,40 @@ func TestServicePersistsRejectReplayResultExpiryAndActualCancel(t *testing.T) {
 	if err := fixture.pool.owner.QueryRow(context.Background(), `select amount::text from ext.items where id=$1`, itemID).Scan(&amount); err != nil || amount != "3.7500" {
 		t.Fatalf("written amount = %q, %v", amount, err)
 	}
+	service.mu.Lock()
+	delete(service.jobs, write.ExecutionID)
+	service.mu.Unlock()
+	if _, err := fixture.pool.owner.Exec(context.Background(), `update pgbase_meta.sql_console_executions set
+		created_at=current_timestamp-interval '32 days',started_at=current_timestamp-interval '32 days',
+		finished_at=current_timestamp-interval '31 days',result_expires_at=current_timestamp-interval '31 days',
+		updated_at=current_timestamp where execution_id=$1`, write.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Cleanup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.Get(context.Background(), actor.AdministratorID, write.ExecutionID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("expired heavy execution error = %v", err)
+	}
+	replayedWrite, err := service.Submit(context.Background(), actor, write)
+	if err != nil || replayedWrite.Status != StatusSucceeded || replayedWrite.Result == nil || replayedWrite.Result.Committed == nil || !*replayedWrite.Result.Committed {
+		t.Fatalf("expired write replay = %#v, %v", replayedWrite, err)
+	}
+	newIdentity := write
+	newIdentity.ExecutionID = uuid.New()
+	if _, err := service.Submit(context.Background(), actor, newIdentity); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expired write with a new operation ID error = %v", err)
+	}
+	var matchingRows, receipts int
+	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from ext.items where id=$1`, itemID).Scan(&matchingRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from pgbase_meta.sql_console_write_receipts where execution_id=$1`, write.ExecutionID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if HistoryRetention != 30*24*time.Hour || DurableWriteReceiptRetention != "indefinite" || matchingRows != 1 || receipts != 1 {
+		t.Fatalf("durable replay guard history=%s receipt=%q rows=%d receipts=%d", HistoryRetention, DurableWriteReceiptRetention, matchingRows, receipts)
+	}
 
 	nextRequest := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1"}}}
 	if _, err := service.Submit(context.Background(), actor, nextRequest); err != nil {
@@ -166,8 +202,134 @@ func TestServicePersistsRejectReplayResultExpiryAndActualCancel(t *testing.T) {
 	}
 	waitForStatus(t, service, actor, nextRequest.ExecutionID, StatusSucceeded)
 	page, err := service.List(context.Background(), actor, Cursor{})
-	if err != nil || len(page.Executions) < 5 {
+	if err != nil || len(page.Executions) < 4 {
 		t.Fatalf("history = %#v, %v", page, err)
+	}
+	for _, execution := range page.Executions {
+		if execution.ID == write.ExecutionID {
+			t.Fatal("expired heavy write execution remained in history")
+		}
+	}
+}
+
+func TestServicePersistsAmbiguousCommitAsUnknown(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	fixture.runner.commit = func(context.Context, pgx.Tx) error { return io.ErrUnexpectedEOF }
+	ledger, err := NewLedger(fixture.pool.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(context.Background(), fixture.runner, ledger, []byte("n8-unknown-service-secret-long-enough"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = service.Close(ctx)
+	}()
+	actor := testActor(fixture.pool.actorID, "unknown-session")
+	itemID := uuid.New()
+	request := writeRequest(uuid.New(), "service-unknown-00000000001", itemID)
+	if _, err := service.Submit(context.Background(), actor, request); err != nil {
+		t.Fatal(err)
+	}
+	execution := waitForStatus(t, service, actor, request.ExecutionID, StatusUnknown)
+	if execution.Result == nil || execution.Result.Committed != nil || execution.Failure == nil || execution.Failure.Code != "commit_unknown" {
+		t.Fatalf("unknown execution = %#v", execution)
+	}
+	durable, err := ledger.Get(context.Background(), actor.AdministratorID, request.ExecutionID)
+	if err != nil || durable.Status != StatusUnknown || durable.Result == nil || durable.Result.Committed != nil {
+		t.Fatalf("durable unknown = %#v, %v", durable, err)
+	}
+	assertItemAbsent(t, fixture.pool, itemID)
+}
+
+func TestServiceCoordinatorPreventsLiveExecutionReconciliation(t *testing.T) {
+	fixture := newPoolFixture(t)
+	ledger, err := NewLedger(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := newBlockingExecutor()
+	serviceA, err := NewService(context.Background(), executor, ledger, []byte("n8-coordinator-service-secret-long-enough"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		executor.releaseAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = serviceA.Close(ctx)
+	}()
+	actor := testActor(fixture.actorID, "coordinator-session")
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1 /* a */"}}}
+	if _, err := serviceA.Submit(context.Background(), actor, request); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, serviceA, actor, request.ExecutionID, StatusRunning)
+	if serviceB, err := NewService(context.Background(), newBlockingExecutor(), ledger, []byte("n8-second-service-secret-long-enough"), false); !errors.Is(err, ErrCoordinatorBusy) {
+		if serviceB != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = serviceB.Close(ctx)
+			cancel()
+		}
+		t.Fatalf("second coordinator error = %v", err)
+	}
+	durable, err := ledger.Get(context.Background(), actor.AdministratorID, request.ExecutionID)
+	if err != nil || durable.Status != StatusRunning {
+		t.Fatalf("live durable execution = %#v, %v", durable, err)
+	}
+	executor.releaseAll()
+	waitForStatus(t, serviceA, actor, request.ExecutionID, StatusSucceeded)
+	durable, err = ledger.Get(context.Background(), actor.AdministratorID, request.ExecutionID)
+	if err != nil || durable.Status != StatusSucceeded {
+		t.Fatalf("completed durable execution = %#v, %v", durable, err)
+	}
+}
+
+func TestServiceSurfacesTerminalLedgerFailure(t *testing.T) {
+	fixture := newPoolFixture(t)
+	ledger, _ := NewLedger(fixture.owner)
+	executor := newBlockingExecutor()
+	service, err := NewService(context.Background(), executor, ledger, []byte("n8-terminal-ledger-secret-long-enough"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		executor.releaseAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = service.Close(ctx)
+	}()
+	actor := testActor(fixture.actorID, "terminal-ledger-session")
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1 /* a */"}}}
+	if _, err := service.Submit(context.Background(), actor, request); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, service, actor, request.ExecutionID, StatusRunning)
+	if _, err := fixture.owner.Exec(context.Background(), `update pgbase_meta.sql_console_executions set
+		status='failed',failure_code='forced_fixture',committed=false,updated_at=current_timestamp,
+		finished_at=current_timestamp,result_expires_at=current_timestamp+interval '5 minutes'
+		where execution_id=$1`, request.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	executor.releaseAll()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		service.mu.Lock()
+		persistErr := service.jobs[request.ExecutionID].persistErr
+		service.mu.Unlock()
+		if persistErr != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("terminal ledger failure was discarded")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := service.Get(context.Background(), actor, request.ExecutionID); !errors.Is(err, ErrClosed) {
+		t.Fatalf("terminal ledger Get error = %v", err)
 	}
 }
 
@@ -185,7 +347,7 @@ func newBlockingExecutor() *blockingExecutor {
 	return &blockingExecutor{release: make(chan struct{}), byMarker: make(map[string]int), maxMarker: make(map[string]int)}
 }
 
-func (executor *blockingExecutor) Validate(Request) error { return nil }
+func (executor *blockingExecutor) Validate(context.Context, Request) error { return nil }
 
 func (executor *blockingExecutor) Run(ctx context.Context, input RunInput) (Result, error) {
 	marker := "a"

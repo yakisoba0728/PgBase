@@ -19,7 +19,7 @@ func TestSQLConsoleRoutesUseExistingAdminOriginSessionAndCSRFChain(t *testing.T)
 		authenticateAdmin: session.Administrator, authenticateExpiry: session.ExpiresAt,
 	}
 	service := &fakeSQLConsoleService{}
-	handlers, err := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), nil)
+	handlers, err := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestSQLConsoleRouteRegistryPinsOptionalAdmissionAndBounds(t *testing.T) {
 
 func TestSQLConsoleSubmitMapsIdentityTimeoutAndExactFailureWire(t *testing.T) {
 	service := &fakeSQLConsoleService{}
-	handlers, _ := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), nil)
+	handlers, _ := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{})
 	executionID := uuid.New()
 	request := requestWithAdminPrincipal(t, http.MethodPost, SQLConsoleQueriesPath,
 		`{"mode":"write","dryRun":true,"timeoutMs":1234,"statements":[{"sql":"update ext.items set amount=$1","params":[{"kind":"decimal","text":"1.2300"}]}]}`)
@@ -147,15 +147,37 @@ func TestSQLConsoleSubmitMapsIdentityTimeoutAndExactFailureWire(t *testing.T) {
 	}
 }
 
+func TestSQLConsoleHandlerEnforcesConfiguredTimeoutCapability(t *testing.T) {
+	handlers, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{
+		DefaultTimeout: 2 * time.Second, MaximumTimeout: 7 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := requestWithAdminPrincipal(t, http.MethodPost, SQLConsoleQueriesPath,
+		`{"timeoutMs":7001,"statements":[{"sql":"select 1"}]}`)
+	response := httptest.NewRecorder()
+	handlers.Submit(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("configured timeout status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{
+		DefaultTimeout: 8 * time.Second, MaximumTimeout: 7 * time.Second,
+	}); err == nil {
+		t.Fatal("inverted handler timeout capability was accepted")
+	}
+}
+
 func TestSQLConsoleHistoryReturnsCapabilitiesAndCanonicalCursor(t *testing.T) {
 	service := &fakeSQLConsoleService{}
 	next := sqlconsole.Cursor{CreatedAt: time.Now().UTC().Truncate(time.Microsecond), ID: uuid.New()}
 	service.page = sqlconsole.Page{Executions: []sqlconsole.Execution{{
 		ID: uuid.New(), Mode: sqlconsole.ModeRead, Status: sqlconsole.StatusSucceeded, CreatedAt: time.Now().UTC(),
 	}}, Next: &next}
-	handlers, _ := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), []SQLConsoleWriteTarget{{
-		Schema: "ext", Table: "items", Columns: []string{"amount", "label"},
-	}})
+	handlers, _ := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{
+		WriteTargets:   []SQLConsoleWriteTarget{{Schema: "ext", Table: "items", Columns: []string{"amount", "label"}}},
+		DefaultTimeout: 2 * time.Second, MaximumTimeout: 7 * time.Second,
+	})
 	request := requestWithAdminPrincipal(t, http.MethodGet, SQLConsoleQueriesPath, "")
 	response := httptest.NewRecorder()
 	handlers.List(response, request)
@@ -163,15 +185,41 @@ func TestSQLConsoleHistoryReturnsCapabilitiesAndCanonicalCursor(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	var body struct {
-		NextCursor   string                  `json:"nextCursor"`
-		WriteEnabled bool                    `json:"writeEnabled"`
-		WriteTargets []SQLConsoleWriteTarget `json:"writeTargets"`
+		NextCursor       string                  `json:"nextCursor"`
+		SessionIdentity  string                  `json:"sessionIdentity"`
+		WriteEnabled     bool                    `json:"writeEnabled"`
+		WriteTargets     []SQLConsoleWriteTarget `json:"writeTargets"`
+		DefaultTimeoutMS int64                   `json:"defaultTimeoutMs"`
+		MaximumTimeoutMS int64                   `json:"maximumTimeoutMs"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.WriteEnabled || len(body.WriteTargets) != 1 || body.NextCursor == "" {
+	if !body.WriteEnabled || len(body.WriteTargets) != 1 || body.NextCursor == "" || body.SessionIdentity == "" || body.DefaultTimeoutMS != 2000 || body.MaximumTimeoutMS != 7000 {
 		t.Fatalf("history response = %#v", body)
+	}
+	stableResponse := httptest.NewRecorder()
+	handlers.List(stableResponse, requestWithAdminPrincipal(t, http.MethodGet, SQLConsoleQueriesPath, ""))
+	var stableBody struct {
+		SessionIdentity string `json:"sessionIdentity"`
+	}
+	if err := json.Unmarshal(stableResponse.Body.Bytes(), &stableBody); err != nil {
+		t.Fatal(err)
+	}
+	otherRequest := requestWithAdminPrincipal(t, http.MethodGet, SQLConsoleQueriesPath, "")
+	otherPrincipal, _ := AdminPrincipalFromContext(otherRequest.Context())
+	otherPrincipal.RawSession = "different-valid-admin-session"
+	otherRequest = otherRequest.WithContext(context.WithValue(otherRequest.Context(), adminPrincipalKey{}, otherPrincipal))
+	otherResponse := httptest.NewRecorder()
+	handlers.List(otherResponse, otherRequest)
+	var otherBody struct {
+		SessionIdentity string `json:"sessionIdentity"`
+	}
+	if err := json.Unmarshal(otherResponse.Body.Bytes(), &otherBody); err != nil {
+		t.Fatal(err)
+	}
+	if stableBody.SessionIdentity != body.SessionIdentity || otherBody.SessionIdentity == body.SessionIdentity || strings.Contains(response.Body.String(), validSession().RawToken) {
+		t.Fatalf("session identities stable=%q first=%q other=%q", stableBody.SessionIdentity, body.SessionIdentity, otherBody.SessionIdentity)
 	}
 	decoded, err := decodeSQLConsoleCursor(body.NextCursor)
 	if err != nil || decoded != next {
@@ -187,7 +235,7 @@ func TestSQLConsoleHistoryReturnsCapabilitiesAndCanonicalCursor(t *testing.T) {
 }
 
 func TestSQLConsoleSubmitRejectsDuplicateIdentityHeadersAndUnknownJSON(t *testing.T) {
-	handlers, _ := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, []byte("n8-api-session-secret-that-is-long-enough"), nil)
+	handlers, _ := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{})
 	tests := []struct {
 		name   string
 		body   string

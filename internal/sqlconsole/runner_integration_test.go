@@ -106,6 +106,22 @@ func TestRunnerCommitsMultipleWritesAndReconcilesLostCommitResponse(t *testing.T
 	}
 }
 
+func TestRunnerMarksTransportCommitWithoutReceiptUnknown(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	itemID := uuid.New()
+	request := writeRequest(uuid.New(), "write-ambiguous-0000000001", itemID)
+	fixture.runner.commit = func(context.Context, pgx.Tx) error { return io.ErrUnexpectedEOF }
+
+	result, err := fixture.run(context.Background(), request)
+	if !errors.Is(err, ErrCommitUnknown) {
+		t.Fatalf("ambiguous commit error = %v", err)
+	}
+	if result.Committed != nil || result.AffectedRows != 2 || result.Rows != 1 {
+		t.Fatalf("ambiguous result = %#v", result)
+	}
+	assertItemAbsent(t, fixture.pool, itemID)
+}
+
 func TestRunnerRollsBackFailedDryRunAndAffectedLimitWrites(t *testing.T) {
 	fixture := newRunnerFixture(t)
 
