@@ -404,10 +404,12 @@ func failureFromError(err error, code string) *Failure {
 	if errors.As(err, &rejection) {
 		failure.StatementIndex = rejection.StatementIndex
 		failure.Position = rejection.Position
+		failure.HasStatement = true
 	}
 	var statementError *StatementExecutionError
 	if errors.As(err, &statementError) {
 		failure.StatementIndex = statementError.Index
+		failure.HasStatement = true
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {

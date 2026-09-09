@@ -156,6 +156,7 @@ type Failure struct {
 	SQLState       string `json:"sqlState,omitempty"`
 	StatementIndex int    `json:"statementIndex,omitempty"`
 	Position       int    `json:"position,omitempty"`
+	HasStatement   bool   `json:"-"`
 }
 
 type Execution struct {
