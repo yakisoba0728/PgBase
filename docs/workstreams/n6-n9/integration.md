@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 05:43 KST
+Last updated: 2026-09-10 05:47 KST
 
 ## Current milestone
 
@@ -19,8 +19,8 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | review/migration through `21b8293`; active-stream guard through `865bb1d`; focused race and deterministic PG file/SMTP five times green | external app result and browser/Dart/Flutter cross-flow |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | core accepted: data/admin/browser/revocation plus actual open-SSE logout, cursor 410 and canceled-upload cleanup green | reuse the same SDK in N6 external cross-flow |
-| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | bounded request/parser/grammar and migration 41 ledger integrated through `fa83ad2`; focused race pending this merge | execution/pools/catalog/transaction, then lead-owned API/OpenAPI/UI nav |
-| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private core/hardening/download/serve-lock integrated through `9008b82`; earlier focused race green | Mill's four concrete findings, runServe composition, fault/six-build closure |
+| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | request/parser/grammar/migration 41 ledger through `fa83ad2`; module race and isolated PG17/18 migration green | execution/pools/catalog/transaction, then lead-owned API/OpenAPI/UI nav |
+| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private serve-lock `9008b82` and lead `runServe` wiring `fd17e21`; CLI/self-update race green | Mill's four concrete findings and lint, fault/six-build closure |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
 
 ## Ownership and invariants
@@ -102,3 +102,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 05:43 KST — integrated N6 active-stream guard `6a1188b` as `865bb1d`. Source inspection confirms every file operation that reacquires the shared storage lease while a stream is open is guarded before backend I/O: `open` returns `file_handle_limit`, and whole-buffer `read`/`upload` return `file_stream_active`. `readChunk`/`close` reuse the existing reader; list/token/delete are DB/outbox-only and do not acquire that lease. The deterministic advisory-wait fixture exercises all three guarded operations, and the focused race plus isolated PG/file/SMTP flow passed five times. The single active-handle contract is synchronized in Go types, generated TypeScript declarations and N6 docs.
 - 2026-09-10 05:43 KST — integrated N8 bounded request/parser/grammar slices as `d7f02a4`/`61f2b70`/`cf315e8`, marked `pgparse` direct in `3a4f9fa`, and integrated the reserved migration 41 ledger as `fa83ad2`. The parser was selected only after six-build and retained-memory checks; unknown or unvisited syntax fails closed. Execution pools/catalog/transaction/API/UI remain active work, so N8 is not complete.
 - 2026-09-10 05:43 KST — integrated N9 recovery and download-limit deltas as `df6a320` and `43bfaa4`, then the executable serve/apply lock as `9008b82`; earlier focused self-update/CLI race is green and a fresh lock-focused run is in progress. Mill's sole independent review reproduced four open items: durable `rollback_started` recovery, no-follow state/input opens, an actual Windows post-exit helper contract, and duplicate-key/all-artifact-URL manifest strictness. Sagan is fixing those findings; Windows-native execution remains unavailable and is not claimed. G3 is still open only on the external N6 result and N7 same-state cross-flow; G5 has not started.
+- 2026-09-10 05:47 KST — lead verification passed N8's exact migration 41 redaction/receipt constraint test under race on both isolated PostgreSQL 17 `55470` and PostgreSQL 18 `55471`; `internal/sqlconsole` race also passed. N9's executable-lock focused race passed, the lead wired `AcquireServeLock` across both normal and managed `serve` lifetimes in `fd17e21`, and combined CLI/self-update race passed. Mill added N9-core `errcheck`/dead-helper findings while excluding pending lead-only CLI composition and known N6 lint; the same Sagan delta will close them. The external N6 page is reachable on `58094`, but owner evidence and a stable example commit are still pending, so G3 remains open.
