@@ -17,6 +17,8 @@ const (
 	ErrorKindSetupUnavailable
 	ErrorKindRateLimited
 	ErrorKindConflict
+	ErrorKindOTPRequired
+	ErrorKindIPRestricted
 )
 
 type Error struct {
@@ -35,6 +37,10 @@ func (e *Error) Error() string {
 		return "administrator authentication rate limit exceeded"
 	case ErrorKindConflict:
 		return "administrator already exists"
+	case ErrorKindOTPRequired:
+		return "administrator OTP is required"
+	case ErrorKindIPRestricted:
+		return "administrator network is not allowed"
 	default:
 		return "administrator authentication failed"
 	}
@@ -51,6 +57,8 @@ var (
 	ErrSetupUnavailable   = &Error{Kind: ErrorKindSetupUnavailable}
 	ErrRateLimited        = &Error{Kind: ErrorKindRateLimited}
 	ErrConflict           = &Error{Kind: ErrorKindConflict}
+	ErrOTPRequired        = &Error{Kind: ErrorKindOTPRequired}
+	ErrIPRestricted       = &Error{Kind: ErrorKindIPRestricted}
 )
 
 // Administrator is an administrator account safe to expose to authenticated callers.

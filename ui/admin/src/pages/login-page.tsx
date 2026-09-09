@@ -10,6 +10,8 @@ interface LoginPageProps {
 export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+	const [otpCode, setOTPCode] = useState("");
+	const [otpRequired, setOTPRequired] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -35,9 +37,14 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
     setPending(true);
     setErrors({});
     try {
-      await onLogin({ email, password });
+      await onLogin({ email, password, ...(otpRequired ? { otpCode } : {}) });
     } catch (error) {
-      setPassword("");
+		if (sessionFailure(error) === "otp-required") {
+			setOTPRequired(true);
+			setErrors({ form: "Enter the code from your authenticator app." });
+			return;
+		}
+		setPassword("");
       setErrors({
         form: sessionFailure(error) === "invalid-credentials"
           ? "Email or password is incorrect."
@@ -60,6 +67,7 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
         <label htmlFor="password">Password</label>
         <input aria-describedby={errors.password ? "password-error" : undefined} aria-invalid={errors.password ? true : undefined} id="password" type="password" autoComplete="current-password" disabled={pending} onChange={(event) => setPassword(event.target.value)} ref={passwordRef} value={password} />
         {errors.password && <p className="field-error" id="password-error">{errors.password}</p>}
+			{otpRequired && <><label htmlFor="otp-code">Authenticator code</label><input id="otp-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} disabled={pending} onChange={(event) => setOTPCode(event.target.value)} value={otpCode} /></>}
         <button disabled={pending} type="submit">{pending ? "Signing in…" : "Sign in"}</button>
       </form>
     </section>

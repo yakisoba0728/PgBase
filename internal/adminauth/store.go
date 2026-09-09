@@ -25,6 +25,112 @@ func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (s *Store) ActiveAdministratorCount(ctx context.Context) (int, error) {
+	var count int
+	if err := s.db.QueryRow(ctx, "select count(*) from pgbase_meta.admins where active").Scan(&count); err != nil {
+		return 0, fmt.Errorf("count active administrators: %w", err)
+	}
+	return count, nil
+}
+
+func (s *Store) DeleteAdministrator(ctx context.Context, email string) error {
+	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.Exec(ctx, "delete from pgbase_meta.admins where email = $1 and active", normalized)
+	if err != nil {
+		return fmt.Errorf("delete administrator: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
+func (s *Store) AdministratorID(ctx context.Context, email string) (uuid.UUID, error) {
+	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var id uuid.UUID
+	if err := s.db.QueryRow(ctx, "select id from pgbase_meta.admins where email = $1 and active", normalized).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrInvalidCredentials
+	} else if err != nil {
+		return uuid.Nil, fmt.Errorf("read administrator ID: %w", err)
+	}
+	return id, nil
+}
+
+func (s *Store) SetTOTP(ctx context.Context, administratorID uuid.UUID, ciphertext []byte, now time.Time) error {
+	_, err := s.db.Exec(ctx, `insert into pgbase_meta.admin_totp(administrator_id,secret_ciphertext,enabled_at)
+		values ($1,$2,$3) on conflict(administrator_id) do update set secret_ciphertext=excluded.secret_ciphertext,enabled_at=excluded.enabled_at`, administratorID, ciphertext, now)
+	if err != nil {
+		return fmt.Errorf("set administrator OTP: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) TOTP(ctx context.Context, administratorID uuid.UUID) ([]byte, bool, error) {
+	var secret []byte
+	err := s.db.QueryRow(ctx, "select secret_ciphertext from pgbase_meta.admin_totp where administrator_id=$1", administratorID).Scan(&secret)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read administrator OTP: %w", err)
+	}
+	return secret, true, nil
+}
+
+func (s *Store) DeleteTOTP(ctx context.Context, administratorID uuid.UUID) error {
+	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_totp where administrator_id=$1", administratorID); err != nil {
+		return fmt.Errorf("delete administrator OTP: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteAdministratorSessions(ctx context.Context, administratorID uuid.UUID) error {
+	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_sessions where admin_id=$1", administratorID); err != nil {
+		return fmt.Errorf("revoke administrator sessions: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AddIPPrefix(ctx context.Context, administratorID uuid.UUID, prefix string) error {
+	if _, err := s.db.Exec(ctx, "insert into pgbase_meta.admin_ip_allowlist(administrator_id,prefix) values($1,$2::inet) on conflict do nothing", administratorID, prefix); err != nil {
+		return fmt.Errorf("allow administrator IP prefix: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteIPPrefix(ctx context.Context, administratorID uuid.UUID, prefix string) error {
+	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_ip_allowlist where administrator_id=$1 and prefix=$2::inet", administratorID, prefix); err != nil {
+		return fmt.Errorf("deny administrator IP prefix: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) IPPrefixes(ctx context.Context, administratorID uuid.UUID) ([]string, error) {
+	rows, err := s.db.Query(ctx, "select prefix::text from pgbase_meta.admin_ip_allowlist where administrator_id=$1 order by family(prefix),masklen(prefix),prefix", administratorID)
+	if err != nil {
+		return nil, fmt.Errorf("list administrator IP prefixes: %w", err)
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list administrator IP prefixes: %w", err)
+	}
+	return values, nil
+}
+
 func (s *Store) CreateAdministrator(ctx context.Context, administrator Administrator, passwordHash string) (Administrator, error) {
 	normalizedEmail, err := NormalizeEmail(administrator.Email)
 	if err != nil {

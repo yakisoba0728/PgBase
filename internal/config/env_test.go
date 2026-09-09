@@ -21,6 +21,22 @@ func TestLoadEnvRejectsShortTokenSecret(t *testing.T) {
 	}
 }
 
+func TestLoadEnvReadsPublicStaticSettings(t *testing.T) {
+	env := map[string]string{
+		"PGBASE_DATABASE_URL":        "postgres://postgres:postgres@localhost/pgbase",
+		"PGBASE_TOKEN_SECRET":        base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_PUBLIC_DIR":          "/srv/pgbase/public",
+		"PGBASE_PUBLIC_SPA_FALLBACK": "true",
+	}
+	options, err := LoadEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.PublicDir != "/srv/pgbase/public" || !options.PublicSPAFallback {
+		t.Fatalf("public options=%#v", options)
+	}
+}
+
 func TestLoadEnvBackupS3IsIndependentFromFileStorage(t *testing.T) {
 	values := map[string]string{
 		"PGBASE_DATABASE_URL":      "postgres://postgres:postgres@localhost/pgbase",

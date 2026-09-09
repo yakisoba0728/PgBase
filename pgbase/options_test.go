@@ -41,6 +41,13 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 }
 
+func TestOptionsRejectsRelativePublicDirectory(t *testing.T) {
+	_, err := (Options{DatabaseURL: "postgres://postgres:postgres@localhost/pgbase", TokenSecret: make([]byte, 32), PublicDir: "public"}).Normalized()
+	if err == nil || !strings.Contains(err.Error(), "PublicDir") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestOptionsRejectFileSettingsWithoutDriver(t *testing.T) {
 	_, err := (Options{
 		DatabaseURL: "postgres://postgres:postgres@localhost/pgbase",

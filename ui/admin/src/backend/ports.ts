@@ -6,7 +6,7 @@ import { stringifyJSON } from "./json";
 interface Administrator { id: string; email: string; createdAt: string }
 export interface AuthenticatedSession { administrator: Administrator; expiresAt: string }
 export interface SetupInput { setupToken: string; email: string; password: string }
-export interface LoginInput { email: string; password: string }
+export interface LoginInput { email: string; password: string; otpCode?: string }
 
 export type AuthSnapshot =
   | { kind: "loading" }
@@ -23,7 +23,7 @@ export type ResumedSession =
   | { kind: "setup-unknown" }
   | { kind: "unreachable" };
 
-export type SessionFailure = "invalid-credentials" | "setup-unavailable" | "invalid-input" | "failed";
+export type SessionFailure = "invalid-credentials" | "otp-required" | "setup-unavailable" | "invalid-input" | "failed";
 
 export class SessionError extends Error {
   constructor(readonly reason: SessionFailure) { super(reason); this.name = "SessionError"; }

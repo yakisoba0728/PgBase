@@ -127,6 +127,9 @@ var backupStorageSettingsSQL string
 //go:embed 000038_backup_storage_operations.sql
 var backupStorageOperationsSQL string
 
+//go:embed 000039_admin_mfa_network_policy.sql
+var adminMFANetworkPolicySQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -211,6 +214,7 @@ var migrations = []Migration{
 	{Version: 36, Name: "file_storage_migrations", SQL: fileStorageMigrationsSQL, SHA256: sha256.Sum256([]byte(fileStorageMigrationsSQL))},
 	{Version: 37, Name: "backup_storage_settings", SQL: backupStorageSettingsSQL, SHA256: sha256.Sum256([]byte(backupStorageSettingsSQL))},
 	{Version: 38, Name: "backup_storage_operations", SQL: backupStorageOperationsSQL, SHA256: sha256.Sum256([]byte(backupStorageOperationsSQL))},
+	{Version: 39, Name: "admin_mfa_network_policy", SQL: adminMFANetworkPolicySQL, SHA256: sha256.Sum256([]byte(adminMFANetworkPolicySQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

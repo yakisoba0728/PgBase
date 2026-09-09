@@ -157,6 +157,7 @@ function recordFailure(wire: Wire): RecordError {
 
 function sessionFailure(wire: Wire): SessionError {
   if (wire.code === "invalid_credentials") return new SessionError("invalid-credentials");
+	if (wire.code === "otp_required") return new SessionError("otp-required");
   if (wire.code === "setup_unavailable") return new SessionError("setup-unavailable");
   if (wire.code === "validation_failed") return new SessionError("invalid-input");
   return new SessionError("failed");

@@ -34,6 +34,12 @@ type AdminAuth interface {
 	Logout(context.Context, string) error
 }
 
+// adminOTPLogin is optional so existing AdminAuth implementations retain their
+// established password-only contract. The production service implements it.
+type adminOTPLogin interface {
+	LoginWithOTP(context.Context, string, string, string, string) (adminauth.Session, error)
+}
+
 func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 	if e.auth == nil {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
@@ -138,6 +144,7 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		OTPCode  string `json:"otpCode"`
 	}
 	if err := decodeStrictJSON(r, &input); err != nil {
 		outcome = observability.OutcomeValidation
@@ -149,13 +156,19 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	subject, ok := clientAddress(r, e.trustedProxies)
+	subject, ok := clientIP(r, e.trustedProxies)
 	if !ok {
 		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
-	session, err := e.auth.Login(r.Context(), input.Email, input.Password, subject)
+	var session adminauth.Session
+	var err error
+	if otpAuth, ok := e.auth.(adminOTPLogin); ok {
+		session, err = otpAuth.LoginWithOTP(r.Context(), input.Email, input.Password, subject, input.OTPCode)
+	} else {
+		session, err = e.auth.Login(r.Context(), input.Email, input.Password, subject)
+	}
 	if err != nil {
 		outcome = adminAuthOutcome(err)
 		writeAdminAuthError(w, r, err)
@@ -359,6 +372,8 @@ func writeAdminAuthError(w http.ResponseWriter, r *http.Request, err error) {
 		apiError = APIError{Status: http.StatusBadRequest, Code: "validation_failed", Message: "Authentication input is invalid"}
 	case errors.Is(err, adminauth.ErrInvalidCredentials):
 		apiError = APIError{Status: http.StatusUnauthorized, Code: "invalid_credentials", Message: "Invalid administrator credentials"}
+	case errors.Is(err, adminauth.ErrOTPRequired):
+		apiError = APIError{Status: http.StatusUnauthorized, Code: "otp_required", Message: "Administrator OTP is required"}
 	case errors.Is(err, adminauth.ErrSetupUnavailable):
 		apiError = APIError{Status: http.StatusConflict, Code: "setup_unavailable", Message: "Administrator setup is unavailable"}
 	case errors.Is(err, adminauth.ErrRateLimited):

@@ -10,6 +10,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/publicsite"
 	"github.com/webisnoteasy/PgBase/internal/realtime"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
@@ -147,6 +148,13 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
+	var publicHandler http.Handler
+	if normalized.PublicDir != "" {
+		publicHandler, err = publicsite.New(normalized.PublicDir, normalized.PublicSPAFallback)
+		if err != nil {
+			return nil, fmt.Errorf("initialize public static site: %w", err)
+		}
+	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	schemaHealth := newSchemaHealthSampler(pool, runner)
 	recordService.SetHooks(applicationMutationHooks(normalized))
@@ -179,6 +187,7 @@ func newWithCatalogPreflight(
 		System:             systemStatus,
 		SchemaHealth:       schemaHealth,
 		AdminUI:            adminHandler,
+		PublicStatic:       publicHandler,
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
