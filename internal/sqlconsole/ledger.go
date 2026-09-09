@@ -158,6 +158,7 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		}
 		if tag.RowsAffected() == 0 {
 			_ = transaction.Rollback(ctx)
+			connection.Release()
 			return ledger.retainedWrite(ctx, identity)
 		}
 	}
@@ -180,6 +181,7 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		return Execution{}, false, err
 	}
 	_ = transaction.Rollback(ctx)
+	connection.Release()
 	return ledger.existing(ctx, identity)
 }
 

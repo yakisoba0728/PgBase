@@ -3,11 +3,14 @@ package sqlconsole
 import (
 	"context"
 	"errors"
+	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 func TestServiceNeverReplaysExpiredWriteWithoutReceipt(t *testing.T) {
@@ -66,6 +69,71 @@ func TestServiceNeverReplaysExpiredWriteWithoutReceipt(t *testing.T) {
 				t.Fatalf("changed request after cleanup=%v", err)
 			}
 		})
+	}
+}
+
+func TestLedgerConcurrentReplaysReleaseAdmissionConnection(t *testing.T) {
+	fixture := newPoolFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	blocker, err := fixture.owner.OpenCoordinationSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocker.Close(context.Background()) }()
+	parsed, err := url.Parse(blocker.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("pool_max_conns", "4")
+	parsed.RawQuery = query.Encode()
+	pool, err := database.Open(ctx, parsed.String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	ledger, _ := NewLedger(pool)
+	identity := ledgerIdentity(fixture.actorID, writeRequest(uuid.New(), "concurrent-replay-key-00001", uuid.New()), []byte("n8-concurrent-replay-secret-long-enough"))
+	if _, created, err := ledger.CreatePending(ctx, identity); err != nil || !created {
+		t.Fatalf("create=%v err=%v", created, err)
+	}
+	transaction, err := blocker.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = transaction.Rollback(context.Background()) }()
+	if _, err := transaction.Exec(ctx, `lock table pgbase_meta.sql_console_write_identities in access exclusive mode`); err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 8)
+	var wait sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			execution, created, err := ledger.CreatePending(ctx, identity)
+			if err == nil && (created || execution.ID != identity.Request.ExecutionID) {
+				err = errors.New("replay created a new execution")
+			}
+			results <- err
+		}()
+	}
+	for pool.Stats().AcquiredConns != 4 && ctx.Err() == nil {
+		time.Sleep(time.Millisecond)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wait.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Errorf("concurrent replay: %v", err)
+		}
+	}
+	if acquired := pool.Stats().AcquiredConns; acquired != 0 {
+		t.Fatalf("replay leaked %d connections", acquired)
 	}
 }
 

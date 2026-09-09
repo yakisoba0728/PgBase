@@ -151,8 +151,6 @@ func (pools *Pools) acquireWriter(ctx context.Context) (*pgxpool.Conn, error) {
 	return pools.writer.Acquire(ctx)
 }
 
-func (pools *Pools) compilerPool() *database.Pool { return pools.compiler }
-
 func normalizeWriteTargets(input []WriteTarget) (map[RelationRef]WriteTarget, error) {
 	result := make(map[RelationRef]WriteTarget, len(input))
 	for _, target := range input {
