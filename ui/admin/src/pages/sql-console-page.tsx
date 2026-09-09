@@ -12,6 +12,25 @@ const cellText: Record<SQLConsoleCell["kind"], string> = {
   null: "NULL", string: "text", boolean: "boolean", integer: "integer", decimal: "decimal", json: "JSON", bytes: "bytes", temporal: "time",
 };
 function resolvedWrite(status: SQLConsoleExecution["status"]): boolean { return terminal.has(status) && status !== "unknown"; }
+const pendingWriteStorageKey = "pgbase.sql-console.pending-write/v1";
+
+function pendingWrite(): SQLConsoleSubmitInput | null {
+  try {
+    const raw = window.sessionStorage.getItem(pendingWriteStorageKey);
+    if (raw === null) return null;
+    const value: unknown = JSON.parse(raw);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("invalid pending write");
+    const attempt = value as Partial<SQLConsoleSubmitInput>;
+    if (attempt.mode !== "write" || typeof attempt.operationID !== "string" || typeof attempt.idempotencyKey !== "string" || typeof attempt.dryRun !== "boolean" || !Array.isArray(attempt.statements)) throw new TypeError("invalid pending write");
+    return attempt as SQLConsoleSubmitInput;
+  } catch {
+    try { window.sessionStorage.removeItem(pendingWriteStorageKey); } catch { /* session storage is unavailable */ }
+    return null;
+  }
+}
+function definiteWriteRejection(error: unknown): boolean {
+  return error instanceof SQLConsoleError && [400, 403, 409, 429, 503].includes(error.status);
+}
 
 interface DraftStatement { sql: string; params: SQLConsoleParameter[] }
 const newStatement = (): DraftStatement => ({ sql: "SELECT 1", params: [] });
@@ -97,10 +116,18 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
   const [execution, setExecution] = useState<SQLConsoleExecution | null>(null);
   // A write may have reached the server even when its HTTP response did not.
   // Retain the complete request identity until the server itself settles it.
-  const [unresolvedWrite, setUnresolvedWrite] = useState<SQLConsoleSubmitInput | null>(null);
+  const [unresolvedWrite, setUnresolvedWrite] = useState<SQLConsoleSubmitInput | null>(pendingWrite);
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const retainWrite = useCallback((attempt: SQLConsoleSubmitInput) => {
+    try { window.sessionStorage.setItem(pendingWriteStorageKey, JSON.stringify(attempt)); } catch { /* in-memory recovery remains available */ }
+    setUnresolvedWrite(attempt);
+  }, []);
+  const releaseWrite = useCallback(() => {
+    try { window.sessionStorage.removeItem(pendingWriteStorageKey); } catch { /* session storage is unavailable */ }
+    setUnresolvedWrite(null); setWriteConfirmed(false);
+  }, []);
 
   const loadHistory = useCallback(async (next?: string) => {
     try {
@@ -115,10 +142,10 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => void port.execution(execution.id, controller.signal).then((next) => {
       setExecution(next);
-      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
+      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) releaseWrite();
     }).catch((caught) => { if (!controller.signal.aborted) setError(executionMessage(caught)); }), 750);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [execution, port, unresolvedWrite]);
+  }, [execution, port, releaseWrite, unresolvedWrite]);
 
   const draft = useMemo<SQLConsoleStatementInput[]>(() => statements.map((statement) => ({ sql: statement.sql, ...(statement.params.length === 0 ? {} : { params: statement.params.map((parameter) => parameter.kind === "null" ? { kind: "null" } : parameter) }) })), [statements]);
   const reconcileWrite = async () => {
@@ -128,15 +155,26 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
     try {
       const next = await port.execution(attempt.operationID);
       setExecution(next);
-      if (resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
-    } catch (caught) { setError(`The earlier write might still have run. ${executionMessage(caught)} Recheck it before submitting a new write.`); } finally { setSubmitting(false); }
+      if (resolvedWrite(next.status)) releaseWrite();
+    } catch (caught) {
+      if (caught instanceof SQLConsoleError && caught.status === 404 && caught.code === "not_found") {
+        try {
+          const next = await port.submit(attempt);
+          setExecution(next);
+          if (resolvedWrite(next.status)) releaseWrite();
+        } catch (replayError) {
+          if (definiteWriteRejection(replayError)) releaseWrite();
+          setError(definiteWriteRejection(replayError) ? executionMessage(replayError) : "The earlier write might still have run. Recheck it before submitting a new write.");
+        }
+      } else setError(`The earlier write might still have run. ${executionMessage(caught)} Recheck it before submitting a new write.`);
+    } finally { setSubmitting(false); }
   };
   const inspectExecution = async (id: string) => {
     setError(null);
     try {
       const next = await port.execution(id);
       setExecution(next);
-      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) { setUnresolvedWrite(null); setWriteConfirmed(false); }
+      if (unresolvedWrite?.operationID === next.id && resolvedWrite(next.status)) releaseWrite();
     } catch (caught) { setError(executionMessage(caught)); }
   };
   const submit = async (event: React.FormEvent) => {
@@ -151,12 +189,13 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
       const operationID = crypto.randomUUID();
       const idempotencyKey = mode === "write" ? crypto.randomUUID() : undefined;
       const request = { operationID, idempotencyKey, mode, dryRun: mode === "write" && dryRun, ...(timeout === undefined ? {} : { timeoutMS: timeout }), statements: draft } as SQLConsoleSubmitInput;
-      if (mode === "write") setUnresolvedWrite(request);
+      if (mode === "write") retainWrite(request);
       const next = await port.submit(request);
       setExecution(next); setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)]); setWriteConfirmed(false);
-      if (mode === "write" && resolvedWrite(next.status)) setUnresolvedWrite(null);
+      if (mode === "write" && resolvedWrite(next.status)) releaseWrite();
     } catch (caught) {
-      setError(mode === "write" ? "The write response was lost or unavailable. Recheck this execution before submitting a new write." : executionMessage(caught));
+      if (mode === "write" && definiteWriteRejection(caught)) { releaseWrite(); setError(executionMessage(caught)); }
+      else setError(mode === "write" ? "The write response was lost or unavailable. Recheck this execution before submitting a new write." : executionMessage(caught));
     } finally { setSubmitting(false); }
   };
   const cancel = async () => {

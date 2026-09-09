@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SQLConsolePage } from "./sql-console-page";
-import type { SQLConsoleExecution, SQLConsolePort } from "../backend/sql-console-backend";
+import { SQLConsoleError, type SQLConsoleExecution, type SQLConsolePort } from "../backend/sql-console-backend";
 
 const id = "8bff0101-0000-4000-8000-000000000001";
 function sample(patch: Partial<SQLConsoleExecution> = {}): SQLConsoleExecution {
@@ -20,7 +20,7 @@ function port(overrides: Partial<SQLConsolePort> = {}): SQLConsolePort {
   };
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); window.sessionStorage.clear(); });
 
 describe("SQL console page", () => {
   it("starts read-only and retains exact tagged values instead of coercing them to JavaScript numbers", async () => {
@@ -81,6 +81,41 @@ describe("SQL console page", () => {
     expect(backend.submit).toHaveBeenCalledTimes(1);
     expect(backend.submit).toHaveBeenCalledWith(expect.objectContaining({ operationID: "write-operation-id", idempotencyKey: "write-idempotency-key", mode: "write" }));
     expect(backend.execution).toHaveBeenCalledWith("write-operation-id");
+  });
+
+  it("replays a definitely absent write with the same identity and body after a reload", async () => {
+    const submitted = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce(sample({ mode: "write", status: "succeeded" }));
+    const backend = port({ submit: submitted, execution: vi.fn(async () => { throw new SQLConsoleError(404, "not_found"); }) });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValueOnce("write-operation-id").mockReturnValueOnce("write-idempotency-key") });
+    const first = render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+    await screen.findByRole("button", { name: "Recheck write execution" });
+    first.unmount();
+
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByRole("button", { name: "Recheck write execution" }));
+
+    expect(backend.execution).toHaveBeenCalledWith("write-operation-id");
+    expect(submitted).toHaveBeenCalledTimes(2);
+    expect(submitted.mock.calls[1][0]).toEqual(submitted.mock.calls[0][0]);
+  });
+
+  it("releases a definite write rejection instead of treating it as an uncertain execution", async () => {
+    const backend = port({ submit: vi.fn(async () => { throw new SQLConsoleError(400, "invalid_request"); }) });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => id) });
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+
+    expect(await screen.findByText("The SQL execution request was rejected.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Recheck write execution" })).not.toBeInTheDocument();
   });
 
   it("re-fetches an inspected durable receipt while its bounded result is still available", async () => {
