@@ -17,6 +17,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/migrations/system"
 	"github.com/webisnoteasy/PgBase/tests/testsupport"
 )
 
@@ -133,8 +134,10 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// Rewind to exactly v6. Remove every later object and history row so Up sees
-	// a contiguous pre-membership history even as new migrations are embedded.
+	// a contiguous pre-membership history even as new migrations are appended.
 	if _, err := pool.Exec(ctx, `drop table pgbase_meta.backup_storage_operations, pgbase_meta.backup_storage_settings;
+		drop table pgbase_meta.user_migration_schema_versions, pgbase_meta.user_migration_sources;
+		drop table pgbase_meta.admin_totp, pgbase_meta.admin_ip_allowlist;
 		drop table pgbase_meta.file_storage_source_cleanup, pgbase_meta.file_storage_migration_objects,
 			pgbase_meta.file_storage_migrations, pgbase_meta.user_migrations, pgbase_meta.file_storage_settings;
 		drop table pgbase_meta.user_email_otps, pgbase_meta.schema_import_operations;
@@ -190,6 +193,13 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	// direct constructor recovering after migration, including later additions.
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
+	}
+	var latest int
+	if err := pool.QueryRow(ctx, `select max(version) from pgbase_meta.system_migrations`).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	if latest != len(system.Migrations()) {
+		t.Fatalf("migration retry reached version %d, want %d", latest, len(system.Migrations()))
 	}
 	created, err := records.Create(ctx, request)
 	if err != nil {
