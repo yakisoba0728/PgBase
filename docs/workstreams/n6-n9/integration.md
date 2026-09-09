@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 03:44 KST
+Last updated: 2026-09-10 03:47 KST
 
 ## Current milestone
 
@@ -18,7 +18,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | Workstream | Worker / branch / worktree | State at 03:38 KST | Integration requirement |
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | foundation `218f276` integrated as `15676e5`; pinned Goja/CommonJS, fresh VM, exact-number/cancel/quota, options/routes/lifetime and record/file/mail bridge; worker and integrated focused race green | hooks/jobs/migrations, isolated PG/HTTP, external JS app, CLI and complete API handoff; review before close |
-| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | clean `11923c6`,`ed6fcde`,`52e23ce` integrated as `cae25dc`,`2c97f31`,`85c249a`; file HTTP gate green after fixture fix; integrated analyze and 7 tests green | external Flutter browser, full endpoint/cancel/error/admin/SSE inventory and independent review evidence |
+| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | clean `11923c6`,`ed6fcde`,`52e23ce` integrated as `cae25dc`,`2c97f31`,`85c249a`; file HTTP gate green after fixture fix; integrated analyze/7 tests and lead post-fix live rerun green | external Flutter browser/SSE restart, full endpoint/cancel/error/admin inventory and Newton review closure |
 | N8 | Sol worker, assignment through Astra after G3 | not started | detailed N8 design/status first; SQL authorization, parser, transaction/cancel/result limits and UI/browser acceptance |
 | N9 | Terra worker, assignment through Astra after G3 | not started | detailed N9 design/status first; signed manifest, atomic replacement, interruption/rollback and native fixture acceptance |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
@@ -62,3 +62,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 03:38 KST — diagnosed the 404 as missing fixture file configuration. An unauthenticated POST to the file route returned generic router 404 rather than an auth decision; the container environment had no `PGBASE_FILES_DRIVER` or `PGBASE_FILES_LOCAL_DIRECTORY`; `withFileServices` therefore left `dependencies.Files` nil and `fileRoutes` unregistered. Returned a narrow N7 fixture-only fix; SDK/server semantics remained unchanged.
 - 2026-09-10 03:43 KST — integrated N7 stable product/hardening commits as `cae25dc` and `2c97f31`, excluding rebased plan `39b170c`. Integrated N6 foundation `218f276` as `15676e5`, excluding worker plan `9a30b2f`. N6 focused race passed on the combined integration branch for `internal/jsvm`, `pgbase`, and `internal/api`.
 - 2026-09-10 03:44 KST — integrated N7 `52e23ce` as `85c249a`. Its isolated local-storage fixture passed user upload/list/token/byte-exact download/delete and admin upload; the worker also passed Dart analyze, seven tests, external CLI and Flutter widget tests. On the integrated commit, Dart analyze and all seven tests passed again. Actual Flutter browser and independent review remain open, so N7 is not complete.
+- 2026-09-10 03:47 KST — integration lead reran the original N7 live conformance after `85c249a`; it exited 0 through schema/auth/CRUD/ETag/batch/SSE and full file round trip on dedicated `58091/55441`. Newton/Sol task `01a0877e-6229-7df1-be93-e66ac50c6ffb` is the sole independent N7 Standards+Spec reviewer; no duplicate review worker will be created. Einstein is preparing an external Flutter browser flow on N7-owned HTTP `58092`, including an N7-only service restart for SSE replay.
