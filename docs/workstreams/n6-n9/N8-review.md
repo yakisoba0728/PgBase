@@ -1,5 +1,20 @@
 # N8 independent Standards and Spec review
 
+## Current closure status
+
+All N8-R1–R12 findings are closed in the reviewed source deltas and focused evidence. The final full-N8 verdict is **pending final lead composition and browser evidence**; this checkpoint does not claim that final acceptance yet.
+
+- Final backend product candidate: `752d38c800eeee66cfa61f0fb18f1d42c9a533a6`, following `0e4ba42df129c4b3e5d849e359ec8c5019a27e3a` and `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`.
+- Shared callback/capability composition: `66fec8fa8dc6f543b36183ba75873d4a9c073162`.
+- Closed UI source: `cd092fb41859812dc333774d4522586f22642757`, integrated as `35712f45be41f8239383824c55401727d510e0ed`, with earlier reviewed fixes listed below. No closed UI scope was repeated.
+- Backend contract/evidence documentation reviewed: `2558d199408284fe27202229cdcce5b3890f2f4a`.
+- Session-conformance expectation-only composition reviewed: `e57d233674f46120e5fa01fc3446fbf7a4e60ea5`.
+- Remaining: final measured structural-budget/dist composition and the lead-supplied browser acceptance evidence. No backend product finding remains open.
+
+At `752d38c`, both duplicate/conflict paths release the admission connection before nested pool lookups. The owner synchronized eight concurrent replays at the minimum four-connection pool, observed the prior timeout, then verified completion with no new admission and zero acquired-connection leaks after the fix. The focused replay/retention batch passed PG17 with race detection (2.741s) and PG18 (1.621s); focused SQL-console lint reported zero issues. Final migration-41 tests passed PG17 (0.432s) and PG18 (0.439s). Those results, together with the reviewed test sources and prior full-package evidence, close R12 without repeating the entire matrix.
+
+The historical checkpoints and findings below preserve how each defect was identified and closed; their earlier open/pending labels apply only to the stated earlier commits.
+
 ## Resumed fix-delta review — 2026-09-10
 
 The user resumed review from checkpoint `9ac351ab504dcc683bc5139bf0e01db217286be5`, with speed priority and no duplicate review of closed scopes. The candidate is owner `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`, imported unchanged into this review branch as `0687a95`. The reviewed delta is `10d9df4..4d773b5`; the paused record below is historical.
@@ -17,6 +32,23 @@ The bounded residual batch sent to Euclid is:
 No full-pass verdict is issued at this stage. Closed R5–R7/R11 and the early parser/clone correction remain closed. Final review is limited to these unresolved fixes and the final stable lead-composition delta, using supplied PG/browser evidence.
 
 The lead clarified the cap contract during this delta review: exceeding affected/result caps is a hard failure with rollback before write commit. Admitted results may retain `truncated=false`; no truncation feature is required. The earlier cap contract question is closed.
+
+Shared constructor/callback delta `66fec8fa8dc6f543b36183ba75873d4a9c073162` was reviewed across all three changed files, plus the required store/UI endpoints. It reads durable `pgbase_meta.schema_state` through `schema.NewStore(control).SchemaVersion` and supplies configured handler targets/default/maximum timeouts. The purpose-separated HMAC session identity matches the closed UI scope contract. No additional finding was found in this composition delta. Lead-supplied focused API/pgbase/OpenAPI checks passed; no closed UI tests were repeated. Final owner fixes and final budget/dist/browser evidence remain pending.
+
+Residual candidate `0e4ba42df129c4b3e5d849e359ec8c5019a27e3a` was reviewed only as a delta from `4d773b5` and imported unchanged as `92d2ecf`.
+
+- R4's real runner now holds a shared transaction execution gate before checking coordinator ownership and before user SQL. Replacement startup holds the exclusive gate while reconciling, so an old transaction must settle before receipt/status reconciliation. The focused actual-write/coordinator-termination/replacement regression passed. This closes R4's residual.
+- R8 now applies the fail-closed analyzer to each transitively visited deparsed view in addition to native dependency inspection, and explicitly rejects native `SQLVALUEFUNCTION`. The owner regression rejects the independently reproduced custom enum IO cast and accepts the builtin UUID/text IO control. This closes R8's residual.
+- R12 now atomically reserves every accepted write identity, retains minimal terminal outcomes before deleting heavy rows in batches of 500, and returns the retained status or receipt on replay. Owner public-service regressions cover aged unknown/failed/canceled/timed-out writes, restart, unchanged executor count, and changed-body conflicts. One new availability regression remains below.
+
+**R12 follow-up — P2 — nested control-pool borrowing during duplicate replay:** at `0e4ba42`, `internal/sqlconsole/ledger.go:159-161` and `:182-183` roll back their admission transaction but retain the borrowed connection until return. They then call `retainedWrite`/`existing`, which borrow from the same control pool again. Concurrent duplicate requests equal to the pool capacity can hold every slot while waiting for a second slot, starving control operations until cancellation. Euclid received the exact paths and closure condition: release the admission connection before nested lookup (or consistently reuse one connection), and prove synchronized concurrent replays complete with one execution and no acquired-connection leak at the minimum four-connection pool.
+
+Owner evidence reused at `0e4ba42`:
+
+- PG17 `go test -race ./internal/sqlconsole -count=1`: PASS, 8.526s.
+- PG18 `go test ./internal/sqlconsole -count=1`: PASS, 6.982s.
+- `go test -race ./internal/api ./pgbase -run '^TestSQLConsole' -count=1`: PASS, 1.422s/1.466s.
+- These full package runs include the focused retention, coordinator-loss and transitive-view regression sources reviewed above. Final migration and final composition/browser evidence remain pending.
 
 ## Paused checkpoint — 2026-09-10
 
