@@ -777,6 +777,9 @@ func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
 			_, _ = w.Write([]byte("bad"))
 			return
 		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("x"))
+		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 	}))
 	defer server.Close()
@@ -790,7 +793,7 @@ func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
 		t.Fatalf("short cleanup=%v", err)
 	}
 	blocked, _ := url.Parse(server.URL + "/blocked")
-	if _, err := openRemote(context.Background(), &http.Client{Transport: server.Client().Transport, Timeout: 20 * time.Millisecond}, blocked, 16); !errors.Is(err, ErrDownloadInterrupted) {
+	if _, err := readRemote(context.Background(), &http.Client{Transport: server.Client().Transport, Timeout: 20 * time.Millisecond}, blocked, 16); !errors.Is(err, ErrDownloadInterrupted) {
 		t.Fatalf("deadline=%v", err)
 	}
 }
