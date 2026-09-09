@@ -197,7 +197,9 @@ func (r *S3Repository) List(ctx context.Context) ([]Entry, error) {
 				}
 				return nil, openErr
 			}
-			_ = archive.Close()
+			if closeErr := archive.Close(); closeErr != nil {
+				return nil, closeErr
+			}
 			entries = append(entries, entry)
 		}
 		if !aws.ToBool(out.IsTruncated) {
