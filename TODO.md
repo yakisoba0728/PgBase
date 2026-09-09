@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:27 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:29 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 도메인 서비스·hook·migration `94b32b3`까지 통합; focused race와 전용 PG17.9 `55469` exact 3-test green, blocker 없음 | durable jobs·migration 확대, CLI·외부 JS 앱·stress·review |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | `94b32b3`까지 통합; focused race·PG exact 3-test green. worker WIP durable jobs PG green, CLI/watch 안정 commit 준비 중 | watch/jobs 잔여 focused gate, migration 확대·외부 JS 앱·stress·review |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | review closure `d4598ff`; 실제 `58091` data failure matrix와 admin 401/403·cookie resume가 `846061d`까지 green | revocation/SSE·cursor-expired·cancel upload, same-origin admin browser |
 | G3 N6/N7 통합 | Sol 통합 | 부분 통합 — N6 첫 PG/domain gate와 N7 제품 review closure 반영, plan 중복 skip | N6 잔여 안정 통합, JS↔Dart/Flutter 실제 HTTP·외부 앱 핵심 인수 |
 | G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | N8 한 문서 조사 중; N9 준비 `08ce58c` 통합·G3 대기. 제품·deps·DB 변경 없음 | G3 뒤 main의 구현 시작 신호 |
