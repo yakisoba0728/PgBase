@@ -27,6 +27,28 @@ func (host *extensionHost) openFileHandle(ctx context.Context, request extension
 	if err != nil {
 		return nil, extensionError("invalid_file_request", err)
 	}
+	handleID := uuid.New()
+	host.fileMu.Lock()
+	if len(host.fileHandles) >= maximumExtensionFileHandles {
+		host.fileMu.Unlock()
+		return nil, extensionError("file_handle_limit", errors.New("at most four file handles are allowed per invocation"))
+	}
+	if host.fileHandles == nil {
+		host.fileHandles = make(map[uuid.UUID]extensionFileHandle)
+	}
+	// Reserve before touching the database or object store. This keeps a fifth
+	// concurrent open from consuming backend capacity while it is guaranteed to
+	// fail the per-invocation quota.
+	host.fileHandles[handleID] = extensionFileHandle{}
+	host.fileMu.Unlock()
+	reserved := true
+	defer func() {
+		if reserved {
+			host.fileMu.Lock()
+			delete(host.fileHandles, handleID)
+			host.fileMu.Unlock()
+		}
+	}()
 	token := request.Token
 	variant := extensionVariant(request.Variant)
 	if token == "" {
@@ -40,16 +62,14 @@ func (host *extensionHost) openFileHandle(ctx context.Context, request extension
 		return nil, mapExtensionError(err)
 	}
 	host.fileMu.Lock()
-	defer host.fileMu.Unlock()
-	if len(host.fileHandles) >= maximumExtensionFileHandles {
+	if _, ok := host.fileHandles[handleID]; !ok {
+		host.fileMu.Unlock()
 		_ = reader.Close()
-		return nil, extensionError("file_handle_limit", errors.New("at most four file handles are allowed per invocation"))
+		return nil, extensionError("file_handle_not_found", errors.New("file handle was closed while opening"))
 	}
-	if host.fileHandles == nil {
-		host.fileHandles = make(map[uuid.UUID]extensionFileHandle)
-	}
-	handleID := uuid.New()
 	host.fileHandles[handleID] = extensionFileHandle{file: file, reader: reader}
+	reserved = false
+	host.fileMu.Unlock()
 	result := publicFileResult(file)
 	result.Handle = handleID.String()
 	return json.Marshal(result)
@@ -70,7 +90,7 @@ func (host *extensionHost) readFileChunk(request extensionFileRequest) (json.Raw
 	host.fileMu.Lock()
 	defer host.fileMu.Unlock()
 	handle, ok := host.fileHandles[handleID]
-	if !ok {
+	if !ok || handle.reader == nil {
 		return nil, extensionError("file_handle_not_found", errors.New("file handle is closed or unknown"))
 	}
 	remaining := int64(maximumExtensionFileBytes) - host.fileBytesRead
@@ -100,7 +120,7 @@ func (host *extensionHost) closeFileHandle(request extensionFileRequest) (json.R
 	host.fileMu.Lock()
 	defer host.fileMu.Unlock()
 	handle, ok := host.fileHandles[handleID]
-	if !ok {
+	if !ok || handle.reader == nil {
 		return nil, extensionError("file_handle_not_found", errors.New("file handle is closed or unknown"))
 	}
 	delete(host.fileHandles, handleID)
@@ -118,7 +138,9 @@ func (host *extensionHost) Close() error {
 	defer host.fileMu.Unlock()
 	var result error
 	for id, handle := range host.fileHandles {
-		result = errors.Join(result, handle.reader.Close())
+		if handle.reader != nil {
+			result = errors.Join(result, handle.reader.Close())
+		}
 		delete(host.fileHandles, id)
 	}
 	return result
