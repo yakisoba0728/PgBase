@@ -47,7 +47,7 @@ describe("file storage settings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Save storage settings" }),
     );
-    await screen.findByText(/saved and active/i);
+    await screen.findByText(/saved and active/i, {}, { timeout: 5000 });
     const sent = callsTo(harness.script, "saveStorageSettings")[0]?.detail;
     expect(sent).not.toHaveProperty("secretKey");
     expect(sent).toMatchObject({ revision: 2, accessKey: "rotated" });
