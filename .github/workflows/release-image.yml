@@ -74,6 +74,7 @@ jobs:
           set -euo pipefail
           image="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           release_version="$EXPECTED_VERSION"
+          built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           candidate_tag="candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           metadata_file="$RUNNER_TEMP/candidate-metadata.json"
           echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
@@ -86,6 +87,8 @@ jobs:
             --file deployments/Dockerfile \
             --platform linux/amd64 \
             --build-arg "VERSION=$release_version" \
+            --build-arg "SOURCE_COMMIT=$GITHUB_SHA" \
+            --build-arg "BUILT_AT=$built_at" \
             --tag "$image:$candidate_tag" \
             --metadata-file "$metadata_file" \
             --provenance=mode=max \

@@ -86,20 +86,43 @@ while IFS=$'\t' read -r phase commit version; do
 	source_directory="$build_workspace/source-$phase_name"
 	mkdir "$source_directory"
 	git -C "$repository_root" archive "$commit" | tar -x -C "$source_directory"
+	built_at="$(git -C "$repository_root" show -s --format=%cI "$commit")"
+	schema_version="$(find "$source_directory/migrations/system" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql' -print |
+		sed -E 's|.*/0*([0-9]+)_.*|\1|' | sort -n | tail -1)"
+	if [[ -z "$built_at" || "$built_at" == *[[:space:]]* || ! "$schema_version" =~ ^[1-9][0-9]*$ ]]; then
+		echo "release artifact build metadata is invalid: $phase" >&2
+		exit 1
+	fi
+	ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$version"
+	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=$commit"
+	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=$built_at"
+	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version"
+	ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version"
 	artifact="$output_directory/pgbase-$rollout-$phase_name"
 	(
 		cd "$source_directory"
 		GOTOOLCHAIN="$toolchain" GOOS="$target_goos" GOARCH="$target_goarch" CGO_ENABLED=0 \
 			go build -buildvcs=false -trimpath \
-			-ldflags "-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$version" \
+			-ldflags "$ldflags" \
 			-o "$artifact" ./cmd/pgbase
 	)
+	if [[ "$target_goos" == "$(GOTOOLCHAIN="$toolchain" go env GOOS)" &&
+	      "$target_goarch" == "$(GOTOOLCHAIN="$toolchain" go env GOARCH)" &&
+	      -f "$source_directory/internal/buildinfo/buildinfo.go" ]]; then
+		expected="{\"version\":\"$version\",\"commit\":\"$commit\",\"builtAt\":\"$built_at\",\"goos\":\"$target_goos\",\"goarch\":\"$target_goarch\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}"
+		if [[ "$("$artifact" version --json)" != "$expected" ]]; then
+			echo "release artifact build metadata does not match its inputs: $phase" >&2
+			exit 1
+		fi
+	fi
 	chmod 0755 "$artifact"
 	digest="$(sha256_file "$artifact")"
 	jq -nc --arg phase "$phase" --arg commit "$commit" --arg path "$(basename "$artifact")" \
-		--arg version "$version" --arg digest "sha256:$digest" --arg goVersion "$go_version" \
+		--arg version "$version" --arg builtAt "$built_at" --arg schemaVersion "$schema_version" \
+		--arg digest "sha256:$digest" --arg goVersion "$go_version" \
 		--arg goOS "$target_goos" --arg goArch "$target_goarch" \
 		'{phase:$phase,commit:$commit,version:$version,path:$path,digest:$digest,
+			build:{builtAt:$builtAt,schemaMin:$schemaVersion,schemaMax:$schemaVersion},
 			toolchain:{goVersion:$goVersion,goOS:$goOS,goArch:$goArch}}' >>"$metadata_lines"
 done
 

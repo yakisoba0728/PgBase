@@ -13,6 +13,10 @@ RUN npm run build
 FROM golang:1.26.8-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81 AS build
 
 ARG VERSION=dev
+ARG SOURCE_COMMIT=unknown
+ARG BUILT_AT=unknown
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -22,7 +26,17 @@ COPY migrations ./migrations
 COPY pgbase ./pgbase
 COPY ui/admin/embed.go ui/admin/handler.go ./ui/admin/
 COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}" -o /out/pgbase ./cmd/pgbase
+RUN schema_version="$(find migrations/system -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' \
+      | sed -E 's/^0*([0-9]+)_.*/\1/' | sort -n | tail -1)" \
+    && test -n "$schema_version" \
+    && ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}" \
+    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=${SOURCE_COMMIT}" \
+    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=${BUILT_AT}" \
+    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version" \
+    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version" \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags "$ldflags" -o /out/pgbase ./cmd/pgbase \
+    && expected="{\"version\":\"${VERSION}\",\"commit\":\"${SOURCE_COMMIT}\",\"builtAt\":\"${BUILT_AT}\",\"goos\":\"${TARGETOS}\",\"goarch\":\"${TARGETARCH}\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}" \
+    && test "$(/out/pgbase version --json)" = "$expected"
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 

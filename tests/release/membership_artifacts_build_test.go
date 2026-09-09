@@ -20,11 +20,16 @@ type builtReleaseArtifactManifest struct {
 }
 
 type builtReleaseArtifact struct {
-	Phase     string `json:"phase"`
-	Commit    string `json:"commit"`
-	Version   string `json:"version"`
-	Path      string `json:"path"`
-	Digest    string `json:"digest"`
+	Phase   string `json:"phase"`
+	Commit  string `json:"commit"`
+	Version string `json:"version"`
+	Path    string `json:"path"`
+	Digest  string `json:"digest"`
+	Build   struct {
+		BuiltAt   string `json:"builtAt"`
+		SchemaMin string `json:"schemaMin"`
+		SchemaMax string `json:"schemaMax"`
+	} `json:"build"`
 	Toolchain struct {
 		GoVersion string `json:"goVersion"`
 		GOOS      string `json:"goOS"`
@@ -85,6 +90,7 @@ func TestMembershipRolloutBuildProducesFiveDistinctExecutables(t *testing.T) {
 		declaration := declaredArtifacts[index]
 		if entry.Phase != phase || entry.Commit != declaration.Commit || entry.Version != declaration.Version ||
 			entry.Path != wantPath || entry.Digest != actualDigests[lowerPhase] ||
+			entry.Build.BuiltAt == "" || entry.Build.SchemaMin == "" || entry.Build.SchemaMin != entry.Build.SchemaMax ||
 			entry.Toolchain.GoVersion != "go1.26.8" || entry.Toolchain.GOOS == "" || entry.Toolchain.GOARCH == "" {
 			t.Fatalf("artifact metadata entry %d = %#v, want phase=%s commit=%s version=%s path=%s digest=%s with pinned toolchain",
 				index, entry, phase, declaration.Commit, declaration.Version, wantPath, actualDigests[lowerPhase])
