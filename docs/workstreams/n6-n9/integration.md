@@ -7,11 +7,11 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 06:49 KST
+Last updated: 2026-09-10 07:36 KST
 
 ## Current milestone
 
-G0 through G3 are complete. N6's external application, N7's native plus browser same-state cross-flow, the integrated same-origin PublicDir flow and the retry-stable/next-schedule-changing job occurrence contract are accepted with zero review findings. N8 executor/service/ledger/API are integrated; Euclid continues backend/options and Feynman owns a disjoint UI slice. N9 private implementation is PASS/PASS with zero findings and Sagan closed the lead-owned release build metadata seam. No G5 or final acceptance is claimed.
+**PAUSED by user request.** G0 through G3 are complete. N6 and N7 are accepted with their independent review and actual external/cross/browser evidence. N9 private implementation and shared composition are closed pending G5. N8 remains incomplete: the integrated pre-pause checkpoint is `6bb6dbb0c6de8f99de66e94cd1838db12ac93eed`, while Euclid's clean but unaccepted WIP is preserved only on `codex/n8-sql-console` at `4d773b5d90ec2bd6f9201e5a87086a8d831fd150`. No G5 or final N6–N9 acceptance is claimed.
 
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
@@ -19,11 +19,11 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | occurrence `ee806dd`, exact PG five times/race, Nash re-review zero findings | complete; retain disposable PG only for G5 |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | core accepted; native `4575a02` and final browser `58106` same-state cross green; clean handoff | task safely closed; no repeat |
-| N8 backend | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` | executor/service/ledger/API owner through `437995a`, integrated `be324c1`/`0743ea9`/`01a4069`; options WIP | PG17/18 + options handoff, then lead composition |
-| N8 UI | Feynman, Terra `01a08824-9f78-7ff2-ae90-d7e2cb08c767` / `codex/n8-sql-console-ui` / `PgBase-worktrees/n6-n9/n8-ui` | stable API handoff acknowledged; UI-only implementation active | new backend/page/hooks/tests stable commit |
-| N8 review | Gauss, Sol `01a08826-4384-7561-ab1a-f5129ccb5179` / `review-n8` | independent executor/service/API Standards+Spec review active | same reviewer checks UI/options/shared delta on final candidate |
+| N8 backend | Euclid, Sol / `codex/n8-sql-console` | clean WIP checkpoint `4d773b5`, based on `91a0bda`; not integrated or accepted | resume with R12 focused rerun, then current full PG17/18/race/build and Gauss closure |
+| N8 UI | Feynman, Terra / `codex/n8-sql-console-ui` | clean source `cd092fb`, integrated as `35712f4`; focused 17 green, real browser unrun; worker closed | resume only after accepted backend fixture/credentials exist |
+| N8 review | Gauss, Sol / `codex/n8-review` | clean incomplete pause checkpoint `9ac351a`, integrated docs-only as `0b1ecc8`; no full PASS | R1–R4/R8–R10/R12 and backend `sessionIdentity` composition remain open; R5–R7/R11 closed |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | private PASS/PASS `b74a49a`; build metadata `d6d9a9a`/`203ae3e` seam closure | G5 integrated checks only |
-| Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
+| Integration | GPT-5.6 Sol / this branch | paused after completed composition/review checkpoint `6bb6dbb`; pause docs follow | no product/test/review work until explicit resume |
 
 ## Ownership and invariants
 
@@ -37,10 +37,10 @@ No N6–N9 test may target the installed PostgreSQL 17.9 on `55440`, MinIO on `5
 
 | Owner | Docker project / resources | Loopback ports | State |
 | --- | --- | --- | --- |
-| N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter and admin proxy | PostgreSQL `55441`, API `58091`, Flutter `58092`, admin `58093` | active through final edge acceptance; file route fixed |
-| N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9; task-owned local files/SMTP/frontend | PostgreSQL `55469`, API `58094`, SMTP `58095`, frontend `58106` | cross/same-origin browser PASS; listeners stopped |
+| N7 | `pgbase-n7`; PostgreSQL and PgBase containers; task-owned local file directory/volume; repo-external Flutter and admin proxy | PostgreSQL `55441`, API `58091`, Flutter `58092`, admin `58093` | acceptance complete; worker/listeners stopped |
+| N6 | `pgbase-n6-pg-20260910`; pinned PostgreSQL 17.9; task-owned local files/SMTP/frontend | PostgreSQL `55469`, API `58094`, SMTP `58095`, frontend `58106` | acceptance complete; AutoRemove PG container removed on pause stop, no live resource touched |
 | Integration | `pgbase-n6n9-integration` or another recorded unique name | unallocated; check running ports first | not provisioned |
-| N8 | `pgbase-n8-20260910`; isolated PG17/PG18 and task-owned UI | PG17 `55470`, PG18 `55471`, API `58096`, UI `58097` | allocated; worker records before startup |
+| N8 | `pgbase-n8-20260910`; isolated PG17/PG18 and task-owned UI | PG17 `55470`, PG18 `55471`, API `58096`, UI `58097` | PG containers stopped, containers/data preserved; API/UI/credentials were never created |
 | N9 | task-owned disposable install directory; no Docker/DB | optional local TLS/health `58098` | allocated; native Darwin fixture only |
 
 Port and container allocation is written here before starting a new fixture. A worker cleans only resources it created and names explicitly.
@@ -140,3 +140,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 07:28 KST — Gauss narrowed R6 against the actual composed wire. Durable GET/history retains a non-sensitive result summary but omits `statements` after TTL or restart; the current page treats any result object as a live result, so it skips expired/unavailable wording. Feynman's existing R6/R11 delta now covers the exact summary-without-statements shape for both a past `resultUntil` and restart loss before a future expiry, retaining committed/row/byte summary while saying whether detailed rows expired or are unavailable. This is a focused correction to the existing R6 test, not a new surface.
 - 2026-09-10 07:30 KST — integrated Feynman's combined R11/R6 fix `cd092fb` as `35712f4`. Pending write storage is namespaced by the exact optional history capability `sessionIdentity`; without it raw SQL/params are never persisted, and the old global v1 key is deleted without reading. Focused tests prove same-identity reload recovery and isolation across a different administrator or expired/new session. Durable summaries with omitted statements now retain rows/affected/bytes/committed while reporting detailed results as expired after TTL or unavailable after restart/loss before TTL. Adapter/page tests pass 17; Gauss is checking only this closure while Euclid emits the exact server field.
 - 2026-09-10 07:32 KST — integrated Gauss's R6/R11 delta closure `d579b88` as `465b8f5`. Independent source inspection and the same 17 focused adapter/page tests found no remaining UI issue in session-scoped recovery or durable-summary rendering. Final UI review is now limited to Euclid's exact `sessionIdentity` capability composition and the real isolated browser run; R1–R4/R8–R10/R12 remain backend-owner work.
+- 2026-09-10 07:36 KST — **user pause checkpoint.** No new implementation, review, test or G5 work continues. Integration product/UI content is clean through `6bb6dbb`. Feynman's clean `cd092fb` is already represented by integration `35712f4`; its 17 focused tests passed before pause, but no browser was run. Euclid preserved the unintegrated clean WIP `4d773b5` with candidates for R1–R4/R8–R12 and `sessionIdentity`; all remain unaccepted. Its current R12 PG17/18 run failed only an obsolete `>=5` history-count assertion after cleanup returned 4, the assertion was changed to `>=4` plus old-write absence, and that change was not rerun. Current full PG17/18, race, six-build and browser were not run after the WIP checkpoint; no API/UI server or credential file was created. Gauss preserved the explicitly incomplete review `9ac351a`, integrated docs-only as `0b1ecc8`: R5–R7/R11 and early parser/clone are closed, while R1–R4/R8–R10/R12, backend identity composition and final evidence remain open with no full PASS.
+- 2026-09-10 07:36 KST — pause resource handoff: N8-owned PG17/PG18 containers on `55470`/`55471` were verified by Compose project/name and stopped without removal; their container/data state remains for resume. The completed N6 disposable PG `55469` container had Docker AutoRemove enabled, so stopping it removed that container and its anonymous volume; committed N6 evidence remains and the fixture is reproducible. No process or command targeted live HTTP `8090`, PostgreSQL `55440`, MinIO `59000`, or existing userdata.

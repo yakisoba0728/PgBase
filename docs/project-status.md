@@ -9,6 +9,7 @@
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
 | 최신 제품 병합 기준 | [PR #34](https://github.com/yakisoba0728/PgBase/pull/34), `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
+| N6–N9 로컬 기준 | 사용자 요청으로 07:36 KST **PAUSED**. N6/N7/N9 로컬 구현·핵심 인수 완료, N8/G5 미완료. integration pre-pause `6bb6dbb`, unintegrated N8 WIP `4d773b5` |
 | 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
 | 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
@@ -81,7 +82,15 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 
 N1–N5는 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34)의 필수 CI5/5 통과 후 `2939f15`로 병합됐다. 제출 `432bfaa`와 merge tree는 동일하며 최종 코드 전체 Go unit/race와 PG17+MinIO integration/race·SDK live 근거가 추가됐다. 03:24 KST 같은 제품 SHA의 실제 PG17.9/schema40 설치·인수를 완료했다. 백업/hash와 두 installer 증거 오류로 정상 제품을 rollback한 뒤 복구·최종 성공한 이력은 [설치 기록](workstreams/n1-n5/release-install.md)을 따른다. 공개 release/package/cloud 배포는 이 승인에 포함되지 않는다.
 
-## 6. 검증과 실제 수정한 문제
+## 6. N6–N9 로컬 통합 pause checkpoint
+
+N6 JSVM과 N7 Dart SDK는 실제 external application/consumer, PG·HTTP·file·SMTP·SSE, same-state browser/cross-flow 및 독립 review를 완료했다. N9 self-update는 private Standards/Spec PASS, shared command/build metadata closure, native Darwin fixture, six CGO-free builds와 Windows helper compile 근거를 완료했다. Windows native 실행은 사용할 host가 없어 수행하지 않았으며 완료라고 주장하지 않는다. 세 stream 모두 전체 N6–N9 G5는 아직 실행하지 않았다.
+
+N8은 미완료다. 통합 branch의 product/UI checkpoint는 `6bb6dbb`이고 UI source `cd092fb`는 `35712f4`로 포함된다. Backend owner의 clean WIP `4d773b5`는 R1–R4/R8–R12와 `sessionIdentity` candidate를 담지만 acceptance 전에 중단돼 통합하지 않았다. 마지막 R12 PG17/18 run은 cleanup 후 history가 실제 4행인데 과거 `>=5`를 기대해 실패했고 assertion만 `>=4`+old-write 부재로 바꾼 뒤 재실행하지 않았다. 그 SHA의 current full PG17/18, race, six builds와 API/UI browser는 미실행이다. Gauss의 `9ac351a`는 docs-only `0b1ecc8`로 통합한 불완전 pause checkpoint이며 full PASS가 아니다: R5–R7/R11은 closed, R1–R4/R8–R10/R12와 backend identity/final composition은 open이다.
+
+Pause 시 N8 PG17/PG18 `55470`/`55471` 컨테이너는 삭제하지 않고 정지해 state/data를 보존했다. API/UI server와 credential file은 생성되지 않았다. 완료된 N6의 disposable `55469` 컨테이너는 AutoRemove 설정 때문에 정지와 함께 제거됐다. live PG17.9 `55440`, HTTP `8090`, MinIO `59000`, 기존 Docker/userdata는 변경하지 않았다. 공개 release/npm/pub.dev/cloud 배포도 수행하지 않았다.
+
+## 7. 검증과 실제 수정한 문제
 
 | 시점 / 범위 | 증거 | 해석 |
 | --- | --- | --- |
@@ -113,9 +122,9 @@ N1–N5는 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34)의 필수 CI
 
 로컬 재현 로그는 `.local/verification/phase4-*.log`, 업그레이드 결과는 `.local/verification/phase4-populated-upgrade/result.json`에 있다. `.local`은 다른 clone에 포함되지 않을 수 있다. 재현 가능한 테스트 소스는 `internal/{schema,query,recordops,filestore,backup,usermigrate}`, `pgbase`, `ui/admin/e2e/authenticated/phase4.spec.ts`에 보존한다. 자격 증명·실제 환경 파일은 문서에 복사하지 않는다.
 
-## 7. 남은 범위와 문서 사용법
+## 8. 남은 범위와 문서 사용법
 
-N1–N5 로컬 인수 뒤의 다음 제품 범위는 JSVM, Dart SDK, SQL 콘솔, self-update다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. N1–N5의 원격 PR/병합과 실제 설치는 구현 완료와 별도 상태로 남는다.
+N6/N7/N9의 로컬 범위는 완료됐고 N8 SQL 콘솔과 전체 G5가 pause 상태의 다음 작업이다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. N1–N5의 원격 PR/병합과 실제 설치는 구현 완료와 별도 상태로 남는다.
 
 클라우드 배포·운영 SLO/RPO/RTO·외부 provider 계정·실제 다중 호스트 partition·공개 패키지 배포는 별도 대기다. 로컬 테스트와 cross-build가 이 증거를 대신하지 않는다. read replica·sharding·다중 프로젝트 control plane·online DDL 같은 장기 확장은 PB 기능 공백 및 현재 로컬 완료 조건과 분리한다.
 

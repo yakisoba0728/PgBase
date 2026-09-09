@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N8 owner fixes·browser 준비 진행, N6/N7/N9 G5 대기 (최종 동기화 2026-09-10 07:32 KST)
+## N6–N9 로컬 통합 — **사용자 요청으로 PAUSED** (최종 동기화 2026-09-10 07:36 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -11,8 +11,8 @@
 | G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 완료 — occurrence `ee806dd`, migration 없음, exact PG 5회·race green, Nash 0 findings | 완료 단계 재실행 없음 |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 완료·clean handoff — native `4575a02`와 최종 browser `58106`가 동일 record/ETag/exact-number/file/SSE green; task 종료 | 완료 단계 재실행 없음 |
 | G3 N6/N7 통합 | Sol 통합 | **완료** — N6/N7 external·native/browser cross·same-origin PublicDir·occurrence review 모두 green | G5 전 관련 변경 없으면 반복 없음 |
-| G4 N8/N9 구현·조립 | N8 Euclid/Sol backend + Feynman/Terra UI + Gauss/Sol review, 공통 seam Sol 통합; N9 Sagan/Terra | Lead shared wiring `5e2ed00`; Feynman exact replay + session-scoped recovery + durable-summary UI through integration `35712f4` (focused 17 green); Gauss review record `ccbb5d1`. Euclid's R1–R4/R8–R10/R12와 `sessionIdentity`는 **dirty WIP**이며 마지막 PG17/18 evidence 중. N9 private+shared closure 완료 | Euclid stable fix SHA+protected fixture path/commands → compose focused checks → Feynman 실제 browser 58097→58096 → Gauss final delta closure |
-| G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
+| G4 N8/N9 구현·조립 | N8 Euclid/Sol backend + Feynman/Terra UI + Gauss/Sol review, 공통 seam Sol 통합; N9 Sagan/Terra | **PAUSED.** 제품/UI 통합 checkpoint는 `6bb6dbb`: shared wiring `5e2ed00`, UI `35712f4`. Gauss의 불완전 pause review `9ac351a`는 docs-only `0b1ecc8`로 통합했다. Euclid의 unintegrated clean WIP는 `codex/n8-sql-console` `4d773b5`; R1–R4/R8–R10/R12 open, R5–R7/R11 closed, full PASS 없음. N9 private+shared closure 완료 | resume 시 `4d773b5`를 WIP로 검토하고 미실행 R12→PG/race/build를 통과한 뒤에만 통합 |
+| G5 최종 인수 | Sol 통합 | **PAUSED / 미실행** | N8 완료 뒤 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
 
@@ -26,13 +26,14 @@ Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료�
 - [x] N6 기반·도메인·migration·jobs·CLI/types/watch·hook·stress/storage·external/cross/same-origin 및 occurrence fix `ee806dd` Nash closure 완료; G3 종료.
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
-- [ ] N8: Euclid의 R1–R4 catalog-version 재검증·virtual field grant·commit unknown·single coordinator reconciliation과 R8–R10 native/transitive dependency guard·configured write-column preflight·read-one API를 안정 커밋으로 고정. R12는 heavy execution/history/result를 bounded cleanup하되 최소 redacted idempotency tombstone은 영구 보존해 같은 mutation을 재실행하지 않는다. tombstone 총 key 수는 bounded라고 주장하지 않고 저장 tradeoff를 문서화하며 FK 순서·aged replay를 PG17/18에서 증명한다. 현재 모두 owner WIP이다.
-- [ ] N8: owner가 아직 만들지 않은 protected fixture credential path와 정확한 API/UI command를 생성·handoff하면, 내용을 출력하지 않고 Feynman에게 전달해 실제 browser `58097`→API `58096`를 한 번 검증한다.
+- [ ] N8 PAUSED checkpoint: owner branch `codex/n8-sql-console` clean WIP `4d773b5`에 R1–R4/R8–R12와 `sessionIdentity` candidate가 있다. R12 PG17/18은 오래된 history 기대값 `>=5`가 실제 4여서 실패했고 `>=4`+old-write 부재로 assertion만 수정한 뒤 **재실행하지 않았다**. 이 SHA를 accepted/integrated로 표시하지 않는다.
+- [ ] N8 resume: current full PG17/18, race, six-build, 실제 HTTP/browser `58097`→`58096`, fixture/credential 생성은 모두 미실행이다. API/UI test server나 protected credential file도 생성되지 않았다.
 - [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
 - [x] N8 UI R11 `35712f4`: `sessionIdentity` namespace가 없으면 저장하지 않고 legacy global key를 읽지 않고 삭제한다. 같은 세션 reload만 복구하며 관리자 전환·만료 뒤 새 세션은 이전 요청을 보거나 실행하지 않는다. Gauss delta review `465b8f5` zero; backend field composition만 pending.
 - [x] N8 UI R6 `35712f4`: `statements`가 없는 durable summary에서 committed/row/byte를 보존하며 TTL 경과는 expired, restart/응답 소실은 unavailable로 표시한다. focused 17 green, Gauss delta review `465b8f5` zero.
-- [ ] N8: Gauss review record는 integration `ccbb5d1`까지 갱신됐고, owner fixes·R6/R7/R11/R12 및 최종 composed candidate만 판정한다. 이미 green인 backend 범위는 반복하지 않는다.
+- [ ] N8 review PAUSED: source `9ac351a` / integration `0b1ecc8`은 full PASS가 아닌 checkpoint다. R5–R7/R11과 early parser/clone은 closed; R1–R4/R8–R10/R12, backend `sessionIdentity` composition, current WIP evidence와 final composition은 unverified다.
 - [ ] N6–N9 전체 G5 로컬 인수·문서 동기화·격리 fixture 정리·clean final commit.
+- [x] pause handoff: UI source `cd092fb`는 integration `35712f4`로 이미 반영됐고 focused 17 green, real browser unrun. 최종 불완전 review checkpoint `9ac351a`는 `0b1ecc8`로 반영했다. N8 Docker PG17/18은 정지 상태로 container/data를 보존했다.
 
 ## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)
 
