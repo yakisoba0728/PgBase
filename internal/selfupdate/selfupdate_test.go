@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -755,6 +756,16 @@ func TestHTTPSNegativeResponsesAndArtifactCleanup(t *testing.T) {
 	}
 	if _, err = Fetch(context.Background(), FetchOptions{Source: server.URL + "/manifest.json", TrustKey: public, Current: current}); !errors.Is(err, ErrDownloadInterrupted) {
 		t.Fatalf("untrusted TLS=%v", err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, syscall.ENOSPC }
+
+func TestCopyBoundedPropagatesNoSpace(t *testing.T) {
+	if _, _, err := copyBounded(context.Background(), failingWriter{}, strings.NewReader("artifact"), 8); !errors.Is(err, syscall.ENOSPC) {
+		t.Fatalf("ENOSPC=%v", err)
 	}
 }
 
