@@ -23,7 +23,10 @@ func VerifyManifest(raw, encodedSignature, publicKey []byte) (Manifest, error) {
 	if len(raw) == 0 || int64(len(raw)) > ManifestMaxBytes || len(publicKey) != ed25519.PublicKeySize {
 		return Manifest{}, ErrInvalidInput
 	}
-	signatureText := bytes.TrimSuffix(bytes.TrimSpace(encodedSignature), []byte("\n"))
+	signatureText := bytes.TrimSuffix(encodedSignature, []byte("\n"))
+	if len(signatureText) == 0 || bytes.ContainsAny(signatureText, "\r\n\t ") {
+		return Manifest{}, ErrUntrustedManifest
+	}
 	signature, err := base64.StdEncoding.DecodeString(string(signatureText))
 	if err != nil || len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(publicKey), raw, signature) {
 		return Manifest{}, ErrUntrustedManifest
@@ -98,7 +101,7 @@ func validSHA256(value string) bool {
 // ensures the source was a regular non-symlink file before passing its bytes.
 func ParseTrustKey(raw []byte) ([]byte, error) {
 	text := bytes.TrimSuffix(raw, []byte("\n"))
-	if bytes.ContainsAny(text, "\r\t ") {
+	if bytes.ContainsAny(text, "\r\n\t ") {
 		return nil, ErrInvalidInput
 	}
 	key, err := base64.StdEncoding.DecodeString(string(text))

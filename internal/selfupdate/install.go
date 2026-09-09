@@ -41,6 +41,9 @@ type Status struct {
 // verifies it, preserves a verified backup, atomically publishes it, probes
 // the canonical path, and rolls back on a failed probe.
 func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
+	if len(options.Fetched.ManifestRaw) == 0 || len(options.Fetched.SignatureRaw) == 0 || len(options.TrustKey) != 32 || options.Fetched.Candidate.Artifact.Size <= 0 {
+		return Status{}, ErrInvalidInput
+	}
 	state, target, lock, err := prepareInstallation(options.Target, options.StateDir)
 	if err != nil {
 		return Status{}, err
@@ -51,7 +54,13 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	}
 	defer releaseLock(lock)
 	if existing, err := loadJournal(state); err == nil {
-		return recoverLocked(ctx, state, target, existing, options.Probe)
+		status, recoverErr := recoverLocked(ctx, state, target, existing, options.Probe)
+		if recoverErr != nil {
+			return Status{}, recoverErr
+		}
+		if status.Phase != "aborted" && status.Phase != "rolled_back" && status.Phase != "committed" {
+			return status, nil
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Status{}, err
 	}
@@ -66,23 +75,24 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	if err != nil || !sameBuild(oldBuild, options.Current) {
 		return Status{}, ErrProbeFailed
 	}
-	manifestSHA, signatureSHA, err := writeEvidence(state, options.Fetched.ManifestRaw, options.Fetched.SignatureRaw)
-	if err != nil {
-		return Status{}, err
-	}
-	keyFingerprint := checksumBytes(options.TrustKey)
 	targetDigest, targetMode, err := fileDigestAndMode(target)
 	if err != nil {
 		return Status{}, ErrReplaceFailed
 	}
-	candidateName := "." + filepath.Base(target) + ".pgbase-candidate"
+	suffix := targetDigest[:12]
+	manifestSHA, signatureSHA, err := writeEvidence(state, suffix, options.Fetched.ManifestRaw, options.Fetched.SignatureRaw)
+	if err != nil {
+		return Status{}, err
+	}
+	keyFingerprint := checksumBytes(options.TrustKey)
+	candidateName := "." + filepath.Base(target) + ".pgbase-candidate-" + suffix
 	candidatePath := filepath.Join(filepath.Dir(target), candidateName)
 	if _, err = os.Lstat(candidatePath); !os.IsNotExist(err) {
 		return Status{}, ErrRecoveryRequired
 	}
 	entry := journal{
 		SchemaVersion: 1, Phase: "manifest_verified", CreatedAt: time.Now().UTC(),
-		Target: filepath.Base(target), Candidate: candidateName, Backup: "backup",
+		Target: filepath.Base(target), Candidate: candidateName, Backup: "backup-" + suffix,
 		Old: oldBuild, New: Build{Version: options.Fetched.Candidate.Release.Version, Commit: options.Fetched.Candidate.Release.Commit, GOOS: options.Fetched.Candidate.Artifact.GOOS, GOARCH: options.Fetched.Candidate.Artifact.GOARCH},
 		OldSHA256: targetDigest, ManifestSHA256: manifestSHA, SignatureSHA256: signatureSHA, TrustFingerprint: keyFingerprint,
 	}
@@ -117,7 +127,11 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, ErrProbeFailed
 	}
 	backupPath := filepath.Join(state, entry.Backup)
-	if err = copyRegular(target, backupPath, targetMode.Perm()); err != nil {
+	if _, statErr := os.Lstat(backupPath); os.IsNotExist(statErr) {
+		if err = copyRegular(target, backupPath, targetMode.Perm()); err != nil {
+			return Status{}, ErrReplaceFailed
+		}
+	} else if statErr != nil {
 		return Status{}, ErrReplaceFailed
 	}
 	backupDigest, _, err := fileDigestAndMode(backupPath)
@@ -194,7 +208,7 @@ func Rollback(ctx context.Context, target, stateDir string, probe func(context.C
 
 // ReadStatus is mutation-free and intentionally does not take an updater lock.
 func ReadStatus(target, stateDir string) (Status, error) {
-	state, canonical, err := validateInstallation(target, stateDir)
+	state, canonical, err := validateInstallation(target, stateDir, false)
 	if err != nil {
 		return Status{}, err
 	}
@@ -220,9 +234,7 @@ func recoverLocked(ctx context.Context, state, target string, entry journal, pro
 	case "committed", "rolled_back", "aborted":
 		return statusFromJournal(entry), nil
 	case "manifest_verified", "staged", "backup_created":
-		if entry.Phase == "staged" {
-			_ = os.Remove(filepath.Join(filepath.Dir(target), entry.Candidate))
-		}
+		_ = os.Remove(filepath.Join(filepath.Dir(target), entry.Candidate))
 		entry.Phase = "aborted"
 		if err := writeJournal(state, entry); err != nil {
 			return Status{}, err
@@ -241,6 +253,7 @@ func recoverLocked(ctx context.Context, state, target string, entry journal, pro
 			return rollbackLocked(ctx, state, target, entry, probe)
 		}
 		if err == nil && digest == entry.OldSHA256 {
+			_ = os.Remove(filepath.Join(filepath.Dir(target), entry.Candidate))
 			entry.Phase = "rolled_back"
 			if err = writeJournal(state, entry); err != nil {
 				return Status{}, err
@@ -291,11 +304,15 @@ func rollbackLocked(ctx context.Context, state, target string, entry journal, pr
 }
 
 func statusFromJournal(entry journal) Status {
-	return Status{Phase: entry.Phase, Current: entry.Old, Candidate: entry.New, BackupSHA: entry.OldSHA256}
+	current := entry.Old
+	if entry.Phase == "committed" {
+		current = entry.New
+	}
+	return Status{Phase: entry.Phase, Current: current, Candidate: entry.New, BackupSHA: entry.OldSHA256}
 }
 
 func prepareInstallation(target, stateDir string) (string, string, *os.File, error) {
-	state, canonical, err := validateInstallation(target, stateDir)
+	state, canonical, err := validateInstallation(target, stateDir, true)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -306,7 +323,7 @@ func prepareInstallation(target, stateDir string) (string, string, *os.File, err
 	return state, canonical, lock, nil
 }
 
-func validateInstallation(target, stateDir string) (string, string, error) {
+func validateInstallation(target, stateDir string, createState bool) (string, string, error) {
 	if !filepath.IsAbs(target) || !filepath.IsAbs(stateDir) {
 		return "", "", ErrInvalidInput
 	}
@@ -335,6 +352,9 @@ func validateInstallation(target, stateDir string) (string, string, error) {
 	stateDir = filepath.Join(directory, filepath.Base(stateDir))
 	info, err := os.Lstat(stateDir)
 	if os.IsNotExist(err) {
+		if !createState {
+			return stateDir, canonical, nil
+		}
 		if err = os.Mkdir(stateDir, 0700); err != nil {
 			return "", "", ErrReplaceFailed
 		}

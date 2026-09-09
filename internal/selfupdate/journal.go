@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -49,7 +50,10 @@ func loadJournal(stateDir string) (journal, error) {
 }
 
 func validJournal(value journal) bool {
-	return value.SchemaVersion == 1 && value.Phase != "" && filepath.Base(value.Target) == value.Target && filepath.Base(value.Candidate) == value.Candidate && filepath.Base(value.Backup) == value.Backup && validSHA256(value.OldSHA256) && validSHA256(value.NewSHA256) && validSHA256(value.ManifestSHA256) && validSHA256(value.SignatureSHA256) && validSHA256(value.TrustFingerprint)
+	if value.SchemaVersion != 1 || value.Phase == "" || filepath.Base(value.Target) != value.Target || filepath.Base(value.Candidate) != value.Candidate || filepath.Base(value.Backup) != value.Backup || !validSHA256(value.OldSHA256) || !validSHA256(value.ManifestSHA256) || !validSHA256(value.SignatureSHA256) || !validSHA256(value.TrustFingerprint) {
+		return false
+	}
+	return value.Phase == "manifest_verified" || validSHA256(value.NewSHA256)
 }
 
 func writeJournal(stateDir string, value journal) error {
@@ -78,12 +82,24 @@ func writeJournal(stateDir string, value journal) error {
 	return syncDirectory(stateDir)
 }
 
-func writeEvidence(stateDir string, manifest, signature []byte) (string, string, error) {
+func writeEvidence(stateDir, suffix string, manifest, signature []byte) (string, string, error) {
 	for _, item := range []struct {
 		name string
 		data []byte
-	}{{"manifest.json", manifest}, {"manifest.ed25519", signature}} {
+	}{{"manifest-" + suffix + ".json", manifest}, {"manifest-" + suffix + ".ed25519", signature}} {
 		path := filepath.Join(stateDir, item.name)
+		if info, err := os.Lstat(path); err == nil {
+			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return "", "", ErrRecoveryRequired
+			}
+			existing, readErr := os.ReadFile(path)
+			if readErr != nil || !bytes.Equal(existing, item.data) {
+				return "", "", ErrRecoveryRequired
+			}
+			continue
+		} else if !os.IsNotExist(err) {
+			return "", "", ErrRecoveryRequired
+		}
 		if err := writeRegular(path, item.data, 0600); err != nil {
 			return "", "", ErrReplaceFailed
 		}

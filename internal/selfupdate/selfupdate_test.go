@@ -133,6 +133,20 @@ func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
 	if err != nil || restored.Version != "v0.1.0" {
 		t.Fatalf("restored=%+v err=%v", restored, err)
 	}
+	status, err = Apply(context.Background(), ApplyOptions{Target: target, StateDir: filepath.Join(install, ".pgbase-update"), Fetched: fetched, TrustKey: public, Current: current})
+	if err != nil || status.Phase != "committed" {
+		t.Fatalf("retry status=%+v err=%v", status, err)
+	}
+	entry, err := loadJournal(filepath.Join(install, ".pgbase-update"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(install, ".pgbase-update", entry.Backup), []byte("tampered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Rollback(context.Background(), target, filepath.Join(install, ".pgbase-update"), nil); !errors.Is(err, ErrRollbackFailed) {
+		t.Fatalf("tampered backup rollback error=%v", err)
+	}
 }
 
 func TestApplyRollsBackCanonicalProbeFailure(t *testing.T) {
@@ -222,6 +236,10 @@ func TestInterruptedDownloadAndRecoveryNeverReplaceOriginal(t *testing.T) {
 	}
 	if currentBuild, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || !sameBuild(currentBuild, current) {
 		t.Fatalf("original changed=%+v err=%v", currentBuild, probeErr)
+	}
+	status, recoverErr := Rollback(context.Background(), target, filepath.Join(install, ".pgbase-update"), nil)
+	if recoverErr != nil || status.Phase != "aborted" {
+		t.Fatalf("interrupted recovery status=%+v err=%v", status, recoverErr)
 	}
 }
 
@@ -348,5 +366,26 @@ func TestDownloadHonorsCancellation(t *testing.T) {
 	client := &http.Client{Timeout: time.Second}
 	if _, err := Fetch(context, FetchOptions{Source: "https://example.test/manifest.json", TrustKey: make([]byte, ed25519.PublicKeySize), Current: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, HTTPClient: client}); !errors.Is(err, ErrDownloadInterrupted) {
 		t.Fatalf("cancellation error=%v", err)
+	}
+}
+
+func TestFetchRejectsCrossOriginRedirectWithoutContactingTarget(t *testing.T) {
+	foreignCalls := 0
+	foreign := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		foreignCalls++
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer foreign.Close()
+	primary := startTLSServer(t, func(string) http.Handler {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			http.Redirect(writer, request, foreign.URL+"/manifest.json", http.StatusFound)
+		})
+	})
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if _, err := Fetch(context.Background(), FetchOptions{Source: primary.URL + "/manifest.json", TrustKey: make([]byte, ed25519.PublicKeySize), Current: current, HTTPClient: primary.Client()}); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("redirect error=%v", err)
+	}
+	if foreignCalls != 0 {
+		t.Fatalf("cross-origin target received %d requests", foreignCalls)
 	}
 }
