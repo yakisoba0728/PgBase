@@ -342,6 +342,19 @@ void main() {
     }
   });
 
+  test('an SSE body network failure has the stable SDK error type', () async {
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: _SseBodyNetworkClient(),
+      auth: AuthStore(initialToken: 'user-token'),
+    );
+
+    await expectLater(
+      pgbase.records('notes').events(maxReconnects: 0).drain<void>(),
+      throwsA(isA<PgBaseNetworkError>()),
+    );
+  });
+
   test('realm profile returns the attributes object', () async {
     final pgbase = PgBaseClient(
       Uri.parse('http://pgbase.test/'),
@@ -614,6 +627,18 @@ final class _TerminalSseClient extends http.BaseClient {
       ),
       status,
       headers: const {'content-type': 'application/json'},
+    );
+  }
+}
+
+final class _SseBodyNetworkClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      Stream<List<int>>.error(http.ClientException('stream lost', request.url)),
+      200,
+      headers: const {'content-type': 'text/event-stream'},
     );
   }
 }

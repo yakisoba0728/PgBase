@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import 'client.dart';
 import 'errors.dart';
 import 'exact_json.dart';
@@ -84,6 +86,10 @@ Stream<RecordEvent> recordEvents(
         if (_terminalSseError(error)) rethrow;
         if (stop.isCancelled || generation != client.auth.generation) return;
         if (reconnects >= maxReconnects) rethrow;
+      } on http.ClientException catch (error) {
+        final network = PgBaseNetworkError(error);
+        if (stop.isCancelled || generation != client.auth.generation) return;
+        if (reconnects >= maxReconnects) throw network;
       } catch (_) {
         if (stop.isCancelled || generation != client.auth.generation) return;
         if (reconnects >= maxReconnects) rethrow;
