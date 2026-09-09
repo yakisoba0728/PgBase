@@ -282,7 +282,10 @@ func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
 }
 
 func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) {
-	pool, schemas, records := newRecordServiceTest(t)
+	// This intentionally serializes roughly 50 MiB of JSON. Keep the normal
+	// request timeout for all other tests, but give this boundary fixture enough
+	// server time on slower CI runners to exercise the response cap itself.
+	pool, schemas, records := newRecordServiceTestWithTimeout(t, 30*time.Second)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeJSONB, Required: true}}})
 	wantIDs := make([]string, 0, 10)
@@ -755,9 +758,13 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 }
 
 func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Service) {
+	return newRecordServiceTestWithTimeout(t, 5*time.Second)
+}
+
+func newRecordServiceTestWithTimeout(t *testing.T, statementTimeout time.Duration) (*database.Pool, *schema.Service, *Service) {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), statementTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
