@@ -137,13 +137,13 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
     {error !== null && <p role="alert">{error}</p>}
     <form onSubmit={(event) => void submit(event)}>
       <fieldset><legend>Execution mode</legend>
-        <label><input checked={mode === "read"} name="sql-mode" onChange={() => { setMode("read"); setDryRun(false); setWriteConfirmed(false); }} type="radio" />Read only</label>
+        <label><input checked={mode === "read"} name="sql-mode" onChange={() => { setMode("read"); setStatements((current) => [current[0] ?? newStatement()]); setDryRun(false); setWriteConfirmed(false); }} type="radio" />Read only</label>
         <label><input checked={mode === "write"} disabled={!writeEnabled} name="sql-mode" onChange={() => setMode("write")} type="radio" />Transactional write</label>
         {mode === "write" && <><label><input checked={dryRun} onChange={(event) => { setDryRun(event.target.checked); setWriteConfirmed(false); }} type="checkbox" />Dry run and roll back</label>{!dryRun && <label><input checked={writeConfirmed} onChange={(event) => setWriteConfirmed(event.target.checked)} type="checkbox" />I confirm this allowed write transaction should execute once</label>}</>}
       </fieldset>
       <label>Timeout in milliseconds<input aria-label="Timeout in milliseconds" inputMode="numeric" onChange={(event) => setTimeoutMS(event.target.value)} value={timeoutMS} /></label>
       {statements.map((statement, index) => <StatementEditor index={index} key={index} remove={() => setStatements((current) => current.filter((_, currentIndex) => currentIndex !== index))} statement={statement} update={(value) => setStatements((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))} />)}
-      {statements.length < 10 && <button onClick={() => setStatements((current) => [...current, newStatement()])} type="button">Add statement</button>}
+      {mode === "write" && statements.length < 10 && <button onClick={() => setStatements((current) => [...current, newStatement()])} type="button">Add statement</button>}
       <button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</button>
     </form>
     <section aria-label="Allowed write targets"><h3>Allowed write targets</h3>{!writeEnabled && <p>No extension write target is configured.</p>}<ul>{targets.map((target) => <li key={`${target.schema}.${target.table}`}><code>{target.schema}.{target.table}</code> — {target.columns.join(", ")}</li>)}</ul></section>

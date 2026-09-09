@@ -51,6 +51,21 @@ describe("SQL console page", () => {
     expect(backend.submit).toHaveBeenCalledWith(expect.objectContaining({ operationID: "operation-id", idempotencyKey: "write-key", mode: "write", dryRun: false }));
   });
 
+  it("keeps read mode to one statement and discards extra write drafts when returning to read", async () => {
+    const backend = port();
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    expect(screen.queryByRole("button", { name: "Add statement" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByRole("button", { name: "Add statement" }));
+    expect(screen.getByLabelText("SQL statement 2")).toBeVisible();
+    await userEvent.click(screen.getByLabelText("Read only"));
+
+    expect(screen.queryByLabelText("SQL statement 2")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add statement" })).not.toBeInTheDocument();
+  });
+
   it("cancels a running execution and polls until the server gives its final state", async () => {
     vi.useFakeTimers();
     const running = sample({ status: "running", result: undefined });
