@@ -20,6 +20,7 @@ var (
 	ErrProbeFailed         = errors.New("update probe failed")
 	ErrRollbackFailed      = errors.New("update rollback failed")
 	ErrRecoveryRequired    = errors.New("update recovery required")
+	ErrMigrationRequired   = errors.New("update migration required")
 )
 
 // ErrorCode is stable for JSON CLI consumers. Human diagnostics must not
@@ -52,6 +53,8 @@ func ErrorCode(err error) string {
 		return "rollback_failed"
 	case errors.Is(err, ErrRecoveryRequired):
 		return "recovery_required"
+	case errors.Is(err, ErrMigrationRequired):
+		return "migration_required"
 	default:
 		return "update_failed"
 	}

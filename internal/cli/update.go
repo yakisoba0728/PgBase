@@ -140,7 +140,7 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return updateFailure(err)
 	}
-	if status, statusErr := selfupdate.ReadStatus(target, state); statusErr != nil {
+	if status, statusErr := selfupdate.Recover(ctx, target, state, nil); statusErr != nil {
 		return updateFailure(statusErr)
 	} else if unresolvedUpdate(status) {
 		return updateFailure(selfupdate.ErrRecoveryRequired)
@@ -154,7 +154,7 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 		return updateFailure(err)
 	}
 	if compatibility := candidateCompatibility(currentBuild(), fetched.Candidate); compatibility != "compatible" {
-		return updateFailure(selfupdate.ErrRecoveryRequired)
+		return updateFailure(selfupdate.ErrMigrationRequired)
 	}
 	key, err := loadTrustKey(input.trustKey)
 	if err != nil {
@@ -206,8 +206,8 @@ func runUpdateRollback(ctx context.Context, args []string, streams IO) error {
 	if err != nil {
 		return updateFailure(err)
 	}
-	if candidateCompatibility(currentBuild(), selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(previous.Candidate)}}) != "compatible" {
-		return updateFailure(selfupdate.ErrRecoveryRequired)
+	if candidateCompatibility(currentBuild(), selfupdate.Candidate{Release: selfupdate.Release{Schema: schemaFromBuild(previous.Previous)}}) != "compatible" {
+		return updateFailure(selfupdate.ErrMigrationRequired)
 	}
 	reportUpdateProgress(streams, "restoring verified update backup")
 	status, err := selfupdate.Rollback(ctx, target, state, nil)

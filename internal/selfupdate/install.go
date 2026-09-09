@@ -37,6 +37,7 @@ type Status struct {
 	Phase     string `json:"phase"`
 	Current   Build  `json:"current"`
 	Candidate Build  `json:"candidate,omitempty"`
+	Previous  Build  `json:"previous,omitempty"`
 	BackupSHA string `json:"backupSha256,omitempty"`
 }
 
@@ -241,6 +242,31 @@ func Rollback(ctx context.Context, target, stateDir string, probe func(context.C
 	return rollbackLocked(ctx, state, canonical, entry, probe)
 }
 
+func Recover(ctx context.Context, target, stateDir string, probe func(context.Context, string) (Build, error)) (Status, error) {
+	state, canonical, lock, err := prepareInstallation(target, stateDir)
+	if err != nil {
+		return Status{}, err
+	}
+	defer func() { _ = lock.Close() }()
+	if err = acquireLock(lock); err != nil {
+		return Status{}, err
+	}
+	defer func() { _ = releaseLock(lock) }()
+	executableLock, err := acquireUpdateExecutableLock(canonical)
+	if err != nil {
+		return Status{}, err
+	}
+	defer func() { _ = closeExecutableLock(executableLock) }()
+	entry, err := loadJournal(state)
+	if errors.Is(err, os.ErrNotExist) {
+		return Status{Phase: "idle"}, nil
+	}
+	if err != nil || entry.Target != filepath.Base(canonical) {
+		return Status{}, ErrRecoveryRequired
+	}
+	return recoverLocked(ctx, state, canonical, entry, probe)
+}
+
 // ReadStatus is mutation-free and intentionally does not take an updater lock.
 func ReadStatus(target, stateDir string) (Status, error) {
 	state, canonical, err := validateInstallation(target, stateDir, false)
@@ -396,7 +422,7 @@ func statusFromJournal(entry journal) Status {
 	if entry.Phase == "committed" {
 		current = entry.New
 	}
-	return Status{Phase: entry.Phase, Current: current, Candidate: entry.New, BackupSHA: entry.OldSHA256}
+	return Status{Phase: entry.Phase, Current: current, Candidate: entry.New, Previous: entry.Old, BackupSHA: entry.OldSHA256}
 }
 
 func prepareInstallation(target, stateDir string) (string, string, *os.File, error) {
