@@ -2,7 +2,7 @@
 
 pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. It provides schema planning, typed records and relations, authentication and record rules, local/S3 files, realtime events, a TypeScript SDK, and administrator tools for data, logs, jobs, and backups. Current development remains early v0.x with evolving contracts; the initial v0.1.0 release and the current source have different feature sets.
 
-As of 2026-09-09, P7 is merged and installed in the existing local project (schema v32). P8 adds advanced fields, persisted S3 settings and migration, backup S3 storage, user-authored Go migrations, and additional hooks; these changes have passed local acceptance and await merging and installation. Start with [implementation history and current status](docs/project-status.md), [next work and acceptance criteria](docs/next-work.md), and [current PocketBase comparison](docs/pocketbase-current-reassessment.md).
+As of 2026-09-09, P8 is merged through [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) and installed in the existing local project (PostgreSQL 17, schema v38). It adds advanced fields, persisted file and backup S3 settings, durable file migration, user-authored Go migrations and additional hooks. Start with [implementation history and current status](docs/project-status.md), [next work and acceptance criteria](docs/next-work.md), and [current PocketBase comparison](docs/pocketbase-current-reassessment.md).
 
 ## Quick start
 
@@ -54,7 +54,7 @@ Relation mutations use the record API/Record Operations kernel. Direct writes to
 
 ## Local development features
 
-M1–M6 and P1–P7 have been merged. The local workflows include editable authentication settings and mail templates, record bulk operations, schema transfer, file transformations, multipart batches, persistent request logs, calendar jobs, managed backup/restore, and Go custom routes. See [live implementation status](TODO.md) for the separate P8 implementation and acceptance state. Source implementation does not imply a new published release.
+M1–M6 and P1–P8 have been merged. The local workflows include editable authentication settings and mail templates, record bulk operations, schema transfer, file transformations, multipart batches, persistent request logs, calendar jobs, managed backup/restore, and Go custom routes. See [live implementation status](TODO.md) for completed acceptance and remaining implementation work. Source implementation does not imply a new published release.
 
 Start PostgreSQL, PgBase and the local mail inbox with `scripts/dev-local.sh`. See [local development](docs/local-development.md), [local verification](docs/local-verification.md), [realtime](docs/realtime.md), and [extension/client scope](docs/extensions-and-client-scope.md).
 

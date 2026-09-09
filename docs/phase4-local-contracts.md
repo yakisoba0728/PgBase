@@ -1,9 +1,9 @@
 # P8 local implementation and acceptance
 
-P8 extends the installed P7 baseline (`701256b`, schema v32). Its code is on
-`codex/pocketbase-parity-phase4`; it has not been merged or installed into the
-user's running local project. [TODO](../TODO.md) separates individual validation
-from complete acceptance, merging, and installation.
+P8 extends the P7 baseline (`701256b`, schema v32). It was merged through
+[PR #32](https://github.com/yakisoba0728/PgBase/pull/32) as `0d28446` after all five required CI jobs passed, then installed into the
+existing local PostgreSQL 17 project at schema v38. Product source, local
+installation and public release remain distinct; no P8 public release was made.
 
 The comparison target is the locally pinned PocketBase v0.40.3 source. These are
 PgBase implementations with PostgreSQL transactions, UUID identifiers, and
@@ -91,8 +91,12 @@ The populated upgrade check used the installed v32 CLI/API to create four record
 in two related collections in an isolated copy. Upgrading that copy to v38
 preserved hashes and row counts and passed doctor. Local test logs live under
 `.local/verification/phase4-*`; the regression sources and commands are committed.
-PR, remote CI, merge and the backed-up local installation remain separate steps
-tracked by [project status](project-status.md) and [TODO](../TODO.md).
+After merge, the original database, files, existing backup archives, environment
+and executable were preserved in a private pre-upgrade backup. The local v32→v38
+upgrade passed doctor/readiness, administrator login, all four field previews,
+local file/backup storage probes and a PostgreSQL 17 managed backup download with
+manifest sizes and SHA-256 verified. Installed product commit: `0d28446b4003679465103c5fe2d4f1c65364cc79`.
+See [project status](project-status.md) and [TODO](../TODO.md).
 
 JSVM, Dart SDK, the SQL console and self-update remain subsequent implementation
 work. External cloud deployment, production provider accounts and public package

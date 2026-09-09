@@ -2,7 +2,7 @@
 
 문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 P8과 위 문서를 따른다.
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase4`, 기준 main `701256b` / PR #31 병합 완료. P1–P5는 PR #29, P6는 PR #30, P7은 PR #31로 구현·로컬 검증·병합 완료했고 실행 서버도 v32로 업그레이드했다. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+기준: 2026-09-09, v0.1.0 이후. 최신 제품 병합은 [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) / `0d28446`이며 실제 로컬 설치는 P8, PostgreSQL 17, schema v38이다. P1–P5는 PR #29, P6는 #30, P7은 #31, P8은 #32로 구현·로컬 검증·원격 CI·병합·설치를 마쳤다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
 ## P7 — 필드 표시·인증 확장·스키마 입출력·Go 라우트 (로컬 적용 완료)
@@ -45,9 +45,9 @@
 
 P7 당시 후속 후보였던 고급 필드·S3 설정·사용자 migration·추가 hooks의 현재 상태는 아래 P8을 따른다. JSVM·Dart·SQL 콘솔·self-update 및 외부 검증은 후속 목록에 남는다.
 
-## P8 — 고급 필드·S3 설정·사용자 migration (로컬 인수 완료, PR·설치 대기)
+## P8 — 고급 필드·S3 설정·사용자 migration (병합·로컬 적용 완료)
 
-최신 확인: Go 전체 unit/race·skip 정책, UI 489/489·typecheck/build, 전체 관리자 브라우저 19/19 및 백업 probe 수정 후 P8 3/3, SDK 단위·pack, lint/vet·OpenAPI·6종 빌드·구조 예산이 통과했다. PostgreSQL 18+MinIO integration/race·skip 정책 및 live SDK conformance도 통과했다. 전체 실행 중 확인한 백업 lifecycle 테스트 동기화 수정은 해당 패키지 전체 재검사로 보완했다. 원본 로컬 서버는 P7/schema v32이며 P8 PR·CI·병합·백업 후 설치가 남아 있다.
+최신 확인: Go 전체 unit/race·skip 정책, UI 489/489·typecheck/build, 전체 관리자 브라우저 19/19 및 백업 probe 수정 후 P8 3/3, SDK 단위·pack, lint/vet·OpenAPI·6종 빌드·구조 예산이 통과했다. PostgreSQL 18+MinIO integration/race·skip 정책 및 live SDK conformance도 통과했다. 전체 실행 중 확인한 백업 lifecycle 테스트 동기화 수정은 해당 패키지 전체 재검사로 보완했다. [PR #32](https://github.com/yakisoba0728/PgBase/pull/32)의 필수 CI 5개가 통과했고 `0d28446`로 병합했다. 원본 DB·파일·백업 아카이브·환경·바이너리를 별도 백업한 뒤 로컬 v32→v38 적용, doctor/readiness·관리자 로그인·고급 필드 preview·저장소 연결 시험·PG17 백업/download/hash 확인을 마쳤다.
 
 Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 PostgreSQL·UUID·세션 계약과 대조했다. 개별 구현/검증, 전체 인수, 병합, 실제 설치와 공개 릴리스를 구분한다.
 
@@ -707,3 +707,7 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - 2026-09-09 P8 검토 마무리: startup recovery의 pending 정리 경쟁, S3 소유 metadata 검증과 probe 잔여 객체 문제를 수정했다. 사용자 migration/schema Apply 경쟁 회귀 추가 및 전체 usermigrate PG18/race 통과. 백업 After 수신과 worker 종료를 혼동하던 테스트를 동기화하고 race 100회 통과. 변경 집합의 100개 문서 링크와 구조 예산/OpenAPI·migration checksum도 검증했다.
 
 - 2026-09-09 P8 최종 로컬 인수 완료: Go unit/race, PG18+MinIO integration/race와 백업 테스트 수정 후 패키지 재검사·skip 정책, UI 489개·typecheck/build, 관리자 브라우저 19개 및 최신 P8 3개, SDK live conformance/pack, lint/vet, 6종 빌드와 migration/OpenAPI/구조 예산 통과. PR·원격 CI·병합·백업 후 설치는 별도로 기록한다.
+
+- [x] P8 [PR #32](https://github.com/yakisoba0728/PgBase/pull/32) 필수 CI 5개 통과 후 squash 병합 (`0d28446`).
+- [x] 원본 DB·파일·백업·환경·바이너리 보존 후 로컬 schema v32→v38 적용. doctor/readiness, 관리자 세션, 4종 고급 필드 schema preview, local 파일/백업 저장소 시험, 실제 PG17 managed backup/download 및 manifest/파일 해시 검증 통과.
+- 2026-09-09 P8 종료: 구현·검증·PR·병합·로컬 설치를 마쳤다. 설치 제품 커밋은 `0d28446b4003679465103c5fe2d4f1c65364cc79`이며 `.local/verification/phase4-local-*`와 `phase4-live-smoke.json`에 증거를 보존한다. 설치 완료 문서 수정은 제품 코드와 별도의 후속 PR로 반영한다. N1–N9는 미완료 작업으로 유지한다.
