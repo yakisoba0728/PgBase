@@ -60,7 +60,7 @@ declare module "pgbase" {
     state?: JSONValue
   }
   export interface HookResult { patch?: { [name: string]: JSONValue }; state?: JSONValue }
-  export interface JobRun { jobId: string; name: string; fenceGeneration: ExactNumber; runKey: string }
+  export interface JobRun { jobId: string; name: string; fenceGeneration: ExactNumber; runKey: string; scheduledAt: string; occurrenceKey: string }
   export interface MigrationStatement { sql: string; args?: JSONValue[] }
   const pgbase: {
     exact(value: string | number): ExactNumber

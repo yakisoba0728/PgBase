@@ -106,7 +106,7 @@ Only record request input, mail message fields, request headers, batch operation
 
 ## Jobs and migrations
 
-JavaScript jobs use the durable PgBase scheduler. Interval and five-field cron schedules, IANA time zones, persisted administrator edits, leases, retry state, and worker fencing stay in the existing job tables. The handler receives `jobId`, `name`, exact `fenceGeneration`, and `runKey`. `runKey` identifies one fenced attempt; keep a separate stable task/event ID for logical idempotency across retries.
+JavaScript jobs use the durable PgBase scheduler. Interval and five-field cron schedules, IANA time zones, persisted administrator edits, leases, retry state, and worker fencing stay in the existing job tables. The handler receives `jobId`, `name`, exact `fenceGeneration`, `runKey`, `scheduledAt`, and `occurrenceKey`. `occurrenceKey` identifies one logical scheduled occurrence, stays stable across its retries, and changes for the next schedule; use it for one idempotent effect per occurrence. `runKey` identifies one fenced claim attempt and changes on retry.
 
 JavaScript and Go user migrations are merged and sorted by migration ID. Duplicate IDs fail. Up and supported Down run in the existing transaction, advisory lock, source/history ledger, schema validation, and cache-refresh path. `applySnapshot` preserves the N1 deterministic snapshot/diff rules for rename, relation, views, indexes, and field options. An irreversible migration must declare a reason instead of a fake Down. Cancellation and failure roll back DDL and ledger changes. `history-sync` keeps its existing safe source/physical-schema checks and never deletes history merely because local source is absent.
 

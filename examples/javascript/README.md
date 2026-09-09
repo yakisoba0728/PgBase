@@ -18,7 +18,7 @@ go run . migration up --js-dir "$PGBASE_JS_DIR"
 go run . serve --js-dir "$PGBASE_JS_DIR"
 ```
 
-Replace the placeholder service subject with the UUID created for this application. The migration creates `app.n6_delivery_receipts` and its Down removes that table. The durable job intentionally throws after its first committed record create; its retry uses the same logical idempotency key and requires a replay before it succeeds. This demonstrates database idempotency, not exactly-once external delivery.
+Replace the placeholder service subject with the UUID created for this application. The migration creates `app.n6_delivery_receipts` and its Down removes that table. The durable job intentionally throws after its first committed record create; its retry uses the same `occurrenceKey` and requires a replay before it succeeds. The next schedule receives a new key and creates a new delivery record. This demonstrates database idempotency, not exactly-once external delivery.
 
 Serve `public/` from the configured PgBase public directory, or from a separate development origin listed in `PGBASE_CORS_ALLOWED_ORIGINS`. For a separate origin, pass the API base in the page URL:
 

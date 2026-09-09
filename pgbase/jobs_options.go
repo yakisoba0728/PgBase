@@ -19,18 +19,22 @@ type ScheduledJob struct {
 	Handler  func(context.Context, JobRun) error
 }
 
-// JobRun identifies one fenced execution attempt. A job is at-least-once:
-// a process that ignores its context can outlive its lease and be retried.
-// Use RunKey as the idempotency key for external side effects, or compare
-// FenceGeneration while committing an effect in the same PostgreSQL database.
+// JobRun identifies one scheduled occurrence and one fenced execution attempt.
+// OccurrenceKey is stable across retries of that occurrence and changes for the
+// next schedule. RunKey changes for every claim attempt.
 type JobRun struct {
 	JobID           uuid.UUID
 	Name            string
 	FenceGeneration int64
+	ScheduledAt     time.Time
 }
 
 func (r JobRun) RunKey() string {
 	return fmt.Sprintf("%s:%d", r.JobID, r.FenceGeneration)
+}
+
+func (r JobRun) OccurrenceKey() string {
+	return fmt.Sprintf("%s-%d", r.JobID, r.ScheduledAt.UTC().UnixMicro())
 }
 
 func validateScheduledJobs(configured []ScheduledJob) error {

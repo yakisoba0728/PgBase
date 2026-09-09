@@ -35,6 +35,7 @@ type Job struct {
 	Name            string
 	Schedule        string
 	FenceGeneration int64
+	ScheduledAt     time.Time
 }
 
 type Registry struct {
@@ -173,9 +174,8 @@ func (s *Service) RunOnce(ctx context.Context) error {
 
 type claimedJob struct {
 	Job
-	token       uuid.UUID
-	timezone    string
-	scheduledAt time.Time
+	token    uuid.UUID
+	timezone string
 }
 
 func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
@@ -193,16 +193,17 @@ func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
  ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 ) UPDATE pgbase_meta.scheduled_jobs j SET lease_token=$2,
  lease_until=clock_timestamp()+interval '1 minute', fence_generation=fence_generation+1,
- attempts=attempts+1,last_started_at=clock_timestamp(),updated_at=clock_timestamp()
+ last_scheduled_at=CASE WHEN j.attempts=0 OR j.last_scheduled_at IS NULL THEN j.next_run_at ELSE j.last_scheduled_at END,
+ attempts=j.attempts+1,last_started_at=clock_timestamp(),updated_at=clock_timestamp()
  FROM due WHERE j.id=due.id
-	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.next_run_at`, claimBatch, token, names)
+	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.last_scheduled_at`, claimBatch, token, names)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var item claimedJob
-			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration, &item.timezone, &item.scheduledAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration, &item.timezone, &item.ScheduledAt); err != nil {
 				return err
 			}
 			item.token = token
@@ -220,14 +221,14 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 	}
 	if runErr == nil {
 		if schedule.interval == 0 {
-			next := schedule.Next(claim.scheduledAt)
+			next := schedule.Next(claim.ScheduledAt)
 			now := time.Now()
 			if !next.After(now) {
 				next = schedule.Next(now)
 			}
 			_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
 	 next_run_at=$3,last_scheduled_at=$4,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
-	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$5`, claim.ID, claim.token, next, claim.scheduledAt, claim.FenceGeneration)
+		 WHERE id=$1 AND lease_token=$2 AND fence_generation=$5`, claim.ID, claim.token, next, claim.ScheduledAt, claim.FenceGeneration)
 			return err
 		}
 		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,

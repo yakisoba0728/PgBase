@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,8 @@ func TestInstallJavaScriptJobsRequiresServiceSubjectAndInvokesHandler(t *testing
  "format":"pgbase.scripts/v1",
  "jobs":[{"name":"cleanup","schedule":"0 3 * * *","timezone":"Asia/Seoul","handler":{"module":"route.js","export":"run"}}]
 }`, `exports.run = function (run) {
-  if (run.name !== "cleanup" || run.runKey.indexOf(run.jobId + ":") !== 0) throw new Error("job metadata");
+  if (run.name !== "cleanup" || run.runKey.indexOf(run.jobId + ":") !== 0 ||
+      run.occurrenceKey.indexOf(run.jobId + "-") !== 0 || run.scheduledAt !== "2026-09-10T06:00:00Z") throw new Error("job metadata");
   return {completed:true};
 };`)
 	options, err := (JavaScriptOptions{Directory: directory}).normalized()
@@ -39,7 +41,7 @@ func TestInstallJavaScriptJobsRequiresServiceSubjectAndInvokesHandler(t *testing
 		t.Fatalf("jobs = %#v", appOptions.Jobs)
 	}
 	jobID := uuid.New()
-	if err := appOptions.Jobs[0].Handler(context.Background(), JobRun{JobID: jobID, Name: "cleanup", FenceGeneration: 7}); err != nil {
+	if err := appOptions.Jobs[0].Handler(context.Background(), JobRun{JobID: jobID, Name: "cleanup", FenceGeneration: 7, ScheduledAt: time.Date(2026, 9, 10, 6, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatal(err)
 	}
 }

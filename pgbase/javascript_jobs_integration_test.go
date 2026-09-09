@@ -44,9 +44,10 @@ func TestJavaScriptDurableJobRetriesWithStableTaskKeyAndPreservesSchedule(t *tes
 }`
 	source := `const pg=require("pgbase");
 exports.run=function(run){
- const result=pg.records.create({collection:"job_tasks",input:{title:run.jobId},idempotencyKey:"job-"+run.jobId});
+ const result=pg.records.create({collection:"job_tasks",input:{title:run.occurrenceKey},idempotencyKey:"job-"+run.occurrenceKey});
  if(String(run.fenceGeneration)==="1") throw new Error("fail after record commit");
- if(!result.replayed) throw new Error("retry did not replay stable task");
+ if(String(run.fenceGeneration)==="2" && !result.replayed) throw new Error("retry did not replay stable occurrence");
+ if(String(run.fenceGeneration)!=="2" && result.replayed) throw new Error("new occurrence replayed an old task");
  return {completed:true};
 };
 exports.calendar=function(){return {completed:true};};`
@@ -84,9 +85,34 @@ exports.calendar=function(){return {completed:true};};`
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("job did not complete idempotent retry: attempts=%d fence=%d lastError=%v records=%d error=%v", attempts, fence, lastError, records, err)
+			t.Fatalf("job did not complete idempotent retry: attempts=%d fence=%d lastError=%q records=%d error=%v", attempts, fence, optionalString(lastError), records, err)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	var firstOccurrence string
+	if err := app.pool.QueryRow(context.Background(), `select title from app.job_tasks`).Scan(&firstOccurrence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.pool.Exec(context.Background(), `update pgbase_meta.scheduled_jobs set next_run_at=clock_timestamp()-interval '1 second' where name='retry_task'`); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		var fence int64
+		var attempts, records, occurrences int
+		var lastError *string
+		err := app.pool.QueryRow(context.Background(), `select attempts,fence_generation,last_error,(select count(*) from app.job_tasks),(select count(distinct title) from app.job_tasks) from pgbase_meta.scheduled_jobs where name='retry_task'`).Scan(&attempts, &fence, &lastError, &records, &occurrences)
+		if err == nil && fence >= 3 && attempts == 0 && lastError == nil && records == 2 && occurrences == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("next scheduled occurrence did not create a new effect: attempts=%d fence=%d lastError=%q records=%d occurrences=%d error=%v", attempts, fence, optionalString(lastError), records, occurrences, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	var firstCount int
+	if err := app.pool.QueryRow(context.Background(), `select count(*) from app.job_tasks where title=$1`, firstOccurrence).Scan(&firstCount); err != nil || firstCount != 1 {
+		t.Fatalf("first occurrence side effects=%d error=%v", firstCount, err)
 	}
 	var calendarTimezone string
 	if err := app.pool.QueryRow(context.Background(), `select timezone from pgbase_meta.scheduled_jobs where name='calendar_task'`).Scan(&calendarTimezone); err != nil || calendarTimezone != "Asia/Seoul" {
@@ -112,4 +138,11 @@ exports.calendar=function(){return {completed:true};};`
 	if schedule != "30 5 * * *" || timezone != "UTC" || enabled {
 		t.Fatalf("administrator schedule was overwritten: schedule=%q timezone=%q enabled=%t", schedule, timezone, enabled)
 	}
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

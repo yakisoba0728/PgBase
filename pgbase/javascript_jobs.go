@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/webisnoteasy/PgBase/internal/identity"
 	"github.com/webisnoteasy/PgBase/internal/jsvm"
@@ -15,6 +16,8 @@ type javaScriptJobRun struct {
 	Name            string `json:"name"`
 	FenceGeneration int64  `json:"fenceGeneration"`
 	RunKey          string `json:"runKey"`
+	ScheduledAt     string `json:"scheduledAt"`
+	OccurrenceKey   string `json:"occurrenceKey"`
 }
 
 func installJavaScriptJobs(options *Options, runtime *javaScriptRuntime) error {
@@ -38,7 +41,7 @@ func installJavaScriptJobs(options *Options, runtime *javaScriptRuntime) error {
 		jobs = append(jobs, ScheduledJob{Name: descriptor.Name, Schedule: descriptor.Schedule, Timezone: descriptor.Timezone,
 			Handler: func(ctx context.Context, run JobRun) error {
 				input, err := json.Marshal(javaScriptJobRun{JobID: run.JobID.String(), Name: run.Name,
-					FenceGeneration: run.FenceGeneration, RunKey: run.RunKey()})
+					FenceGeneration: run.FenceGeneration, RunKey: run.RunKey(), ScheduledAt: run.ScheduledAt.UTC().Format(time.RFC3339Nano), OccurrenceKey: run.OccurrenceKey()})
 				if err != nil {
 					return err
 				}
