@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:http/http.dart' as http;
 
 import 'client.dart';
@@ -80,6 +82,7 @@ final class PgBaseAdminClient {
     CancellationToken? cancellation,
   }) async {
     final normalized = method.toUpperCase();
+    final generation = _generation;
     final requestHeaders = <String, String>{
       if (sendOriginHeader) 'origin': transport.baseUri.origin,
       if (_cookie != null) 'cookie': _cookie!,
@@ -96,7 +99,7 @@ final class PgBaseAdminClient {
       cancellation: cancellation,
     );
     if (response.status < 200 || response.status >= 300) {
-      if (response.status == 401) {
+      if (response.status == 401 && generation == _generation) {
         _csrf = '';
         _cookie = null;
         _generation++;
@@ -118,27 +121,44 @@ final class PgBaseAdminClient {
 
   Future<JsonObject> catalog({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/collections', cancellation: cancellation);
-  Future<JsonObject> schemaPlan(
+
+  /// Freezes one preview's exact apply body and recovery identities.
+  Future<ApprovedSchemaPlan> schemaPlan(
     JsonObject change, {
     CancellationToken? cancellation,
-  }) => _object(
-    'POST',
-    '/api/admin/collections/plan',
-    body: change,
-    cancellation: cancellation,
-  );
+  }) async {
+    final preview = await _object(
+      'POST',
+      '/api/admin/collections/plan',
+      body: change,
+      cancellation: cancellation,
+    );
+    final checksum = preview['checksum'];
+    final baseVersion = preview['baseVersion'];
+    if (checksum is! JsonString || baseVersion is! JsonNumber)
+      throw const PgBaseProtocolError('invalid_schema_plan');
+    return ApprovedSchemaPlan._(
+      preview: preview,
+      applyBody: JsonObject({
+        ...change.values,
+        'checksum': checksum,
+        'baseVersion': baseVersion,
+      }),
+      operationId: _operationId(),
+      idempotencyKey: _idempotencyKey('schema-apply'),
+    );
+  }
+
   Future<JsonValue> applySchema(
-    JsonObject approvedBody,
-    String operationId,
-    String idempotencyKey, {
+    ApprovedSchemaPlan plan, {
     CancellationToken? cancellation,
   }) => request(
     'POST',
     '/api/admin/collections/apply',
-    body: approvedBody,
+    body: plan.applyBody,
     headers: {
-      'pgbase-operation-id': operationId,
-      'idempotency-key': idempotencyKey,
+      'pgbase-operation-id': plan.operationId,
+      'idempotency-key': plan.idempotencyKey,
     },
     cancellation: cancellation,
   );
@@ -152,27 +172,48 @@ final class PgBaseAdminClient {
   );
   Future<JsonObject> exportSchema({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/schema/export', cancellation: cancellation);
-  Future<JsonObject> previewSchemaImport(
+
+  /// Freezes the server-approved document and one replay-safe import identity.
+  Future<ApprovedSchemaImportPlan> previewSchemaImport(
     JsonObject document, {
     CancellationToken? cancellation,
-  }) => _object(
-    'POST',
-    '/api/admin/schema/import/preview',
-    body: document,
-    cancellation: cancellation,
-  );
+  }) async {
+    final preview = await _object(
+      'POST',
+      '/api/admin/schema/import/preview',
+      body: document,
+      cancellation: cancellation,
+    );
+    final approvedDocument = preview['document'];
+    final checksum = preview['checksum'];
+    final baseVersion = preview['baseVersion'];
+    if (approvedDocument is! JsonObject ||
+        checksum is! JsonString ||
+        baseVersion is! JsonNumber) {
+      throw const PgBaseProtocolError('invalid_schema_import_plan');
+    }
+    return ApprovedSchemaImportPlan._(
+      preview: preview,
+      applyBody: JsonObject({
+        'document': approvedDocument,
+        'checksum': checksum,
+        'baseVersion': baseVersion,
+      }),
+      operationId: _operationId(),
+      idempotencyKey: _idempotencyKey('schema-import'),
+    );
+  }
+
   Future<JsonValue> applySchemaImport(
-    JsonObject approvedBody,
-    String operationId,
-    String idempotencyKey, {
+    ApprovedSchemaImportPlan plan, {
     CancellationToken? cancellation,
   }) => request(
     'POST',
     '/api/admin/schema/import/apply',
-    body: approvedBody,
+    body: plan.applyBody,
     headers: {
-      'pgbase-operation-id': operationId,
-      'idempotency-key': idempotencyKey,
+      'pgbase-operation-id': plan.operationId,
+      'idempotency-key': plan.idempotencyKey,
     },
     cancellation: cancellation,
   );
@@ -391,3 +432,47 @@ final class PgBaseAdminClient {
     return value;
   }
 }
+
+/// A schema preview and its immutable, replay-safe apply request.
+final class ApprovedSchemaPlan {
+  const ApprovedSchemaPlan._({
+    required this.preview,
+    required this.applyBody,
+    required this.operationId,
+    required this.idempotencyKey,
+  });
+
+  final JsonObject preview;
+  final JsonObject applyBody;
+  final String operationId;
+  final String idempotencyKey;
+}
+
+/// A schema-import preview and its immutable, replay-safe apply request.
+final class ApprovedSchemaImportPlan {
+  const ApprovedSchemaImportPlan._({
+    required this.preview,
+    required this.applyBody,
+    required this.operationId,
+    required this.idempotencyKey,
+  });
+
+  final JsonObject preview;
+  final JsonObject applyBody;
+  final String operationId;
+  final String idempotencyKey;
+}
+
+final Random _random = Random.secure();
+
+String _operationId() {
+  final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex = bytes
+      .map((value) => value.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+}
+
+String _idempotencyKey(String prefix) => '$prefix-${_operationId()}';

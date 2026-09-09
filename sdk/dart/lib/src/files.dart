@@ -154,12 +154,53 @@ Future<String> _sha256(
   UploadSource source,
   CancellationToken? cancellation,
 ) async {
+  if (cancellation?.isCancelled ?? false) throw const PgBaseCancellation();
   final sink = AccumulatorSink<Digest>();
   final converter = sha256.startChunkedConversion(sink);
-  await for (final chunk in source.open()) {
-    if (cancellation?.isCancelled ?? false) throw const PgBaseCancellation();
-    converter.add(chunk);
+  final result = Completer<String>();
+  late final StreamSubscription<List<int>> subscription;
+  StreamSubscription<void>? cancellationSubscription;
+
+  void finishError(Object error, [StackTrace? stackTrace]) {
+    if (result.isCompleted) return;
+    converter.close();
+    result.completeError(error, stackTrace);
   }
-  converter.close();
-  return sink.events.single.toString();
+
+  void abort() {
+    if (result.isCompleted) return;
+    unawaited(subscription.cancel());
+    finishError(const PgBaseCancellation());
+  }
+
+  void sourceError(Object error, StackTrace stackTrace) {
+    unawaited(subscription.cancel());
+    finishError(error, stackTrace);
+  }
+
+  subscription = source.open().listen(
+    (chunk) {
+      if (cancellation?.isCancelled ?? false) {
+        abort();
+      } else {
+        converter.add(chunk);
+      }
+    },
+    onError: sourceError,
+    onDone: () {
+      if (result.isCompleted) return;
+      converter.close();
+      result.complete(sink.events.single.toString());
+    },
+  );
+  cancellationSubscription = cancellation?.whenCancelled.asStream().listen(
+    (_) => abort(),
+  );
+  if (cancellation?.isCancelled ?? false) abort();
+  try {
+    return await result.future;
+  } finally {
+    await cancellationSubscription?.cancel();
+    await subscription.cancel();
+  }
 }

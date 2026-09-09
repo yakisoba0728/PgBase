@@ -80,6 +80,10 @@ Stream<RecordEvent> recordEvents(
         }
       } on PgBaseCancellation {
         return;
+      } on PgBaseError catch (error) {
+        if (_terminalSseError(error)) rethrow;
+        if (stop.isCancelled || generation != client.auth.generation) return;
+        if (reconnects >= maxReconnects) rethrow;
       } catch (_) {
         if (stop.isCancelled || generation != client.auth.generation) return;
         if (reconnects >= maxReconnects) rethrow;
@@ -97,6 +101,13 @@ Stream<RecordEvent> recordEvents(
     }
   }
 }
+
+bool _terminalSseError(PgBaseError error) =>
+    error.status == 400 ||
+    error.status == 401 ||
+    error.status == 403 ||
+    error.status == 410 ||
+    error.code == 'cursor_expired';
 
 String _cursor(String value) {
   if (!RegExp(r'^\d+$').hasMatch(value))

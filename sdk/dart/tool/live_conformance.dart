@@ -39,15 +39,7 @@ Future<void> main() async {
       ]),
     });
     final plan = await admin.schemaPlan(change);
-    await admin.applySchema(
-      JsonObject({
-        ...change.values,
-        'checksum': plan['checksum']!,
-        'baseVersion': plan['baseVersion']!,
-      }),
-      '01900000-0000-7000-8000-${suffix.substring(suffix.length - 12)}',
-      'schema-apply-key-$suffix',
-    );
+    await admin.applySchema(plan);
     await admin.request(
       'PUT',
       '/api/admin/collections/${Uri.encodeComponent(name)}/user-access',

@@ -4,12 +4,14 @@ final class PgBaseError implements Exception {
     this.code, {
     this.details = const {},
     this.etag,
+    this.requestId,
   });
 
   final int status;
   final String code;
   final Map<String, List<String>> details;
   final String? etag;
+  final String? requestId;
 
   @override
   String toString() => 'PgBaseError($status, $code)';

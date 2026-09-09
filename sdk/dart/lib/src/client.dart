@@ -490,9 +490,7 @@ final class AuthRealm {
       '$_path/profile',
       cancellation: cancellation,
     );
-    if (value is! JsonObject)
-      throw const PgBaseProtocolError('invalid_profile_response');
-    return value;
+    return _profileAttributes(value);
   }
 
   Future<JsonObject> updateProfile(
@@ -505,9 +503,7 @@ final class AuthRealm {
       body: value,
       cancellation: cancellation,
     );
-    if (response is! JsonObject)
-      throw const PgBaseProtocolError('invalid_profile_response');
-    return response;
+    return _profileAttributes(response);
   }
 }
 
@@ -547,6 +543,7 @@ PgBaseError pgBaseError(PgBaseResponse response) {
     final envelope = body is JsonObject ? body['error'] : null;
     if (envelope is JsonObject) {
       final code = (envelope['code'] as JsonString?)?.value ?? 'request_failed';
+      final requestId = (envelope['requestId'] as JsonString?)?.value;
       final detailsValue = envelope['details'];
       final details = <String, List<String>>{};
       if (detailsValue is JsonObject) {
@@ -565,10 +562,17 @@ PgBaseError pgBaseError(PgBaseResponse response) {
         code,
         details: details,
         etag: response.etag,
+        requestId: requestId,
       );
     }
   } on PgBaseProtocolError {
     // Fall through to a stable transport error.
   }
   return PgBaseError(response.status, 'request_failed', etag: response.etag);
+}
+
+JsonObject _profileAttributes(JsonValue value) {
+  if (value is! JsonObject || value['attributes'] is! JsonObject)
+    throw const PgBaseProtocolError('invalid_profile_response');
+  return value['attributes']! as JsonObject;
 }

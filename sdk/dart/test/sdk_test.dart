@@ -92,6 +92,139 @@ void main() {
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
   });
 
+  test('structured HTTP errors retain their ETag and details', () async {
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: _ConflictClient(),
+      auth: AuthStore(initialToken: 'user-token'),
+    );
+
+    try {
+      await pgbase
+          .records('notes')
+          .update(
+            '01900000-0000-7000-8000-000000000001',
+            JsonObject({'title': const JsonString('two')}),
+            '"pgb1.stale"',
+          );
+      fail('the stale ETag request must fail');
+    } on PgBaseError catch (error) {
+      expect(error.status, 412);
+      expect(error.code, 'etag_conflict');
+      expect(error.details['currentEtag'], ['pgb1.current']);
+      expect(error.etag, '"pgb1.current"');
+      expect(error.requestId, 'request-123');
+    }
+  });
+
+  test(
+    'request aborts remain cancellation rather than server errors',
+    () async {
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: _AbortedClient(),
+      );
+
+      await expectLater(pgbase.session(), throwsA(isA<PgBaseCancellation>()));
+    },
+  );
+
+  test('storage clears after a delayed older token write', () async {
+    final storage = _DelayedAuthStorage();
+    final auth = AuthStore(storage: storage);
+    final save = auth.save('stale-token');
+    await storage.writeStarted.future;
+    final clear = auth.clear();
+    storage.finishWrite.complete();
+    await Future.wait([save, clear]);
+
+    expect(storage.value, isNull);
+  });
+
+  test('a delayed restore cannot replace a newer clear', () async {
+    final storage = _DelayedAuthStorage()..value = 'stale-token';
+    final auth = AuthStore(storage: storage);
+    final restore = auth.restore();
+    await storage.readStarted.future;
+    final clear = auth.clear();
+    storage.finishRead.complete();
+    await Future.wait([restore, clear]);
+
+    expect(auth.token, isNull);
+  });
+
+  test(
+    'administrator 401 clears the in-memory cookie and CSRF state',
+    () async {
+      final client = _AdminUnauthorizedClient();
+      final admin = PgBaseAdminClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      await admin.login('admin@example.test', 'password');
+
+      await expectLater(
+        admin.configureJob('daily', '0 0 * * *', true),
+        throwsA(isA<PgBaseError>()),
+      );
+      await admin.configureJob('daily', '0 0 * * *', true);
+
+      expect(client.requests[1].headers['cookie'], 'admin-session=one');
+      expect(client.requests[1].headers['x-pgbase-csrf'], 'csrf-token');
+      expect(client.requests[2].headers.containsKey('cookie'), isFalse);
+      expect(client.requests[2].headers.containsKey('x-pgbase-csrf'), isFalse);
+    },
+  );
+
+  test('an old administrator 401 cannot clear a newer login', () async {
+    final client = _AdminStale401Client();
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    await admin.login('admin@example.test', 'password');
+    final oldMutation = admin.configureJob('daily', '0 0 * * *', true);
+    await client.oldMutationStarted.future;
+    await admin.login('admin@example.test', 'password');
+    client.oldMutationResponse.complete(
+      _jsonResponse(401, {
+        'error': {'code': 'unauthorized'},
+      }),
+    );
+    await expectLater(oldMutation, throwsA(isA<PgBaseError>()));
+    await admin.configureJob('daily', '0 0 * * *', true);
+
+    expect(client.requests.last.headers['cookie'], 'admin-session=new');
+    expect(client.requests.last.headers['x-pgbase-csrf'], 'csrf-new');
+  });
+
+  test('schema plans freeze their exact replay body and identities', () async {
+    final client = _SchemaPlanClient();
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    final change = JsonObject({
+      'operation': const JsonString('create'),
+      'name': const JsonString('notes'),
+      'fields': const JsonArray([]),
+    });
+    final plan = await admin.schemaPlan(change);
+    await admin.applySchema(plan);
+    await admin.applySchema(plan);
+
+    expect((plan.applyBody['checksum'] as JsonString).value, 'sealed');
+    expect(client.requests[1].body, client.requests[2].body);
+    expect(
+      client.requests[1].headers['pgbase-operation-id'],
+      client.requests[2].headers['pgbase-operation-id'],
+    );
+    expect(
+      client.requests[1].headers['idempotency-key'],
+      client.requests[2].headers['idempotency-key'],
+    );
+  });
+
   test(
     'file upload streams a multipart part with its verified digest',
     () async {
@@ -127,6 +260,33 @@ void main() {
     },
   );
 
+  test('a stalled upload hash stops when cancellation fires', () async {
+    final client = _ScriptedClient();
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+      auth: AuthStore(initialToken: 'user-token'),
+    );
+    final stalled = StreamController<List<int>>();
+    final cancellation = CancellationToken();
+    final upload = pgbase
+        .files('notes', 'record')
+        .upload(
+          'attachment',
+          UploadSource(
+            open: () => stalled.stream,
+            length: 1,
+            filename: 'stalled.txt',
+          ),
+          cancellation: cancellation,
+        );
+    cancellation.cancel();
+
+    await expectLater(upload, throwsA(isA<PgBaseCancellation>()));
+    expect(client.requests, isEmpty);
+    await stalled.close();
+  });
+
   test(
     'SSE reconnects from an exact int64 cursor and de-duplicates event IDs',
     () async {
@@ -144,6 +304,31 @@ void main() {
       expect(client.requests.last.headers['last-event-id'], '9007199254740992');
     },
   );
+
+  test('terminal SSE auth and replay errors do not reconnect', () async {
+    for (final status in [401, 410]) {
+      final client = _TerminalSseClient(status);
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+        auth: AuthStore(initialToken: 'user-token'),
+      );
+      await expectLater(
+        pgbase.records('notes').events(maxReconnects: 5).drain<void>(),
+        throwsA(isA<PgBaseError>()),
+      );
+      expect(client.calls, 1);
+    }
+  });
+
+  test('realm profile returns the attributes object', () async {
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: _ProfileClient(),
+    );
+    final attributes = await pgbase.realm('members').profile();
+    expect((attributes['displayName'] as JsonString).value, 'Ada');
+  });
 
   test('auth generation aborts an open SSE subscription', () async {
     final client = _BlockingSseClient();
@@ -274,3 +459,195 @@ final class _BlockingSseClient extends http.BaseClient {
     return http.StreamedResponse(stream.stream, 200);
   }
 }
+
+final class _ConflictClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode(
+          r'{"error":{"code":"etag_conflict","requestId":"request-123","details":{"currentEtag":["pgb1.current"]}}}',
+        ),
+      ),
+      412,
+      headers: const {
+        'content-type': 'application/json',
+        'etag': '"pgb1.current"',
+      },
+    );
+  }
+}
+
+final class _AbortedClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    throw http.RequestAbortedException(request.url);
+  }
+}
+
+final class _AdminUnauthorizedClient extends http.BaseClient {
+  final List<_CapturedRequest> requests = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(
+      _CapturedRequest(
+        request.method,
+        request.url.path,
+        Map.unmodifiable(request.headers),
+        body,
+      ),
+    );
+    return switch (requests.length) {
+      1 => http.StreamedResponse(
+        http.ByteStream.fromBytes(utf8.encode('{"csrfToken":"csrf-token"}')),
+        200,
+        headers: const {
+          'content-type': 'application/json',
+          'set-cookie': 'admin-session=one; HttpOnly',
+        },
+      ),
+      2 => http.StreamedResponse(
+        http.ByteStream.fromBytes(
+          utf8.encode('{"error":{"code":"unauthorized"}}'),
+        ),
+        401,
+        headers: const {'content-type': 'application/json'},
+      ),
+      _ => http.StreamedResponse(http.ByteStream.fromBytes(const []), 204),
+    };
+  }
+}
+
+final class _DelayedAuthStorage implements AuthStorage {
+  String? value;
+  final readStarted = Completer<void>();
+  final finishRead = Completer<void>();
+  final writeStarted = Completer<void>();
+  final finishWrite = Completer<void>();
+
+  @override
+  Future<void> clear() async {
+    value = null;
+  }
+
+  @override
+  Future<String?> read() async {
+    readStarted.complete();
+    await finishRead.future;
+    return value;
+  }
+
+  @override
+  Future<void> write(String token) async {
+    writeStarted.complete();
+    await finishWrite.future;
+    value = token;
+  }
+}
+
+final class _TerminalSseClient extends http.BaseClient {
+  _TerminalSseClient(this.status);
+  final int status;
+  int calls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    calls++;
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode('{"error":{"code":"cursor_expired"}}'),
+      ),
+      status,
+      headers: const {'content-type': 'application/json'},
+    );
+  }
+}
+
+final class _ProfileClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode('{"attributes":{"displayName":"Ada"}}'),
+      ),
+      200,
+      headers: const {'content-type': 'application/json'},
+    );
+  }
+}
+
+http.StreamedResponse _jsonResponse(int status, Object? body) =>
+    http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        body == null ? const [] : utf8.encode(jsonEncode(body)),
+      ),
+      status,
+      headers: const {'content-type': 'application/json'},
+    );
+
+final class _AdminStale401Client extends http.BaseClient {
+  final List<_CapturedRequest> requests = [];
+  final oldMutationStarted = Completer<void>();
+  final oldMutationResponse = Completer<http.StreamedResponse>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(
+      _CapturedRequest(
+        request.method,
+        request.url.path,
+        Map.unmodifiable(request.headers),
+        body,
+      ),
+    );
+    return switch (requests.length) {
+      1 => _adminLoginResponse('old'),
+      2 => () async {
+        oldMutationStarted.complete();
+        return oldMutationResponse.future;
+      }(),
+      3 => _adminLoginResponse('new'),
+      _ => _jsonResponse(204, null),
+    };
+  }
+}
+
+final class _SchemaPlanClient extends http.BaseClient {
+  final List<_CapturedRequest> requests = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(
+      _CapturedRequest(
+        request.method,
+        request.url.path,
+        Map.unmodifiable(request.headers),
+        body,
+      ),
+    );
+    if (request.url.path.endsWith('/plan')) {
+      return _jsonResponse(200, {'checksum': 'sealed', 'baseVersion': 3});
+    }
+    return _jsonResponse(204, null);
+  }
+}
+
+http.StreamedResponse _adminLoginResponse(String suffix) =>
+    http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode(jsonEncode({'csrfToken': 'csrf-$suffix'})),
+      ),
+      200,
+      headers: {
+        'content-type': 'application/json',
+        'set-cookie': 'admin-session=$suffix; HttpOnly',
+      },
+    );
