@@ -44,7 +44,7 @@ func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T
 		{http.MethodGet, "/dashboard/one", 200, "<html>public app</html>"},
 		{http.MethodGet, "/assets/missing.js", 404, "404 page not found\n"},
 		{http.MethodGet, "/api/not-a-route", 404, ""},
-		{http.MethodPost, "/site-check", 405, "Method Not Allowed\n"},
+		{http.MethodPost, "/site-check", 405, "Method not allowed\n"},
 	} {
 		t.Run(test.method+test.path, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -64,6 +64,7 @@ func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T
 
 func TestN3AdministratorOTPAndIPPoliciesEnforceHTTPLoginAndSessions(t *testing.T) {
 	app := newPublicUsersApp(t, false)
+	_, _ = setupPublicUsersAdministrator(t, app)
 	service := adminauth.NewService(app.app.pool, adminauth.NewArgon2idPasswords(), []byte("public-users-token-secret-32-bytes-minimum"), publicSetupToken, 12*time.Hour, nil)
 	if err := service.EnableTOTP(t.Context(), publicAdminEmail, "JBSWY3DPEHPK3PXP"); err != nil {
 		t.Fatal(err)
