@@ -1,14 +1,14 @@
 # N6–N9 measured structural budget
 
-Source candidate: `ceae542`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. Final mechanical lint deltas will be reflected before acceptance. Independent confirmation: Gauss final composition review pending.
+Source candidate: `94d8300`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. N6 mechanical cleanup `c4ebdeb` is included; actual CLI/JSVM/public-facade race tests pass. Gauss independently confirmed the unchanged classifier, baseline metrics and scoped rationale at `d4fb6a2`; the final mechanical delta adds exactly 17 Go lines.
 
 `go run ./tools/repostats -compare 2939f1543e4889c0ffa967eae398c91d0ecbb6ce` measures every Git-tracked runtime file using the existing classifier. No files or comments were excluded and no unused growth allowance is added. The data-group ceiling remains 22,693; no database/query/record/schema runtime file changes in this feature group. Every production file remains at or below 800 lines.
 
 | Metric | N1–N5 baseline | N6–N9 measured ceiling |
 | --- | ---: | ---: |
-| Go runtime lines | 58,513 | 69,292 |
+| Go runtime lines | 58,513 | 69,309 |
 | UI runtime lines | 6,249 | 6,667 |
-| Handwritten runtime lines | 64,762 | 75,959 |
+| Handwritten runtime lines | 64,762 | 75,976 |
 | Go interfaces | 60 | 67 |
 | Go exported declarations | 1,053 | 1,251 |
 | Go constructors | 49 | 55 |
@@ -16,15 +16,15 @@ Source candidate: `ceae542`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae
 | UI runtime exports | 203 | 229 |
 | Production files over 800 lines | 0 | 0 |
 
-Gross tracked runtime comparison is +11,241/−48 = +11,193. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,197. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
+Gross tracked runtime comparison is +11,283/−73 = +11,210. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,214. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
 
 | Runtime area | Added | Removed | Contract served |
 | --- | ---: | ---: | --- |
-| `internal/jsvm` | 1,233 | 0 | bounded JS engine, loader, cancellation and queue lifecycle |
-| `pgbase` | 2,571 | 14 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
+| `internal/jsvm` | 1,247 | 9 | bounded JS engine, loader, cancellation and queue lifecycle |
+| `pgbase` | 2,593 | 29 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
 | `internal/sqlconsole` | 3,630 | 0 | parser/native capability guard, restricted pools, executor, durable admission/recovery and heavy-data cleanup |
 | `internal/selfupdate` | 2,034 | 0 | signed local artifact verification, journaled swap/recovery and platform helpers |
-| `internal/cli` | 743 | 4 | JS migration/watch and local self-update command surfaces |
+| `internal/cli` | 749 | 5 | JS migration/watch and local self-update command surfaces |
 | `internal/api` | 457 | 9 | optional authenticated SQL routes, bounded DTOs and session capability |
 | `ui/admin` | 430 | 12 | SQL editor/results/history/recovery, session-scoped pending identity and nav |
 | other runtime/support | 147 | 9 | build metadata/config, storage guard, job occurrence identity, PublicDir CSP and external example |

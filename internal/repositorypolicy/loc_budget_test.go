@@ -331,7 +331,7 @@ type structuralLimit struct {
 // docs/workstreams/n6-n9/structural-budget.md. No spare allowance or file
 // exclusion is added; the 800-line hard limit remains unchanged.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 75959, "N1–N5 baseline + measured N6–N9 scope"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 75976, "N1–N5 baseline + measured N6–N9 scope"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6667, "N1–N5 baseline + N8 SQL console UI"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 67, "N1–N5 baseline + N6–N9 contracts"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1251, "N1–N5 baseline + N6–N9 public API"},
