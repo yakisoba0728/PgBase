@@ -46,6 +46,7 @@ type Service struct {
 	instanceErr         error
 	compilerVersion     int16
 	collectionLifecycle CollectionMutationLifecycle
+	migrationRecorder   MigrationRecorder
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {

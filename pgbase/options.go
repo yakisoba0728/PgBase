@@ -76,13 +76,16 @@ type Options struct {
 	// MetricsToken enables the protected Prometheus-compatible GET /metrics
 	// endpoint when non-empty. It is copied during normalization so callers
 	// cannot change the live credential after constructing an App.
-	MetricsToken       []byte
-	AutoMigrate        bool
-	TrustedProxies     []netip.Prefix
-	CORSAllowedOrigins []string
-	AdminSessionTTL    time.Duration
-	StatementTimeout   time.Duration
-	ShutdownTimeout    time.Duration
+	MetricsToken []byte
+	AutoMigrate  bool
+	// UserMigrationAutoRecordDirectory opts administrator schema mutations into
+	// durable Go migration source recording in this directory.
+	UserMigrationAutoRecordDirectory string
+	TrustedProxies                   []netip.Prefix
+	CORSAllowedOrigins               []string
+	AdminSessionTTL                  time.Duration
+	StatementTimeout                 time.Duration
+	ShutdownTimeout                  time.Duration
 	// SchemaApplyTimeout bounds one schema apply, including its DDL. It is a
 	// separate axis from StatementTimeout because index and constraint builds
 	// legitimately outlive an ordinary statement, and from the server write
@@ -218,6 +221,9 @@ func validateOptions(o Options) error {
 	if o.SchemaApplyTimeout < minimumSchemaApplyTimeout || o.SchemaApplyTimeout > maximumSchemaApplyTimeout {
 		return fmt.Errorf("SchemaApplyTimeout: must be between %s and %s",
 			minimumSchemaApplyTimeout, maximumSchemaApplyTimeout)
+	}
+	if len(o.UserMigrationAutoRecordDirectory) > 4096 || strings.IndexByte(o.UserMigrationAutoRecordDirectory, 0) >= 0 {
+		return fmt.Errorf("UserMigrationAutoRecordDirectory: invalid path")
 	}
 	return nil
 }

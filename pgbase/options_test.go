@@ -207,6 +207,16 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, StatementTimeout: maximumStatementTimeout},
 		},
 		{
+			name: "automatic migration directory rejects NUL",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, UserMigrationAutoRecordDirectory: "migrations\x00hidden"},
+			want: "UserMigrationAutoRecordDirectory",
+		},
+		{
+			name: "automatic migration directory has a bounded path",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, UserMigrationAutoRecordDirectory: strings.Repeat("m", 4097)},
+			want: "UserMigrationAutoRecordDirectory",
+		},
+		{
 			name: "valid public URL is accepted",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, PublicURL: publicURL, CORSAllowedOrigins: []string{"https://admin.example:8443"}, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}},
 		},

@@ -1,8 +1,10 @@
 package usermigrate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 func TestManifestValidationAndAppliedRevision(t *testing.T) {
@@ -31,6 +35,94 @@ func TestManifestValidationAndAppliedRevision(t *testing.T) {
 		if err := validateManifest(manifest); err == nil {
 			t.Fatalf("invalid manifest accepted: %#v", manifest)
 		}
+	}
+}
+
+func TestGenerateSnapshotSourceIsDeterministicAndBuilds(t *testing.T) {
+	fieldID := uuid.MustParse("0199ab10-0000-7000-8000-000000000021")
+	before, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat, Collections: []schema.MigrationSnapshotCollection{{
+		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText}}, Rules: []byte(`{}`),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := GenerateSnapshotSource("20260909130000_add_notes", "migrations", before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := GenerateSnapshotSource("20260909130000_add_notes", "migrations", before, after)
+	if err != nil || !bytes.Equal(one.Source, two.Source) {
+		t.Fatalf("generation not deterministic err=%v", err)
+	}
+	for _, fragment := range []string{"ApplyUserMigrationSnapshot", "BeforeSnapshot:", "DATA LOSS:"} {
+		if !strings.Contains(string(one.Source), fragment) {
+			t.Fatalf("generated source missing %q", fragment)
+		}
+	}
+	directory := filepath.Join(t.TempDir(), "migrations")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, one.Filename), one.Source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	module := filepath.Dir(directory)
+	repository, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module generated.snapshot.test\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n"
+	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("go", "test", "-mod=mod", "./...")
+	command.Dir = module
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.8")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated snapshot migration does not build: %v\n%s", err, output)
+	}
+}
+
+func TestGenerateSnapshotSourceRefusesIrreversibleDown(t *testing.T) {
+	fieldID := uuid.MustParse("0199ab10-0000-7000-8000-000000000022")
+	before, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat, Collections: []schema.MigrationSnapshotCollection{{
+		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText}}, Rules: []byte(`{}`),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := GenerateSnapshotSource("20260909130001_drop_notes", "migrations", before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(generated.Impact.Irreversible) == 0 || !bytes.Contains(generated.Source, []byte("IrreversibleMigrationError")) ||
+		!bytes.Contains(generated.Source, []byte("IrreversibleReason:")) {
+		t.Fatalf("destructive source did not refuse Down: impact=%+v\n%s", generated.Impact, generated.Source)
+	}
+}
+
+func TestMaterializeSourceIsIdempotentAndPreservesConflict(t *testing.T) {
+	recorder := &AutoRecorder{directory: t.TempDir()}
+	if err := recorder.materialize("20260909130000_test.go", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.materialize("20260909130000_test.go", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.materialize("20260909130000_test.go", []byte("second")); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("conflict error=%v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(recorder.directory, "20260909130000_test.go"))
+	if err != nil || string(raw) != "first" {
+		t.Fatalf("conflict overwrote source=%q err=%v", raw, err)
 	}
 }
 

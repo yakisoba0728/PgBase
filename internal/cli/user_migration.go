@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
-const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration list | pgbase migration up | pgbase migration down"
+const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration history | pgbase migration history-sync ID | pgbase migration auto-status | pgbase migration recover | pgbase migration list | pgbase migration up | pgbase migration down"
 
 func runUserMigration(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) >= 1 && args[0] == "create" {
@@ -30,7 +31,46 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		_, err = fmt.Fprintln(streams.stdout(), path)
 		return err
 	}
-	if len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" {
+	if len(args) >= 1 && args[0] == "diff" {
+		if len(args) < 4 || len(args) > 5 {
+			return configurationError{err: errors.New("invalid user migration diff usage"), message: userMigrationUsage}
+		}
+		before, err := os.ReadFile(args[2])
+		if err != nil {
+			return configurationError{err: err, message: "read before migration snapshot"}
+		}
+		after, err := os.ReadFile(args[3])
+		if err != nil {
+			return configurationError{err: err, message: "read after migration snapshot"}
+		}
+		directory := "migrations"
+		if len(args) == 5 {
+			directory = filepath.Clean(args[4])
+		}
+		generated, path, err := usermigrate.GenerateFromSnapshots(directory, "migrations", args[1], time.Now(), before, after)
+		if err != nil {
+			return configurationError{err: err, message: "generate migration from snapshots"}
+		}
+		if _, err := fmt.Fprintln(streams.stdout(), path); err != nil {
+			return err
+		}
+		for _, warning := range generated.Impact.DataLoss {
+			if _, err := fmt.Fprintln(streams.stderr(), "data-loss:", warning); err != nil {
+				return err
+			}
+		}
+		for _, reason := range generated.Impact.Irreversible {
+			if _, err := fmt.Fprintln(streams.stderr(), "irreversible-down:", reason); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(args) == 0 {
+		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
+	}
+	if args[0] == "snapshot" && len(args) != 2 || args[0] == "history-sync" && len(args) != 2 ||
+		args[0] != "snapshot" && args[0] != "history-sync" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
 	}
 	runtime, err := openDatabase(ctx, env, streams)
@@ -44,8 +84,51 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return operationError(options.Logger, "open PgBase application for user migrations", err)
 	}
 	defer func() { _ = app.Close(context.Background()) }()
+	if args[0] == "snapshot" {
+		snapshot, err := app.UserMigrationSnapshot(ctx)
+		if err != nil {
+			return operationError(options.Logger, "snapshot collection schema", err)
+		}
+		if args[1] == "-" {
+			_, err = streams.stdout().Write(append(snapshot, '\n'))
+			return err
+		}
+		file, err := os.OpenFile(filepath.Clean(args[1]), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return configurationError{err: err, message: "create migration snapshot"}
+		}
+		if _, err = file.Write(append(snapshot, '\n')); err == nil {
+			err = file.Close()
+		} else {
+			_ = file.Close()
+		}
+		if err != nil {
+			return operationError(options.Logger, "write migration snapshot", err)
+		}
+		_, err = fmt.Fprintln(streams.stdout(), filepath.Clean(args[1]))
+		return err
+	}
+	if args[0] == "auto-status" {
+		statuses, err := app.UserMigrationSourceStatus(ctx)
+		if err != nil {
+			return operationError(options.Logger, "read automatic user migration source status", err)
+		}
+		for _, status := range statuses {
+			if _, err := fmt.Fprintf(streams.stdout(), "%s %s attempts=%d file=%s\n", status.Status, status.MigrationID, status.Attempts, status.Filename); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if args[0] == "recover" {
+		if err := app.RecoverUserMigrationSources(ctx); err != nil {
+			return operationError(options.Logger, "recover automatic user migration sources", err)
+		}
+		_, err := fmt.Fprintln(streams.stdout(), "automatic user migration source recovery complete")
+		return err
+	}
 	manifest := pgbase.RegisteredUserMigrations()
-	if len(manifest) == 0 {
+	if len(manifest) == 0 && args[0] != "history" {
 		return configurationError{err: errors.New("no user migrations are compiled into this executable"), message: "no user migrations are compiled into this executable"}
 	}
 	runner, err := pgbase.NewUserMigrationRunner(app, manifest)
@@ -84,6 +167,30 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 				return err
 			}
 		}
+	case "history":
+		entries, err := runner.History(ctx)
+		if err != nil {
+			return operationError(options.Logger, "compare user migration source and history", err)
+		}
+		for _, entry := range entries {
+			source, applied := "-", "-"
+			if entry.SourceRevision != nil {
+				source = hex.EncodeToString(entry.SourceRevision[:])
+			}
+			if len(entry.AppliedRevision) != 0 {
+				applied = hex.EncodeToString(entry.AppliedRevision)
+			}
+			if _, err := fmt.Fprintf(streams.stdout(), "%s %s source=%s history=%s\n", entry.State, entry.ID, source, applied); err != nil {
+				return err
+			}
+		}
+	case "history-sync":
+		entry, err := runner.HistorySync(ctx, args[1])
+		if err != nil {
+			return operationError(options.Logger, "synchronize user migration history", err)
+		}
+		_, err = fmt.Fprintf(streams.stdout(), "synced %s %s\n", entry.ID, hex.EncodeToString(entry.Revision[:]))
+		return err
 	}
 	return nil
 }

@@ -107,6 +107,9 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 		}
 		opts.AutoMigrate = parsed
 	}
+	if raw, ok := value(lookup, "PGBASE_USER_MIGRATION_AUTO_RECORD_DIR"); ok {
+		opts.UserMigrationAutoRecordDirectory = raw
+	}
 	if raw, ok := value(lookup, "PGBASE_TRUSTED_PROXIES"); ok && raw != "" {
 		prefixes, err := parsePrefixes(raw)
 		if err != nil {

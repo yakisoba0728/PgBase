@@ -102,7 +102,7 @@ func loadPhysicalTables(ctx context.Context, db database.DBTX, namespaces []stri
 		tables.relkind::text, tables.relpersistence::text
 		from pg_class as tables
 		join pg_namespace as namespaces on namespaces.oid = tables.relnamespace
-		where namespaces.nspname = any($1::text[]) and tables.relkind in ('r', 'p')`, namespaces)
+		where namespaces.nspname = any($1::text[]) and tables.relkind in ('r', 'p', 'v', 'm')`, namespaces)
 	if err != nil {
 		return fmt.Errorf("read physical tables: %w", err)
 	}
@@ -128,7 +128,7 @@ func loadPhysicalColumns(ctx context.Context, db database.DBTX, namespaces []str
 		join pg_class as tables on tables.oid = columns.attrelid
 		join pg_namespace as namespaces on namespaces.oid = tables.relnamespace
 		left join pg_attrdef as defaults on defaults.adrelid = tables.oid and defaults.adnum = columns.attnum
-		where namespaces.nspname = any($1::text[]) and tables.relkind in ('r', 'p')
+		where namespaces.nspname = any($1::text[]) and tables.relkind in ('r', 'p', 'v', 'm')
 			and columns.attnum > 0 and not columns.attisdropped`, namespaces)
 	if err != nil {
 		return fmt.Errorf("read physical columns: %w", err)

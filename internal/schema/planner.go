@@ -322,7 +322,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			return Plan{}, err
 		}
 	}
-	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes)...)
+	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes, desired)...)
 
 	return Plan{
 		Operation:   updateCollectionOperation,
@@ -634,7 +634,7 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 			" ON "+table+" ("+pgx.Identifier{field.Name}.Sanitize()+")")
 	}
 	for _, index := range definition.Indexes {
-		statements = append(statements, createCompoundIndexStatement(definition.Name, definition.TableName, index))
+		statements = append(statements, createCompoundIndexStatement(definition.Name, definition.TableName, index, definition.Fields))
 	}
 	for _, field := range definition.Fields {
 		if field.Type != TypeRelation || field.Relation == nil {
@@ -705,19 +705,23 @@ func compoundIndexName(collection, name string) string {
 	return indexName(collection, "compound:"+name)
 }
 
-func createCompoundIndexStatement(collection, table string, index PlannedIndex) string {
+func createCompoundIndexStatement(collection, table string, index PlannedIndex, fields []PlannedField) string {
 	prefix := "CREATE INDEX "
 	if index.Unique {
 		prefix = "CREATE UNIQUE INDEX "
 	}
+	physical := make(map[string]string, len(fields))
+	for _, field := range fields {
+		physical[field.Name] = field.ColumnName
+	}
 	columns := make([]string, len(index.Fields))
 	for i, field := range index.Fields {
-		columns[i] = pgx.Identifier{field}.Sanitize()
+		columns[i] = pgx.Identifier{physical[field]}.Sanitize()
 	}
 	return prefix + pgx.Identifier{compoundIndexName(collection, index.Name)}.Sanitize() + " ON " + pgx.Identifier{"app", table}.Sanitize() + " (" + strings.Join(columns, ", ") + ")"
 }
 
-func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex) []string {
+func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex, fields []PlannedField) []string {
 	old := map[string]Index{}
 	next := map[string]PlannedIndex{}
 	for _, index := range current {
@@ -736,7 +740,7 @@ func compoundIndexChangeStatements(collection, table string, current []Index, de
 	for _, index := range desired {
 		currentIndex, ok := old[index.Name]
 		if !ok || currentIndex.Unique != index.Unique || !stringSlicesEqual(currentIndex.Fields, index.Fields) {
-			statements = append(statements, createCompoundIndexStatement(collection, table, index))
+			statements = append(statements, createCompoundIndexStatement(collection, table, index, fields))
 		}
 	}
 	return statements

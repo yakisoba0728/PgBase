@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 	"net"
 	"net/http"
@@ -122,6 +123,14 @@ func newWithCatalogPreflight(
 		})},
 	}}
 	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
+	var userMigrationRecorder *usermigrate.AutoRecorder
+	if normalized.UserMigrationAutoRecordDirectory != "" {
+		userMigrationRecorder, err = usermigrate.NewAutoRecorder(pool, normalized.UserMigrationAutoRecordDirectory, normalized.Logger)
+		if err != nil {
+			return nil, fmt.Errorf("initialize automatic user migration recorder: %w", err)
+		}
+		schemaService.SetMigrationRecorder(userMigrationRecorder)
+	}
 	if normalized.Hooks != nil {
 		schemaService.SetCollectionMutationLifecycle(schemaLifecycleHooks{normalized.Hooks})
 	}
@@ -225,24 +234,26 @@ func newWithCatalogPreflight(
 	}
 	handler = requestHooks(normalized.Hooks, handler)
 	app := &App{
-		schemaCache:      schemaCache,
-		options:          normalized,
-		backupManager:    backupManager,
-		requestLog:       dependencies.RequestLog,
-		pool:             pool,
-		backupGate:       gate,
-		handler:          handler,
-		readiness:        readiness,
-		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
-		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
-		realtimeWorker:   realtimeService,
-		schemaOperations: schemaService,
-		schemaListener:   schemaListener,
-		membershipWriter: membershipRuntime,
-		systemStatus:     systemStatus,
-		schemaHealth:     schemaHealth,
-		listen:           net.Listen,
-		lifecycleClosing: make(chan struct{}),
+		schemaCache:           schemaCache,
+		options:               normalized,
+		backupManager:         backupManager,
+		requestLog:            dependencies.RequestLog,
+		pool:                  pool,
+		backupGate:            gate,
+		handler:               handler,
+		readiness:             readiness,
+		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
+		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
+		realtimeWorker:        realtimeService,
+		schemaOperations:      schemaService,
+		schemaListener:        schemaListener,
+		membershipWriter:      membershipRuntime,
+		systemStatus:          systemStatus,
+		schemaHealth:          schemaHealth,
+		userMigrationSources:  userMigrationRecorder,
+		userMigrationRecorder: userMigrationRecorder,
+		listen:                net.Listen,
+		lifecycleClosing:      make(chan struct{}),
 	}
 	if jobService != nil {
 		app.jobWorker = jobService

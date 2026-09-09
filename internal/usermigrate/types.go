@@ -9,10 +9,13 @@ import (
 )
 
 type Migration struct {
-	ID       string
-	Revision [32]byte
-	Up       func(context.Context, pgx.Tx) error
-	Down     func(context.Context, pgx.Tx) error
+	ID                 string
+	Revision           [32]byte
+	BeforeSnapshot     []byte
+	AfterSnapshot      []byte
+	IrreversibleReason string
+	Up                 func(context.Context, pgx.Tx) error
+	Down               func(context.Context, pgx.Tx) error
 }
 
 type Entry struct {
@@ -27,6 +30,25 @@ type Result struct {
 	Migration Entry
 	Direction string
 	Applied   bool
+}
+
+type HistoryState string
+
+const (
+	HistoryApplied          HistoryState = "applied"
+	HistoryPending          HistoryState = "pending"
+	HistoryChecksumMismatch HistoryState = "checksum_mismatch"
+	HistoryOnly             HistoryState = "history_only"
+	HistorySourceGap        HistoryState = "source_gap"
+)
+
+type HistoryEntry struct {
+	ID              string
+	State           HistoryState
+	SourceRevision  *[32]byte
+	AppliedRevision []byte
+	AppliedAt       time.Time
+	ExecutionMS     int64
 }
 
 type Validator func(context.Context, pgx.Tx) error

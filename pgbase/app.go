@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 )
 
 type App struct {
@@ -38,6 +39,8 @@ type App struct {
 	membershipWriter       backgroundRunner
 	systemStatus           backgroundRunner
 	schemaHealth           backgroundRunner
+	userMigrationSources   backgroundRunner
+	userMigrationRecorder  *usermigrate.AutoRecorder
 	listen                 func(string, string) (net.Listener, error)
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool

@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
 const (
@@ -25,14 +27,142 @@ type Runner struct {
 	migrations  []Migration
 	validate    Validator
 	afterCommit AfterCommit
+	snapshot    func(context.Context, database.DBTX) ([]byte, error)
 }
 
 func New(pool *database.Pool, migrations []Migration, validate Validator, afterCommit AfterCommit) (*Runner, error) {
+	return NewWithSnapshotReader(pool, migrations, validate, afterCommit, nil)
+}
+
+func NewWithSnapshotReader(pool *database.Pool, migrations []Migration, validate Validator, afterCommit AfterCommit, snapshot func(context.Context, database.DBTX) ([]byte, error)) (*Runner, error) {
 	manifest := append([]Migration(nil), migrations...)
+	for index := range manifest {
+		manifest[index].BeforeSnapshot = append([]byte(nil), manifest[index].BeforeSnapshot...)
+		manifest[index].AfterSnapshot = append([]byte(nil), manifest[index].AfterSnapshot...)
+	}
 	if err := validateManifest(manifest); err != nil {
 		return nil, err
 	}
-	return &Runner{pool: pool, migrations: manifest, validate: validate, afterCommit: afterCommit}, nil
+	return &Runner{pool: pool, migrations: manifest, validate: validate, afterCommit: afterCommit, snapshot: snapshot}, nil
+}
+
+func (r *Runner) History(ctx context.Context) ([]HistoryEntry, error) {
+	if r == nil || r.pool == nil {
+		return nil, errors.New("user migration pool is nil")
+	}
+	applied, err := r.applied(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	manifestByID := make(map[string]Migration, len(r.migrations))
+	ids := make([]string, 0, len(r.migrations)+len(applied))
+	for _, migration := range r.migrations {
+		manifestByID[migration.ID] = migration
+		ids = append(ids, migration.ID)
+	}
+	for id := range applied {
+		if _, exists := manifestByID[id]; !exists {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	entries := make([]HistoryEntry, 0, len(ids))
+	seenPending := false
+	for _, id := range ids {
+		migration, inSource := manifestByID[id]
+		stored, inHistory := applied[id]
+		entry := HistoryEntry{ID: id}
+		if inSource {
+			revision := migration.Revision
+			entry.SourceRevision = &revision
+		}
+		if inHistory {
+			entry.AppliedRevision = append([]byte(nil), stored.revision...)
+			entry.AppliedAt, entry.ExecutionMS = stored.appliedAt, stored.executionMS
+		}
+		switch {
+		case !inSource:
+			entry.State = HistoryOnly
+		case !inHistory:
+			entry.State = HistoryPending
+			seenPending = true
+		case !bytes.Equal(migration.Revision[:], stored.revision):
+			entry.State = HistoryChecksumMismatch
+		case seenPending:
+			entry.State = HistorySourceGap
+		default:
+			entry.State = HistoryApplied
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// HistorySync adopts one already-present generated schema migration only after
+// proving that the database is at that migration's exact target snapshot.
+func (r *Runner) HistorySync(ctx context.Context, id string) (Entry, error) {
+	if r == nil || r.pool == nil {
+		return Entry{}, errors.New("user migration pool is nil")
+	}
+	if r.snapshot == nil {
+		return Entry{}, errors.New("user migration snapshot verification is unavailable")
+	}
+	index := slices.IndexFunc(r.migrations, func(migration Migration) bool { return migration.ID == id })
+	if index < 0 {
+		return Entry{}, fmt.Errorf("user migration %s is not compiled into this executable", id)
+	}
+	migration := r.migrations[index]
+	if len(migration.BeforeSnapshot) == 0 || len(migration.AfterSnapshot) == 0 {
+		return Entry{}, fmt.Errorf("user migration %s has no generated snapshot metadata", id)
+	}
+	var result Entry
+	err := r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `set local lock_timeout='5s'; set local statement_timeout=0`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1),pg_advisory_xact_lock($2)`, userMigrationLock, schemaWriterLock); err != nil {
+			return fmt.Errorf("acquire user migration locks: %w", err)
+		}
+		var schemaVersion int64
+		if err := tx.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton for update`).Scan(&schemaVersion); err != nil {
+			return err
+		}
+		applied, err := r.applied(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if stored, exists := applied[id]; exists {
+			if !bytes.Equal(stored.revision, migration.Revision[:]) {
+				return fmt.Errorf("user migration %s revision mismatch", id)
+			}
+			result = Entry{ID: id, Revision: migration.Revision, Applied: true, AppliedAt: stored.appliedAt, ExecutionMS: stored.executionMS}
+			return nil
+		}
+		if err := inspect(r.migrations, applied); err != nil {
+			return err
+		}
+		if index != len(applied) {
+			return fmt.Errorf("user migration %s is not the next pending source migration", id)
+		}
+		current, err := r.snapshot(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("snapshot current database: %w", err)
+		}
+		equivalent, err := schema.MigrationSnapshotsEquivalent(current, migration.AfterSnapshot)
+		if err != nil {
+			return err
+		}
+		if !equivalent {
+			return fmt.Errorf("user migration %s target snapshot does not match the database", id)
+		}
+		var appliedAt time.Time
+		if err := tx.QueryRow(ctx, `insert into pgbase_meta.user_migrations(id,revision,applied_at,execution_ms) values($1,$2,transaction_timestamp(),0) returning applied_at`, id, migration.Revision[:]).Scan(&appliedAt); err != nil {
+			return err
+		}
+		result = Entry{ID: id, Revision: migration.Revision, Applied: true, AppliedAt: appliedAt}
+		return nil
+	})
+	return result, err
 }
 
 func (r *Runner) List(ctx context.Context) ([]Entry, error) {
@@ -138,6 +268,9 @@ func (r *Runner) applyOne(ctx context.Context, up bool) (result Result, found bo
 		}
 		if err != nil {
 			return fmt.Errorf("record user migration %s: %w", migration.ID, err)
+		}
+		if _, err := tx.Exec(ctx, `insert into pgbase_meta.user_migration_schema_versions(version,migration_id,direction,revision,applied_at) values($1,$2,$3,$4,transaction_timestamp())`, schemaVersion+1, migration.ID, direction, migration.Revision[:]); err != nil {
+			return fmt.Errorf("record user migration schema version %s: %w", migration.ID, err)
 		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.schema_state set version=version+1,updated_at=transaction_timestamp() where singleton`); err != nil {
 			return fmt.Errorf("advance schema state: %w", err)

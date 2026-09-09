@@ -77,22 +77,23 @@ func TestLoadEnvRejectsSetupTokenThatCannotFitTheHTTPBudget(t *testing.T) {
 
 func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 	env := map[string]string{
-		"PGBASE_DATABASE_URL":            "postgresql://postgres:postgres@localhost/pgbase",
-		"PGBASE_HTTP_ADDRESS":            "127.0.0.1:9000",
-		"PGBASE_PUBLIC_URL":              "https://pgbase.example",
-		"PGBASE_SETUP_TOKEN":             strings.Repeat("s", 32),
-		"PGBASE_METRICS_TOKEN":           strings.Repeat("m", 32),
-		"PGBASE_TOKEN_SECRET":            base64.StdEncoding.EncodeToString(make([]byte, 32)),
-		"PGBASE_ALLOW_INSECURE_DATABASE": "true",
-		"PGBASE_AUTO_MIGRATE":            "true",
-		"PGBASE_USER_REGISTRATION":       "true",
-		"PGBASE_TRUSTED_PROXIES":         "10.0.0.0/8, 2001:db8::/32",
-		"PGBASE_CORS_ALLOWED_ORIGINS":    "https://admin.example,https://admin.example:8443",
-		"PGBASE_ADMIN_SESSION_TTL":       "30m",
-		"PGBASE_STATEMENT_TIMEOUT":       "7s",
-		"PGBASE_SHUTDOWN_TIMEOUT":        "20s",
-		"PGBASE_SCHEMA_APPLY_TIMEOUT":    "12m",
-		"PGBASE_STOP_GRACE_PERIOD":       "25s",
+		"PGBASE_DATABASE_URL":                   "postgresql://postgres:postgres@localhost/pgbase",
+		"PGBASE_HTTP_ADDRESS":                   "127.0.0.1:9000",
+		"PGBASE_PUBLIC_URL":                     "https://pgbase.example",
+		"PGBASE_SETUP_TOKEN":                    strings.Repeat("s", 32),
+		"PGBASE_METRICS_TOKEN":                  strings.Repeat("m", 32),
+		"PGBASE_TOKEN_SECRET":                   base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_ALLOW_INSECURE_DATABASE":        "true",
+		"PGBASE_AUTO_MIGRATE":                   "true",
+		"PGBASE_USER_MIGRATION_AUTO_RECORD_DIR": "/tmp/pgbase-user-migrations",
+		"PGBASE_USER_REGISTRATION":              "true",
+		"PGBASE_TRUSTED_PROXIES":                "10.0.0.0/8, 2001:db8::/32",
+		"PGBASE_CORS_ALLOWED_ORIGINS":           "https://admin.example,https://admin.example:8443",
+		"PGBASE_ADMIN_SESSION_TTL":              "30m",
+		"PGBASE_STATEMENT_TIMEOUT":              "7s",
+		"PGBASE_SHUTDOWN_TIMEOUT":               "20s",
+		"PGBASE_SCHEMA_APPLY_TIMEOUT":           "12m",
+		"PGBASE_STOP_GRACE_PERIOD":              "25s",
 	}
 
 	opts, err := LoadEnv(func(key string) (string, bool) {
@@ -104,6 +105,9 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 	}
 	if opts.HTTPAddress != "127.0.0.1:9000" || !opts.AutoMigrate || !opts.AllowInsecureDatabase {
 		t.Fatalf("unexpected HTTP or migration settings: %#v", opts)
+	}
+	if opts.UserMigrationAutoRecordDirectory != "/tmp/pgbase-user-migrations" {
+		t.Fatalf("UserMigrationAutoRecordDirectory = %q", opts.UserMigrationAutoRecordDirectory)
 	}
 	if got := opts.PublicURL.String(); got != "https://pgbase.example" {
 		t.Fatalf("PublicURL = %q", got)
