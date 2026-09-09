@@ -211,3 +211,52 @@ repo-external Flutter release build and actual browser login/exact-JSONB/CRUD/
 ETag/file/SSE/reconnect flow passed on 58091/58092; this review confirms the
 committed fixture and documentation but did not independently reuse those
 ports.
+
+## Final closure
+
+The second owner fix `5983a93`, integrated as `2ccdc69`, closed all three items
+remaining after focused re-review 1:
+
+- restore reads are serialized behind earlier durable mutations while retaining
+  the generation guard;
+- schema plan and import inputs are snapshotted with the exact JSON codec before
+  preview awaits, apply payloads are private, and exposed previews are defensive
+  snapshots; and
+- send-time `http.ClientException` is mapped to `PgBaseNetworkError`.
+
+Independent focused tests at `2ccdc69` passed clear-before-restore, schema input
+mutation during the preview await, schema/import preview mutation after return,
+stable replay body/identity, and send-time network error mapping. The repository
+19-test SDK suite passed and Dart analyze reported no issues.
+
+That pass found one residual in the same error category: an HTTP 200 SSE response
+whose body stream failed with `http.ClientException` still exposed the raw
+transport exception. Owner fix `8ccd9f9`, integrated as `46c1930`, maps this
+mid-stream failure while retaining transient reconnect behavior.
+
+The final independent run at integrated `46c1930` passed:
+
+- five review-only closure tests: clear-before-restore; schema plan/import
+  mutation isolation; send-time network mapping; one transient SSE body failure
+  followed by successful reconnect; and typed `PgBaseNetworkError` after SSE
+  retry exhaustion;
+- all 20 committed `sdk/dart/test/sdk_test.dart` tests; and
+- Dart 3.13.3 analysis of `lib`, `test/sdk_test.dart`,
+  `tool/live_conformance.dart`, and `tool/browser_fixture.dart` with no issues.
+
+All temporary review tests and generated `.dart_tool`/root package lockfiles
+were removed; both detached and branch review worktrees were clean. The review
+made no product, fixture, main, worker, N6, shared-document, route, migration,
+or generated-code change.
+
+Final result for the bounded product review from `17cef23` through integrated
+N7 fixes `46c1930`: **Standards 0 remaining; Spec 0 remaining.** All seven
+initial product findings and the two focused residuals were fixed and
+independently rechecked. This reviewer did not rerun live PgBase, Docker,
+external CLI/Flutter, or browser acceptance and did not use ports 8090, 55440,
+59000, 58091, 55441, or 58092. Those results remain supported by the owner/lead
+evidence recorded in N7.md: dedicated live auth/CRUD/batch/SSE/file/admin paths,
+external Dart/Flutter checks, Flutter release web build, and actual browser
+login/exact-number/CRUD/ETag/file/SSE/reconnect flow. The broader N7.md live
+matrix items not explicitly named in that evidence remain acceptance boundaries
+for the integration lead rather than hidden claims of this review.
