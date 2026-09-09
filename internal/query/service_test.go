@@ -285,10 +285,10 @@ func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) 
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
 	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeJSONB, Required: true}}})
-	wantIDs := make([]string, 0, 8)
+	wantIDs := make([]string, 0, 10)
 	rows, err := pool.Query(ctx, `insert into app.large_records(id,created_at,updated_at,payload)
-		select md5('large-record-' || value::text)::uuid, now(), now(), to_jsonb(repeat('x', 7<<20))
-		from generate_series(1,8) generated(value) returning id::text`)
+		select md5('large-record-' || value::text)::uuid, now(), now(), to_jsonb(repeat('x', 5<<20))
+		from generate_series(1,10) generated(value) returning id::text`)
 	if err != nil {
 		t.Fatal(err)
 	}
