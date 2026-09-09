@@ -170,3 +170,44 @@ used or changed. Product fixes require owner commits and focused re-review.
 
 Current totals: Standards 0; Spec 7 product findings (three P1, four P2), plus
 the listed live/browser acceptance boundary.
+
+## Focused re-review 1
+
+Owner fix `2bd50f2` was reviewed through its integrated equivalent `5c218ab`.
+The original 17 unit tests passed and Dart analyze reported no issues. The
+admin stale-401 generation guard, stalled hash cancellation, terminal SSE
+classification, profile unwrapping, and request-ID decoding findings close.
+The durable save-before-clear ordering also closes.
+
+Three Spec items remain:
+
+- **P1 — restore after a clear has started can revive stale memory state.**
+  `AuthStore.restore` at
+  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/auth.dart:22`
+  reads outside `_storageTail`. A focused test delayed `storage.clear`, called
+  `restore` after clear had started, then released clear. Expected final token
+  `null`; actual `stale-token`. Restore must wait behind earlier durable
+  mutations while retaining its generation guard.
+- **P2 — approved schema bodies remain mutable across preview and after
+  return.** At
+  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/admin.dart:121`,
+  `schemaPlan` reads `change.values` after awaiting the preview, and the
+  approved object publicly exposes a `JsonObject` containing mutable
+  `JsonArray.values`. A focused test appended a field after preview request
+  bytes were sent but before the response; expected the apply body to keep
+  `fields:[]`, while actual apply body included the appended field. Snapshot
+  exact bytes before the await and keep the replay payload private/immutable;
+  apply the same rule to import.
+- **P2 — the stable network-error category is still absent.** Request ID is
+  now retained, but
+  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/transport.dart:143`
+  still maps only `RequestAbortedException`; `http.ClientException` escapes as
+  a transport-specific exception instead of the N7.1 SDK network category.
+
+The two focused re-review tests failed exactly as described and were removed
+after execution. The detached re-review worktree was clean afterward. No live
+fixture or browser was used by this reviewer. Owner evidence reports that the
+repo-external Flutter release build and actual browser login/exact-JSONB/CRUD/
+ETag/file/SSE/reconnect flow passed on 58091/58092; this review confirms the
+committed fixture and documentation but did not independently reuse those
+ports.
