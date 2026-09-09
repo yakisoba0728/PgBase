@@ -711,6 +711,53 @@ func TestFetchRejectsCrossOriginRedirectWithoutContactingTarget(t *testing.T) {
 	}
 }
 
+func TestHTTPSNegativeResponsesAndArtifactCleanup(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	server := startTLSServer(t, func(base string) http.Handler {
+		manifest := fixtureManifest("v0.2.0", newCommit, base+"/artifact", 3, strings.Repeat("a", 64))
+		raw, _ := json.Marshal(manifest)
+		signature := sign(private, raw)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/manifest.json":
+				_, _ = w.Write(raw)
+			case "/manifest.json.ed25519":
+				_, _ = w.Write(signature)
+			case "/artifact":
+				_, _ = w.Write([]byte("bad"))
+			case "/missing":
+				w.WriteHeader(http.StatusNotFound)
+			case "/redirect":
+				http.Redirect(w, r, "/redirect", http.StatusFound)
+			}
+		})
+	})
+	if _, err = Fetch(context.Background(), FetchOptions{Source: server.URL + "/missing", TrustKey: public, Current: current, HTTPClient: server.Client()}); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("non-2xx=%v", err)
+	}
+	if _, err = Fetch(context.Background(), FetchOptions{Source: server.URL + "/redirect", TrustKey: public, Current: current, HTTPClient: server.Client()}); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("redirect=%v", err)
+	}
+	fetched, err := Fetch(context.Background(), FetchOptions{Source: server.URL + "/manifest.json", TrustKey: public, Current: current, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "candidate")
+	if _, err = fetched.DownloadArtifact(context.Background(), destination); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("hash=%v", err)
+	}
+	if _, err = os.Lstat(destination); !os.IsNotExist(err) {
+		t.Fatalf("hash mismatch left stage=%v", err)
+	}
+	if _, err = Fetch(context.Background(), FetchOptions{Source: server.URL + "/manifest.json", TrustKey: public, Current: current}); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("untrusted TLS=%v", err)
+	}
+}
+
 func TestFetchRejectsSignedArtifactAboveCallerLimit(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
