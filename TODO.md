@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:43 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:52 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,8 +8,8 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | `41852b5` green. Nash review P1 4건: authority, dependency closure, pre-DB `--js-dir`, watch stdout cleanup | four P1 fixes, hook/migration 확대·외부 JS 앱/browser·stress |
-| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | data/admin/browser와 revoke/logout session 401이 `96b04d0`까지 green | 실제 open-SSE revoke/logout, cursor-expired·cancel upload seam 판정 |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 네 P1 fix+hook DTO `ceacdf0` 통합, focused race·PG 4-test green; Nash 재검토 중 | review closure, migration 확대·외부 JS 앱/browser·stress |
+| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | core acceptance 완료 — data/admin/browser/revoke와 실제 open-SSE logout·cursor 410·cancel upload cleanup green | N6 외부 앱 cross-flow에 동일 SDK 재사용 |
 | G3 N6/N7 통합 | Sol 통합 | 부분 통합 — N6 jobs/CLI와 N7 data/admin/browser까지 반영, plan 중복 skip | N6 P1+hook/migration, 외부 JS↔Dart/Flutter, focused 부하, N7 revocation edges |
 | G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | N8 준비 `a8e3a86`, N9 준비·scope `08ce58c`/`7453dd1` 통합; 둘 다 G3 대기 | G3 뒤 migration/parser/shared seam 확정과 main 시작 신호 |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
@@ -24,7 +24,7 @@ G3 green은 Nash review와 N6 P1 두 건이 닫히고, N6 전체 hook·migration
 - [x] 중앙 live board·소유·단계 gate와 수분 단위 통합 기록 생성.
 - [x] N7 404 red loop 재현 후 generic router 404와 file env 부재로 원인 확정; SDK/서버 동작 변경 없이 fixture narrow fix를 N7에 반환.
 - [ ] N6 기반·도메인·첫 migration·durable jobs·CLI/types/watch 안정 commit과 focused/PG gate 완료; hook/migration 확대·외부 JS 앱/browser·stress·review closure 수령 및 통합.
-- [ ] N7 fixture/live·Flutter browser/SSE restart와 독립 제품 review closure 완료; actual `58091` failure matrix와 same-origin admin browser 수령.
+- [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [ ] N6/N7 교차 인수 뒤 Astra에 N8 Sol·N9 Terra 병렬 stage 요청.
 - [ ] N8/N9 구현·독립 review·전체 로컬 최종 인수·문서 동기화·clean final commit.
 
