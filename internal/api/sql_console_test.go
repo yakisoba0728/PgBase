@@ -80,6 +80,42 @@ func TestSQLConsoleRoutesUseExistingAdminOriginSessionAndCSRFChain(t *testing.T)
 	}
 }
 
+func TestSQLConsoleRouteRegistryPinsOptionalAdmissionAndBounds(t *testing.T) {
+	handlers, err := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, testTokenSecret, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := declareRoutes(completeDependencies(Dependencies{SQLConsole: handlers}), false)
+	want := map[string]struct {
+		access   accessPolicy
+		response int
+		request  int64
+	}{
+		"POST " + SQLConsoleQueriesPath:                  {accessAdminSession, MaximumSQLConsoleResponseBytes, MaximumSQLConsoleRequestBytes},
+		"GET " + SQLConsoleQueriesPath:                   {accessAdminSameOriginRead, MaximumSQLConsoleHistoryBytes, 0},
+		"GET " + SQLConsoleQueriesPath + "/{id}":         {accessAdminSameOriginRead, MaximumSQLConsoleResponseBytes, 0},
+		"POST " + SQLConsoleQueriesPath + "/{id}/cancel": {accessAdminSession, MaximumSQLConsoleResponseBytes, 0},
+	}
+	for _, declared := range routes {
+		expected, ok := want[declared.muxPattern()]
+		if !ok {
+			continue
+		}
+		if declared.access != expected.access || declared.response.maximumBytes != expected.response ||
+			declared.maximumRequestBytes != expected.request || declared.deadline != deadlineDefault {
+			t.Errorf("route %s policy = access %s response %d request %d deadline %d",
+				declared, declared.access, declared.response.maximumBytes, declared.maximumRequestBytes, declared.deadline)
+		}
+		delete(want, declared.muxPattern())
+	}
+	if len(want) != 0 {
+		t.Fatalf("SQL console routes missing: %v", want)
+	}
+	if err := validateRoutes(routes); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSQLConsoleSubmitMapsIdentityTimeoutAndExactFailureWire(t *testing.T) {
 	service := &fakeSQLConsoleService{}
 	handlers, _ := NewSQLConsoleHandlers(service, []byte("n8-api-session-secret-that-is-long-enough"), nil)

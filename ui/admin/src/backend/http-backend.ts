@@ -3,6 +3,7 @@ import { parseJSON, stringifyJSON } from "./json";
 import type { FileStorageMigration, FileStorageMigrationInput, FileStorageSettings, FileStorageUpdate } from "./storage-port";
 import type { BackupStorageSettings, BackupStorageUpdate } from "./backup-storage-port";
 import { providerInput, smtpInput, templateInput } from "./auth-input";
+import type { SQLConsoleTransport } from "./sql-console-backend";
 import {
   CollectionCatalog,
   PlannedChange,
@@ -498,7 +499,7 @@ class HTTPBackend implements AdminBackend {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };
     this.#csrfToken = session.csrfToken;
     this.#authGeneration += 1;
-    return { administrator: session.administrator, expiresAt: session.expiresAt };
+    return { administrator: session.administrator, expiresAt: session.expiresAt, sqlConsoleEnabled: session.sqlConsoleEnabled === true };
   }
 
   async #authenticate(path: string, body: unknown): Promise<AuthenticatedSession> {
@@ -627,8 +628,28 @@ class HTTPBackend implements AdminBackend {
     if (response.status === 401 && request.anonymous !== true && authGeneration === this.#authGeneration) for (const listener of [...this.#expired]) listener();
     throw new WireError({ status: response.status, code: reported?.code ?? "request_failed", details: reported?.details ?? {} });
   }
+
+	readonly sqlConsoleTransport: SQLConsoleTransport = {
+		request: async (request) => {
+			const authGeneration = this.#authGeneration;
+			const headers = new Headers(request.headers);
+			headers.set("Accept", "application/json");
+			if (request.method === "POST") headers.set("X-PgBase-CSRF", this.#csrfToken);
+			const body = request.body === undefined ? undefined : stringifyJSON(request.body);
+			if (body !== undefined) headers.set("Content-Type", "application/json");
+			const response = await fetch(request.path, {
+				method: request.method, body, headers, credentials: "include", signal: request.signal,
+			});
+			let decoded: unknown;
+			try { decoded = await decode(response); } catch { decoded = undefined; }
+			if (response.status === 401 && authGeneration === this.#authGeneration) {
+				for (const listener of [...this.#expired]) listener();
+			}
+			return { status: response.status, body: decoded };
+		},
+	};
 }
 
-export function httpBackend(): AdminBackend {
+export function httpBackend(): HTTPBackend {
   return new HTTPBackend();
 }

@@ -45,6 +45,9 @@ type Options struct {
 	// JavaScript enables trusted local scripts after validating an immutable
 	// source manifest. A nil value keeps the runtime entirely disabled.
 	JavaScript *JavaScriptOptions
+	// SQLConsole enables the administrator SQL console with dedicated,
+	// least-privileged database roles. A nil value keeps its routes disabled.
+	SQLConsole *SQLConsoleOptions
 	Backups    BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
@@ -130,6 +133,13 @@ func (o Options) Normalized() (Options, error) {
 			return Options{}, err
 		}
 		o.JavaScript = &javascript
+	}
+	if o.SQLConsole != nil {
+		sqlConsole, err := o.SQLConsole.normalized(o.AllowInsecureDatabase)
+		if err != nil {
+			return Options{}, err
+		}
+		o.SQLConsole = &sqlConsole
 	}
 	if err := validateOptions(o); err != nil {
 		return Options{}, err

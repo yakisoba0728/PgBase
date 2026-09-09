@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/sqlconsole"
 	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 )
 
@@ -41,6 +42,7 @@ type App struct {
 	schemaHealth           backgroundRunner
 	userMigrationSources   backgroundRunner
 	userMigrationRecorder  *usermigrate.AutoRecorder
+	sqlConsole             *sqlconsole.Service
 	javaScriptRuntime      *javaScriptRuntime
 	extensions             *extensionBridge
 	listen                 func(string, string) (net.Listener, error)
@@ -549,6 +551,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	}
 	if a.requestLog != nil {
 		closeErr = errors.Join(closeErr, a.requestLog.Shutdown(ctx))
+	}
+	if a.sqlConsole != nil {
+		closeErr = errors.Join(closeErr, a.sqlConsole.Close(ctx))
 	}
 	if a.javaScriptRuntime != nil {
 		closeErr = errors.Join(closeErr, a.javaScriptRuntime.Close(ctx))

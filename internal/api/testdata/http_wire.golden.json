@@ -88,7 +88,8 @@
           "updatedAt": "<time>"
         },
         "csrfToken": "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4",
-        "expiresAt": "<expiry>"
+        "expiresAt": "<expiry>",
+        "sqlConsoleEnabled": false
       },
       "accessLog": {
         "duration_ms": "<duration>",

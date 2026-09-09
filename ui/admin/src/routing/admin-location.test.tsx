@@ -18,6 +18,7 @@ const routes: AdminRoute[] = [
   { kind: "collections" },
   { kind: "collection-create" },
   { kind: "operations" },
+	{ kind: "sql-console" },
   { kind: "system" },
   { kind: "collection-edit", collection: "posts" },
   { kind: "records", collection: "posts" },
@@ -35,6 +36,7 @@ describe("admin routes", () => {
   it.each([
     ["/admin/collections/new", { kind: "collection-create" }],
     ["/admin/schema-operations", { kind: "operations" }],
+		["/admin/sql", { kind: "sql-console" }],
     ["/admin/system", { kind: "system" }],
     ["/admin/collections/posts/edit", { kind: "collection-edit", collection: "posts" }],
     ["/admin/collections/posts/records", { kind: "records", collection: "posts" }],

@@ -15,6 +15,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/sqlconsole"
 	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 	"net"
@@ -185,6 +186,22 @@ func newWithCatalogPreflight(
 	recordService := recordops.NewService(
 		pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics, membershipRuntime,
 	)
+	var sqlConsoleService *sqlconsole.Service
+	var sqlConsoleHandlers *api.SQLConsoleHandlers
+	if normalized.SQLConsole != nil {
+		sqlConsoleService, sqlConsoleHandlers, err = newSQLConsole(ctx, pool, schemaCache.Load(), normalized)
+		if err != nil {
+			return nil, err
+		}
+	}
+	keepSQLConsole := false
+	defer func() {
+		if !keepSQLConsole && sqlConsoleService != nil {
+			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
+			defer cancel()
+			_ = sqlConsoleService.Close(shutdown)
+		}
+	}()
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
@@ -232,6 +249,7 @@ func newWithCatalogPreflight(
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
+		SQLConsole:         sqlConsoleHandlers,
 	}, pool, normalized)
 	if err != nil {
 		return nil, err
@@ -288,6 +306,7 @@ func newWithCatalogPreflight(
 		schemaHealth:          schemaHealth,
 		userMigrationSources:  userMigrationSources,
 		userMigrationRecorder: userMigrationRecorder,
+		sqlConsole:            sqlConsoleService,
 		javaScriptRuntime:     javascript,
 		extensions:            extensions,
 		listen:                net.Listen,
@@ -314,5 +333,6 @@ func newWithCatalogPreflight(
 	keepPool = true
 	keepGate = true
 	keepJavaScript = true
+	keepSQLConsole = true
 	return app, nil
 }

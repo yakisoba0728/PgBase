@@ -60,6 +60,7 @@ type Dependencies struct {
 	// default write timeout. Zero means the caller did not supply it and
 	// construction fails rather than silently running an apply unbounded.
 	SchemaApplyTimeout time.Duration
+	SQLConsole         *SQLConsoleHandlers
 }
 
 // declareRoutes is the single authoritative description of the HTTP surface.
@@ -163,6 +164,19 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	routes = append(routes, realtimeOperationRoutes(dependencies)...)
 	routes = append(routes, ruleRoutes(dependencies)...)
 	routes = append(routes, fileRoutes(dependencies)...)
+	if console := dependencies.SQLConsole; console != nil {
+		routes = append(routes,
+			route{method: "POST", pattern: SQLConsoleQueriesPath, access: accessAdminSession,
+				response: atomicJSON(MaximumSQLConsoleResponseBytes), deadline: deadlineDefault,
+				maximumRequestBytes: MaximumSQLConsoleRequestBytes, handler: http.HandlerFunc(console.Submit)},
+			route{method: "GET", pattern: SQLConsoleQueriesPath, access: accessAdminSameOriginRead,
+				response: atomicJSON(MaximumSQLConsoleHistoryBytes), deadline: deadlineDefault, handler: http.HandlerFunc(console.List)},
+			route{method: "GET", pattern: SQLConsoleQueriesPath + "/{id}", access: accessAdminSameOriginRead,
+				response: atomicJSON(MaximumSQLConsoleResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(console.Get)},
+			route{method: "POST", pattern: SQLConsoleQueriesPath + "/{id}/cancel", access: accessAdminSession,
+				response: atomicJSON(MaximumSQLConsoleResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(console.Cancel)},
+		)
+	}
 	if dependencies.Realtime != nil && dependencies.UserAuth != nil {
 		routes = append(routes, route{method: "GET", pattern: "/api/v1/user/collections/{collection}/events",
 			access: accessUserSession, response: passthrough(), deadline: deadlineDefault, handler: realtimeHandler(dependencies)})

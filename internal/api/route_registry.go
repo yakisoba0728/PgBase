@@ -89,7 +89,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 146
+	maximumRegisteredRoutes     = 150
 	maximumMethodAgnosticRoutes = 3
 )
 

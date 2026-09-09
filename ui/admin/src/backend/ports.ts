@@ -4,7 +4,7 @@ import type { BackupStoragePort } from "./backup-storage-port";
 import { stringifyJSON } from "./json";
 
 interface Administrator { id: string; email: string; createdAt: string }
-export interface AuthenticatedSession { administrator: Administrator; expiresAt: string }
+export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean }
 export interface SetupInput { setupToken: string; email: string; password: string }
 export interface LoginInput { email: string; password: string; otpCode?: string }
 
@@ -12,7 +12,7 @@ export type AuthSnapshot =
   | { kind: "loading" }
   | { kind: "setup-required" }
   | { kind: "anonymous" }
-  | { kind: "authenticated"; administrator: Administrator; expiresAt: string };
+  | { kind: "authenticated"; administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean };
 
 // `setup-unknown` and `unreachable` both end anonymous but tell the
 // administrator different things, so the port keeps them apart.

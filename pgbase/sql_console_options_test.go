@@ -44,6 +44,30 @@ func TestSQLConsoleOptionsNormalizeReadOnlyDefaultsAndOwnCopies(t *testing.T) {
 	}
 }
 
+func TestOptionsNormalizesAndOwnsSQLConsoleConfiguration(t *testing.T) {
+	input := SQLConsoleOptions{
+		CompilerURL: "postgres://compiler:secret@127.0.0.1:5432/app?sslmode=disable",
+		ReadURL:     "postgres://reader:secret@127.0.0.1:5432/app?sslmode=disable",
+		WriterURL:   "postgres://writer:secret@127.0.0.1:5432/app?sslmode=disable",
+		WriteTargets: []SQLConsoleWriteTarget{{
+			Schema: "extension", Table: "items", Columns: []string{"value"},
+		}},
+	}
+	normalized, err := (Options{
+		DatabaseURL: "postgres://owner:secret@127.0.0.1:5432/app?sslmode=disable",
+		TokenSecret: []byte("0123456789abcdef0123456789abcdef"), AllowInsecureDatabase: true,
+		SQLConsole: &input,
+	}).Normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.WriteTargets[0].Columns[0] = "changed"
+	if normalized.SQLConsole == nil || normalized.SQLConsole.DefaultTimeout != 5*time.Second ||
+		normalized.SQLConsole.WriteTargets[0].Columns[0] != "value" {
+		t.Fatalf("normalized SQL console = %#v", normalized.SQLConsole)
+	}
+}
+
 func TestSQLConsoleOptionsRejectUnsafeOrAmbiguousConfiguration(t *testing.T) {
 	base := SQLConsoleOptions{
 		CompilerURL: "postgres://compiler:secret@127.0.0.1:5432/app?sslmode=disable",
