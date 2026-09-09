@@ -795,6 +795,54 @@ func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
 	}
 }
 
+func TestApplyPermissionFailurePreservesOriginal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
+	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
+	directory := t.TempDir()
+	target := filepath.Join(directory, "pgbase")
+	copyFixture(t, oldBinary, target)
+	state := filepath.Join(directory, ".pgbase-update")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := os.ReadFile(newBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fixtureManifest("v0.2.0", newCommit, "file://"+newBinary, int64(len(artifact)), checksum(artifact))
+	raw, _ := json.Marshal(manifest)
+	manifestPath := filepath.Join(state, "manifest.json")
+	signaturePath := manifestPath + ".ed25519"
+	if err = os.WriteFile(manifestPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(signaturePath, sign(private, raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	fetched, err := Fetch(context.Background(), FetchOptions{Source: manifestPath, SignaturePath: signaturePath, TrustKey: public, Current: current})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(directory, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0700) })
+	if _, err = Apply(context.Background(), ApplyOptions{Target: target, StateDir: state, Fetched: fetched, TrustKey: public, Current: current}); err == nil {
+		t.Fatal("permission apply succeeded")
+	}
+	if got, probeErr := ProbeBinary(context.Background(), target); probeErr != nil || !sameBuild(got, current) {
+		t.Fatalf("original=%+v err=%v", got, probeErr)
+	}
+}
+
 func TestFetchRejectsSignedArtifactAboveCallerLimit(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
