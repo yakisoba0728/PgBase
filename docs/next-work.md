@@ -19,7 +19,7 @@
 
 N6/Sol·N7/Terra는 최신 사용자 승인에 따라 전용 worktree에서 병렬 구현 중이다. 통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유한다. N6/N7 안정 통합과 핵심 실제 인수 뒤 N8/Sol·N9/Terra를 다음 병렬 stage로 배정한다. live 설치·ports는 후속 구현·검증 대상이 아니다. N1–N5는 구현·독립 Standards/Spec 검토·전체 인수·원격 CI/병합·기존 설치까지 완료했고 공개 배포와 구분한다.
 
-N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `tool/live_conformance.dart`의 upload 404를 재현했다. 무인증 file route도 인증 오류가 아닌 generic router 404였고 컨테이너에 `PGBASE_FILES_DRIVER`/`PGBASE_FILES_LOCAL_DIRECTORY`가 없었다. `withFileServices`가 file routes를 등록하지 않은 fixture 설정 누락으로 확정했으며 N7 worker가 local file storage만 추가해 실제 upload/list/token/download를 재검증한다. SDK·Go server 계약 변경 사유는 없다.
+N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `tool/live_conformance.dart`의 upload 404를 재현했다. 무인증 file route도 인증 오류가 아닌 generic router 404였고 컨테이너에 `PGBASE_FILES_DRIVER`/`PGBASE_FILES_LOCAL_DIRECTORY`가 없었다. `withFileServices`가 file routes를 등록하지 않은 fixture 설정 누락으로 확정했다. N7 `52e23ce`가 task-owned local storage를 추가한 뒤 실제 user upload/list/token/byte-exact download/delete와 admin upload가 통과했다. SDK·Go server 계약 변경 사유는 없었고 해당 404 검사는 종료했다.
 
 ## N0 — 지금 작성한 P8 마무리
 

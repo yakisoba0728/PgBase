@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 준비 중 (최종 동기화 2026-09-10 03:38 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 03:44 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,9 +8,9 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 구현 중 — loader/CommonJS/fresh VM/exact-number/cancel/route·record/file/mail bridge WIP, 아직 안정 제품 commit 없음 | focused unit/race·격리 PG/HTTP·외부 JS 앱·handoff |
-| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 안정 commit `11923c6`,`ed6fcde`; Dart analyze/unit·외부 CLI·Flutter test 통과. 실제 HTTP upload 404는 fixture file driver 누락으로 03:38 KST 원인 확정, narrow fixture fix·재검증 진행 | upload/list/token/download·SSE·admin HTTP, 실제 Flutter browser, independent review |
-| G3 N6/N7 통합 | Sol 통합 | 대기 — N7 plan 중복 skip, N6/N7 안정 commit만 cherry-pick | 코드 간 API 검토, JS↔Dart/Flutter 실제 HTTP, 핵심 인수·review closure |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 기반 `218f276`→통합 `15676e5`; pinned Goja/CommonJS/fresh VM/exact-number/cancel/quota, options/routes/lifetime와 record/file/mail bridge. 통합 focused race green; hooks/jobs/migrations·외부 JS 앱 진행 | 나머지 A1–A12 안정 commit, 격리 PG/HTTP·CLI·외부 JS 앱·review |
+| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | `11923c6`,`ed6fcde`,`52e23ce`→통합 `cae25dc`,`2c97f31`,`85c249a`. fixture local file fix 뒤 upload/list/token/byte download/delete·admin upload green; 통합 analyze·7 tests green | 실제 Flutter browser, 전체 endpoint inventory·cancel/error/admin/SSE 독립 review |
+| G3 N6/N7 통합 | Sol 통합 | 부분 통합 — N6 기반과 N7 현재 안정 commits 반영, plan 중복 skip | N6 잔여 통합 후 코드 간 API 검토, JS↔Dart/Flutter 실제 HTTP, 핵심 인수·review closure |
 | G4 N8/N9 병렬 | N8 Sol, N9 Terra; 상세 배정은 Astra 조율 | G3 gate 뒤 시작. 지금 제품 구현 없음 | N8 SQL 인가·불변식·취소, N9 서명·원자 교체·복구 상세 설계와 독립 worktree |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
@@ -21,8 +21,8 @@
 - [x] `117a1db`에서 통합 branch 생성 및 두 docs-only plan 적용.
 - [x] 중앙 live board·소유·단계 gate와 수분 단위 통합 기록 생성.
 - [x] N7 404 red loop 재현 후 generic router 404와 file env 부재로 원인 확정; SDK/서버 동작 변경 없이 fixture narrow fix를 N7에 반환.
-- [ ] N6 안정 제품 commit·focused acceptance 수령 및 통합.
-- [ ] N7 fixture fix와 실제 file/Flutter browser acceptance·독립 review 수령 및 통합.
+- [ ] N6 기반 안정 commit 통합 완료; hooks/jobs/migrations·외부 JS 앱·잔여 focused acceptance 수령 및 통합.
+- [ ] N7 fixture file 실제 HTTP는 완료; 실제 Flutter browser·전체 contract inventory·독립 review 수령.
 - [ ] N6/N7 교차 인수 뒤 Astra에 N8 Sol·N9 Terra 병렬 stage 요청.
 - [ ] N8/N9 구현·독립 review·전체 로컬 최종 인수·문서 동기화·clean final commit.
 
