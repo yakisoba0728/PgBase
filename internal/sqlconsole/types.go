@@ -305,6 +305,15 @@ func QueryFingerprint(secret []byte, statements []Statement) [sha256.Size]byte {
 	return digestRequest(secret, "sql-console-query\x00", Request{Statements: statements}, false)
 }
 
+func IdempotencyDigest(secret []byte, key string) [sha256.Size]byte {
+	hash := hmac.New(sha256.New, secret)
+	writeDigestField(hash, []byte("sql-console-idempotency\x00"))
+	writeDigestField(hash, []byte(key))
+	var result [sha256.Size]byte
+	copy(result[:], hash.Sum(nil))
+	return result
+}
+
 func digestRequest(secret []byte, domain string, request Request, includeRequest bool) [sha256.Size]byte {
 	hash := hmac.New(sha256.New, secret)
 	writeDigestField(hash, []byte(domain))

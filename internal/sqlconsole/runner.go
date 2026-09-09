@@ -61,6 +61,16 @@ func NewRunner(pools *Pools, control *database.Pool) (*Runner, error) {
 	}}, nil
 }
 
+func (runner *Runner) Validate(request Request) error {
+	plan, err := Analyze(request)
+	if err != nil {
+		return err
+	}
+	return runner.pools.ValidatePlan(plan)
+}
+
+func (runner *Runner) Close() { runner.pools.Close() }
+
 func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 	started := time.Now()
 	if ctx == nil || input.AdministratorID == uuid.Nil || input.Request.ExecutionID == uuid.Nil {
