@@ -237,6 +237,9 @@ func (service *Service) replayed(actor Actor, durable Execution) (Execution, err
 	if job.actor.AdministratorID != actor.AdministratorID || job.actor.SessionKey != actor.SessionKey {
 		return durable, nil
 	}
+	if job.persistErr != nil {
+		return Execution{}, fmt.Errorf("%w: %v", ErrClosed, job.persistErr)
+	}
 	return CloneExecution(job.execution), nil
 }
 
@@ -299,24 +302,30 @@ func (service *Service) runOutcome(job *executionJob, err error) (Status, *Failu
 func (service *Service) finishWithoutRun(job *executionJob, status Status, failure *Failure, result *Result) Execution {
 	now := time.Now().UTC()
 	service.mu.Lock()
-	job.execution.Status = status
-	job.execution.FinishedAt = now
-	job.execution.ResultUntil = now.Add(ResultTTL)
-	job.execution.Failure = failure
-	if result != nil {
-		job.execution.Result = result
-	}
 	execution := CloneExecution(job.execution)
 	service.mu.Unlock()
+	execution.Status = status
+	execution.FinishedAt = now
+	execution.ResultUntil = now.Add(ResultTTL)
+	execution.Failure = failure
+	if result != nil {
+		execution.Result = result
+	}
 
 	finishContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	persistErr := service.ledger.Finish(finishContext, job.actor.AdministratorID, execution)
 	cancel()
+	// Poll, cancel and replay must not observe terminal success before its
+	// durable finish. A cancel during persistence cannot undo a committed run.
+	service.mu.Lock()
 	if persistErr != nil {
-		service.mu.Lock()
 		job.persistErr = fmt.Errorf("persist SQL console terminal state: %w", persistErr)
 		service.closed = true
-		service.mu.Unlock()
+	} else {
+		job.execution = CloneExecution(execution)
+	}
+	service.mu.Unlock()
+	if persistErr != nil {
 		service.cancel()
 	}
 	service.scheduleExpiry(job)
@@ -398,6 +407,9 @@ func (service *Service) Cancel(_ context.Context, actor Actor, executionID uuid.
 	}
 	if job.actor.AdministratorID != actor.AdministratorID || job.actor.SessionKey != actor.SessionKey {
 		return Execution{}, ErrForbidden
+	}
+	if job.persistErr != nil {
+		return Execution{}, fmt.Errorf("%w: %v", ErrClosed, job.persistErr)
 	}
 	if terminalStatus(job.execution.Status) {
 		return CloneExecution(job.execution), nil

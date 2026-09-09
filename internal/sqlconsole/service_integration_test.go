@@ -333,6 +333,81 @@ func TestServiceSurfacesTerminalLedgerFailure(t *testing.T) {
 	if _, err := service.Get(context.Background(), actor, request.ExecutionID); !errors.Is(err, ErrClosed) {
 		t.Fatalf("terminal ledger Get error = %v", err)
 	}
+	if _, err := service.Cancel(context.Background(), actor, request.ExecutionID); !errors.Is(err, ErrClosed) {
+		t.Fatalf("terminal ledger Cancel error = %v", err)
+	}
+	if _, err := service.replayed(actor, Execution{ID: request.ExecutionID}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("terminal ledger replay error = %v", err)
+	}
+}
+
+func TestServicePublishesTerminalOnlyAfterLedgerFinish(t *testing.T) {
+	fixture := newPoolFixture(t)
+	ledger, _ := NewLedger(fixture.owner)
+	executor := newBlockingExecutor()
+	service, err := NewService(context.Background(), executor, ledger, []byte("n8-terminal-publication-secret-long-enough"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		executor.releaseAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = service.Close(ctx)
+	})
+	ctx := context.Background()
+	actor := testActor(fixture.actorID, "terminal-publication-session")
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1"}}}
+	if _, err := service.Submit(ctx, actor, request); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, service, actor, request.ExecutionID, StatusRunning)
+	connection, err := fixture.owner.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	transaction, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, `select execution_id from pgbase_meta.sql_console_executions where execution_id=$1 for update`, request.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	executor.releaseAll()
+	deadline := time.Now().Add(time.Second)
+	for {
+		var blocked bool
+		if err := fixture.owner.QueryRow(ctx, `select exists(select 1 from pg_stat_activity where $1::integer=any(pg_blocking_pids(pid)))`, connection.Conn().PgConn().PID()).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("terminal ledger write did not wait on controlled row lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	visible, err := service.Get(ctx, actor, request.ExecutionID)
+	if err != nil || visible.Status != StatusRunning {
+		t.Fatalf("terminal status visible before durable finish: %#v, %v", visible, err)
+	}
+	if canceled, err := service.Cancel(ctx, actor, request.ExecutionID); err != nil || canceled.Status != StatusRunning {
+		t.Fatalf("cancel exposed an unpersisted terminal result: %#v, %v", canceled, err)
+	}
+	if replayed, err := service.replayed(actor, Execution{ID: request.ExecutionID}); err != nil || replayed.Status != StatusRunning {
+		t.Fatalf("replay exposed an unpersisted terminal result: %#v, %v", replayed, err)
+	}
+	if err := transaction.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, service, actor, request.ExecutionID, StatusSucceeded)
+	durable, err := ledger.Get(ctx, actor.AdministratorID, request.ExecutionID)
+	if err != nil || durable.Status != StatusSucceeded {
+		t.Fatalf("visible success without durable success: %#v, %v", durable, err)
+	}
 }
 
 type blockingExecutor struct {

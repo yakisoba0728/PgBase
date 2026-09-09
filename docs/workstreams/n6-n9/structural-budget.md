@@ -6,9 +6,9 @@ Source candidate: `94d8300`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae
 
 | Metric | N1–N5 baseline | N6–N9 measured ceiling |
 | --- | ---: | ---: |
-| Go runtime lines | 58,513 | 69,311 |
+| Go runtime lines | 58,513 | 69,323 |
 | UI runtime lines | 6,249 | 6,667 |
-| Handwritten runtime lines | 64,762 | 75,978 |
+| Handwritten runtime lines | 64,762 | 75,990 |
 | Go interfaces | 60 | 67 |
 | Go exported declarations | 1,053 | 1,251 |
 | Go constructors | 49 | 55 |
@@ -16,13 +16,13 @@ Source candidate: `94d8300`; baseline: merged N1–N5 `2939f1543e4889c0ffa967eae
 | UI runtime exports | 203 | 229 |
 | Production files over 800 lines | 0 | 0 |
 
-Gross tracked runtime comparison is +11,260/−48 = +11,212. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,216. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
+Gross tracked runtime comparison is +11,272/−48 = +11,224. Four new migration embedding lines are classified as support in comparison, but counted as Go runtime in the metric, accounting for handwritten +11,228. Generated bundles, test files, docs, and Dart SDK packaging are reported separately by the unchanged classifier.
 
 | Runtime area | Added | Removed | Contract served |
 | --- | ---: | ---: | --- |
 | `internal/jsvm` | 1,238 | 0 | bounded JS engine, loader, cancellation and queue lifecycle |
 | `pgbase` | 2,579 | 14 | typed JS domain facade/hooks/jobs/migrations and optional SQL console composition |
-| `internal/sqlconsole` | 3,632 | 0 | parser/native capability guard, restricted pools, executor, durable admission/recovery and heavy-data cleanup |
+| `internal/sqlconsole` | 3,644 | 0 | parser/native capability guard, restricted pools, executor, durable admission/recovery and heavy-data cleanup |
 | `internal/selfupdate` | 2,034 | 0 | signed local artifact verification, journaled swap/recovery and platform helpers |
 | `internal/cli` | 747 | 4 | JS migration/watch and local self-update command surfaces |
 | `internal/api` | 457 | 9 | optional authenticated SQL routes, bounded DTOs and session capability |
@@ -34,3 +34,5 @@ The increased interface/export/constructor counts describe approved independent 
 Migration 41 is the sole new system migration. Its current checksum is `628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699`. Migrations 1–40 are byte-identical to the merged baseline; only the new41 checksum snapshot was refreshed during unpublished local development.
 
 Final pinned lint exposed two always-false private replay return values after PostgreSQL tests moved under their proper integration tag. Removing those private booleans keeps the public admission result `false` at the two call sites and adds exactly two Go lines; no SQL, connection lifetime, API, or replay behavior changes.
+
+The concrete terminal-publication race correction adds 12 further Go lines: a local terminal snapshot is persisted before publication, and cancel/replay surface persistence failure consistently with GET. A deterministic PostgreSQL row-lock regression fails before the change and passes afterward; the five affected persistence/replay/cancellation cases pass under race. Final measured Go runtime is 69,323 and handwritten runtime 75,990, with all other ceilings unchanged.
