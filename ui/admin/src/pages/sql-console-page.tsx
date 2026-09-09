@@ -1,0 +1,153 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  sqlConsoleParameterKinds, SQLConsoleError, type SQLConsoleCell, type SQLConsoleExecution, type SQLConsoleParameter,
+  type SQLConsoleParameterKind, type SQLConsolePort, type SQLConsoleStatementInput, type SQLConsoleStatementResult,
+} from "../backend/sql-console-backend";
+
+const terminal = new Set(["succeeded", "failed", "canceled", "timed_out", "unknown"]);
+const statusText: Record<SQLConsoleExecution["status"], string> = {
+  pending: "Waiting to run", running: "Running", succeeded: "Finished", failed: "Failed", canceled: "Canceled", timed_out: "Timed out", unknown: "Outcome is unknown",
+};
+const cellText: Record<SQLConsoleCell["kind"], string> = {
+  null: "NULL", string: "text", boolean: "boolean", integer: "integer", decimal: "decimal", json: "JSON", bytes: "bytes", temporal: "time",
+};
+
+interface DraftStatement { sql: string; params: SQLConsoleParameter[] }
+const newStatement = (): DraftStatement => ({ sql: "SELECT 1", params: [] });
+
+function copiedText(cell: SQLConsoleCell): string { return cell.kind === "null" ? "NULL" : cell.text ?? ""; }
+function executionMessage(error: unknown): string {
+  if (error instanceof SQLConsoleError) {
+    if (error.code === "forbidden") return "This administrator session is not allowed to run that SQL execution.";
+    if (error.code === "busy" || error.code === "unavailable") return "SQL execution is temporarily unavailable. Wait before trying again.";
+    if (error.code === "conflict") return "This execution identity was already used for a different request.";
+    if (error.code === "invalid_request") return "The SQL execution request was rejected.";
+  }
+  return "Unable to contact the SQL console.";
+}
+
+function ResultTable({ statement, filter, copy }: { statement: SQLConsoleStatementResult; filter: string; copy(value: string): void }) {
+  const rows = statement.rows ?? [];
+  const shown = filter.trim() === "" ? rows : rows.filter((row) => row.some((cell) => copiedText(cell).toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
+  if ((statement.columns?.length ?? 0) === 0) return <p>{statement.command ?? "Command completed"}: {statement.affectedRows} affected rows.</p>;
+  return <div className="sql-console-results" tabIndex={0}>
+    <table>
+      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col">{column.name}<small>{column.typeName}</small></th>)}</tr></thead>
+      <tbody>{shown.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} data-cell-kind={cell.kind}>
+        <span>{copiedText(cell)}</span><small>{cellText[cell.kind]}</small><button aria-label={`Copy row ${rowIndex + 1} column ${cellIndex + 1}`} onClick={() => copy(copiedText(cell))} type="button">Copy</button>
+      </td>)}</tr>)}</tbody>
+    </table>
+    {shown.length === 0 && <p>No returned values match this bounded result.</p>}
+  </div>;
+}
+
+function ExecutionResult({ execution }: { execution: SQLConsoleExecution }) {
+  const [selected, setSelected] = useState(0);
+  const [filter, setFilter] = useState("");
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const result = execution.result;
+  const copy = useCallback((value: string) => {
+    setCopyError(null);
+    void navigator.clipboard.writeText(value).catch(() => setCopyError("The value could not be copied. Select it and copy it manually."));
+  }, []);
+  if (result === undefined) {
+    if (execution.resultUntil !== undefined && terminal.has(execution.status)) return <p>The bounded result expired at {execution.resultUntil}; the durable execution record remains available.</p>;
+    return null;
+  }
+  const statements = result.statements ?? [];
+  const active = statements[Math.min(selected, Math.max(0, statements.length - 1))];
+  const committed = result.committed === true ? "Committed" : result.committed === false ? "Rolled back" : "Commit state unknown";
+  return <section aria-label="SQL result">
+    <p>{result.rows} rows, {result.affectedRows} affected rows, {result.bytes} bytes, {result.elapsedMs} ms. {result.truncated ? "The server truncated this bounded result." : "The result stayed within the server cap."} {result.dryRun ? "Dry run: no write was committed." : committed}.</p>
+    {statements.length > 1 && <div aria-label="Statement results" role="tablist">{statements.map((_, index) => <button aria-selected={selected === index} key={index} onClick={() => setSelected(index)} role="tab" type="button">Statement {index + 1}</button>)}</div>}
+    {active !== undefined && <><label>Search this returned statement<input aria-label="Search bounded result" onChange={(event) => setFilter(event.target.value)} value={filter} /></label><ResultTable copy={copy} filter={filter} statement={active} /></>}
+    {copyError !== null && <p role="alert">{copyError}</p>}
+  </section>;
+}
+
+function StatementEditor({ index, statement, update, remove }: { index: number; statement: DraftStatement; update(value: DraftStatement): void; remove(): void }) {
+  const replaceParameter = (parameterIndex: number, patch: Partial<SQLConsoleParameter>) => update({ ...statement, params: statement.params.map((parameter, current) => current === parameterIndex ? { ...parameter, ...patch } : parameter) });
+  return <fieldset>
+    <legend>Statement {index + 1}</legend>
+    <label>SQL<textarea aria-label={`SQL statement ${index + 1}`} onChange={(event) => update({ ...statement, sql: event.target.value })} rows={5} value={statement.sql} /></label>
+    {statement.params.map((parameter, parameterIndex) => <div key={parameterIndex}>
+      <label>Parameter {parameterIndex + 1} kind<select aria-label={`Statement ${index + 1} parameter ${parameterIndex + 1} kind`} onChange={(event) => replaceParameter(parameterIndex, { kind: event.target.value as SQLConsoleParameterKind })} value={parameter.kind}>{sqlConsoleParameterKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
+      <label>Exact value<input aria-label={`Statement ${index + 1} parameter ${parameterIndex + 1} value`} disabled={parameter.kind === "null"} onChange={(event) => replaceParameter(parameterIndex, { text: event.target.value })} value={parameter.text ?? ""} /></label>
+      <button onClick={() => update({ ...statement, params: statement.params.filter((_, current) => current !== parameterIndex) })} type="button">Remove parameter</button>
+    </div>)}
+    <button onClick={() => update({ ...statement, params: [...statement.params, { kind: "string", text: "" }] })} type="button">Add parameter</button>
+    {index > 0 && <button onClick={remove} type="button">Remove statement</button>}
+  </fieldset>;
+}
+
+export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
+  const [statements, setStatements] = useState<DraftStatement[]>([newStatement()]);
+  const [mode, setMode] = useState<"read" | "write">("read");
+  const [dryRun, setDryRun] = useState(false);
+  const [timeoutMS, setTimeoutMS] = useState("5000");
+  const [writeConfirmed, setWriteConfirmed] = useState(false);
+  const [history, setHistory] = useState<SQLConsoleExecution[]>([]);
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [writeEnabled, setWriteEnabled] = useState(false);
+  const [targets, setTargets] = useState<Array<{ schema: string; table: string; columns: string[] }>>([]);
+  const [execution, setExecution] = useState<SQLConsoleExecution | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(async (next?: string) => {
+    try {
+      const page = await port.history(next);
+      setWriteEnabled(page.writeEnabled); setTargets(page.writeTargets); setCursor(page.nextCursor);
+      setHistory((current) => next === undefined ? page.executions : [...current, ...page.executions]);
+    } catch (caught) { setError(executionMessage(caught)); }
+  }, [port]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
+  useEffect(() => {
+    if (execution === null || terminal.has(execution.status)) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void port.execution(execution.id, controller.signal).then(setExecution).catch((caught) => { if (!controller.signal.aborted) setError(executionMessage(caught)); }), 750);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [execution, port]);
+
+  const draft = useMemo<SQLConsoleStatementInput[]>(() => statements.map((statement) => ({ sql: statement.sql, ...(statement.params.length === 0 ? {} : { params: statement.params.map((parameter) => parameter.kind === "null" ? { kind: "null" } : parameter) }) })), [statements]);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setError(null);
+    if (mode === "write" && !writeEnabled) { setError("Writes are not configured for this SQL console."); return; }
+    if (mode === "write" && !dryRun && !writeConfirmed) { setError("Confirm the transactional write before executing it."); return; }
+    const timeout = Number(timeoutMS);
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 30000) { setError("Timeout must be a whole number from 1 to 30000 ms."); return; }
+    setSubmitting(true);
+    try {
+      const operationID = crypto.randomUUID();
+      const idempotencyKey = mode === "write" ? crypto.randomUUID() : undefined;
+      const next = await port.submit({ operationID, idempotencyKey, mode, dryRun: mode === "write" && dryRun, timeoutMS: timeout, statements: draft });
+      setExecution(next); setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)]); setWriteConfirmed(false);
+    } catch (caught) { setError(executionMessage(caught)); } finally { setSubmitting(false); }
+  };
+  const cancel = async () => {
+    if (execution === null || terminal.has(execution.status)) return;
+    setCanceling(true); setError(null);
+    try { setExecution(await port.cancel(execution.id)); } catch (caught) { setError(executionMessage(caught)); } finally { setCanceling(false); }
+  };
+
+  return <section>
+    <h2>SQL console</h2>
+    <p>Queries run in read-only mode by default. Results are bounded and kept briefly; durable history never includes SQL, parameters, or returned values.</p>
+    {error !== null && <p role="alert">{error}</p>}
+    <form onSubmit={(event) => void submit(event)}>
+      <fieldset><legend>Execution mode</legend>
+        <label><input checked={mode === "read"} name="sql-mode" onChange={() => { setMode("read"); setDryRun(false); setWriteConfirmed(false); }} type="radio" />Read only</label>
+        <label><input checked={mode === "write"} disabled={!writeEnabled} name="sql-mode" onChange={() => setMode("write")} type="radio" />Transactional write</label>
+        {mode === "write" && <><label><input checked={dryRun} onChange={(event) => { setDryRun(event.target.checked); setWriteConfirmed(false); }} type="checkbox" />Dry run and roll back</label>{!dryRun && <label><input checked={writeConfirmed} onChange={(event) => setWriteConfirmed(event.target.checked)} type="checkbox" />I confirm this allowed write transaction should execute once</label>}</>}
+      </fieldset>
+      <label>Timeout in milliseconds<input aria-label="Timeout in milliseconds" inputMode="numeric" onChange={(event) => setTimeoutMS(event.target.value)} value={timeoutMS} /></label>
+      {statements.map((statement, index) => <StatementEditor index={index} key={index} remove={() => setStatements((current) => current.filter((_, currentIndex) => currentIndex !== index))} statement={statement} update={(value) => setStatements((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))} />)}
+      {statements.length < 10 && <button onClick={() => setStatements((current) => [...current, newStatement()])} type="button">Add statement</button>}
+      <button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</button>
+    </form>
+    <section aria-label="Allowed write targets"><h3>Allowed write targets</h3>{!writeEnabled && <p>No extension write target is configured.</p>}<ul>{targets.map((target) => <li key={`${target.schema}.${target.table}`}><code>{target.schema}.{target.table}</code> — {target.columns.join(", ")}</li>)}</ul></section>
+    {execution !== null && <section aria-live="polite"><h3>Execution</h3><p><strong>{statusText[execution.status]}</strong> — {execution.id}</p>{!terminal.has(execution.status) && <button disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? "Canceling…" : "Cancel execution"}</button>}{execution.status === "unknown" && <p>The server could not determine the final commit state. Recheck this execution before deciding whether any write can be retried.</p>}{execution.failure !== undefined && <p role="alert">{execution.failure.message}{execution.failure.statementIndex !== undefined ? ` Statement ${execution.failure.statementIndex + 1}.` : ""}{execution.failure.position !== undefined && execution.failure.position > 0 ? ` Character ${execution.failure.position}.` : ""}{execution.failure.sqlState !== undefined ? ` SQLSTATE ${execution.failure.sqlState}.` : ""}</p>}<ExecutionResult execution={execution} /></section>}
+    <section aria-label="SQL execution history"><h3>Execution history</h3>{history.length === 0 && <p>No SQL executions are recorded for this administrator session.</p>}<ol>{history.map((item) => <li key={item.id}><button onClick={() => setExecution(item)} type="button">Inspect</button> {statusText[item.status]} <time dateTime={item.createdAt}>{item.createdAt}</time></li>)}</ol>{cursor !== undefined && <button onClick={() => void loadHistory(cursor)} type="button">Next history page</button>}</section>
+  </section>;
+}
