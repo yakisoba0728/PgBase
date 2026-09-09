@@ -75,10 +75,13 @@ declare module "pgbase" {
     mail: { send(input: { to: string; subject: string; text: string; html?: string }): { sent: true } }
     files: {
       list(input: { collection: string; recordId: string; field: string }): FileResult
+      /** Fails with file_stream_active until an open handle is closed. */
       upload(input: { collection: string; recordId: string; field: string; filename: string; contentType: string; dataBase64: string; sha256?: string }): FileResult
       delete(input: { fileId: string }): { deleted: true }
       token(input: { fileId: string; variant?: "original" | "thumbnail" }): { id: string; token: string }
+      /** Fails with file_stream_active until an open handle is closed. */
       read(input: { fileId: string; variant?: "original" | "thumbnail"; token?: string }): FileResult
+      /** Only one active file stream is allowed per invocation. */
       open(input: { fileId: string; variant?: "original" | "thumbnail"; token?: string }): FileResult & { handle: string }
       readChunk(input: { handle: string; maximumBytes?: number }): FileResult
       close(input: { handle: string }): { closed: true }

@@ -412,6 +412,9 @@ func (host *extensionHost) callFiles(ctx context.Context, method string, raw jso
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, extensionError("invalid_file_request", err)
 	}
+	if (method == "files.read" || method == "files.upload") && host.hasActiveFileStream() {
+		return nil, extensionError("file_stream_active", errors.New("close the active file stream before starting another storage operation"))
+	}
 	switch method {
 	case "files.list":
 		collectionID, recordID, err := host.fileCoordinates(ctx, request)

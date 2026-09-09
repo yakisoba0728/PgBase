@@ -38,7 +38,7 @@ func TestJavaScriptUsesRealFileAndMailServices(t *testing.T) {
 exports.upload=request=>({status:201,json:pg.files.upload(request.json)});
 exports.read=request=>({status:200,json:pg.files.read(request.json)});
 exports.stream=request=>{try{const opened=pg.files.open(request.json),chunks=[];try{for(;;){const chunk=pg.files.readChunk({handle:opened.handle,maximumBytes:5});if(chunk.dataBase64)chunks.push(chunk.dataBase64);if(chunk.eof)break;}}finally{pg.files.close({handle:opened.handle});}return {status:200,json:{chunks}};}catch(error){return {status:200,json:{error:error.code}};}};
-exports.handleLimit=request=>{const handles=[pg.files.open(request.json)];pg.log.info({message:"first-open"});let code="";try{pg.files.open(request.json);}catch(error){code=error.code;}return {status:200,json:{code,handles:handles.length}};};
+exports.handleLimit=request=>{const handles=[pg.files.open(request.json)];pg.log.info({message:"first-open"});const codes={};for(const item of [["open",()=>pg.files.open(request.json)],["read",()=>pg.files.read(request.json)],["upload",()=>pg.files.upload(request.json)]]){try{item[1]();}catch(error){codes[item[0]]=error.code;}}return {status:200,json:{codes,handles:handles.length}};};
 exports.remove=request=>({status:200,json:pg.files.delete(request.json)});
 exports.mail=request=>{pg.mail.send(request.json);return {status:202,json:{sent:true}};};
 exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data.subject,text:event.data.text}});`
@@ -124,7 +124,10 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 	}
 	limitResultChannel := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		limitResultChannel <- publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-handle-limit", map[string]any{"fileId": file.ID}, owner.Token, nil, nil)
+		limitResultChannel <- publicUsersRequest(t, fixture, http.MethodPost, "/extensions/file-handle-limit", map[string]any{
+			"fileId": file.ID, "collection": "documents", "recordId": record.ID, "field": "attachment",
+			"filename": "blocked.txt", "contentType": "text/plain", "dataBase64": base64.StdEncoding.EncodeToString([]byte("blocked")),
+		}, owner.Token, nil, nil)
 	}()
 	select {
 	case <-openLog.entered:
@@ -175,11 +178,12 @@ exports.beforeMail=event=>({patch:{to:event.data.to,subject:"hooked "+event.data
 	}
 	assertPublicUsersStatus(t, limit, http.StatusOK)
 	var limitResult struct {
-		Code    string `json:"code"`
-		Handles int    `json:"handles"`
+		Codes   map[string]string `json:"codes"`
+		Handles int               `json:"handles"`
 	}
 	decodePublicUsersJSON(t, limit, &limitResult)
-	if limitResult.Code != "file_handle_limit" || limitResult.Handles != 1 {
+	if limitResult.Codes["open"] != "file_handle_limit" || limitResult.Codes["read"] != "file_stream_active" ||
+		limitResult.Codes["upload"] != "file_stream_active" || limitResult.Handles != 1 {
 		t.Fatalf("file handle limit = %#v", limitResult)
 	}
 	mail := publicUsersRequest(t, fixture, http.MethodPost, "/extensions/mail", map[string]any{

@@ -26,6 +26,15 @@ type extensionFileHandle struct {
 	reader io.ReadCloser
 }
 
+func (host *extensionHost) hasActiveFileStream() bool {
+	if host == nil {
+		return false
+	}
+	host.fileMu.Lock()
+	defer host.fileMu.Unlock()
+	return len(host.fileHandles) != 0
+}
+
 func (host *extensionHost) openFileHandle(ctx context.Context, request extensionFileRequest) (json.RawMessage, error) {
 	id, err := requiredUUID(request.FileID)
 	if err != nil {
