@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N8 owner fixes·browser 준비 진행, N6/N7/N9 G5 대기 (최종 동기화 2026-09-10 07:20 KST)
+## N6–N9 병렬 실행 — N8 owner fixes·browser 준비 진행, N6/N7/N9 G5 대기 (최종 동기화 2026-09-10 07:23 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -26,9 +26,10 @@ Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료�
 - [x] N6 기반·도메인·migration·jobs·CLI/types/watch·hook·stress/storage·external/cross/same-origin 및 occurrence fix `ee806dd` Nash closure 완료; G3 종료.
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
-- [ ] N8: Euclid의 catalog-version 재검증·virtual field grant·commit unknown·single coordinator reconciliation과 configured write-column/read-one/native dependency guard를 안정 커밋으로 고정. 현재 소스 구현은 WIP이며 capability fields와 indefinite receipt retention/no-replay를 검증한 뒤 PG17/18·focused race 근거를 낸다.
+- [ ] N8: Euclid의 R1–R4 catalog-version 재검증·virtual field grant·commit unknown·single coordinator reconciliation과 Gauss가 확정한 R8–R10 native/transitive dependency guard·configured write-column preflight·read-one API를 안정 커밋으로 고정. 현재 소스 구현은 WIP이며 capability fields와 indefinite receipt retention/no-replay를 검증한 뒤 PG17/18·focused race 근거를 낸다.
 - [ ] N8: owner가 아직 만들지 않은 protected fixture credential path와 정확한 API/UI command를 생성·handoff하면, 내용을 출력하지 않고 Feynman에게 전달해 실제 browser `58097`→API `58096`를 한 번 검증한다.
-- [ ] N8: Gauss는 owner fix와 별개로 현재 shared/UI delta를 병렬 검토 중이다. `c90412c`는 R6/R7 candidate를 포함하지만, R5에는 최초 POST 미도달→GET `not_found` 때 보존한 동일 identity/body를 재전송하지 못하고 영구 잠기는 잔여가 있어 Feynman이 narrow fix 중이다. 최종 composed candidate만 판정하며 이미 green인 backend 범위는 반복하지 않는다.
+- [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
+- [ ] N8: Gauss는 owner fix와 별개로 R6/R7 및 현재 shared/UI delta를 병렬 검토하고, 최종 composed candidate만 판정한다. 이미 green인 backend 범위는 반복하지 않는다.
 - [ ] N6–N9 전체 G5 로컬 인수·문서 동기화·격리 fixture 정리·clean final commit.
 
 ## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)
