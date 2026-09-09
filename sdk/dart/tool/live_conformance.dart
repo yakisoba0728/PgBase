@@ -193,10 +193,32 @@ Future<void> main() async {
     await user.files(name, recordId).delete(uploaded.id);
     if ((await user.files(name, recordId).list('attachment')).isNotEmpty)
       throw StateError('file delete did not clean up');
+    final revoked = PgBaseClient(base);
+    try {
+      final second = await revoked.register(
+        'n7-revoked-$suffix@example.test',
+        'correct-horse-battery-staple-N7',
+      );
+      await admin.revokeUserSessions(second.user.id);
+      await _expectUnauthorized(revoked.session());
+    } finally {
+      revoked.close();
+    }
+    await user.logout();
+    await _expectUnauthorized(user.session());
     stdout.writeln('N7 live conformance passed for $name');
   } finally {
     user.close();
     admin.close();
+  }
+}
+
+Future<void> _expectUnauthorized(Future<Object?> request) async {
+  try {
+    await request;
+    throw StateError('revoked session unexpectedly remained valid');
+  } on PgBaseError catch (error) {
+    if (error.status != 401) rethrow;
   }
 }
 
