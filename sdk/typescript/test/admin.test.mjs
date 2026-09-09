@@ -47,6 +47,76 @@ test('administrator impersonation uses CSRF and preserves the explicit origin ma
   assert.deepEqual(JSON.parse(calls.at(-1).init.body),{durationSeconds:120});
 });
 
+test('administrator file storage API redacts secrets and protects mutations with CSRF', async () => {
+  const calls=[];
+  const settings={driver:'s3',bucket:'files',region:'us-east-1',endpoint:'https://s3.example.test',accessKey:'access',usePathStyle:true,secretConfigured:true,revision:4};
+  const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin',email:'a@example.test'},expiresAt:'later',csrfToken:'csrf'});
+    if(init.method==='POST') return new Response(null,{status:204});
+    return Response.json(settings);
+  }});
+  await client.resume();
+  const loaded=await client.fileStorageSettings();
+  assert.equal(loaded.secretConfigured,true);
+  assert.equal('secretKey' in loaded,false);
+  await client.updateFileStorage({...settings,secretKey:'replacement'});
+  await client.testFileStorage();
+  const storageCalls=calls.filter(call=>call.url.includes('/storage/files'));
+  assert.equal(storageCalls[0].init.method,undefined);
+  assert.equal(storageCalls[1].init.method,'PUT');
+  assert.equal(storageCalls[1].init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.equal(JSON.parse(storageCalls[1].init.body).secretKey,'replacement');
+  assert.equal(storageCalls[2].init.method,'POST');
+  assert.equal(storageCalls[2].init.headers.get('X-PgBase-CSRF'),'csrf');
+});
+
+test('administrator backup storage API preserves revision and never expects returned secrets', async () => {
+  const calls=[];
+  const settings={driver:'s3',bucket:'backups',prefix:'daily',region:'us-east-1',endpoint:'https://s3.example.test',accessKey:'access',usePathStyle:true,retention:7,secretConfigured:true,revision:4};
+  const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin',email:'a@example.test'},expiresAt:'later',csrfToken:'csrf'});
+    if(init.method==='POST') return new Response(null,{status:204});
+    return Response.json(settings);
+  }});
+  await client.resume();
+  const loaded=await client.backupStorageSettings();
+  assert.equal(loaded.secretConfigured,true);
+  assert.equal('secretKey' in loaded,false);
+  const update={driver:'s3',bucket:'backups',prefix:'daily',region:'us-east-1',endpoint:'https://s3.example.test',accessKey:'access',usePathStyle:true,retention:7,revision:4,secretKey:'replacement'};
+  await client.updateBackupStorage(update);
+  await client.testBackupStorage();
+  const storageCalls=calls.filter(call=>call.url.includes('/storage/backups'));
+  assert.equal(storageCalls[0].init.method,undefined);
+  assert.equal(storageCalls[1].init.method,'PUT');
+  assert.equal(storageCalls[1].init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.deepEqual(JSON.parse(storageCalls[1].init.body),update);
+  assert.equal(storageCalls[2].init.method,'POST');
+  assert.equal(storageCalls[2].init.headers.get('X-PgBase-CSRF'),'csrf');
+});
+
+test('administrator storage migration API preserves identity across status, resume, and cancel', async () => {
+  const calls=[]; const migration={id:'migration-id',status:'copying',copiedObjects:2,totalObjects:4};
+  const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin'},expiresAt:'later',csrfToken:'csrf'});
+    if(init.method==='POST'&&(String(url).endsWith('/resume')||String(url).endsWith('/cancel'))) return Response.json(migration,{status:202});
+    return Response.json(migration);
+  }});
+  await client.resume();
+  const input={driver:'s3',bucket:'files',region:'us-east-1',endpoint:'https://s3.example.test',accessKey:'access',secretKey:'secret',usePathStyle:true};
+  assert.equal((await client.previewFileStorageMigration(input)).totalObjects,4);
+  assert.equal((await client.startFileStorageMigration(input,'11111111-1111-4111-8111-111111111111')).id,'migration-id');
+  assert.equal(calls.at(-1).init.headers.get('PgBase-Operation-ID'),'11111111-1111-4111-8111-111111111111');
+  await client.fileStorageMigration('migration/id');
+  await client.resumeFileStorageMigration('migration/id');
+  await client.cancelFileStorageMigration('migration/id');
+  assert.equal(calls.at(-2).init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.match(calls.at(-3).url,/migration%2Fid$/);
+});
+
 test('admin rejects unreadable success instead of claiming an applied schema', async()=>{
   const client=new PgBaseAdminClient('http://localhost',{fetch:async()=>new Response('invalid',{status:200})});
   await assert.rejects(client.catalog(),error=>error instanceof AdminAPIError&&error.code==='invalid_response_body');

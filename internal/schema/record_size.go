@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,9 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// MaximumRecordBytes bounds the JSON record produced by either a record write
-// or schema DDL. Half the list page budget leaves room for its envelope/cursor.
-const MaximumRecordBytes = 2 << 20
+// MaximumRecordBytes bounds the compact canonical JSON record produced by a
+// record write or schema DDL. HTTP wire limits separately account for JSON's
+// optional HTML escaping and request envelopes.
+const MaximumRecordBytes = 8 << 20
 
 // Validate only changes that can grow a row. Dropping a field must remain a
 // repair path for legacy oversized records; changing an existing DEFAULT does
@@ -35,7 +37,7 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 		switch field.Type {
 		case TypeBigInt, TypeNumeric:
 			column += "::text"
-		case TypeTimestampTZ:
+		case TypeTimestampTZ, TypeAutoDate:
 			timestamps = append(timestamps, field.Name)
 		case TypeRelation:
 			if field.Relation.Cardinality == RelationMultiple {
@@ -60,8 +62,8 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 			return fmt.Errorf("decode schema record: %w", err)
 		}
 		// Match query.EncodeRecord's UTC timestamp spelling. RawMessage keeps
-		// JSONB numbers lossless; Marshal applies the same compact/HTML escaping
-		// as the record write bound, rather than measuring PostgreSQL text bytes.
+		// JSONB numbers remain lossless and ValidateRecordSize applies the same
+		// compact, non-HTML-escaped representation as the record write bound.
 		for _, name := range timestamps {
 			if string(record[name]) == "null" {
 				continue
@@ -84,11 +86,14 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 // cannot account for a PATCH merged with existing values. Callers can shrink
 // legacy oversized records because the pre-image is never checked here.
 func ValidateRecordSize(record any) error {
-	encoded, err := json.Marshal(record)
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(record); err != nil {
 		return fmt.Errorf("measure record size: %w", err)
 	}
-	if len(encoded) > MaximumRecordBytes {
+	// Encoder.Encode appends exactly one newline that is not part of the JSON.
+	if encoded.Len()-1 > MaximumRecordBytes {
 		return validation("record", "record_too_large")
 	}
 	return nil

@@ -546,6 +546,13 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 	}
 	ownsClaim := claimTag.RowsAffected() == 1
 	var prepared *compiledCatalog
+	var lifecycleEvents []*CollectionMutationEvent
+	var lifecycleFinishes []func(error)
+	finishLifecycle := func(finalErr error) {
+		for _, finish := range lifecycleFinishes {
+			finish(finalErr)
+		}
+	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, schemaImportLockKey(intent.OperationID)); err != nil {
 			return err
@@ -617,6 +624,7 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		if err != nil {
 			return err
 		}
+		hookedCollections := map[string]bool{}
 		for _, change := range changes {
 			if isSQLViewChange(change) {
 				change, err = inspectSQLViewChange(ctx, tx, catalog, change)
@@ -633,6 +641,16 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 					return err
 				}
 			}
+			if s.collectionLifecycle != nil && !hookedCollections[currentPlan.Definition.Name] {
+				event := collectionMutationEvent(ApplyIntent{change: change, actor: intent.Actor})
+				finish, hookErr := s.collectionLifecycle.BeginCollectionMutation(ctx, event)
+				lifecycleEvents = append(lifecycleEvents, event)
+				lifecycleFinishes = append(lifecycleFinishes, finish)
+				hookedCollections[event.Name] = true
+				if hookErr != nil {
+					return hookErr
+				}
+			}
 			if err := s.applyImportedChange(ctx, tx, store, catalog, change, currentPlan, intent.Actor); err != nil {
 				return err
 			}
@@ -642,6 +660,16 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 			}
 		}
 		for _, item := range planned.Document.Collections {
+			if s.collectionLifecycle != nil && !hookedCollections[item.Name] {
+				event := &CollectionMutationEvent{Operation: "update", Name: item.Name, ActorID: intent.Actor}
+				finish, hookErr := s.collectionLifecycle.BeginCollectionMutation(ctx, event)
+				lifecycleEvents = append(lifecycleEvents, event)
+				lifecycleFinishes = append(lifecycleFinishes, finish)
+				hookedCollections[item.Name] = true
+				if hookErr != nil {
+					return hookErr
+				}
+			}
 			collection := catalog.Collections[item.Name]
 			if intent.ValidateRules != nil && intent.ValidateRules(collection, item.Rules) != nil {
 				return validation("collections."+item.Name+".rules", "invalid")
@@ -675,9 +703,18 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		if ownsClaim {
 			s.finalizeSchemaImportFailure(ctx, intent, idempotencyHash[:], requestHash)
 		}
+		finishLifecycle(err)
 		return result, err
 	}
 	s.cache.publish(prepared)
+	if prepared != nil {
+		for _, event := range lifecycleEvents {
+			if collection, ok := prepared.catalog.Collections[event.Name]; ok {
+				event.Result.Collection = collection
+			}
+		}
+	}
+	finishLifecycle(nil)
 	return result, nil
 }
 

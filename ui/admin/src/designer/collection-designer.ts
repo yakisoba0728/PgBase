@@ -112,7 +112,7 @@ export function buildInput(operation: "create" | "update", name: string, fields:
   if (indexes !== undefined) {
     for (const index of indexes) {
       if (index.name.trim() === "" || index.fields.length < 2 || index.fields.length > 8) throw new DraftError("Each compound index needs a name and two to eight fields.");
-      const known = new Set(fields.filter((field) => field.type !== "relation" && field.type !== "file" && field.type !== "jsonb").map((field) => field.name));
+      const known = new Set(fields.filter((field) => !["relation", "file", "jsonb", "geoPoint", "password"].includes(field.type) && (field.type !== "editor" || (Number(field.options?.maxSize) || 5 * 1024 * 1024) <= 2048)).map((field) => field.name));
       if (new Set(index.fields).size !== index.fields.length || index.fields.some((field) => !known.has(field))) throw new DraftError("Compound indexes can use each scalar field once.");
     }
   }
@@ -124,7 +124,7 @@ export function buildInput(operation: "create" | "update", name: string, fields:
 		return { operation, name, fields: [], view };
 	}
 	const fieldInputs = fields.map((field, index) => {
-			if ((field.help?.length ?? 0) > 300) throw new DraftError(`Field ${index + 1} help must be at most 300 characters.`);
+			if (Array.from(field.help ?? "").length > 300) throw new DraftError(`Field ${index + 1} help must be at most 300 characters.`);
 			if (field.hidden && field.presentable) throw new DraftError(`Field ${index + 1} cannot be hidden and presentable.`);
 			const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
 			if (field.hidden) base.hidden = true;
@@ -179,7 +179,7 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
       unique: field.unique,
       indexed: field.indexed,
       hidden: field.hidden, presentable: field.presentable, help: field.help,
-      hasDefault: field.default !== undefined,
+      hasDefault: field.default !== undefined && !["editor", "geoPoint", "autodate", "password"].includes(field.type),
       defaultText: defaultTextFor(field.type, field.default),
       relation: field.relation === undefined ? undefined : {
         targetCollection: names.get(field.relation.targetCollectionId) ?? "",
@@ -192,7 +192,12 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
 }
 
 function withType(field: DraftField, type: FieldType): DraftField {
-  if (type !== "relation") return { ...field, type, options: undefined, relation: undefined, selfRelation: false };
+  if (type !== "relation") {
+    const fixed = ["file", "editor", "geoPoint", "autodate", "password"].includes(type);
+    return { ...field, type, options: type === "autodate" ? { onCreate: "true", onUpdate: "true" } : undefined, relation: undefined, selfRelation: false,
+      ...(fixed ? { hasDefault: false, defaultText: "", unique: false, indexed: false } : {}),
+      ...(type === "autodate" ? { required: false } : {}), ...(type === "password" ? { presentable: false } : {}) };
+  }
   const relation = field.relation ?? newRelation();
   return {
     ...field,
@@ -210,7 +215,7 @@ function withType(field: DraftField, type: FieldType): DraftField {
 
 function applyEdit(field: DraftField, edit: DraftEdit, collectionName: string): DraftField {
   const relation = field.relation;
-  if (edit.set === "options") return { ...field, options: edit.value };
+  if (edit.set === "options") return { ...field, options: edit.value, ...(field.type === "editor" && (Number(edit.value?.maxSize) || 5 * 1024 * 1024) > 2048 ? { indexed: false, unique: false } : {}) };
   if (edit.set === "name") return { ...field, name: edit.value };
   if (edit.set === "defaultText") return { ...field, defaultText: edit.value };
   if (edit.set === "hasDefault") return { ...field, hasDefault: edit.value };

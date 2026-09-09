@@ -105,7 +105,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// See docs/local-milestone-design.md for the measured scope change.
 	// P7 adds hidden-field path validation and response projection; measured
 	// accounting is in docs/phase3-local-contracts.md with no spare allowance.
-	if runtimeLines > 5704 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 5704", runtimeLines)
+	// P8 adds coordinate paths and advanced-field codecs; measured scope is
+	// in docs/phase4-local-contracts.md with no spare allowance.
+	if runtimeLines > 5786 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 5786", runtimeLines)
 	}
 }

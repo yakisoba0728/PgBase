@@ -6,6 +6,8 @@ export type AdminRoute =
   | { kind: "collection-edit"; collection: string }
   | { kind: "records"; collection: string }
   | { kind: "record"; collection: string; id?: string }
+  | { kind: "storage" }
+  | { kind: "backup-storage" }
   | { kind: "operations" }
   | { kind: "system" }
   | { kind: "users" }
@@ -46,6 +48,8 @@ function segment(value: string): string | null {
 
 export function parseAdminRoute(path: string): AdminRoute {
   if (path === `${collectionsPath}/new`) return { kind: "collection-create" };
+  if (path === "/admin/storage/backups") return { kind: "backup-storage" };
+  if (path === "/admin/storage") return { kind: "storage" };
   if (path === operationsPath) return { kind: "operations" };
 	if (path === "/admin/system") return { kind: "system" };
 	if (path === "/admin/users") return { kind: "users" };
@@ -73,6 +77,8 @@ export function parseAdminRoute(path: string): AdminRoute {
 export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "collections") return collectionsPath;
   if (route.kind === "collection-create") return `${collectionsPath}/new`;
+  if (route.kind === "backup-storage") return "/admin/storage/backups";
+  if (route.kind === "storage") return "/admin/storage";
   if (route.kind === "operations") return operationsPath;
 	if (route.kind === "system") return "/admin/system";
 	if (route.kind === "users") return "/admin/users";

@@ -1207,6 +1207,212 @@
         "security": []
       }
     },
+    "/api/admin/storage/backups": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "put": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/admin/storage/backups/test": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/storage/files": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "put": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/admin/storage/files/migrations": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/admin/storage/files/migrations/latest": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
+    "/api/admin/storage/files/migrations/preview": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/admin/storage/files/migrations/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
+    "/api/admin/storage/files/migrations/{id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/storage/files/migrations/{id}/resume": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/storage/files/test": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
     "/api/admin/system": {
       "get": {
         "responses": {
@@ -1917,7 +2123,7 @@
           }
         ],
         "x-pgbase-csrf-required": true,
-        "x-pgbase-maximum-request-bytes": 105906176
+        "x-pgbase-maximum-request-bytes": 155193344
       }
     },
     "/api/v1/collections/{collection}/records": {
@@ -1964,7 +2170,8 @@
             "adminCookie": []
           }
         ],
-        "x-pgbase-csrf-required": true
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/collections/{collection}/records/{id}": {
@@ -2058,7 +2265,8 @@
             "adminCookie": []
           }
         ],
-        "x-pgbase-csrf-required": true
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/public/collections/batch": {
@@ -2069,7 +2277,7 @@
           }
         },
         "security": [],
-        "x-pgbase-maximum-request-bytes": 105906176
+        "x-pgbase-maximum-request-bytes": 155193344
       }
     },
     "/api/v1/public/collections/{collection}/records": {
@@ -2107,7 +2315,8 @@
             "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
           }
         },
-        "security": []
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/public/collections/{collection}/records/{id}": {
@@ -2187,7 +2396,8 @@
             "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
           }
         },
-        "security": []
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/service/collections/batch": {
@@ -2202,7 +2412,7 @@
             "serviceBearer": []
           }
         ],
-        "x-pgbase-maximum-request-bytes": 105906176
+        "x-pgbase-maximum-request-bytes": 155193344
       }
     },
     "/api/v1/service/collections/{collection}/records": {
@@ -2248,7 +2458,8 @@
           {
             "serviceBearer": []
           }
-        ]
+        ],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/service/collections/{collection}/records/{id}": {
@@ -2340,7 +2551,8 @@
           {
             "serviceBearer": []
           }
-        ]
+        ],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/user/collections/batch": {
@@ -2355,7 +2567,7 @@
             "userBearer": []
           }
         ],
-        "x-pgbase-maximum-request-bytes": 105906176
+        "x-pgbase-maximum-request-bytes": 155193344
       }
     },
     "/api/v1/user/collections/{collection}/events": {
@@ -2425,7 +2637,8 @@
           {
             "userBearer": []
           }
-        ]
+        ],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/user/collections/{collection}/records/{id}": {
@@ -2517,7 +2730,8 @@
           {
             "userBearer": []
           }
-        ]
+        ],
+        "x-pgbase-maximum-request-bytes": 50335744
       }
     },
     "/api/v1/user/collections/{collection}/records/{id}/files/{field}": {

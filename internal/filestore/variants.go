@@ -31,9 +31,14 @@ func containsVariant(values []string, value string) bool {
 }
 
 func (s *Service) variantObject(ctx context.Context, file File, variant string) (string, error) {
+	ctx, release, err := s.beginStorageOperation(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	var key string
 	var uploadedKey string
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `select object_key from pgbase_meta.record_file_variants where file_id=$1 and variant=$2`, file.ID, variant).Scan(&key); err == nil {
 			return nil
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -56,6 +61,9 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 			return err
 		}
 		uploadedKey = key
+		if err := s.guardStoragePublication(ctx, tx); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,$4)`, file.ID, variant, key, s.options.Now().UTC()); err != nil {
 			return err
 		}

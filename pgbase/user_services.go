@@ -44,12 +44,21 @@ func withUserServices(dependencies api.Dependencies, pool *database.Pool, option
 	}
 	auth.ConfigureOAuthRegistration(options.UserRegistrationEnabled)
 	auth.ConfigureDefaultRegistration(options.UserRegistrationEnabled)
-	dependencies.EmailActions = auth
-	dependencies.AuthCollections = auth
-	dependencies.AuthAdministration = auth
+	var userService api.UserAuth = auth
+	var emailActions api.EmailActions = auth
+	var authCollections api.AuthCollections = auth
+	var authAdministration api.AuthAdministration = auth
+	var authFactors api.AuthFactors = auth
+	if options.Hooks != nil {
+		hooked := hookedUserAuth{Service: auth, registry: options.Hooks}
+		userService, emailActions, authCollections, authAdministration, authFactors = hooked, hooked, hooked, hooked, hooked
+	}
+	dependencies.EmailActions = emailActions
+	dependencies.AuthCollections = authCollections
+	dependencies.AuthAdministration = authAdministration
 	dependencies.ServiceTokens = serviceauth.NewService(pool, options.TokenSecret)
-	dependencies.AuthFactors = auth
-	dependencies.UserAuth = auth
+	dependencies.AuthFactors = authFactors
+	dependencies.UserAuth = userService
 	dependencies.RecordAccess = recordaccess.NewService(pool)
 	dependencies.UserRegistrationEnabled = options.UserRegistrationEnabled
 	return dependencies, nil

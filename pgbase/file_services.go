@@ -89,17 +89,15 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 	if options.Files.Driver == "" {
 		return dependencies, nil, nil
 	}
-	var objects filestore.ObjectStore
-	var err error
-	switch options.Files.Driver {
-	case "local":
-		objects, err = filestore.NewLocalStore(options.Files.LocalDirectory)
-	case "s3":
-		objects, err = filestore.NewS3Store(ctx, filestore.S3Config{Bucket: options.Files.S3Bucket, Region: options.Files.S3Region, Endpoint: options.Files.S3Endpoint, AccessKey: options.Files.S3AccessKey, SecretKey: options.Files.S3SecretKey, UsePathStyle: options.Files.S3UsePathStyle})
-	}
+	objects, err := filestore.NewStorageController(ctx, pool, options.TokenSecret, filestore.StorageConfig{Driver: options.Files.Driver, LocalDirectory: options.Files.LocalDirectory, Bucket: options.Files.S3Bucket, Region: options.Files.S3Region, Endpoint: options.Files.S3Endpoint, AccessKey: options.Files.S3AccessKey, SecretKey: options.Files.S3SecretKey, UsePathStyle: options.Files.S3UsePathStyle, AllowInsecureLoopback: options.Files.S3AllowInsecureLoopback})
 	if err != nil {
 		return api.Dependencies{}, nil, err
 	}
+	dependencies.StorageAdministration = objects
+	if options.Hooks != nil {
+		dependencies.StorageAdministration = hookedStorageAdministration{service: objects, registry: options.Hooks}
+	}
+	dependencies.StorageMigrations = filestore.NewObjectMigrationService(objects)
 	authorize := func(ctx context.Context, tx pgx.Tx, principal identity.Subject, collectionID, recordID uuid.UUID, field string, operation filestore.Operation) error {
 		catalog, err := schemas.EnsureCurrent(ctx, tx)
 		if err != nil {

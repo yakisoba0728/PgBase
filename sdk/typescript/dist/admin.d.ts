@@ -1,5 +1,9 @@
-export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file";
+export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file" | "editor" | "geoPoint" | "autodate" | "password";
 export type FieldOptions = {
+    maxSize?: number;
+    convertURLs?: boolean;
+    onCreate?: boolean;
+    onUpdate?: boolean;
     minLength?: number;
     maxLength?: number;
     pattern?: string;
@@ -193,6 +197,53 @@ export type RequestLogPage = {
     nextBefore?: number;
     oldestId: number;
 };
+export type FileStorageSettings = {
+    driver: "local" | "s3";
+    bucket: string;
+    region: string;
+    endpoint: string;
+    accessKey: string;
+    usePathStyle: boolean;
+    secretConfigured: boolean;
+    revision: number;
+};
+export type FileStorageUpdate = {
+    driver: "local" | "s3";
+    bucket: string;
+    region: string;
+    endpoint: string;
+    accessKey: string;
+    usePathStyle: boolean;
+    revision: number;
+    secretKey?: string;
+    clearSecret?: boolean;
+};
+export type FileStorageMigrationInput = Omit<FileStorageUpdate, "revision">;
+export type FileStorageMigration = {
+    id: string;
+    status: "preview" | "copying" | "canceling" | "canceled" | "failed" | "ready" | "activating" | "committed";
+    copiedObjects: number;
+    totalObjects: number;
+    failure?: string;
+    createdAt?: string;
+    updatedAt?: string;
+};
+export type BackupStorageSettings = {
+    driver: "local" | "s3";
+    bucket: string;
+    prefix: string;
+    region: string;
+    endpoint: string;
+    accessKey: string;
+    usePathStyle: boolean;
+    retention: number;
+    secretConfigured: boolean;
+    revision: number;
+};
+export type BackupStorageUpdate = Omit<BackupStorageSettings, "secretConfigured"> & {
+    secretKey?: string;
+    clearSecret?: boolean;
+};
 export declare class AdminAPIError extends Error {
     readonly status: number;
     readonly code: string;
@@ -265,6 +316,18 @@ export declare class PgBaseAdminClient {
     }>;
     configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
     queueJob(id: string, signal?: AbortSignal): Promise<void>;
+    fileStorageSettings(signal?: AbortSignal): Promise<FileStorageSettings>;
+    updateFileStorage(input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings>;
+    testFileStorage(signal?: AbortSignal): Promise<void>;
+    backupStorageSettings(signal?: AbortSignal): Promise<BackupStorageSettings>;
+    updateBackupStorage(input: BackupStorageUpdate, signal?: AbortSignal): Promise<BackupStorageSettings>;
+    testBackupStorage(signal?: AbortSignal): Promise<void>;
+    previewFileStorageMigration(input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration>;
+    startFileStorageMigration(input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration>;
+    fileStorageMigration(id: string, signal?: AbortSignal): Promise<FileStorageMigration>;
+    latestFileStorageMigration(signal?: AbortSignal): Promise<FileStorageMigration>;
+    resumeFileStorageMigration(id: string, signal?: AbortSignal): Promise<void>;
+    cancelFileStorageMigration(id: string, signal?: AbortSignal): Promise<void>;
     impersonateUser(id: string, durationSeconds?: number, signal?: AbortSignal): Promise<ImpersonatedUserSession>;
     private adopt;
     private request;

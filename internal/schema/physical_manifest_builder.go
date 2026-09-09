@@ -66,7 +66,7 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 				Table:      collection.TableName,
 				Name:       field.ColumnName,
 				DataType:   physicalColumnType(field.Type),
-				NotNull:    field.Required,
+				NotNull:    field.Required || field.Type == TypeEditor || field.Type == TypeGeoPoint,
 				DefaultSQL: defaultSQL,
 			})
 			if field.Unique || field.Indexed {
@@ -91,7 +91,7 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 				Table:     collection.TableName,
 				Name:      field.ColumnName,
 				DataType:  "uuid",
-				NotNull:   field.Required,
+				NotNull:   field.Required || field.Type == TypeEditor || field.Type == TypeGeoPoint,
 			})
 			builder.addForeignKey(
 				applicationPhysicalNamespace, collection.TableName, names.SingleForeignKey, []string{field.ColumnName},
@@ -359,10 +359,10 @@ func physicalLess(leftNamespace, leftTable, leftName, rightNamespace, rightTable
 }
 
 func physicalColumnType(fieldType FieldType) string {
-	if fieldType == TypeTimestampTZ {
+	if fieldType == TypeTimestampTZ || fieldType == TypeAutoDate {
 		return "timestamp with time zone"
 	}
-	return string(fieldType)
+	return physicalFieldType(fieldType)
 }
 
 // legacyPageIndexName preserves the accepted name emitted by system migration

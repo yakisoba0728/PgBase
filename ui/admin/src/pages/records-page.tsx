@@ -15,6 +15,12 @@ function display(value: RecordData[string]): string {
 }
 
 function displayCell(value: RecordData[string], field: FieldDefinition | undefined): ReactNode {
+  if (field?.type === "password") return <span aria-label="Password is not disclosed">—</span>;
+  if (field?.type === "editor" && typeof value === "string") {
+    const document = new DOMParser().parseFromString(value.slice(0, 16384), "text/html");
+    const text = document.body.textContent ?? "";
+    return text.slice(0, 160) + (text.length > 160 || value.length > 16384 ? "…" : "");
+  }
   if (field?.type !== "relation") return display(value);
   if (value === null) return "null";
   if (field.relation?.cardinality === "multiple") {
@@ -68,7 +74,7 @@ export function RecordsPage({ collectionName, navigate }: { collectionName: stri
     {list.failed && <p role="alert">Unable to load records.</p>}
     {!page && !list.failed && !list.filterInvalid && <p aria-live="polite">Loading records…</p>}
     {page && page.items.length === 0 && <p>No records yet.</p>}
-    {page && page.items.length > 0 && <div className="table-scroll"><table><thead><tr>{!readOnly && <th><input aria-label="Select page" checked={ids.length > 0 && ids.every((id) => list.selected.has(id))} onChange={(event) => list.selectMany(ids, event.target.checked)} type="checkbox" /></th>}{columns.map((column) => <th aria-sort={list.sortDirection(column)} key={column}>{list.sortable(column) ? <button className="text-button" onClick={() => list.toggleSort(column)} type="button">{column}{list.sortDirection(column) === "ascending" ? " ↑" : list.sortDirection(column) === "descending" ? " ↓" : ""}</button> : column}</th>)}</tr></thead><tbody>
+    {page && page.items.length > 0 && <div className="table-scroll"><table><thead><tr>{!readOnly && <th><input aria-label="Select page" checked={ids.length > 0 && ids.every((id) => list.selected.has(id))} onChange={(event) => list.selectMany(ids, event.target.checked)} type="checkbox" /></th>}{columns.map((column) => <th aria-sort={list.sortDirection(column)} key={column}>{list.fieldFor(column)?.type === "geoPoint" ? <>{column}{(["lon", "lat"] as const).map(coordinate => list.sortable(`${column}.${coordinate}`) && <button key={coordinate} type="button" className="text-button" aria-label={`Sort ${column} ${coordinate}`} onClick={() => list.toggleSort(`${column}.${coordinate}`)}>{coordinate}{list.sortDirection(`${column}.${coordinate}`) === "ascending" ? " ↑" : list.sortDirection(`${column}.${coordinate}`) === "descending" ? " ↓" : ""}</button>)}</> : list.sortable(column) ? <button className="text-button" onClick={() => list.toggleSort(column)} type="button">{column}{list.sortDirection(column) === "ascending" ? " ↑" : list.sortDirection(column) === "descending" ? " ↓" : ""}</button> : column}</th>)}</tr></thead><tbody>
       {page.items.map((record, index) => <tr key={String(record.id ?? index)}>{!readOnly && <td><input aria-label={`Select record ${String(record.id)}`} checked={list.selected.has(String(record.id))} onChange={(event) => selectRow(index, event.target.checked, (event.nativeEvent as MouseEvent).shiftKey)} type="checkbox" /></td>}{columns.map((column) => <td key={column}>
         {column === "id"
           ? readOnly ? display(record[column]) : <AdminLink className="text-button" navigate={navigate} route={{ kind: "record", collection: collectionName, id: String(record.id) }}>{display(record[column])}</AdminLink>

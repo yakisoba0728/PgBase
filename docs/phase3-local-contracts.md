@@ -1,5 +1,7 @@
 # P7 local product contracts
 
+> 기록 범위 안내: 이 문서는 해당 단계의 계약·검증 이력을 보존합니다. 현재 전체 상태는 [구현 이력](project-status.md), 남은 작업은 [후속 작업](next-work.md), PocketBase 비교는 [현재 재평가](pocketbase-current-reassessment.md)를 따릅니다. 본문의 당시 미구현/제외 항목은 후속 단계에서 달라졌을 수 있습니다.
+
 This increment starts at PR #30 (`b942391`). The PocketBase comparison uses the checked-out v0.40.3 source snapshot. Implementation, acceptance, merge, and installation status are tracked separately in [TODO](../TODO.md). This document defines PgBase behavior; it does not claim PocketBase wire compatibility.
 
 ## Field presentation and visibility
@@ -30,7 +32,7 @@ New browser scenarios cover field presentation/help, schema export/import with e
 
 Go unit/race, lint, vet, the OpenAPI registry contract, and historical migration checks passed. Migration SQL 1–28 is unchanged. A read-only dump of the actual local PostgreSQL 17 v28 database was restored into a separate disposable database, upgraded to v32, and passed `doctor`; the original installation remained available. A separate populated-v28 PostgreSQL regression proves that required metadata and record data survive and new field presentation properties default correctly.
 
-The complete final PostgreSQL 18/MinIO race rerun passed with the skip policy, and all six local OS/architecture builds passed. PR checks, merge, and installation are tracked in TODO. The initial broad run exposed old-catalog capability detection and a historical test fixture rewind omission; both were corrected. A later backup acceptance run exposed a test poll that rejected the managed host's advertised activation transition. The poll now waits on the same durable job through that specific 503 response; the actual restore/activation test then passed five consecutive race runs.
+The complete final PostgreSQL 18/MinIO race rerun passed with the skip policy, and all six local OS/architecture builds passed. All five required PR checks passed, PR #31 merged as `701256b`, and the existing local PostgreSQL 17 installation was backed up and upgraded from v28 to v32. Readiness, doctor, administrator login, schema export/preview, and managed backup/download/hash verification passed. Subsequent work remains tracked in TODO. The initial broad run exposed old-catalog capability detection and a historical test fixture rewind omission; both were corrected. A later backup acceptance run exposed a test poll that rejected the managed host's advertised activation transition. The poll now waits on the same durable job through that specific 503 response; the actual restore/activation test then passed five consecutive race runs.
 
 ## Measured structural scope
 

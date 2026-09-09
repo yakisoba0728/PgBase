@@ -11,7 +11,7 @@ import {
 } from "../backend/ports";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
-import {
+import { acceptedDraft,
   blankState,
   dirtyNames,
   encodeDraft,
@@ -144,8 +144,8 @@ export function useRecordList(collectionName: string): RecordList {
     fieldFor: (column) => fields?.find((field) => field.name === column),
     sortDirection: (column) => state.sort === column ? "ascending" : state.sort === `-${column}` ? "descending" : undefined,
     sortable: (column) => alwaysSortable.has(column) || (fields?.some((field) =>
-      field.name === column &&
-      field.type !== "jsonb" &&
+      (field.type === "geoPoint" ? column === `${field.name}.lon` || column === `${field.name}.lat` : field.name === column) &&
+      !["jsonb", "password", "file"].includes(field.type) &&
       (field.type !== "relation" || field.relation?.cardinality === "single") &&
       (field.indexed || field.unique),
     ) ?? false),
@@ -298,7 +298,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       const record = id === undefined ? null : await records.get(collectionName, id, controller.signal);
       if (controller.signal.aborted) return;
       const clean = initialDraft(collection.fields, record?.data ?? {}, isCreate);
-      const restored = state.reloads === 0 ? readDraft(scope) : null;
+      const restored = state.reloads === 0 ? readDraft(scope, collection.fields) : null;
       const draft = preserve ? state.draft : restored === null ? clean : { ...clean, ...restored };
       update(identity, { loadedResource: identity, collection, catalog, draft, initial: clean, loaded: record, stale: false, errors: {} });
     }).catch((caught: unknown) => {
@@ -316,7 +316,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
   useEffect(() => {
     if (state.collection === null || scope.administrator === "") return;
-    if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft);
+    if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft, state.collection.fields);
   }, [dirty.size, scope.administrator, scope.collection, scope.record, state.collection, state.draft]);
   // The draft as it stands now, readable from a response handler that closed
   // over the draft it sent: the two differ exactly when editing continued.
@@ -342,7 +342,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       // and its answer is the version a further save builds on. A draft edited
       // since is unsaved work of its own, so it keeps the guard and this page.
       const outran = dirtyNames(live.current, state.draft).size > 0;
-      update(identity, { initial: state.draft, loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
+      update(identity, { ...acceptedDraft(collection.fields, state.draft, live.current), loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
       if (outran) return;
       savedDraft();
       clearDraft(scope);
@@ -394,8 +394,8 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     remove: () => void remove(),
     duplicate: () => {
       if (state.collection === null || isCreate) return;
-      const duplicate = Object.fromEntries(Object.entries(state.draft).filter(([name]) => state.collection?.fields.find((field) => field.name === name)?.type !== "file"));
-      writeDraft({ ...scope, record: "new" }, duplicate);
+      const duplicate = Object.fromEntries(Object.entries(state.draft).filter(([name]) => state.collection?.fields.find((field) => field.name === name)?.type !== "file" && !["password", "autodate"].includes(state.collection?.fields.find((field) => field.name === name)?.type ?? "")));
+      writeDraft({ ...scope, record: "new" }, duplicate, state.collection.fields);
       navigate({ kind: "record", collection: collectionName });
     },
   };

@@ -427,6 +427,9 @@ func planInputField(
 	if field.Type == TypeFile && (field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil) {
 		return PlannedField{}, validation(fieldPath, "invalid_file_field")
 	}
+	if code := validateAdvancedFieldInput(field); code != "" {
+		return PlannedField{}, validation(fieldPath, code)
+	}
 
 	var targetCollectionID *uuid.UUID
 	storageName := ""
@@ -476,6 +479,12 @@ func planInputField(
 		Options:    clonedInputOptions(normalized.Options),
 		Hidden:     normalized.Hidden, Presentable: normalized.Presentable, Help: normalized.Help,
 	}
+	if normalized.Type == TypeEditor {
+		planned.Default = json.RawMessage(`""`)
+	}
+	if normalized.Type == TypeGeoPoint {
+		planned.Default = json.RawMessage(`{"lat":0,"lon":0}`)
+	}
 	if len(normalized.Default) != 0 {
 		canonical, _, err := normalizeDefault(normalized.Type, normalized.Default)
 		if err != nil {
@@ -490,8 +499,8 @@ func planInputField(
 }
 
 func addColumnStatement(table string, field PlannedField) string {
-	column := pgx.Identifier{field.ColumnName}.Sanitize() + " " + string(field.Type)
-	if field.Required {
+	column := pgx.Identifier{field.ColumnName}.Sanitize() + " " + physicalFieldType(field.Type)
+	if physicalFieldNotNull(field) {
 		column += " not null"
 	}
 	if len(field.Default) != 0 {
@@ -507,12 +516,12 @@ func alterColumnStatements(table string, ordinal int, previous, field PlannedFie
 			return nil, validation(fmt.Sprintf("fields.%d.type", ordinal), "unsupported_schema_change")
 		}
 		column := pgx.Identifier{field.ColumnName}.Sanitize()
-		changes = append(changes, "TYPE "+string(field.Type)+" USING "+column+"::"+string(field.Type))
+		changes = append(changes, "TYPE "+physicalFieldType(field.Type)+" USING "+column+"::"+physicalFieldType(field.Type))
 		// Default changes are handled by the shared comparison below so a type
 		// change plus default change emits exactly one SET DEFAULT.
 	}
-	if previous.Required != field.Required {
-		if field.Required {
+	if physicalFieldNotNull(previous) != physicalFieldNotNull(field) {
+		if physicalFieldNotNull(field) {
 			changes = append(changes, "SET NOT NULL")
 		} else {
 			changes = append(changes, "DROP NOT NULL")
@@ -581,12 +590,12 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 		if field.Type == TypeRelation && field.Relation != nil && field.Relation.Cardinality == RelationMultiple {
 			continue
 		}
-		columnType := string(field.Type)
+		columnType := physicalFieldType(field.Type)
 		if field.Type == TypeRelation {
 			columnType = string(TypeUUID)
 		}
 		column := pgx.Identifier{field.Name}.Sanitize() + " " + columnType
-		if field.Required {
+		if physicalFieldNotNull(field) {
 			column += " not null"
 		}
 		if len(field.Default) != 0 {
@@ -641,7 +650,6 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 	}
 	return statements
 }
-
 func planCompoundIndexes(inputs []IndexInput, fields []PlannedField) ([]PlannedIndex, error) {
 	available := make(map[string]PlannedField, len(fields))
 	for _, field := range fields {

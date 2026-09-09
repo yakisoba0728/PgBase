@@ -60,6 +60,7 @@ type route struct {
 	maximumRequestBytes int64
 	streamedUpload      bool
 	schemaDocument      bool
+	recordDocument      bool
 	noStore             bool
 	handler             http.Handler
 }
@@ -88,7 +89,7 @@ var (
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 134
+	maximumRegisteredRoutes     = 146
 	maximumMethodAgnosticRoutes = 3
 )
 
@@ -109,7 +110,10 @@ func validateRoutes(routes []route) error {
 		if declared.maximumRequestBytes < 0 || declared.maximumRequestBytes > backup.MaximumArchiveBytes {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
-		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload && !declared.schemaDocument {
+		if declared.maximumRequestBytes > maxJSONBodyBytes && !declared.streamedUpload && !declared.schemaDocument && !declared.recordDocument {
+			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
+		}
+		if declared.recordDocument && (declared.schemaDocument || declared.streamedUpload || declared.maximumRequestBytes != maximumRecordRequestBytes || !isRecordWriteRoute(declared)) {
 			return fmt.Errorf("%w: %q", errRouteRequestCap, declared)
 		}
 		if declared.schemaDocument && (declared.streamedUpload || declared.method != "POST" ||
@@ -240,7 +244,11 @@ const (
 	maximumCatalogResponseBytes = 16<<20 + responseFraming
 	// Record pages reuse the read budget the query package enforces, so a
 	// page that fit the kernel's contract cannot fail at the transport.
-	maximumRecordPageResponseBytes = 4<<20 + responseFraming
+	maximumRecordPageResponseBytes = 48<<20 + 2*responseFraming
+	maximumBatchResponseBytes      = 48<<20 + responseFraming + 32<<10
+	// Canonical records are at most 8 MiB; JSON escaping can expand a byte sixfold.
+	maximumRecordRequestBytes       = 48<<20 + responseFraming
+	maximumCustomRouteResponseBytes = 4<<20 + responseFraming
 	// Schema operation history reuses the 256 KiB serialized page bound the
 	// ledger enforces when it decides how many receipts fit one page, so a
 	// page the ledger was willing to build is a page the router can deliver.
@@ -259,3 +267,21 @@ const (
 // code set later outgrows the budget above. A report that hits it says so
 // through its finding count, and `pgbase doctor` still prints every finding.
 const MaximumSchemaFindings = 32
+
+func isRecordWriteRoute(declared route) bool {
+	var prefix string
+	switch declared.access {
+	case accessAdminSession:
+		prefix = "/api/v1/collections/"
+	case accessUserSession:
+		prefix = "/api/v1/user/collections/"
+	case accessAnonymous:
+		prefix = "/api/v1/public/collections/"
+	case accessServiceSession:
+		prefix = "/api/v1/service/collections/"
+	default:
+		return false
+	}
+	return declared.method == "POST" && declared.pattern == prefix+"{collection}/records" ||
+		declared.method == "PATCH" && declared.pattern == prefix+"{collection}/records/{id}"
+}

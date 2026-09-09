@@ -13,34 +13,38 @@ import (
 )
 
 type Dependencies struct {
-	CustomRoutes            []CustomRoute
-	AuthAdministration      AuthAdministration
-	RequestLog              *observability.RequestLog
-	Jobs                    ManagedJobs
-	Backups                 ManagedBackups
-	ServiceTokens           ServiceTokens
-	RecordRules             RecordRules
-	AuthCollections         AuthCollections
-	Files                   FileService
-	MaximumFileUploadBytes  int64
-	Readiness               Readiness
-	Logger                  *slog.Logger
-	CORSAllowedOrigins      []string
-	AdminAuth               AdminAuth
-	UserAuth                UserAuth
-	RecordAccess            RecordAccess
-	Realtime                Realtime
-	EmailActions            EmailActions
-	AuthFactors             AuthFactors
-	UserRegistrationEnabled bool
-	Schema                  SchemaService
-	Records                 RecordService
-	PublicURL               *url.URL
-	TrustedProxies          []netip.Prefix
-	System                  SystemStatusProvider
-	SchemaHealth            SchemaHealthProvider
-	AdminUI                 http.Handler
-	Metrics                 *observability.Metrics
+	CustomRoutes                []CustomRoute
+	AuthAdministration          AuthAdministration
+	RequestLog                  *observability.RequestLog
+	Jobs                        ManagedJobs
+	Backups                     ManagedBackups
+	ServiceTokens               ServiceTokens
+	RecordRules                 RecordRules
+	AuthCollections             AuthCollections
+	Files                       FileService
+	StorageAdministration       StorageAdministration
+	BackupStorageAdministration BackupStorageAdministration
+	StorageMigrations           StorageMigrationAdministration
+	MaximumFileUploadBytes      int64
+	Readiness                   Readiness
+	Logger                      *slog.Logger
+	CORSAllowedOrigins          []string
+	AdminAuth                   AdminAuth
+	UserAuth                    UserAuth
+	RecordAccess                RecordAccess
+	Realtime                    Realtime
+	RealtimeLifecycle           RealtimeLifecycle
+	EmailActions                EmailActions
+	AuthFactors                 AuthFactors
+	UserRegistrationEnabled     bool
+	Schema                      SchemaService
+	Records                     RecordService
+	PublicURL                   *url.URL
+	TrustedProxies              []netip.Prefix
+	System                      SystemStatusProvider
+	SchemaHealth                SchemaHealthProvider
+	AdminUI                     http.Handler
+	Metrics                     *observability.Metrics
 	// MetricsExposition is the already-authenticated exposition handler. The
 	// caller builds it so the bearer secret never becomes a router
 	// dependency; the metrics module hashes it on construction and keeps only
@@ -110,14 +114,17 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		{method: "GET", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
 		{method: "POST", pattern: "/api/v1/collections/{collection}/records", access: accessAdminSession,
-			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.create)},
+			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.create)},
 		{method: "GET", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.get)},
 		{method: "PATCH", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
-			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.update)},
+			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.update)},
 		{method: "DELETE", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
 	}
+	routes = append(routes, storageAdministrationRoutes(dependencies)...)
+	routes = append(routes, storageMigrationRoutes(dependencies.StorageMigrations)...)
+	routes = append(routes, backupStorageAdministrationRoutes(dependencies.BackupStorageAdministration)...)
 	if dependencies.UserAuth != nil {
 		users := userEndpoints{dependencies: dependencies}
 		routes = append(routes, users.lifecycleRoutes()...)
@@ -129,17 +136,17 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			route{method: "GET", pattern: "/api/v1/auth/session", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.session)},
 			route{method: "POST", pattern: "/api/v1/auth/logout", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.logout)},
 			route{method: "GET", pattern: "/api/v1/user/collections/{collection}/records", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
-			route{method: "POST", pattern: "/api/v1/user/collections/{collection}/records", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.create)},
+			route{method: "POST", pattern: "/api/v1/user/collections/{collection}/records", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.create)},
 			route{method: "GET", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.get)},
-			route{method: "PATCH", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.update)},
+			route{method: "PATCH", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.update)},
 			route{method: "DELETE", pattern: "/api/v1/user/collections/{collection}/records/{id}", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
 			route{method: "GET", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
 			route{method: "PUT", pattern: "/api/admin/collections/{collection}/user-access", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(users.access)},
 		)
 	}
-	routes = append(routes, route{method: "POST", pattern: "/api/v1/collections/batch", access: accessAdminSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
+	routes = append(routes, route{method: "POST", pattern: "/api/v1/collections/batch", access: accessAdminSession, response: atomicJSON(maximumBatchResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	if dependencies.UserAuth != nil {
-		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
+		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumBatchResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
 	routes = append(routes, schemaDocumentRoutes(dependencies)...)

@@ -282,18 +282,31 @@ func TestRecordServiceUsesDatabaseClockForTimestamps(t *testing.T) {
 }
 
 func TestRecordServiceCapsPageResponseBytesAndContinuesWithCursor(t *testing.T) {
-	_, schemas, records := newRecordServiceTest(t)
+	// This intentionally serializes roughly 50 MiB of JSON. Keep the normal
+	// request timeout for all other tests, but give this boundary fixture enough
+	// server time on slower CI runners to exercise the response cap itself.
+	pool, schemas, records := newRecordServiceTestWithTimeout(t, 30*time.Second)
 	ctx := context.Background()
-	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeText, Required: true}}})
-	large := strings.Repeat("x", 900_000)
-	wantIDs := make([]string, 0, 6)
-	for index := 0; index < 6; index++ {
-		created, err := records.Create(ctx, "large_records", map[string]json.RawMessage{"payload": json.RawMessage(fmt.Sprintf("%q", large))})
-		if err != nil {
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "large_records", Fields: []schema.FieldInput{{Name: "payload", Type: schema.TypeJSONB, Required: true}}})
+	wantIDs := make([]string, 0, 10)
+	rows, err := pool.Query(ctx, `insert into app.large_records(id,created_at,updated_at,payload)
+		select md5('large-record-' || value::text)::uuid, now(), now(), to_jsonb(repeat('x', 5<<20))
+		from generate_series(1,10) generated(value) returning id::text`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			t.Fatal(err)
 		}
-		wantIDs = append(wantIDs, created["id"].(string))
+		wantIDs = append(wantIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	syncMembershipOrdinals(t, ctx, pool)
 	first, err := records.listScalar(ctx, "large_records", "", 100, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -745,9 +758,13 @@ func TestKeysetPredicateFollowsNullsFirstOrdering(t *testing.T) {
 }
 
 func newRecordServiceTest(t *testing.T) (*database.Pool, *schema.Service, *Service) {
+	return newRecordServiceTestWithTimeout(t, 5*time.Second)
+}
+
+func newRecordServiceTestWithTimeout(t *testing.T, statementTimeout time.Duration) (*database.Pool, *schema.Service, *Service) {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), statementTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}

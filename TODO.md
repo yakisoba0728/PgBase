@@ -1,9 +1,11 @@
 # pgBase 구현 현황 / TODO
 
-기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase3`, 기준 main `b942391` / PR #30 병합 완료. P1–P5는 PR #29, P6의 8개 영역은 PR #30으로 로컬 구현·검증 완료. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
+문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 P8과 위 문서를 따른다.
+
+기준: 2026-09-09, v0.1.0 이후. 현재 작업 브랜치: `codex/pocketbase-parity-phase4`, 기준 main `701256b` / PR #31 병합 완료. P1–P5는 PR #29, P6는 PR #30, P7은 PR #31로 구현·로컬 검증·병합 완료했고 실행 서버도 v32로 업그레이드했다. 사용자 지시에 따라 남은 로컬 제품 기능을 계속 구현한다. 외부 인프라·실제 외부 계정 연결·공개 패키지 배포는 대기 범위다.
 체크된 항목만 완료다. 구현·검증·병합·릴리스는 별도로 표시한다. 각 담당자의 결과가 들어오거나 검증 단계가 바뀔 때 이 파일과 아래 변경 기록을 갱신한다.
 
-## P7 — 남은 로컬 제품 기능 (진행 중)
+## P7 — 필드 표시·인증 확장·스키마 입출력·Go 라우트 (로컬 적용 완료)
 
 전체 후속 범위를 유지한다. 아래 작업 묶음의 완료는 PocketBase 전체 호환이나 외부 운영 검증 완료를 뜻하지 않는다. 비교 기준은 로컬에 고정한 PocketBase v0.40.3 소스다.
 
@@ -32,47 +34,79 @@
 - [x] 새 migration 순서·기존 checksum·OpenAPI·구조 예산 검증. 1–28 원본 동일, 신규 29–32 및 현재 사용 DB 복사본 upgrade/doctor 통과. 실측 예산·800줄 제한 및 전체 Go unit/race 통과.
 - [x] 전체 Go/UI/SDK 회귀와 새 기능 브라우저 인수. Go unit/race·PostgreSQL18+MinIO 전체 integration/race·skip 정책, lint/vet, UI 466개·전체 브라우저 15개와 추가 응답 유실 복구, SDK·6종 로컬 빌드 통과.
 - [x] [PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 생성.
-- [ ] 필수 원격 CI 통과·병합 및 기존 로컬 데이터 백업/업그레이드.
+- [x] 필수 원격 CI 5개 통과·[PR #31](https://github.com/yakisoba0728/PgBase/pull/31) 병합(`701256b`). 기존 DB·파일·실행 파일 백업 후 v28→v32 적용. doctor 이상 없음, 관리자 로그인·schema export/preview·PG17 웹 백업/download/hash 검증 통과.
 
-현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)을 생성했고 원격 CI 진행 중이다. 실행 중 로컬 설치 기준은 PR #30 `b942391`이다.
+현재 검증 기록: UI 466/466, 전체 브라우저 15/15와 추가 응답 유실 복구 포함 P7 5/5 통과. 전체 Go unit/race는 구조 검토·실측 예산 반영 후 통과. SDK 정확 JSON 검증 통과. 복원 전환 중 503을 처리하도록 테스트 poll 수정 후 5회 통과했으며 최종 PostgreSQL18+MinIO 전체 integration/race와 skip 정책까지 통과. [P7 PR #31](https://github.com/yakisoba0728/PgBase/pull/31)의 필수 원격 CI 5개가 통과했고 병합 완료. P7 설치 당시 기준은 PR #31 `701256b`, schema v32였고 readiness가 정상이었다. 현재 설치는 상단 최신 상태를 따른다.
 
 - [x] 기존 실행 DB의 별도 복사본에 v28→v32 마이그레이션 적용 및 doctor 확인. 원본 DB/서버는 그대로 유지했고 readiness 정상.
 - [x] 구버전 field metadata 읽기 호환 수정 및 mixed-fleet CLI 회귀 2개 통과.
 - [x] 스키마 import 상호 관계 컬렉션·복합 인덱스의 실제 HTTP 왕복 회귀 수정/통과. 관계 ADD COLUMN 후 record-size 검증으로 순서를 수정.
 - [x] import 복구 중 새 preview 차단·저장 실패·export 후 계획 무효화 UI 회귀. 실제 응답·상태 조회 유실 뒤 브라우저 새로고침으로 committed 확인, recovery에 schema 본문 비저장 확인.
 
-후속 묶음(미완료): editor/geoPoint/사용자 autodate/일반 password 필드, S3 설정·시험 UI, 사용자 migration 작성/up/down, 나머지 lifecycle hooks, JSVM·Dart·SQL 콘솔·self-update의 제품 범위와 구현. 외부 검증 항목은 기존 대기 목록을 유지한다.
+P7 당시 후속 후보였던 고급 필드·S3 설정·사용자 migration·추가 hooks의 현재 상태는 아래 P8을 따른다. JSVM·Dart·SQL 콘솔·self-update 및 외부 검증은 후속 목록에 남는다.
 
-## P8 — 다음 로컬 기능 묶음 (미착수)
+## P8 — 고급 필드·S3 설정·사용자 migration (로컬 인수 완료, PR·설치 대기)
 
-P7의 최종 인수·PR·병합·로컬 적용 후 진행한다. PocketBase v0.40.3 원본의 각 필드/관리 기능 계약을 대조하고, PgBase의 PostgreSQL·UUID·세션 계약에 맞춰 구현한다. 아래 항목을 구현했다는 의미는 아니며, 테스트·UI 연결까지 확인한 뒤 개별 완료 처리한다.
+최신 확인: Go 전체 unit/race·skip 정책, UI 489/489·typecheck/build, 전체 관리자 브라우저 19/19 및 백업 probe 수정 후 P8 3/3, SDK 단위·pack, lint/vet·OpenAPI·6종 빌드·구조 예산이 통과했다. PostgreSQL 18+MinIO integration/race·skip 정책 및 live SDK conformance도 통과했다. 전체 실행 중 확인한 백업 lifecycle 테스트 동기화 수정은 해당 패키지 전체 재검사로 보완했다. 원본 로컬 서버는 P7/schema v32이며 P8 PR·CI·병합·백업 후 설치가 남아 있다.
+
+Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 PostgreSQL·UUID·세션 계약과 대조했다. 개별 구현/검증, 전체 인수, 병합, 실제 설치와 공개 릴리스를 구분한다.
+
+| 작업 | 담당 | 확인한 구현과 증거 |
+| --- | --- | --- |
+| editor/geoPoint 및 필드 스키마 | Sol / phase2_files + Root | populated rename·View·schema 왕복, 좌표 filter/sort/cursor, 5 MiB HTML HTTP/Batch, 관리자 편집 |
+| autodate/password | Sol / phase2_sql_planner + Root | 해시/시간, retry/replay/rollback, 응답 비노출, draft/duplicate 제외, 공개 Go 암호 검증 |
+| 파일 S3 설정과 이전 | Sol / phase2_oauth_catalog + Root | 암호화된 revision 설정, DB/MinIO·HTTP·SDK·브라우저, durable 이전·응답 유실 복구·lease 유실 방어 |
+| 사용자 migration | Sol / phase2_sql_planner + phase2_files | Go 생성/목록/up/down, checksum/rollback, schema Apply 경쟁·공유 캐시, 외부 모듈 CLI list |
+| lifecycle hooks | Sol / phase2_files + Root | app/schema/auth/realtime/settings/import/backup의 veto·commit·실패 결과 연결 |
+| 백업 S3 | Sol / phase2_sql_planner + phase2_oauth_catalog | 독립 repository·API/UI/SDK, startup 경합·pending fence·소유 객체 보호·정확한 probe 삭제, S3 파일 snapshot의 독립 로컬 복원 |
+
+개별 로그는 `.local/verification/phase4-*.log`에 있고 재현 가능한 회귀는 소스에 포함했다. 기존 UI 481/486개 결과는 과거 실행이다. 최신 UI는 489개이며 브라우저 전체 19개와 후속 P8 3개는 중복되므로 합산하지 않는다.
 
 ### P8-A 고급 필드
-- [ ] editor: 저장 형식·크기/필수 검증·출력 방식과 관리자 편집기 계약 대조.
-- [ ] editor: schema preview/apply·기존 데이터 검사·API/SDK·생성/수정 UI 연결.
-- [ ] geoPoint: 좌표·범위·빈 값·정밀도·필터/정렬 지원 범위 대조 및 입력/응답 계약 구현.
-- [ ] geoPoint: PostgreSQL 저장·기존 데이터/인덱스·조회 및 관리자 좌표 입력 UI 통합 검증.
-- [ ] 사용자 autodate: 생성/수정 자동 갱신·사용자 입력 처리·batch/upsert 시점 계약 구현.
-- [ ] 사용자 autodate: 사용자 필드와 시스템 created/updated 의미를 구분하고 SDK/UI/실제 DB 회귀.
-- [ ] 일반 password 필드: 사용자 인증 암호와 별개인 해시 저장·조회 비노출·입력 변경 계약 대조.
-- [ ] 일반 password 필드: 숨김/기본값/필터/인덱스/복제/export 제약·로그 비노출·관리자 입력 UI 검증.
-- [ ] 새 타입의 rename·스키마 export/import·View·관계 표시·batch·권한 규칙 조합 검증.
-- [ ] 현재 데이터가 있는 DB 업그레이드·doctor·기존 migration checksum 및 전체 회귀.
+- [x] editor: 저장 형식·크기/필수 검증·출력 방식과 관리자 편집기 계약 대조.
+- [x] editor: schema preview/apply·기존 데이터 검사·API/SDK·생성/수정 UI 연결.
+- [x] geoPoint: 좌표·범위·빈 값·정밀도·필터/정렬 지원 범위 대조 및 입력/응답 계약 구현.
+- [x] geoPoint: PostgreSQL 저장·기존 데이터/인덱스·조회 및 관리자 좌표 입력 UI 통합 검증.
+- [x] 사용자 autodate: 생성/수정 자동 갱신·사용자 입력 처리·batch/upsert 시점 계약 구현.
+- [x] 사용자 autodate: 사용자 필드와 시스템 created/updated 의미를 구분하고 SDK/UI/실제 DB 회귀.
+- [x] 일반 password 필드: 사용자 인증 암호와 별개인 해시 저장·조회 비노출·입력 변경 계약 대조.
+- [x] 일반 password 필드: 숨김/기본값/필터/인덱스/복제/export 제약·로그 비노출·관리자 입력 UI 검증.
+- [x] 새 타입의 populated rename·물리 데이터 보존·schema export/import·View 및 관계 조회·Batch·권한 규칙 회귀. 집중 검증과 최종 PG18/race·관리자 브라우저 인수 통과.
+- [x] 구버전 API로 데이터·관계를 만든 DB 복사본의 v32→v38 업그레이드·해시/행 수 보존·doctor (`phase4-populated-upgrade/result.json`).
+- [x] 최종 변경 집합의 기존 migration 1–32 checksum 불변, 신규 33–38 embed·upgrade 및 전체 회귀 통과.
 
 ### P8-B S3 관리자 설정과 시험
-- [ ] 현재 환경 기반 S3 구성과 관리자 저장 설정의 우선순위·비밀 값 보존/비반환 계약 결정.
-- [ ] endpoint/bucket/region/path style/인증 설정 검증·읽기/갱신 API·UI 구현.
-- [ ] 시험 연결이 기존 객체를 변경하지 않도록 전용 시험 객체 생성/읽기/삭제 및 실패 정리.
-- [ ] 설정 변경 시 기존 파일 위치·다운로드 토큰·작업 중 업로드/변환/백업의 일관성 보장.
-- [ ] 실제 로컬 MinIO·관리자 브라우저·재시작·잘못된 설정/연결 실패 회귀 검증.
+- [x] 현재 환경 기반 S3 구성과 관리자 저장 설정의 우선순위·비밀 값 보존/비반환 계약 결정.
+- [x] endpoint/bucket/region/path style/인증 설정 검증·읽기/갱신 API·UI 구현.
+- [x] 시험 연결이 기존 객체를 변경하지 않도록 전용 시험 객체 생성/읽기/삭제 및 실패 정리.
+- [x] 설정 변경의 기존 파일 위치·다운로드·업로드/변환/백업 일관성을 DB lease/generation·durable ledger·실제 MinIO 실패/복원 회귀로 검증.
+- [x] 실제 로컬 MinIO·관리자 브라우저·재시작·잘못된 설정/연결 실패 회귀 검증.
+- [x] 기존 파일 이전의 최종 인수. durable ledger/copy/verify/cutover/resume/cancel·다운로드/응답 유실 브라우저·pool/lease·복원 경로의 최신 PG18+MinIO/race 통과.
+- [x] 백업 아카이브 자체의 독립 S3 repository·관리 API/UI/SDK 및 실제 S3 snapshot 복원/lease 유실 집중 검증.
+- [x] 업로드 파일·백업 저장소·managed 복원을 최신 코드로 통합 인수. 소유 객체/metadata·startup 경합·pending fence·실제 S3 원본 삭제 후 독립 로컬 복원·probe 정리 검증.
 
 ### P8-C 사용자 migration과 확장
-- [ ] 시스템 migration과 사용자 migration을 분리한 기록·순서·checksum 계약 구현.
-- [ ] 사용자 migration 생성/목록/up/down CLI와 Go 작성 API·예제 구현.
-- [ ] 실패·중단·동시 실행·이미 적용된 파일 변경·되돌리기 불가 단계 처리 검증.
-- [ ] schema API·사용자 migration·관리자 동시 변경의 공통 잠금/캐시 무효화 검증.
-- [ ] PocketBase lifecycle hook 나머지 목록과 PgBase 이벤트를 매핑하고 누락 별 세부 TODO 추가.
-- [ ] JSVM·Dart SDK·SQL 콘솔·self-update 각각의 로컬 구현 계약·후속 작업을 별도 묶음으로 구체화.
+- [x] 시스템 migration과 사용자 migration을 분리한 기록·순서·checksum 계약 구현. 적용 소스 변경 거절·실패 rollback·동시 runner PG18 회귀 통과.
+- [x] 사용자 migration 생성/목록/up/down CLI와 Go 작성 API·예제 구현. 외부 Go 모듈 실행 및 같은 초에 생성된 여러 migration 빌드 검증 통과 (`phase4-user-migrations.log`).
+- [x] 사용자 migration 실패 rollback·동시 runner·적용 소스 변경·managed physical/control state 손상 거절 집중 PG18 검증.
+- [x] SQL 취소·Up/Down 실패 rollback·동시 runner·checksum/제어 ledger 보호와 실제 schema Apply 경쟁 증거 확인. migration의 잠금을 기다린 stale schema 계획은 충돌로 거절되고 부분 DDL 없이 공유 캐시를 갱신한다. 전체 usermigrate PG18/race 통과.
+- [x] 신뢰된 Go callback의 비가역 외부 효과는 sandbox/rollback으로 보장하지 않음을 `docs/user-migrations.md`에 명시. 제공된 pgx.Tx만 사용하는 계약과 외부 모듈 CLI list 검증 범위를 구분.
+- [x] PocketBase lifecycle hook 목록과 PgBase 이벤트를 `docs/lifecycle-parity.md`에 대조.
+- [x] app boot/serve/terminate, collection create/update/delete, password/OAuth/OTP/verification/reset/email-change/impersonation hooks 구현. 중복 시작·veto·commit/replay·정보 비노출 단위/race/PG18 회귀 통과.
+- [x] realtime connect/subscribe/message hooks. API 단위/race 및 실제 PG18 SSE admission·subscribe·message 검증 통과.
+- [x] 저장된 file storage settings hooks, schema import의 collection별 commit hook 연결. PG18 HTTP veto 및 다중 컬렉션 atomic rollback/commit/replay 검증 통과.
+- [x] backup create/restore/delete hooks와 최종 작업 receipt·activation 결과 전달. manager veto/완료 단위·race 검증 통과; 새 S3 관리자 설정을 포함한 전체 복원 회귀도 통과.
+- [x] JSVM·Dart SDK·SQL 콘솔·self-update 후속 작업과 완료 기준을 `docs/next-work.md` N6–N9로 분리. 세부 설계·구현은 아직 미완료.
+
+### PocketBase 재대조에서 구체화한 후속 공백
+
+현재 소스와 Sol 독립 확인 근거는 `docs/pocketbase-current-reassessment.md`에 기록한다. 아래는 P8 구현 완료와 별도로 추적한다.
+
+- [ ] 관리자 스키마 변경의 migration source 자동 diff·collection snapshot·history-sync 계약 및 구현.
+- [ ] 사용자 public 정적 디렉터리와 SPA fallback 지원.
+- [ ] 관리자 CLI upsert/update/delete·OTP·IP 관리의 대응 범위와 구현.
+- [ ] 문자열 자동 생성 패턴 및 email/URL 도메인 차단 목록.
+- [ ] 세부 CRUD/batch/import 요청 hooks, 목적별 mail 및 파일 token/download/transform hooks의 대응 범위와 구현.
 
 
 ## P6 — PocketBase 비교의 부분 구현 영역 마무리 (구현·로컬 인수 완료)
@@ -665,3 +699,11 @@ P7의 최종 인수·PR·병합·로컬 적용 후 진행한다. PocketBase v0.4
 - [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI. SMTP는 P3/P6-B 완료; schema 입출력은 P7 로컬 검증 완료; S3 설정 UI는 남음.
 - [x] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증. P5 완료.
 - [ ] PB-A16: custom routes·hook 확대·migration authoring·JSVM/Dart의 제품 범위 결정; 구현 전 재시도/트랜잭션 계약 명시.
+
+- 2026-09-09 P8: file migration 시작 응답 유실을 client operation UUID로 복구하고 동일 입력 재시도/다른 입력 충돌을 검증. 실제 파일 local→S3→local 왕복 다운로드 및 유실 응답 브라우저 통과. File storage 전체 PG18+MinIO integration/race와 SDK tests 통과, skip 없음 (`phase4-storage-final.log`). 사용자 인증 옵션과 독립된 관리자 저장소 routes 회귀 추가.
+
+- 2026-09-09 P8 최종 인수: UI 전체 489개, 실제 관리자 브라우저 19개, SDK main client·관리자 7개 및 npm pack 통과. 정적 분석 8항목을 수정해 lint 0 issues 및 vet 통과. 독립 Spec 리뷰에서 concurrent startup의 pending 백업 정리 경쟁을 재현·보강하고 메타데이터/소유 객체 검증도 보강 중. 전체 integration에서 발견한 이전 크기 상한·migration rewind fixture를 현재 계약에 맞춰 수정·재검증한 뒤 최종 전체 회귀·PR·머지를 진행한다.
+
+- 2026-09-09 P8 검토 마무리: startup recovery의 pending 정리 경쟁, S3 소유 metadata 검증과 probe 잔여 객체 문제를 수정했다. 사용자 migration/schema Apply 경쟁 회귀 추가 및 전체 usermigrate PG18/race 통과. 백업 After 수신과 worker 종료를 혼동하던 테스트를 동기화하고 race 100회 통과. 변경 집합의 100개 문서 링크와 구조 예산/OpenAPI·migration checksum도 검증했다.
+
+- 2026-09-09 P8 최종 로컬 인수 완료: Go unit/race, PG18+MinIO integration/race와 백업 테스트 수정 후 패키지 재검사·skip 정책, UI 489개·typecheck/build, 관리자 브라우저 19개 및 최신 P8 3개, SDK live conformance/pack, lint/vet, 6종 빌드와 migration/OpenAPI/구조 예산 통과. PR·원격 CI·병합·백업 후 설치는 별도로 기록한다.

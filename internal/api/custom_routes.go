@@ -118,8 +118,8 @@ func validateCustomRoute(item CustomRoute) error {
 	if item.MaximumRequestBytes < 0 || item.MaximumRequestBytes > maxJSONBodyBytes {
 		return fmt.Errorf("maximum request bytes must be between 0 and %d", maxJSONBodyBytes)
 	}
-	if item.MaximumResponseBytes < 0 || item.MaximumResponseBytes > maximumRecordPageResponseBytes {
-		return fmt.Errorf("maximum response bytes must be between 0 and %d", maximumRecordPageResponseBytes)
+	if item.MaximumResponseBytes < 0 || item.MaximumResponseBytes > maximumCustomRouteResponseBytes {
+		return fmt.Errorf("maximum response bytes must be between 0 and %d", maximumCustomRouteResponseBytes)
 	}
 	return nil
 }

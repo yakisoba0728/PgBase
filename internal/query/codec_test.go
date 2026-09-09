@@ -371,14 +371,15 @@ func TestFinalizeRecordPageTrimsToTheAdvertisedBoundAndAnchorsTheCursor(t *testi
 	sortKeys := effectiveSortKeys(nil)
 	expiresAt := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 
-	// Ten items of roughly 512 KiB overflow the 4 MiB bound, so the page must
+	// Ten individually valid records of roughly 6 MiB overflow the 48 MiB wire
+	// bound, so the page must
 	// lose its tail and still carry a cursor anchored at the last kept item.
 	page := RecordPage{}
 	for index := 0; index < 10; index++ {
 		page.Items = append(page.Items, map[string]any{
 			"id":         uuid.NewSHA1(collectionID, []byte{byte(index)}).String(),
 			"created_at": time.Date(2026, 8, 28, 0, 0, index, 0, time.UTC).Format(time.RFC3339Nano),
-			"payload":    strings.Repeat("x", 512*1024),
+			"payload":    strings.Repeat("x", 6<<20),
 		})
 	}
 	page, err := assembleRecordPageForTest(service, page.Items, collectionID, sortKeys, expiresAt, true)

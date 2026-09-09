@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { renderAdmin, scriptedAdmin, administrator } from "../test/harness";
 import type { SchemaDocument, SchemaImportPlan } from "../backend/ports";
@@ -31,8 +31,7 @@ describe("schema transfer recovery", () => {
     const stored = sessionStorage.getItem(`pgbase.schemaImportOperation.v1.${administrator.id}`) ?? "";
     expect(stored).toContain("operation-1"); expect(stored).not.toContain("posts");
     fireEvent.click(screen.getByRole("button", { name: "Retry exact import" }));
-    await act(async () => {});
-    expect(harness.backend.schema.applyImport).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(harness.backend.schema.applyImport).toHaveBeenCalledTimes(2));
     expect(harness.backend.schema.applyImport).toHaveBeenLastCalledWith(plan);
     expect(screen.getByRole("button", { name: "Preview import" })).toBeDisabled();
   });

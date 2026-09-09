@@ -384,29 +384,23 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 	ctx := context.Background()
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
-	// Four individually valid request bodies leave the encoded record items just
-	// below 4 MiB. The fifth row forces a cursor, whose envelope used to push the
+	// Individually valid request bodies fill the 48 MiB page. The tail row forces
+	// a cursor, whose envelope used to push the
 	// actual JSON response over the advertised bound.
-	largeTitle := strings.Repeat("x", 1_048_360)
-	for index := 0; index < 4; index++ {
-		_, err := records.Create(ctx, CreateRequest{
-			Principal: principal, RequestID: "relation-page-large-" + string(rune('a'+index)), Collection: "articles",
-			Input: map[string]json.RawMessage{"title": json.RawMessage(`"` + largeTitle + `"`)},
-		})
-		if err != nil {
-			t.Fatalf("create large relation record %d: %v", index, err)
-		}
+	const largeRecords = 50
+	if _, err := pool.Exec(ctx, `insert into app.articles(id,created_at,updated_at,title)
+		select md5('relation-page-large-' || value::text)::uuid, now(), now(), repeat('x',1048360)
+		from generate_series(1,$1::integer) generated(value)`, largeRecords); err != nil {
+		t.Fatalf("create relation page fixture: %v", err)
 	}
-	if _, err := records.Create(ctx, CreateRequest{
-		Principal: principal, RequestID: "relation-page-tail", Collection: "articles",
-		Input: map[string]json.RawMessage{"title": json.RawMessage(`"tail"`)},
-	}); err != nil {
+	if _, err := pool.Exec(ctx, `insert into app.articles(id,created_at,updated_at,title)
+		values(md5('relation-page-tail')::uuid,now(),now(),'tail')`); err != nil {
 		t.Fatalf("create relation page tail: %v", err)
 	}
 
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	page, err := records.List(ctx, ListRequest{
-		Principal: principal, RequestID: "relation-page-list", Collection: "articles", Limit: 4,
+		Principal: principal, RequestID: "relation-page-list", Collection: "articles", Limit: largeRecords,
 	})
 	if err != nil {
 		t.Fatalf("list relation page: %v", err)
@@ -414,20 +408,25 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 	if page.NextCursor == "" {
 		t.Fatal("byte-bound fixture did not produce a continuation cursor")
 	}
+	if len(page.Items) >= largeRecords {
+		t.Fatalf("byte-bound fixture emitted %d items, want fewer than %d", len(page.Items), largeRecords)
+	}
 	encoded, err := json.Marshal(page)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const maximumResponseBytes = 4 << 20
+	const maximumResponseBytes = 48<<20 + 4<<10
 	if got := len(encoded) + 1; got > maximumResponseBytes { // writeJSON appends one newline.
 		t.Fatalf("final relation page response = %d bytes, limit = %d", got, maximumResponseBytes)
+	} else if got < maximumResponseBytes-(64<<10) {
+		t.Fatalf("final relation page response = %d bytes, want within 64 KiB of %d", got, maximumResponseBytes)
 	}
-	seen := make(map[string]struct{}, 5)
+	seen := make(map[string]struct{}, largeRecords+1)
 	for _, record := range page.Items {
 		seen[record["id"].(string)] = struct{}{}
 	}
 	next, err := records.List(ctx, ListRequest{
-		Principal: principal, RequestID: "relation-page-next", Collection: "articles", Limit: 4,
+		Principal: principal, RequestID: "relation-page-next", Collection: "articles", Limit: largeRecords,
 		Cursor: page.NextCursor,
 	})
 	if err != nil {
@@ -436,7 +435,7 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 	for _, record := range next.Items {
 		seen[record["id"].(string)] = struct{}{}
 	}
-	if len(seen) != 5 || next.NextCursor != "" {
+	if len(seen) != largeRecords+1 || next.NextCursor != "" {
 		t.Fatalf("bounded cursor pages returned %d unique records, trailing cursor = %q", len(seen), next.NextCursor)
 	}
 }

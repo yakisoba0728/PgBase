@@ -29,6 +29,9 @@ export function CollectionFieldEditor({
   const relation = field.relation;
   const isRelation = field.type === "relation";
   const isFile = field.type === "file";
+  const fixed = ["editor", "geoPoint", "autodate", "password"].includes(field.type);
+  const noIndex = isFile || field.type === "password" || (field.type === "editor" && (Number(field.options?.maxSize) || 5 * 1024 * 1024) > 2048);
+  const noUnique = noIndex || field.type === "geoPoint" || field.type === "autodate";
   const setNull = relation?.onDelete === "set_null";
   const multiple = relation?.cardinality === "multiple";
 
@@ -93,17 +96,17 @@ export function CollectionFieldEditor({
       {showRequiredRelationMigration && field.required && <p role="note">New required relations use a staged migration: add the relation as optional, populate every record, then mark it required.</p>}
     </fieldset>}
 
-    <label><input aria-label={`Field ${fieldNumber} has default`} checked={field.hasDefault} disabled={isRelation || isFile} onChange={(event) => onEdit({ set: "hasDefault", value: event.target.checked })} type="checkbox" /> Use default</label>
+    <label><input aria-label={`Field ${fieldNumber} has default`} checked={field.hasDefault} disabled={isRelation || isFile || fixed} onChange={(event) => onEdit({ set: "hasDefault", value: event.target.checked })} type="checkbox" /> Use default</label>
     <label htmlFor={`field-${index}-default`}>Field {fieldNumber} default</label>
-    {field.type === "boolean" ? <select disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} value={field.defaultText}><option value="">Choose…</option><option value="true">true</option><option value="false">false</option></select> :
-      <input disabled={!field.hasDefault || isRelation} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} placeholder={field.type === "timestamptz" ? "now or RFC 3339 timestamp" : field.type === "jsonb" ? "Valid JSON" : undefined} value={field.defaultText} />}
-    <p>Required rejects SQL NULL. False, zero and empty text remain valid unless constrained below. JSON null is a JSON value; relation minimums control required selections.</p>
+    {field.type === "boolean" ? <select disabled={!field.hasDefault || isRelation || isFile || fixed} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} value={field.defaultText}><option value="">Choose…</option><option value="true">true</option><option value="false">false</option></select> :
+      <input disabled={!field.hasDefault || isRelation || isFile || fixed} id={`field-${index}-default`} onChange={(event) => onEdit({ set: "defaultText", value: event.target.value })} placeholder={field.type === "timestamptz" ? "now or RFC 3339 timestamp" : field.type === "jsonb" ? "Valid JSON" : undefined} value={field.defaultText} />}
+    {fixed ? <p>{field.type === "autodate" ? "Automatic dates cannot be required or have a custom default." : field.type === "geoPoint" ? "Required rejects the empty point (0, 0). Custom defaults are not supported." : "Required rejects an empty value. Custom defaults are not supported."}</p> : <p>Required rejects SQL NULL. False, zero and empty text remain valid unless constrained below. JSON null is a JSON value; relation minimums control required selections.</p>}
     <div className="checks">
-      <label><input aria-label={`Field ${fieldNumber} required`} checked={field.required} disabled={setNull} onChange={(event) => onEdit({ set: "required", value: event.target.checked })} type="checkbox" /> required</label>
-      <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple || isFile} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>
-      <label><input aria-label={`Field ${fieldNumber} indexed`} checked={field.indexed} disabled={isRelation || isFile} onChange={(event) => onEdit({ set: "indexed", value: event.target.checked })} type="checkbox" /> indexed</label>
+      <label><input aria-label={`Field ${fieldNumber} required`} checked={field.required} disabled={setNull || field.type === "autodate"} onChange={(event) => onEdit({ set: "required", value: event.target.checked })} type="checkbox" /> required</label>
+      <label><input aria-label={`Field ${fieldNumber} unique`} checked={field.unique} disabled={multiple || noUnique} onChange={(event) => onEdit({ set: "unique", value: event.target.checked })} type="checkbox" /> unique</label>
+      <label><input aria-label={`Field ${fieldNumber} indexed`} checked={field.indexed} disabled={isRelation || noIndex} onChange={(event) => onEdit({ set: "indexed", value: event.target.checked })} type="checkbox" /> indexed</label>
 			<label><input aria-label={`Field ${fieldNumber} hidden`} checked={field.hidden ?? false} onChange={(event) => onEdit({ set: "hidden", value: event.target.checked })} type="checkbox" /> hidden</label>
-			<label><input aria-label={`Field ${fieldNumber} presentable`} checked={field.presentable ?? false} disabled={field.hidden} onChange={(event) => onEdit({ set: "presentable", value: event.target.checked })} type="checkbox" /> presentable</label>
+			<label><input aria-label={`Field ${fieldNumber} presentable`} checked={field.presentable ?? false} disabled={field.hidden || field.type === "password"} onChange={(event) => onEdit({ set: "presentable", value: event.target.checked })} type="checkbox" /> presentable</label>
     </div>
     {fieldCount > 1 && <button className="secondary" disabled={pending} onClick={onRemove} type="button">Remove field</button>}
   </div>;

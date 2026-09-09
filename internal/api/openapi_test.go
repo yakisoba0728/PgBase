@@ -25,7 +25,7 @@ import (
 // contract, not a claim to describe every dynamically configured record field.
 func allOptionalRouteDependencies() Dependencies {
 	return completeDependencies(Dependencies{
-		Schema: (*schema.Service)(nil), Backups: &struct{ ManagedBackups }{}, AdminUI: http.NotFoundHandler(),
+		BackupStorageAdministration: &struct{ BackupStorageAdministration }{}, StorageAdministration: &struct{ StorageAdministration }{}, StorageMigrations: &struct{ StorageMigrationAdministration }{}, Schema: (*schema.Service)(nil), Backups: &struct{ ManagedBackups }{}, AdminUI: http.NotFoundHandler(),
 		AuthAdministration: (*userauth.Service)(nil), Jobs: (*jobs.Service)(nil), RequestLog: &observability.RequestLog{},
 		UserAuth: (*userauth.Service)(nil), EmailActions: (*userauth.Service)(nil), AuthFactors: (*userauth.Service)(nil), AuthCollections: (*userauth.Service)(nil),
 		RecordAccess: &struct{ RecordAccess }{}, RecordRules: (*recordaccess.RuleService)(nil), ServiceTokens: (*serviceauth.Service)(nil), Files: (*filestore.Service)(nil), Realtime: (*realtime.Service)(nil),

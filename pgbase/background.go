@@ -14,7 +14,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	a.backgroundDone = done
 	a.closeMu.Unlock()
 	go func() {
-		runners := make([]namedBackgroundRunner, 0, 11)
+		runners := make([]namedBackgroundRunner, 0, 12)
 		if a.backupGate != nil && a.backupGate.Active() {
 			runners = append(runners, namedBackgroundRunner{"PostgreSQL writer gate", a.backupGate})
 		}
@@ -24,6 +24,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 			{"record outbox delivery", a.realtimeWorker},
 			{"scheduled jobs", a.jobWorker},
 			{"file object maintenance", a.fileWorker},
+			{"file storage migration", a.storageMigrationWorker},
 			{"schema operation maintenance", a.schemaOperations},
 			{"schema listener", a.schemaListener},
 			{"record membership writer", a.membershipWriter},

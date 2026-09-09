@@ -19,7 +19,7 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit code = %d", code)
 	}
-	if !strings.Contains(stderr.String(), "serve, migrate, admin, doctor") {
+	if !strings.Contains(stderr.String(), "serve, migrate, migration, admin, doctor") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

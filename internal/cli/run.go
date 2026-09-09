@@ -48,6 +48,7 @@ func productionCommands() commandTable {
 	return commandTable{
 		"serve":        runServe,
 		"migrate":      runMigrate,
+		"migration":    runUserMigration,
 		"admin":        runAdmin,
 		"doctor":       runDoctor,
 		"schema-index": runSchemaIndex,
@@ -107,7 +108,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, admin, doctor, schema-index, membership, backup> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup> [arguments]")
 	return err
 }
 

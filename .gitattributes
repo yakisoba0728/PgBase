@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.bat text eol=crlf
+# Bundled editor code contains Markdown hard-break spaces inside template strings.
+# Preserve those bytes and continue checking whitespace in handwritten sources.
+ui/admin/dist/assets/*.js whitespace=-blank-at-eol

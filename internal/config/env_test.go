@@ -21,6 +21,29 @@ func TestLoadEnvRejectsShortTokenSecret(t *testing.T) {
 	}
 }
 
+func TestLoadEnvBackupS3IsIndependentFromFileStorage(t *testing.T) {
+	values := map[string]string{
+		"PGBASE_DATABASE_URL":      "postgres://postgres:postgres@localhost/pgbase",
+		"PGBASE_TOKEN_SECRET":      base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_BACKUPS_DIRECTORY": "/tmp/backup-scratch",
+		"PGBASE_BACKUPS_S3_BUCKET": "backup-bucket", "PGBASE_BACKUPS_S3_PREFIX": "daily",
+		"PGBASE_BACKUPS_S3_REGION": "us-east-1", "PGBASE_BACKUPS_S3_ENDPOINT": "http://127.0.0.1:59000",
+		"PGBASE_BACKUPS_S3_ACCESS_KEY": "backup-access", "PGBASE_BACKUPS_S3_SECRET_KEY": "backup-secret",
+		"PGBASE_BACKUPS_S3_PATH_STYLE": "true",
+		"PGBASE_BACKUPS_RETENTION":     "14",
+	}
+	options, err := LoadEnv(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Backups.S3.Bucket != "backup-bucket" || options.Backups.S3.Prefix != "daily" || !options.Backups.S3.UsePathStyle || options.Backups.Retention != 14 {
+		t.Fatalf("backup S3=%+v", options.Backups.S3)
+	}
+	if options.Files.S3Bucket != "" {
+		t.Fatalf("file storage inherited backup bucket: %+v", options.Files)
+	}
+}
+
 func TestLoadEnvRejectsSetupTokenThatCannotFitTheHTTPBudget(t *testing.T) {
 	env := map[string]string{
 		"PGBASE_DATABASE_URL": "postgres://postgres:postgres@localhost/pgbase",

@@ -1,3 +1,4 @@
+import type { FieldDefinition } from "../backend/ports";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearAdministratorRecordStorage, clearDraft, readColumns, readDraft, writeColumns, writeDraft } from "./record-productivity";
 
@@ -31,6 +32,16 @@ describe("record-local productivity state", () => {
   it("does not persist password and token fields", () => {
     writeDraft(alice, { title: { kind: "value", value: "draft" }, password: { kind: "value", value: "secret" }, api_token: { kind: "value", value: "secret" } });
     expect(readDraft(alice)).toEqual({ title: { kind: "value", value: "draft" } });
+  });
+  it("excludes password fields by type even when their names are innocuous", () => {
+    const fields: FieldDefinition[] = [{ name: "pin", type: "password", required: false, unique: false, indexed: false, ordinal: 0 }, { name: "title", type: "text", required: false, unique: false, indexed: false, ordinal: 1 }];
+    const draft = { pin: { kind: "value" as const, value: "do-not-persist" }, title: { kind: "value" as const, value: "draft" } };
+    writeDraft(alice, draft, fields);
+    expect(readDraft(alice, fields)).toEqual({ title: draft.title });
+    expect(JSON.stringify(localStorage)).not.toContain("do-not-persist");
+    writeDraft(alice, draft);
+    expect(readDraft(alice, fields)).toEqual({ title: draft.title });
+    expect(JSON.stringify(localStorage)).not.toContain("do-not-persist");
   });
   it("keeps storage denial from interrupting logout or edits", () => {
     const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });

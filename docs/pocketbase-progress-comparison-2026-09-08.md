@@ -1,5 +1,7 @@
 # PocketBase 대비 pgBase 기능 진행률
 
+> 기록 범위 안내: 이 문서는 해당 단계의 계약·검증 이력을 보존합니다. 현재 전체 상태는 [구현 이력](project-status.md), 남은 작업은 [후속 작업](next-work.md), PocketBase 비교는 [현재 재평가](pocketbase-current-reassessment.md)를 따릅니다. 본문의 당시 미구현/제외 항목은 후속 단계에서 달라졌을 수 있습니다.
+
 확인일: 2026-09-08 (Asia/Seoul).
 
 pgBase 기준: 정식 `v0.1.0`, commit `3677a6b182b440a158e96d10482b1552030c18f5`.

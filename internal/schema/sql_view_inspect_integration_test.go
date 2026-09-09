@@ -69,3 +69,25 @@ func TestInspectSQLViewRejectsDuplicateIdentityAndVolatileFunctions(t *testing.T
 		}
 	}
 }
+
+func TestInspectSQLViewRejectsOnlyReferencedPasswordColumns(t *testing.T) {
+	pool, service, administratorID := newSchemaServiceTest(t)
+	minimum := 8
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "sql_view_passwords", Fields: []FieldInput{{Name: "label", Type: TypeText}, {Name: "secret", Type: TypePassword, Options: &FieldOptions{MinLength: &minimum}}}}, administratorID)
+	catalog, err := service.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pool.InTx(context.Background(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := InspectSQLView(context.Background(), tx, catalog, `select id,created_at,updated_at,label from app.sql_view_passwords`); err != nil {
+			return err
+		}
+		if _, err := InspectSQLView(context.Background(), tx, catalog, `select id,created_at,updated_at,secret from app.sql_view_passwords`); !errors.Is(err, ErrConflict) {
+			t.Fatalf("password SQL view error=%v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

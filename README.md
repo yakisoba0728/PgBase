@@ -1,6 +1,8 @@
 # pgBase
 
-pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. The initial v0.1.0 release is published; current development remains early v0.x with evolving contracts. The current source adds opt-in public user registration, Bearer sessions, and owner-only scalar record access; see [public user access](docs/user-access.md) for the version and scope boundary. It also provides administrator bootstrap and sessions, collection planning/application (create, update, and delete), typed CRUD records including ordered single/multiple relation fields, bounded relation expand/filter/sort, signed cursor pagination, create idempotency, strong ETag concurrency control, committed audit and a transactional outbox writer, health/readiness, protected opt-in Prometheus metrics, explicit system migrations, diagnostics, and a container image.
+pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. It provides schema planning, typed records and relations, authentication and record rules, local/S3 files, realtime events, a TypeScript SDK, and administrator tools for data, logs, jobs, and backups. Current development remains early v0.x with evolving contracts; the initial v0.1.0 release and the current source have different feature sets.
+
+As of 2026-09-09, P7 is merged and installed in the existing local project (schema v32). P8 adds advanced fields, persisted S3 settings and migration, backup S3 storage, user-authored Go migrations, and additional hooks; these changes have passed local acceptance and await merging and installation. Start with [implementation history and current status](docs/project-status.md), [next work and acceptance criteria](docs/next-work.md), and [current PocketBase comparison](docs/pocketbase-current-reassessment.md).
 
 ## Quick start
 
@@ -17,8 +19,11 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [Implementation history, current status, and verification evidence](docs/project-status.md)
+- [Next work: priorities, dependencies, and completion criteria](docs/next-work.md)
+- [Current PocketBase comparison and remaining gaps](docs/pocketbase-current-reassessment.md)
 - [Public user management and password changes](docs/user-management.md)
-- [Production Kernel final handoff and current status](docs/production-kernel-handoff.md)
+- [Historical Production Kernel handoff](docs/production-kernel-handoff.md)
 - [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)
 - [Codebase audit findings and remediation evidence](docs/codebase-audit-2026-08-28.md)
 - [Round 4-5 codebase audit and remediation evidence](docs/codebase-audit-2026-09-01.md)
@@ -43,12 +48,14 @@ One pgBase project owns one PostgreSQL database. Multiple pgBase instances for t
 
 The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability during v0.x.
 
-Public user access is limited to enabled collections without incoming or outgoing relations, and users can access only records they create. This kernel does not yet provide configurable Auth collections, OAuth2/MFA, an arbitrary record-rule language, cross-project relations, arbitrary SQL joins, relation edge attributes, files, outbox delivery/realtime, an SDK, generated OpenAPI, online DDL, read-replica routing, or sharding. Relation mutations are supported only through the record API/Record Operations kernel; direct writes to pgBase-owned PostgreSQL objects are outside the contract because they bypass ETag/revision, audit, outbox, logical delete actions, and relation locking. Collection updates cover add, drop, flag, and whitelisted widening type changes (integer→bigint, integer→numeric, bigint→numeric); there is no rename operation (a renamed field is planned as a drop plus add, shown in the SQL preview), automatic single/multiple relation conversion, or composite indexes. It makes no throughput, large-scale-readiness, or zero-downtime upgrade guarantee.
+Public access uses collection opt-in and typed action rules, including authorization through supported relation paths. Named auth realms, OAuth/MFA/email OTP, files, realtime, TypeScript clients, an OpenAPI route manifest, data-preserving field rename, compound indexes, and read-only SQL views are implemented. PocketBase wire formats, filter syntax, SDKs, and extension APIs are not drop-in compatible.
+
+Relation mutations use the record API/Record Operations kernel. Direct writes to pgBase-owned PostgreSQL objects can bypass ETag/revision, audit, outbox, logical delete actions, and relation locking and are outside that mutation contract. Cross-project relations, relation edge attributes, automatic single/multiple relation conversion, online DDL, read-replica routing, and sharding are not provided. JSVM, Dart SDK, a general SQL console, and self-update remain follow-up work. There is no throughput, production SLO, or zero-downtime upgrade guarantee.
 
 ## Local development features
 
-The in-progress M2–M6 source branch adds user email actions, OAuth/TOTP, auth collections and typed record rules; a TypeScript SDK; local/S3 files; SSE record events; compound indexes, read-only views, atomic batches, Go hooks and leased jobs. See [live implementation status](TODO.md) for validation and merge status. This is not a new published release or a claim of complete PocketBase API compatibility.
+M1–M6 and P1–P7 have been merged. The local workflows include editable authentication settings and mail templates, record bulk operations, schema transfer, file transformations, multipart batches, persistent request logs, calendar jobs, managed backup/restore, and Go custom routes. See [live implementation status](TODO.md) for the separate P8 implementation and acceptance state. Source implementation does not imply a new published release.
 
 Start PostgreSQL, PgBase and the local mail inbox with `scripts/dev-local.sh`. See [local development](docs/local-development.md), [local verification](docs/local-verification.md), [realtime](docs/realtime.md), and [extension/client scope](docs/extensions-and-client-scope.md).
 
-현재 로컬 소스 기능의 PocketBase 대비 차이와 검증 경계는 [2026-09-09 기능 비교표](docs/pocketbase-local-feature-comparison-2026-09-09.md), 검증 결과는 [로컬 검증 기록](docs/local-verification.md)을 참고하세요.
+현재 상태는 [구현 이력](docs/project-status.md), [후속 작업](docs/next-work.md), [PocketBase 재평가](docs/pocketbase-current-reassessment.md)를 참고하세요. 과거 실행별 수치는 [로컬 검증 기록](docs/local-verification.md)에 보존합니다.

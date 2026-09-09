@@ -75,7 +75,7 @@ func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (
 			return nil, "", validation("", "invalid_default")
 		}
 		return jsonString(value), value + "::numeric", nil
-	case TypeText:
+	case TypeText, TypeEditor, TypePassword:
 		value, ok := parseJSONString(raw)
 		if !ok || (boundText && len(value) > MaximumTextBytes) {
 			return nil, "", validation("", "invalid_default")
@@ -85,7 +85,7 @@ func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (
 			return nil, "", validation("", "invalid_default")
 		}
 		return jsonString(value), literal + "::text", nil
-	case TypeTimestampTZ:
+	case TypeTimestampTZ, TypeAutoDate:
 		return normalizeTimestampDefault(raw)
 	case TypeUUID:
 		value, ok := parseUUID(raw)
@@ -94,7 +94,7 @@ func normalizeTypedDefault(typ FieldType, raw json.RawMessage, boundText bool) (
 		}
 		literal, _ := sqlLiteral(value)
 		return jsonString(value), literal + "::uuid", nil
-	case TypeJSONB:
+	case TypeJSONB, TypeGeoPoint:
 		value, ok := canonicalJSON(raw)
 		if !ok {
 			return nil, "", validation("", "invalid_default")

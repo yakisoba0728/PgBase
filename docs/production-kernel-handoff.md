@@ -1,5 +1,7 @@
 # pgBase Production Kernel 최종 핸드오프
 
+> 기록 범위 안내: 이 문서는 해당 단계의 계약·검증 이력을 보존합니다. 현재 전체 상태는 [구현 이력](project-status.md), 남은 작업은 [후속 작업](next-work.md), PocketBase 비교는 [현재 재평가](pocketbase-current-reassessment.md)를 따릅니다. 본문의 당시 미구현/제외 항목은 후속 단계에서 달라졌을 수 있습니다.
+
 이 문서는 `main`에 병합된 Production Kernel과 이후 데이터 커널·운영 계측·Record Operations·relation/schema lifecycle 확장의 상태, 계약, 검증 결과, 운영 준비도와 다음 작업을 한곳에 정리한 인수인계 기준 문서다. PR #8의 병합 기준점은 `6dd81f9`이며, 그 이후 변경은 리뷰를 거쳐 `main`에 반영된 커밋만 원격 전달 기준이 된다. 커밋 전 로컬 worktree 변경은 별도로 보존·검토해야 한다.
 
 ## 1. 현재 상태

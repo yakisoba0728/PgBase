@@ -67,47 +67,6 @@ func NewService(
 	}
 }
 
-func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPage, err error) {
-	started := time.Now()
-	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
-		if readTouchesRelationField(request.Expand, request.Filter, request.Sort) {
-			s.record(ctx, observability.OperationEvent(
-				relationReadOperation(request.Expand),
-				relationOperationOutcome(err),
-				time.Since(started),
-			))
-		}
-		return RecordPage{}, err
-	}
-	page, err = s.reader.List(ctx, query.ListRequest{
-		Principal:  request.Principal,
-		Collection: request.Collection,
-		Cursor:     request.Cursor,
-		Limit:      request.Limit,
-		Filter:     request.Filter,
-		Sort:       request.Sort,
-		Expand:     request.Expand,
-	})
-	if errors.Is(err, membership.ErrUnavailable) {
-		return RecordPage{}, unavailableMembership(err)
-	}
-	return page, err
-}
-
-func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {
-	operationStarted := time.Now()
-	relationOperation := readTouchesRelationField(request.Expand, "", "")
-	defer s.finishRelationRecordOperation(ctx, relationReadOperation(request.Expand), operationStarted, &err, &relationOperation)
-	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
-		return Record{}, err
-	}
-	if request.ID == uuid.Nil {
-		return Record{}, &Error{Code: CodeInvalidRequest}
-	}
-	return s.reader.Get(ctx, query.GetRequest{
-		Principal: request.Principal, Collection: request.Collection, ID: request.ID, Expand: request.Expand,
-	})
-}
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
 	defer hooks.after(ctx, &err)
@@ -171,6 +130,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
+		mutationInput, err := prepareGeneratedFields(ctx, tx, collection, request.Input, true)
+		if err != nil {
+			return err
+		}
 		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, uuid.Nil); err != nil {
 			return err
 		}
@@ -208,7 +171,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := createFence.Reserve(ctx); err != nil {
 			return transactionalMembership(err)
 		}
-		relations, err := prepareRelationWrite(catalog, collection, relation.CreateWrite, request.Input)
+		relations, err := prepareRelationWrite(catalog, collection, relation.CreateWrite, mutationInput)
 		if err != nil {
 			return err
 		}
@@ -332,6 +295,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
+		mutationInput, err := prepareGeneratedFields(ctx, tx, collection, request.Input, false)
+		if err != nil {
+			return err
+		}
 		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "update"); err != nil {
 			return err
 		}
@@ -339,7 +306,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
 		}
-		relations, err := prepareRelationWrite(catalog, collection, relation.PatchWrite, request.Input)
+		relations, err := prepareRelationWrite(catalog, collection, relation.PatchWrite, mutationInput)
 		if err != nil {
 			return err
 		}
@@ -406,7 +373,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				eventID: eventID, recordID: request.ID,
 				previousVersion: &previousVersion, newVersion: newVersion,
 				previousETag: previousETag, newETag: newETag,
-				changedFields: mutationChangedFields(request.Input, request.SidecarFields), changes: after,
+				changedFields: mutationChangedFields(mutationInput, request.SidecarFields), changes: after,
 				compatibility: compatibility, validator: validator,
 			}},
 		}); err != nil {

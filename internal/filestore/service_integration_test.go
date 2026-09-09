@@ -75,6 +75,57 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := identity.Subject{Kind: identity.User, ID: userID}
+	t.Run("lost storage lease cannot publish ready metadata", func(t *testing.T) {
+		controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		local, err := NewLocalStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocked := &leaseBlockingStore{ObjectStore: local, entered: make(chan uint32, 1), release: make(chan struct{})}
+		controller.mu.Lock()
+		controller.store, controller.revision = blocked, 1
+		controller.mu.Unlock()
+		guarded, err := NewService(pool, controller, authorize, Options{MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := []byte("lost lease")
+		digest := sha256.Sum256(data)
+		done := make(chan error, 1)
+		go func() {
+			_, uploadErr := guarded.Upload(ctx, principal, Upload{CollectionID: collectionID, RecordID: recordID, Field: "attachment", Filename: "lost-lease.txt", ContentType: "text/plain", Size: int64(len(data)), SHA256: digest, Body: bytes.NewReader(data)})
+			done <- uploadErr
+		}()
+		backend := <-blocked.entered
+		var terminated bool
+		if err := pool.QueryRow(ctx, `select pg_terminate_backend($1)`, int32(backend)).Scan(&terminated); err != nil || !terminated {
+			t.Fatalf("terminate lease backend=%t err=%v", terminated, err)
+		}
+		if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_settings set revision=revision+1 where singleton`); err != nil {
+			t.Fatal(err)
+		}
+		close(blocked.release)
+		if err := <-done; !errors.Is(err, ErrStorageConflict) {
+			t.Fatalf("upload after lease loss = %v", err)
+		}
+		var ready, deleted int
+		var objectKey string
+		if err := pool.QueryRow(ctx, `select count(*) filter(where status='ready'), count(*) filter(where status='deleted'), coalesce(max(object_key),'') from pgbase_meta.record_files where filename='lost-lease.txt'`).Scan(&ready, &deleted, &objectKey); err != nil {
+			t.Fatal(err)
+		}
+		if ready != 0 || deleted != 1 {
+			t.Fatalf("lost-lease upload ready=%d deleted=%d", ready, deleted)
+		}
+		if reader, err := local.Open(ctx, objectKey); !errors.Is(err, ErrNotFound) {
+			if err == nil {
+				_ = reader.Close()
+			}
+			t.Fatalf("lost-lease object was not cleaned from leased store: %v", err)
+		}
+	})
 	unknownData := []byte("commit outcome")
 	unknownHash := sha256.Sum256(unknownData)
 	staged, err := service.Stage(ctx, principal, Upload{Filename: "unknown.txt", ContentType: "text/plain", Size: int64(len(unknownData)), SHA256: unknownHash, Body: bytes.NewReader(unknownData)})
@@ -252,4 +303,24 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 	if _, err := objects.Open(ctx, fieldFile.ObjectKey); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("field deletion left object: %v", err)
 	}
+}
+
+type leaseBlockingStore struct {
+	ObjectStore
+	entered chan uint32
+	release chan struct{}
+}
+
+func (s *leaseBlockingStore) Put(ctx context.Context, key string, body io.Reader) error {
+	lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease)
+	if !ok {
+		return errors.New("storage lease context is missing")
+	}
+	s.entered <- lease.backend
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return s.ObjectStore.Put(ctx, key, body)
 }

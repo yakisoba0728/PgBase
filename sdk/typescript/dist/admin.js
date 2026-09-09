@@ -110,6 +110,18 @@ export class PgBaseAdminClient {
     jobs(signal) { return this.request("/api/admin/jobs", {}, signal); }
     configureJob(id, schedule, enabled, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
     queueJob(id, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
+    fileStorageSettings(signal) { return this.request("/api/admin/storage/files", {}, signal); }
+    updateFileStorage(input, signal) { return this.request("/api/admin/storage/files", { method: "PUT", body: JSON.stringify(input) }, signal); }
+    async testFileStorage(signal) { await this.request("/api/admin/storage/files/test", { method: "POST" }, signal); }
+    backupStorageSettings(signal) { return this.request("/api/admin/storage/backups", {}, signal); }
+    updateBackupStorage(input, signal) { return this.request("/api/admin/storage/backups", { method: "PUT", body: JSON.stringify(input) }, signal); }
+    async testBackupStorage(signal) { await this.request("/api/admin/storage/backups/test", { method: "POST" }, signal); }
+    previewFileStorageMigration(input, signal) { return this.request("/api/admin/storage/files/migrations/preview", { method: "POST", body: JSON.stringify(input) }, signal); }
+    startFileStorageMigration(input, operationID, signal) { return this.request("/api/admin/storage/files/migrations", { method: "POST", body: JSON.stringify(input), headers: { "PgBase-Operation-ID": operationID } }, signal); }
+    fileStorageMigration(id, signal) { return this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}`, {}, signal); }
+    latestFileStorageMigration(signal) { return this.request("/api/admin/storage/files/migrations/latest", {}, signal); }
+    async resumeFileStorageMigration(id, signal) { await this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}/resume`, { method: "POST" }, signal); }
+    async cancelFileStorageMigration(id, signal) { await this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}/cancel`, { method: "POST" }, signal); }
     impersonateUser(id, durationSeconds = 300, signal) {
         return this.request(`/api/admin/users/${encodeURIComponent(id)}/impersonate`, { method: "POST", body: JSON.stringify({ durationSeconds }) }, signal);
     }

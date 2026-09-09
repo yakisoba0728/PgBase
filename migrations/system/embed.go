@@ -109,6 +109,24 @@ var schemaImportOperationsSQL string
 //go:embed 000032_admin_impersonation.sql
 var adminImpersonationSQL string
 
+//go:embed 000033_advanced_fields.sql
+var advancedFieldsSQL string
+
+//go:embed 000034_s3_settings.sql
+var s3SettingsSQL string
+
+//go:embed 000035_user_migrations.sql
+var userMigrationsSQL string
+
+//go:embed 000036_file_storage_migrations.sql
+var fileStorageMigrationsSQL string
+
+//go:embed 000037_backup_storage_settings.sql
+var backupStorageSettingsSQL string
+
+//go:embed 000038_backup_storage_operations.sql
+var backupStorageOperationsSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -187,6 +205,12 @@ var migrations = []Migration{
 	{Version: 30, Name: "email_otp_login", SQL: emailOTPLoginSQL, SHA256: sha256.Sum256([]byte(emailOTPLoginSQL))},
 	{Version: 31, Name: "schema_import_operations", SQL: schemaImportOperationsSQL, SHA256: sha256.Sum256([]byte(schemaImportOperationsSQL))},
 	{Version: 32, Name: "admin_impersonation", SQL: adminImpersonationSQL, SHA256: sha256.Sum256([]byte(adminImpersonationSQL))},
+	{Version: 33, Name: "advanced_fields", SQL: advancedFieldsSQL, SHA256: sha256.Sum256([]byte(advancedFieldsSQL))},
+	{Version: 34, Name: "s3_settings", SQL: s3SettingsSQL, SHA256: sha256.Sum256([]byte(s3SettingsSQL))},
+	{Version: 35, Name: "user_migrations", SQL: userMigrationsSQL, SHA256: sha256.Sum256([]byte(userMigrationsSQL))},
+	{Version: 36, Name: "file_storage_migrations", SQL: fileStorageMigrationsSQL, SHA256: sha256.Sum256([]byte(fileStorageMigrationsSQL))},
+	{Version: 37, Name: "backup_storage_settings", SQL: backupStorageSettingsSQL, SHA256: sha256.Sum256([]byte(backupStorageSettingsSQL))},
+	{Version: 38, Name: "backup_storage_operations", SQL: backupStorageOperationsSQL, SHA256: sha256.Sum256([]byte(backupStorageOperationsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

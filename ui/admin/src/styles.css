@@ -75,3 +75,14 @@ th, td { border-bottom: 1px solid #e4e9f1; padding: .75rem; text-align: left; ve
 
 .shell input, .shell select, .shell textarea { max-width: 100%; min-width: 0; }
 .shell h1, .shell h3, .shell code { overflow-wrap: anywhere; }
+
+.rich-text-field [role="toolbar"] { display: flex; flex-wrap: wrap; gap: .25rem; margin-block: .5rem; }
+.rich-text-field .tiptap { min-height: 16rem; padding: .75rem; border: 1px solid #89959f; border-radius: .3rem; overflow-wrap: anywhere; }
+.rich-text-field .tiptap img { max-width: 100%; height: auto; }
+.rich-text-field .tiptap table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+.rich-text-field .tiptap th, .rich-text-field .tiptap td { border: 1px solid #89959f; padding: .4rem; }
+.rich-text-field .tiptap pre { white-space: pre-wrap; }
+.rich-text-field button[aria-pressed="true"] { outline: 2px solid currentColor; }
+.coordinate-map { display: block; width: 100%; aspect-ratio: 2; border: 1px solid #89959f; cursor: crosshair; }
+.coordinate-map:focus-visible { outline: 3px solid #2563eb; }
+.geo-point-field small { display: block; margin-top: .5rem; }

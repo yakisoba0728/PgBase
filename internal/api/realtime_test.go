@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +19,74 @@ type realtimeAuthStub struct {
 	principal userauth.Principal
 	mu        sync.Mutex
 	calls     int
+}
+
+type realtimeLifecycleStub struct {
+	veto  string
+	calls []string
+}
+
+func (h *realtimeLifecycleStub) begin(phase string) (func(error), error) {
+	h.calls = append(h.calls, phase+".before")
+	finish := func(err error) {
+		if err != nil {
+			h.calls = append(h.calls, phase+".after.error")
+		} else {
+			h.calls = append(h.calls, phase+".after")
+		}
+	}
+	if h.veto == phase {
+		return finish, errors.New(phase + " veto")
+	}
+	return finish, nil
+}
+func (h *realtimeLifecycleStub) BeginRealtimeConnect(context.Context, *RealtimeLifecycleEvent) (func(error), error) {
+	return h.begin("connect")
+}
+func (h *realtimeLifecycleStub) BeginRealtimeSubscribe(context.Context, *RealtimeLifecycleEvent) (func(error), error) {
+	return h.begin("subscribe")
+}
+func (h *realtimeLifecycleStub) BeginRealtimeMessage(context.Context, *RealtimeLifecycleEvent) (func(error), error) {
+	return h.begin("message")
+}
+
+type countingRealtime struct{ calls int }
+
+func (s *countingRealtime) Read(context.Context, uuid.UUID, string, *int64) ([]realtime.Event, int64, error) {
+	s.calls++
+	return nil, 0, nil
+}
+
+func TestRealtimeLifecycleVetoesBeforeRead(t *testing.T) {
+	id := uuid.New()
+	auth := &realtimeAuthStub{principal: userauth.Principal{User: userauth.User{ID: id}}}
+	for _, phase := range []string{"connect", "subscribe"} {
+		hooks, stream := &realtimeLifecycleStub{veto: phase}, &countingRealtime{}
+		response := httptest.NewRecorder()
+		realtimeHandler(Dependencies{Realtime: stream, UserAuth: auth, RealtimeLifecycle: hooks}).ServeHTTP(response, realtimeRequest(context.Background(), id))
+		if response.Code != http.StatusServiceUnavailable || stream.calls != 0 {
+			t.Fatalf("%s veto status=%d reads=%d calls=%v", phase, response.Code, stream.calls, hooks.calls)
+		}
+	}
+}
+
+type eventRealtime struct{}
+
+func (*eventRealtime) Read(context.Context, uuid.UUID, string, *int64) ([]realtime.Event, int64, error) {
+	return []realtime.Event{{Sequence: 1, EventID: uuid.New(), Collection: "notes", RecordID: uuid.New(), Operation: "create", Version: 1}}, 1, nil
+}
+
+func TestRealtimeLifecycleObservesMessageAndDisconnect(t *testing.T) {
+	id := uuid.New()
+	auth := &realtimeAuthStub{principal: userauth.Principal{User: userauth.User{ID: id}}}
+	hooks := &realtimeLifecycleStub{}
+	ctx, cancel := context.WithCancel(context.Background())
+	writer := &disconnectWriter{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
+	realtimeHandler(Dependencies{Realtime: &eventRealtime{}, UserAuth: auth, RealtimeLifecycle: hooks}).ServeHTTP(writer, realtimeRequest(ctx, id))
+	want := []string{"connect.before", "subscribe.before", "subscribe.after", "message.before", "message.after", "connect.after.error"}
+	if !reflect.DeepEqual(hooks.calls, want) {
+		t.Fatalf("calls=%v want=%v", hooks.calls, want)
+	}
 }
 
 func (*realtimeAuthStub) Register(context.Context, string, string, string) (userauth.Session, error) {

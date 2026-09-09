@@ -1,6 +1,7 @@
 export * from "./admin.js";
 export type User = { id: string; email: string; createdAt: string; verified?: boolean; authCollectionId?: string; authCollection?: string };
 export type UserSession = { token?: string; user: User; expiresAt: string; impersonated?: boolean; impersonatingAdministratorId?: string };
+export type GeoPoint = { lon: number; lat: number };
 export type RecordData = Record<string, unknown>;
 export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string };
 export type RecordResult<T extends RecordData> = { record: T; etag?: string };

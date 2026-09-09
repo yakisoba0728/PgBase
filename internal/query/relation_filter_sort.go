@@ -41,6 +41,7 @@ type plannedRelationPath struct {
 	hops               []plannedRelationHop
 	terminal           schema.Field
 	terminalIsRelation bool
+	geoProperty        string
 }
 
 type plannedRelationHop struct {
@@ -91,7 +92,7 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			// v5 query fingerprint also walks the planned filter, and a field
 			// this plan cannot compile must not reach two decoders that
 			// disagree about which validation detail the caller gets.
-			if field.Type == schema.TypeJSONB || field.Type == schema.TypeFile {
+			if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 				return nil, 0, validation("filter", "unsupported_type")
 			}
 			copy := field
@@ -104,7 +105,7 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 		if err != nil {
 			return nil, 0, err
 		}
-		if len(path.hops) == 0 || len(path.hops) > maximumRelationFilterDepth {
+		if (len(path.hops) == 0 && path.geoProperty == "") || len(path.hops) > maximumRelationFilterDepth {
 			return nil, 0, relationFilterUnsupported()
 		}
 		if path.terminalIsRelation && (value.operator != "=" || value.value.kind != filterLiteralString) {
@@ -165,7 +166,7 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 			return orderSpec{}, err
 		}
 		indexHint, indexed := indexedOrderHint(path.terminal, orderIndexRelationTarget)
-		if len(path.hops) == 0 || len(path.hops) > maximumRelationSortDepth || path.terminal.Type == schema.TypeJSONB || !indexed {
+		if (len(path.hops) == 0 && path.geoProperty == "") || len(path.hops) > maximumRelationSortDepth || path.terminal.Type == schema.TypeJSONB || path.terminal.Type == schema.TypePassword || !indexed {
 			return orderSpec{}, relationSortUnsupported()
 		}
 		for _, hop := range path.hops {
@@ -217,6 +218,11 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 			return plannedRelationPath{}, relationPathUnsupported(operation)
 		}
 		if field.Type != schema.TypeRelation {
+			if field.Type == schema.TypeGeoPoint && index+1 == len(segments)-1 && (segments[index+1] == "lat" || segments[index+1] == "lon") {
+				path.terminal = schema.Field{ID: uuid.NewSHA1(field.ID, []byte("geoPoint:"+segments[index+1])), Name: field.Name + "." + segments[index+1], ColumnName: field.ColumnName, Type: schema.TypeNumeric, Indexed: field.Indexed, Hidden: field.Hidden}
+				path.geoProperty = segments[index+1]
+				return path, nil
+			}
 			if index != len(segments)-1 || len(path.hops) == 0 {
 				return plannedRelationPath{}, relationPathUnsupported(operation)
 			}
@@ -344,6 +350,10 @@ func (s orderSpec) renderRelation(
 	joins := make([]string, 0, len(terms)*maximumRelationSortDepth)
 	for index := range terms {
 		term := &terms[index]
+		if term.relationPath != nil && term.relationPath.geoProperty != "" && len(term.relationPath.hops) == 0 {
+			term.expression = geoPointExpression(qualified(rootAlias, term.cursorField.ColumnName), term.relationPath.geoProperty)
+			continue
+		}
 		if term.relationPath == nil {
 			term.expression = qualified(rootAlias, term.cursorField.ColumnName)
 			continue
@@ -388,8 +398,16 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 		if comparison.rootField != nil {
 			return compileQualifiedComparison(*comparison.rootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), renderer.builder)
 		}
+		if comparison.path.geoProperty != "" && len(comparison.path.hops) == 0 {
+			column := geoPointExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.geoProperty)
+			return compileQualifiedComparison(comparison.path.terminal, comparison.input, column, renderer.builder)
+		}
 		return renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
-			return compileQualifiedComparison(comparison.path.terminal, comparison.input, qualified(alias, comparison.path.terminal.ColumnName), renderer.builder)
+			column := qualified(alias, comparison.path.terminal.ColumnName)
+			if comparison.path.geoProperty != "" {
+				column = geoPointExpression(column, comparison.path.geoProperty)
+			}
+			return compileQualifiedComparison(comparison.path.terminal, comparison.input, column, renderer.builder)
 		})
 	}
 	parts := make([]string, 0, len(node.children))
@@ -403,8 +421,12 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	return "(" + strings.Join(parts, node.separator) + ")", nil
 }
 
+func geoPointExpression(column, property string) string {
+	return "((" + column + "->>'" + property + "')::numeric)"
+}
+
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
-	if field.Type == schema.TypeJSONB || field.Type == schema.TypeRelation || field.Type == schema.TypeFile {
+	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeRelation || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
 	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
@@ -515,7 +537,11 @@ func renderRelationSortJoins(
 			" ON "+strings.Join(conditions, " AND "))
 		parentAlias = targetAlias
 	}
-	return qualified(parentAlias, path.terminal.ColumnName), joins, nil
+	expression := qualified(parentAlias, path.terminal.ColumnName)
+	if path.geoProperty != "" {
+		expression = geoPointExpression(expression, path.geoProperty)
+	}
+	return expression, joins, nil
 }
 
 func selectedRelationRootColumns(collection schema.Collection, alias string) string {

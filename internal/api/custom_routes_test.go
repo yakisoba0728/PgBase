@@ -38,7 +38,7 @@ func TestCustomRoutesRejectInvalidRegistration(t *testing.T) {
 		{"duplicate wildcard", func(v *CustomRoute) { v.Pattern = "/reports/{id}/{id}" }},
 		{"request cap", func(v *CustomRoute) { v.MaximumRequestBytes = maxJSONBodyBytes + 1 }},
 		{"negative request cap", func(v *CustomRoute) { v.MaximumRequestBytes = -1 }},
-		{"response cap", func(v *CustomRoute) { v.MaximumResponseBytes = maximumRecordPageResponseBytes + 1 }},
+		{"response cap", func(v *CustomRoute) { v.MaximumResponseBytes = maximumCustomRouteResponseBytes + 1 }},
 		{"negative response cap", func(v *CustomRoute) { v.MaximumResponseBytes = -1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

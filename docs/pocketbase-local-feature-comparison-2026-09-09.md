@@ -1,5 +1,7 @@
 # PocketBase와 PgBase 로컬 소스 기능 비교
 
+> 기록 범위 안내: 이 문서는 해당 단계의 계약·검증 이력을 보존합니다. 현재 전체 상태는 [구현 이력](project-status.md), 남은 작업은 [후속 작업](next-work.md), PocketBase 비교는 [현재 재평가](pocketbase-current-reassessment.md)를 따릅니다. 본문의 당시 미구현/제외 항목은 후속 단계에서 달라졌을 수 있습니다.
+
 확인일: 2026-09-09 (Asia/Seoul).
 
 이 표는 PgBase의 현재 작업 트리를 로컬에서 빌드하고 검증한 결과를 [고정된 PocketBase v0.40.3 기준 조사](pocketbase-upstream-capabilities-2026-09-08.md)와 비교한다. PgBase v0.1.0 릴리스 이미지의 기능표가 아니며, PocketBase API나 SDK와의 호환성을 뜻하지 않는다.

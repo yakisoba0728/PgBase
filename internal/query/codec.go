@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -69,7 +70,7 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		switch field.Type {
 		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric,
-			schema.TypeText, schema.TypeTimestampTZ, schema.TypeUUID:
+			schema.TypeText, schema.TypeTimestampTZ, schema.TypeUUID, schema.TypeAutoDate, schema.TypePassword:
 			if field.Required {
 				return nil, validation(field.Name, "required")
 			}
@@ -125,7 +126,7 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 			return nil, validation(field.Name, code)
 		}
 		return numeric, nil
-	case schema.TypeText:
+	case schema.TypeText, schema.TypeEditor:
 		value, ok := jsonString(raw)
 		if !ok {
 			return invalid()
@@ -133,14 +134,29 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if (field.Indexed || field.Unique) && len(value) > schema.MaximumTextBytes {
 			return nil, validation(field.Name, "value_too_long")
 		}
-		if len(value) > maximumUnindexedTextBytes {
+		maximum := int64(maximumUnindexedTextBytes)
+		if field.Type == schema.TypeEditor {
+			maximum = editorMaximumSize(field)
+		}
+		if int64(len(value)) > maximum {
 			return nil, validation(field.Name, "value_too_long")
 		}
-		if code := fieldvalue.ValidateText(value, codecOptions(field)); code != "" {
-			return nil, validation(field.Name, code)
+		if field.Type == schema.TypeEditor && field.Required && value == "" {
+			return nil, validation(field.Name, "required")
+		}
+		if field.Type != schema.TypeEditor {
+			if code := fieldvalue.ValidateText(value, codecOptions(field)); code != "" {
+				return nil, validation(field.Name, code)
+			}
 		}
 		return value, nil
-	case schema.TypeTimestampTZ:
+	case schema.TypePassword:
+		value, ok := jsonString(raw)
+		if !ok {
+			return invalid()
+		}
+		return value, nil
+	case schema.TypeTimestampTZ, schema.TypeAutoDate:
 		value, ok := jsonString(raw)
 		if !ok {
 			return invalid()
@@ -162,6 +178,8 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		return parsed, nil
 	case schema.TypeRelation:
 		return decodeRelationFieldValue(field, raw)
+	case schema.TypeGeoPoint:
+		return decodeGeoPoint(field, raw)
 	case schema.TypeJSONB:
 		if !validJSON(raw) {
 			return invalid()
@@ -294,9 +312,9 @@ func scanDestination(field schema.Field) (any, error) {
 		return &pgtype.Int8{}, nil
 	case schema.TypeNumeric:
 		return &pgtype.Text{}, nil
-	case schema.TypeText:
+	case schema.TypeText, schema.TypeEditor, schema.TypePassword:
 		return &pgtype.Text{}, nil
-	case schema.TypeTimestampTZ:
+	case schema.TypeTimestampTZ, schema.TypeAutoDate:
 		return &pgtype.Timestamptz{}, nil
 	case schema.TypeUUID:
 		return &pgtype.UUID{}, nil
@@ -305,12 +323,46 @@ func scanDestination(field schema.Field) (any, error) {
 			return nil, validation(field.Name, "relation_invalid_value")
 		}
 		return &pgtype.UUID{}, nil
-	case schema.TypeJSONB:
+	case schema.TypeJSONB, schema.TypeGeoPoint:
 		value := []byte(nil)
 		return &value, nil
 	default:
 		return nil, validation(field.Name, "unsupported_type")
 	}
+}
+
+func editorMaximumSize(field schema.Field) int64 {
+	if field.Options.MaxSize != nil && *field.Options.MaxSize > 0 {
+		return *field.Options.MaxSize
+	}
+	return 5 << 20
+}
+
+func decodeGeoPoint(field schema.Field, raw json.RawMessage) (any, error) {
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil || len(members) != 2 {
+		return nil, validation(field.Name, "type_mismatch")
+	}
+	coordinates := map[string]float64{}
+	for _, name := range []string{"lon", "lat"} {
+		member, ok := members[name]
+		var coordinate float64
+		if !ok || json.Unmarshal(member, &coordinate) != nil || math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
+			return nil, validation(field.Name, "type_mismatch")
+		}
+		coordinates[name] = coordinate
+	}
+	if coordinates["lat"] < -90 || coordinates["lat"] > 90 {
+		return nil, validation(field.Name, "invalid_latitude")
+	}
+	if coordinates["lon"] < -180 || coordinates["lon"] > 180 {
+		return nil, validation(field.Name, "invalid_longitude")
+	}
+	if field.Required && coordinates["lat"] == 0 && coordinates["lon"] == 0 {
+		return nil, validation(field.Name, "required")
+	}
+	canonical, _ := json.Marshal(map[string]float64{"lon": coordinates["lon"], "lat": coordinates["lat"]})
+	return json.RawMessage(canonical), nil
 }
 
 func isMultipleRelation(field schema.Field) bool {
@@ -338,6 +390,9 @@ func encodeScannedValue(field schema.Field, destination any) (any, error) {
 	case *pgtype.Text:
 		if !value.Valid {
 			return nil, nil
+		}
+		if field.Type == schema.TypePassword {
+			return "", nil
 		}
 		// scanDestination reads numeric columns as text, so this is the only
 		// place a non-finite numeric written outside the API (operator SQL)

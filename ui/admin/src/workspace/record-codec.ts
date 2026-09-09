@@ -1,3 +1,4 @@
+import { isLosslessNumber } from "lossless-json";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import type { FieldDefinition, RecordData, RecordValue } from "../backend/ports";
 
@@ -65,7 +66,7 @@ function encodeRelation(field: FieldDefinition, draft: string): RecordValue {
 
 function draftValue(field: FieldDefinition, value: RecordValue | undefined): string | boolean {
   if (field.type === "boolean") return value === true;
-  if (field.type === "jsonb") return value === undefined || value === null ? "" : stringifyJSON(value, 2);
+  if (field.type === "jsonb" || field.type === "geoPoint") return value === undefined || value === null ? "" : stringifyJSON(value, 2);
   if (field.type === "relation") return relationDraft(field, value);
   return value === undefined || value === null ? "" : String(value);
 }
@@ -74,6 +75,27 @@ function encodeValue(field: FieldDefinition, value: string | boolean): RecordVal
   if (field.type === "boolean") return value === true;
   const text = String(value);
   if (field.type === "relation") return encodeRelation(field, text);
+  if (field.type === "editor") {
+    if (new TextEncoder().encode(text).length > (field.options?.maxSize || 5 * 1024 * 1024)) throw new Error("size");
+    if (field.required && text === "") throw new Error("required");
+    return text;
+  }
+  if (field.type === "password") {
+    const length = Array.from(text).length;
+    if (text === "" && !field.required) return "";
+    if (length < Math.max(field.required ? 1 : 0, field.options?.minLength ?? 0) || length > (field.options?.maxLength ?? 71)) throw new Error("length");
+    return text;
+  }
+  if (field.type === "geoPoint") {
+    const point = parseJSON(text);
+    if (point === null || typeof point !== "object" || Array.isArray(point)) throw new Error("point");
+    const coordinates = point as Record<string, unknown>;
+    if (Object.keys(coordinates).length !== 2 || (typeof coordinates.lon !== "number" && !isLosslessNumber(coordinates.lon)) || (typeof coordinates.lat !== "number" && !isLosslessNumber(coordinates.lat))) throw new Error("point");
+    const lon = Number(String(coordinates.lon));
+    const lat = Number(String(coordinates.lat));
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90 || (field.required && lon === 0 && lat === 0)) throw new Error("point");
+    return point as RecordValue;
+  }
   if (field.type === "integer") {
     if (!/^-?\d+$/.test(text)) throw new Error("type");
     const integer = BigInt(text);
@@ -125,6 +147,10 @@ function relationErrorText(field: FieldDefinition, code: string): string {
 // never near it, so the limit follows the field the same way maxLength does.
 export function validationText(field: FieldDefinition, code: string): string {
   if (field.type === "relation") return relationErrorText(field, code);
+  if (field.type === "autodate") return "This timestamp is set by the server.";
+  if (field.type === "geoPoint") return "Enter longitude from −180 to 180 and latitude from −90 to 90. Required points cannot be (0, 0).";
+  if (field.type === "password") return `Enter ${field.options?.minLength ?? (field.required ? 1 : 0)}–${field.options?.maxLength ?? 71} characters. Stored passwords are never returned.`;
+  if (field.type === "editor" && code === "value_too_long") return `HTML must be at most ${field.options?.maxSize || 5 * 1024 * 1024} UTF-8 bytes.`;
   if (code === "value_too_long") {
     return field.type === "text" && !field.indexed && !field.unique
       ? "Value exceeds the 1 MiB limit for text values."
@@ -139,7 +165,7 @@ export function initialDraft(fields: FieldDefinition[], record: RecordData, isCr
   const draft: Draft = {};
   for (const field of fields) {
     const value = record[field.name];
-    if (isCreate) draft[field.name] = { kind: "unset" };
+    if (isCreate || field.type === "password") draft[field.name] = { kind: "unset" };
     else if (field.type === "relation" && field.relation?.cardinality === "multiple") draft[field.name] = { kind: "value", value: draftValue(field, value) };
     else if (value === null || value === undefined) draft[field.name] = { kind: "null" };
     else draft[field.name] = { kind: "value", value: draftValue(field, value) };
@@ -148,7 +174,7 @@ export function initialDraft(fields: FieldDefinition[], record: RecordData, isCr
 }
 
 export function blankState(field: FieldDefinition, kind: FieldState["kind"]): FieldState {
-  return kind === "value" ? { kind, value: field.type === "boolean" ? false : "" } : { kind };
+  return kind === "value" ? { kind, value: field.type === "boolean" ? false : field.type === "geoPoint" ? '{"lon":0,"lat":0}' : "" } : { kind };
 }
 
 export function dirtyNames(draft: Draft, initial: Draft): Set<string> {
@@ -166,6 +192,7 @@ export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<
   const errors: Record<string, string> = {};
   const input: RecordData = {};
   for (const field of fields) {
+    if (field.type === "autodate" || field.type === "file") continue;
     if (!isCreate && !dirty.has(field.name)) continue;
     const state = draft[field.name] ?? { kind: "unset" };
     if (state.kind === "unset") {
@@ -173,7 +200,8 @@ export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<
       continue;
     }
     if (state.kind === "null") {
-      if (field.type === "relation" && field.relation?.cardinality === "multiple") errors[field.name] = validationText(field, "relation_invalid_value");
+      if (["password", "geoPoint", "editor"].includes(field.type)) errors[field.name] = "Use a value or omit this field; NULL is not supported.";
+      else if (field.type === "relation" && field.relation?.cardinality === "multiple") errors[field.name] = validationText(field, "relation_invalid_value");
       else if (field.type === "relation" && (field.relation?.minSelect ?? 0) > 0) errors[field.name] = validationText(field, "relation_min_select");
       else input[field.name] = null;
       continue;
@@ -181,6 +209,8 @@ export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<
     try { input[field.name] = encodeValue(field, state.value); }
     catch (caught: unknown) {
       if (field.type === "relation" && caught instanceof RelationValueError) errors[field.name] = validationText(field, caught.code);
+      else if (["geoPoint", "password"].includes(field.type)) errors[field.name] = validationText(field, "type_mismatch");
+      else if (field.type === "editor") errors[field.name] = validationText(field, caught instanceof Error && caught.message === "size" ? "value_too_long" : "required");
       else errors[field.name] = field.type === "jsonb" ? "Enter valid JSON." : "Value does not match the field type.";
     }
   }
@@ -197,4 +227,17 @@ export function selectRelationTarget(field: FieldDefinition, draft: string, sele
   if (duplicate) return { draft: entries.join("\n"), status: "duplicate" };
   if (entries.length >= relation.maxSelect) return { draft: entries.join("\n"), status: "max" };
   return { draft: [...entries, id].join("\n"), status: "selected" };
+}
+
+/** Forget accepted password input while preserving edits made during a save. */
+export function acceptedDraft(fields: FieldDefinition[], submitted: Draft, current: Draft): { initial: Draft; draft: Draft } {
+  const initial = { ...submitted };
+  const draft = { ...current };
+  const changed = dirtyNames(current, submitted);
+  for (const field of fields) {
+    if (field.type !== "password") continue;
+    initial[field.name] = { kind: "unset" };
+    if (!changed.has(field.name)) draft[field.name] = { kind: "unset" };
+  }
+  return { initial, draft };
 }

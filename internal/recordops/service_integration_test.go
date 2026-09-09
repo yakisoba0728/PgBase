@@ -548,7 +548,7 @@ func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 
 // TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget drives an
 // oversized page through both relation-aware readers end to end. Five ~900 KB
-// records overflow the 4 MiB bound, so the row scan stops short, and whatever
+// records overflow the 48 MiB bound, so the row scan stops short, and whatever
 // each reader then emits -- envelope, separators and continuation cursor
 // included -- has to measure under the bound and still hand back every record
 // across the two pages. This pins the readers' page accounting from the
@@ -563,8 +563,8 @@ func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T)
 
 	// query.maximumRecordPageBytes is package-private; this is the same bound
 	// the API contract advertises, and expansion reuses it as its own default.
-	const maximumPageBytes = 4 << 20
-	const recordCount = 5
+	const maximumPageBytes = 48<<20 + 4<<10
+	const recordCount = 60
 	filler, err := json.Marshal(strings.Repeat("x", 900_000))
 	if err != nil {
 		t.Fatal(err)

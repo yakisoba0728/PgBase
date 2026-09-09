@@ -1,5 +1,7 @@
 # Local product completion after the PocketBase source audit
 
+> 기록 범위 안내: 이 문서는 해당 단계의 계약·검증 이력을 보존합니다. 현재 전체 상태는 [구현 이력](project-status.md), 남은 작업은 [후속 작업](next-work.md), PocketBase 비교는 [현재 재평가](pocketbase-current-reassessment.md)를 따릅니다. 본문의 당시 미구현/제외 항목은 후속 단계에서 달라졌을 수 있습니다.
+
 This increment implements the five local product areas approved after the source comparison in `pocketbase-source-audit-2026-09-09/assessment.md`. The baseline is main `35af64c` (PR #28). It does not claim PocketBase wire compatibility or complete PocketBase feature parity. External staging, JSVM, Dart and arbitrary SQL remain outside this increment.
 
 ## Field contracts and schema changes
