@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:29 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:32 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -8,15 +8,15 @@
 | --- | --- | --- | --- |
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
-| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | `94b32b3`까지 통합; focused race·PG exact 3-test green. worker WIP durable jobs PG green, CLI/watch 안정 commit 준비 중 | watch/jobs 잔여 focused gate, migration 확대·외부 JS 앱·stress·review |
-| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | review closure `d4598ff`; 실제 `58091` data failure matrix와 admin 401/403·cookie resume가 `846061d`까지 green | revocation/SSE·cursor-expired·cancel upload, same-origin admin browser |
+| G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | `94b32b3`까지 통합; focused race·PG exact 3-test green. worker WIP jobs green, CLI/watch 준비; Nash/Terra 독립 review 중 | watch/jobs 잔여 focused gate, review fixes, migration 확대·외부 JS 앱·stress |
+| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 실제 data/admin HTTP matrix와 same-origin browser가 `f018df1`까지 green; 독립 Chrome도 200/200/403/204·console clean | revocation/SSE·cursor-expired·cancel upload |
 | G3 N6/N7 통합 | Sol 통합 | 부분 통합 — N6 첫 PG/domain gate와 N7 제품 review closure 반영, plan 중복 skip | N6 잔여 안정 통합, JS↔Dart/Flutter 실제 HTTP·외부 앱 핵심 인수 |
 | G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | N8 한 문서 조사 중; N9 준비 `08ce58c` 통합·G3 대기. 제품·deps·DB 변경 없음 | G3 뒤 main의 구현 시작 신호 |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이며 신규 schema가 실제로 필요할 때만 통합 lead가 41부터 번호를 배정한다. 현재 N6/N7는 migration을 요청하지 않았다.
 
-격리 환경: N6은 `pgbase-n6-pg-20260910`/PG17.9/`55469`를, N7 Docker project `pgbase-n7`은 PostgreSQL `55441`·API `58091`과 repo-external Flutter `58092`를 소유한다. N7 task-owned local file volume의 실제 file/browser 검증이 통과했다. N8·N9·통합 fixture는 시작 전에 별도 이름/port를 이 표와 통합 상태에 배정한다. live PostgreSQL `55440`, MinIO `59000`, HTTP `8090`, 기존 Docker/userdata는 모든 N6–N9 검사 대상에서 제외한다.
+격리 환경: N6은 `pgbase-n6-pg-20260910`/PG17.9/`55469`를, N7 Docker project `pgbase-n7`은 PostgreSQL `55441`·API `58091`, repo-external Flutter `58092`, same-origin admin proxy `58093`을 소유한다. N7 task-owned local file volume의 실제 file/browser 검증이 통과했다. N8·N9·통합 fixture는 시작 전에 별도 이름/port를 이 표와 통합 상태에 배정한다. live PostgreSQL `55440`, MinIO `59000`, HTTP `8090`, 기존 Docker/userdata는 모든 N6–N9 검사 대상에서 제외한다.
 
 - [x] `117a1db`에서 통합 branch 생성 및 두 docs-only plan 적용.
 - [x] 중앙 live board·소유·단계 gate와 수분 단위 통합 기록 생성.
