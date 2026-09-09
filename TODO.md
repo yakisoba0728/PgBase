@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 로컬 통합 — **ACTIVE — N8 완료 후 G5** (최종 동기화 2026-09-10 08:27 KST)
+## N6–N9 로컬 통합 — **ACTIVE — N8 완료 후 G5** (최종 동기화 2026-09-10 08:36 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 구현·검토는 Sol/Terra, 독립 실행 가능한 단순 검사는 사용자 승인에 따라 Spark/Luna helper에도 배정한다.
 
@@ -11,8 +11,8 @@
 | G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 완료 — occurrence `ee806dd`, migration 없음, exact PG 5회·race green, Nash 0 findings | 완료 단계 재실행 없음 |
 | G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 완료·clean handoff — native `4575a02`와 최종 browser `58106`가 동일 record/ETag/exact-number/file/SSE green; task 종료 | 완료 단계 재실행 없음 |
 | G3 N6/N7 통합 | Sol 통합 | **완료** — N6/N7 external·native/browser cross·same-origin PublicDir·occurrence review 모두 green | G5 전 관련 변경 없으면 반복 없음 |
-| G4 N8/N9 구현·조립 | Euclid backend, Feynman browser, Gauss review; lead composition | N8 residual `0e4ba42`→`00b7fc4`, UI dist/golden `e57d233` 통합. PG17 race·PG18·API focused green. 실제 browser 실행 배정. | R12 duplicate replay pool 포화 narrow fix + browser + Gauss delta closure |
-| G5 최종 인수 | Boole unit/race·N6 lint, Socrates UI/six-build, lead PG/budgets | vet/build green. UI capability expectation은 수정 후 focused92 green. unit/race의 migration41 snapshot·구조 budget 및 lint 수정 중. | 격리 PG18 `55472`/MinIO `59007` 전체 race, 최종 six builds·delta 검증 |
+| G4 N8/N9 구현·조립 | Feynman browser/UI, Gauss review, lead composition | N8 backend 모든 finding closed, 실제 Chromium 13개 기능 시나리오 pass. 결과 table overflow만 작은 UI 수정 중. N9 완료. | UI 표시 수정·최종 dist 및 Gauss 최종 기록 |
+| G5 최종 인수 | Ramanujan/Luna lint·delta, Helmholtz/Luna builds, lead PG | 전체 PG18/MinIO race `d4fb6a2` 실행 중. N6 lint cleanup 실제3package race pass. 6build/native/Windows compile `6e010f1` green. | watch 출력 test race·N8 unit buildtag·신규41 rewind fixture 수정 후 해당 검사, 최종 UI dist 재포함 빌드 |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이다. **Migration 41은 05:16 KST에 N8 durable redacted execution log와 transactional write receipt 전용으로 예약했다.** N6/N7/N9는 시스템 migration을 사용하지 않는다.
 
@@ -27,11 +27,11 @@ Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료�
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
 - [x] N8 backend checkpoint 이후 R4/R8/R12 stable `0e4ba42` 통합; 전체 sqlconsole PG17 race 8.526s, PG18 6.982s 및 API/options race green.
-- [ ] N8 실제 browser: 보호된 credentials와 별도 DB/launcher 준비 완료, composed `e57d233`으로 fresh migration41 및 `58097`→`58096` 실행 배정. 최종 G5/six builds는 진행 중.
+- [x] N8 actual Chromium13: exact값/clipboard, write·dryrun·rollback·cancel, CSRF/금지target, history, response-loss/replay, 세션분리, 결과cap 통과. 추가 restart 시도는 미실행 evidence에서 제외.
 - [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
 - [x] N8 UI R11 `35712f4`: `sessionIdentity` namespace가 없으면 저장하지 않고 legacy global key를 읽지 않고 삭제한다. 같은 세션 reload만 복구하며 관리자 전환·만료 뒤 새 세션은 이전 요청을 보거나 실행하지 않는다. Gauss delta review `465b8f5` zero; backend field composition만 pending.
 - [x] N8 UI R6 `35712f4`: `statements`가 없는 durable summary에서 committed/row/byte를 보존하며 TTL 경과는 expired, restart/응답 소실은 unavailable로 표시한다. focused 17 green, Gauss delta review `465b8f5` zero.
-- [ ] Gauss current delta: R1 backend identity/설정 wire 및 R4/R8 source correction 확인. 마지막 R12 replay 시 nested control-pool 획득 포화 수정과 browser/final budget evidence 대기. 기존 closed UI 범위 반복 없음.
+- [x] Gauss N8 backend R1–R12 및 sessionIdentity 모두 closed (`752d38c` + `66fec8f`); 기존 UI17green 유지. 최종 표시delta/dist/전체evidence 기록만 남음.
 - [ ] N6–N9 전체 G5 로컬 인수·문서 동기화·격리 fixture 정리·clean final commit.
 - [x] pause handoff: UI source `cd092fb`는 integration `35712f4`로 이미 반영됐고 focused 17 green, real browser unrun. 최종 불완전 review checkpoint `9ac351a`는 `0b1ecc8`로 반영했다. N8 Docker PG17/18은 정지 상태로 container/data를 보존했다.
 

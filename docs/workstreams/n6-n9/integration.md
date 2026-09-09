@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 08:27 KST
+Last updated: 2026-09-10 08:36 KST
 
 ## Current milestone
 
@@ -152,3 +152,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 08:22 KST — checkpoint `4d773b5` is integrated as explicitly unaccepted candidate `769440e`, allowing shared composition `66fec8f` to compile while owner fixes proceed. Live catalog-version callback, handler timeout options and session identity route composition passed focused API/public-option/OpenAPI checks. Browser preparation is complete. Boole runs no-DB unit/race/vet/lint at fixed compiled `3f868f3`; Socrates runs full UI/build at stable UI `7dbda78` and owns the additive session-capability expectation fix. Only later changed packages will be rerun.
 
 - 2026-09-10 08:27 KST — integrated residual backend `0e4ba42` as `00b7fc4`; owner entire SQLconsole passed PG17 race (8.526s), PG18 (6.982s), API/options focused race (1.422s/1.466s). Gauss found one narrow remaining R12 control-pool starvation path during concurrent duplicate replay; owner fixes it without API/schema change. Feynman received composed `e57d233` for immediate fresh migration/browser execution. Socrates generated dist and capability golden are integrated; build and focused92 pass. Boole baseline vet passes; unit/race failures are migration41 checksum snapshot and measured old structural budgets, with N6/N8 lint cleanup assigned by file ownership. Final G5 is still open.
+
+- 2026-09-10 08:36 KST — all N8 backend findings close at owner `752d38c`; browser candidate `e57d233` passed 13 real Chromium scenarios. A screenshot-only result table overflow is receiving a narrow existing-scroll-class/spacing fix; no new browser mechanism or repeated matrix. Main full PG18/MinIO race remains immutable at `d4fb6a2`. Lead stages final composition separately in `codex/n6-n9-final-candidate`, to fast-forward integration after that command exits. Reviewed N6 cleanup `c4ebdeb` passes actual CLI/JSVM/public-facade race; Luna fixed the PG watch test capture race as `1f429e4` (2.494s). Lead fixed missing integration build tags and final41 identity-table rewind fixture; affected checks run separately. Six builds, native metadata and Windows package compiles passed at `6e010f1`; final UI dist will be embedded before final artifact acceptance. No runtime safety finding remains open.
