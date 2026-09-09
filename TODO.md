@@ -1,25 +1,43 @@
 # pgBase 구현 현황 / TODO
 
-## N1–N5 병렬 실행 — 진행 중 (2026-09-09)
+## N1–N5 병렬 실행 — 로컬 통합·인수 완료 (최종 동기화 2026-09-10 02:13 KST)
 
 실행 계획: [N1–N5 계획](docs/superpowers/plans/2026-09-09-n1-n5-execution.md). Astra는 조율, GPT-5.6 Sol/Terra는 구현·통합·검증을 담당한다.
 
 | 항목 | 담당 | 상태 | 증거 |
 | --- | --- | --- | --- |
 | 계획·작업 분할 | Astra | 완료 | 실행 계획 작성 |
-| N1 자동 migration | Sol | 배정 준비 | — |
-| N2 정적 사이트·SPA | Terra | 배정 준비 | — |
-| N3 관리자 CLI | Terra | 배정 준비 | — |
-| N4 필드·조회 | Sol | 배정 준비 | — |
-| N5 세부 hooks | Terra | 배정 준비 | — |
-| 통합·검토·전체 검증 | Sol | 구현 대기 | — |
+| N1 자동 migration | Chandrasekhar / GPT-5.6 Sol | 구현·독립검토·집중/전체 race·live·N1↔N4 matrix 완료, 로컬 통합 인수 | [N1 상태](docs/workstreams/n1-n5/N1.md), migration 40, product through `c35ea58`, matrix `185227d` |
+| N2 정적 사이트·SPA | Kant / GPT-5.6 Terra | 구현·집중/전체 PG18 race·독립검토·실제 browser 완료, 로컬 통합 인수 | [N2/N3 상태](docs/workstreams/n1-n5/N2-N3.md), product through `6d53192` |
+| N3 관리자 CLI | Kant / GPT-5.6 Terra | 구현·집중/전체 PG18 race·독립검토·OTP/IP/session browser 완료, 로컬 통합 인수 | [N2/N3 상태](docs/workstreams/n1-n5/N2-N3.md), migration 39, product through `6d53192` |
+| N4 필드·조회 | Lagrange / GPT-5.6 Sol | 구현·DB/HTTP/UI/SDK/browser·독립검토·N1 보존 matrix 완료, 로컬 통합 인수 | [N4 상태](docs/workstreams/n1-n5/N4.md), product through `98d848a` |
+| N5 세부 hooks | Euler / GPT-5.6 Terra | 구현·수정·독립검토·mutable auth/cancel/panic/replay·전체 race 완료, 로컬 통합 인수 | [N5 상태](docs/workstreams/n1-n5/N5.md), product through `99cce83` |
+| 통합·검토·전체 검증 | Sol 통합 | 전체 로컬 인수 완료 | [통합 상태](docs/workstreams/n1-n5/integration.md), product/test `2837802`; final unit/race·PG18+MinIO integration/race·skip policy·UI/SDK/browser/build/policy green |
 
 - [x] 계획과 완료 기준 기록.
-- [ ] N1–N5 각 구현·집중 검증 완료.
-- [ ] 통합·독립 검토·전체 회귀 완료.
-- [ ] 최신 상태 문서와 오래된 체크리스트 정리.
+- [x] N1–N5 각 구현·집중 검증 완료.
+- [x] 통합·독립 검토·전체 회귀 완료.
+- [x] 최신 상태 문서와 오래된 체크리스트 정리.
 
-실행 기록: 계획 작성 및 독립 worktree 준비 시작. 기존 로컬 설치 P8/schema v38은 유지한다.
+최종 acceptance(02:10 KST):
+
+- [x] Euler / GPT-5.6 Terra — 실제 Chromium 20개 전부 실행: 일반 17건과 gated managed backup, local↔S3 file migration, independent S3 backup 모두 통과. N2/N3/N4 focused browser도 통과; production-like `59000`은 사용하지 않았다.
+- [x] Lagrange / GPT-5.6 Sol — reload 500은 임시 harness의 non-waiting `locator.count()` 실패가 browser를 닫아 in-flight list를 취소한 결과. checked-in auto-wait spec과 waiting full flow 통과. 잘못된 product 가설 `830278d`는 `2837802`에서 exact revert; final backup unit/race·PG18+MinIO 3/3·독립 review 통과.
+- [x] Chandrasekhar / GPT-5.6 Sol — final N1 5-package unit, 13-test PG18 race, N1→N4 matrix, 외부 생성 모듈 Up/Down·data preservation·irreversible no-mutation, durable recovery/history, fresh 1→40, 38→40 upgrade/doctor, 1–38 byte/checksum 불변 통과. 상태 evidence integration `2f98ccc`.
+- [x] Kant / GPT-5.6 Terra — static gates 통과. release direct-constructor 실패는 v6 rewind test가 신규 39/40 table을 남긴 fixture 결함으로 확인; test-only `cc5b271`→integration `845e32d`, targeted release/PG18 race·migration idempotency·1–38 불변 통과.
+- [x] Chandrasekhar / GPT-5.6 Sol — doctor 37→38은 N1 v40 이전 history 호환용 고정 `to_regclass(user_migration_schema_versions)` probe 1회의 정확한 증가. catalog 2/20개·off/dual-write/ready 모두 38; ceiling/rationale `4f73d47`→integration `16d5bbd`, full doctor PG18 race 25.683s·unit/vet 통과. Kant 독립 review도 exact PG18 race 3.695s와 no findings로 종료.
+- [x] Euler / GPT-5.6 Terra — final all-package unit/race PASS(24.2s), 별도 PG18 `55444`+MinIO `59004` full integration/race PASS(`pgbase` 191.613s, `recordops` 176.678s, `query` 160.119s, `schema` 142.565s, `doctor` 124.423s), explicit skip-policy PASS(1.163s).
+- [x] Sol 통합 — false product fix exact revert, 결과 반영, public status/next-work/reassessment 갱신, 최종 local commit. push/PR/remote merge/deploy/install은 수행하지 않음.
+
+격리 fixture 정리(02:11 KST): N1–N5 전용 PostgreSQL 18/MinIO container 4개와 전용 network 2개를 제거했다. 설치된 PostgreSQL 17, MinIO, PgBase server/binary, 사용자 DB·파일·환경은 변경하지 않았다.
+
+최종 문서·tree 독립 확인(02:13 KST): 다섯 공용 상태 문서의 구현/검증/로컬 commit/원격 병합/설치 구분에 finding 없음. `830278d^`↔`2837802` backup diff 없음, migration 1–40 연속·1–38 불변, debug/instrumentation artifact와 격리 fixture 잔여 없음, `git diff --check` 통과.
+
+실행 기록: 계획 작성 및 독립 worktree 준비 완료. 2026-09-09 23:46 KST에 네 worktree의 실제 상태와 담당을 확인하고 중앙 보드에 반영했다. migration 39는 N2/N3에 예약했고 N1의 durable recording에 새 영구 상태가 꼭 필요할 때만 40을 사용한다. N4의 영구 필드 옵션 저장 요구는 번호를 만들기 전에 통합 담당에게 보고한다. N4 `FieldOptions`→N1 canonical snapshot/diff, N1 durable mutation recording→N5 process-local request/post-commit hook 분리, 공통 Options/router/CLI 충돌 경계를 담당자에게 전달했다. 23:50 KST에 전용 PostgreSQL 18(`55442`)·MinIO(`59001`) fixture를 준비하고 system migration/database 및 실제 S3 smoke test를 통과했다. 00:11 KST에 Kant가 같은 격리 PG18에서 N2/N3 집중 `-race` DB 검증을 완료했다. Euler가 보고한 P1 3건은 `f68ad01`에서 수정됐고 00:18 KST read-only 재검토로 모두 닫혔다. N2/N3은 통합 대기이며 전체 회귀 전이다. 기존 로컬 설치 P8/schema v38은 유지하며 이번 검증은 격리 환경만 사용한다.
+
+구조 budget 해석(00:20 KST): production 파일 800줄 상한과 실용적인 모듈별 고정 cap은 유지한다. 과거 전역 runtime/interface/export 기준은 N1–N5의 승인된 기능 증가분을 정확히 측정하고 설계 근거·독립 검토·통과 테스트를 남기는 경우 조정할 수 있다. 최종 변경 수치와 근거는 이 보드에 공개하며, 기존 P8 기능 삭제나 무관한 대규모 refactor로 과거 전역 수치에 맞추지 않는다.
+
+최종 budget 측정·독립 검토 완료(01:21 KST): `238cc37`→최종 제품에서 Go runtime 58,513, UI 6,249, handwritten 64,762(+3,345 net), interface 57→60, export 973→1,053, constructor 46→49, page hook 129→131이며 UI export는 203으로 동일하다. schema data-group은 N1/N4 승인 기능으로 21,747→22,693(+946: schema +875, recordops +76, query -5)이다. schema-private transaction/planner 경계를 깨는 광범위 refactor 대신 정확한 증가와 설계 근거를 반영했고 어떤 production 파일도 제외하지 않았다. 고정 800줄 상한을 유지하며 helper를 동작 변경 없이 옮겨 `planner.go` 763줄, `schema_document.go` 798줄, 800줄 초과 production 파일 0개다. 독립 Standards/Spec review와 unit/race/lint가 통과했다.
 
 문서 시작점: [구현 이력·현재 상태](docs/project-status.md) · [후속 작업 N0–N9와 완료 기준](docs/next-work.md) · [PocketBase 현재 재평가](docs/pocketbase-current-reassessment.md). 이 파일은 개별 체크와 실행 이력을 보존한다. 과거 단계의 제외 범위는 당시 기록이며 최신 상태는 상단 P8과 위 문서를 따른다.
 
@@ -707,7 +725,7 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - [x] PB-A01: Required·빈 값·숫자 정밀도·ID·relation 중복에 대한 PgBase 호환 정책과 wire 예제 확정. P1 문서·wire 검증 완료.
 - [x] PB-A02: 필드 ID 기반 데이터 보존 rename 계획/API/UI 및 관계·view·index 보존 검증. P1 완료.
 - [x] PB-A03: text 길이/pattern, email/URL 형식·도메인, select 선택 수 검증을 스키마/API/UI/SDK에 연결. P1 완료.
-- [ ] PB-A04: editor·geoPoint·사용자 autodate 지원 범위와 전용 입력/조회 UI 결정 및 구현.
+- [x] PB-A04: editor·geoPoint·사용자 autodate 지원 범위와 전용 입력/조회 UI는 P8에서 완료. N4의 `:lower` filter/rule과 geoPoint `.lon`/`.lat` 조회 보완도 로컬 통합·인수 완료.
 - [x] PB-A05: Hidden/Presentable/Help 등 필드 메타데이터의 API 응답·relation 표시 계약 구현.
 - [x] PB-A06: 레코드 bulk 선택·삭제·export·duplicate와 부분 실패/동시 갱신 표시. P2 완료.
 - [x] PB-A07: relation picker의 즉석 생성·수정 및 column preference·draft 복구. P2 완료.
@@ -717,9 +735,10 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - [x] PB-A11: 여러 썸네일 crop/fit·크기 설정 및 권한·캐시·저장 비용 검증. P6-A 완료.
 - [x] PB-A12: 관리자 로그 검색/통계와 cron 목록·실행 상태·수동 실행 API/UI. P6-E/F 완료.
 - [x] PB-A13: 로컬 PostgreSQL+파일 백업 작업 추적·다운로드·복원 UI와 일관성 검증. P6-G 완료.
-- [ ] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI. SMTP는 P3/P6-B 완료; schema 입출력은 P7 로컬 검증 완료; S3 설정 UI는 남음.
+- [x] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI. SMTP는 P3/P6-B, schema 입출력은 P7, 파일·백업 S3 설정/API/UI/SDK와 실제 MinIO 시험은 P8 로컬 인수 완료.
 - [x] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증. P5 완료.
-- [ ] PB-A16: custom routes·hook 확대·migration authoring·JSVM/Dart의 제품 범위 결정; 구현 전 재시도/트랜잭션 계약 명시.
+- [x] PB-A16: Go custom routes·compiled migration authoring은 P7/P8, 세부 request/file/mail hooks와 자동 snapshot/diff/history-sync는 N5/N1 로컬 통합·인수까지 완료했다.
+- [ ] PB-A16 후속: JSVM·Dart SDK는 N6/N7로 분리하며 아직 구현하지 않았다.
 
 - 2026-09-09 P8: file migration 시작 응답 유실을 client operation UUID로 복구하고 동일 입력 재시도/다른 입력 충돌을 검증. 실제 파일 local→S3→local 왕복 다운로드 및 유실 응답 브라우저 통과. File storage 전체 PG18+MinIO integration/race와 SDK tests 통과, skip 없음 (`phase4-storage-final.log`). 사용자 인증 옵션과 독립된 관리자 저장소 routes 회귀 추가.
 

@@ -1,35 +1,40 @@
 # PocketBase 대비 현재 재평가
 
-기준: 로컬 PocketBase v0.40.3 (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)와 PgBase P8 / `0d28446`. 2026-09-09 확인. 과거 전체 소스 감사는 이전 커밋의 기록이며 현재 미구현 목록으로 그대로 사용하지 않는다. 이번 확인은 현재 코드의 주요 기능·세부 계약 재대조이며 전체 소스 재감사나 새 전체 테스트 실행을 뜻하지 않는다.
+기준: 로컬 PocketBase v0.40.3 (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`), 설치된 PgBase P8 / `0d28446`, N1–N5 로컬 integration branch. 2026-09-10 확인. 과거 전체 소스 감사는 이전 커밋의 기록이며 현재 미구현 목록으로 그대로 사용하지 않는다. 이번 확인은 현재 코드의 주요 기능·세부 계약 재대조다.
 
-실행 중인 설치는 P8 / schema v38다. 고급 필드·S3 설정·사용자 migration·추가 hooks는 [PR #32](https://github.com/yakisoba0728/PgBase/pull/32)의 원격 CI와 병합을 거쳐 로컬 설치 인수를 마쳤다. 각 기능의 완료는 문서화된 PgBase 계약 범위다.
+실행 중인 설치는 계속 P8 / schema v38다. N1–N5는 로컬 branch에서 구현·통합 검증했지만 push·PR·원격 병합·설치·배포하지 않았다. 각 기능의 완료는 문서화된 PgBase 계약 범위다.
 
 | 관점 | 현재 판단 |
 | --- | --- |
 | 앱 백엔드 기본 기능 | 컬렉션·CRUD·관계·규칙·인증·파일·Batch·Realtime·TypeScript 클라이언트가 있어 로컬 앱 개발에 사용할 수 있다. |
 | 관리자 주요 작업 | 필드 편집·레코드 일괄 작업·스키마 입출력·인증 설정·로그·cron·로컬 백업/복원까지 구현·적용했다. S3 관리 확장도 P8에서 로컬 인수·병합·설치를 마쳤다. |
-| PocketBase 세부 동작 | 필드별 옵션·수정자·필터·요청 hook·migration 자동 생성 등 차이가 남는다. 큰 기능 이름이 대응한다고 세부 계약 완료로 표시하지 않는다. |
-| 개발자 확장과 도구 | Go route와 migration 및 여러 hooks가 있지만 JSVM, Dart SDK, SQL 콘솔, self-update는 없다. |
+| PocketBase 세부 동작 | N1–N5에서 bounded text 생성, domain deny, `:lower`, geoPoint 좌표 조회, 세부 request/file/mail hooks와 자동 migration을 보강했다. 미채택 write modifier와 ORM callback 등은 문서화된 차이로 남는다. |
+| 개발자 확장과 도구 | Go route, 수동/자동 migration, typed hooks와 TypeScript SDK가 있다. JSVM, Dart SDK, SQL 콘솔, self-update는 없다. |
 | 호환성과 운영 | PostgreSQL, UUID, 정확 숫자, 세션, 커서, 파일 URL 등의 규약이 다르다. PocketBase SDK/스키마/확장 코드의 무수정 사용이나 SQLite 단일 파일 운영 경험을 제공하지 않는다. |
 
-## 큰 기능 표에서 빠지기 쉬운 미완료 항목
+## N1–N5에서 닫은 차이
 
-- 문자열 자동 생성 패턴: PocketBase `core/field_text.go`의 `AutogeneratePattern`에 대응하는 공개 PgBase FieldOptions는 없다.
-- email/URL 도메인 차단 목록: PocketBase `ExceptDomains`에 비해 PgBase는 현재 `AllowedDomains`만 노출한다.
+- bounded RE2 subset의 문자열 자동 생성 패턴을 create-only absent-key 계약, unique retry/replay/rollback과 함께 schema/API/SDK/UI에 연결했다.
+- email/URL allowed/denied domain을 canonicalize하고 exact/subdomain·deny-wins·기존 데이터 preflight를 검증했다.
+- canonical schema snapshot/diff, 생성 Go migration source, 지원 가능한 Up/Down, history compare/sync와 durable mutation recorder를 구현했다.
+- public 정적 디렉터리와 SPA fallback을 asset/navigation 404 및 API/admin/custom route 우선순위와 함께 구현했다.
+- 관리자 upsert/delete, TOTP와 IP 정책 CLI를 stable administrator ID, session invalidation, last-admin 보호와 함께 구현했다.
+- CRUD/Batch/schema import, 목적별 mail, file token/download/transform의 typed hook 경계를 실제 요청과 veto·panic·cancel·replay 결과로 검증했다.
+
+## 큰 기능 표에서 빠지기 쉬운 남은 차이
+
 - 일반 password의 암호화 알고리즘/설정: PgBase는 Argon2id를 사용하며 PB bcrypt cost 설정과 호환되지 않는다. 이는 알고리즘 부재가 아닌 설계 차이다.
-- editor의 `:lower` 필터 및 geoPoint의 일반 JSON-property 탐색은 지원하지 않는다. PgBase 좌표 조회는 lon/lat로 제한한다.
-- 사용자 migration은 Go create/list/up/down과 빈 Up/Down 템플릿을 제공한다. 관리자 변경을 이식 가능한 migration 소스로 자동 기록하는 snapshot/diff 및 history-sync는 제공하지 않는다. 스키마 JSON export와는 다른 기능이다.
-- hooks는 per-endpoint CRUD 요청 payload, 목적별 메일 발송 이벤트, 파일 토큰/다운로드/변환 읽기 이벤트가 부족하다. 공통 request/mail/file hook 존재와 구분한다.
+- editor의 `:lower`는 지원하지만 geoPoint 일반 JSON-property 탐색은 지원하지 않고 `.lon`/`.lat`로 제한한다. numeric/select/relation/file write modifier와 text-key `:autogenerate`는 PgBase의 정확 숫자·순서·인가·파일 lifecycle 계약 때문에 채택하지 않았다.
+- 자동 migration은 stable-ID field rename을 지원한다. 기존 schema domain에 collection rename update가 없어 collection name 교체는 delete/create이며 irreversible이다.
+- request hooks는 typed service/API boundary다. PocketBase의 임의 ORM model validate/execute/success/error callback을 제공하지 않으며 process-local hook을 durable outbox로 취급하지 않는다.
 - JSVM·Dart SDK·SQL 콘솔·self-update가 미구현이다.
-- 사용자 정적 파일 디렉터리와 SPA fallback: PgBase 기본 router는 내장 `/admin` UI만 제공한다. PB 기본 실행 파일의 publicDir 기반 사이트 제공과 차이가 있다.
-- 관리자 CLI: PgBase는 create/reset-password를 제공하지만 PB superuser의 upsert/update/delete/OTP/IP 목록 관리와는 범위가 다르다. 일부 관리자 HTTP/UI 기능이 있어도 CLI 완료로 계산하지 않는다.
 
 근거: [현재 필드 설정](../internal/schema/types.go), [고급 필드 계약](advanced-fields.md), [사용자 migration CLI](../internal/cli/user_migration.go), [생성기](../internal/usermigrate/generate.go), [hook 대조](lifecycle-parity.md), [확장 및 SDK 범위](extensions-and-client-scope.md).
 
-Sol 에이전트가 현재 [router](../internal/api/router.go), [관리자 CLI](../internal/cli/run.go), migration 및 hook 소스를 독립 확인했다. 자동 migration·정적 사이트·CLI·세부 hook 차이를 재확인했으며 제품 코드를 변경하지 않았다.
+Sol/Terra 작업자가 [실행 계획](superpowers/plans/2026-09-09-n1-n5-execution.md)에 따라 각 구현을 작성·집중 검증하고 다른 workstream을 Standards/Spec 관점에서 독립 검토했다. 통합 기록과 최종 gate는 [N1–N5 integration](workstreams/n1-n5/integration.md)을 따른다.
 
 ## 검증 상태
 
-P8 브라우저 3개 시나리오, 실제 파일 local→S3→local 왕복, populated v32→v38 업그레이드의 데이터 해시·행 수 보존과 doctor 확인은 통과했다. 백업 연결 유실 및 실제 S3 원본 객체 삭제 후 로컬 복원 바이트·원본 저장소 독립성 집중 PG18+MinIO/race도 통과했다. 최종 Go/DB/UI/SDK 로컬 회귀도 통과했다. [PR #32](https://github.com/yakisoba0728/PgBase/pull/32)의 필수 CI 5개 및 병합, 기존 로컬 DB의 백업 후 v38 설치·doctor/readiness·관리자/저장소/백업 인수도 마쳤다. 전체 이력은 [현재 상태](project-status.md), 후속 구현은 [N0–N9](next-work.md)에 정리한다.
+P8의 원격/설치 증거는 유지된다. N1–N5는 별도 disposable PostgreSQL 18/MinIO에서 각 stream race·HTTP, N1 external module/fresh/upgrade/doctor, final whole Go unit/race와 PG18+MinIO integration/race, combined UI 492개/typecheck/build/repro, SDK unit/live/pack, OpenAPI, 6종 build와 실제 Chromium 20개를 통과했다. 전체 이력은 [현재 상태](project-status.md), exact 결과는 [통합 기록](workstreams/n1-n5/integration.md), 후속 구현은 [N0–N9](next-work.md)에 정리한다.
 
-기능별 중요도와 세부 계약 수를 고정한 전체 분모가 없으므로 단일 진행률 백분율을 산출하지 않는다. 현재 평가는 '주요 BaaS와 관리자 작업은 제공, 세부 기능과 확장 생태계는 미완성'이다. 최신 작업 결과는 [TODO](../TODO.md)를 따른다.
+기능별 중요도와 세부 계약 수를 고정한 전체 분모가 없으므로 단일 진행률 백분율을 산출하지 않는다. 현재 평가는 '주요 BaaS와 관리자 작업 및 N1–N5 세부 보완을 로컬 구현, 확장 생태계와 일부 PB 계약은 미완성'이다. 최신 작업 결과는 [TODO](../TODO.md)를 따른다.

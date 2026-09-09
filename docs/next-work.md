@@ -1,23 +1,23 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-09, P8 병합·schema v38 로컬 설치 완료. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 새 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-10. P8은 병합·schema v38 로컬 설치 완료이고 N1–N5는 로컬 integration branch에서 구현·독립 검토·전체 인수를 완료했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
 | 순서 | ID | 작업 | 시작 조건 |
 | --- | --- | --- | --- |
 | 완료 | N0 | P8 최종 인수·PR·설치 | PR #32 및 로컬 v38 인수 완료 |
-| 2 | N1 | 사용자 migration 자동화 | N0의 schema/migration 계약 확정 |
-| 3 | N2 | public 정적 사이트·SPA | N0 완료, route 충돌 계약 확정 |
-| 4 | N3 | 관리자 CLI 확장 | N0 완료, 기존 관리 서비스 재사용 |
-| 5 | N4 | 필드 세부 옵션·조회 차이 | N0 고급 필드 계약 확정 |
-| 6 | N5 | 세부 lifecycle/request hooks | N0 이후 callback 순서·payload 계약 확정 |
+| 로컬 완료 | N1 | 사용자 migration 자동화 | 구현·N4 option matrix·fresh/upgrade/doctor·전체 race 통과. 원격 병합·설치 전 |
+| 로컬 완료 | N2 | public 정적 사이트·SPA | 구현·실제 browser route/asset/deep-link·전체 race 통과. 원격 병합·설치 전 |
+| 로컬 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. 원격 병합·설치 전 |
+| 로컬 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. 원격 병합·설치 전 |
+| 로컬 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. 원격 병합·설치 전 |
 | 7 | N6 | JSVM | N1/N5 공개 API 및 runtime 계약 확정 |
 | 8 | N7 | Dart SDK | N0 API 안정화. 이후 다른 후속 작업과 병렬 가능 |
 | 9 | N8 | SQL 콘솔 | 실행·인증·권한·결과 제한 계약 확정 |
 | 10 | N9 | self-update | 로컬 교체/복구 및 artifact 검증 계약 확정 |
 
-이 순서는 기본 제안이며 독립 영역은 Sol 에이전트에 파일 소유권을 분리해 병렬 진행할 수 있다. 새 범위의 구현 계획이 완료됐다는 이유로 기능을 완료 처리하지 않는다.
+다음 제품 구현 순서는 N6–N9다. N1–N5는 계획 작성만으로 완료 처리한 것이 아니라 로컬 구현, 집중 검증, 독립 Standards/Spec 검토와 전체 통합 인수를 수행했다. 다만 push·PR·원격 병합·설치·공개 배포 상태와는 구분한다.
 
 ## N0 — 지금 작성한 P8 마무리
 
@@ -38,48 +38,48 @@
 
 ## N1 — 자동 migration
 
-- [ ] schema 변경을 결정적인 Go migration source로 변환하는 snapshot/diff 규약을 정의한다.
-- [ ] 필드 ID rename, 관계·View·index 의존 순서와 역방향 변환 가능성을 반영한다.
-- [ ] 관리자 변경 성공과 소스/이력 기록 실패의 처리·재시도·중복 방지 경계를 정의한다.
-- [ ] collection snapshot 명령, 적용 history와 source 대조 및 history-sync의 허용 범위를 구현한다.
-- [ ] 생성 소스에서 자격 증명을 제외하고, 불가능한 Down과 데이터 손실 가능 변경을 명시한다.
-- [ ] 별도 Go 프로젝트에서 생성·빌드·Up·Down 및 실제 데이터 보존/실패 rollback을 검증한다.
+- [x] schema 변경을 결정적인 Go migration source로 변환하는 snapshot/diff 규약을 정의했다.
+- [x] 필드 ID rename, 관계·View·index 의존 순서와 역방향 변환 가능성을 반영했다.
+- [x] 관리자 변경 성공과 소스/이력 기록 실패의 처리·재시도·중복 방지 경계를 정의했다.
+- [x] collection snapshot 명령, 적용 history와 source 대조 및 history-sync의 허용 범위를 구현했다.
+- [x] 생성 소스에서 자격 증명을 제외하고, 불가능한 Down과 데이터 손실 가능 변경을 명시했다.
+- [x] 별도 Go 프로젝트에서 생성·빌드·Up·Down 및 실제 데이터 보존/실패 rollback을 검증했다.
 
 완료 기준: 관리자 변경 또는 snapshot으로 만든 소스가 새 DB에서 재현되고 지원하는 Down이 검증된다. 빈 Go 템플릿이나 schema JSON export만으로 완료 처리하지 않는다.
 
 ## N2 — 사용자 정적 사이트와 SPA
 
-- [ ] public 디렉터리 옵션과 index fallback을 CLI/환경/Go 설정에 연결한다.
-- [ ] API·관리자·사용자 route 우선순위, 없는 asset과 SPA 경로의 차이를 정의한다.
-- [ ] 경로 정규화·symlink·MIME·캐시·HEAD·없는 디렉터리 동작을 구현한다.
-- [ ] 실제 프런트엔드 빌드의 asset 제공, 깊은 링크 새로고침, API 404 보존을 브라우저로 검증한다.
+- [x] public 디렉터리 옵션과 index fallback을 CLI/환경/Go 설정에 연결했다.
+- [x] API·관리자·사용자 route 우선순위, 없는 asset과 SPA 경로의 차이를 정의했다.
+- [x] 경로 정규화·symlink·MIME·캐시·HEAD·없는 디렉터리 동작을 구현했다.
+- [x] 실제 프런트엔드 빌드의 asset 제공, 깊은 링크 새로고침, API 404 보존을 브라우저로 검증했다.
 
 완료 기준: 별도 정적 서버 없이 사용자 앱을 제공하며 API/관리자 경로와 충돌하지 않는다.
 
 ## N3 — 관리자 CLI
 
-- [ ] create/reset-password와 공통 서비스를 사용해 upsert/delete를 구현한다. PB update의 암호 변경 의미는 reset-password가 이미 제공하며, update 명령 별칭이 필요하면 별도 호환 편의로 처리한다.
-- [ ] OTP 및 IP 제한 관리의 PgBase 대응 계약을 확정한다. 기존 HTTP/UI 지원을 CLI 완료로 계산하지 않는다.
-- [ ] 사용자 식별, 입력 오류·종료 코드, 암호 입력 방식, 마지막 관리자 처리, 세션 무효화를 일관되게 적용한다.
-- [ ] 실제 DB에서 idempotent upsert·삭제/갱신·재인증·실패 시 무변경을 검증하고 help/예제를 갱신한다.
+- [x] create/reset-password와 공통 서비스를 사용해 upsert/delete를 구현했다. PB update의 암호 변경 의미는 reset-password가 담당한다.
+- [x] OTP 및 IP 제한 관리의 PgBase 대응 계약을 확정하고 CLI에 연결했다.
+- [x] 사용자 식별, 입력 오류·종료 코드, 암호 입력 방식, 마지막 관리자 처리, 세션 무효화를 일관되게 적용했다.
+- [x] 실제 DB에서 idempotent upsert·삭제/갱신·재인증·실패 시 무변경을 검증하고 help/예제를 갱신했다.
 
 ## N4 — 필드와 조회의 세부 차이
 
-- [ ] 문자열 자동 생성 패턴의 생성 시점·명시 값 우선순위·재시도·충돌 계약을 구현한다.
-- [ ] email/URL 도메인 차단 목록, allow/deny 동시 설정·정규화·기존 데이터 preflight를 구현한다.
-- [ ] PB 필드 수정자, `:lower` 등 필터, geoPoint 탐색의 현재 차이를 항목별로 분류하고 구현 대상과 유지할 차이를 명시한다.
-- [ ] 새 옵션을 schema/API/SDK/UI/import/export/rename에 함께 연결한다.
-- [ ] Required·정밀도·UUID·Argon2id처럼 유지할 PgBase 계약을 호환 예제와 함께 검증한다.
+- [x] 문자열 자동 생성 패턴의 생성 시점·명시 값 우선순위·재시도·충돌 계약을 구현했다.
+- [x] email/URL 도메인 차단 목록, allow/deny 동시 설정·정규화·기존 데이터 preflight를 구현했다.
+- [x] PB 필드 수정자, `:lower` 필터, geoPoint 탐색의 현재 차이를 분류하고 구현 대상과 유지할 차이를 명시했다.
+- [x] 새 옵션을 schema/API/SDK/UI/import/export/rename에 함께 연결했다.
+- [x] Required·정밀도·UUID·Argon2id처럼 유지할 PgBase 계약을 호환 예제와 함께 검증했다.
 
 완료 기준: 채택한 세부 기능은 실제 입력/조회/권한/Batch에서 동작하고 미채택 계약은 명시된다. 타입 이름의 존재만으로 PB 필드 완성을 주장하지 않는다.
 
 ## N5 — 세부 hooks
 
-- [ ] [hook 대조표](lifecycle-parity.md)의 partial 항목마다 이벤트·payload·시점·수정 가능 범위를 정한다.
-- [ ] CRUD list/view/write 및 Batch/import 전체 요청 hooks를 구현한다.
-- [ ] 목적별 메일과 파일 token/download/transform hooks를 구현한다.
-- [ ] PB 범용 model validate/execute/success/error 단계의 PgBase 대응과 지원하지 않을 ORM 범위를 명시한다.
-- [ ] veto·권한·취소·panic·retry/replay·commit/activation 결과 및 비밀 비노출을 실제 요청에서 검증한다.
+- [x] [hook 대조표](lifecycle-parity.md)의 partial 항목마다 이벤트·payload·시점·수정 가능 범위를 정했다.
+- [x] CRUD list/view/write 및 Batch/import 전체 요청 hooks를 구현했다.
+- [x] 목적별 메일과 파일 token/download/transform hooks를 구현했다.
+- [x] PB 범용 model validate/execute/success/error 단계의 PgBase 대응과 지원하지 않을 ORM 범위를 명시했다.
+- [x] veto·권한·취소·panic·retry/replay·commit/activation 결과 및 비밀 비노출을 실제 요청에서 검증했다.
 
 완료 기준: 등록 가능한 이름뿐 아니라 실제 API 호출 경로와 최종 결과가 연결된다. 외부 효과의 durable delivery는 outbox 계약과 분리한다.
 
