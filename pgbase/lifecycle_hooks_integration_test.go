@@ -427,3 +427,42 @@ func TestLifecycleMutableBatchStillUsesPublicUserAuthorization(t *testing.T) {
 		t.Fatalf("denied hook rewrite committed records: %#v", listing.Items)
 	}
 }
+
+func TestLifecycleJSONBatchRejectsReorderedIdempotentCreatesThroughHTTP(t *testing.T) {
+	registry := &HookRegistry{}
+	reorder := false
+	_, err := registry.On(HookRecordBatchRequest, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		if reorder {
+			operations := event.Data.(*BatchRequestEvent).Operations
+			operations[0], operations[1] = operations[1], operations[0]
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Hooks = registry })
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	createPublicUsersCollection(t, app, cookie, csrf, "n5_identity_first")
+	createPublicUsersCollection(t, app, cookie, csrf, "n5_identity_second")
+	body := map[string]any{"operations": []map[string]any{
+		{"operation": "create", "collection": "n5_identity_first", "input": map[string]any{"title": "first"}, "idempotencyKey": "n5-identity-first-0001"},
+		{"operation": "create", "collection": "n5_identity_second", "input": map[string]any{"title": "second"}, "idempotencyKey": "n5-identity-second-0001"},
+	}}
+	initial := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", body, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, initial, http.StatusOK)
+	reorder = true
+	replay := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", body, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, replay, http.StatusBadRequest)
+	for _, collection := range []string{"n5_identity_first", "n5_identity_second"} {
+		page := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/"+collection+"/records", nil, "", cookie, nil)
+		assertPublicUsersStatus(t, page, http.StatusOK)
+		var listing struct {
+			Items []map[string]any `json:"items"`
+		}
+		decodePublicUsersJSON(t, page, &listing)
+		if len(listing.Items) != 1 {
+			t.Fatalf("%s records after rejected replay=%#v", collection, listing.Items)
+		}
+	}
+}

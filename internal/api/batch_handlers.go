@@ -265,11 +265,15 @@ func (bindings batchAttachmentBindings) compatible(operations []recordops.BatchO
 	}
 	for index, expected := range bindings {
 		actual := batchAttachmentBindingFor(operations[index])
-		if expected.kind != actual.kind || expected.collection != actual.collection || expected.id != actual.id || expected.idempotencyKey != actual.idempotencyKey || !bytes.Equal(expected.idempotencyContext, actual.idempotencyContext) || !sameEntityTagSet(expected.ifMatch, actual.ifMatch) || !sameStrings(expected.sidecarFields, actual.sidecarFields) {
+		if !sameBatchOperationBinding(expected, actual) || expected.idempotencyKey != actual.idempotencyKey || !bytes.Equal(expected.idempotencyContext, actual.idempotencyContext) {
 			return false
 		}
 	}
 	return true
+}
+
+func sameBatchOperationBinding(left, right batchAttachmentBinding) bool {
+	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
 }
 
 func sameEntityTagSet(left, right recordops.EntityTagSet) bool {
@@ -292,13 +296,14 @@ type batchIdentities []batchIdentity
 type batchIdentity struct {
 	key     string
 	context []byte
+	target  batchAttachmentBinding
 }
 
 func captureBatchIdentities(operations []recordops.BatchOperation) batchIdentities {
 	identities := make(batchIdentities, len(operations))
 	for index, operation := range operations {
 		if operation.Create != nil {
-			identities[index] = batchIdentity{key: operation.Create.IdempotencyKey, context: append([]byte(nil), operation.Create.IdempotencyContext...)}
+			identities[index] = batchIdentity{key: operation.Create.IdempotencyKey, context: append([]byte(nil), operation.Create.IdempotencyContext...), target: batchAttachmentBindingFor(operation)}
 		}
 	}
 	return identities
@@ -317,7 +322,7 @@ func (identities batchIdentities) restore(operations []recordops.BatchOperation)
 		if identity.key == "" {
 			continue
 		}
-		if operations[index].Create == nil {
+		if operations[index].Create == nil || !sameBatchOperationBinding(identity.target, batchAttachmentBindingFor(operations[index])) {
 			return false
 		}
 		operations[index].Create.IdempotencyKey = identity.key
