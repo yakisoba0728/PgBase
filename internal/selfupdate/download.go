@@ -110,6 +110,9 @@ func Fetch(ctx context.Context, options FetchOptions) (Fetched, error) {
 	if err != nil {
 		return Fetched{}, err
 	}
+	if candidate.Artifact.Size > options.MaxArtifactBytes {
+		return Fetched{}, ErrDownloadLimit
+	}
 	artifactURL, err := url.Parse(candidate.Artifact.URL)
 	if err != nil || !sameOrigin(parsed, artifactURL) || validateRemoteURL(artifactURL, options.AllowInsecureLoopback) != nil {
 		return Fetched{}, ErrUntrustedManifest
@@ -143,6 +146,9 @@ func fetchLocal(options FetchOptions, source string) (Fetched, error) {
 	candidate, err := Select(manifest, Selection{Current: options.Current, Channel: options.Channel, Requested: options.Requested, AllowDowngrade: options.AllowDowngrade})
 	if err != nil {
 		return Fetched{}, err
+	}
+	if candidate.Artifact.Size > options.MaxArtifactBytes {
+		return Fetched{}, ErrDownloadLimit
 	}
 	artifactURL, err := url.Parse(candidate.Artifact.URL)
 	if err != nil || artifactURL.Scheme != "file" || artifactURL.Host != "" || !filepath.IsAbs(artifactURL.Path) {
@@ -220,7 +226,10 @@ func readRemote(ctx context.Context, client *http.Client, value *url.URL, limit 
 	}
 	defer reader.Close()
 	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if err != nil || int64(len(data)) > limit {
+	if int64(len(data)) > limit {
+		return nil, ErrDownloadLimit
+	}
+	if err != nil {
 		return nil, ErrDownloadInterrupted
 	}
 	return data, nil
@@ -237,6 +246,9 @@ func openRemote(ctx context.Context, client *http.Client, value *url.URL, limit 
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || response.ContentLength > limit {
 		_ = response.Body.Close()
+		if response.ContentLength > limit {
+			return nil, ErrDownloadLimit
+		}
 		return nil, ErrDownloadInterrupted
 	}
 	return response.Body, nil

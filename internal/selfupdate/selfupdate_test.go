@@ -389,3 +389,33 @@ func TestFetchRejectsCrossOriginRedirectWithoutContactingTarget(t *testing.T) {
 		t.Fatalf("cross-origin target received %d requests", foreignCalls)
 	}
 }
+
+func TestFetchRejectsSignedArtifactAboveCallerLimit(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := startTLSServer(t, func(base string) http.Handler {
+		manifest := fixtureManifest("v0.2.0", newCommit, base+"/artifact", MinimumArtifactMax+1, strings.Repeat("a", 64))
+		raw, marshalErr := json.Marshal(manifest)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		signature := sign(private, raw)
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/manifest.json" {
+				_, _ = writer.Write(raw)
+				return
+			}
+			if request.URL.Path == "/manifest.json.ed25519" {
+				_, _ = writer.Write(signature)
+				return
+			}
+			http.NotFound(writer, request)
+		})
+	})
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if _, err = Fetch(context.Background(), FetchOptions{Source: server.URL + "/manifest.json", TrustKey: public, Current: current, HTTPClient: server.Client(), MaxArtifactBytes: MinimumArtifactMax}); !errors.Is(err, ErrDownloadLimit) {
+		t.Fatalf("limit error=%v", err)
+	}
+}

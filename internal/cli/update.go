@@ -110,6 +110,9 @@ func runUpdateApply(ctx context.Context, args []string, streams IO) error {
 		return err
 	}
 	fetched, err := fetchUpdate(ctx, input)
+	if errors.Is(err, selfupdate.ErrNoUpdate) {
+		return json.NewEncoder(streams.stdout()).Encode(map[string]any{"status": "no_update"})
+	}
 	if err != nil {
 		return err
 	}
@@ -133,8 +136,8 @@ func runUpdateStatus(args []string, streams IO) error {
 	flags.SetOutput(io.Discard)
 	jsonOutput := flags.Bool("json", false, "")
 	stateDir := flags.String("state-dir", "", "")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !*jsonOutput {
-		return configurationError{err: errors.New("invalid update status usage"), message: "usage: pgbase update status --json [--state-dir DIR]"}
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return configurationError{err: errors.New("invalid update status usage"), message: "usage: pgbase update status [--json] [--state-dir DIR]"}
 	}
 	target, state, err := updateTarget(*stateDir)
 	if err != nil {
@@ -144,7 +147,11 @@ func runUpdateStatus(args []string, streams IO) error {
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(streams.stdout()).Encode(status)
+	if *jsonOutput {
+		return json.NewEncoder(streams.stdout()).Encode(status)
+	}
+	_, err = fmt.Fprintf(streams.stdout(), "phase=%s current=%s candidate=%s\n", status.Phase, status.Current.Version, status.Candidate.Version)
+	return err
 }
 
 func runUpdateRollback(ctx context.Context, args []string, streams IO) error {
