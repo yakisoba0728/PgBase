@@ -20,7 +20,7 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(io.LimitReader(reader, s.options.MaximumBytes+1))
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
@@ -64,7 +64,7 @@ func (s *Service) validateStoredType(ctx context.Context, file File) error {
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	buffer := make([]byte, 512)
 	n, err := io.ReadFull(reader, buffer)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {

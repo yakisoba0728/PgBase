@@ -79,7 +79,7 @@ func (h handler) serveNamed(w http.ResponseWriter, r *http.Request, name string)
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -105,7 +105,7 @@ func (h handler) open(name string) (*os.File, os.FileInfo, error) {
 	}
 	info, err := file.Stat()
 	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
-		file.Close()
+		_ = file.Close()
 		return nil, nil, os.ErrNotExist
 	}
 	return file, info, nil
