@@ -1,6 +1,6 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6/N7/N9 로컬 구현·핵심 인수는 끝났고 N8과 전체 G5는 사용자 요청으로 07:36 KST에 일시정지했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6/N7/N9 로컬 구현·핵심 인수는 끝났고 N8과 전체 G5는 일시정지 checkpoint 이후 사용자 요청으로 재개했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
@@ -14,7 +14,7 @@
 | 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. PR34 병합·schema40 설치 인수 완료 |
 | 로컬 완료·G5 대기 | N6 | JSVM | external Go+JS·PG/file/SMTP/job·same-origin browser·review zero 완료 |
 | 로컬 완료·G5 대기 | N7 | Dart SDK | Dart/Flutter external consumer·cross-flow·browser·review zero 완료 |
-| **PAUSED** | N8 | SQL 콘솔 | integration `6bb6dbb`; unintegrated WIP `codex/n8-sql-console@4d773b5`; acceptance open |
+| **ACTIVE** | N8 | SQL 콘솔 | integration `6bb6dbb`; unintegrated WIP `codex/n8-sql-console@4d773b5`; acceptance open |
 | 로컬 완료·G5 대기 | N9 | self-update | private+shared review closure, Darwin fixture·six-build/Windows compile 근거 완료 |
 
 통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유한다. N6/N7/N9은 로컬 범위에서 완료됐으나 전체 G5는 실행하지 않았다. N8의 integrated product/UI checkpoint는 pre-pause `6bb6dbb`까지이며 owner WIP `4d773b5`는 clean branch에만 보존하고 통합하지 않았다. 불완전 review checkpoint `9ac351a`는 docs-only로 통합했으며 full PASS가 아니다. 재개 시 R12의 수정된 assertion을 먼저 재실행하고 R1–R4/R8–R10/R12를 독립 review로 닫은 뒤 PG17/18·race·six-build·실제 browser와 G5를 진행한다. live 설치·ports는 검증 대상이 아니다.
@@ -101,7 +101,7 @@ N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `t
 - [x] 실제 PgBase HTTP conformance, reconnect·로그아웃·에러·파일 전송을 검증했다.
 - [x] 로컬 Dart/Flutter 예제와 설치 문서를 제공했다. pub.dev 공개 발행은 대기로 둔다.
 
-## N8 — SQL 콘솔 (**PAUSED**, 미완료)
+## N8 — SQL 콘솔 (ACTIVE, 미완료)
 
 통합된 UI/shared/backend 기반은 `6bb6dbb`까지다. 추가 backend candidate는 `codex/n8-sql-console@4d773b5`에 clean WIP로만 보존한다. R1–R4/R8–R12, current PG/race/build, 실제 browser와 final review가 열려 있으므로 아래 항목은 완료 처리하지 않는다. API/UI fixture와 credential file은 생성되지 않았고 N8 PG 컨테이너는 data를 보존한 정지 상태다.
 

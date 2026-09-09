@@ -9,7 +9,7 @@
 | 앱 백엔드 기본 기능 | 컬렉션·CRUD·관계·규칙·인증·파일·Batch·Realtime·TypeScript 클라이언트가 있어 로컬 앱 개발에 사용할 수 있다. |
 | 관리자 주요 작업 | 필드 편집·레코드 일괄 작업·스키마 입출력·인증 설정·로그·cron·로컬 백업/복원까지 구현·적용했다. S3 관리 확장도 P8에서 로컬 인수·병합·설치를 마쳤다. |
 | PocketBase 세부 동작 | N1–N5에서 bounded text 생성, domain deny, `:lower`, geoPoint 좌표 조회, 세부 request/file/mail hooks와 자동 migration을 보강했다. 미채택 write modifier와 ORM callback 등은 문서화된 차이로 남는다. |
-| 개발자 확장과 도구 | Go route, 수동/자동 migration, typed hooks와 TypeScript SDK가 있다. 현재 병합·설치 제품에 JSVM, Dart SDK, SQL 콘솔, self-update는 없다. N6/JSVM·N7/Dart는 별도 worktree에서 구현 중이다. |
+| 개발자 확장과 도구 | Go route, 수동/자동 migration, typed hooks와 TypeScript SDK가 있다. 현재 병합·설치 제품에 JSVM, Dart SDK, SQL 콘솔, self-update는 없다. 로컬 통합 branch에서는 N6/JSVM·N7/Dart·N9/self-update의 구현·핵심 인수가 완료됐고 N8/SQL 콘솔과 전체 G5를 진행 중이다. |
 | 호환성과 운영 | PostgreSQL, UUID, 정확 숫자, 세션, 커서, 파일 URL 등의 규약이 다르다. PocketBase SDK/스키마/확장 코드의 무수정 사용이나 SQLite 단일 파일 운영 경험을 제공하지 않는다. |
 
 ## N1–N5에서 닫은 차이
@@ -27,7 +27,7 @@
 - editor의 `:lower`는 지원하지만 geoPoint 일반 JSON-property 탐색은 지원하지 않고 `.lon`/`.lat`로 제한한다. numeric/select/relation/file write modifier와 text-key `:autogenerate`는 PgBase의 정확 숫자·순서·인가·파일 lifecycle 계약 때문에 채택하지 않았다.
 - 자동 migration은 stable-ID field rename을 지원한다. 기존 schema domain에 collection rename update가 없어 collection name 교체는 delete/create이며 irreversible이다.
 - request hooks는 typed service/API boundary다. PocketBase의 임의 ORM model validate/execute/success/error callback을 제공하지 않으며 process-local hook을 durable outbox로 취급하지 않는다.
-- JSVM·Dart SDK·SQL 콘솔·self-update는 현재 병합·설치 제품에 포함되지 않는다. N6/N7 병렬 구현은 후속 단계이며 완료로 계산하지 않는다.
+- JSVM·Dart SDK·SQL 콘솔·self-update는 현재 병합·설치 제품에 포함되지 않는다. N6/N7/N9 로컬 인수와 N8/G5 진행 상태는 설치 제품과 구분하며 [통합 기록](workstreams/n6-n9/integration.md)을 따른다.
 
 근거: [현재 필드 설정](../internal/schema/types.go), [고급 필드 계약](advanced-fields.md), [사용자 migration CLI](../internal/cli/user_migration.go), [생성기](../internal/usermigrate/generate.go), [hook 대조](lifecycle-parity.md), [확장 및 SDK 범위](extensions-and-client-scope.md).
 
