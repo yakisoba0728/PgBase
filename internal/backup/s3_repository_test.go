@@ -20,20 +20,35 @@ type failingS3Client struct {
 }
 
 type receiptS3Client struct {
-	objects  map[string]string
-	metadata map[string]map[string]string
-	deletes  []string
+	objects         map[string]string
+	metadata        map[string]map[string]string
+	deletes         []string
+	archiveCloseErr error
+	closeFailures   int
 }
+
+type closeErrorReader struct {
+	io.Reader
+	err error
+}
+
+func (r closeErrorReader) Close() error { return r.err }
 
 func (*receiptS3Client) PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	return nil, errors.New("unused")
 }
 func (c *receiptS3Client) GetObject(_ context.Context, input *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-	value, ok := c.objects[aws.ToString(input.Key)]
+	key := aws.ToString(input.Key)
+	value, ok := c.objects[key]
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(value)), Metadata: c.metadata[aws.ToString(input.Key)]}, nil
+	body := io.ReadCloser(io.NopCloser(strings.NewReader(value)))
+	if strings.HasSuffix(key, ".tar.gz") && c.closeFailures > 0 {
+		c.closeFailures--
+		body = closeErrorReader{Reader: strings.NewReader(value), err: c.archiveCloseErr}
+	}
+	return &s3.GetObjectOutput{Body: body, Metadata: c.metadata[key]}, nil
 }
 func (c *receiptS3Client) DeleteObject(_ context.Context, input *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	c.deletes = append(c.deletes, aws.ToString(input.Key))
@@ -146,5 +161,24 @@ func TestS3ReceiptOwnershipAndCorruptionAreDistinguished(t *testing.T) {
 	repository.client = &receiptS3Client{objects: map[string]string{key: `{"id":"` + id + `","storageFormat":"pgbase-backup-v1","size":1,"sha256":"short"}`}}
 	if _, err := repository.List(context.Background()); !errors.Is(err, ErrInvalidStorage) {
 		t.Fatalf("corrupt owned receipt list=%v", err)
+	}
+}
+
+func TestS3ListDoesNotPromoteArchiveProbeCloseFailure(t *testing.T) {
+	id := "019551d0-e9c0-7000-8000-000000000001"
+	client := &receiptS3Client{
+		objects: map[string]string{
+			id + ".json":   `{"id":"` + id + `","storageFormat":"pgbase-backup-v1","size":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000"}`,
+			id + ".tar.gz": "archive",
+		},
+		archiveCloseErr: errors.New("transient response close"),
+		closeFailures:   1,
+	}
+	repository := &S3Repository{bucket: "bucket", client: client}
+	for attempt := 1; attempt <= 2; attempt++ {
+		entries, err := repository.List(context.Background())
+		if err != nil || len(entries) != 1 || entries[0].ID != id {
+			t.Fatalf("List() attempt %d=%+v,%v", attempt, entries, err)
+		}
 	}
 }
