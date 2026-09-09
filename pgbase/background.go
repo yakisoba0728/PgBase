@@ -30,6 +30,7 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 			{"record membership writer", a.membershipWriter},
 			{"system status sampler", a.systemStatus},
 			{"schema health sampler", a.schemaHealth},
+			{"user migration source recovery", a.userMigrationSources},
 		} {
 			if candidate.runner != nil {
 				runners = append(runners, candidate)

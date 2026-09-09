@@ -1,6 +1,6 @@
 # PgBase 구현 이력과 현재 상태
 
-기록일: 2026-09-09. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 재평가](pocketbase-current-reassessment.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
+기록일: 2026-09-10. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 재평가](pocketbase-current-reassessment.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
 ## 1. 현재 기준점
 
@@ -8,6 +8,7 @@
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
 | 최신 제품 병합 기준 | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` |
+| N1–N5 개발 기준 | 로컬 `codex/n1-n5-integration`, product/test `2837802` 이후 최종 문서 commit. 구현·독립 검토·전체 로컬 인수 완료, 원격 PR/병합·설치·배포 전 |
 | 설치 제품 커밋 | `0d28446b4003679465103c5fe2d4f1c65364cc79`. 설치 기록 문서의 후속 커밋과 구분 |
 | 실제 로컬 설치 | P8, PostgreSQL 17, schema v38, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
@@ -32,6 +33,7 @@ P8 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 로컬
 | P6 | 파일 정책/변환, OAuth·HTML 메일, SQL View, multipart Batch, 영구 로그·달력 cron, 웹 백업·Go hooks | [PR #30](https://github.com/yakisoba0728/PgBase/pull/30), `b942391` 병합, 로컬 v23→v28 |
 | P7 | hidden/presentable/help, schema import/export, 이메일 OTP, impersonation, Go custom routes | [PR #31](https://github.com/yakisoba0728/PgBase/pull/31), `701256b` 병합, 필수 CI 5개 및 로컬 v28→v32 인수 완료 |
 | P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` 병합, 필수 CI 5개·로컬 v32→v38 인수 완료 |
+| N1–N5 | 자동 migration, public 정적 사이트/SPA, 관리자 CLI, 필드·조회 세부 계약, request/file/mail hooks | 로컬 integration branch 구현·전체 PG18/race·브라우저·SDK/build·독립 검토 완료. 로컬 최종 commit; PR/원격 병합·설치 없음 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -67,7 +69,19 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 
 상세 계약: [고급 필드](advanced-fields.md), [파일 저장소](storage-settings.md), [백업 S3](backup-s3.md), [사용자 migration](user-migrations.md), [P8](phase4-local-contracts.md).
 
-## 5. 검증과 실제 수정한 문제
+## 5. N1–N5 로컬 통합
+
+| 작업 | 구현한 범위 | 현재 상태와 경계 |
+| --- | --- | --- |
+| N1 자동 migration | 결정적 canonical snapshot/diff, stable-ID field rename, 의존 순서, 생성 Go source, 지원 가능한 Up/Down, typed irreversible Down, history compare/sync, schema transaction과 함께 기록되는 durable auto-recorder/recovery | migration 40 사용. 외부 Go module·fresh 1→40·v38→v40·doctor·N1→N4 option matrix 통과. collection rename은 기존 domain에 update가 없어 delete/create·irreversible |
+| N2 정적 사이트·SPA | `PublicDir`/SPA fallback, CLI·환경·Go options, API/admin/custom route 우선순위, asset 404와 navigation fallback 구분, descriptor-root 경로 격리 | 실제 built asset, deep-link refresh, missing asset/API JSON 404, admin 우선순위 Chromium 통과 |
+| N3 관리자 CLI | admin upsert/delete, TOTP 설정·해제, IP allow/deny/list, stable-ID reactivation, session invalidation, last-admin 보호 | migration 39 사용. 실제 PG18 race와 browser TOTP/IP/session/last-admin 통과 |
+| N4 필드·조회 | bounded text autogeneration, email/URL denied domains, canonical options, `:lower` filter/rule, geoPoint `.lon`/`.lat`, schema/API/SDK/UI 연결 | explicit input 우선·create-only 생성, collision/replay/rollback, domain preflight, HTTP/Batch/browser 및 N1 snapshot/Up/Down 보존 통과. 미채택 PB modifiers는 문서화된 차이 |
+| N5 세부 hooks | record list/view/write, Batch/schema import, 목적별 mail, file token/download/transform의 typed request/result hooks | mutable input 재검증, immutable identity/snapshot, veto·panic·cancel·retry/replay·stream outcome 검증. process-local이며 durable delivery/outbox가 아님 |
+
+이 단계는 로컬 개발 브랜치의 구현·검증 상태다. 최신 원격 제품 병합과 실제 설치는 여전히 P8 `0d28446`/schema v38이며, N1–N5는 push·PR·원격 병합·설치·배포하지 않았다.
+
+## 6. 검증과 실제 수정한 문제
 
 | 시점 / 범위 | 증거 | 해석 |
 | --- | --- | --- |
@@ -80,6 +94,7 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 | P8 DB 업그레이드 | 구버전 실제 CLI/API로 text·integer·JSONB·relation 4레코드 생성 → v32→v38, 해시·행 수 보존, doctor OK | 인수 당시 원본 v32 유지, 복사본/임시 서버 정리. 실제 설치 상태는 상단을 따름 |
 | P8 집중 검증 | 고급 필드 rename/View/schema 왕복·권한/Batch, 사용자 migration, 파일 lease 유실, 백업 pending fence | 최종 PG18+MinIO/race 통과. 백업 테스트 종료 동기화는 패키지 전체 재검사로 보완 |
 | P8 백업 최종 집중 묶음 | PG18+MinIO race: `internal/backup` 3.761초, `pgbase` 3.493초. 실제 S3 원본 삭제 후 복원 바이트·local/no-secret 설정, 소유 객체 보호·pending fence·managed 전환 | `phase4-backup-s3.log`. 전체 저장소/Go/UI/SDK 인수와는 구분 |
+| N1–N5 전체 로컬 인수 | final Go unit/race 24.2초, PG18+MinIO integration/race(`pgbase` 191.613초 등), skip policy 1.163초, UI 492개·typecheck/build/repro, SDK 7/7·live/pack, OpenAPI 115 paths/144 operations, 6종 build, 실제 Chromium 20개와 focused N2/N3/N4 | 독립 Standards/Spec review와 구조 실측 완료. 잘못된 backup product 가설은 exact revert 후 affected unit/race·PG18+MinIO·auto-wait browser로 최종 확인 |
 
 수정과 검증의 대표 사례:
 
@@ -98,9 +113,9 @@ M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 �
 
 로컬 재현 로그는 `.local/verification/phase4-*.log`, 업그레이드 결과는 `.local/verification/phase4-populated-upgrade/result.json`에 있다. `.local`은 다른 clone에 포함되지 않을 수 있다. 재현 가능한 테스트 소스는 `internal/{schema,query,recordops,filestore,backup,usermigrate}`, `pgbase`, `ui/admin/e2e/authenticated/phase4.spec.ts`에 보존한다. 자격 증명·실제 환경 파일은 문서에 복사하지 않는다.
 
-## 6. 남은 범위와 문서 사용법
+## 7. 남은 범위와 문서 사용법
 
-P8 통합 인수 뒤에도 자동 migration, 정적 사이트/SPA, 관리자 CLI 확장, 필드 세부 옵션, 추가 hooks, JSVM, Dart SDK, SQL 콘솔, self-update가 남는다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다.
+N1–N5 로컬 인수 뒤의 다음 제품 범위는 JSVM, Dart SDK, SQL 콘솔, self-update다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. N1–N5의 원격 PR/병합과 실제 설치는 구현 완료와 별도 상태로 남는다.
 
 클라우드 배포·운영 SLO/RPO/RTO·외부 provider 계정·실제 다중 호스트 partition·공개 패키지 배포는 별도 대기다. 로컬 테스트와 cross-build가 이 증거를 대신하지 않는다. read replica·sharding·다중 프로젝트 control plane·online DDL 같은 장기 확장은 PB 기능 공백 및 현재 로컬 완료 조건과 분리한다.
 

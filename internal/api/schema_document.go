@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/accessrule"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -24,7 +25,7 @@ func schemaDocumentRoutes(dependencies Dependencies) []route {
 	if !ok {
 		return nil
 	}
-	handler := schemaDocumentEndpoints{service: service}
+	handler := schemaDocumentEndpoints{service: service, hooks: dependencies.LifecycleHooks}
 	return []route{
 		{method: "GET", pattern: "/api/admin/schema/export", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(handler.export)},
 		{method: "POST", pattern: "/api/admin/schema/import/preview", access: accessAdminSession, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCatalogResponseBytes, schemaDocument: true, handler: http.HandlerFunc(handler.preview)},
@@ -33,7 +34,10 @@ func schemaDocumentRoutes(dependencies Dependencies) []route {
 	}
 }
 
-type schemaDocumentEndpoints struct{ service schemaDocumentService }
+type schemaDocumentEndpoints struct {
+	service schemaDocumentService
+	hooks   *lifecycle.Registry
+}
 
 func (e schemaDocumentEndpoints) status(w http.ResponseWriter, r *http.Request) {
 	principal, ok := AdminPrincipalFromContext(r.Context())
@@ -66,10 +70,26 @@ func (e schemaDocumentEndpoints) preview(w http.ResponseWriter, r *http.Request)
 		writeInvalidSchemaDocument(w, r)
 		return
 	}
-	plan, err := e.service.PreviewSchemaImport(r.Context(), document)
-	if err == nil {
-		err = e.service.ValidateSchemaImportPlan(plan, validateCollectionRules)
+	principal, ok := AdminPrincipalFromContext(r.Context())
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+		return
 	}
+	event := &SchemaImportRequestEvent{Mode: "preview", ActorID: principal.Administrator.ID, RequestID: requestID(r.Context()), Document: document}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "schema.import.preview", event)
+	if err != nil {
+		finish(err)
+		writeSchemaError(w, r, err)
+		return
+	}
+	var plan schema.SchemaImportPlan
+	err = finishLifecycle(finish, func() error {
+		plan, err = e.service.PreviewSchemaImport(r.Context(), event.Document)
+		if err == nil {
+			err = e.service.ValidateSchemaImportPlan(plan, validateCollectionRules)
+		}
+		return err
+	})
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return
@@ -107,7 +127,19 @@ func (e schemaDocumentEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeInvalidSchemaDocument(w, r)
 		return
 	}
-	result, err := e.service.ApplySchemaImport(r.Context(), schema.SchemaImportIntent{Document: request.Document, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Actor: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, ValidateRules: validateCollectionRules})
+	event := &SchemaImportRequestEvent{Mode: "apply", ActorID: principal.Administrator.ID, RequestID: requestID(r.Context()), OperationID: identity.operationID, IdempotencyKey: identity.key, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Document: cloneSchemaDocument(request.Document)}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "schema.import.apply", event)
+	if err != nil {
+		finish(err)
+		writeSchemaError(w, r, err)
+		return
+	}
+	var result schema.SchemaImportResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.ApplySchemaImport(r.Context(), schema.SchemaImportIntent{Document: request.Document, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Actor: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, ValidateRules: validateCollectionRules})
+		event.Result = cloneSchemaImportResult(result)
+		return err
+	})
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return

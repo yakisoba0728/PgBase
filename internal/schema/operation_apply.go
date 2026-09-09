@@ -38,7 +38,11 @@ func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyRe
 		return ApplyResult{}, err
 	}
 	if !claim.acquired {
-		return replayedApplyResult(claim.row)
+		result, replayErr := replayedApplyResult(claim.row)
+		if replayErr == nil && claim.row.status == OperationCommitted {
+			s.materializeSchemaMigration(ctx, claim.row.operationID)
+		}
+		return result, replayErr
 	}
 	if s.collectionLifecycle == nil {
 		return s.applyClaimedOperation(ctx, intent, claim, &relationOperation)
@@ -185,6 +189,7 @@ func (s *Service) applyClaimedOperation(
 	releaseConnection()
 	result.Receipt = operationReceipt(committedRow)
 	s.cache.publish(nextCatalog)
+	s.materializeSchemaMigration(ctx, claim.row.operationID)
 	return result, nil
 }
 
@@ -232,6 +237,13 @@ func (s *Service) executeClaimedOperation(
 		return ApplyResult{}, nil, operationRow{}, ErrConflict
 	}
 	catalog := currentCatalog.catalog
+	var migrationBefore []byte
+	if s.migrationRecorder != nil {
+		migrationBefore, err = ExportMigrationSnapshot(ctx, tx)
+		if err != nil {
+			return ApplyResult{}, nil, operationRow{}, fmt.Errorf("snapshot schema before automatic migration recording: %w", err)
+		}
+	}
 	if isSQLViewChange(intent.change) {
 		intent.change, err = inspectSQLViewChange(ctx, tx, catalog, intent.change)
 		if err != nil {
@@ -388,6 +400,21 @@ func (s *Service) executeClaimedOperation(
 	if err := tx.QueryRow(ctx, "select clock_timestamp()").Scan(&completedAt); err != nil {
 		return ApplyResult{}, nextCatalog, operationRow{}, fmt.Errorf("read schema operation completion timestamp: %w", err)
 	}
+	if s.migrationRecorder != nil {
+		migrationAfter, snapshotErr := ExportMigrationSnapshot(ctx, tx)
+		if snapshotErr != nil {
+			return ApplyResult{}, nextCatalog, operationRow{}, fmt.Errorf("snapshot schema after automatic migration recording: %w", snapshotErr)
+		}
+		if recordErr := s.migrationRecorder.RecordSchemaMigration(ctx, tx, MigrationRecording{
+			OperationID: claim.row.operationID,
+			Name:        MigrationNameHint(string(claim.row.operation), plan.Definition.Name),
+			Before:      migrationBefore,
+			After:       migrationAfter,
+			CommittedAt: completedAt.UTC(),
+		}); recordErr != nil {
+			return ApplyResult{}, nextCatalog, operationRow{}, fmt.Errorf("record automatic user migration: %w", recordErr)
+		}
+	}
 	committedRow, err := s.commitOperation(ctx, tx, claim, newVersion, completedAt.UTC())
 	if err != nil {
 		return ApplyResult{}, nextCatalog, operationRow{}, err
@@ -502,6 +529,7 @@ func (s *Service) resolveAmbiguousSchemaCommit(
 	if row.status == OperationCommitted {
 		committedResult.Receipt = operationReceipt(row)
 		s.cache.publish(nextCatalog)
+		s.materializeSchemaMigration(context.Background(), claim.row.operationID)
 		return committedResult, nil
 	}
 	s.cache.discardPrepared(nextCatalog)

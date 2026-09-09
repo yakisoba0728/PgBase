@@ -8,16 +8,30 @@ import (
 )
 
 func clientAddress(r *http.Request, trustedProxies []netip.Prefix) (string, bool) {
+	address, ok := clientIP(r, trustedProxies)
+	if !ok {
+		return "", false
+	}
+	parsed, err := netip.ParseAddr(address)
+	if err != nil {
+		return address, true
+	}
+	return rateLimitAddress(parsed), true
+}
+
+// clientIP resolves the true peer through explicitly trusted proxies without
+// applying the IPv6 /64 aggregation used only by rate limiting.
+func clientIP(r *http.Request, trustedProxies []netip.Prefix) (string, bool) {
 	peer, ok := remoteAddress(r.RemoteAddr)
 	if !ok {
 		return "unknown", true
 	}
 	if !addressTrusted(peer, trustedProxies) {
-		return rateLimitAddress(peer), true
+		return peer.String(), true
 	}
 	values := r.Header.Values("X-Forwarded-For")
 	if len(values) == 0 {
-		return rateLimitAddress(peer), true
+		return peer.String(), true
 	}
 	parts := strings.Split(strings.Join(values, ","), ",")
 	forwarded := make([]netip.Addr, 0, len(parts))
@@ -33,10 +47,10 @@ func clientAddress(r *http.Request, trustedProxies []netip.Prefix) (string, bool
 	}
 	for index := len(forwarded) - 1; index >= 0; index-- {
 		if !addressTrusted(forwarded[index], trustedProxies) {
-			return rateLimitAddress(forwarded[index]), true
+			return forwarded[index].String(), true
 		}
 	}
-	return rateLimitAddress(peer), true
+	return peer.String(), true
 }
 
 func rateLimitAddress(address netip.Addr) string {

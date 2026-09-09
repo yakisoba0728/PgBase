@@ -38,6 +38,7 @@ export type Fault =
   | { kind: "data-blocked"; details?: Record<string, string[]> }
   | { kind: "referenced"; details?: Record<string, string[]> }
   | { kind: "invalid-credentials" }
+	| { kind: "otp-required" }
   | { kind: "setup-unavailable" }
   | { kind: "invalid-input" }
   | { kind: "operation-conflict" }

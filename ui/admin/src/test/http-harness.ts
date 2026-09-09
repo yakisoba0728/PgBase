@@ -33,6 +33,7 @@ const faultWire: Record<Fault["kind"], (fault: Fault) => Wire> = {
   "data-blocked": (fault) => ({ status: 422, body: errorBody("validation_failed", details(fault)) }),
   referenced: (fault) => ({ status: 409, body: errorBody("collection_referenced", details(fault)) }),
   "invalid-credentials": () => ({ status: 401, body: errorBody("invalid_credentials") }),
+	"otp-required": () => ({ status: 401, body: errorBody("otp_required") }),
   "setup-unavailable": () => ({ status: 409, body: errorBody("setup_unavailable") }),
   "invalid-input": () => ({ status: 400, body: errorBody("validation_failed") }),
   "operation-conflict": () => ({ status: 409, body: errorBody("schema_operation_conflict") }),

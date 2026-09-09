@@ -24,6 +24,7 @@ func TestAdvancedFieldRenamePreservesValuesViewsAndPortableOptions(t *testing.T)
 		{Name: "place", Type: TypeGeoPoint, Indexed: true},
 		{Name: "changed", Type: TypeAutoDate, Indexed: true, Options: &FieldOptions{OnCreate: true, OnUpdate: true}},
 		{Name: "pin", Type: TypePassword, Hidden: true, Options: &FieldOptions{MinLength: &minimum}},
+		{Name: "contact", Type: TypeText, Unique: true, Options: &FieldOptions{Format: "email", AllowedDomains: []string{"Example.COM."}, DeniedDomains: []string{"private.example.com"}, AutogeneratePattern: `user-[a-z]{6}@example[.]com`}},
 	}
 	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "advanced_rename", Fields: fields}, admin)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "advanced_view", View: &ViewInput{Source: created.Name, Projection: []string{"body", "changed"}}}, admin)

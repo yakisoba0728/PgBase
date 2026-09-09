@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/query"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
@@ -29,6 +30,7 @@ type RecordService interface {
 type recordEndpoints struct {
 	service RecordService
 	files   FileService
+	hooks   *lifecycle.Registry
 }
 
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
@@ -63,11 +65,23 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), Limit: limit, Cursor: values.Get("cursor"), Filter: values.Get("filter"), Sort: values.Get("sort"), Expand: values.Get("expand")}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.list", event)
+	if err != nil {
+		finish(err)
+		writeRecordError(w, r, err)
+		return
+	}
+	if event.Limit < 1 || event.Limit > 200 {
+		finish(errors.New("record list hook produced an invalid limit"))
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	page, err := e.service.List(r.Context(), recordops.ListRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		Cursor: values.Get("cursor"), Limit: limit, Filter: values.Get("filter"), Sort: values.Get("sort"),
-		Expand: values.Get("expand"),
+		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand,
 	})
+	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
@@ -97,10 +111,18 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), RecordID: id, Expand: values.Get("expand")}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.view", event)
+	if err != nil {
+		finish(err)
+		writeRecordError(w, r, err)
+		return
+	}
 	record, err := e.service.Get(r.Context(), recordops.GetRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
-		Expand: values.Get("expand"),
+		Expand: event.Expand,
 	})
+	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
 		return
@@ -127,9 +149,21 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := e.service.Create(r.Context(), recordops.CreateRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		Input: input, IdempotencyKey: idempotencyKey,
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), IdempotencyKey: idempotencyKey, Input: input}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.create", event)
+	if err != nil {
+		finish(err)
+		writeRecordError(w, r, err)
+		return
+	}
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Create(r.Context(), recordops.CreateRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+			Input: event.Input, IdempotencyKey: idempotencyKey,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
 	if err != nil {
 		writeRecordError(w, r, err)
@@ -181,9 +215,21 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := e.service.Update(r.Context(), recordops.UpdateRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		ID: id, Input: input, IfMatch: ifMatch,
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), RecordID: id, Input: input}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.update", event)
+	if err != nil {
+		finish(err)
+		writeRecordError(w, r, err)
+		return
+	}
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Update(r.Context(), recordops.UpdateRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
+			ID: id, Input: event.Input, IfMatch: ifMatch,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
 	if err != nil {
 		writeRecordError(w, r, err)
@@ -218,8 +264,20 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := e.service.Delete(r.Context(), recordops.DeleteRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), RecordID: id}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "record.delete", event)
+	if err != nil {
+		finish(err)
+		writeRecordError(w, r, err)
+		return
+	}
+	var result recordops.MutationResult
+	err = finishLifecycle(finish, func() error {
+		result, err = e.service.Delete(r.Context(), recordops.DeleteRequest{
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+		})
+		event.Result = cloneMutationResult(result)
+		return err
 	})
 	if err != nil {
 		writeRecordError(w, r, err)

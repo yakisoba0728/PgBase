@@ -50,7 +50,7 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 	}
 	projection := []string{`"source"."id"`, `"source"."created_at"`, `"source"."updated_at"`}
 	for _, name := range input.View.Projection {
-		projection = append(projection, `"source".`+pgx.Identifier{byName[name].ColumnName}.Sanitize())
+		projection = append(projection, `"source".`+pgx.Identifier{byName[name].ColumnName}.Sanitize()+" AS "+pgx.Identifier{name}.Sanitize())
 	}
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM " + pgx.Identifier{"app", source.TableName}.Sanitize() + ` AS "source" WHERE ` + predicate
 	view := &PlannedView{SourceCollectionID: source.ID, Source: source.Name, Projection: append([]string(nil), input.View.Projection...), Filter: cloneViewFilter(input.View.Filter)}

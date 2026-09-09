@@ -307,7 +307,7 @@ func (s *Service) TestSMTP(ctx context.Context, collectionID uuid.UUID, recipien
 	if err != nil {
 		return err
 	}
-	return sender.Send(ctx, mailer.Message{To: recipient, Subject: "PgBase SMTP test", Text: "Your PgBase SMTP configuration is working."})
+	return sender.Send(ctx, mailer.Message{Purpose: "smtp_test", To: recipient, Subject: "PgBase SMTP test", Text: "Your PgBase SMTP configuration is working."})
 }
 
 func (s *Service) SetUserVerified(ctx context.Context, id uuid.UUID, verified bool) (ManagedUser, error) {

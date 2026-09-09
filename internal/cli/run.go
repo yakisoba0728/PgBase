@@ -152,13 +152,25 @@ func runHealthcheck(ctx context.Context, args []string, _ environment, _ IO) err
 }
 
 func runServe(ctx context.Context, args []string, env environment, streams IO) error {
-	if len(args) != 0 {
-		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve"}
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	publicDir := flags.String("public-dir", "", "")
+	publicSPAFallback := flags.Bool("public-spa-fallback", false, "")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback]"}
 	}
 	options, err := config.LoadEnv(env)
 	if err != nil {
 		return configurationError{err: err}
 	}
+	flags.Visit(func(item *flag.Flag) {
+		switch item.Name {
+		case "public-dir":
+			options.PublicDir = *publicDir
+		case "public-spa-fallback":
+			options.PublicSPAFallback = *publicSPAFallback
+		}
+	})
 	options.Logger = observability.NewJSONLogger(streams.stderr())
 	if options.Backups.Directory != "" {
 		return pgbase.RunManaged(ctx, options)
@@ -177,13 +189,20 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 
 func runAdmin(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) == 0 {
-		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin <create|reset-password> --email EMAIL [--password-stdin]"}
+		return configurationError{err: errors.New("invalid admin usage"), message: adminUsage}
 	}
 	operation := args[0]
-	if operation != "create" && operation != "reset-password" {
-		return configurationError{err: errors.New("invalid admin usage"), message: "usage: pgbase admin <create|reset-password> --email EMAIL [--password-stdin]"}
+	if operation == "otp" || operation == "ip" {
+		return runAdminPolicy(ctx, operation, args[1:], env, streams)
 	}
-	usage := "usage: pgbase admin " + operation + " --email EMAIL [--password-stdin]"
+	if operation != "create" && operation != "reset-password" && operation != "upsert" && operation != "update" && operation != "delete" {
+		return configurationError{err: errors.New("invalid admin usage"), message: adminUsage}
+	}
+	usage := "usage: pgbase admin " + operation + " --email EMAIL"
+	passwordOperation := operation != "delete"
+	if passwordOperation {
+		usage += " [--password-stdin]"
+	}
 	flags := flag.NewFlagSet("admin "+operation, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	email := flags.String("email", "", "")
@@ -194,9 +213,13 @@ func runAdmin(ctx context.Context, args []string, env environment, streams IO) e
 	if _, err := adminauth.NormalizeEmail(*email); err != nil {
 		return configurationError{err: err, message: "invalid administrator email"}
 	}
-	password, err := readAdministratorPassword(ctx, streams, *passwordFromStdin)
-	if err != nil {
-		return err
+	password := ""
+	if passwordOperation {
+		var err error
+		password, err = readAdministratorPassword(ctx, streams, *passwordFromStdin)
+		if err != nil {
+			return err
+		}
 	}
 	runtime, err := openDatabase(ctx, env, streams)
 	if err != nil {
@@ -208,11 +231,18 @@ func runAdmin(ctx context.Context, args []string, env environment, streams IO) e
 		runtime.options.SetupToken, runtime.options.AdminSessionTTL, nil)
 	var administrator adminauth.Administrator
 	operationMessage := "create administrator"
-	if operation == "create" {
+	switch operation {
+	case "create":
 		administrator, err = service.CreateAdministrator(ctx, *email, password)
-	} else {
+	case "reset-password":
 		operationMessage = "reset administrator password"
 		administrator, err = service.ResetAdministratorPassword(ctx, *email, password)
+	case "upsert", "update":
+		operationMessage = "upsert administrator"
+		administrator, _, err = service.UpsertAdministrator(ctx, *email, password)
+	case "delete":
+		operationMessage = "delete administrator"
+		err = service.DeleteAdministrator(ctx, *email)
 	}
 	if errors.Is(err, adminauth.ErrValidation) {
 		return configurationError{err: err, message: "invalid administrator credentials"}
@@ -221,11 +251,95 @@ func runAdmin(ctx context.Context, args []string, env environment, streams IO) e
 		return operationError(runtime.logger, operationMessage, err)
 	}
 	message := "administrator created"
-	if operation == "reset-password" {
+	switch operation {
+	case "reset-password":
 		message = "administrator password reset"
+	case "upsert", "update":
+		message = "administrator upserted"
+	case "delete":
+		_, err = fmt.Fprintf(streams.stdout(), "administrator deleted: %s\n", strings.ToLower(strings.TrimSpace(*email)))
+		return err
 	}
 	_, err = fmt.Fprintf(streams.stdout(), "%s: %s\n", message, administrator.Email)
 	return err
+}
+
+const adminUsage = "usage: pgbase admin <create|reset-password|upsert|update|delete|otp|ip> ..."
+
+func runAdminPolicy(ctx context.Context, operation string, args []string, env environment, streams IO) error {
+	if len(args) == 0 {
+		return configurationError{err: errors.New("invalid admin policy usage"), message: adminUsage}
+	}
+	action := args[0]
+	flags := flag.NewFlagSet("admin "+operation+" "+action, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	email := flags.String("email", "", "")
+	cidr := flags.String("cidr", "", "")
+	secretStdin := flags.Bool("secret-stdin", false, "")
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *email == "" {
+		return configurationError{err: errors.New("invalid admin policy usage"), message: adminUsage}
+	}
+	if _, err := adminauth.NormalizeEmail(*email); err != nil {
+		return configurationError{err: err, message: "invalid administrator email"}
+	}
+	if operation == "otp" && action != "enable" && action != "disable" || operation == "ip" && action != "allow" && action != "deny" && action != "list" {
+		return configurationError{err: errors.New("invalid admin policy action"), message: adminUsage}
+	}
+	if (operation == "otp" && action == "enable" && !*secretStdin) || (operation == "ip" && action != "list" && *cidr == "") {
+		return configurationError{err: errors.New("invalid admin policy arguments"), message: adminUsage}
+	}
+	runtime, err := openDatabase(ctx, env, streams)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
+	service := adminauth.NewService(runtime.pool, adminauth.NewArgon2idPasswords(), runtime.options.TokenSecret, runtime.options.SetupToken, runtime.options.AdminSessionTTL, nil)
+	if operation == "otp" {
+		if action == "enable" {
+			secret, readErr := readSecretLine(streams.stdin())
+			if readErr != nil {
+				return configurationError{err: readErr, message: "invalid administrator OTP secret"}
+			}
+			err = service.EnableTOTP(ctx, *email, secret)
+		} else {
+			err = service.DisableTOTP(ctx, *email)
+		}
+	} else if action == "allow" {
+		err = service.AllowIP(ctx, *email, *cidr)
+	} else if action == "deny" {
+		err = service.DenyIP(ctx, *email, *cidr)
+	} else {
+		var prefixes []string
+		prefixes, err = service.ListIP(ctx, *email)
+		if err == nil {
+			for _, prefix := range prefixes {
+				if _, writeErr := fmt.Fprintln(streams.stdout(), prefix); writeErr != nil {
+					return writeErr
+				}
+			}
+			return nil
+		}
+	}
+	if errors.Is(err, adminauth.ErrValidation) {
+		return configurationError{err: err, message: "invalid administrator policy"}
+	}
+	if err != nil {
+		return operationError(runtime.logger, "update administrator policy", err)
+	}
+	_, err = fmt.Fprintf(streams.stdout(), "administrator policy updated: %s\n", strings.ToLower(strings.TrimSpace(*email)))
+	return err
+}
+
+func readSecretLine(reader io.Reader) (string, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, 513))
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" || len(data) > 512 || strings.ContainsAny(value, "\r\n") {
+		return "", errors.New("invalid secret")
+	}
+	return value, nil
 }
 
 func runDoctor(ctx context.Context, args []string, env environment, streams IO) error {

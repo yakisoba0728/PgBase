@@ -7,12 +7,15 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 )
 
 type Dependencies struct {
+	LifecycleHooks              *lifecycle.Registry
 	CustomRoutes                []CustomRoute
 	AuthAdministration          AuthAdministration
 	RequestLog                  *observability.RequestLog
@@ -44,7 +47,10 @@ type Dependencies struct {
 	System                      SystemStatusProvider
 	SchemaHealth                SchemaHealthProvider
 	AdminUI                     http.Handler
-	Metrics                     *observability.Metrics
+	// PublicStatic is the optional user-site handler. The router invokes it
+	// only after every declared and custom route has declined to match.
+	PublicStatic http.Handler
+	Metrics      *observability.Metrics
 	// MetricsExposition is the already-authenticated exposition handler. The
 	// caller builds it so the bearer secret never becomes a router
 	// dependency; the metrics module hashes it on construction and keeps only
@@ -63,7 +69,7 @@ type Dependencies struct {
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
 	schemas := schemaEndpoints{service: dependencies.Schema}
-	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
 	logout := http.HandlerFunc(admin.logout)
 	login := http.HandlerFunc(admin.login)
 
@@ -232,6 +238,10 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		}
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if dependencies.PublicStatic != nil && publicStaticEligible(r.URL.Path) {
+			dependencies.PublicStatic.ServeHTTP(w, r)
+			return
+		}
 		writeAPIError(w, r, APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Not found"})
 	})
 
@@ -245,4 +255,19 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		handler = dependencies.Metrics.WrapHTTP(mux, handler)
 	}
 	return handler, nil
+}
+
+// publicStaticEligible keeps namespaces which PgBase owns out of the public
+// fallback even when no concrete route beneath them happens to match.
+func publicStaticEligible(requestPath string) bool {
+	first := strings.TrimPrefix(requestPath, "/")
+	if cut := strings.IndexByte(first, '/'); cut >= 0 {
+		first = first[:cut]
+	}
+	switch first {
+	case "api", "admin", "health", "metrics":
+		return false
+	default:
+		return true
+	}
 }

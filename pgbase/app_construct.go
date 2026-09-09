@@ -10,10 +10,12 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/membership"
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/webisnoteasy/PgBase/internal/publicsite"
 	"github.com/webisnoteasy/PgBase/internal/realtime"
 	"github.com/webisnoteasy/PgBase/internal/recordaccess"
 	"github.com/webisnoteasy/PgBase/internal/recordops"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/usermigrate"
 	adminui "github.com/webisnoteasy/PgBase/ui/admin"
 	"net"
 	"net/http"
@@ -121,6 +123,16 @@ func newWithCatalogPreflight(
 		})},
 	}}
 	schemaService := schema.NewService(pool, schemaCache, metrics, normalized.TokenSecret)
+	var userMigrationRecorder *usermigrate.AutoRecorder
+	var userMigrationSources backgroundRunner
+	if normalized.UserMigrationAutoRecordDirectory != "" {
+		userMigrationRecorder, err = usermigrate.NewAutoRecorder(pool, normalized.UserMigrationAutoRecordDirectory, normalized.Logger)
+		if err != nil {
+			return nil, fmt.Errorf("initialize automatic user migration recorder: %w", err)
+		}
+		schemaService.SetMigrationRecorder(userMigrationRecorder)
+		userMigrationSources = userMigrationRecorder
+	}
 	if normalized.Hooks != nil {
 		schemaService.SetCollectionMutationLifecycle(schemaLifecycleHooks{normalized.Hooks})
 	}
@@ -146,6 +158,13 @@ func newWithCatalogPreflight(
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
+	}
+	var publicHandler http.Handler
+	if normalized.PublicDir != "" {
+		publicHandler, err = publicsite.New(normalized.PublicDir, normalized.PublicSPAFallback)
+		if err != nil {
+			return nil, fmt.Errorf("initialize public static site: %w", err)
+		}
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	schemaHealth := newSchemaHealthSampler(pool, runner)
@@ -179,6 +198,7 @@ func newWithCatalogPreflight(
 		System:             systemStatus,
 		SchemaHealth:       schemaHealth,
 		AdminUI:            adminHandler,
+		PublicStatic:       publicHandler,
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
@@ -188,6 +208,7 @@ func newWithCatalogPreflight(
 	}
 	if normalized.Hooks != nil {
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
+		dependencies.LifecycleHooks = normalized.Hooks
 	}
 	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
 	if err != nil {
@@ -215,24 +236,26 @@ func newWithCatalogPreflight(
 	}
 	handler = requestHooks(normalized.Hooks, handler)
 	app := &App{
-		schemaCache:      schemaCache,
-		options:          normalized,
-		backupManager:    backupManager,
-		requestLog:       dependencies.RequestLog,
-		pool:             pool,
-		backupGate:       gate,
-		handler:          handler,
-		readiness:        readiness,
-		cleaner:          adminauth.NewCleaner(pool, nil, normalized.Logger),
-		recordCleaner:    recordops.NewIdempotencyCleaner(pool, normalized.Logger),
-		realtimeWorker:   realtimeService,
-		schemaOperations: schemaService,
-		schemaListener:   schemaListener,
-		membershipWriter: membershipRuntime,
-		systemStatus:     systemStatus,
-		schemaHealth:     schemaHealth,
-		listen:           net.Listen,
-		lifecycleClosing: make(chan struct{}),
+		schemaCache:           schemaCache,
+		options:               normalized,
+		backupManager:         backupManager,
+		requestLog:            dependencies.RequestLog,
+		pool:                  pool,
+		backupGate:            gate,
+		handler:               handler,
+		readiness:             readiness,
+		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
+		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
+		realtimeWorker:        realtimeService,
+		schemaOperations:      schemaService,
+		schemaListener:        schemaListener,
+		membershipWriter:      membershipRuntime,
+		systemStatus:          systemStatus,
+		schemaHealth:          schemaHealth,
+		userMigrationSources:  userMigrationSources,
+		userMigrationRecorder: userMigrationRecorder,
+		listen:                net.Listen,
+		lifecycleClosing:      make(chan struct{}),
 	}
 	if jobService != nil {
 		app.jobWorker = jobService

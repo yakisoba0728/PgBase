@@ -11,11 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/adminauth"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 type adminPrincipalKey struct{}
+
+type adminIPAuthorizer interface {
+	AuthorizeIP(context.Context, uuid.UUID, string) error
+}
 
 const adminSessionTokenBytes = 32
 
@@ -106,6 +111,13 @@ func authenticateAdminMiddleware(auth AdminAuth, publicURL *url.URL, trustedProx
 			}
 			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
 			return
+		}
+		if authorizer, ok := auth.(adminIPAuthorizer); ok {
+			address, valid := clientIP(r, trustedProxies)
+			if !valid || authorizer.AuthorizeIP(r.Context(), authenticated.Administrator.ID, address) != nil {
+				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+				return
+			}
 		}
 		principal := AdminPrincipal{
 			Administrator: authenticated.Administrator, RawSession: cookie.Value,

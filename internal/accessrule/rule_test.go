@@ -54,3 +54,30 @@ func TestRuleJSONAndOwnerCompatibility(t *testing.T) {
 		}
 	}
 }
+
+func TestLowerAndGeoPointRuleFields(t *testing.T) {
+	collection := schema.Collection{ID: uuid.New(), Fields: []schema.Field{
+		{Name: "title", ColumnName: "title_col", Type: schema.TypeText},
+		{Name: "body", ColumnName: "body_col", Type: schema.TypeEditor},
+		{Name: "place", ColumnName: "place_col", Type: schema.TypeGeoPoint},
+		{Name: "count", ColumnName: "count_col", Type: schema.TypeInteger},
+	}}
+	for _, test := range []struct {
+		field, value, fragment string
+	}{
+		{"title:lower", `"hello"`, `lower("records"."title_col")`},
+		{"body:lower", `"<p>x</p>"`, `lower("records"."body_col")`},
+		{"place.lon", `127.5`, `"place_col"->>'lon'`},
+		{"place.lat", `37.5`, `"place_col"->>'lat'`},
+	} {
+		sql, args, err := Compile(Rule{Op: "eq", Field: test.field, Value: json.RawMessage(test.value)}, collection, "records", identity.Subject{}, 0, false)
+		if err != nil || len(args) != 1 || !strings.Contains(sql, test.fragment) {
+			t.Fatalf("field=%s sql=%q args=%v err=%v", test.field, sql, args, err)
+		}
+	}
+	for _, field := range []string{"count:lower", "place:lower", "place.alt", "title:upper"} {
+		if _, _, err := Compile(Rule{Op: "eq", Field: field, Value: json.RawMessage(`"x"`)}, collection, "records", identity.Subject{}, 0, false); err == nil {
+			t.Errorf("accepted rule field %q", field)
+		}
+	}
+}

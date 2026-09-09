@@ -135,7 +135,18 @@ func checkSchemaState(ctx context.Context, db database.DBTX, report *Report) (in
 		return 0, fmt.Errorf("read schema state: %w", err)
 	}
 	var migrationVersion int64
-	if err := db.QueryRow(ctx, "select coalesce(max(version), 0) from pgbase_meta.schema_migrations").Scan(&migrationVersion); err != nil {
+	var userVersionTable bool
+	if err := db.QueryRow(ctx, `select to_regclass('pgbase_meta.user_migration_schema_versions') is not null`).Scan(&userVersionTable); err != nil {
+		return 0, fmt.Errorf("inspect user migration schema history: %w", err)
+	}
+	query := "select coalesce(max(version), 0) from pgbase_meta.schema_migrations"
+	if userVersionTable {
+		query = `select greatest(
+			coalesce((select max(version) from pgbase_meta.schema_migrations),0),
+			coalesce((select max(version) from pgbase_meta.user_migration_schema_versions),0)
+		)`
+	}
+	if err := db.QueryRow(ctx, query).Scan(&migrationVersion); err != nil {
 		return 0, fmt.Errorf("read schema migration history: %w", err)
 	}
 	if stateVersion != migrationVersion {

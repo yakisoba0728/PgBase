@@ -22,12 +22,13 @@ export function fieldOptionsInput(draft?: DraftFieldOptions): FieldOptions | und
     if (draft[key] !== "true" && draft[key] !== "false") throw new Error(`${key} must be true or false.`);
     result[key] = draft[key] === "true";
   }
-  for (const key of ["pattern", "min", "max"] as const) if (draft[key]) result[key] = draft[key];
+  for (const key of ["pattern", "autogeneratePattern", "min", "max"] as const) if (draft[key]) result[key] = draft[key];
   if (draft.format) {
     if (draft.format !== "email" && draft.format !== "url") throw new Error("Choose email or URL format.");
     result.format = draft.format;
   }
   if (draft.allowedDomains) result.allowedDomains = draft.allowedDomains.split("\n").filter(value => value !== "");
+  if (draft.deniedDomains) result.deniedDomains = draft.deniedDomains.split("\n").filter(value => value !== "");
   if (draft.mimeTypes) result.mimeTypes = draft.mimeTypes.split("\n").filter(value => value !== "");
   if (draft.thumbs) result.thumbs = draft.thumbs.split("\n").filter(value => value !== "");
   if (draft.allowedValues) {

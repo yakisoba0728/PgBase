@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/webisnoteasy/PgBase/internal/lifecycle"
 )
 
 type captureHookMail struct{ messages []MailMessage }
@@ -13,6 +15,25 @@ type captureHookMail struct{ messages []MailMessage }
 func (s *captureHookMail) Send(_ context.Context, message MailMessage) error {
 	s.messages = append(s.messages, message)
 	return nil
+}
+
+func TestLifecycleAPIHookCancellationHasPairedOutcome(t *testing.T) {
+	registry := &HookRegistry{}
+	var after error
+	_, err := registry.On(HookRecordCreateRequest, Hook{After: func(_ context.Context, event *HookEvent) { after = event.Err }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	finish, err := registry.Begin(ctx, &lifecycle.Event{Kind: HookRecordCreateRequest, Data: &RecordRequestEvent{}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled request hook = %v", err)
+	}
+	finish(err)
+	if !errors.Is(after, context.Canceled) {
+		t.Fatalf("after cancellation = %v", after)
+	}
 }
 
 func TestLifecycleRequestAndMailAdapters(t *testing.T) {
@@ -49,5 +70,22 @@ func TestLifecycleRequestAndMailAdapters(t *testing.T) {
 	_, _ = registry.On(HookMailSend, Hook{Before: func(_ context.Context, e *HookEvent) error { e.Data.(*MailMessage).Subject = "Customized"; return nil }})
 	if err = wrapped.Send(context.Background(), MailMessage{To: "a@example.test", Text: "hello"}); err != nil || len(sender.messages) != 1 || sender.messages[0].Subject != "Customized" {
 		t.Fatalf("mail adapter err=%v messages=%v", err, sender.messages)
+	}
+	purposeSeen := false
+	_, err = registry.On(HookMailOTP, Hook{Before: func(_ context.Context, event *HookEvent) error {
+		mail := event.Data.(*MailEvent)
+		if mail.Purpose != "otp" {
+			t.Fatalf("mail purpose=%q", mail.Purpose)
+		}
+		purposeSeen = true
+		mail.Message.Subject = "OTP customized"
+		mail.Message.Purpose = "smtp_test"
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = wrapped.Send(context.Background(), MailMessage{Purpose: "otp", To: "a@example.test", Text: "hello"}); err != nil || !purposeSeen || len(sender.messages) != 2 || sender.messages[1].Subject != "OTP customized" || sender.messages[1].Purpose != "otp" {
+		t.Fatalf("purpose mail err=%v seen=%t messages=%v", err, purposeSeen, sender.messages)
 	}
 }

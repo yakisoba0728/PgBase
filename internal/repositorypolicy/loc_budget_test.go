@@ -52,7 +52,26 @@ import (
 // and the unchanged per-file limit are recorded in docs/phase3-local-contracts.md.
 // P8 adds advanced fields and coordination sessions; scope and measured growth
 // are recorded in docs/phase4-local-contracts.md. No spare allowance is added.
-const dataGroupRuntimeLimit = 21747
+// N5 adds typed, process-local request lifecycle boundaries for record CRUD,
+// batch/schema import, purpose-specific mail, and file access. The measured
+// implementation is +394 handwritten runtime lines and +9 exported payload
+// declarations after removing the bridge interface/adapter and splitting the
+// file service below the 800-line hard limit. This is an authorized product
+// surface, not spare headroom; its contract and focused evidence are recorded
+// in docs/workstreams/n1-n5/N5.md.
+//
+// N1–N4 add deterministic user-migration snapshot/apply, automatic recording,
+// static-site and administrator policy boundaries, and field generation/domain
+// and query contracts. The data group changes from its P8 ceiling of 21,747 to
+// the measured 22,693. Its product-code delta is +946: internal/schema +875
+// (snapshot/recording/apply and FieldOptions), internal/recordops +76
+// (generated values), and internal/query -5 (modifier/cursor consolidation).
+// The P8 baseline equals its 21,747-line ceiling, so the measured +946 delta
+// establishes the new exact ceiling. These schema-private transaction and
+// planner/store paths cannot move behind a different package boundary without
+// broad product redesign; no file is excluded from this group to manufacture
+// headroom.
+const dataGroupRuntimeLimit = 22693
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -308,13 +327,13 @@ type structuralLimit struct {
 }
 
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 61410, "plan 22,484"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6238, "plan 2,050"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 57, "plan 12"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 973, "plan 285"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 46, "plan 16"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 64762, "P8 baseline + N1–N5 integrated scope"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6249, "P8 baseline + N2/N3/N4 administrator UI"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 60, "P8 baseline + N1–N5 contracts"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1053, "P8 baseline + N1–N5 public API"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 49, "P8 baseline + N1–N5 services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 129, "plan 30"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 131, "P8 baseline + N2/N3/N4 UI state"},
 	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 203, "plan 65"},
 }
 

@@ -50,6 +50,16 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	if raw, ok := value(lookup, "PGBASE_HTTP_ADDRESS"); ok {
 		opts.HTTPAddress = raw
 	}
+	if raw, ok := value(lookup, "PGBASE_PUBLIC_DIR"); ok {
+		opts.PublicDir = raw
+	}
+	if raw, ok := value(lookup, "PGBASE_PUBLIC_SPA_FALLBACK"); ok && raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_PUBLIC_SPA_FALLBACK: %w", err)
+		}
+		opts.PublicSPAFallback = parsed
+	}
 	if raw, ok := value(lookup, "PGBASE_SETUP_TOKEN"); ok {
 		opts.SetupToken = raw
 	}
@@ -96,6 +106,9 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 			return pgbase.Options{}, fmt.Errorf("PGBASE_AUTO_MIGRATE: %w", err)
 		}
 		opts.AutoMigrate = parsed
+	}
+	if raw, ok := value(lookup, "PGBASE_USER_MIGRATION_AUTO_RECORD_DIR"); ok {
+		opts.UserMigrationAutoRecordDirectory = raw
 	}
 	if raw, ok := value(lookup, "PGBASE_TRUSTED_PROXIES"); ok && raw != "" {
 		prefixes, err := parsePrefixes(raw)

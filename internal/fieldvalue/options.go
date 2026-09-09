@@ -8,22 +8,24 @@ import (
 	"net/mail"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 type Options struct {
-	MinLength, MaxLength          *int
-	MinSelect, MaxSelect          *int
-	Pattern, Format               string
-	AllowedDomains, AllowedValues []string
-	Min, Max                      *string
+	MinLength, MaxLength                 *int
+	MinSelect, MaxSelect                 *int
+	Pattern, Format, AutogeneratePattern string
+	AllowedDomains, DeniedDomains        []string
+	AllowedValues                        []string
+	Min, Max                             *string
 }
 
 func ValidateDefinition(kind string, o Options) error {
 	text := kind == "text"
 	jsonb := kind == "jsonb"
 	isNumeric := kind == "integer" || kind == "bigint" || kind == "numeric"
-	if (o.MinLength != nil || o.MaxLength != nil || o.Pattern != "" || o.Format != "" || len(o.AllowedDomains) > 0) && !text {
+	if (o.MinLength != nil || o.MaxLength != nil || o.Pattern != "" || o.Format != "" || len(o.AllowedDomains) > 0 || len(o.DeniedDomains) > 0 || o.AutogeneratePattern != "") && !text {
 		return fmt.Errorf("text options require text type")
 	}
 	if len(o.AllowedValues) > 0 && !text && !jsonb {
@@ -55,19 +57,25 @@ func ValidateDefinition(kind string, o Options) error {
 	if o.Format != "" && o.Format != "email" && o.Format != "url" {
 		return fmt.Errorf("invalid format")
 	}
-	if len(o.AllowedDomains) > 0 && o.Format != "email" && o.Format != "url" {
+	if (len(o.AllowedDomains) > 0 || len(o.DeniedDomains) > 0) && o.Format != "email" && o.Format != "url" {
 		return fmt.Errorf("domains require format")
 	}
-	for _, domain := range o.AllowedDomains {
-		if len(domain) > 253 || strings.ContainsAny(domain, "/@:") || strings.Trim(domain, ". ") == "" {
-			return fmt.Errorf("invalid domain")
-		}
+	if _, err := NormalizeDomains(o.AllowedDomains); err != nil {
+		return err
+	}
+	if _, err := NormalizeDomains(o.DeniedDomains); err != nil {
+		return err
 	}
 	if len(o.AllowedValues) > 1000 {
 		return fmt.Errorf("too many allowed values")
 	}
-	if duplicate(o.AllowedValues) || duplicateFold(o.AllowedDomains) {
+	if duplicate(o.AllowedValues) {
 		return fmt.Errorf("duplicate values")
+	}
+	if o.AutogeneratePattern != "" {
+		if err := ValidateRandomPattern(o.AutogeneratePattern, 2048); err != nil {
+			return fmt.Errorf("invalid autogenerate pattern: %w", err)
+		}
 	}
 	if o.Min != nil {
 		if _, err := numeric(*o.Min); err != nil {
@@ -120,7 +128,10 @@ func ValidateText(value string, o Options) string {
 		}
 		host = u.Hostname()
 	}
-	if len(o.AllowedDomains) > 0 && !domainAllowed(host, o.AllowedDomains) {
+	if len(o.DeniedDomains) > 0 && domainMatches(host, o.DeniedDomains) {
+		return "domain"
+	}
+	if len(o.AllowedDomains) > 0 && !domainMatches(host, o.AllowedDomains) {
 		return "domain"
 	}
 	return ""
@@ -202,24 +213,71 @@ func duplicate(v []string) bool {
 	}
 	return false
 }
-func duplicateFold(v []string) bool {
-	m := map[string]bool{}
-	for _, x := range v {
-		x = strings.ToLower(strings.TrimSpace(x))
-		if x == "" || m[x] {
-			return true
-		}
-		m[x] = true
-	}
-	return false
-}
-func domainAllowed(host string, allowed []string) bool {
+func domainMatches(host string, domains []string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, d := range allowed {
+	for _, d := range domains {
 		d = strings.ToLower(strings.Trim(strings.TrimSpace(d), "."))
 		if host == d || strings.HasSuffix(host, "."+d) {
 			return true
 		}
 	}
 	return false
+}
+
+// NormalizeDomains returns the stable schema representation used by catalog,
+// snapshot and export paths. Domain values are ASCII DNS names; callers may
+// use their punycode form for internationalized names.
+func NormalizeDomains(values []string) ([]string, error) {
+	if values == nil {
+		return nil, nil
+	}
+	if len(values) > 256 {
+		return nil, fmt.Errorf("too many domains")
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+		if !validDomain(value) {
+			return nil, fmt.Errorf("invalid domain")
+		}
+		if _, exists := seen[value]; exists {
+			return nil, fmt.Errorf("duplicate domain")
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func validDomain(value string) bool {
+	if len(value) == 0 || len(value) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for index := range len(label) {
+			current := label[index]
+			if current != '-' && !(current >= 'a' && current <= 'z') && !(current >= '0' && current <= '9') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// SplitFilterModifier separates the one adopted query modifier from a logical
+// field path. Unknown or repeated modifiers are rejected by the parser.
+func SplitFilterModifier(value string) (string, string, bool) {
+	if !strings.Contains(value, ":") {
+		return value, "", true
+	}
+	if strings.Count(value, ":") != 1 || !strings.HasSuffix(value, ":lower") {
+		return "", "", false
+	}
+	name := strings.TrimSuffix(value, ":lower")
+	return name, "lower", name != ""
 }

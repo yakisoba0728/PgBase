@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/webisnoteasy/PgBase/internal/cursor"
+	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
 
@@ -20,6 +21,7 @@ type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
 	field    string
+	modifier string
 	operator string
 	value    filterLiteral
 }
@@ -157,9 +159,9 @@ func (p *filterParser) buildComparison(left filterOperand, operator string, righ
 	// compiled SQL keeps the caller's direction.
 	switch {
 	case left.field != "" && right.field == "":
-		return filterComparison{field: left.field, operator: operator, value: right.literal}, nil
+		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
 	case left.field == "" && right.field != "":
-		return filterComparison{field: right.field, operator: flipComparisonOperator(operator), value: left.literal}, nil
+		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
 	}
@@ -181,8 +183,8 @@ func flipComparisonOperator(operator string) string {
 }
 
 type filterOperand struct {
-	field   string
-	literal filterLiteral
+	field, modifier string
+	literal         filterLiteral
 }
 
 func (p *filterParser) parseOperand() (filterOperand, error) {
@@ -216,7 +218,11 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 		case "null":
 			return filterOperand{literal: filterLiteral{kind: filterLiteralNull}}, nil
 		}
-		return filterOperand{field: word}, nil
+		field, modifier, ok := fieldvalue.SplitFilterModifier(word)
+		if !ok {
+			return filterOperand{}, validation("filter", "invalid_filter")
+		}
+		return filterOperand{field: field, modifier: modifier}, nil
 	}
 }
 
@@ -292,7 +298,7 @@ func (p *filterParser) consumeNumber() (string, bool) {
 
 func (p *filterParser) consumeWord() (string, bool) {
 	start := p.pos
-	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.') {
+	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.' || p.input[p.pos] == ':') {
 		p.pos++
 	}
 	if p.pos == start {

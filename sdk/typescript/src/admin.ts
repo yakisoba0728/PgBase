@@ -1,8 +1,8 @@
 export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file" | "editor" | "geoPoint" | "autodate" | "password";
 export type FieldOptions = {
   maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean;
-  minLength?: number; maxLength?: number; pattern?: string; format?: "email" | "url";
-  allowedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string;
+  minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url";
+  allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string;
   minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[];
 };
 export type RelationInput = { targetCollection: string; cardinality: "single" | "multiple"; minSelect: number; maxSelect: number; onDelete: "restrict" | "cascade" | "set_null" };

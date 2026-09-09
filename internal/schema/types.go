@@ -53,11 +53,15 @@ type FieldOptions struct {
 	Pattern        string   `json:"pattern,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
-	AllowedValues  []string `json:"allowedValues,omitempty"`
-	MinSelect      *int     `json:"minSelect,omitempty"`
-	MaxSelect      *int     `json:"maxSelect,omitempty"`
-	Min            *string  `json:"min,omitempty"`
-	Max            *string  `json:"max,omitempty"`
+	DeniedDomains  []string `json:"deniedDomains,omitempty"`
+	// AutogeneratePattern is a bounded generatable RE2 pattern used only when
+	// a text field is omitted from a create input.
+	AutogeneratePattern string   `json:"autogeneratePattern,omitempty"`
+	AllowedValues       []string `json:"allowedValues,omitempty"`
+	MinSelect           *int     `json:"minSelect,omitempty"`
+	MaxSelect           *int     `json:"maxSelect,omitempty"`
+	Min                 *string  `json:"min,omitempty"`
+	Max                 *string  `json:"max,omitempty"`
 	// File options are evaluated per attachment. MaxFileSize uses bytes;
 	// MaxSelect defaults to one when omitted. MimeTypes accepts exact media
 	// types and type wildcards such as image/*.
@@ -200,6 +204,7 @@ func cloneFieldOptions(source FieldOptions) FieldOptions {
 	result.MaxFileSize = clonePointer(source.MaxFileSize)
 	result.MaxSize = clonePointer(source.MaxSize)
 	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
+	result.DeniedDomains = append([]string(nil), source.DeniedDomains...)
 	result.AllowedValues = append([]string(nil), source.AllowedValues...)
 	result.MimeTypes = append([]string(nil), source.MimeTypes...)
 	result.Thumbs = append([]string(nil), source.Thumbs...)

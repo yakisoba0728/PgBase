@@ -63,4 +63,24 @@ describe("administrator login", () => {
     expect(screen.getByText(administrator.email)).toBeVisible();
     expect(harness.history.path()).toBe("/admin/collections");
   });
+
+  it("requests an authenticator code after the server requires OTP", async () => {
+    const harness = signedOut();
+    harness.script.login.push({ fault: { kind: "otp-required" } });
+    harness.script.login.push({ value: { administrator, expiresAt: activeSessionExpiresAt() } });
+    harness.script.catalog.push({ value: { version: 0, collections: [] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    await screen.findByRole("heading", { name: "Sign in to pgBase" });
+    await user.type(screen.getByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("Enter the code from your authenticator app.")).toBeVisible();
+    await user.type(screen.getByLabelText("Authenticator code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
+    expect(callsTo(harness.script, "login")[1]?.detail).toMatchObject({ otpCode: "123456" });
+  });
 });

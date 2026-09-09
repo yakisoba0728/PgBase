@@ -22,6 +22,15 @@ type Catalog struct {
 	deleteGraph *catalogDeleteGraph
 }
 
+func collectionByID(catalog Catalog, id uuid.UUID) (Collection, bool) {
+	for _, collection := range catalog.Collections {
+		if collection.ID == id {
+			return collection, true
+		}
+	}
+	return Collection{}, false
+}
+
 // catalogDeleteGraph is the delete graph one catalog version shares with every
 // request pinned to it. schema cannot import the package that owns the type, so
 // the compiled value crosses that boundary as any. A failure is cached with the

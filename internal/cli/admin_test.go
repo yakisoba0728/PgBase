@@ -31,6 +31,21 @@ func TestAdminResetPasswordRejectsInvalidUsageWithExitCodeTwo(t *testing.T) {
 	}
 }
 
+func TestAdminN3CommandsRejectIncompletePolicyAndMutationUsage(t *testing.T) {
+	for _, args := range [][]string{
+		{"admin", "update", "--password-stdin"},
+		{"admin", "delete"},
+		{"admin", "otp", "enable", "--email", "admin@example.com"},
+		{"admin", "ip", "allow", "--email", "admin@example.com"},
+		{"admin", "ip", "unknown", "--email", "admin@example.com"},
+	} {
+		var stderr bytes.Buffer
+		if code := Execute(context.Background(), args, emptyEnv, testIO(nil, io.Discard, &stderr)); code != 2 || !strings.Contains(stderr.String(), "usage:") {
+			t.Fatalf("args=%q code=%d stderr=%q", args, code, stderr.String())
+		}
+	}
+}
+
 type fakeTerminal struct{}
 
 func (fakeTerminal) Read([]byte) (int, error) { return 0, io.EOF }

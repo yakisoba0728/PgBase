@@ -61,6 +61,52 @@ func TestTightenedFieldOptionsRejectExistingInvalidRows(t *testing.T) {
 	}
 }
 
+func TestDeniedDomainPreflightRejectsExistingRowsForApplyAndImport(t *testing.T) {
+	for _, mode := range []string{"apply", "import"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			pool, service, admin := newSchemaServiceTest(t)
+			created := applyFreshPlan(t, service, CreateCollectionInput{Name: "domain_items", Fields: []FieldInput{{Name: "email", Type: TypeText, Options: &FieldOptions{Format: "email"}}}}, admin)
+			if _, err := pool.Exec(ctx, `insert into app.domain_items(id,created_at,updated_at,email) values(gen_random_uuid(),now(),now(),'user@blocked.example')`); err != nil {
+				t.Fatal(err)
+			}
+			id := created.Fields[0].ID
+			options := &FieldOptions{Format: "email", DeniedDomains: []string{"BLOCKED.EXAMPLE."}}
+			var err error
+			if mode == "apply" {
+				change := NewUpdateChange(UpdateCollectionInput{Name: "domain_items", Fields: []FieldInput{{ID: &id, Name: "email", Type: TypeText, Options: options}}})
+				plan, previewErr := service.Preview(ctx, change)
+				if previewErr != nil {
+					t.Fatal(previewErr)
+				}
+				_, err = service.Apply(ctx, LegacyApply(change, plan, admin))
+			} else {
+				document, exportErr := service.ExportSchema(ctx)
+				if exportErr != nil {
+					t.Fatal(exportErr)
+				}
+				document.Collections[0].Fields[0].Options = options
+				plan, previewErr := service.PreviewSchemaImport(ctx, document)
+				if previewErr != nil {
+					t.Fatal(previewErr)
+				}
+				_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: admin, OperationID: uuid.New(), IdempotencyKey: "domain-preflight-import-0001"})
+			}
+			if !errors.Is(err, ErrDataConstraint) {
+				t.Fatalf("%s error=%v", mode, err)
+			}
+			catalog, catalogErr := service.Catalog(ctx)
+			if catalogErr != nil {
+				t.Fatal(catalogErr)
+			}
+			field := catalog.Collections["domain_items"].Fields[0]
+			if catalog.Version != 1 || len(field.Options.DeniedDomains) != 0 {
+				t.Fatalf("failed preflight changed catalog: version=%d options=%#v", catalog.Version, field.Options)
+			}
+		})
+	}
+}
+
 func TestFileFieldRenamePreservesMetadataAndDoesNotQueueObjectDeletion(t *testing.T) {
 	ctx := context.Background()
 	pool, service, admin := newSchemaServiceTest(t)

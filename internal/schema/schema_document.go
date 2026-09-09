@@ -140,15 +140,6 @@ func cloneFieldOptionsPointer(options FieldOptions) *FieldOptions {
 	return &cloned
 }
 
-func collectionByID(catalog Catalog, id uuid.UUID) (Collection, bool) {
-	for _, collection := range catalog.Collections {
-		if collection.ID == id {
-			return collection, true
-		}
-	}
-	return Collection{}, false
-}
-
 func (s *Service) PreviewSchemaImport(ctx context.Context, document SchemaDocument) (SchemaImportPlan, error) {
 	var result SchemaImportPlan
 	err := database.Retry(ctx, func() error {
@@ -546,6 +537,7 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 	}
 	ownsClaim := claimTag.RowsAffected() == 1
 	var prepared *compiledCatalog
+	var migrationBefore []byte
 	var lifecycleEvents []*CollectionMutationEvent
 	var lifecycleFinishes []func(error)
 	finishLifecycle := func(finalErr error) {
@@ -592,6 +584,12 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		catalog, err := store.ReadCatalog(ctx, version)
 		if err != nil {
 			return err
+		}
+		if s.migrationRecorder != nil {
+			migrationBefore, err = ExportMigrationSnapshot(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("snapshot schema before automatic migration recording: %w", err)
+			}
 		}
 		for _, item := range intent.Document.Collections {
 			if collection, ok := catalog.Collections[item.Name]; ok {
@@ -692,6 +690,22 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		if _, err := tx.Exec(ctx, "select pg_notify('pgbase_schema_changed',$1)", fmt.Sprint(catalog.Version)); err != nil {
 			return err
 		}
+		if s.migrationRecorder != nil && len(changes) != 0 {
+			migrationAfter, snapshotErr := ExportMigrationSnapshot(ctx, tx)
+			if snapshotErr != nil {
+				return fmt.Errorf("snapshot schema after automatic migration recording: %w", snapshotErr)
+			}
+			var committedAt time.Time
+			if scanErr := tx.QueryRow(ctx, `select clock_timestamp()`).Scan(&committedAt); scanErr != nil {
+				return scanErr
+			}
+			if recordErr := s.migrationRecorder.RecordSchemaMigration(ctx, tx, MigrationRecording{
+				OperationID: intent.OperationID, Name: "schema_import", Before: migrationBefore,
+				After: migrationAfter, CommittedAt: committedAt.UTC(),
+			}); recordErr != nil {
+				return fmt.Errorf("record automatic user migration: %w", recordErr)
+			}
+		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.schema_import_operations set status='committed',committed_version=$2,applied=$3,updated_at=clock_timestamp(),completed_at=clock_timestamp() where operation_id=$1`, intent.OperationID, catalog.Version, len(changes)); err != nil {
 			return err
 		}
@@ -707,6 +721,7 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		return result, err
 	}
 	s.cache.publish(prepared)
+	s.materializeSchemaMigration(ctx, intent.OperationID)
 	if prepared != nil {
 		for _, event := range lifecycleEvents {
 			if collection, ok := prepared.catalog.Collections[event.Name]; ok {

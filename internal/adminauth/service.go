@@ -248,6 +248,17 @@ func (s *Service) setupRequired(ctx context.Context) (bool, error) {
 }
 
 func (s *Service) Login(ctx context.Context, email, password, subject string) (Session, error) {
+	return s.login(ctx, email, password, subject, "")
+}
+
+// LoginWithOTP completes administrator password login when an OTP policy is
+// enabled. Calling Login without a code retains the existing API and returns
+// ErrOTPRequired only for an otherwise valid OTP-protected account.
+func (s *Service) LoginWithOTP(ctx context.Context, email, password, subject, otpCode string) (Session, error) {
+	return s.login(ctx, email, password, subject, otpCode)
+}
+
+func (s *Service) login(ctx context.Context, email, password, subject, otpCode string) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
 	}
@@ -308,6 +319,28 @@ func (s *Service) Login(ctx context.Context, email, password, subject string) (S
 		if !candidateStillValid {
 			operationErr = ErrInvalidCredentials
 			return nil
+		}
+		ciphertext, otpEnabled, otpErr := store.TOTP(ctx, administrator.ID)
+		if otpErr != nil {
+			return otpErr
+		}
+		if otpEnabled {
+			if otpCode == "" {
+				operationErr = ErrOTPRequired
+				return nil
+			}
+			secret, decryptErr := s.decryptTOTP(ciphertext)
+			if decryptErr != nil || !validTOTP(secret, otpCode, now) {
+				operationErr = ErrInvalidCredentials
+				return nil
+			}
+		}
+		if ipErr := authorizeIP(ctx, store, administrator.ID, subject); ipErr != nil {
+			if errors.Is(ipErr, ErrIPRestricted) {
+				operationErr = ErrInvalidCredentials
+				return nil
+			}
+			return ipErr
 		}
 		rawToken, err := GenerateToken()
 		if err != nil {

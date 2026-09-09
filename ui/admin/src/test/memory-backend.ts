@@ -68,6 +68,7 @@ function failure(fault: Fault, surface: Surface): Error {
   if (fault.kind === "stale") return new RecordError("stale");
   if (fault.kind === "rejected") return new RecordError("rejected", fault.details ?? {});
   if (fault.kind === "invalid-credentials") return new SessionError("invalid-credentials");
+	if (fault.kind === "otp-required") return new SessionError("otp-required");
   if (fault.kind === "setup-unavailable") return new SessionError("setup-unavailable");
   if (fault.kind === "invalid-input") return new SessionError("invalid-input");
   if (fault.kind === "same-version-conflict" || fault.kind === "catalog-moved" || fault.kind === "referenced" || fault.kind === "data-blocked") {

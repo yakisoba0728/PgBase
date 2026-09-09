@@ -1,11 +1,16 @@
 package schema
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 )
 
 var collectionOrFieldName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
+
+const postgresIdentifierLimit = 63
+const indexHashLength = 16
 
 var reservedNames = map[string]struct{}{
 	"id":         {},
@@ -62,4 +67,12 @@ func validateInputName(field, name string) error {
 
 func validation(field, code string) error {
 	return &ValidationError{Details: []ValidationDetail{{Field: field, Code: code}}}
+}
+func indexName(collection, field string) string {
+	digest := sha256.Sum256([]byte(collection + ":" + field))
+	name := "idx_" + hex.EncodeToString(digest[:])[:indexHashLength]
+	if len(name) > postgresIdentifierLimit {
+		return name[:postgresIdentifierLimit]
+	}
+	return name
 }

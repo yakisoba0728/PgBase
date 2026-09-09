@@ -41,6 +41,8 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	}
 
 	assertIDs("single equality", "owner = '"+fixture.ada.String()+"'", "", fixture.postAda)
+	assertIDs("root lower", "title:lower = 'post-ada'", "", fixture.postAda)
+	assertIDs("relation lower", "owner.name:lower = 'ada'", "", fixture.postAda)
 	assertIDs("multiple membership", "reviewers = '"+fixture.ada.String()+"'", "", fixture.postBob)
 	assertIDs("bounded nested path", "owner.manager.name = 'Ada'", "", fixture.postBob)
 	assertIDs("filter and relation sort", "reviewers = '"+fixture.ada.String()+"'", "owner.name", fixture.postBob)

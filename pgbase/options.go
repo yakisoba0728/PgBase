@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -63,19 +64,28 @@ type Options struct {
 	// network such as the bundled Compose stack.
 	AllowInsecureDatabase bool
 	HTTPAddress           string
-	PublicURL             *url.URL
-	SetupToken            string
-	TokenSecret           []byte
+	// PublicDir is an absolute directory of user-owned static files. An empty
+	// value leaves user-site hosting disabled.
+	PublicDir string
+	// PublicSPAFallback serves PublicDir/index.html for navigation-shaped
+	// missing paths. Missing asset-shaped paths remain 404.
+	PublicSPAFallback bool
+	PublicURL         *url.URL
+	SetupToken        string
+	TokenSecret       []byte
 	// MetricsToken enables the protected Prometheus-compatible GET /metrics
 	// endpoint when non-empty. It is copied during normalization so callers
 	// cannot change the live credential after constructing an App.
-	MetricsToken       []byte
-	AutoMigrate        bool
-	TrustedProxies     []netip.Prefix
-	CORSAllowedOrigins []string
-	AdminSessionTTL    time.Duration
-	StatementTimeout   time.Duration
-	ShutdownTimeout    time.Duration
+	MetricsToken []byte
+	AutoMigrate  bool
+	// UserMigrationAutoRecordDirectory opts administrator schema mutations into
+	// durable Go migration source recording in this directory.
+	UserMigrationAutoRecordDirectory string
+	TrustedProxies                   []netip.Prefix
+	CORSAllowedOrigins               []string
+	AdminSessionTTL                  time.Duration
+	StatementTimeout                 time.Duration
+	ShutdownTimeout                  time.Duration
 	// SchemaApplyTimeout bounds one schema apply, including its DDL. It is a
 	// separate axis from StatementTimeout because index and constraint builds
 	// legitimately outlive an ordinary statement, and from the server write
@@ -92,6 +102,9 @@ func (o Options) Normalized() (Options, error) {
 	o.Files = files
 	if o.HTTPAddress == "" {
 		o.HTTPAddress = "127.0.0.1:8090"
+	}
+	if o.PublicDir != "" && !filepath.IsAbs(o.PublicDir) {
+		return Options{}, fmt.Errorf("PublicDir: must be an absolute path")
 	}
 	if o.AdminSessionTTL == 0 {
 		o.AdminSessionTTL = 12 * time.Hour
@@ -208,6 +221,9 @@ func validateOptions(o Options) error {
 	if o.SchemaApplyTimeout < minimumSchemaApplyTimeout || o.SchemaApplyTimeout > maximumSchemaApplyTimeout {
 		return fmt.Errorf("SchemaApplyTimeout: must be between %s and %s",
 			minimumSchemaApplyTimeout, maximumSchemaApplyTimeout)
+	}
+	if len(o.UserMigrationAutoRecordDirectory) > 4096 || strings.IndexByte(o.UserMigrationAutoRecordDirectory, 0) >= 0 {
+		return fmt.Errorf("UserMigrationAutoRecordDirectory: invalid path")
 	}
 	return nil
 }

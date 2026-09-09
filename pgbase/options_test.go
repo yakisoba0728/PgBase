@@ -41,6 +41,13 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 }
 
+func TestOptionsRejectsRelativePublicDirectory(t *testing.T) {
+	_, err := (Options{DatabaseURL: "postgres://postgres:postgres@localhost/pgbase", TokenSecret: make([]byte, 32), PublicDir: "public"}).Normalized()
+	if err == nil || !strings.Contains(err.Error(), "PublicDir") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestOptionsRejectFileSettingsWithoutDriver(t *testing.T) {
 	_, err := (Options{
 		DatabaseURL: "postgres://postgres:postgres@localhost/pgbase",
@@ -198,6 +205,16 @@ func TestOptionsRejectInvalidSecurityAndOriginConfiguration(t *testing.T) {
 		{
 			name: "statement timeout at the PostgreSQL millisecond ceiling is accepted",
 			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, StatementTimeout: maximumStatementTimeout},
+		},
+		{
+			name: "automatic migration directory rejects NUL",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, UserMigrationAutoRecordDirectory: "migrations\x00hidden"},
+			want: "UserMigrationAutoRecordDirectory",
+		},
+		{
+			name: "automatic migration directory has a bounded path",
+			opts: Options{DatabaseURL: validURL, TokenSecret: validSecret, UserMigrationAutoRecordDirectory: strings.Repeat("m", 4097)},
+			want: "UserMigrationAutoRecordDirectory",
 		},
 		{
 			name: "valid public URL is accepted",

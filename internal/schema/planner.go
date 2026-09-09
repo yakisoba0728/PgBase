@@ -1,12 +1,8 @@
 package schema
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,8 +13,6 @@ const (
 	createCollectionOperation = "collection_create"
 	updateCollectionOperation = "collection_update"
 	deleteCollectionOperation = "collection_delete"
-	postgresIdentifierLimit   = 63
-	indexHashLength           = 16
 	maximumCollectionFields   = 1597
 )
 
@@ -322,7 +316,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			return Plan{}, err
 		}
 	}
-	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes)...)
+	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes, desired)...)
 
 	return Plan{
 		Operation:   updateCollectionOperation,
@@ -412,6 +406,13 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
+	if field.Options != nil {
+		options := cloneFieldOptions(*field.Options)
+		field.Options = &options
+	}
+	if err := normalizeFieldOptionsInput(field.Options); err != nil {
+		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
+	}
 	if len([]rune(field.Help)) > 300 {
 		return PlannedField{}, validation(fieldPath+".help", "too_long")
 	}
@@ -627,7 +628,7 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 			" ON "+table+" ("+pgx.Identifier{field.Name}.Sanitize()+")")
 	}
 	for _, index := range definition.Indexes {
-		statements = append(statements, createCompoundIndexStatement(definition.Name, definition.TableName, index))
+		statements = append(statements, createCompoundIndexStatement(definition.Name, definition.TableName, index, definition.Fields))
 	}
 	for _, field := range definition.Fields {
 		if field.Type != TypeRelation || field.Relation == nil {
@@ -698,19 +699,23 @@ func compoundIndexName(collection, name string) string {
 	return indexName(collection, "compound:"+name)
 }
 
-func createCompoundIndexStatement(collection, table string, index PlannedIndex) string {
+func createCompoundIndexStatement(collection, table string, index PlannedIndex, fields []PlannedField) string {
 	prefix := "CREATE INDEX "
 	if index.Unique {
 		prefix = "CREATE UNIQUE INDEX "
 	}
+	physical := make(map[string]string, len(fields))
+	for _, field := range fields {
+		physical[field.Name] = field.ColumnName
+	}
 	columns := make([]string, len(index.Fields))
 	for i, field := range index.Fields {
-		columns[i] = pgx.Identifier{field}.Sanitize()
+		columns[i] = pgx.Identifier{physical[field]}.Sanitize()
 	}
 	return prefix + pgx.Identifier{compoundIndexName(collection, index.Name)}.Sanitize() + " ON " + pgx.Identifier{"app", table}.Sanitize() + " (" + strings.Join(columns, ", ") + ")"
 }
 
-func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex) []string {
+func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex, fields []PlannedField) []string {
 	old := map[string]Index{}
 	next := map[string]PlannedIndex{}
 	for _, index := range current {
@@ -729,7 +734,7 @@ func compoundIndexChangeStatements(collection, table string, current []Index, de
 	for _, index := range desired {
 		currentIndex, ok := old[index.Name]
 		if !ok || currentIndex.Unique != index.Unique || !stringSlicesEqual(currentIndex.Fields, index.Fields) {
-			statements = append(statements, createCompoundIndexStatement(collection, table, index))
+			statements = append(statements, createCompoundIndexStatement(collection, table, index, fields))
 		}
 	}
 	return statements
@@ -747,15 +752,6 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func indexName(collection, field string) string {
-	digest := sha256.Sum256([]byte(collection + ":" + field))
-	name := "idx_" + hex.EncodeToString(digest[:])[:indexHashLength]
-	if len(name) > postgresIdentifierLimit {
-		return name[:postgresIdentifierLimit]
-	}
-	return name
-}
-
 // The two plan formats a live fleet can hold. v2 differs from v1 in exactly one
 // way — a create plan builds its companion indexes in the same transaction as
 // the table — and the label is part of the digest, so the two never collide.
@@ -765,36 +761,3 @@ const (
 	schemaPlanCompilerV1 = "schema-plan-v1"
 	schemaPlanCompilerV2 = "schema-plan-v2"
 )
-
-func planChecksumWithCompilerVersion(plan Plan, compilerVersion string) (string, error) {
-	if compilerVersion == "" {
-		return "", errors.New("schema plan compiler version is required")
-	}
-	definition := plan.Definition
-	definition.Fields = append([]PlannedField(nil), definition.Fields...)
-	sort.Slice(definition.Fields, func(i, j int) bool {
-		if definition.Fields[i].Ordinal != definition.Fields[j].Ordinal {
-			return definition.Fields[i].Ordinal < definition.Fields[j].Ordinal
-		}
-		return definition.Fields[i].Name < definition.Fields[j].Name
-	})
-	canonical := struct {
-		CompilerVersion string
-		Operation       string
-		BaseVersion     int64
-		Definition      PlannedCollection
-		Statements      []string
-	}{
-		CompilerVersion: compilerVersion,
-		Operation:       plan.Operation,
-		BaseVersion:     plan.BaseVersion,
-		Definition:      definition,
-		Statements:      plan.Statements,
-	}
-	encoded, err := json.Marshal(canonical)
-	if err != nil {
-		return "", fmt.Errorf("marshal schema plan checksum: %w", err)
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
-}

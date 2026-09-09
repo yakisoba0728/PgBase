@@ -74,6 +74,12 @@ SQL View 행에는 생성 ordinal이나 가짜 변경 revision을 만들지 않�
 | `HookMailSend` | `*MailMessage` | 환경 SMTP와 컬렉션 SMTP 모두 전송 전에 본문/제목을 조정하거나 거부할 수 있다. |
 | `HookFileUpload` | `*FileEvent` | 저장 전에 검증하고, standalone 또는 Batch의 결과가 확정된 후 완료를 관찰한다. |
 | `HookFileDelete` | `*FileEvent` | 삭제 전 검증과 결과 관찰. |
+| `HookRecordListRequest`, `HookRecordViewRequest` | `*RecordRequestEvent` | route admission 뒤, record service 호출 전 읽기 옵션을 조정하거나 거부한다. collection/rule 인가는 service가 이후 수행한다. |
+| `HookRecordCreateRequest`, `HookRecordUpdateRequest`, `HookRecordDeleteRequest` | `*RecordRequestEvent` | route admission 뒤, service 호출 전 실행된다. create/update `Input`만 변경 가능하며 service가 다시 검증·인가한다. actor, record ID, idempotency key 변경은 무시된다. After는 응답과 공유하지 않는 최종 mutation 결과 또는 오류를 관찰한다. |
+| `HookRecordBatchRequest` | `*BatchRequestEvent` | 완전히 decode된 Batch 요청마다 한 번 실행된다. `Operations` 변경은 service의 원자 Batch 검증·인가를 다시 통과해야 한다. multipart upload가 있으면 attachment binding을 지키기 위해 operation 수/순서/kind/대상 및 sidecar identity는 변경할 수 없고, field input만 변경할 수 있다. After 결과도 응답과 공유하지 않는다. |
+| `HookSchemaImportPreview`, `HookSchemaImportApply` | `*SchemaImportRequestEvent` | 관리자 route admission 뒤 실행된다. preview 문서는 변경 가능하다. guarded apply 문서는 checksum/operation ID/idempotency replay 계약을 지키기 위해 deep-copy된 관찰·거부 전용이다. 결과 역시 응답과 공유하지 않는다. |
+| `HookMailOTP`, `HookMailVerification`, `HookMailPasswordReset`, `HookMailEmailChange`, `HookMailSMTPTest` | `*MailEvent` | `HookMailSend` 뒤, 실제 전송 직전에 목적별로 실행된다. message 수신자/제목/본문은 바꿀 수 있지만 목적과 SMTP 설정·자격 증명은 바꿀 수 없다. |
+| `HookFileToken`, `HookFileDownload`, `HookFileTransform` | `*FileAccessEvent` | 파일 인가 뒤 token 발급, object open, derivative 생성 전에 실행한다. download After는 wrapped reader의 EOF, read failure, close 또는 cancellation 결과를 관찰한다. payload는 credential-free 관찰값이며 파일/actor/variant를 바꿔 우회할 수 없다. |
 
 Before의 오류는 작업에 전달한다. After는 결과를 관찰하는 콜백으로 오류를 반환하지 않으며, panic은 다른 관찰자를 막지 않는다. After에는 최대 5초의 독립 컨텍스트를 주며 콜백이 이를 준수해야 한다. 트랜잭션 내 콜백에서 외부 전송 같은 되돌릴 수 없는 작업을 수행하면 안 된다. 커밋 이후 hook은 영구 전달 큐가 아니므로 확실한 재전달에는 기존 outbox를 사용한다. 기존 `MutationHooks`도 유지된다. 예제는 [examples/lifecycle](../examples/lifecycle/main.go)에 있다.
 
