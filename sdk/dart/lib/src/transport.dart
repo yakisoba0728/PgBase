@@ -145,6 +145,8 @@ final class PgBaseTransport {
       return await _client.send(request);
     } on http.RequestAbortedException {
       throw const PgBaseCancellation();
+    } on http.ClientException catch (error) {
+      throw PgBaseNetworkError(error);
     }
   }
 
@@ -162,6 +164,8 @@ final class PgBaseTransport {
       );
     } on http.RequestAbortedException {
       throw const PgBaseCancellation();
+    } on http.ClientException catch (error) {
+      throw PgBaseNetworkError(error);
     }
   }
 

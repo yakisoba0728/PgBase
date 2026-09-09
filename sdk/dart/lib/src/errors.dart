@@ -24,6 +24,16 @@ final class PgBaseCancellation implements Exception {
   String toString() => 'PgBaseCancellation()';
 }
 
+/// A stable SDK error for a transport failure that was not caller cancellation.
+final class PgBaseNetworkError implements Exception {
+  const PgBaseNetworkError(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() => 'PgBaseNetworkError($cause)';
+}
+
 final class PgBaseProtocolError implements Exception {
   const PgBaseProtocolError(this.code);
 

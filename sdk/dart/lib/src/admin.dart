@@ -127,10 +127,11 @@ final class PgBaseAdminClient {
     JsonObject change, {
     CancellationToken? cancellation,
   }) async {
+    final changeSnapshot = _snapshot(change);
     final preview = await _object(
       'POST',
       '/api/admin/collections/plan',
-      body: change,
+      body: changeSnapshot,
       cancellation: cancellation,
     );
     final checksum = preview['checksum'];
@@ -138,12 +139,14 @@ final class PgBaseAdminClient {
     if (checksum is! JsonString || baseVersion is! JsonNumber)
       throw const PgBaseProtocolError('invalid_schema_plan');
     return ApprovedSchemaPlan._(
-      preview: preview,
-      applyBody: JsonObject({
-        ...change.values,
-        'checksum': checksum,
-        'baseVersion': baseVersion,
-      }),
+      preview: _snapshot(preview),
+      applyBody: _snapshot(
+        JsonObject({
+          ...changeSnapshot.values,
+          'checksum': checksum,
+          'baseVersion': baseVersion,
+        }),
+      ),
       operationId: _operationId(),
       idempotencyKey: _idempotencyKey('schema-apply'),
     );
@@ -155,7 +158,7 @@ final class PgBaseAdminClient {
   }) => request(
     'POST',
     '/api/admin/collections/apply',
-    body: plan.applyBody,
+    body: plan._applyBody,
     headers: {
       'pgbase-operation-id': plan.operationId,
       'idempotency-key': plan.idempotencyKey,
@@ -178,10 +181,11 @@ final class PgBaseAdminClient {
     JsonObject document, {
     CancellationToken? cancellation,
   }) async {
+    final documentSnapshot = _snapshot(document);
     final preview = await _object(
       'POST',
       '/api/admin/schema/import/preview',
-      body: document,
+      body: documentSnapshot,
       cancellation: cancellation,
     );
     final approvedDocument = preview['document'];
@@ -193,12 +197,14 @@ final class PgBaseAdminClient {
       throw const PgBaseProtocolError('invalid_schema_import_plan');
     }
     return ApprovedSchemaImportPlan._(
-      preview: preview,
-      applyBody: JsonObject({
-        'document': approvedDocument,
-        'checksum': checksum,
-        'baseVersion': baseVersion,
-      }),
+      preview: _snapshot(preview),
+      applyBody: _snapshot(
+        JsonObject({
+          'document': approvedDocument,
+          'checksum': checksum,
+          'baseVersion': baseVersion,
+        }),
+      ),
       operationId: _operationId(),
       idempotencyKey: _idempotencyKey('schema-import'),
     );
@@ -210,7 +216,7 @@ final class PgBaseAdminClient {
   }) => request(
     'POST',
     '/api/admin/schema/import/apply',
-    body: plan.applyBody,
+    body: plan._applyBody,
     headers: {
       'pgbase-operation-id': plan.operationId,
       'idempotency-key': plan.idempotencyKey,
@@ -436,31 +442,37 @@ final class PgBaseAdminClient {
 /// A schema preview and its immutable, replay-safe apply request.
 final class ApprovedSchemaPlan {
   const ApprovedSchemaPlan._({
-    required this.preview,
-    required this.applyBody,
+    required this._preview,
+    required this._applyBody,
     required this.operationId,
     required this.idempotencyKey,
   });
 
-  final JsonObject preview;
-  final JsonObject applyBody;
+  final JsonObject _preview;
+  final JsonObject _applyBody;
   final String operationId;
   final String idempotencyKey;
+
+  /// A defensive snapshot of the server preview.
+  JsonObject get preview => _snapshot(_preview);
 }
 
 /// A schema-import preview and its immutable, replay-safe apply request.
 final class ApprovedSchemaImportPlan {
   const ApprovedSchemaImportPlan._({
-    required this.preview,
-    required this.applyBody,
+    required this._preview,
+    required this._applyBody,
     required this.operationId,
     required this.idempotencyKey,
   });
 
-  final JsonObject preview;
-  final JsonObject applyBody;
+  final JsonObject _preview;
+  final JsonObject _applyBody;
   final String operationId;
   final String idempotencyKey;
+
+  /// A defensive snapshot of the server preview.
+  JsonObject get preview => _snapshot(_preview);
 }
 
 final Random _random = Random.secure();
@@ -476,3 +488,6 @@ String _operationId() {
 }
 
 String _idempotencyKey(String prefix) => '$prefix-${_operationId()}';
+
+JsonObject _snapshot(JsonObject value) =>
+    decodeExactJson(encodeExactJson(value)) as JsonObject;

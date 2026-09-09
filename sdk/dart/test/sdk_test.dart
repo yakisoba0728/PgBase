@@ -129,6 +129,15 @@ void main() {
     },
   );
 
+  test('network failures have a stable SDK error type', () async {
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: _NetworkClient(),
+    );
+
+    await expectLater(pgbase.session(), throwsA(isA<PgBaseNetworkError>()));
+  });
+
   test('storage clears after a delayed older token write', () async {
     final storage = _DelayedAuthStorage();
     final auth = AuthStore(storage: storage);
@@ -149,6 +158,18 @@ void main() {
     final clear = auth.clear();
     storage.finishRead.complete();
     await Future.wait([restore, clear]);
+
+    expect(auth.token, isNull);
+  });
+
+  test('restore waits behind a clear already writing storage', () async {
+    final storage = _ClearThenRestoreStorage();
+    final auth = AuthStore(storage: storage);
+    final clear = auth.clear();
+    await storage.clearStarted.future;
+    final restore = auth.restore();
+    storage.finishClear.complete();
+    await Future.wait([clear, restore]);
 
     expect(auth.token, isNull);
   });
@@ -213,7 +234,7 @@ void main() {
     await admin.applySchema(plan);
     await admin.applySchema(plan);
 
-    expect((plan.applyBody['checksum'] as JsonString).value, 'sealed');
+    expect((plan.preview['checksum'] as JsonString).value, 'sealed');
     expect(client.requests[1].body, client.requests[2].body);
     expect(
       client.requests[1].headers['pgbase-operation-id'],
@@ -487,6 +508,14 @@ final class _AbortedClient extends http.BaseClient {
   }
 }
 
+final class _NetworkClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    throw http.ClientException('offline', request.url);
+  }
+}
+
 final class _AdminUnauthorizedClient extends http.BaseClient {
   final List<_CapturedRequest> requests = [];
 
@@ -545,6 +574,27 @@ final class _DelayedAuthStorage implements AuthStorage {
   Future<void> write(String token) async {
     writeStarted.complete();
     await finishWrite.future;
+    value = token;
+  }
+}
+
+final class _ClearThenRestoreStorage implements AuthStorage {
+  String? value = 'stale-token';
+  final clearStarted = Completer<void>();
+  final finishClear = Completer<void>();
+
+  @override
+  Future<void> clear() async {
+    clearStarted.complete();
+    await finishClear.future;
+    value = null;
+  }
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String token) async {
     value = token;
   }
 }

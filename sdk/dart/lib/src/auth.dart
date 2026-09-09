@@ -23,7 +23,7 @@ final class AuthStore {
   Future<void> restore() async {
     if (storage == null) return;
     final generation = _generation;
-    final value = await storage!.read();
+    final value = await _serialized(() => storage!.read());
     if (generation == _generation) _replace(value);
   }
 
@@ -47,8 +47,12 @@ final class AuthStore {
   Future<void> _persist(Future<void> Function(AuthStorage storage) action) {
     final configured = storage;
     if (configured == null) return Future<void>.value();
-    final operation = _storageTail.then((_) => action(configured));
-    _storageTail = operation.catchError((_) {});
+    return _serialized(() => action(configured));
+  }
+
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final operation = _storageTail.then((_) => action());
+    _storageTail = operation.then<void>((_) {}, onError: (_, _) {});
     return operation;
   }
 
