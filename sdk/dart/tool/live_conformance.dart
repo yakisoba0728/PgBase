@@ -19,6 +19,7 @@ Future<void> main() async {
       if (error.code != 'setup_unavailable') rethrow;
       await admin.login(adminEmail, adminPassword);
     }
+    await _adminCookieCsrfConformance(base, adminEmail, adminPassword);
     final name = 'n7_notes_$suffix';
     final change = JsonObject({
       'operation': const JsonString('create'),
@@ -93,7 +94,9 @@ Future<void> main() async {
     final replayOneID = (replayOne.record['id']! as JsonString).value;
     final replayTwoID = (replayTwo.record['id']! as JsonString).value;
     if (replayOneID != replayTwoID)
-      throw StateError('idempotent replay created $replayOneID and $replayTwoID');
+      throw StateError(
+        'idempotent replay created $replayOneID and $replayTwoID',
+      );
     try {
       await records.create(
         JsonObject({'title': const JsonString('replay conflict')}),
@@ -201,4 +204,96 @@ String _required(String name) {
   final value = Platform.environment[name];
   if (value == null || value.isEmpty) throw StateError('$name is required');
   return value;
+}
+
+Future<void> _adminCookieCsrfConformance(
+  Uri base,
+  String email,
+  String password,
+) async {
+  final client = HttpClient();
+  try {
+    final unauthenticated = await _rawAdmin(
+      client,
+      base,
+      'GET',
+      '/api/admin/session',
+    );
+    if (unauthenticated.status != 401)
+      throw StateError('admin unauthenticated route was not 401');
+    final login = await _rawAdmin(
+      client,
+      base,
+      'POST',
+      '/api/admin/auth/login',
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+    final cookie = login.headers
+        .value(HttpHeaders.setCookieHeader)
+        ?.split(';')
+        .first;
+    final decoded =
+        jsonDecode(utf8.decode(login.bytes)) as Map<String, dynamic>;
+    final csrf = decoded['csrfToken'] as String?;
+    if (login.status != 200 || cookie == null || csrf == null)
+      throw StateError('admin cookie login did not return session material');
+    final resumed = await _rawAdmin(
+      client,
+      base,
+      'GET',
+      '/api/admin/session',
+      cookie: cookie,
+    );
+    if (resumed.status != 200) throw StateError('admin cookie resume failed');
+    for (final value in [null, 'wrong-csrf']) {
+      final rejected = await _rawAdmin(
+        client,
+        base,
+        'POST',
+        '/api/admin/auth/logout',
+        cookie: cookie,
+        csrf: value,
+      );
+      if (rejected.status != 403) {
+        throw StateError(
+          'admin CSRF rejection was ${rejected.status}: ${utf8.decode(rejected.bytes)}',
+        );
+      }
+    }
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<_RawResponse> _rawAdmin(
+  HttpClient client,
+  Uri base,
+  String method,
+  String path, {
+  String? body,
+  String? cookie,
+  String? csrf,
+}) async {
+  final request = await client.openUrl(method, base.resolve(path));
+  request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+  request.headers.set('Origin', base.origin);
+  if (cookie != null) request.headers.set(HttpHeaders.cookieHeader, cookie);
+  if (csrf != null) request.headers.set('X-PgBase-CSRF', csrf);
+  if (body != null) {
+    request.headers.contentType = ContentType.json;
+    request.write(body);
+  }
+  final response = await request.close();
+  return _RawResponse(
+    response.statusCode,
+    response.headers,
+    await response.fold<List<int>>([], (out, chunk) => out..addAll(chunk)),
+  );
+}
+
+final class _RawResponse {
+  const _RawResponse(this.status, this.headers, this.bytes);
+  final int status;
+  final HttpHeaders headers;
+  final List<int> bytes;
 }
