@@ -113,6 +113,10 @@ func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledge
 		coordinator.Close()
 		return nil, fmt.Errorf("reconcile SQL console ledger: %w", err)
 	}
+	if err := coordinator.finishStartup(ctx); err != nil {
+		coordinator.Close()
+		return nil, fmt.Errorf("finish SQL console startup: %w", err)
+	}
 	serviceContext, cancel := context.WithCancel(context.Background())
 	return &Service{
 		executor: executor, ledger: ledger, coordinator: coordinator, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
@@ -125,6 +129,9 @@ func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledge
 
 func (service *Service) Submit(ctx context.Context, actor Actor, request Request) (Execution, error) {
 	if err := validateActor(actor); err != nil {
+		return Execution{}, err
+	}
+	if err := service.coordinator.verify(ctx); err != nil {
 		return Execution{}, err
 	}
 	normalized, err := NormalizeRequestWithTimeouts(request, service.writeEnabled, service.defaultTimeout, service.maximumTimeout)
@@ -260,6 +267,7 @@ func (service *Service) run(job *executionJob) {
 	service.mu.Unlock()
 
 	result, runErr := service.executor.Run(job.ctx, RunInput{
+		coordinator:     service.coordinator,
 		AdministratorID: job.actor.AdministratorID,
 		Request:         job.identity.Request,
 		RequestHash:     job.identity.RequestHash,

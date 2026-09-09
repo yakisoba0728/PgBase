@@ -9,16 +9,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webisnoteasy/PgBase/internal/database"
 )
 
 const (
 	MaximumHistoryEntries = 50
 	coordinatorLockKey    = int64(0x7067626173650008)
+	executionGateKey      = int64(0x7067626173651008)
 	HistoryRetention      = 30 * 24 * time.Hour
-	// Compact write receipts are retained indefinitely. Their unbounded key
-	// count is the deliberate cost of never making a committed mutation
+	// Compact write identities and receipts are retained indefinitely. Their
+	// unbounded key count is the cost of never making an accepted mutation
 	// eligible for automatic replay after its heavier execution row expires.
 	DurableWriteReceiptRetention = "indefinite"
 )
@@ -48,7 +48,9 @@ type Ledger struct {
 }
 
 type Coordinator struct {
-	connection *pgxpool.Conn
+	connection *pgx.Conn
+	pool       *database.Pool
+	pid        uint32
 	closeOnce  sync.Once
 }
 
@@ -60,20 +62,26 @@ func NewLedger(pool *database.Pool) (*Ledger, error) {
 }
 
 func (ledger *Ledger) AcquireCoordinator(ctx context.Context) (*Coordinator, error) {
-	connection, err := ledger.pool.Acquire(ctx)
+	connection, err := ledger.pool.OpenCoordinationSession(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var acquired bool
 	if err := connection.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock($1)`, coordinatorLockKey).Scan(&acquired); err != nil {
-		connection.Release()
+		_ = connection.Close(ctx)
 		return nil, err
 	}
 	if !acquired {
-		connection.Release()
+		_ = connection.Close(ctx)
 		return nil, ErrCoordinatorBusy
 	}
-	return &Coordinator{connection: connection}, nil
+	// A previous coordinator may have lost its session while its independent
+	// execution transactions still run. Drain them before reconciling history.
+	if _, err := connection.Exec(ctx, `select pg_catalog.pg_advisory_lock($1)`, executionGateKey); err != nil {
+		_ = connection.Close(context.Background())
+		return nil, err
+	}
+	return &Coordinator{connection: connection, pool: ledger.pool, pid: connection.PgConn().PID()}, nil
 }
 
 func (coordinator *Coordinator) Close() {
@@ -83,15 +91,45 @@ func (coordinator *Coordinator) Close() {
 	coordinator.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		var unlocked bool
-		err := coordinator.connection.QueryRow(ctx, `select pg_catalog.pg_advisory_unlock($1)`, coordinatorLockKey).Scan(&unlocked)
-		if err == nil && unlocked {
-			coordinator.connection.Release()
-			return
-		}
-		connection := coordinator.connection.Hijack()
-		_ = connection.Close(ctx)
+		_ = coordinator.connection.Close(ctx)
 	})
+}
+
+func (coordinator *Coordinator) finishStartup(ctx context.Context) error {
+	_, err := coordinator.connection.Exec(ctx, `select pg_catalog.pg_advisory_unlock($1)`, executionGateKey)
+	return err
+}
+
+const coordinatorOwnedSQL = `select exists(select 1 from pg_catalog.pg_locks
+	where locktype='advisory' and pid=$1 and classid=$2 and objid=$3 and objsubid=1 and granted)`
+
+func (coordinator *Coordinator) verify(ctx context.Context) error {
+	var owned bool
+	err := coordinator.pool.QueryRow(ctx, coordinatorOwnedSQL, coordinator.pid,
+		uint32(uint64(coordinatorLockKey)>>32), uint32(uint64(coordinatorLockKey)&0xffffffff)).Scan(&owned)
+	if err != nil || !owned {
+		return fmt.Errorf("%w: SQL console coordinator ownership lost", ErrClosed)
+	}
+	return nil
+}
+
+func fenceExecution(ctx context.Context, transaction pgx.Tx, coordinator *Coordinator) error {
+	if coordinator == nil {
+		return nil
+	}
+	if _, err := transaction.Exec(ctx, `select pg_catalog.pg_advisory_xact_lock_shared($1)`, executionGateKey); err != nil {
+		return err
+	}
+	var owned bool
+	err := transaction.QueryRow(ctx, coordinatorOwnedSQL, coordinator.pid,
+		uint32(uint64(coordinatorLockKey)>>32), uint32(uint64(coordinatorLockKey)&0xffffffff)).Scan(&owned)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("%w: SQL console coordinator ownership lost", ErrClosed)
+	}
+	return nil
 }
 
 func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity) (Execution, bool, error) {
@@ -99,13 +137,31 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		return Execution{}, false, ErrInvalidRequest
 	}
 	var idempotency any
+	connection, err := ledger.pool.Acquire(ctx)
+	if err != nil {
+		return Execution{}, false, err
+	}
+	defer connection.Release()
+	transaction, err := connection.Begin(ctx)
+	if err != nil {
+		return Execution{}, false, err
+	}
+	defer func() { _ = transaction.Rollback(context.Background()) }()
 	if identity.Request.Mode == ModeWrite {
 		idempotency = identity.IdempotencyHash[:]
-		if receipt, found, err := ledger.receipt(ctx, identity); err != nil || found {
-			return receipt, false, err
+		tag, err := transaction.Exec(ctx, `insert into pgbase_meta.sql_console_write_identities
+			(execution_id,administrator_id,idempotency_hash,request_hash,dry_run) values ($1,$2,$3,$4,$5)
+			on conflict do nothing`, identity.Request.ExecutionID, identity.AdministratorID,
+			idempotency, identity.RequestHash[:], identity.Request.DryRun)
+		if err != nil {
+			return Execution{}, false, err
+		}
+		if tag.RowsAffected() == 0 {
+			_ = transaction.Rollback(ctx)
+			return ledger.retainedWrite(ctx, identity)
 		}
 	}
-	row := ledger.pool.QueryRow(ctx, `insert into pgbase_meta.sql_console_executions
+	row := transaction.QueryRow(ctx, `insert into pgbase_meta.sql_console_executions
 		(execution_id,administrator_id,mode,dry_run,idempotency_hash,request_hash,query_fingerprint,status,
 		statement_count,created_at,updated_at)
 		values($1,$2,$3,$4,$5,$6,$7,'pending',$8,current_timestamp,current_timestamp)
@@ -115,11 +171,15 @@ func (ledger *Ledger) CreatePending(ctx context.Context, identity LedgerIdentity
 		idempotency, identity.RequestHash[:], identity.QueryFingerprint[:], len(identity.Request.Statements))
 	execution, err := scanExecution(row)
 	if err == nil {
+		if err := transaction.Commit(ctx); err != nil {
+			return Execution{}, false, err
+		}
 		return execution, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Execution{}, false, err
 	}
+	_ = transaction.Rollback(ctx)
 	return ledger.existing(ctx, identity)
 }
 
@@ -232,9 +292,20 @@ func (ledger *Ledger) Finish(ctx context.Context, actorID uuid.UUID, execution E
 }
 
 func (ledger *Ledger) Cleanup(ctx context.Context) error {
-	_, err := ledger.pool.Exec(ctx, `delete from pgbase_meta.sql_console_executions
-		where finished_at < current_timestamp-$1::interval`, fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second)))
-	return err
+	connection, err := ledger.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Release()
+	transaction, err := connection.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback(context.Background()) }()
+	if err := cleanupExecutions(ctx, transaction); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
 }
 
 func (ledger *Ledger) Get(ctx context.Context, actorID, executionID uuid.UUID) (Execution, error) {
@@ -273,14 +344,16 @@ func (ledger *Ledger) Reconcile(ctx context.Context) error {
 		where status in ('pending','running')`, interval); err != nil {
 		return err
 	}
-	if _, err := transaction.Exec(ctx, `delete from pgbase_meta.sql_console_executions
-		where finished_at < current_timestamp-$1::interval`, fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second))); err != nil {
+	if err := cleanupExecutions(ctx, transaction); err != nil {
 		return err
 	}
 	return transaction.Commit(ctx)
 }
 
 func (ledger *Ledger) List(ctx context.Context, actorID uuid.UUID, cursor Cursor) (Page, error) {
+	if err := ledger.Cleanup(ctx); err != nil {
+		return Page{}, err
+	}
 	rows, err := ledger.pool.Query(ctx, `select execution_id,mode,dry_run,status,created_at,started_at,finished_at,result_expires_at,
 		row_count,affected_rows,result_bytes,sql_state,failure_code,committed
 		from pgbase_meta.sql_console_executions

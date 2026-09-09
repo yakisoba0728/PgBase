@@ -29,6 +29,7 @@ var (
 )
 
 type RunInput struct {
+	coordinator     *Coordinator
 	AdministratorID uuid.UUID
 	Request         Request
 	RequestHash     [32]byte
@@ -136,6 +137,9 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 
 	if _, err := tx.Exec(runContext, `select pg_catalog.set_config('statement_timeout',$1,true),
 		pg_catalog.set_config('lock_timeout',$2,true)`, postgresMilliseconds(request.Timeout), postgresMilliseconds(LockTimeout)); err != nil {
+		return Result{}, err
+	}
+	if err := fenceExecution(runContext, tx, input.coordinator); err != nil {
 		return Result{}, err
 	}
 	if request.Mode == ModeWrite {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/webisnoteasy/PgBase/internal/database"
 	"github.com/webisnoteasy/PgBase/internal/schema"
 )
@@ -117,6 +118,21 @@ func validateManagedViewDependencies(ctx context.Context, pool *database.Pool, r
 }
 
 func validateViewExpressionDependencies(ctx context.Context, pool *database.Pool, viewOID uint32) error {
+	// Resolved OID checks alone miss CoerceViaIO and SQLValueFunction nodes.
+	// Re-apply the same fail-closed grammar to PostgreSQL's deparsed view so
+	// intermediate casts and every expression form are checked transitively.
+	var definition string
+	var sqlValueFunction bool
+	if err := pool.QueryRow(ctx, `select pg_catalog.pg_get_viewdef($1::oid,true),
+		exists(select 1 from pg_catalog.pg_rewrite where ev_class=$1 and ev_action::text like '%{SQLVALUEFUNCTION %')`, viewOID).Scan(&definition, &sqlValueFunction); err != nil {
+		return err
+	}
+	if sqlValueFunction {
+		return errors.New("SQL value functions are outside the exact builtin allowlist")
+	}
+	if _, err := Analyze(Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: definition}}}); err != nil {
+		return fmt.Errorf("view expression is outside the SQL console grammar: %w", err)
+	}
 	rows, err := pool.Query(ctx, `select distinct (match)[1],(match)[2]::oid
 		from pg_catalog.pg_rewrite r,
 		lateral pg_catalog.regexp_matches(r.ev_action::text, ':(funcid|aggfnoid|winfnoid|opfuncid|opno) ([0-9]+)', 'g') match

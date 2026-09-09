@@ -105,6 +105,33 @@ func TestOpenPoolsValidatesManagedViewTransitiveDependencies(t *testing.T) {
 	}
 	pools.Close()
 
+	if _, err := fixture.owner.Exec(ctx, `create type ext.review_enum as enum ('x');
+		create or replace view app.visible_accounts as
+		select id,created_at,updated_at,(visible::ext.review_enum)::text as visible from app.accounts`); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(ctx, fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("managed view with a transitive user-type IO cast was accepted")
+	}
+	if _, err := fixture.owner.Exec(ctx, `create or replace view app.visible_accounts as
+		select id,created_at,updated_at,(visible::uuid)::text as visible from app.accounts`); err != nil {
+		t.Fatal(err)
+	}
+	pools, err = OpenPools(ctx, fixture.options)
+	if err != nil {
+		t.Fatalf("safe builtin IO cast: %v", err)
+	}
+	pools.Close()
+	if _, err := fixture.owner.Exec(ctx, `create or replace view app.visible_accounts as
+		select id,created_at,updated_at,current_date::text as visible from app.accounts`); err != nil {
+		t.Fatal(err)
+	}
+	if pools, err := OpenPools(ctx, fixture.options); err == nil {
+		pools.Close()
+		t.Fatal("managed view with unhandled SQLValueFunction was accepted")
+	}
+
 	if _, err := fixture.owner.Exec(ctx, `create or replace view app.visible_accounts as
 		select id,created_at,updated_at,current_setting('server_version') as visible from app.accounts`); err != nil {
 		t.Fatal(err)

@@ -84,3 +84,17 @@ CREATE UNIQUE INDEX sql_console_write_receipts_idempotency_idx
 
 CREATE INDEX sql_console_write_receipts_committed_idx
     ON pgbase_meta.sql_console_write_receipts (committed_at, execution_id);
+
+-- Permanent minimal reservation, including failed and ambiguous writes. The
+-- outcome is copied here before deleting the heavier execution/history row.
+CREATE TABLE pgbase_meta.sql_console_write_identities (
+    execution_id uuid PRIMARY KEY,
+    administrator_id uuid NOT NULL REFERENCES pgbase_meta.admins(id) ON DELETE RESTRICT,
+    idempotency_hash bytea NOT NULL CHECK (octet_length(idempotency_hash) = 32),
+    request_hash bytea NOT NULL CHECK (octet_length(request_hash) = 32),
+    dry_run boolean NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','succeeded','failed','canceled','timed_out','unknown')),
+    finished_at timestamptz,
+    failure_code text CHECK (failure_code IS NULL OR octet_length(failure_code) BETWEEN 1 AND 64),
+    UNIQUE (administrator_id, idempotency_hash)
+);
