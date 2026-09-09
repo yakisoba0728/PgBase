@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N8 owner fixes·browser 준비 진행, N6/N7/N9 G5 대기 (최종 동기화 2026-09-10 07:26 KST)
+## N6–N9 병렬 실행 — N8 owner fixes·browser 준비 진행, N6/N7/N9 G5 대기 (최종 동기화 2026-09-10 07:28 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -26,11 +26,12 @@ Nash의 N6 core review와 migration snapshot/history-sync/cancel-lock은 완료�
 - [x] N6 기반·도메인·migration·jobs·CLI/types/watch·hook·stress/storage·external/cross/same-origin 및 occurrence fix `ee806dd` Nash closure 완료; G3 종료.
 - [x] N7 fixture/live·Flutter browser/SSE restart·failure/admin matrix·독립 review·open-SSE logout·cursor-expired·canceled upload cleanup core acceptance 완료.
 - [x] Astra gate 조정에 따라 N6/N7 교차 인수 완료 전 독립 N8 Sol·N9 Terra 제품 stage 착수; G3 완료·통합은 계속 미완료로 분리.
-- [ ] N8: Euclid의 R1–R4 catalog-version 재검증·virtual field grant·commit unknown·single coordinator reconciliation과 R8–R10 native/transitive dependency guard·configured write-column preflight·read-one API를 안정 커밋으로 고정. R12는 bounded history/result cleanup 뒤에도 compact receipt/tombstone을 보존해 같은 mutation이 재실행되지 않는 정책과 PG17/18 근거를 요구한다. 현재 모두 owner WIP이며 마지막 capability·retention 검증 뒤 stable SHA를 낸다.
+- [ ] N8: Euclid의 R1–R4 catalog-version 재검증·virtual field grant·commit unknown·single coordinator reconciliation과 R8–R10 native/transitive dependency guard·configured write-column preflight·read-one API를 안정 커밋으로 고정. R12는 heavy execution/history/result를 bounded cleanup하되 최소 redacted idempotency tombstone은 영구 보존해 같은 mutation을 재실행하지 않는다. tombstone 총 key 수는 bounded라고 주장하지 않고 저장 tradeoff를 문서화하며 FK 순서·aged replay를 PG17/18에서 증명한다. 현재 모두 owner WIP이다.
 - [ ] N8: owner가 아직 만들지 않은 protected fixture credential path와 정확한 API/UI command를 생성·handoff하면, 내용을 출력하지 않고 Feynman에게 전달해 실제 browser `58097`→API `58096`를 한 번 검증한다.
 - [x] N8 UI R5: integration `2534b49`에서 불확실 write를 세션에 동일 identity/body로 보존하고 GET `not_found` 뒤 그 요청만 재전송하며 명확한 사전 거절은 해제한다. focused 13 tests green.
 - [ ] N8 UI R11: global pending-write storage의 교차 관리자 replay P1을 닫는다. Euclid는 history capability에 raw token/credential이 아닌 세션별 opaque identity를 제공하고, Feynman은 그 identity가 있을 때만 raw SQL/params를 namespace·복구한다. 같은 세션 reload는 유지하고 관리자 전환·세션 만료 뒤 재로그인은 이전 요청을 보거나 실행하지 않아야 한다.
-- [ ] N8: Gauss review record는 integration `ccbb5d1`까지 갱신됐고, owner fixes·R6/R7/R11 및 최종 composed candidate만 판정한다. 이미 green인 backend 범위는 반복하지 않는다.
+- [ ] N8 UI R6: 실제 durable DTO는 result summary를 유지하지만 `statements`를 생략한다. TTL 경과와 restart 뒤 result loss에서 committed/row/byte summary를 보존하면서 expired/unavailable을 정확히 표시한다.
+- [ ] N8: Gauss review record는 integration `ccbb5d1`까지 갱신됐고, owner fixes·R6/R7/R11/R12 및 최종 composed candidate만 판정한다. 이미 green인 backend 범위는 반복하지 않는다.
 - [ ] N6–N9 전체 G5 로컬 인수·문서 동기화·격리 fixture 정리·clean final commit.
 
 ## N1–N5 원격 병합·기존 설치 반영 — 완료 (2026-09-10 03:28 KST)
