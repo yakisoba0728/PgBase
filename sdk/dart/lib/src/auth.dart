@@ -22,20 +22,20 @@ final class AuthStore {
   Future<void> restore() async {
     if (storage == null) return;
     final value = await storage!.read();
-    _replace(value, persist: false);
+    _replace(value);
   }
 
   Future<void> save(String token) async {
-    _replace(token, persist: false);
+    _replace(token);
     await storage?.write(token);
   }
 
   Future<void> clear() async {
-    _replace(null, persist: false);
+    _replace(null);
     await storage?.clear();
   }
 
-  void _replace(String? value, {required bool persist}) {
+  void _replace(String? value) {
     _token = value;
     _generation++;
     if (!_changes.isClosed) _changes.add(_generation);

@@ -153,7 +153,7 @@ final class BatchOperation {
   final JsonObject value;
 }
 
-Future<JsonObject> batch(
+Future<JsonObject> submitBatch(
   PgBaseClient client,
   List<BatchOperation> operations, {
   CancellationToken? cancellation,

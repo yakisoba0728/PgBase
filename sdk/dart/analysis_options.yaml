@@ -1,5 +1,9 @@
 include: package:lints/recommended.yaml
 
+analyzer:
+  exclude:
+    - example/flutter_app/**
+
 linter:
   rules:
     avoid_dynamic_calls: true

@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import 'client.dart';
 import 'errors.dart';
 import 'exact_json.dart';
@@ -6,10 +8,17 @@ import 'transport.dart';
 /// Administrator traffic is deliberately separate from [PgBaseClient].
 /// Supply a cookie-capable `package:http` client for the target platform.
 final class PgBaseAdminClient {
-  PgBaseAdminClient(Uri baseUri, {httpClient})
-    : transport = PgBaseTransport(baseUri, client: httpClient);
+  PgBaseAdminClient(
+    Uri baseUri, {
+    http.Client? httpClient,
+    this.sendOriginHeader = true,
+  }) : transport = PgBaseTransport(baseUri, client: httpClient);
 
   final PgBaseTransport transport;
+
+  /// Disable for BrowserClient: fetch supplies the same-origin Origin policy
+  /// and browsers prohibit application code from setting that header.
+  final bool sendOriginHeader;
   String _csrf = '';
   String? _cookie;
   int _generation = 0;
@@ -72,7 +81,7 @@ final class PgBaseAdminClient {
   }) async {
     final normalized = method.toUpperCase();
     final requestHeaders = <String, String>{
-      'origin': transport.baseUri.origin,
+      if (sendOriginHeader) 'origin': transport.baseUri.origin,
       if (_cookie != null) 'cookie': _cookie!,
       ...?headers,
     };

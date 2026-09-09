@@ -57,11 +57,22 @@ void main() {
             JsonObject({'title': const JsonString('two')}),
             '"pgb1.created"',
           );
+      final batch = await pgbase.batch([
+        BatchOperation(
+          JsonObject({
+            'operation': const JsonString('create'),
+            'collection': const JsonString('notes'),
+            'input': JsonObject({'title': const JsonString('batched')}),
+            'idempotencyKey': const JsonString('create-batch-0001'),
+          }),
+        ),
+      ]);
       expect(pgbase.auth.token, 'user-token');
       expect(created.etag, '"pgb1.created"');
       expect(client.requests[1].headers['authorization'], 'Bearer user-token');
       expect(client.requests[1].headers['idempotency-key'], 'create-note-0001');
       expect(client.requests[2].headers['if-match'], '"pgb1.created"');
+      expect(batch['results'], isA<JsonArray>());
       expect(
         () => pgbase.records('notes').create(JsonObject({}), 'short'),
         throwsA(isA<PgBaseProtocolError>()),
@@ -82,6 +93,35 @@ void main() {
   });
 
   test(
+    'file upload streams a multipart part with its verified digest',
+    () async {
+      final client = _ScriptedClient();
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+        auth: AuthStore(initialToken: 'user-token'),
+      );
+      final source = UploadSource(
+        open: () => Stream<List<int>>.value(utf8.encode('N7 file payload')),
+        length: utf8.encode('N7 file payload').length,
+        filename: 'n7.txt',
+        contentType: 'text/plain',
+      );
+      final file = await pgbase
+          .files('notes', '01900000-0000-7000-8000-000000000001')
+          .upload('attachment', source);
+      final request = client.requests.single;
+      expect(file.filename, 'n7.txt');
+      expect(request.headers['x-pgbase-file-size'], '15');
+      expect(
+        request.headers['x-pgbase-file-sha256'],
+        'a9bb9324beb099ff2565a182f26b9db2d184b652b5a7cc664cb5fa8357d84190',
+      );
+      expect(utf8.decode(request.body), contains('N7 file payload'));
+    },
+  );
+
+  test(
     'SSE reconnects from an exact int64 cursor and de-duplicates event IDs',
     () async {
       final client = _ScriptedClient();
@@ -98,6 +138,20 @@ void main() {
       expect(client.requests.last.headers['last-event-id'], '9007199254740992');
     },
   );
+
+  test('auth generation aborts an open SSE subscription', () async {
+    final client = _BlockingSseClient();
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+      auth: AuthStore(initialToken: 'user-token'),
+    );
+    final subscription = pgbase.records('notes').events().listen((_) {});
+    await client.started.future;
+    await pgbase.auth.clear();
+    await client.aborted.future.timeout(const Duration(seconds: 1));
+    await subscription.asFuture<void>();
+  });
 }
 
 final class _CapturedRequest {
@@ -151,6 +205,17 @@ final class _ScriptedClient extends http.BaseClient {
         {'id': '01900000-0000-7000-8000-000000000001', 'title': 'two'},
         headers: {'etag': '"pgb1.updated"'},
       );
+    if (path == '/api/v1/user/collections/batch')
+      return _json(200, {'results': []});
+    if (path.contains('/files/attachment') && request.method == 'POST')
+      return _json(201, {
+        'id': '01900000-0000-7000-8000-000000000004',
+        'field': 'attachment',
+        'filename': 'n7.txt',
+        'contentType': 'text/plain',
+        'size': 15,
+        'thumbnail': false,
+      });
     if (path.endsWith('/events')) {
       return http.StreamedResponse(
         http.ByteStream.fromBytes(
@@ -176,4 +241,24 @@ final class _ScriptedClient extends http.BaseClient {
     status,
     headers: {'content-type': 'application/json', ...headers},
   );
+}
+
+final class _BlockingSseClient extends http.BaseClient {
+  final started = Completer<void>();
+  final aborted = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (!request.url.path.endsWith('/events')) {
+      throw StateError('unexpected request ${request.url}');
+    }
+    final stream = StreamController<List<int>>();
+    final abortable = request as http.Abortable;
+    abortable.abortTrigger!.then((_) async {
+      if (!aborted.isCompleted) aborted.complete();
+      await stream.close();
+    });
+    started.complete();
+    return http.StreamedResponse(stream.stream, 200);
+  }
 }

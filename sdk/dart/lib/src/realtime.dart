@@ -22,71 +22,79 @@ Stream<RecordEvent> recordEvents(
   var reconnects = 0;
   final generation = client.auth.generation;
   final seen = LinkedHashSet<String>();
+  final stop = CancellationToken();
+  final listeners = <StreamSubscription<void>>[];
   final path =
       '/api/v1/user/collections/${Uri.encodeComponent(collection)}/events';
 
-  while (!(cancellation?.isCancelled ?? false) &&
-      generation == client.auth.generation) {
-    try {
-      final headers = <String, String>{
-        'accept': 'text/event-stream',
-        ...client.headersFor(null),
-        if (cursor != null) 'last-event-id': cursor,
-      };
-      final response = await client.transport.eventStream(
-        path,
-        headers: headers,
-        cancellation: cancellation,
-      );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final bytes = await response.stream.toBytes();
-        throw pgBaseError(
-          PgBaseResponse(
-            status: response.statusCode,
-            headers: response.headers.map(
-              (key, value) => MapEntry(key.toLowerCase(), value),
-            ),
-            bytes: bytes,
-          ),
-        );
-      }
-      await for (final message in _messages(response.stream)) {
-        if ((cancellation?.isCancelled ?? false) ||
-            generation != client.auth.generation)
-          return;
-        final id = message.id == null ? null : _cursor(message.id!);
-        if (id == null ||
-            (cursor != null && BigInt.parse(id) <= BigInt.parse(cursor)))
-          continue;
-        cursor = id;
-        if (message.event == 'cursor') continue;
-        if (message.event != 'record') continue;
-        final event = _event(message.data, id);
-        if (!seen.add(event.eventId)) continue;
-        if (seen.length > 1000) seen.remove(seen.first);
-        reconnects = 0;
-        yield event;
-      }
-    } on PgBaseCancellation {
-      return;
-    } catch (_) {
-      if ((cancellation?.isCancelled ?? false) ||
-          generation != client.auth.generation)
-        return;
-      if (reconnects >= maxReconnects) rethrow;
-    }
-    reconnects++;
-    final delay = Duration(
-      milliseconds: (reconnectDelay.inMilliseconds * (1 << (reconnects - 1)))
-          .clamp(0, 10000),
+  if (cancellation != null) {
+    listeners.add(
+      cancellation.whenCancelled.asStream().listen((_) => stop.cancel()),
     );
-    await Future.any<void>([
-      Future<void>.delayed(delay),
-      if (cancellation != null) cancellation.whenCancelled,
-      client.auth.changes
-          .firstWhere((next) => next != generation)
-          .then<void>((_) {}),
-    ]);
+  }
+  listeners.add(
+    client.auth.changes
+        .where((next) => next != generation)
+        .listen((_) => stop.cancel()),
+  );
+
+  try {
+    while (!stop.isCancelled && generation == client.auth.generation) {
+      try {
+        final headers = <String, String>{
+          'accept': 'text/event-stream',
+          ...client.headersFor(null),
+          if (cursor != null) 'last-event-id': cursor,
+        };
+        final response = await client.transport.eventStream(
+          path,
+          headers: headers,
+          cancellation: stop,
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final bytes = await response.stream.toBytes();
+          throw pgBaseError(
+            PgBaseResponse(
+              status: response.statusCode,
+              headers: response.headers.map(
+                (key, value) => MapEntry(key.toLowerCase(), value),
+              ),
+              bytes: bytes,
+            ),
+          );
+        }
+        await for (final message in _messages(response.stream)) {
+          if (stop.isCancelled || generation != client.auth.generation) return;
+          final id = message.id == null ? null : _cursor(message.id!);
+          if (id == null ||
+              (cursor != null && BigInt.parse(id) <= BigInt.parse(cursor)))
+            continue;
+          cursor = id;
+          if (message.event == 'cursor') continue;
+          if (message.event != 'record') continue;
+          final event = _event(message.data, id);
+          if (!seen.add(event.eventId)) continue;
+          if (seen.length > 1000) seen.remove(seen.first);
+          reconnects = 0;
+          yield event;
+        }
+      } on PgBaseCancellation {
+        return;
+      } catch (_) {
+        if (stop.isCancelled || generation != client.auth.generation) return;
+        if (reconnects >= maxReconnects) rethrow;
+      }
+      reconnects++;
+      final delay = Duration(
+        milliseconds: (reconnectDelay.inMilliseconds * (1 << (reconnects - 1)))
+            .clamp(0, 10000),
+      );
+      await Future.any<void>([Future<void>.delayed(delay), stop.whenCancelled]);
+    }
+  } finally {
+    for (final listener in listeners) {
+      await listener.cancel();
+    }
   }
 }
 

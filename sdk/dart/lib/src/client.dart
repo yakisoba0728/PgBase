@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import 'auth.dart';
 import 'errors.dart';
 import 'exact_json.dart';
@@ -9,7 +11,7 @@ import 'transport.dart';
 import 'types.dart';
 
 final class PgBaseClient {
-  PgBaseClient(Uri baseUri, {httpClient, AuthStore? auth})
+  PgBaseClient(Uri baseUri, {http.Client? httpClient, AuthStore? auth})
     : transport = PgBaseTransport(baseUri, client: httpClient),
       auth = auth ?? AuthStore();
 
@@ -22,6 +24,29 @@ final class PgBaseClient {
   Records records(String collection) => Records(this, collection);
   Files files(String collection, String recordId) =>
       Files(this, collection, recordId);
+
+  /// Submits the compact operation form accepted by PgBase's batch endpoint.
+  Future<JsonObject> batch(
+    List<BatchOperation> operations, {
+    CancellationToken? cancellation,
+  }) => submitBatch(this, operations, cancellation: cancellation);
+
+  /// Submits the HTTP-shaped batch form. Each request is an object with the
+  /// server's `method`, `url`, `body`, and optional `headers` fields.
+  Future<JsonObject> batchRequests(
+    List<JsonObject> requests, {
+    CancellationToken? cancellation,
+  }) async {
+    final response = await request(
+      'POST',
+      '/api/v1/user/collections/batch',
+      body: JsonObject({'requests': JsonArray(requests)}),
+      cancellation: cancellation,
+    );
+    if (response is! JsonObject)
+      throw const PgBaseProtocolError('invalid_batch_response');
+    return response;
+  }
 
   Future<UserSession> register(
     String email,

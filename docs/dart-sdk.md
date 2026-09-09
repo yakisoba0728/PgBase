@@ -30,7 +30,11 @@ revocation and expiry; the SDK never creates a refresh-token flow.
 `PgBaseAdminClient` is separate. It accepts a cookie-capable `package:http`
 client for its target platform and keeps only the CSRF token in memory. It never
 reads a public-user `AuthStore`; same-origin browser administration and native
-cookie configuration are the embedding application's responsibility.
+cookie configuration are the embedding application's responsibility. For a
+same-origin web app construct it with `BrowserClient()` and
+`sendOriginHeader: false`: the browser supplies its own Origin and cookie
+policy. Cross-origin administrator cookies are outside this SDK's supported
+scope; do not use a bearer token as a substitute.
 
 ## Exact values and cancellation
 
