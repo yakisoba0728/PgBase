@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:42 KST
+Last updated: 2026-09-10 04:43 KST
 
 ## Current milestone
 
@@ -19,7 +19,7 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | integrated through `41852b5`; Nash reviews have four P1 fixes open | authority/dependency/pre-DB/cleanup fixes, broader hooks/migrations, external app/browser and stress |
 | N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | through `96b04d0`; data/admin/browser and revoke/logout session 401 green | actual open-SSE revocation and controllable cursor-expired/cancel-upload edges |
-| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | active pre-G3 preparation, `N8.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
+| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | preparation `6d6b907` integrated as `a8e3a86`; `N8.md` only, clean | waiting; G3 then migration/parser/shared seam decision and product signal |
 | N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | preparation `08ce58c`, Windows scope correction `7453dd1`; docs only, blocker none | waiting; product start only on G3 signal |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
 
@@ -87,3 +87,4 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:39 KST — fixed the shortest G3-green boundary: close Nash's two P1s and the `41852b5` delta review; finish N6 hook DTO/patch and migration snapshot/history-sync/cancel-lock; pass one external Go+JS application through PG/file/SMTP/job retry and browser+Dart/Flutter record/ETag/exact-number/SSE; pass focused CPU-loop, queue/quota, cancellation and Close resource checks; close N7 revocation and controllable cursor/upload edges. Full regression and six builds stay at G5. N8 was asked to end preparation with its concise one-file implementation map.
 - 2026-09-10 04:42 KST — integrated Nash's jobs/CLI review-only `fa624bd` as `f02de7b`. It adds two Spec P1s: migration `--js-dir` reaches DB open before invalid JS preflight, and an initial watch stdout failure returns without closing/waiting for the generation. Standards remains clear; all four N6 P1s are with Chandrasekhar and Nash remains assigned for closure.
 - 2026-09-10 04:42 KST — integrated N7 revocation conformance `3e89960` as `96b04d0`. Dedicated `58091` now proves session 401 after administrator revocation and after user logout. Actual already-open SSE cancellation/adoption is still required; cursor-expired and canceled-upload cleanup remain conditional on a deterministic real fixture seam.
+- 2026-09-10 04:43 KST — integrated Euclid's N8 preparation `6d6b907` as `a8e3a86`. The only change is `N8.md`: read-only default and explicitly allowlisted extension-table DML, managed/transitive side-effect rejection, least-privileged role pools, cancel-and-discard, separate durable execution log and transactional receipt, commit reconciliation, exact tagged cells and UI/API seams. It proves a new system migration is required but does not reserve 41 before G3. The proposed no-CGO WASM parser remains conditional on dependency, six-build, artifact/memory, hostile-corpus and license checks.
