@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:17 KST)
+## N6–N9 병렬 실행 — N6/N7 구현·통합 진행 중 (최종 동기화 2026-09-10 04:20 KST)
 
 실행 기준은 [N6–N9 계획](docs/superpowers/plans/2026-09-10-n6-n9-execution.md)과 [통합 상태](docs/workstreams/n6-n9/integration.md)다. 통합 branch `codex/n6-n9-integration`은 설치 기록 commit `117a1db`에서 시작했고 plan-only `133f644`/`8dadf42`를 통합 commit `7cedc6e`/`ff3dada`로 적용했다. 제품 worker branch의 중복 plan commit은 통합에서 제외한다. Astra는 계획·조율만 맡고 제품 코드·검토·테스트는 Sol/Terra가 수행한다.
 
@@ -9,9 +9,9 @@
 | G0 기준·계획 | Sol 통합 | 완료 — N1–N5 PR34 CI5/5·merge `2939f15`, PG17.9/schema40 설치와 후속 기록 `117a1db` 확인 | 완료 단계 재실행 없음 |
 | G1 N6/N7 계약 | N6 Chandrasekhar/Sol, N7 Einstein/Terra, 공통 seam Sol 통합 | 완료 — 독립 worktree/base/파일 소유와 API·검증 계약 고정 | 안정 제품 commit과 focused evidence |
 | G2 N6 구현 | Chandrasekhar/Sol — `internal/jsvm`, typed Go facade, JS options/CLI/hooks/API commons | 도메인 서비스·hook·migration `94b32b3`까지 통합; focused race와 전용 PG17.9 `55469` exact 3-test green, blocker 없음 | durable jobs·migration 확대, CLI·외부 JS 앱·stress·review |
-| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 7건 review fix와 SSE body 오류 fix `46c1930` 통합; Newton 제품 finding 0, analyze·20/20 및 live·Flutter browser green | 실제 `58091` failure matrix·same-origin admin browser |
+| G2 N7 구현 | Einstein/Terra — `sdk/dart`, 전용 scripts/docs/examples | 7건 review fix와 SSE body 오류 fix `46c1930`, review closure `d4598ff` 통합; Standards 0/Spec 0, 통합 archive analyze·20/20 및 live·Flutter browser green | 실제 `58091` failure matrix·same-origin admin browser |
 | G3 N6/N7 통합 | Sol 통합 | 부분 통합 — N6 첫 PG/domain gate와 N7 제품 review closure 반영, plan 중복 skip | N6 잔여 안정 통합, JS↔Dart/Flutter 실제 HTTP·외부 앱 핵심 인수 |
-| G4 N8/N9 병렬 | N8 Sol, N9 Terra; 상세 배정은 Astra 조율 | G3 gate 뒤 시작. 지금 제품 구현 없음 | N8 SQL 인가·불변식·취소, N9 서명·원자 교체·복구 상세 설계와 독립 worktree |
+| G4 N8/N9 병렬 | N8 Euclid/Sol `codex/n8-sql-console`, N9 Sagan/Terra `codex/n9-self-update` | pre-G3 한 문서 seam 조사 중; 제품·deps·DB 변경 없음 | G3 뒤 main의 구현 시작 신호 |
 | G5 최종 인수 | Sol 통합 | 대기 | 전체 unit/race·PG integration·CLI/browser·SDK/native·lint/vet·OpenAPI/generated repro·구조 budget·6 builds |
 
 소유 경계: N6와 N7 worker는 상대 branch와 중앙 문서를 수정하지 않는다. `TODO.md`, `docs/next-work.md`, `docs/project-status.md`, `docs/pocketbase-current-reassessment.md`, 이 통합 상태 문서는 Sol 통합 단독 소유다. 시스템 migration 1–40은 불변이며 신규 schema가 실제로 필요할 때만 통합 lead가 41부터 번호를 배정한다. 현재 N6/N7는 migration을 요청하지 않았다.

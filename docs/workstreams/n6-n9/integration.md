@@ -7,7 +7,7 @@ Baseline: installed-status `117a1db217f2054440529d54a80dab7f58b35d6e`, merged pr
 Plan commits: `133f6448b598d4df706ffbf691f4160a816f385b`, `8dadf42`
 
 Owner: GPT-5.6 Sol integration
-Last updated: 2026-09-10 04:17 KST
+Last updated: 2026-09-10 04:20 KST
 
 ## Current milestone
 
@@ -18,9 +18,9 @@ The branch was created directly from `117a1db`. The two docs-only plans were che
 | Workstream | Worker / branch / worktree | State at 03:38 KST | Integration requirement |
 | --- | --- | --- | --- |
 | N6 | Chandrasekhar, Sol / `codex/n6-jsvm` / `PgBase-worktrees/n6-n9/n6` | domain services/hooks/migrations integrated through `94b32b3`; focused race and isolated PG exact 3-test green, no blocker | durable jobs, broader migrations, CLI, external JS app, stress and review |
-| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | review fixes integrated through `46c1930`; Newton product findings 0, analyze/20 tests and live/browser green | actual `58091` failure matrix and same-origin admin browser |
-| N8 | Sol worker, assignment through Astra after G3 | not started | detailed N8 design/status first; SQL authorization, parser, transaction/cancel/result limits and UI/browser acceptance |
-| N9 | Terra worker, assignment through Astra after G3 | not started | detailed N9 design/status first; signed manifest, atomic replacement, interruption/rollback and native fixture acceptance |
+| N7 | Einstein, Terra / `codex/n7-dart-sdk` / `PgBase-worktrees/n6-n9/n7` | review fixes through `46c1930` and review closure `d4598ff` integrated; Standards 0/Spec 0, integrated archive analyze/20 tests and live/browser green | actual `58091` failure matrix and same-origin admin browser |
+| N8 | Euclid, Sol `01a0879d-2152-7770-89da-2db5b4e51cc9` / `codex/n8-sql-console` / `PgBase-worktrees/n6-n9/n8` | active pre-G3 preparation, `N8.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
+| N9 | Sagan, Terra `01a0879d-21cf-73a0-8762-3db86df2f9f6` / `codex/n9-self-update` / `PgBase-worktrees/n6-n9/n9` | active pre-G3 preparation, `N9.md` only; no product/deps/DB changes | wait after seam inventory; product start only on G3 signal |
 | Integration | GPT-5.6 Sol / this branch | board and plan base ready; N7 404 diagnosed | stable cherry-picks, conflict/API review, cross-feature and final gates, shared docs and final clean commit |
 
 ## Ownership and invariants
@@ -73,3 +73,5 @@ No public release, npm/pub.dev publication, cloud deployment, remote merge or re
 - 2026-09-10 04:17 KST — integrated N6 domain-service/hooks/migrations `712900b` as `94b32b3`. Combined focused race passed for `internal/jsvm`, `pgbase`, and `internal/api`; the integration lead independently reran the dedicated PG17.9 `55469` exact three-test gate and passed real file/SMTP, migration ledger/rollback/Down, and record authorization/hook/idempotency contracts. Durable jobs, broader migration/CLI/external-app/stress/review work remains.
 - 2026-09-10 04:17 KST — integrated N7 second fixes `5983a93` as `2ccdc69` and SSE body-network fix `8ccd9f9` as `46c1930`. Newton's exact re-review closed clear-before-restore, approved-plan immutability, send-time and body-stream network error contracts; Dart analyze and 20 tests passed in the owner/reviewer fixtures. Product review findings are now zero. Actual `58091` failure matrix and same-origin admin browser remain before N7 core acceptance.
 - 2026-09-10 04:17 KST — optional pre-G3 preparation can be assigned without product work: N8 Sol may inventory the existing admin session/origin/CSRF chain and PG parser/dependency/cancel seams into N8 status only; N9 Terra may inventory six-build artifacts, manifest/signature inputs, and platform atomic replacement/rollback seams into N9 status only. Shared docs, migrations and product code remain untouched until the G3 start signal.
+- 2026-09-10 04:20 KST — integrated Newton's final review-only `4c19f7f` as `d4598ff`; bounded N7 result is Standards 0 and Spec 0. On the exact integrated source exported to a disposable archive, dependency resolution, Dart analyze, and all 20 tests passed. The first archive attempt had placed `PUB_CACHE` inside the analyzed tree and was discarded as a fixture error; the corrected cache was outside the source tree.
+- 2026-09-10 04:20 KST — Astra assigned pre-G3 preparation to Euclid/Sol (`01a0879d-2152-7770-89da-2db5b4e51cc9`, `codex/n8-sql-console`, N8 worktree) and Sagan/Terra (`01a0879d-21cf-73a0-8762-3db86df2f9f6`, `codex/n9-self-update`, N9 worktree). Both tasks are active and restricted to their single status document and seam inventory; no product, dependency or database change is authorized before G3.
