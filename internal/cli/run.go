@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/webisnoteasy/PgBase/internal/migrate"
 	"github.com/webisnoteasy/PgBase/internal/observability"
 	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/webisnoteasy/PgBase/internal/selfupdate"
 	"github.com/webisnoteasy/PgBase/pgbase"
 )
 
@@ -152,7 +154,7 @@ func runHealthcheck(ctx context.Context, args []string, _ environment, _ IO) err
 	return nil
 }
 
-func runServe(ctx context.Context, args []string, env environment, streams IO) error {
+func runServe(ctx context.Context, args []string, env environment, streams IO) (runErr error) {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	publicDir := flags.String("public-dir", "", "")
@@ -179,6 +181,19 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 		}
 	})
 	options.Logger = observability.NewJSONLogger(streams.stderr())
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate pgbase executable: %w", err)
+	}
+	serveLock, err := selfupdate.AcquireServeLock(executable)
+	if err != nil {
+		return fmt.Errorf("lock pgbase executable: %w", err)
+	}
+	defer func() {
+		if err := serveLock.Close(); err != nil && runErr == nil {
+			runErr = fmt.Errorf("unlock pgbase executable: %w", err)
+		}
+	}()
 	if options.Backups.Directory != "" {
 		return pgbase.RunManaged(ctx, options)
 	}
