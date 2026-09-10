@@ -128,6 +128,50 @@ func TestPrivateRecordFileHTTPContract(t *testing.T) {
 	}
 }
 
+func TestPublicFileFieldHTTPRevokesOnProtectedToggle(t *testing.T) {
+	app := newPublicUsersAppOptions(t, true, func(options *Options) {
+		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
+	})
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	create := map[string]any{"operation": "create", "name": "public_files", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file", "options": map[string]any{"protected": false}}}}
+	plan := publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/plan", create, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, plan, http.StatusOK)
+	var planned struct {
+		BaseVersion int64  `json:"baseVersion"`
+		Checksum    string `json:"checksum"`
+	}
+	decodePublicUsersJSON(t, plan, &planned)
+	create["baseVersion"], create["checksum"] = planned.BaseVersion, planned.Checksum
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/apply", create, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusCreated)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPut, "/api/admin/collections/public_files/user-access", map[string]any{"enabled": true}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
+	owner := registerPublicUser(t, app, "public-file@example.test", publicUserOnePass)
+	created := publicUsersRequest(t, app, http.MethodPost, "/api/v1/user/collections/public_files/records", map[string]any{"title": "x"}, owner.Token, nil, map[string]string{"Idempotency-Key": "public-file-0001"})
+	assertPublicUsersStatus(t, created, http.StatusCreated)
+	var record struct {
+		ID string `json:"id"`
+	}
+	decodePublicUsersJSON(t, created, &record)
+	upload := multipartFileRequest(t, app, "/api/v1/user/collections/public_files/records/"+record.ID+"/files/attachment", owner.Token, nil, "open.txt", "text/plain", []byte("open"), nil)
+	assertPublicUsersStatus(t, upload, http.StatusCreated)
+	var file struct {
+		ID string `json:"id"`
+	}
+	decodePublicUsersJSON(t, upload, &file)
+	url := "/api/files/" + file.ID
+	open := publicUsersRequest(t, app, http.MethodGet, url, nil, "", nil, nil)
+	assertPublicUsersStatus(t, open, http.StatusOK)
+	if open.Header().Get("Cache-Control") != "no-store" || open.Body.String() != "open" {
+		t.Fatalf("public response cache=%q body=%q", open.Header().Get("Cache-Control"), open.Body.String())
+	}
+	update := map[string]any{"operation": "update", "name": "public_files", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file", "options": map[string]any{"protected": true}}}}
+	plan = publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/plan", update, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, plan, 200)
+	decodePublicUsersJSON(t, plan, &planned)
+	update["baseVersion"], update["checksum"] = planned.BaseVersion, planned.Checksum
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/apply", update, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, url, nil, "", nil, nil), http.StatusNotFound)
+}
+
 func TestHiddenFileFieldRevokesExistingUserTokens(t *testing.T) {
 	app := newPublicUsersAppOptions(t, true, func(options *Options) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, DownloadTokenTTL: time.Minute, AllowedTypes: []string{"text/plain"}}
