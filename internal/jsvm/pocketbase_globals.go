@@ -79,6 +79,24 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 	if err := vm.Set("__pgbaseCompatHost", host); err != nil {
 		return err
 	}
+	if err := vm.Set("__pgbaseSystemServe", func(call goja.FunctionCall) goja.Value {
+		if call.Argument(0) != state.responseHandle || call.Argument(1) != state.requestHandle || state.responseHandle == nil || state.requestHandle == nil {
+			panic(vm.ToValue(map[string]any{"name": "PgBaseError", "code": "invalid_response_handle"}))
+		}
+		if state.responseUsed {
+			panic(vm.ToValue(map[string]any{"name": "PgBaseError", "code": "response_handle_used"}))
+		}
+		method := call.Argument(2).String()
+		if method != "filesystem.serve" && method != "filesystem.localServe" {
+			panic(vm.NewTypeError("invalid filesystem serve method"))
+		}
+		state.responseUsed = true
+		serveMethod := r.hostFunction(vm, state, "filesystem", method)
+		serveMethod(goja.FunctionCall{Arguments: []goja.Value{call.Argument(3)}})
+		return goja.Undefined()
+	}); err != nil {
+		return err
+	}
 	if err := installSecurity(vm); err != nil {
 		return err
 	}
@@ -384,7 +402,7 @@ globalThis.$filesystem={s3:unsupported("$filesystem.s3"),local:(root)=>H.filesys
 const authMailRecord=(record)=>{const value=record&&typeof record.export==="function"?record.export():record||{};const collection=record&&record.collectionName||value.collection||record&&record.collection||"";const recordId=record&&record.id||value.id||"";if(typeof collection!=="string"||typeof recordId!=="string"||!collection||!recordId)throw new TypeError("a Record is required");return {collection,recordId}};
 const authMail=(kind,record,extra={})=>H.authMail.send({kind,...authMailRecord(record),...extra});
 globalThis.$mails={sendRecordPasswordReset:($app,record)=>authMail("passwordReset",record),sendRecordVerification:($app,record)=>authMail("verification",record),sendRecordChangeEmail:($app,record,newEmail)=>authMail("changeEmail",record,{newEmail}),sendRecordOTP:($app,record,otpId,otpPass)=>authMail("otp",record,{otpId,otpPass}),sendRecordAuthAlert:($app,record,alertInfo)=>authMail("authAlert",record,{alertInfo})};
-class ApiError extends Error{constructor(status=500,message="",data={}){super(message);this.status=status;this.data=data}}; globalThis.ApiError=ApiError; globalThis.NotFoundError=class extends ApiError{constructor(m,d){super(404,m,d)}};globalThis.BadRequestError=class extends ApiError{constructor(m,d){super(400,m,d)}};globalThis.ForbiddenError=class extends ApiError{constructor(m,d){super(403,m,d)}};globalThis.UnauthorizedError=class extends ApiError{constructor(m,d){super(401,m,d)}};globalThis.TooManyRequestsError=class extends ApiError{constructor(m,d){super(429,m,d)}};globalThis.InternalServerError=class extends ApiError{constructor(m,d){super(500,m,d)}};
+class ApiError extends Error{constructor(status=0,message="",data=null){super(message);this.status=status;this.data=data}rawData(){return this.data}}; globalThis.ApiError=ApiError; globalThis.NotFoundError=class extends ApiError{constructor(m="The requested resource wasn't found.",d=null){super(404,m,d)}};globalThis.BadRequestError=class extends ApiError{constructor(m="Something went wrong while processing your request.",d=null){super(400,m,d)}};globalThis.ForbiddenError=class extends ApiError{constructor(m="You are not allowed to perform this request.",d=null){super(403,m,d)}};globalThis.UnauthorizedError=class extends ApiError{constructor(m="Missing or invalid authentication.",d=null){super(401,m,d)}};globalThis.TooManyRequestsError=class extends ApiError{constructor(m="Too Many Requests.",d=null){super(429,m,d)}};globalThis.InternalServerError=class extends ApiError{constructor(m="Something went wrong while processing your request.",d=null){super(500,m,d)}};
 const principal=(e)=>e&&(e.principal||(e.requestInfo&&e.requestInfo.auth));
 const middleware=(check,code)=>(next)=>(e)=>{if(!check(e))throw new ApiError(code,code===401?"authentication required":"forbidden");return next(e)};
 const routeResponse=(response)=>response&&typeof response==="object"?response:{status:204};

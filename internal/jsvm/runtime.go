@@ -149,11 +149,14 @@ type Runtime struct {
 }
 
 type callState struct {
-	ctx          context.Context
-	host         Host
-	capabilities map[string]bool
-	hostCalls    *atomic.Int64
-	limits       Limits
+	ctx            context.Context
+	host           Host
+	capabilities   map[string]bool
+	hostCalls      *atomic.Int64
+	limits         Limits
+	requestHandle  *goja.Object
+	responseHandle *goja.Object
+	responseUsed   bool
 }
 
 type executionChainKey struct{}
@@ -422,6 +425,16 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	inputValue, err := decodeValue(vm, input, r.limits.MaximumJSONDepth)
 	if err != nil {
 		return nil, &Error{Code: CodeInvalidResult, cause: err}
+	}
+	if object, ok := inputValue.(*goja.Object); ok {
+		state.requestHandle = vm.NewObject()
+		state.responseHandle = vm.NewObject()
+		if err := object.Set("request", state.requestHandle); err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+		if err := object.Set("response", state.responseHandle); err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
 	}
 	result, err := handler(goja.Undefined(), inputValue)
 	if err != nil {
