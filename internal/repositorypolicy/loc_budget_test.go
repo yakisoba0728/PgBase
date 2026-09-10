@@ -78,7 +78,10 @@ import (
 // completed 68-feature compatibility surface: typed rule predicates, relation
 // expansion, schema compatibility metadata, mutation projections, and the
 // three-line create-denial status distinction found by live integration.
-const dataGroupRuntimeLimit = 24135
+// The completed PocketBase-compatible query/rule/schema tranche establishes
+// this measured ceiling. It includes catalog-aware predicates and nullable auth
+// collection import/export; no package or generated source is excluded.
+const dataGroupRuntimeLimit = 24872
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -346,17 +349,20 @@ type structuralLimit struct {
 // repository measurements. They include auth record/file adapters, extension
 // object/database APIs, recovery settings, SDK-facing routes, and the matching
 // administration UI. No spare allowance or file exclusion is included.
-// The final manage-rule authorization path adds seven runtime lines, and the
-// browser-discovered nil proxy allowlist normalization adds one UI line.
+// The final 232-feature closure establishes the exact values below after the
+// extension facades were split back under the 800-line per-file ceiling. It
+// includes the real PostgreSQL app methods, lifecycle hooks, filesystem/SSE
+// adapters, nullable auth schema, SDK-facing contracts, and administration UI.
+// These values contain no spare allowance or additional exclusions.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 84588, "measured 68-feature compatibility completion"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6878, "measured 68-feature administration UI"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 77, "measured compatibility contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1407, "measured compatibility API"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 59, "measured compatibility services"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 92809, "measured 232-feature closure"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6902, "measured administration UI closure"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 90, "measured compatibility contracts"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1500, "measured compatibility API"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 62, "measured compatibility services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 179, "measured compatibility UI state"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 238, "measured compatibility UI exports"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 239, "measured compatibility UI exports"},
 }
 
 type repositoryMetrics struct {
