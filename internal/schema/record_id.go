@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -30,6 +32,19 @@ type RecordIDPolicy struct {
 }
 
 func DefaultRecordIDPolicy() RecordIDPolicy { return RecordIDPolicy{Kind: RecordIDUUID} }
+
+func normalizedRecordIDJSON(collection *Collection) ([]byte, error) {
+	policy, err := NormalizeRecordIDPolicy(&collection.RecordID)
+	if err != nil {
+		return nil, err
+	}
+	collection.RecordID = policy
+	encoded, err := json.Marshal(policy)
+	if err != nil {
+		return nil, fmt.Errorf("encode record identity policy: %w", err)
+	}
+	return encoded, nil
+}
 
 func DefaultTextRecordIDPolicy() RecordIDPolicy {
 	return RecordIDPolicy{

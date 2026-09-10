@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -276,7 +277,10 @@ func viewReferencesCollection(view Collection, collectionID uuid.UUID) bool {
 func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField) error {
 	for _, candidate := range catalog.Collections {
 		if candidate.IsSQLView() && slices.Contains(candidate.View.Dependencies, sourceID) {
-			return validation("fields", "field_used_by_view")
+			if !sameSQLViewSourceFields(current, desired) {
+				return validation("fields", "field_used_by_view")
+			}
+			continue
 		}
 		if candidate.View == nil || candidate.View.SourceCollectionID != sourceID {
 			continue
@@ -300,4 +304,17 @@ func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[s
 		}
 	}
 	return nil
+}
+
+func sameSQLViewSourceFields(current map[string]PlannedField, desired []PlannedField) bool {
+	if len(current) != len(desired) {
+		return false
+	}
+	for _, field := range desired {
+		stored, ok := current[field.Name]
+		if !ok || !reflect.DeepEqual(stored, field) {
+			return false
+		}
+	}
+	return true
 }

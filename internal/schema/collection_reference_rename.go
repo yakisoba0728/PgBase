@@ -102,7 +102,7 @@ func (s *Store) renameCollectionReferences(ctx context.Context, collectionID uui
 			return fmt.Errorf("rename auth collection rule references: %w", err)
 		}
 	}
-	return nil
+	return s.refreshSQLViewDefinitionsAfterRename(ctx, collectionID, newName)
 }
 
 func renameRuleCollectionReferences(value any, oldName, newName string) bool {

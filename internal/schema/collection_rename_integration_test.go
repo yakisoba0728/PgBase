@@ -142,3 +142,78 @@ func TestCollectionRenameRebuildsRelationObjectsAndUpdatesViewSource(t *testing.
 		t.Fatal(err)
 	}
 }
+
+func TestCollectionRenamePreservesSQLViewOIDBindingAndRefreshesExport(t *testing.T) {
+	pool, service, admin := newSchemaServiceTest(t)
+	ctx := context.Background()
+	source := applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "rename_sql_source", Fields: []FieldInput{{Name: "title", Type: TypeText}}}), admin).Collection
+	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "rename_sql_view", Type: CollectionTypeView,
+		View: &ViewInput{SQL: `select id,title from app.rename_sql_source`}}), admin)
+	if _, err := pool.Exec(ctx, `insert into app.rename_sql_source(id,created_at,updated_at,title) values(gen_random_uuid(),now(),now(),'bound')`); err != nil {
+		t.Fatal(err)
+	}
+
+	change := NewUpdateChange(UpdateCollectionInput{Name: "renamed_sql_source", CollectionID: &source.ID})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Apply(ctx, LegacyApply(change, plan, admin)); err != nil {
+		t.Fatal(err)
+	}
+	var title, storedSQL, physicalSQL string
+	if err := pool.QueryRow(ctx, `select title from app.rename_sql_view`).Scan(&title); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `select views.sql,pg_get_viewdef('app.rename_sql_view'::regclass,true)
+		from pgbase_meta.collection_views views join pgbase_meta.collections collections on collections.id=views.collection_id
+		where collections.name='rename_sql_view'`).Scan(&storedSQL, &physicalSQL); err != nil {
+		t.Fatal(err)
+	}
+	if title != "bound" || storedSQL != physicalSQL || !strings.Contains(storedSQL, "renamed_sql_source") || strings.Contains(storedSQL, "rename_sql_source") {
+		t.Fatalf("title=%q stored=%q physical=%q", title, storedSQL, physicalSQL)
+	}
+	document, err := service.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, ok := documentCollection(document, "rename_sql_view")
+	if !ok || exported.View == nil || !strings.Contains(exported.View.SQL, "renamed_sql_source") {
+		t.Fatalf("SQL view export = %#v", exported)
+	}
+}
+
+func TestCollectionRenameRollsBackTableAndSQLViewRefreshOnMetadataFailure(t *testing.T) {
+	pool, service, admin := newSchemaServiceTest(t)
+	ctx := context.Background()
+	source := applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "rename_rollback_source", Fields: []FieldInput{{Name: "title", Type: TypeText}}}), admin).Collection
+	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "rename_rollback_view", Type: CollectionTypeView,
+		View: &ViewInput{SQL: `select id,title from app.rename_rollback_source`}}), admin)
+	if _, err := pool.Exec(ctx, `create function pgbase_meta.fail_rename_metadata() returns trigger language plpgsql as $$
+		begin raise exception 'injected rename metadata failure'; end $$;
+		create trigger fail_rename_metadata before update of name on pgbase_meta.collections
+		for each row when (old.id='`+source.ID.String()+`'::uuid) execute function pgbase_meta.fail_rename_metadata()`); err != nil {
+		t.Fatal(err)
+	}
+	change := NewUpdateChange(UpdateCollectionInput{Name: "renamed_rollback_source", CollectionID: &source.ID})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Apply(ctx, LegacyApply(change, plan, admin)); err == nil {
+		t.Fatal("rename succeeded through injected metadata failure")
+	}
+	var oldTable, newTable, storedSQL, physicalSQL string
+	if err := pool.QueryRow(ctx, `select coalesce(to_regclass('app.rename_rollback_source')::text,''),coalesce(to_regclass('app.renamed_rollback_source')::text,'')`).Scan(&oldTable, &newTable); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `select views.sql,pg_get_viewdef('app.rename_rollback_view'::regclass,true)
+		from pgbase_meta.collection_views views join pgbase_meta.collections collections on collections.id=views.collection_id
+		where collections.name='rename_rollback_view'`).Scan(&storedSQL, &physicalSQL); err != nil {
+		t.Fatal(err)
+	}
+	if oldTable != "app.rename_rollback_source" || newTable != "" || storedSQL != `select id,title from app.rename_rollback_source` ||
+		!strings.Contains(physicalSQL, "rename_rollback_source") || strings.Contains(physicalSQL, "renamed_rollback_source") {
+		t.Fatalf("old=%q new=%q stored=%q physical=%q", oldTable, newTable, storedSQL, physicalSQL)
+	}
+}

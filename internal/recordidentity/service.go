@@ -233,11 +233,13 @@ func (s *Service) projectRecord(ctx context.Context, db DB, catalog schema.Catal
 		if !ok {
 			return fmt.Errorf("project relation %s: missing target collection", field.Name)
 		}
-		projected, err := s.projectRelationValue(ctx, db, target, record[field.Name])
-		if err != nil {
-			return err
+		if relationValue, present := record[field.Name]; present {
+			projected, err := s.projectRelationValue(ctx, db, target, relationValue)
+			if err != nil {
+				return err
+			}
+			record[field.Name] = projected
 		}
-		record[field.Name] = projected
 		if expands, ok := record["expand"].(map[string]any); ok {
 			switch expanded := expands[field.Name].(type) {
 			case map[string]any:

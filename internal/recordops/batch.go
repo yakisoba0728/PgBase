@@ -29,6 +29,12 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 	if len(request.Operations) == 0 || len(request.Operations) > maximumBatchOperations {
 		return nil, &Error{Code: CodeInvalidRequest}
 	}
+	// Register the membership writer before the batch transaction pins schema
+	// state. Upsert identity resolution also pins that state, and registering a
+	// lazy writer afterward would wait on the transaction that owns the pin.
+	if _, err := s.members.writer(ctx); err != nil {
+		return nil, unavailableMembership(err)
+	}
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
 		hooks.deferAfter = true

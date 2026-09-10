@@ -425,9 +425,9 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 	if collection.ValidationMode == "" {
 		collection.ValidationMode = ValidationModePostgres
 	}
-	recordIDJSON, err := json.Marshal(collection.RecordID)
+	recordIDJSON, err := normalizedRecordIDJSON(&collection)
 	if err != nil {
-		return fmt.Errorf("encode record identity policy: %w", err)
+		return err
 	}
 	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collections
 		(id, name, table_name, compatibility_name, collection_type, system, validation_mode, record_id, status, created_at, updated_at)
@@ -473,12 +473,12 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 	if collection.ValidationMode == "" {
 		collection.ValidationMode = ValidationModePostgres
 	}
-	if err := s.renameCollectionReferences(ctx, collection.ID, collection.Name); err != nil {
+	recordIDJSON, err := normalizedRecordIDJSON(&collection)
+	if err != nil {
 		return err
 	}
-	recordIDJSON, err := json.Marshal(collection.RecordID)
-	if err != nil {
-		return fmt.Errorf("encode record identity policy: %w", err)
+	if err := s.renameCollectionReferences(ctx, collection.ID, collection.Name); err != nil {
+		return err
 	}
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
 		set name=$2, table_name=$3, compatibility_name=nullif($4,''), validation_mode=$5, record_id=$6::jsonb, updated_at = $7
