@@ -18,6 +18,7 @@ export type Query = {
 export type RecordGetOptions = Pick<Query, "expand" | "fields">;
 /** Options accepted by record mutations. */
 export type RecordWriteOptions = Pick<Query, "fields">;
+export type BatchOptions = Pick<Query, "fields">;
 export type RecordEvent = {
   /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
   eventId: string;
@@ -110,7 +111,7 @@ export class AuthStore {
     return this.#generation;
   }
 
-  save(token: string, record: RecordData | null = this.#record): void {
+  save(token: string, record: RecordData | null = null): void {
     this.#token = token;
     this.#record = record;
     this.#generation += 1;
@@ -129,8 +130,10 @@ export class AuthStore {
   /** Encodes token and cached auth record for a server-rendered response cookie. */
   exportToCookie(options: { key?: string; httpOnly?: boolean; secure?: boolean; sameSite?: "Lax" | "Strict" | "None"; path?: string } = {}): string {
     const key = options.key ?? "pb_auth";
+    const path = options.path ?? "/";
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key) || /[;\r\n]/.test(path)) throw new PgBaseError(0, "invalid_cookie_option");
     const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
-    return [`${key}=${payload}`, `Path=${options.path ?? "/"}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+    return [`${key}=${payload}`, `Path=${path}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
   }
 
   /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
@@ -295,12 +298,14 @@ export class PgBaseClient {
     return new Records<T>(this, collection);
   }
 
-  batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], signal?: AbortSignal): Promise<{ results: BatchResult<T>[] }> {
-    return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ operations }) }, signal);
+  batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{ results: BatchResult<T>[] }> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
   }
 
-  batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], signal?: AbortSignal): Promise<{ results: BatchHTTPResult<T>[] }> {
-    return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ requests }) }, signal);
+  batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{ results: BatchHTTPResult<T>[] }> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ requests }) }, requestSignal);
   }
 
   batchMultipart<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], files: Record<string,BatchFilePart>, signal?: AbortSignal): Promise<{ results: BatchHTTPResult<T>[] }> {
@@ -351,8 +356,10 @@ export class PgBaseClient {
   cancelAllRequests(): void { for (const controller of this.requestControllers.values()) controller.abort(); this.requestControllers.clear(); }
 
   /** Low-level request with PocketBase-style request-key auto-cancellation. */
-  send<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
-    return this.request(path, init, this.keyedSignal(options.requestKey, options.signal));
+  async send<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+    const keyed = this.keyedSignal(options.requestKey, options.signal);
+    try { return await this.request(path, init, keyed.signal); }
+    finally { keyed.cleanup(); }
   }
 
   async _response<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<{ body: T; etag?: string }> {
@@ -422,13 +429,14 @@ export class PgBaseClient {
 	return response;
   }
 
-  private keyedSignal(key?: string, signal?: AbortSignal): AbortSignal | undefined {
-    if (!key) return signal;
+  private keyedSignal(key?: string, signal?: AbortSignal): { signal: AbortSignal | undefined; cleanup: () => void } {
+    if (!key || !this.autoCancellation) return { signal, cleanup: () => {} };
     if (this.autoCancellation) this.cancelRequest(key);
     const controller = new AbortController();
     this.requestControllers.set(key, controller);
-    signal?.addEventListener("abort", () => controller.abort(), { once: true });
-    return controller.signal;
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller) this.requestControllers.delete(key); } };
   }
 }
 

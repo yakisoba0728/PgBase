@@ -40,6 +40,7 @@ export type Query = {
 export type RecordGetOptions = Pick<Query, "expand" | "fields">;
 /** Options accepted by record mutations. */
 export type RecordWriteOptions = Pick<Query, "fields">;
+export type BatchOptions = Pick<Query, "fields">;
 export type RecordEvent = {
     /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
     eventId: string;
@@ -208,10 +209,10 @@ export declare class PgBaseClient {
     requestEmailChange(currentPassword: string, newEmail: string, signal?: AbortSignal): Promise<void>;
     confirmEmailChange(token: string, signal?: AbortSignal): Promise<void>;
     records<T extends RecordData = RecordData>(collection: string): Records<T>;
-    batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], signal?: AbortSignal): Promise<{
+    batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{
         results: BatchResult<T>[];
     }>;
-    batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], signal?: AbortSignal): Promise<{
+    batchRequests<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{
         results: BatchHTTPResult<T>[];
     }>;
     batchMultipart<T extends RecordData = RecordData>(requests: BatchHTTPRequest<T>[], files: Record<string, BatchFilePart>, signal?: AbortSignal): Promise<{

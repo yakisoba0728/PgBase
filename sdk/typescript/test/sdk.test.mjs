@@ -142,6 +142,28 @@ try {
   restoredAuth.loadFromCookie(authCookie);
   assert.equal(restoredAuth.token, "first-token");
   assert.equal(restoredAuth.record?.email, "first@example.test");
+  assert.throws(() => client.auth.exportToCookie({ path: "/\r\nInjected: value" }), PgBaseError);
+  client.auth.save("different-token");
+  assert.equal(client.auth.record, null, "a token without a record cannot retain another user's record");
+
+  let aborted = 0;
+  const keyed = new PgBaseClient("http://unused.test", { fetch: (_url, init) => new Promise((resolve, reject) => {
+    if (init.signal?.aborted) { aborted += 1; reject(new DOMException("aborted", "AbortError")); return; }
+    init.signal?.addEventListener("abort", () => { aborted += 1; reject(new DOMException("aborted", "AbortError")); }, { once: true });
+    setTimeout(() => resolve(new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } })), 10);
+  }) });
+  const firstKeyed = keyed.send("/one", {}, { requestKey: "same" });
+  const secondKeyed = keyed.send("/two", {}, { requestKey: "same" });
+  await assert.rejects(firstKeyed, { name: "AbortError" });
+  await secondKeyed;
+  assert.equal(aborted, 1);
+  const alreadyAborted = new AbortController(); alreadyAborted.abort();
+  await assert.rejects(keyed.send("/three", {}, { requestKey: "abort", signal: alreadyAborted.signal }), { name: "AbortError" });
+  keyed.autoCancellation = false;
+  const unkeyedOne = keyed.send("/four", {}, { requestKey: "off" });
+  const unkeyedTwo = keyed.send("/five", {}, { requestKey: "off" });
+  await Promise.all([unkeyedOne, unkeyedTwo]);
+  assert.equal(aborted, 2, "disabling auto cancellation never registers or aborts keyed requests");
 
   const realm = client.realm("members");
 	assert.deepEqual(await realm.methods(), { passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"] });

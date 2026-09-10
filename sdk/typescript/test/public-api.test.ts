@@ -1,4 +1,4 @@
-import type { AuthMethods, AuthRealm, BatchOperation, Query, Records, RecordWriteOptions } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, Query, Records, RecordWriteOptions } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -20,3 +20,5 @@ void realm.methods();
 void realm.refresh();
 void methods.oauthProviders;
 void operations;
+const batchOptions: BatchOptions = { fields: "id,title" };
+void batchOptions;

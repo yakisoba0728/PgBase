@@ -39,7 +39,7 @@ export class AuthStore {
     get generation() {
         return this.#generation;
     }
-    save(token, record = this.#record) {
+    save(token, record = null) {
         this.#token = token;
         this.#record = record;
         this.#generation += 1;
@@ -56,8 +56,11 @@ export class AuthStore {
     /** Encodes token and cached auth record for a server-rendered response cookie. */
     exportToCookie(options = {}) {
         const key = options.key ?? "pb_auth";
+        const path = options.path ?? "/";
+        if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key) || /[;\r\n]/.test(path))
+            throw new PgBaseError(0, "invalid_cookie_option");
         const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
-        return [`${key}=${payload}`, `Path=${options.path ?? "/"}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+        return [`${key}=${payload}`, `Path=${path}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
     }
     /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
     loadFromCookie(cookie, key = "pb_auth") {
@@ -213,11 +216,13 @@ export class PgBaseClient {
     records(collection) {
         return new Records(this, collection);
     }
-    batch(operations, signal) {
-        return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ operations }) }, signal);
+    batch(operations, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
     }
-    batchRequests(requests, signal) {
-        return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ requests }) }, signal);
+    batchRequests(requests, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ requests }) }, requestSignal);
     }
     batchMultipart(requests, files, signal) {
         const body = new FormData();
@@ -262,8 +267,14 @@ export class PgBaseClient {
     cancelAllRequests() { for (const controller of this.requestControllers.values())
         controller.abort(); this.requestControllers.clear(); }
     /** Low-level request with PocketBase-style request-key auto-cancellation. */
-    send(path, init = {}, options = {}) {
-        return this.request(path, init, this.keyedSignal(options.requestKey, options.signal));
+    async send(path, init = {}, options = {}) {
+        const keyed = this.keyedSignal(options.requestKey, options.signal);
+        try {
+            return await this.request(path, init, keyed.signal);
+        }
+        finally {
+            keyed.cleanup();
+        }
     }
     async _response(path, init = {}, signal) {
         const response = await this.fetchResponse(path, init, signal);
@@ -322,14 +333,18 @@ export class PgBaseClient {
         return response;
     }
     keyedSignal(key, signal) {
-        if (!key)
-            return signal;
+        if (!key || !this.autoCancellation)
+            return { signal, cleanup: () => { } };
         if (this.autoCancellation)
             this.cancelRequest(key);
         const controller = new AbortController();
         this.requestControllers.set(key, controller);
-        signal?.addEventListener("abort", () => controller.abort(), { once: true });
-        return controller.signal;
+        if (signal?.aborted)
+            controller.abort();
+        else
+            signal?.addEventListener("abort", () => controller.abort(), { once: true });
+        return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller)
+                this.requestControllers.delete(key); } };
     }
 }
 export class AuthRealm {

@@ -17,8 +17,30 @@ final class PgBaseClient {
 
   final PgBaseTransport transport;
   final AuthStore auth;
+  final Map<String, CancellationToken> _requestControllers = {};
+  bool _autoCancellation = true;
 
   void close() => transport.close();
+
+  /// Enables PocketBase-style cancellation of a previous request with the
+  /// same key.  It is enabled by default.
+  PgBaseClient autoCancellation(bool enabled) {
+    _autoCancellation = enabled;
+    return this;
+  }
+
+  PgBaseClient cancelRequest(String requestKey) {
+    _requestControllers.remove(requestKey)?.cancel();
+    return this;
+  }
+
+  PgBaseClient cancelAllRequests() {
+    for (final token in _requestControllers.values) {
+      token.cancel();
+    }
+    _requestControllers.clear();
+    return this;
+  }
 
   AuthRealm realm(String name) => AuthRealm(this, name);
   Records records(String collection) => Records(this, collection);
@@ -28,19 +50,22 @@ final class PgBaseClient {
   /// Submits the compact operation form accepted by PgBase's batch endpoint.
   Future<JsonObject> batch(
     List<BatchOperation> operations, {
+    String? fields,
     CancellationToken? cancellation,
-  }) => submitBatch(this, operations, cancellation: cancellation);
+  }) => submitBatch(this, operations, fields: fields, cancellation: cancellation);
 
   /// Submits the HTTP-shaped batch form. Each request is an object with the
   /// server's `method`, `url`, `body`, and optional `headers` fields.
   Future<JsonObject> batchRequests(
     List<JsonObject> requests, {
+    String? fields,
     CancellationToken? cancellation,
   }) async {
     final response = await request(
       'POST',
       '/api/v1/user/collections/batch',
       body: JsonObject({'requests': JsonArray(requests)}),
+      query: {if (fields != null) 'fields': fields},
       cancellation: cancellation,
     );
     if (response is! JsonObject)
@@ -51,31 +76,37 @@ final class PgBaseClient {
   /// Submits typed HTTP-shaped batch requests, including PUT upserts.
   Future<JsonObject> batchHttpRequests(
     List<BatchHttpRequest> requests, {
+    String? fields,
     CancellationToken? cancellation,
   }) => batchRequests(
     requests.map((request) => request.value).toList(growable: false),
+    fields: fields,
     cancellation: cancellation,
   );
 
   Future<UserSession> register(
     String email,
     String password, {
+    String? fields,
     CancellationToken? cancellation,
   }) => _authenticate(
     '/api/v1/auth/register',
     email,
     password,
     cancellation: cancellation,
+    fields: fields,
   );
   Future<UserSession> login(
     String email,
     String password, {
+    String? fields,
     CancellationToken? cancellation,
   }) => _authenticate(
     '/api/v1/auth/login',
     email,
     password,
     cancellation: cancellation,
+    fields: fields,
     mfa: true,
   );
   Future<UserSession> session({CancellationToken? cancellation}) async =>
@@ -262,24 +293,58 @@ final class PgBaseClient {
     Map<String, String>? headers,
     Map<String, String>? query,
     CancellationToken? cancellation,
+    String? requestKey,
   }) async {
-    final response = await transport.json(
+    final effectiveCancellation = _requestCancellation(
+      '$method $path',
+      requestKey,
+      cancellation,
+    );
+    try {
+      final response = await transport.json(
       method,
       path,
       headers: headersFor(headers),
       body: body,
       query: query,
-      cancellation: cancellation,
+      cancellation: effectiveCancellation.token,
     );
     if (response.status < 200 || response.status >= 300)
       throw pgBaseError(response);
     if (response.status == 204 || response.bytes.isEmpty)
       return const JsonNull();
-    try {
+      try {
       return decodeExactJson(response.bytes);
     } on PgBaseProtocolError {
-      throw const PgBaseProtocolError('invalid_success_json');
+        throw const PgBaseProtocolError('invalid_success_json');
+      }
+    } finally {
+      effectiveCancellation.dispose();
     }
+  }
+
+  _RequestCancellation _requestCancellation(
+    String fallbackKey,
+    String? key,
+    CancellationToken? external,
+  ) {
+    if (!_autoCancellation || key == null) {
+      return _RequestCancellation(external, () {});
+    }
+    final requestKey = key.isEmpty ? fallbackKey : key;
+    cancelRequest(requestKey);
+    final token = CancellationToken();
+    _requestControllers[requestKey] = token;
+    if (external?.isCancelled ?? false) {
+      token.cancel();
+    } else {
+      external?.whenCancelled.then((_) => token.cancel());
+    }
+    return _RequestCancellation(token, () {
+      if (identical(_requestControllers[requestKey], token)) {
+        _requestControllers.remove(requestKey);
+      }
+    });
   }
 
   Future<RecordResult<JsonObject>> recordRequest(
@@ -340,11 +405,13 @@ final class PgBaseClient {
     String password, {
     CancellationToken? cancellation,
     bool mfa = false,
+    String? fields,
   }) => _completeSession(
     path,
     {'email': JsonString(email), 'password': JsonString(password)},
     cancellation,
     mfa: mfa,
+    fields: fields,
   );
 
   Future<UserSession> _completeSession(
@@ -352,6 +419,7 @@ final class PgBaseClient {
     Map<String, JsonValue> body,
     CancellationToken? cancellation, {
     bool mfa = false,
+    String? fields,
   }) async {
     final generation = auth.generation;
     try {
@@ -360,6 +428,7 @@ final class PgBaseClient {
           'POST',
           path,
           body: JsonObject(body),
+          query: {if (fields != null) 'fields': fields},
           cancellation: cancellation,
         ),
       );
@@ -427,22 +496,26 @@ final class AuthRealm {
   Future<UserSession> register(
     String email,
     String password, {
+    String? fields,
     CancellationToken? cancellation,
   }) => client._authenticate(
     '$_path/register',
     email,
     password,
     cancellation: cancellation,
+    fields: fields,
   );
   Future<UserSession> login(
     String email,
     String password, {
+    String? fields,
     CancellationToken? cancellation,
   }) => client._authenticate(
     '$_path/login',
     email,
     password,
     cancellation: cancellation,
+    fields: fields,
     mfa: true,
   );
   /// Returns the sign-in methods enabled for this auth collection.
@@ -563,6 +636,12 @@ final class AuthRealm {
     );
     return _profileAttributes(response);
   }
+}
+
+final class _RequestCancellation {
+  const _RequestCancellation(this.token, this.dispose);
+  final CancellationToken? token;
+  final void Function() dispose;
 }
 
 UserSession _decodeSession(JsonValue value) {

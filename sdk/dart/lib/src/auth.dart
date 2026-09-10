@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'types.dart';
+import 'errors.dart';
 
 abstract interface class AuthStorage {
   Future<String?> read();
@@ -47,7 +48,7 @@ final class AuthStore {
 
   void _replace(String? value, {User? record}) {
     _token = value;
-    _record = value == null ? null : record ?? _record;
+    _record = value == null ? null : record;
     _generation++;
     if (!_changes.isClosed) _changes.add(_generation);
   }
@@ -70,6 +71,10 @@ final class AuthStore {
   /// Cookie helpers use JSON URI encoding so SSR can hand an auth state to a
   /// browser without relying on a platform-specific storage implementation.
   String exportToCookie({String key = 'pb_auth', String path = '/'}) {
+    if (!RegExp(r"^[!#\$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(key) ||
+        RegExp(r'[;\r\n]').hasMatch(path)) {
+      throw const PgBaseProtocolError('invalid_cookie_option');
+    }
     final record = _record;
     final payload = jsonEncode({
       'token': _token,

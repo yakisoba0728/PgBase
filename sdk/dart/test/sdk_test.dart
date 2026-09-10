@@ -240,6 +240,22 @@ void main() {
     },
   );
 
+  test('request keys cancel the prior Dart request and cancelAll cancels active keys', () async {
+    final httpClient = _KeyedAbortClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final first = client.request('GET', '/one', requestKey: 'same');
+    await httpClient.firstStarted.future;
+    final second = client.request('GET', '/two', requestKey: 'same');
+    await expectLater(first, throwsA(isA<PgBaseCancellation>()));
+    expect(await second, isA<JsonObject>());
+    expect(httpClient.aborted, 1);
+    final third = client.request('GET', '/three', requestKey: 'three');
+    await httpClient.secondStarted.future;
+    client.cancelAllRequests();
+    await expectLater(third, throwsA(isA<PgBaseCancellation>()));
+    expect(httpClient.aborted, 2);
+  });
+
   test('network failures have a stable SDK error type', () async {
     final pgbase = PgBaseClient(
       Uri.parse('http://pgbase.test/'),
@@ -699,6 +715,31 @@ final class _NetworkClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     await request.finalize().drain<void>();
     throw http.ClientException('offline', request.url);
+  }
+}
+
+final class _KeyedAbortClient extends http.BaseClient {
+  final firstStarted = Completer<void>();
+  final secondStarted = Completer<void>();
+  int calls = 0;
+  int aborted = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    calls++;
+    final abortable = request as http.Abortable;
+    if (calls == 2) return Future.value(_jsonResponse(200, {'ok': true}));
+    if (calls == 1) {
+      firstStarted.complete();
+    } else {
+      secondStarted.complete();
+    }
+    final response = Completer<http.StreamedResponse>();
+    abortable.abortTrigger!.then((_) {
+      aborted++;
+      response.completeError(http.RequestAbortedException(request.url));
+    });
+    return response.future;
   }
 }
 

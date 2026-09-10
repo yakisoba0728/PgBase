@@ -255,6 +255,7 @@ final class BatchHttpRequest {
 Future<JsonObject> submitBatch(
   PgBaseClient client,
   List<BatchOperation> operations, {
+  String? fields,
   CancellationToken? cancellation,
 }) async {
   final response = await client.request(
@@ -265,6 +266,7 @@ Future<JsonObject> submitBatch(
         operations.map((operation) => operation.value).toList(growable: false),
       ),
     }),
+    query: {if (fields != null) 'fields': fields},
     cancellation: cancellation,
   );
   if (response is! JsonObject)
