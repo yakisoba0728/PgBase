@@ -142,6 +142,40 @@ func (s *Service) UnlinkOAuthIdentity(ctx context.Context, userID uuid.UUID, pro
 	})
 }
 
+type OAuthIdentitySummary struct {
+	Provider  string    `json:"provider"`
+	Subject   string    `json:"subject"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (s *Service) ListOAuthIdentities(ctx context.Context, userID uuid.UUID) ([]OAuthIdentitySummary, error) {
+	if userID == uuid.Nil {
+		return nil, ErrValidation
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where id=$1)`, userID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	rows, err := s.pool.Query(ctx, `select provider,subject,created_at from pgbase_meta.user_oauth_identities where user_id=$1 order by provider`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OAuthIdentitySummary{}
+	for rows.Next() {
+		var v OAuthIdentitySummary
+		if err := rows.Scan(&v.Provider, &v.Subject, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		v.CreatedAt = v.CreatedAt.UTC()
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (s *Service) BeginOAuthLinkWithProviderRedirect(ctx context.Context, userID uuid.UUID, currentPassword, provider, returnURI, providerRedirectURI string) (OAuthAuthorization, error) {
 	user, hash, err := s.verifyUserPassword(ctx, userID, currentPassword, "oauth-link")
 	if err != nil {

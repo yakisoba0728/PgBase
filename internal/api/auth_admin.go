@@ -22,6 +22,8 @@ type AuthAdministration interface {
 	SetUserVerified(context.Context, uuid.UUID, bool) (userauth.ManagedUser, error)
 	AdminRequestVerification(context.Context, uuid.UUID) error
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
+	ListOAuthIdentities(context.Context, uuid.UUID) ([]userauth.OAuthIdentitySummary, error)
+	UnlinkOAuthIdentity(context.Context, uuid.UUID, string) error
 }
 
 type authAdministrationEndpoints struct{ service AuthAdministration }
@@ -49,7 +51,34 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		write(http.MethodPut, "/api/admin/users/{id}/verification", e.userVerification),
 		write(http.MethodPost, "/api/admin/users/{id}/send-verification", e.sendVerification),
 		write(http.MethodPost, "/api/admin/users/{id}/send-password-reset", e.sendReset),
+		read("/api/admin/users/{id}/oauth-identities", e.userOAuthIdentities),
+		write(http.MethodDelete, "/api/admin/users/{id}/oauth-identities/{provider}", e.userOAuthIdentity),
 	}
+}
+func (e authAdministrationEndpoints) userOAuthIdentities(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		var v []userauth.OAuthIdentitySummary
+		v, err = e.service.ListOAuthIdentities(r.Context(), id)
+		if err == nil {
+			writeJSON(w, http.StatusOK, struct {
+				Items []userauth.OAuthIdentitySummary `json:"items"`
+			}{v})
+			return
+		}
+	}
+	writeAuthAdministrationError(w, r, err)
+}
+func (e authAdministrationEndpoints) userOAuthIdentity(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		err = e.service.UnlinkOAuthIdentity(r.Context(), id, r.PathValue("provider"))
+	}
+	if err != nil {
+		writeAuthAdministrationError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func collectionID(r *http.Request) (uuid.UUID, error) {
