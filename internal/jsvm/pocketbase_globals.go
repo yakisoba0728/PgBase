@@ -59,13 +59,6 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 	if err := vm.Set("__pgbaseCompatHost", host); err != nil {
 		return err
 	}
-	authMail := vm.NewObject()
-	if err := authMail.Set("send", r.hostFunction(vm, state, "mail", "authMail.send")); err != nil {
-		return err
-	}
-	if err := host.Set("authMail", authMail); err != nil {
-		return err
-	}
 	if err := installSecurity(vm); err != nil {
 		return err
 	}
