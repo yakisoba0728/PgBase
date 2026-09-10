@@ -160,6 +160,9 @@ var runtimeSettingsEncryptionSQL string
 //go:embed 000056_admin_email_otps.sql
 var adminEmailOTPsSQL string
 
+//go:embed 000057_extension_objects.sql
+var extensionObjectsSQL string
+
 //go:embed 000052_auth_record_model.sql
 var authRecordModelSQL string
 
@@ -263,6 +266,7 @@ var migrations = []Migration{
 	{Version: 54, Name: "runtime_settings_encryption", SQL: runtimeSettingsEncryptionSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsEncryptionSQL))},
 	{Version: 55, Name: "request_log_context", SQL: requestLogContextSQL, SHA256: sha256.Sum256([]byte(requestLogContextSQL))},
 	{Version: 56, Name: "admin_email_otps", SQL: adminEmailOTPsSQL, SHA256: sha256.Sum256([]byte(adminEmailOTPsSQL))},
+	{Version: 57, Name: "extension_objects", SQL: extensionObjectsSQL, SHA256: sha256.Sum256([]byte(extensionObjectsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

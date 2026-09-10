@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
@@ -18,6 +19,7 @@ const extensionObjectPrefix = "extensions"
 
 type ExtensionObjects struct {
 	store        filestore.ObjectStore
+	pool         *database.Pool
 	maximumBytes int64
 	hooks        *HookRegistry
 }
@@ -49,10 +51,21 @@ func (o *ExtensionObjects) Write(ctx context.Context, namespace, key string, dat
 		return filestore.ErrTooLarge
 	}
 	event := &ExtensionObjectEvent{Namespace: namespace, Key: key, Operation: "write", Size: int64(len(data))}
-	if o.hooks != nil {
-		return o.hooks.Run(ctx, &HookEvent{Kind: HookObjectWrite, Data: event}, func() error { return o.store.Put(ctx, physical, bytes.NewReader(data)) })
+	write := func() error {
+		if err := o.store.Put(ctx, physical, bytes.NewReader(data)); err != nil {
+			return err
+		}
+		parts := strings.Split(physical, "/")
+		_, err := o.pool.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes,updated_at) values($1,$2,$3,$4,CURRENT_TIMESTAMP) on conflict(namespace_hash,key_hash) do update set object_key=excluded.object_key,size_bytes=excluded.size_bytes,updated_at=excluded.updated_at`, parts[1], parts[2], physical, len(data))
+		if err != nil {
+			_ = o.store.Delete(context.WithoutCancel(ctx), physical)
+		}
+		return err
 	}
-	return o.store.Put(ctx, physical, bytes.NewReader(data))
+	if o.hooks != nil {
+		return o.hooks.Run(ctx, &HookEvent{Kind: HookObjectWrite, Data: event}, write)
+	}
+	return write()
 }
 func (o *ExtensionObjects) Read(ctx context.Context, namespace, key string) ([]byte, error) {
 	physical, err := extensionObjectKey(namespace, key)
@@ -61,6 +74,14 @@ func (o *ExtensionObjects) Read(ctx context.Context, namespace, key string) ([]b
 	}
 	if o == nil || o.store == nil {
 		return nil, errors.New("extension object storage unavailable")
+	}
+	parts := strings.Split(physical, "/")
+	var exists bool
+	if err := o.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3)`, parts[1], parts[2], physical).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, filestore.ErrNotFound
 	}
 	r, err := o.store.Open(ctx, physical)
 	if err != nil {
@@ -86,10 +107,15 @@ func (o *ExtensionObjects) Delete(ctx context.Context, namespace, key string) er
 		return errors.New("extension object storage unavailable")
 	}
 	event := &ExtensionObjectEvent{Namespace: namespace, Key: key, Operation: "delete"}
-	if o.hooks != nil {
-		return o.hooks.Run(ctx, &HookEvent{Kind: HookObjectDelete, Data: event}, func() error { return o.store.Delete(ctx, physical) })
+	parts := strings.Split(physical, "/")
+	remove := func() error {
+		_, err := o.pool.Exec(ctx, `delete from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3`, parts[1], parts[2], physical)
+		return err
 	}
-	return o.store.Delete(ctx, physical)
+	if o.hooks != nil {
+		return o.hooks.Run(ctx, &HookEvent{Kind: HookObjectDelete, Data: event}, remove)
+	}
+	return remove()
 }
 func (host *extensionHost) callObjects(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
 	if host.bridge.objects == nil || host.namespace == "" {

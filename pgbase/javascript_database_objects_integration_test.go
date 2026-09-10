@@ -69,6 +69,10 @@ func TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation(t *testing.T
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("persisted objects=%v err=%v", entries, err)
 	}
+	var tracked int
+	if err := fixture.app.pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.extension_objects`).Scan(&tracked); err != nil || tracked != 1 {
+		t.Fatalf("tracked extension objects=%d err=%v", tracked, err)
+	}
 	if err := fixture.app.extensions.objects.Delete(t.Context(), "a.js", "shared"); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +81,9 @@ func TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation(t *testing.T
 	}
 	if _, err := fixture.app.extensions.objects.Read(t.Context(), "a.js", "shared"); err == nil {
 		t.Fatal("deleted logical object remained readable")
+	}
+	if err := fixture.app.pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.extension_objects`).Scan(&tracked); err != nil || tracked != 0 {
+		t.Fatalf("tracked objects after delete=%d err=%v", tracked, err)
 	}
 }
 
