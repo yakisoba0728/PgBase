@@ -187,6 +187,7 @@ type collectionDeleteResponse struct {
 type collectionChangeRequest struct {
 	Operation         string                 `json:"operation"`
 	Name              string                 `json:"name"`
+	CollectionID      *uuid.UUID             `json:"collectionId,omitempty"`
 	CompatibilityName *string                `json:"compatibilityName,omitempty"`
 	Type              *schema.CollectionType `json:"type,omitempty"`
 	System            *bool                  `json:"system,omitempty"`
@@ -348,12 +349,12 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 			if c.Fields != nil || c.Indexes != nil {
 				return schema.Change{}, false
 			}
-			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: view}), true
+			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: view}), true
 		}
-		if c.Fields == nil {
+		if c.Fields == nil && c.CollectionID == nil {
 			return schema.Change{}, false
 		}
-		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
+		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
 	case "delete":
 		return schema.NewDeleteChange(c.Name), true
 	default:

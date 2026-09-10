@@ -16,8 +16,37 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+func TestCollectionScaffoldsAndTruncateHandlersExposeNativeContracts(t *testing.T) {
+	scaffoldResponse := httptest.NewRecorder()
+	(schemaEndpoints{service: &schema.Service{}}).scaffolds(scaffoldResponse, httptest.NewRequest(http.MethodGet, "/api/admin/collections/scaffolds", nil))
+	if scaffoldResponse.Code != http.StatusOK || !strings.Contains(scaffoldResponse.Body.String(), `"base"`) || !strings.Contains(scaffoldResponse.Body.String(), `"auth"`) || !strings.Contains(scaffoldResponse.Body.String(), `"view"`) {
+		t.Fatalf("scaffolds status=%d body=%s", scaffoldResponse.Code, scaffoldResponse.Body.String())
+	}
+
+	records := &fakeRecordService{truncateResult: recordops.TruncateResult{Name: "notes", Truncated: true, RecordsDeleted: 3, FilesDeleted: 2, RelationsDeleted: 1}}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/notes/truncate", strings.NewReader(`{"name":"notes"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.SetPathValue("collection", "notes")
+	request = request.WithContext(context.WithValue(request.Context(), adminPrincipalKey{}, AdminPrincipal{Administrator: validSession().Administrator}))
+	response := httptest.NewRecorder()
+	(schemaEndpoints{records: records}).truncate(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"recordsDeleted":3`) || records.truncateRequest.Collection != "notes" {
+		t.Fatalf("truncate status=%d body=%s request=%#v", response.Code, response.Body.String(), records.truncateRequest)
+	}
+
+	mismatch := httptest.NewRequest(http.MethodPost, "/api/admin/collections/notes/truncate", strings.NewReader(`{"name":"other"}`))
+	mismatch.Header.Set("Content-Type", "application/json")
+	mismatch.SetPathValue("collection", "notes")
+	mismatchResponse := httptest.NewRecorder()
+	(schemaEndpoints{records: records}).truncate(mismatchResponse, mismatch)
+	if mismatchResponse.Code != http.StatusBadRequest {
+		t.Fatalf("mismatch status=%d body=%s", mismatchResponse.Code, mismatchResponse.Body.String())
+	}
+}
 
 func TestCatalogCompatibilityPaginationKeepsNativeEnvelope(t *testing.T) {
 	catalog := schema.Catalog{Version: 5, Collections: map[string]schema.Collection{

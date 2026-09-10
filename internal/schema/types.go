@@ -94,9 +94,22 @@ const (
 )
 
 type IndexInput struct {
-	Name   string   `json:"name"`
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
+	Name   string          `json:"name"`
+	Fields []string        `json:"fields,omitempty"`
+	Unique bool            `json:"unique"`
+	Keys   []IndexKeyInput `json:"keys,omitempty"`
+	Where  string          `json:"where,omitempty"`
+	RawSQL string          `json:"rawSql,omitempty"`
+}
+
+// IndexKeyInput is one btree key. Field and Expression are mutually exclusive.
+// Expressions and partial predicates use PostgreSQL syntax but are accepted
+// only after the planner has parsed and allowlisted their AST.
+type IndexKeyInput struct {
+	Field      string `json:"field,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Collation  string `json:"collation,omitempty"`
+	Order      string `json:"order,omitempty"`
 }
 
 type CreateCollectionInput struct {
@@ -126,6 +139,9 @@ type ViewFilter struct {
 }
 
 type UpdateCollectionInput struct {
+	// CollectionID selects the stable collection identity for a rename. When it
+	// is omitted Name keeps its historical role as both selector and target.
+	CollectionID      *uuid.UUID      `json:"collectionId,omitempty"`
 	Name              string          `json:"name"`
 	CompatibilityName *string         `json:"compatibilityName,omitempty"`
 	Type              *CollectionType `json:"type,omitempty"`
@@ -201,6 +217,7 @@ func cloneIndexInputs(indexes []IndexInput) []IndexInput {
 	cloned := append([]IndexInput(nil), indexes...)
 	for index := range cloned {
 		cloned[index].Fields = append([]string(nil), indexes[index].Fields...)
+		cloned[index].Keys = append([]IndexKeyInput(nil), indexes[index].Keys...)
 	}
 	return cloned
 }
@@ -322,11 +339,14 @@ func (c Collection) AccessCollectionID() uuid.UUID {
 }
 
 type Index struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Fields    []string  `json:"fields"`
-	IndexName string    `json:"indexName"`
-	Unique    bool      `json:"unique"`
+	ID        uuid.UUID       `json:"id"`
+	Name      string          `json:"name"`
+	Fields    []string        `json:"fields"`
+	IndexName string          `json:"indexName"`
+	Unique    bool            `json:"unique"`
+	Keys      []IndexKeyInput `json:"keys,omitempty"`
+	Where     string          `json:"where,omitempty"`
+	RawSQL    string          `json:"rawSql,omitempty"`
 }
 
 type PlannedField struct {
@@ -368,9 +388,12 @@ type PlannedView struct {
 }
 
 type PlannedIndex struct {
-	Name   string   `json:"name"`
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
+	Name   string          `json:"name"`
+	Fields []string        `json:"fields"`
+	Unique bool            `json:"unique"`
+	Keys   []IndexKeyInput `json:"keys,omitempty"`
+	Where  string          `json:"where,omitempty"`
+	RawSQL string          `json:"rawSql,omitempty"`
 }
 
 type Plan struct {

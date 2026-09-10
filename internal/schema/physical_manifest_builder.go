@@ -112,15 +112,11 @@ func (builder *physicalManifestBuilder) addCollection(collection Collection, tab
 		fieldColumns[field.Name] = field.ColumnName
 	}
 	for _, index := range collection.Indexes {
-		columns := make([]string, len(index.Fields))
-		for position, name := range index.Fields {
-			column, ok := fieldColumns[name]
-			if !ok {
-				return ErrConflict
-			}
-			columns[position] = column
+		spec, err := collectionIndexPhysicalSpec(collection, index, fieldColumns)
+		if err != nil {
+			return err
 		}
-		builder.addIndex(applicationPhysicalNamespace, collection.TableName, index.IndexName, columns, index.Unique, false, "")
+		builder.required.Indexes = append(builder.required.Indexes, spec)
 	}
 	return nil
 }

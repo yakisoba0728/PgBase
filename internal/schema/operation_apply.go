@@ -289,7 +289,7 @@ func (s *Service) executeClaimedOperation(
 		}
 		result.Collection = created
 	case changeUpdate:
-		current = catalog.Collections[intent.change.update.Name]
+		current, _ = collectionForUpdate(catalog, intent.change.update)
 		if current.ID == uuid.Nil || current.ID != claim.row.resourceID {
 			return ApplyResult{}, nil, operationRow{}, ErrOperationConflict
 		}
@@ -303,7 +303,7 @@ func (s *Service) executeClaimedOperation(
 		if err != nil {
 			return ApplyResult{}, nil, operationRow{}, err
 		}
-		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		indexes, err := updatedIndexMetadata(plan.Definition.Name, current.Indexes, plan.Definition)
 		if err != nil {
 			return ApplyResult{}, nil, operationRow{}, err
 		}

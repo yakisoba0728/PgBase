@@ -205,6 +205,16 @@ func resolveNewOperationResource(ctx context.Context, tx pgx.Tx, change Change) 
 		}
 		return resourceID, nil
 	}
+	if change.kind == changeUpdate && change.update.CollectionID != nil {
+		var resourceID uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.collections where id = $1`, *change.update.CollectionID).Scan(&resourceID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return uuid.Nil, ErrCollectionNotFound
+			}
+			return uuid.Nil, fmt.Errorf("resolve schema operation collection: %w", err)
+		}
+		return resourceID, nil
+	}
 	name, ok := schemaOperationResourceName(change)
 	if !ok {
 		return uuid.Nil, ErrInvalidOperation

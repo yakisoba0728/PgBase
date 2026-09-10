@@ -97,7 +97,7 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 		collection.CreatedAt = time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC)
 		next.Collections[collection.Name] = collection
 	case changeUpdate:
-		current, ok := next.Collections[change.update.Name]
+		current, ok := collectionForUpdate(next, change.update)
 		if !ok {
 			return Catalog{}, ErrCollectionNotFound
 		}
@@ -117,7 +117,7 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 		}
 		current.Fields = fields
 		current.CompatibilityName, current.Type, current.System, current.ValidationMode = plan.Definition.CompatibilityName, plan.Definition.Type, plan.Definition.System, plan.Definition.ValidationMode
-		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		indexes, err := updatedIndexMetadata(plan.Definition.Name, current.Indexes, plan.Definition)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -125,11 +125,15 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 		if plan.Definition.View != nil {
 			current.View = resolvedViewSpec(plan.Definition.View)
 		}
+		oldName := current.Name
+		current.Name, current.TableName = plan.Definition.Name, plan.Definition.TableName
+		delete(next.Collections, oldName)
 		next.Collections[current.Name] = current
 		for name, dependent := range next.Collections {
 			if dependent.View == nil || dependent.View.SourceCollectionID != current.ID {
 				continue
 			}
+			dependent.View.Source = current.Name
 			for i, value := range dependent.View.Projection {
 				if renamed := renames[value]; renamed != "" {
 					dependent.View.Projection[i] = renamed
@@ -229,6 +233,7 @@ func cloneCatalog(source Catalog) Catalog {
 		collection.Indexes = append([]Index(nil), collection.Indexes...)
 		for index := range collection.Indexes {
 			collection.Indexes[index].Fields = append([]string(nil), collection.Indexes[index].Fields...)
+			collection.Indexes[index].Keys = append([]IndexKeyInput(nil), collection.Indexes[index].Keys...)
 		}
 		if collection.View != nil {
 			view := *collection.View

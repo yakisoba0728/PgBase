@@ -64,7 +64,7 @@ func compilePlan(catalog Catalog, change Change, companions bool) (Plan, error) 
 	case changeCreate:
 		plan, err = planCreate(catalog, change.create, companions)
 	case changeUpdate:
-		current, ok := catalog.Collections[change.update.Name]
+		current, ok := collectionForUpdate(catalog, change.update)
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
@@ -141,7 +141,7 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 		fields = append(fields, planned)
 	}
 
-	indexes, err := planCompoundIndexes(input.Indexes, fields)
+	indexes, err := planCompoundIndexes(input.Name, input.Indexes, fields)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -157,7 +157,19 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 // Field renames are not supported: a name that disappears is a drop and a name
 // that appears is an add.
 func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if input.CollectionID == nil && current.Name != input.Name {
+		return Plan{}, ErrConflict
+	}
+	if input.CollectionID != nil && *input.CollectionID != current.ID {
+		return Plan{}, ErrConflict
+	}
+	if existing, exists := catalog.Collections[input.Name]; exists && existing.ID != current.ID {
+		return Plan{}, validation("name", "duplicate_name")
+	}
 	if current.IsView() {
+		if plan, handled, err := planViewRename(catalog, current, input); handled {
+			return plan, err
+		}
 		if current.IsSQLView() && input.View != nil && input.View.SQL != "" {
 			return planSQLViewUpdate(catalog, current, input)
 		}
@@ -172,7 +184,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
-	if input.Name != current.Name || current.TableName != current.Name {
+	if current.TableName != current.Name {
 		return Plan{}, ErrConflict
 	}
 	if input.Type != nil && *input.Type != current.Type {
@@ -197,6 +209,13 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 	if validationMode != ValidationModePostgres && validationMode != ValidationModePocketBase {
 		return Plan{}, validation("validationMode", "invalid")
+	}
+	if input.Fields == nil && input.CollectionID != nil {
+		var err error
+		input.Fields, err = updateFieldsFromCatalog(catalog, current)
+		if err != nil {
+			return Plan{}, err
+		}
 	}
 	if len(input.Fields) > maximumCollectionFields {
 		return Plan{}, validation("fields", "too_many_fields")
@@ -388,26 +407,46 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	if input.Indexes == nil {
 		preserved := make([]IndexInput, 0, len(current.Indexes))
 		for _, index := range current.Indexes {
-			preserved = append(preserved, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+			preserved = append(preserved, indexInputForCollection(index, input.Name))
 		}
 		var err error
-		indexes, err = planCompoundIndexes(preserved, desired)
+		indexes, err = planCompoundIndexes(input.Name, preserved, desired)
 		if err != nil {
 			return Plan{}, validation("indexes", "referenced_field_changed")
 		}
 	} else {
 		var err error
-		indexes, err = planCompoundIndexes(*input.Indexes, desired)
+		indexes, err = planCompoundIndexes(input.Name, *input.Indexes, desired)
 		if err != nil {
 			return Plan{}, err
 		}
 	}
-	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes, desired)...)
+	comparisonIndexes := current.Indexes
+	if input.Name != current.Name {
+		comparisonIndexes = catalogIndexesForCollection(current.Indexes, input.Name)
+	}
+	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, comparisonIndexes, indexes, desired)...)
+	if input.Name != current.Name {
+		if len(statements) != 0 {
+			return Plan{}, validation("name", "rename_requires_unchanged_definition")
+		}
+		renameStatements, renamedFields, err := renameCollectionStatements(current, input.Name, desired, indexes)
+		if err != nil {
+			return Plan{}, err
+		}
+		desired = renamedFields
+		statements = append(statements, renameStatements...)
+		for index := range desired {
+			if desired[index].Relation != nil && desired[index].Relation.TargetCollectionID != nil && *desired[index].Relation.TargetCollectionID == current.ID {
+				desired[index].Relation.TargetCollection = input.Name
+			}
+		}
+	}
 
 	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, TableName: current.TableName, Fields: desired, Indexes: indexes},
+		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, TableName: input.Name, Fields: desired, Indexes: indexes},
 		Statements:  statements,
 	}, nil
 }
@@ -483,6 +522,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error)
 		Ordinal:  field.Ordinal,
 		Options:  cloneFieldOptions(field.Options),
 		Hidden:   field.Hidden, Presentable: field.Presentable, Help: field.Help,
+		System: field.System,
 	}
 	if field.Type != TypeRelation {
 		if field.Relation != nil {

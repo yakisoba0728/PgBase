@@ -79,6 +79,13 @@ func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result
 			}
 			txctx := WithTransaction(ctx, tx)
 			for i, id := range ids {
+				var exists bool
+				if err = tx.QueryRow(ctx, "select exists(select 1 from "+quotedRecordCollection(collection)+" where id=$1)", id).Scan(&exists); err != nil {
+					return err
+				}
+				if !exists {
+					continue
+				}
 				childRequestID := fmt.Sprintf("%s-%d", request.RequestID, i)
 				if len(childRequestID) > 128 {
 					childRequestID = fmt.Sprintf("truncate-%s-%d", collection.ID.String(), i)

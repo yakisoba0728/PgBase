@@ -714,6 +714,9 @@ type fakeRecordService struct {
 	createRequest                                              recordops.CreateRequest
 	updateRequest                                              recordops.UpdateRequest
 	deleteRequest                                              recordops.DeleteRequest
+	truncateRequest                                            recordops.TruncateRequest
+	truncateResult                                             recordops.TruncateResult
+	truncateErr                                                error
 	listCalls, getCalls, createCalls, updateCalls, deleteCalls int
 }
 
@@ -728,6 +731,11 @@ func (f *fakePocketBaseRecordService) ListPocketBase(_ context.Context, request 
 	f.pbCalls++
 	f.pbRequest = request
 	return f.page, nil
+}
+
+func (f *fakeRecordService) Truncate(_ context.Context, request recordops.TruncateRequest) (recordops.TruncateResult, error) {
+	f.truncateRequest = request
+	return f.truncateResult, f.truncateErr
 }
 
 func (f *fakeRecordService) List(_ context.Context, request recordops.ListRequest) (recordops.RecordPage, error) {

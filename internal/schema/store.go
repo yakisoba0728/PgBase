@@ -16,6 +16,11 @@ type Store struct {
 	db database.DBTX
 }
 
+type storedIndexSpec struct {
+	IndexInput
+	Dependencies []string `json:"dependencies,omitempty"`
+}
+
 var errCatalogIntegrity = errors.New("catalog integrity violation")
 
 func NewStore(db database.DBTX) *Store { return &Store{db: db} }
@@ -287,51 +292,99 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		return Catalog{}, fmt.Errorf("inspect compound index metadata: %w", err)
 	}
 	if hasCompoundIndexes {
-		indexRows, err := s.db.Query(ctx, `select i.id,i.collection_id,i.name,i.index_name,i.is_unique,f.name
-		from pgbase_meta.compound_indexes i join pgbase_meta.compound_index_fields m on m.index_id=i.id
-		join pgbase_meta.fields f on f.id=m.field_id order by i.collection_id,i.name,m.ordinal`)
-		if err != nil {
-			return Catalog{}, fmt.Errorf("read compound indexes: %w", err)
+		var hasAdvancedIndexSpec bool
+		if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='compound_indexes' and column_name='spec')`).Scan(&hasAdvancedIndexSpec); err != nil {
+			return Catalog{}, err
 		}
-		indexLocations := map[uuid.UUID]struct {
-			collection string
-			position   int
-		}{}
-		for indexRows.Next() {
-			var id, collectionID uuid.UUID
-			var name, physical, field string
-			var unique bool
-			if err := indexRows.Scan(&id, &collectionID, &name, &physical, &unique, &field); err != nil {
+		if hasAdvancedIndexSpec {
+			indexRows, err := s.db.Query(ctx, `select id,collection_id,name,index_name,is_unique,spec from pgbase_meta.compound_indexes order by collection_id,name`)
+			if err != nil {
+				return Catalog{}, fmt.Errorf("read advanced indexes: %w", err)
+			}
+			for indexRows.Next() {
+				var id, collectionID uuid.UUID
+				var name, physical string
+				var unique bool
+				var raw []byte
+				if err := indexRows.Scan(&id, &collectionID, &name, &physical, &unique, &raw); err != nil {
+					indexRows.Close()
+					return Catalog{}, err
+				}
+				collectionName, ok := collectionNames[collectionID]
+				if !ok {
+					indexRows.Close()
+					return Catalog{}, errCatalogIntegrity
+				}
+				var spec storedIndexSpec
+				if json.Unmarshal(raw, &spec) != nil || spec.Name != name || spec.Unique != unique {
+					indexRows.Close()
+					return Catalog{}, errCatalogIntegrity
+				}
+				collection := collections[collectionName]
+				dependencies := spec.Dependencies
+				if len(dependencies) == 0 {
+					dependencies = spec.Fields
+				}
+				collection.Indexes = append(collection.Indexes, Index{
+					ID: id, Name: name, IndexName: physical, Unique: unique,
+					Fields: append([]string(nil), dependencies...), Keys: append([]IndexKeyInput(nil), spec.Keys...),
+					Where: spec.Where, RawSQL: spec.RawSQL,
+				})
+				collections[collectionName] = collection
+			}
+			if err := indexRows.Err(); err != nil {
 				indexRows.Close()
 				return Catalog{}, err
 			}
-			collectionName, ok := collectionNames[collectionID]
-			if !ok {
-				indexRows.Close()
-				return Catalog{}, errCatalogIntegrity
-			}
-			collection := collections[collectionName]
-			location, ok := indexLocations[id]
-			if !ok {
-				collection.Indexes = append(collection.Indexes, Index{ID: id, Name: name, IndexName: physical, Unique: unique})
-				location = struct {
-					collection string
-					position   int
-				}{collectionName, len(collection.Indexes) - 1}
-				indexLocations[id] = location
-			}
-			if location.collection != collectionName {
-				indexRows.Close()
-				return Catalog{}, errCatalogIntegrity
-			}
-			collection.Indexes[location.position].Fields = append(collection.Indexes[location.position].Fields, field)
-			collections[collectionName] = collection
-		}
-		if err := indexRows.Err(); err != nil {
 			indexRows.Close()
-			return Catalog{}, err
 		}
-		indexRows.Close()
+		if !hasAdvancedIndexSpec {
+			indexRows, err := s.db.Query(ctx, `select i.id,i.collection_id,i.name,i.index_name,i.is_unique,f.name
+			from pgbase_meta.compound_indexes i join pgbase_meta.compound_index_fields m on m.index_id=i.id
+			join pgbase_meta.fields f on f.id=m.field_id order by i.collection_id,i.name,m.ordinal`)
+			if err != nil {
+				return Catalog{}, fmt.Errorf("read compound indexes: %w", err)
+			}
+			indexLocations := map[uuid.UUID]struct {
+				collection string
+				position   int
+			}{}
+			for indexRows.Next() {
+				var id, collectionID uuid.UUID
+				var name, physical, field string
+				var unique bool
+				if err := indexRows.Scan(&id, &collectionID, &name, &physical, &unique, &field); err != nil {
+					indexRows.Close()
+					return Catalog{}, err
+				}
+				collectionName, ok := collectionNames[collectionID]
+				if !ok {
+					indexRows.Close()
+					return Catalog{}, errCatalogIntegrity
+				}
+				collection := collections[collectionName]
+				location, ok := indexLocations[id]
+				if !ok {
+					collection.Indexes = append(collection.Indexes, Index{ID: id, Name: name, IndexName: physical, Unique: unique})
+					location = struct {
+						collection string
+						position   int
+					}{collectionName, len(collection.Indexes) - 1}
+					indexLocations[id] = location
+				}
+				if location.collection != collectionName {
+					indexRows.Close()
+					return Catalog{}, errCatalogIntegrity
+				}
+				collection.Indexes[location.position].Fields = append(collection.Indexes[location.position].Fields, field)
+				collections[collectionName] = collection
+			}
+			if err := indexRows.Err(); err != nil {
+				indexRows.Close()
+				return Catalog{}, err
+			}
+			indexRows.Close()
+		}
 	}
 
 	for _, collection := range collections {
@@ -400,9 +453,9 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 		collection.ValidationMode = ValidationModePostgres
 	}
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
-		set compatibility_name=nullif($2,''), validation_mode=$3, updated_at = $4
+		set name=$2, table_name=$3, compatibility_name=nullif($4,''), validation_mode=$5, updated_at = $6
 		where id = $1`,
-		collection.ID, collection.CompatibilityName, collection.ValidationMode, updatedAt); err != nil {
+		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.ValidationMode, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
 	}
 	if collection.IsSQLView() {
@@ -656,14 +709,23 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 	}
 	for _, planned := range definition.Indexes {
 		stored, ok := indexMetadata[planned.Name]
-		if !ok || stored.ID == uuid.Nil || stored.IndexName != compoundIndexName(collection.Name, planned.Name) || stored.Unique != planned.Unique || !stringSlicesEqual(stored.Fields, planned.Fields) {
+		if !ok || stored.ID == uuid.Nil || stored.IndexName != compoundIndexName(collection.Name, planned.Name) || !sameIndexDefinition(stored, planned) {
 			return errCatalogIntegrity
 		}
 		indexID := stored.ID
-		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.compound_indexes(id,collection_id,name,index_name,is_unique,created_at) values($1,$2,$3,$4,$5,$6)`, indexID, collection.ID, planned.Name, compoundIndexName(collection.Name, planned.Name), planned.Unique, createdAt); err != nil {
+		spec := storedIndexSpec{IndexInput: IndexInput{Name: planned.Name, Unique: planned.Unique, Keys: append([]IndexKeyInput(nil), planned.Keys...), Where: planned.Where, RawSQL: planned.RawSQL}, Dependencies: append([]string(nil), planned.Fields...)}
+		if len(spec.Keys) == 0 && spec.RawSQL == "" {
+			spec.Fields = append([]string(nil), planned.Fields...)
+			spec.Dependencies = nil
+		}
+		raw, err := json.Marshal(spec)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.compound_indexes(id,collection_id,name,index_name,is_unique,spec,created_at) values($1,$2,$3,$4,$5,$6::jsonb,$7)`, indexID, collection.ID, planned.Name, compoundIndexName(collection.Name, planned.Name), planned.Unique, raw, createdAt); err != nil {
 			return fmt.Errorf("insert compound index metadata: %w", err)
 		}
-		for ordinal, name := range planned.Fields {
+		for ordinal, name := range appendUniqueStrings(nil, planned.Fields...) {
 			fieldID, ok := fieldIDs[name]
 			if !ok {
 				return errCatalogIntegrity

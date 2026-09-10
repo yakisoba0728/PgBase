@@ -121,7 +121,7 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	}
 	switch change.kind {
 	case changeUpdate:
-		current := catalog.Collections[change.update.Name]
+		current, _ := collectionForUpdate(catalog, change.update)
 		relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
 		if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
 			return Plan{}, err
@@ -414,24 +414,16 @@ func validateCatalogIntegrity(catalog Catalog) error {
 		}
 		indexNames := map[string]bool{}
 		for _, index := range collection.Indexes {
-			if index.ID == uuid.Nil || indexNames[index.Name] || index.IndexName != compoundIndexName(collection.Name, index.Name) || len(index.Fields) < 2 || len(index.Fields) > 8 {
+			if index.ID == uuid.Nil || indexNames[index.Name] || index.IndexName != compoundIndexName(collection.Name, index.Name) {
 				return ErrConflict
 			}
 			if err := validateName("", index.Name); err != nil {
 				return ErrConflict
 			}
 			indexNames[index.Name] = true
-			seen := map[string]bool{}
-			for _, name := range index.Fields {
-				if seen[name] || !fieldNames[name] {
-					return ErrConflict
-				}
-				seen[name] = true
-				for _, field := range collection.Fields {
-					if field.Name == name && (field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB || field.Type == TypeGeoPoint || field.Type == TypePassword) {
-						return ErrConflict
-					}
-				}
+			planned, _, err := normalizeIndexInput(collection.Name, indexInputFromCatalog(index), plannedFieldsByName(collection.Fields), "index")
+			if err != nil || !sameIndexDefinition(index, planned) {
+				return ErrConflict
 			}
 		}
 		if collection.View != nil {
@@ -657,7 +649,11 @@ func updatedIndexMetadata(collection string, existing []Index, definition Planne
 				return nil, err
 			}
 		}
-		result = append(result, Index{ID: id, Name: planned.Name, Fields: append([]string(nil), planned.Fields...), IndexName: compoundIndexName(collection, planned.Name), Unique: planned.Unique})
+		result = append(result, Index{
+			ID: id, Name: planned.Name, Fields: append([]string(nil), planned.Fields...),
+			IndexName: compoundIndexName(collection, planned.Name), Unique: planned.Unique,
+			Keys: append([]IndexKeyInput(nil), planned.Keys...), Where: planned.Where, RawSQL: planned.RawSQL,
+		})
 	}
 	return result, nil
 }

@@ -66,8 +66,8 @@ func TestExtensionAppSchemaAppliesIntrospectsTruncatesAndRollsBack(t *testing.T)
 	}
 	table := catalog.Collections["js_schema_items"].TableName
 	if _, err := fixture.app.records.Create(t.Context(), recordops.CreateRequest{
-		Principal: identity.Subject{Kind: identity.Administrator, ID: actor}, RequestID: "schema-create-0001", Collection: "js_schema_items",
-		Input: map[string]json.RawMessage{"title": json.RawMessage(`"before"`)},
+		Principal: identity.Subject{Kind: identity.Administrator, ID: actor}, RequestID: "schema-truncate-record", Collection: "js_schema_items",
+		IdempotencyKey: "js-schema-truncate-record-0001", Input: map[string]json.RawMessage{"title": json.RawMessage(`"before"`)},
 	}); err != nil {
 		t.Fatal(err)
 	}

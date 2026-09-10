@@ -20,7 +20,7 @@ func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Sto
 			collection.CreatedAt = now
 		}
 	case changeUpdate:
-		current = catalog.Collections[change.update.Name]
+		current, _ = collectionForUpdate(catalog, change.update)
 		if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
 			return err
 		}
@@ -28,11 +28,13 @@ func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Sto
 		if fieldErr != nil {
 			return fieldErr
 		}
-		indexes, indexErr := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		indexes, indexErr := updatedIndexMetadata(plan.Definition.Name, current.Indexes, plan.Definition)
 		if indexErr != nil {
 			return indexErr
 		}
-		collection = Collection{ID: current.ID, Name: current.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, TableName: current.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
+		collection = Collection{ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, TableName: plan.Definition.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
+	case changeDelete:
+		current = catalog.Collections[change.deleteName]
 	default:
 		return ErrConflict
 	}
@@ -54,8 +56,10 @@ func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Sto
 	}
 	if change.kind == changeCreate {
 		err = store.InsertCollection(ctx, collection, plan.Definition, now)
-	} else {
+	} else if change.kind == changeUpdate {
 		err = store.UpdateCollection(ctx, collection, plan.Definition, now)
+	} else {
+		err = store.DeleteCollection(ctx, current.ID)
 	}
 	if err != nil {
 		return err

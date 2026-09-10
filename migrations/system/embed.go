@@ -175,6 +175,9 @@ var nullableAuthRulesSQL string
 //go:embed 000062_auth_email_visibility.sql
 var authEmailVisibilitySQL string
 
+//go:embed 000063_advanced_collection_indexes.sql
+var advancedCollectionIndexesSQL string
+
 //go:embed 000052_auth_record_model.sql
 var authRecordModelSQL string
 
@@ -283,6 +286,7 @@ var migrations = []Migration{
 	{Version: 59, Name: "extension_object_inventory", SQL: extensionObjectInventorySQL, SHA256: sha256.Sum256([]byte(extensionObjectInventorySQL))},
 	{Version: 60, Name: "nullable_auth_rules", SQL: nullableAuthRulesSQL, SHA256: sha256.Sum256([]byte(nullableAuthRulesSQL))},
 	{Version: 62, Name: "auth_email_visibility", SQL: authEmailVisibilitySQL, SHA256: sha256.Sum256([]byte(authEmailVisibilitySQL))},
+	{Version: 63, Name: "advanced_collection_indexes", SQL: advancedCollectionIndexesSQL, SHA256: sha256.Sum256([]byte(advancedCollectionIndexesSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a
