@@ -269,6 +269,8 @@ export declare class RealtimeService {
     private clientId?;
     private lastEventId?;
     private running?;
+    private ready?;
+    private resolveReady?;
     constructor(client: PgBaseClient);
     subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>>;
     unsubscribe(topic?: string, listener?: (event: RealtimeEvent) => void): Promise<void>;

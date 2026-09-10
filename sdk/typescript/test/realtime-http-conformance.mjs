@@ -17,9 +17,19 @@ const stopAll = await client.realtime.subscribe(all, (event) => events.push(even
 await client.records(collection).create({ title: `wanted-${suffix}`, ignored: "not requested" }, `rt-conformance-${suffix}`.padEnd(16, "x"));
 for (let wait = 0; wait < 100 && events.length < 2; wait++) await new Promise((resolve) => setTimeout(resolve, 25));
 assert.equal(events.length, 2, "multiplexed filtered and wildcard subscriptions receive the create");
-assert.equal(events[0].record.title, `wanted-${suffix}`);
-assert.equal("ignored" in events[0].record, false, "fields projection reaches realtime payloads");
+const projected = events.find((event) => !("ignored" in event.record));
+assert.equal(projected?.record.title, `wanted-${suffix}`);
 await stopFiltered();
 await stopAll();
+const stoppedCount = events.length;
+await client.records(collection).create({ title: `stopped-${suffix}` }, `rt-stopped-${suffix}`.padEnd(16, "x"));
+await new Promise((resolve) => setTimeout(resolve, 100));
+assert.equal(events.length, stoppedCount, "unsubscribe closes the multiplex connection");
+const resumed = [];
+const stopResumed = await client.realtime.subscribe(all, (event) => resumed.push(event));
+await client.records(collection).create({ title: `resumed-${suffix}` }, `rt-resumed-${suffix}`.padEnd(16, "x"));
+for (let wait = 0; wait < 100 && !resumed.some((event) => event.record.title === `resumed-${suffix}`); wait++) await new Promise((resolve) => setTimeout(resolve, 25));
+assert.ok(resumed.some((event) => event.record.title === `resumed-${suffix}`), "resubscribe reconnects and synchronizes before returning");
+await stopResumed();
 console.log("realtime HTTP conformance passed");
 function required(name) { const value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value; }

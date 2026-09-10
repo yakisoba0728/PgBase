@@ -26,6 +26,7 @@ final class RealtimeService {
   String? _clientId;
   String? _lastEventId;
   Future<void>? _running;
+  Completer<void>? _ready;
 
   Future<Future<void> Function()> subscribe(String topic, void Function(RealtimeEvent) listener) async {
     if (topic.isEmpty) throw const PgBaseProtocolError('invalid_realtime_topic');
@@ -33,6 +34,7 @@ final class RealtimeService {
     (_listeners[topic] ??= {}).add(listener);
     _ensureRunning();
     if (_clientId != null) await _sync();
+    else await _ready!.future;
     return () => unsubscribe(topic, listener);
   }
 
@@ -50,7 +52,11 @@ final class RealtimeService {
     if (_clientId != null) await _sync();
   }
 
-  void _ensureRunning() => _running ??= _run().whenComplete(() => _running = null);
+  void _ensureRunning() {
+    if (_running != null) return;
+    _ready = Completer<void>();
+    _running = _run().whenComplete(() { _running = null; _ready = null; });
+  }
   Future<void> _sync() async {
     await _client.request('POST', '/api/realtime', body: JsonObject({'clientId': JsonString(_clientId!), 'subscriptions': JsonArray(_listeners.keys.map(JsonString.new).toList())}), cancellation: _stop);
   }
@@ -65,7 +71,7 @@ final class RealtimeService {
           if (message.event == 'PB_CONNECT') {
             final id = data['clientId'];
             if (id is! JsonString) throw const PgBaseProtocolError('invalid_realtime_connect');
-            _clientId = id.value; await _sync(); continue;
+            _clientId = id.value; await _sync(); if (!(_ready?.isCompleted ?? true)) _ready!.complete(); continue;
           }
           if (message.id != null) _lastEventId = _cursor(message.id!);
           final topic = message.event; final action = data['action']; final record = data['record'];

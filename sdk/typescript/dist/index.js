@@ -357,6 +357,8 @@ export class RealtimeService {
     clientId;
     lastEventId;
     running;
+    ready;
+    resolveReady;
     constructor(client) {
         this.client = client;
     }
@@ -374,6 +376,8 @@ export class RealtimeService {
         this.ensureRunning();
         if (this.clientId)
             await this.sync();
+        else
+            await this.ready;
         return async () => this.unsubscribe(topic, listener);
     }
     async unsubscribe(topic, listener) {
@@ -395,8 +399,12 @@ export class RealtimeService {
         if (this.clientId)
             await this.sync();
     }
-    ensureRunning() { if (!this.running)
-        this.running = this.run().finally(() => { this.running = undefined; }); }
+    ensureRunning() {
+        if (this.running)
+            return;
+        this.ready = new Promise((resolve) => { this.resolveReady = resolve; });
+        this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; });
+    }
     async sync() { if (this.clientId)
         await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
     async run() {
@@ -412,6 +420,7 @@ export class RealtimeService {
                         if (!this.clientId)
                             throw new PgBaseError(0, "invalid_realtime_connect");
                         await this.sync();
+                        this.resolveReady?.();
                         continue;
                     }
                     if (message.id)

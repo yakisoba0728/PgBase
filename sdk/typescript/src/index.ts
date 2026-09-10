@@ -457,6 +457,8 @@ export class RealtimeService {
   private clientId?: string;
   private lastEventId?: string;
   private running?: Promise<void>;
+  private ready?: Promise<void>;
+  private resolveReady?: () => void;
 
   constructor(private readonly client: PgBaseClient) {}
 
@@ -468,6 +470,7 @@ export class RealtimeService {
     set.add(listener);
     this.ensureRunning();
     if (this.clientId) await this.sync();
+    else await this.ready;
     return async () => this.unsubscribe(topic, listener);
   }
 
@@ -479,7 +482,11 @@ export class RealtimeService {
     if (this.clientId) await this.sync();
   }
 
-  private ensureRunning(): void { if (!this.running) this.running = this.run().finally(() => { this.running = undefined; }); }
+  private ensureRunning(): void {
+    if (this.running) return;
+    this.ready = new Promise<void>((resolve) => { this.resolveReady = resolve; });
+    this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; });
+  }
   private async sync(): Promise<void> { if (this.clientId) await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
   private async run(): Promise<void> {
     const controller = new AbortController();
@@ -489,7 +496,7 @@ export class RealtimeService {
         const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
         for await (const message of parseEventStream(response.body!, controller.signal)) {
           const data = JSON.parse(message.data) as Record<string, unknown>;
-          if (message.event === "PB_CONNECT") { this.clientId = String(data.clientId ?? ""); if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect"); await this.sync(); continue; }
+          if (message.event === "PB_CONNECT") { this.clientId = String(data.clientId ?? ""); if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect"); await this.sync(); this.resolveReady?.(); continue; }
           if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
           const topic = message.event;
           if (!topic) continue;
