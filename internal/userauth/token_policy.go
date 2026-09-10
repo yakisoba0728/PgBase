@@ -92,6 +92,32 @@ func policyTokenValid(raw string) bool {
 	b, e := base64.RawURLEncoding.Strict().DecodeString(body)
 	return e == nil && len(b) == 32 && len(raw) <= maximumTokenBytes
 }
+func (s *Service) sessionHash(ctx context.Context, raw string) ([]byte, error) {
+	p := strings.Split(raw, ".")
+	if len(p) == 1 {
+		if validateToken(raw) != nil {
+			return nil, ErrValidation
+		}
+		return s.tokenHash(raw), nil
+	}
+	if len(p) != 3 {
+		return nil, ErrValidation
+	}
+	realm, e := uuid.Parse(p[0])
+	if e != nil || !policyTokenValid(p[1]+"."+p[2]) {
+		return nil, ErrValidation
+	}
+	var cipher []byte
+	e = s.pool.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose='session'`, realm, p[1]).Scan(&cipher)
+	if e != nil {
+		return nil, ErrInvalidCredentials
+	}
+	key, e := s.decrypt("auth-token-policy:session", cipher)
+	if e != nil {
+		return nil, ErrInvalidCredentials
+	}
+	return keyedDigest(key, "user-session\x00", raw), nil
+}
 func (s *Service) issueActionPolicy(ctx context.Context, userID uuid.UUID, purpose string) (string, []byte, time.Duration, error) {
 	var realm uuid.UUID
 	if e := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&realm); e != nil {

@@ -240,7 +240,8 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	if err := validateToken(rawToken); err != nil {
+	hash, hashErr := s.sessionHash(ctx, rawToken)
+	if hashErr != nil {
 		return Principal{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.sessionSlots)
@@ -249,7 +250,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	defer release()
 	var p Principal
-	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, s.tokenHash(rawToken)).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
+	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalidCredentials
 	}
@@ -265,7 +266,8 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	if err := validateToken(rawToken); err != nil {
+	hash, hashErr := s.sessionHash(ctx, rawToken)
+	if hashErr != nil {
 		return ErrValidation
 	}
 	release, err := admit(s.sessionSlots)
@@ -273,7 +275,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 		return err
 	}
 	defer release()
-	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, s.tokenHash(rawToken))
+	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, hash)
 	if err != nil {
 		return fmt.Errorf("revoke user session: %w", err)
 	}
@@ -343,15 +345,24 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 		return Session{}, fmt.Errorf("generate user session token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	tokenHash := s.tokenHash(token)
 	ttl := s.ttl
 	var configured int
-	if err := db.QueryRow(ctx, `select ttl_seconds from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, user.AuthCollectionID).Scan(&configured); err == nil {
+	var version string
+	var cipher []byte
+	if err := db.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, user.AuthCollectionID).Scan(&configured, &version, &cipher); err == nil {
 		ttl = time.Duration(configured) * time.Second
+		key, err := s.decrypt("auth-token-policy:session", cipher)
+		if err != nil {
+			return Session{}, err
+		}
+		token = user.AuthCollectionID.String() + "." + version + "." + token
+		tokenHash = keyedDigest(key, "user-session\x00", token)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, err
 	}
 	expires := now.Add(ttl)
-	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, s.tokenHash(token), expires, now)
+	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, tokenHash, expires, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("create user session: %w", err)
 	}

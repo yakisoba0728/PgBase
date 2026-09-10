@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,7 +28,7 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 	if collectionID == uuid.Nil {
 		return Session{}, ErrValidation
 	}
-	if err := validateToken(rawToken); err != nil {
+	if _, err := s.sessionHash(ctx, rawToken); err != nil {
 		return Session{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.sessionSlots)
@@ -44,7 +45,26 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		return Session{}, fmt.Errorf("generate refreshed user session token: %w", err)
 	}
 	refreshed := base64.RawURLEncoding.EncodeToString(raw)
+	oldHash, err := s.sessionHash(ctx, rawToken)
+	if err != nil {
+		return Session{}, ErrInvalidCredentials
+	}
 	expires := now.Add(s.ttl)
+	newHash := s.tokenHash(refreshed)
+	var ttlSeconds int
+	var version string
+	var cipher []byte
+	if err := s.pool.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, collectionID).Scan(&ttlSeconds, &version, &cipher); err == nil {
+		key, e := s.decrypt("auth-token-policy:session", cipher)
+		if e != nil {
+			return Session{}, e
+		}
+		expires = now.Add(time.Duration(ttlSeconds) * time.Second)
+		refreshed = collectionID.String() + "." + version + "." + refreshed
+		newHash = keyedDigest(key, "user-session\x00", refreshed)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, err
+	}
 	var user User
 	err = s.pool.QueryRow(ctx, `
 		update pgbase_meta.user_sessions as sessions
@@ -58,7 +78,7 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		  and users.active
 		  and users.auth_collection_id=$4
 		returning users.id,users.auth_collection_id,users.email,users.verified,users.created_at`,
-		s.tokenHash(refreshed), expires, s.tokenHash(rawToken), collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+		newHash, expires, oldHash, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrInvalidCredentials
 	}

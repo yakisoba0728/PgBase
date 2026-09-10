@@ -120,6 +120,40 @@ func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
 	}
 }
 
+func TestConfiguredSessionKeyRoundTripRefreshAndRotation(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	if _, e := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "one", Key: "first-key"}); e != nil {
+		t.Fatal(e)
+	}
+	v, e := s.Register(ctx, "keyed-session@example.test", "Correct horse battery", "keyed")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, v.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	r, e := s.RefreshSessionForCollection(ctx, DefaultCollectionID, v.RawToken)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, r.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Logout(ctx, r.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, r.RawToken); !errors.Is(e, ErrInvalidCredentials) {
+		t.Fatalf("logout=%v", e)
+	}
+	if _, e = s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "two", Key: "second-key"}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, v.RawToken); !errors.Is(e, ErrInvalidCredentials) {
+		t.Fatalf("rotated=%v", e)
+	}
+}
+
 func TestAuthAdministrationNeverReturnsAndPreservesSecrets(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()
