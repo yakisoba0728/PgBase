@@ -158,6 +158,13 @@ func (operation BatchOperation) kind() string {
 }
 
 type RecordPage = query.RecordPage
+type PocketBasePage = query.PocketBasePage
+type PocketBaseListRequest struct {
+	ListRequest
+	Page      int
+	PerPage   int
+	SkipTotal bool
+}
 
 type ErrorCode string
 

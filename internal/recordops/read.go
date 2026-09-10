@@ -32,6 +32,17 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 	return page, err
 }
 
+func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequest) (PocketBasePage, error) {
+	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
+		return PocketBasePage{}, err
+	}
+	return query.ListPocketBase(ctx, s.reader, query.PocketBaseListRequest{ListRequest: query.ListRequest{
+		Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
+		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
+		PocketBaseCompatibility: true, RuleContext: request.RuleContext,
+	}, Page: request.Page, PerPage: request.PerPage, SkipTotal: request.SkipTotal})
+}
+
 func (s *Service) Count(ctx context.Context, request ListRequest) (int64, error) {
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return 0, err

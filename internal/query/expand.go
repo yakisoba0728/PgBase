@@ -213,6 +213,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	}
 	filterNode, err := parseFilterRequest(request.Filter)
 	if request.PocketBaseCompatibility {
+		filterNode, err = parsePocketBaseFilterRequest(request.Filter)
 		filterNode = markPocketBaseLike(filterNode)
 	}
 	if err != nil {
@@ -316,7 +317,7 @@ func (s *Service) readListInTx(
 	}
 	rootRequest := rootPageReadRequest{
 		plan: rootPlan, cursorToken: request.Cursor, limit: request.Limit,
-		operationTime: traversal.TransactionTime, traversal: traversal,
+		operationTime: traversal.TransactionTime, traversal: traversal, offset: request.Offset,
 	}
 	if usage == nil {
 		if multipleRelationFieldCount(collection) != 0 {
@@ -387,6 +388,56 @@ func (s *Service) readListInTx(
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
 		expanded: expanded[:keep], querySteps: usage.querySteps,
 	}, relationOperation, nil
+}
+
+func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode) (int64, error) {
+	stableSort := []SortKey{{Field: systemFieldID}}
+	if err := rejectHiddenQueryFields(collection, request.Principal, filterNode, stableSort); err != nil {
+		return 0, err
+	}
+	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
+		return 0, err
+	}
+	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
+		return 0, err
+	}
+	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, stableSort)
+	if err != nil {
+		return 0, err
+	}
+	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
+		return 0, err
+	}
+	if relationListPlanUsesRelation(relationPlan) {
+		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
+			return 0, err
+		}
+	}
+	plan := plannedRootPlan(filterNode, relationPlan)
+	plan.catalogVersion, plan.principal, plan.ruleContext = catalog.Version, request.Principal, request.RuleContext
+	plan.policyCollection, err = sourcePolicyCollection(catalog, collection)
+	if err != nil {
+		return 0, err
+	}
+	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
+		rules, revision, loadErr := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if loadErr != nil {
+			return 0, loadErr
+		}
+		if revision == 0 && request.Principal.Kind == identity.User {
+			ownerID := request.Principal.ID
+			plan.ownerID = &ownerID
+		} else {
+			plan.rule, plan.ruleRevision = &rules.List, revision
+		}
+	}
+	statement, err := plan.countStatement()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	err = tx.QueryRow(ctx, statement.SQL, statement.Args...).Scan(&total)
+	return total, err
 }
 
 func collectionHasRelation(collection schema.Collection) bool {

@@ -18,6 +18,9 @@ type RecordRequestEvent struct {
 	RecordID       uuid.UUID
 	IdempotencyKey string
 	Limit          int
+	Page           int
+	PerPage        int
+	SkipTotal      bool
 	Cursor         string
 	Filter         string
 	Sort           string

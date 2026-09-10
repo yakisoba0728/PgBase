@@ -99,6 +99,30 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 	}
 }
 
+func TestPocketBasePageAdapterHasExactEnvelopeAndInputs(t *testing.T) {
+	records := &fakePocketBaseRecordService{
+		fakeRecordService: &fakeRecordService{},
+		page:              recordops.PocketBasePage{Page: 3, PerPage: 2, TotalItems: -1, TotalPages: -1, Items: []map[string]any{{"id": "one"}}},
+	}
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?compat=pocketbase&page=3&perPage=2&skipTotal=true&sort=%40rowid", "", true)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != `{"page":3,"perPage":2,"totalItems":-1,"totalPages":-1,"items":[{"id":"one"}]}`+"\n" {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if records.listCalls != 0 || records.pbCalls != 1 || records.pbRequest.Page != 3 || records.pbRequest.PerPage != 2 || !records.pbRequest.SkipTotal || records.pbRequest.Sort != "@rowid" {
+		t.Fatalf("calls native=%d pb=%d request=%+v", records.listCalls, records.pbCalls, records.pbRequest)
+	}
+
+	request = authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?compat=pocketbase&page=nope", "", true)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || records.pbCalls != 1 {
+		t.Fatalf("malformed page status=%d calls=%d body=%s", response.Code, records.pbCalls, response.Body.String())
+	}
+}
+
 func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
 	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{}))
 	for _, test := range []struct {
@@ -691,6 +715,19 @@ type fakeRecordService struct {
 	updateRequest                                              recordops.UpdateRequest
 	deleteRequest                                              recordops.DeleteRequest
 	listCalls, getCalls, createCalls, updateCalls, deleteCalls int
+}
+
+type fakePocketBaseRecordService struct {
+	*fakeRecordService
+	page      recordops.PocketBasePage
+	pbRequest recordops.PocketBaseListRequest
+	pbCalls   int
+}
+
+func (f *fakePocketBaseRecordService) ListPocketBase(_ context.Context, request recordops.PocketBaseListRequest) (recordops.PocketBasePage, error) {
+	f.pbCalls++
+	f.pbRequest = request
+	return f.page, nil
 }
 
 func (f *fakeRecordService) List(_ context.Context, request recordops.ListRequest) (recordops.RecordPage, error) {

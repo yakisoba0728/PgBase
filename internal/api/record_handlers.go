@@ -28,6 +28,10 @@ type RecordService interface {
 	Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error)
 }
 
+type pocketBaseListService interface {
+	ListPocketBase(context.Context, recordops.PocketBaseListRequest) (recordops.PocketBasePage, error)
+}
+
 func ruleRequestContext(r *http.Request) *accessrule.RequestContext {
 	queryValues := map[string][]string{}
 	for key, values := range r.URL.Query() {
@@ -75,7 +79,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields", "compat") {
+	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields", "compat", "page", "perPage", "skipTotal") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -101,24 +105,55 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pbPage, pbRequested, ok := parsePocketBasePage(values)
+	if !ok {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), Limit: limit, Cursor: values.Get("cursor"), Filter: values.Get("filter"), Sort: values.Get("sort"), Expand: values.Get("expand"), Fields: values.Get("fields")}
+	if pbRequested {
+		event.Page, event.PerPage, event.SkipTotal = pbPage.Page, pbPage.PerPage, pbPage.SkipTotal
+	}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "record.list", event)
 	if err != nil {
 		finish(err)
 		writeRecordError(w, r, err)
 		return
 	}
-	if event.Limit < 1 || event.Limit > 200 {
+	if (!pbRequested && (event.Limit < 1 || event.Limit > 200)) || (pbRequested && (event.Page < 1 || event.PerPage < 1 || event.PerPage > 1000)) {
 		finish(errors.New("record list hook produced an invalid limit"))
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	page, err := e.service.List(r.Context(), recordops.ListRequest{
+	request := recordops.ListRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
 		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand, Fields: event.Fields,
 		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
 		RuleContext:             ruleRequestContext(r),
-	})
+	}
+	if pbRequested {
+		service, supported := e.service.(pocketBaseListService)
+		if !supported {
+			finish(errors.New("PocketBase list adapter is unavailable"))
+			writeRecordError(w, r, errors.New("record service is unavailable"))
+			return
+		}
+		page, listErr := service.ListPocketBase(r.Context(), recordops.PocketBaseListRequest{ListRequest: request, Page: event.Page, PerPage: event.PerPage, SkipTotal: event.SkipTotal})
+		finish(listErr)
+		if listErr != nil {
+			writeRecordError(w, r, listErr)
+			return
+		}
+		for index := range page.Items {
+			if err := e.enrich(r.Context(), event.Collection, page.Items[index]); err != nil {
+				writeRecordError(w, r, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, page)
+		return
+	}
+	page, err := e.service.List(r.Context(), request)
 	finish(err)
 	if err != nil {
 		writeRecordError(w, r, err)
@@ -131,6 +166,50 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func parsePocketBasePage(values neturl.Values) (recordops.PocketBaseListRequest, bool, bool) {
+	requested := values.Get("compat") == "pocketbase" && (values.Has("page") || values.Has("perPage") || values.Has("skipTotal"))
+	if !requested {
+		return recordops.PocketBaseListRequest{}, false, true
+	}
+	page, perPage, skipTotal := 1, 30, false
+	var err error
+	if raw := values.Get("page"); raw != "" {
+		page, err = strconv.Atoi(raw)
+		if err != nil {
+			return recordops.PocketBaseListRequest{}, true, false
+		}
+	}
+	if raw := values.Get("perPage"); raw != "" {
+		perPage, err = strconv.Atoi(raw)
+		if err != nil {
+			return recordops.PocketBaseListRequest{}, true, false
+		}
+	}
+	if raw := values.Get("skipTotal"); raw != "" {
+		skipTotal, err = strconv.ParseBool(raw)
+		if err != nil {
+			return recordops.PocketBaseListRequest{}, true, false
+		}
+	}
+	page, perPage = normalizePocketBaseHTTPPage(page, perPage)
+	if page-1 > int(^uint(0)>>1)/perPage {
+		return recordops.PocketBaseListRequest{}, true, false
+	}
+	return recordops.PocketBaseListRequest{Page: page, PerPage: perPage, SkipTotal: skipTotal}, true, true
+}
+
+func normalizePocketBaseHTTPPage(page, perPage int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 30
+	} else if perPage > 1000 {
+		perPage = 1000
+	}
+	return page, perPage
 }
 
 func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {

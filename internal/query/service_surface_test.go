@@ -124,7 +124,10 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// native compiler remains stable. The final integration restores the three
 	// source lines that recognize @collection operands after an older auth-rule
 	// merge removed them; ratchet to that verified surface without spare room.
-	if runtimeLines > 7148 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7148", runtimeLines)
+	// QRY-15 through QRY-17 add the explicit PocketBase offset-page adapter,
+	// special sort rendering, exact authorized SQL count, and JSON-quoted
+	// compatibility operands while preserving List's cursor contract.
+	if runtimeLines > 7395 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7395", runtimeLines)
 	}
 }

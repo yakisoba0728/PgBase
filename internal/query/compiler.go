@@ -114,6 +114,10 @@ func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 }
 
 func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
+	return compileListPageOffset(filter, order, after, fetchLimit, 0, ownerID, policy...)
+}
+
+func compileListPageOffset(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit, offset int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -150,6 +154,9 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	statement += order.orderBy() + " LIMIT " + limit
+	if offset > 0 {
+		statement += " OFFSET " + builder.placeholder(offset)
+	}
 	return Statement{SQL: statement, Args: builder.args}, nil
 }
 

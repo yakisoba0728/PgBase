@@ -442,7 +442,12 @@ func parseSort(input string) ([]SortKey, error) {
 		if strings.HasPrefix(field, "+") {
 			field = strings.TrimPrefix(field, "+")
 		}
-		if !validSortFieldName(field) {
+		if field == "@rowid" {
+			// PostgreSQL has no SQLite rowid. The compatibility adapter gives
+			// this token the documented durable internal-id ordering instead.
+			field = systemFieldID
+		}
+		if field != "@random" && !validSortFieldName(field) {
 			return nil, validation("sort", "invalid_sort")
 		}
 		if _, duplicate := seen[field]; duplicate {

@@ -37,6 +37,16 @@ type orderTerm struct {
 	relationPath *plannedRelationPath
 	nulls        orderNullPlacement
 	indexHint    orderIndexHint
+	random       bool
+}
+
+func (s orderSpec) random() bool {
+	for _, term := range s.terms {
+		if term.random {
+			return true
+		}
+	}
+	return false
 }
 
 func indexedOrderHint(field schema.Field, hint orderIndexHint) (orderIndexHint, bool) {

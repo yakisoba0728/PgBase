@@ -164,6 +164,11 @@ func planRelationFilterGroup(
 func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []SortKey) (orderSpec, error) {
 	terms := make([]orderTerm, 0, len(keys))
 	for _, key := range keys {
+		if key.Field == "@random" {
+			field, _ := filterField(root, systemFieldID)
+			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID}, expression: "random()", cursorField: field, random: true})
+			continue
+		}
 		field, ok := filterField(root, key.Field)
 		inline, isRoot := rootSortField(field)
 		if ok && isRoot && !strings.Contains(key.Field, ".") {
@@ -337,7 +342,7 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 	return prefix + "_" + strconv.Itoa(r.next)
 }
 
-func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding) (Statement, error) {
+func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding, offsets ...int) (Statement, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
@@ -382,6 +387,9 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	}
 	sql += order.orderBy()
 	sql += " LIMIT " + builder.placeholder(fetchLimit)
+	if len(offsets) > 0 && offsets[0] > 0 {
+		sql += " OFFSET " + builder.placeholder(offsets[0])
+	}
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 
@@ -394,6 +402,10 @@ func (s orderSpec) renderRelation(
 	joins := make([]string, 0, len(terms)*maximumRelationSortDepth)
 	for index := range terms {
 		term := &terms[index]
+		if term.random {
+			term.expression = "random()"
+			continue
+		}
 		if term.relationPath != nil && term.relationPath.geoProperty != "" && len(term.relationPath.hops) == 0 {
 			term.expression = geoPointExpression(qualified(rootAlias, term.cursorField.ColumnName), term.relationPath.geoProperty)
 			continue

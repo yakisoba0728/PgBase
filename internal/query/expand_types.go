@@ -32,6 +32,9 @@ type ListRequest struct {
 	Fields                  string
 	PocketBaseCompatibility bool
 	RuleContext             *accessrule.RequestContext
+	// Offset is used only by the explicit PocketBase page adapter. Native
+	// cursor callers leave it zero and retain keyset pagination.
+	Offset int
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,
