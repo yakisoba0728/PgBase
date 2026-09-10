@@ -8,3 +8,4 @@ CREATE TABLE pgbase_meta.auth_token_policies (
   PRIMARY KEY (auth_collection_id,purpose),
   UNIQUE(key_version)
 );
+ALTER TABLE pgbase_meta.user_email_otps ADD COLUMN token_key_version text NOT NULL DEFAULT '';

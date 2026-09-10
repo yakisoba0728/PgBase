@@ -54,6 +54,8 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 	code := fmt.Sprintf("%06d", binary.BigEndian.Uint64(random[:])%1_000_000)
 	id := uuid.MustParse(result.OTPID)
 	var userID uuid.UUID
+	var otpHash []byte
+	var keyVersion string
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
 		var duration, maxAttempts int
@@ -64,8 +66,14 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 			return ErrInvalidCredentials
 		}
 		var configuredTTL int
-		if err := tx.QueryRow(ctx, `select ttl_seconds from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp'`, collectionID).Scan(&configuredTTL); err == nil {
+		var cipher []byte
+		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp'`, collectionID).Scan(&configuredTTL, &keyVersion, &cipher); err == nil {
 			duration = configuredTTL
+			key, e := s.decrypt("auth-token-policy:otp", cipher)
+			if e != nil {
+				return e
+			}
+			otpHash = keyedDigest(key, "email-otp\x00"+id.String()+"\x00", code)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -76,7 +84,10 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 		if _, err := tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where user_id=$1 and consumed_at is null`, userID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_email_otps(id,auth_collection_id,user_id,code_hash,max_attempts,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7)`, id, collectionID, userID, s.digest("email-otp\x00"+id.String()+"\x00", code), maxAttempts, result.ExpiresAt, now)
+		if otpHash == nil {
+			otpHash = s.digest("email-otp\x00"+id.String()+"\x00", code)
+		}
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_email_otps(id,auth_collection_id,user_id,code_hash,token_key_version,max_attempts,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8)`, id, collectionID, userID, otpHash, keyVersion, maxAttempts, result.ExpiresAt, now)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrInvalidCredentials) {
@@ -119,7 +130,8 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 		var user User
 		var stored []byte
 		var attempts, maxAttempts int
-		err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,o.code_hash,o.attempts,o.max_attempts from pgbase_meta.user_email_otps o join pgbase_meta.users u on u.id=o.user_id where o.id=$1 and o.auth_collection_id=$2 and o.consumed_at is null and o.expires_at>CURRENT_TIMESTAMP and u.active for update of o,u`, id, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &stored, &attempts, &maxAttempts)
+		var keyVersion string
+		err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,o.code_hash,o.token_key_version,o.attempts,o.max_attempts from pgbase_meta.user_email_otps o join pgbase_meta.users u on u.id=o.user_id where o.id=$1 and o.auth_collection_id=$2 and o.consumed_at is null and o.expires_at>CURRENT_TIMESTAMP and u.active for update of o,u`, id, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &stored, &keyVersion, &attempts, &maxAttempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			operationErr = ErrInvalidCredentials
 			return nil
@@ -128,6 +140,19 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 			return err
 		}
 		expected := s.digest("email-otp\x00"+id.String()+"\x00", code)
+		if keyVersion != "" {
+			var cipher []byte
+			if e := tx.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp' and key_version=$2`, collectionID, keyVersion).Scan(&cipher); e != nil {
+				operationErr = ErrInvalidCredentials
+				return nil
+			}
+			key, e := s.decrypt("auth-token-policy:otp", cipher)
+			if e != nil {
+				operationErr = ErrInvalidCredentials
+				return nil
+			}
+			expected = keyedDigest(key, "email-otp\x00"+id.String()+"\x00", code)
+		}
 		if !hmac.Equal(stored, expected) {
 			attempts++
 			_, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set attempts=$2,consumed_at=case when $2>=max_attempts then CURRENT_TIMESTAMP else null end where id=$1`, id, attempts)
