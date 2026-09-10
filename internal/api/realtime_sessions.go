@@ -161,6 +161,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		}
 		client.mu.RLock()
 		subscriptions := append([]realtimeSubscription(nil), client.subscriptions...)
+		principal := client.principal
 		client.mu.RUnlock()
 		for index := range subscriptions {
 			sub := &subscriptions[index]
@@ -172,7 +173,11 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: client.principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
+			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
+			relationFilter := errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord)
+			if relationFilter {
+				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, After: sub.cursor})
+			}
 			if err != nil {
 				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
 				_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", payload)
@@ -180,9 +185,18 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			for _, event := range events {
+				if relationFilter {
+					if event.Operation == "delete" {
+						continue
+					}
+					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.RecordID.String() + "'"})
+					if listErr != nil || len(page.Items) == 0 {
+						continue
+					}
+				}
 				record := event.Record
 				if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
-					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: client.principal, RequestID: requestID(r.Context()), Collection: event.Collection, ID: event.RecordID, Expand: sub.expand, Fields: sub.fields})
+					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, ID: event.RecordID, Expand: sub.expand, Fields: sub.fields})
 					if getErr == nil {
 						if expanded, ok := current.Data["expand"]; ok {
 							record["expand"] = expanded
@@ -200,7 +214,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 					}
 					record = projected
 				}
-				messageLifecycle := &RealtimeLifecycleEvent{UserID: client.principal.ID, Principal: client.principal, ClientID: client.id, Collection: event.Collection, Event: &event}
+				messageLifecycle := &RealtimeLifecycleEvent{UserID: principal.ID, Principal: principal, ClientID: client.id, Collection: event.Collection, Event: &event}
 				messageFinish, messageErr := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "message", messageLifecycle)
 				if messageErr != nil {
 					messageFinish(messageErr)

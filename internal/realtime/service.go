@@ -25,6 +25,7 @@ import (
 
 var ErrCursorExpired = errors.New("realtime cursor expired")
 var ErrCursorInvalid = errors.New("realtime cursor invalid")
+var ErrRelationFilterRequiresCurrentRecord = errors.New("realtime relation filter requires current record")
 var errLeaseLost = errors.New("outbox lease lost")
 
 const deliveryLock int64 = 704712092
@@ -311,6 +312,9 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	if request.Filter != "" {
 		filterSQL, filterArgs, compileErr := query.CompileRecordPredicate(collection, request.Filter, "acl_record", 2+len(args))
 		if compileErr != nil {
+			if relationFilterUnsupported(compileErr) {
+				return "", nil, schema.Collection{}, ErrRelationFilterRequiresCurrentRecord
+			}
 			return "", nil, schema.Collection{}, compileErr
 		}
 		predicate = "(" + predicate + ") AND (" + filterSQL + ")"
@@ -328,6 +332,19 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	}
 	statement += ` AND (` + predicate + `) ORDER BY event.sequence LIMIT 100`
 	return statement, append(base, args...), collection, nil
+}
+
+func relationFilterUnsupported(err error) bool {
+	var validationError *query.ValidationError
+	if !errors.As(err, &validationError) {
+		return false
+	}
+	for _, detail := range validationError.Details {
+		if detail.Field == "filter" && detail.Code == "relation_filter_unsupported" {
+			return true
+		}
+	}
+	return false
 }
 
 func publicSnapshot(collection schema.Collection, raw []byte) (map[string]any, error) {
