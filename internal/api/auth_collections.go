@@ -266,10 +266,10 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 	}
 	id, err := uuid.Parse(r.PathValue("id"))
 	var in struct {
-		RegistrationEnabled *bool                        `json:"registrationEnabled"`
-		ProfileSchema       *map[string]string           `json:"profileSchema"`
-		Fields              []schema.FieldInput          `json:"fields"`
-		Rules               userauth.AuthCollectionRules `json:"rules"`
+		RegistrationEnabled *bool                         `json:"registrationEnabled"`
+		ProfileSchema       *map[string]string            `json:"profileSchema"`
+		Fields              []schema.FieldInput           `json:"fields"`
+		Rules               *userauth.AuthCollectionRules `json:"rules"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil || (in.ProfileSchema == nil && in.Fields == nil) {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
@@ -279,7 +279,29 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 	if in.ProfileSchema != nil {
 		legacy = *in.ProfileSchema
 	}
-	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: in.Rules})
+	rules := userauth.AuthCollectionRules{}
+	if in.Rules != nil {
+		rules = *in.Rules
+	} else {
+		values, listErr := e.dependencies.AuthCollections.ListAuthCollections(r.Context())
+		if listErr != nil {
+			writeAuthCollectionError(w, r, listErr)
+			return
+		}
+		found := false
+		for _, value := range values {
+			if value.ID == id {
+				rules = value.Rules
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeAuthCollectionError(w, r, userauth.ErrNotFound)
+			return
+		}
+	}
+	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: rules})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return

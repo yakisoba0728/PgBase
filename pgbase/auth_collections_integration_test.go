@@ -3,11 +3,29 @@
 package pgbase
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
 )
+
+func TestAuthCollectionHTTPPreservesNullAndEmptyRules(t *testing.T) {
+	app := newPublicUsersApp(t, true)
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	id := uuid.New()
+	response := publicUsersRequest(t, app, http.MethodPost, "/api/admin/auth-collections", map[string]any{"id": id.String(), "name": "nullable_http_" + id.String()[:8], "registrationEnabled": true, "fields": []any{}, "rules": map[string]any{"list": nil, "view": "", "create": "", "update": "", "delete": "", "auth": nil, "manage": nil}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, response, http.StatusCreated)
+	var body struct {
+		Rules map[string]*json.RawMessage `json:"rules"`
+	}
+	decodePublicUsersJSON(t, response, &body)
+	if body.Rules["auth"] != nil || body.Rules["manage"] != nil || body.Rules["list"] != nil || body.Rules["view"] == nil || string(*body.Rules["view"]) != `""` {
+		t.Fatalf("rules=%s", response.Body.String())
+	}
+	denied := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/nullable_http_"+id.String()[:8]+"/register", map[string]any{"email": "locked-http@example.test", "password": publicUserOnePass}, "", nil, nil)
+	assertPublicUsersStatus(t, denied, http.StatusUnauthorized)
+}
 
 func TestAuthCollectionHTTPIsolationAndProfile(t *testing.T) {
 	app := newPublicUsersApp(t, true)

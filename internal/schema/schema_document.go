@@ -21,8 +21,9 @@ const SchemaDocumentFormat = "pgbase.schema/v1"
 // SchemaDocument is a portable logical schema. Database IDs, physical names,
 // timestamps and policy revisions are deliberately absent.
 type SchemaDocument struct {
-	Format      string                     `json:"format"`
-	Collections []SchemaDocumentCollection `json:"collections"`
+	Format          string                         `json:"format"`
+	Collections     []SchemaDocumentCollection     `json:"collections"`
+	AuthCollections []SchemaDocumentAuthCollection `json:"authCollections,omitempty"`
 }
 
 type SchemaDocumentCollection struct {
@@ -90,6 +91,7 @@ func (s *Service) ExportSchema(ctx context.Context) (SchemaDocument, error) {
 			}
 			doc.Collections = append(doc.Collections, item)
 		}
+		doc.AuthCollections, err = exportDocumentAuthCollections(ctx, tx)
 		return nil
 	})
 	return doc, err
@@ -168,8 +170,11 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	if document.Format != SchemaDocumentFormat {
 		return SchemaImportPlan{}, validation("format", "unsupported")
 	}
-	if len(document.Collections) == 0 {
+	if len(document.Collections) == 0 && len(document.AuthCollections) == 0 {
 		return SchemaImportPlan{}, validation("collections", "required")
+	}
+	if err := validateDocumentAuthCollections(document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
 	}
 	document = cloneSchemaDocument(document)
 	changes, err := importChanges(catalog, document)
@@ -281,7 +286,21 @@ func schemaPolicyChecksum(ctx context.Context, tx pgx.Tx, catalog Catalog, docum
 		values = append(values, entry)
 	}
 	sort.Slice(values, func(i, j int) bool { return values[i].Name < values[j].Name })
-	raw, err := json.Marshal(values)
+	authState := []json.RawMessage{}
+	for _, item := range document.AuthCollections {
+		var raw []byte
+		err := tx.QueryRow(ctx, `select jsonb_build_object('name',c.name,'updated',c.updated_at,'policyUpdated',p.updated_at,'rules',jsonb_build_object('list',c.list_rule,'view',c.view_rule,'create',c.create_rule,'update',c.update_rule,'delete',c.delete_rule,'auth',c.auth_rule,'manage',c.manage_rule)) from pgbase_meta.auth_collections c join pgbase_meta.auth_collection_policies p on p.auth_collection_id=c.id where c.name=$1`, item.Name).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		if err == nil {
+			authState = append(authState, raw)
+		}
+	}
+	raw, err := json.Marshal(struct {
+		Collections []state           `json:"collections"`
+		Auth        []json.RawMessage `json:"auth"`
+	}{values, authState})
 	if err != nil {
 		return "", err
 	}
@@ -701,6 +720,9 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 			if _, err := tx.Exec(ctx, `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb) on conflict(collection_id) do update set rules=excluded.rules,revision=pgbase_meta.collection_rules.revision+1,updated_at=clock_timestamp()`, collection.ID, string(item.Rules)); err != nil {
 				return err
 			}
+		}
+		if err := s.applyDocumentAuthCollections(ctx, tx, planned.Document.AuthCollections); err != nil {
+			return err
 		}
 		persisted, err := store.ReadCatalog(ctx, catalog.Version)
 		if err != nil {

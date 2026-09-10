@@ -48,6 +48,7 @@ type Service struct {
 	compilerVersion     int16
 	collectionLifecycle CollectionMutationLifecycle
 	migrationRecorder   MigrationRecorder
+	authSecret          []byte
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
@@ -58,7 +59,7 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 	if len(cursorSecret) != 0 {
 		operationCursorSecret = cursorSecret[0]
 	}
-	return &Service{
+	service := &Service{
 		pool: pool, cache: cache, recorder: recorder,
 		operationCursors:    newSchemaOperationCursorCodec(operationCursorSecret),
 		now:                 time.Now,
@@ -68,6 +69,10 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 		catalogWireLimit:    maximumCatalogWireBytes,
 		compilerVersion:     schemaCompilerVersion,
 	}
+	if len(cursorSecret) != 0 {
+		service.authSecret = append([]byte(nil), cursorSecret[0]...)
+	}
+	return service
 }
 
 func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err error) {
