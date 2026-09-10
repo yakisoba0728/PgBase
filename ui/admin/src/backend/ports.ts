@@ -35,6 +35,8 @@ export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "t
 export const relationCardinalities = ["single", "multiple"] as const;
 export const relationDeleteActions = ["restrict", "cascade", "set_null"] as const;
 export type FieldType = typeof fieldTypes[number];
+export const collectionTypes = ["base", "auth", "view"] as const;
+export type CollectionType = typeof collectionTypes[number];
 export type RelationCardinality = typeof relationCardinalities[number];
 export type RelationDeleteAction = typeof relationDeleteActions[number];
 
@@ -42,7 +44,10 @@ interface RelationInput { targetCollection: string; cardinality: RelationCardina
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
 export interface FieldOptions { maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean; minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url"; allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
-export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput }
+// System fields are supplied by a trusted server template. The designer keeps
+// the flag through a duplicate or scaffold apply; it is never inferred from a
+// field name in the browser.
+export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; system?: boolean; help?: string; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
@@ -52,11 +57,11 @@ export type SQLViewDefinition = { sql: string; dependencies?: string[]; source?:
 export type ViewDefinition =
 	| { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter; sql?: never; dependencies?: never }
 	| SQLViewDefinition;
-export interface CollectionDefinition { id?: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export interface CollectionDefinition { id?: string; name: string; tableName: string; type?: CollectionType; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
 export type CollectionChange =
-	| { operation: "create"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
-	| { operation: "update"; name: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
-	| { operation: "update"; name: string; view: SQLViewDefinition; fields?: never; indexes?: never }
+  | { operation: "create"; name: string; type?: CollectionType; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+  | { operation: "update"; name: string; type?: CollectionType; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+  | { operation: "update"; name: string; type?: CollectionType; view: SQLViewDefinition; fields?: never; indexes?: never }
 	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 
 // A Map keyed by own entries, so a collection named `constructor` or
@@ -270,14 +275,18 @@ export interface SchemaPort {
 	importStatus?(operationId: string, signal?: AbortSignal): Promise<SchemaImportResult>;
 	/** Validates a prospective SQL view without storing it and returns its bounded sample. */
 	sampleView?(query: string, signal?: AbortSignal): Promise<{ fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] }>;
-	/** Returns server-owned starting documents for the three supported collection kinds. */
-	scaffolds?(signal?: AbortSignal): Promise<{ base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection }>;
+  /** Returns server-owned starting documents for the three supported collection kinds. */
+	scaffolds?(signal?: AbortSignal): Promise<CollectionScaffolds>;
 	/** Removes every record from one base collection after an exact typed confirmation. */
 	truncate?(collection: string, confirmation: string, signal?: AbortSignal): Promise<{ name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number }>;
 }
-export interface SchemaDocumentCollection { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
-export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] }
-export interface SchemaImportPreviewChange { operation: string; baseVersion: number; definition: { name: string; tableName: string; fields: PlannedField[] }; sql: string[] }
+export interface SchemaDocumentCollection { name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
+export interface SchemaDocumentAuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; maximumPasswordBytes: number; passwordPattern: string; identityFields: string[]; mfaEnabled: boolean; mfaDurationSeconds: number; mfaRule: string; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
+export interface SchemaDocumentAuthCollection { name: string; registrationEnabled: boolean; fields: FieldInput[]; rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number> }
+export interface AuthCollectionScaffold { collection: SchemaDocumentCollection; authCollection: SchemaDocumentAuthCollection }
+export interface CollectionScaffolds { base: SchemaDocumentCollection; auth: AuthCollectionScaffold; view: SchemaDocumentCollection }
+export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; authCollections?: SchemaDocumentAuthCollection[] }
+export interface SchemaImportPreviewChange { operation: string; baseVersion: number; definition: { name: string; tableName: string; type?: CollectionType; fields: PlannedField[] }; sql: string[] }
 export interface SchemaImportPlan { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaImportPreviewChange[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string }
 export interface SchemaImportResult { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version: number; applied: number }
 export interface RecordRules { collection: string; rules: Record<string, unknown>; revision: number }

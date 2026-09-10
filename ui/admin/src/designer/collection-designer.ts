@@ -7,14 +7,18 @@ import {
   SchemaError,
   type CollectionChange,
   type CollectionDefinition,
+  type AuthCollectionScaffold,
   type CompoundIndex,
   type FieldInput,
   type FieldType,
+  type CollectionType,
   type PlannedChange,
   type PlannedField,
   type RelationCardinality,
   type RelationDeleteAction,
-	 type SchemaDocumentCollection,
+  type SchemaDocument,
+  type SchemaDocumentCollection,
+  type SchemaImportPlan,
   type ViewDefinition,
 } from "../backend/ports";
 import { fieldOptionsInput, draftFieldOptions, type DraftFieldOptions } from "./field-options";
@@ -32,6 +36,7 @@ export interface DraftField {
   name: string; type: FieldType;
   required: boolean; unique: boolean; indexed: boolean;
   hidden?: boolean; presentable?: boolean; help?: string;
+  system?: boolean;
   hasDefault: boolean; defaultText: string; relation?: DraftRelation;
   // Keeps an explicit self choice from being inferred from a half-typed name.
   selfRelation?: boolean;
@@ -56,7 +61,7 @@ const appliedText = "The change was applied. The edits you made after sending it
 const createdText = "The collection was created. The edits you made after sending it are not part of it and are not saved — open the collection from the list to apply them.";
 
 const newRelation = (): DraftRelation => ({ targetCollection: "", cardinality: "single", minSelect: "0", maxSelect: "1", onDelete: "restrict" });
-const newField = (): DraftField => ({ name: "", type: "text", required: false, unique: false, indexed: false, hidden: false, presentable: false, help: "", hasDefault: false, defaultText: "" });
+const newField = (): DraftField => ({ name: "", type: "text", required: false, unique: false, indexed: false, hidden: false, presentable: false, system: false, help: "", hasDefault: false, defaultText: "" });
 
 function parseDefault(type: FieldType, value: string): unknown {
   if (type === "boolean") {
@@ -109,7 +114,7 @@ function relationInput(field: DraftField, index: number): FieldInput["relation"]
   return { targetCollection: relation.targetCollection, cardinality: relation.cardinality, minSelect, maxSelect, onDelete: relation.onDelete };
 }
 
-export function buildInput(operation: "create" | "update", name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition): CollectionChange {
+export function buildInput(operation: "create" | "update", name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition, type?: CollectionType): CollectionChange {
   if (indexes !== undefined) {
     for (const index of indexes) {
       if (index.name.trim() === "" || index.fields.length < 2 || index.fields.length > 8) throw new DraftError("Each compound index needs a name and two to eight fields.");
@@ -128,6 +133,7 @@ export function buildInput(operation: "create" | "update", name: string, fields:
 			if (Array.from(field.help ?? "").length > 300) throw new DraftError(`Field ${index + 1} help must be at most 300 characters.`);
 			if (field.hidden && field.presentable) throw new DraftError(`Field ${index + 1} cannot be hidden and presentable.`);
 			const base: FieldInput = { name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed };
+			if (field.system) base.system = true;
 			if (field.hidden) base.hidden = true;
 			if (field.presentable) base.presentable = true;
 			if (field.help) base.help = field.help;
@@ -137,7 +143,7 @@ export function buildInput(operation: "create" | "update", name: string, fields:
 			if (field.type === "relation") return { ...base, relation: relationInput(field, index) };
 			return field.hasDefault ? { ...base, default: parseDefault(field.type, field.defaultText) } : base;
 	});
-	return { operation, name, fields: fieldInputs, ...(indexes === undefined ? {} : { indexes }) };
+	return { operation, name, fields: fieldInputs, ...(indexes === undefined ? {} : { indexes }), ...(type === undefined ? {} : { type }) };
 }
 
 export function previewField(field: PlannedField): string {
@@ -180,6 +186,7 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
       unique: field.unique,
       indexed: field.indexed,
       hidden: field.hidden, presentable: field.presentable, help: field.help,
+			system: field.system,
       hasDefault: field.default !== undefined && !["editor", "geoPoint", "autodate", "password"].includes(field.type),
       defaultText: defaultTextFor(field.type, field.default),
       relation: field.relation === undefined ? undefined : {
@@ -194,7 +201,7 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
 
 function scaffoldFields(fields: FieldInput[] | undefined): DraftField[] {
 	if (fields === undefined || fields.length === 0) return [newField()];
-	return fields.map((field) => ({ options: draftFieldOptions(field.options), name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed, hidden: field.hidden, presentable: field.presentable, help: field.help, hasDefault: field.default !== undefined && !["editor", "geoPoint", "autodate", "password"].includes(field.type), defaultText: defaultTextFor(field.type, field.default), relation: field.relation === undefined ? undefined : { targetCollection: field.relation.targetCollection, cardinality: field.relation.cardinality, minSelect: String(field.relation.minSelect), maxSelect: String(field.relation.maxSelect), onDelete: field.relation.onDelete } }));
+	return fields.map((field) => ({ options: draftFieldOptions(field.options), name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed, hidden: field.hidden, presentable: field.presentable, system: field.system, help: field.help, hasDefault: field.default !== undefined && !["editor", "geoPoint", "autodate", "password"].includes(field.type), defaultText: defaultTextFor(field.type, field.default), relation: field.relation === undefined ? undefined : { targetCollection: field.relation.targetCollection, cardinality: field.relation.cardinality, minSelect: String(field.relation.minSelect), maxSelect: String(field.relation.maxSelect), onDelete: field.relation.onDelete } }));
 }
 
 function withType(field: DraftField, type: FieldType): DraftField {
@@ -220,6 +227,7 @@ function withType(field: DraftField, type: FieldType): DraftField {
 }
 
 function applyEdit(field: DraftField, edit: DraftEdit, collectionName: string): DraftField {
+  if (field.system) return field;
   const relation = field.relation;
   if (edit.set === "options") return { ...field, options: edit.value, ...(field.type === "editor" && (Number(edit.value?.maxSize) || 5 * 1024 * 1024) > 2048 ? { indexed: false, unique: false } : {}) };
   if (edit.set === "name") return { ...field, name: edit.value };
@@ -288,19 +296,23 @@ function schemaMessage(error: unknown, fallback: string, validationFallback = "C
 }
 
 // The whole last-agreed draft distinguishes an untouched form.
-const draftSignature = (name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition): string => stringifyJSON({ name, fields, indexes, view });
+const draftSignature = (name: string, fields: DraftField[], indexes?: CompoundIndex[], view?: ViewDefinition, type?: CollectionType): string => stringifyJSON({ name, fields, indexes, view, type });
 
 interface State {
   identity: string; create: boolean; phase: "loading" | "missing" | "unavailable" | "ready";
   name: string; tableName: string; definition: CollectionDefinition | null; catalog: CollectionCatalog | null;
+	collectionType?: CollectionType;
+	authBlueprint?: AuthCollectionScaffold;
 	duplicateSource?: string; scaffold?: "base" | "auth" | "view";
   targetsLoading: boolean; targetsFailed: boolean; fields: DraftField[];
   indexes?: CompoundIndex[];
   view?: ViewDefinition;
-  plan: PlannedChange | null; confirmed: boolean; pending: boolean; error: string | null;
+  plan: PlannedChange | null; authPlan: AuthImportPlan | null; confirmed: boolean; pending: boolean; error: string | null;
   deletePlan: PlannedChange | null; deleteConfirmText: string; deletePending: boolean; deleteError: string | null;
   pristine: string; undecided: UndecidedApply | null; terminal: boolean;
 }
+interface CollectionPreview { baseVersion: number; fields: readonly PlannedField[]; sql: readonly string[] }
+interface AuthImportPlan extends CollectionPreview { plan: SchemaImportPlan; signature: string }
 type UndecidedApply = { kind: "change" | "drop"; operationId: string; draft: string | null; expiresAt: number };
 // A server apply can run for one hour; five extra minutes allow transaction/reconciliation settlement.
 const recoverabilityWindowMs = 65 * 60 * 1000;
@@ -343,21 +355,42 @@ function initial(mode: DesignerMode, identity: string): State {
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields, indexes: create ? [] : undefined,
 		...(mode.kind === "duplicate" ? { duplicateSource: mode.collection } : {}),
 		...(mode.kind === "scaffold" ? { scaffold: mode.scaffold } : {}),
-    plan: null, confirmed: false, pending: false, error: null,
+    plan: null, authPlan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
-    pristine: draftSignature(name, fields, create ? [] : undefined), undecided: null, terminal: false,
+    collectionType: mode.kind === "scaffold" ? mode.scaffold : undefined,
+    pristine: draftSignature(name, fields, create ? [] : undefined, undefined, mode.kind === "scaffold" ? mode.scaffold : undefined), undecided: null, terminal: false,
   };
 }
 
-const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false });
+const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, authPlan: null, confirmed: false });
 
-function loadedState(current: State, catalog: CollectionCatalog, scaffolds?: { base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection }): Partial<State> {
+function loadedState(current: State, catalog: CollectionCatalog, scaffolds?: { base: SchemaDocumentCollection; auth: AuthCollectionScaffold; view: SchemaDocumentCollection }, document?: SchemaDocument): Partial<State> {
   const base = { catalog, targetsLoading: false, targetsFailed: false };
   if (current.create) {
-		const source = current.duplicateSource === undefined ? undefined : catalog.get(current.duplicateSource), template = current.scaffold === undefined ? undefined : scaffolds?.[current.scaffold];
-		if (current.duplicateSource !== undefined && source === undefined) return { ...base, phase: "missing" }; if (current.scaffold !== undefined && template === undefined) return { ...base, phase: "unavailable" }; if (source === undefined && template === undefined) return base;
-		const fields = source === undefined ? scaffoldFields(template!.fields) : draftFields(source, catalog), indexes = (source?.indexes ?? template?.indexes ?? []).map((index) => ({ name: index.name, fields: [...index.fields], unique: index.unique })), view = source === undefined ? template!.view : source.view !== undefined && "sql" in source.view ? { sql: source.view.sql } as ViewDefinition : undefined, name = source === undefined ? "" : `${source.name}_copy`;
-		return { ...base, phase: "ready", name, fields, indexes, view, pristine: draftSignature(name, fields, indexes, view) };
+		const source = current.duplicateSource === undefined ? undefined : catalog.get(current.duplicateSource);
+		if (current.duplicateSource !== undefined && source === undefined) return { ...base, phase: "missing" };
+		const requested = current.scaffold === undefined ? undefined : scaffolds?.[current.scaffold];
+		if (current.scaffold !== undefined && requested === undefined) return { ...base, phase: "unavailable" };
+		// A plain create only loads this catalog to resolve a relation target. It
+		// has no template to hydrate, so keep the editable draft intact.
+		if (source === undefined && current.scaffold === undefined) return base;
+		const auth = current.scaffold === "auth" || source?.type === "auth";
+		if (!auth && source !== undefined) {
+			const fields = draftFields(source, catalog), indexes = (source.indexes ?? []).map((index) => ({ name: index.name, fields: [...index.fields], unique: index.unique })), view = source.view !== undefined && "sql" in source.view ? { sql: source.view.sql } as ViewDefinition : undefined, name = `${source.name}_copy`, collectionType = source.type ?? (view === undefined ? "base" : "view");
+			return { ...base, phase: "ready", name, fields, indexes, view, collectionType, pristine: draftSignature(name, fields, indexes, view, collectionType) };
+		}
+		const template = auth
+			? current.scaffold === "auth" ? scaffolds?.auth.collection : document?.collections.find((item) => item.name === source?.name)
+			: requested as SchemaDocumentCollection | undefined;
+		const authBlueprint = auth
+			? current.scaffold === "auth" ? scaffolds?.auth : (() => {
+				const authCollection = document?.authCollections?.find((item) => item.name === source?.name);
+				return template === undefined || authCollection === undefined ? undefined : { collection: template, authCollection };
+			})()
+			: undefined;
+		if (template === undefined || (auth && authBlueprint === undefined)) return { ...base, phase: "unavailable" };
+		const fields = scaffoldFields(template.fields), indexes = (template.indexes ?? []).map((index) => ({ name: index.name, fields: [...index.fields], unique: index.unique })), view = template.view, name = source === undefined ? "" : `${source.name}_copy`, collectionType = template.type ?? (view === undefined ? "base" : "view");
+		return { ...base, phase: "ready", name, fields, indexes, view, collectionType, authBlueprint, pristine: draftSignature(name, fields, indexes, view, collectionType) };
 	}
   const definition = catalog.get(current.name);
   if (definition === undefined) return { ...base, phase: "missing" };
@@ -365,13 +398,34 @@ function loadedState(current: State, catalog: CollectionCatalog, scaffolds?: { b
 	const view = definition.view !== undefined && "sql" in definition.view ? { sql: definition.view.sql } as ViewDefinition : undefined;
 	return {
 		...base, phase: "ready", definition, name: definition.name, tableName: definition.tableName, fields,
-		indexes: undefined, view, pristine: draftSignature(definition.name, fields, undefined, view),
+		indexes: undefined, view, collectionType: definition.type, pristine: draftSignature(definition.name, fields, undefined, view, definition.type),
   };
+}
+
+function authImportDocument(state: State): SchemaDocument {
+  if (state.authBlueprint === undefined) throw new DraftError("The authentication template is unavailable.");
+  const change = buildInput("create", state.name, state.fields, state.indexes, undefined, "auth");
+  if (!("fields" in change) || change.fields === undefined) throw new DraftError("Authentication fields are unavailable.");
+  const collection = {
+    ...state.authBlueprint.collection,
+    name: state.name,
+    type: "auth" as const,
+    fields: change.fields,
+    ...(change.indexes === undefined ? {} : { indexes: change.indexes }),
+  };
+  const authCollection = {
+    ...state.authBlueprint.authCollection,
+    name: state.name,
+    // The auth authority stores custom fields only; its system fields remain
+    // in the catalog collection and are joined by userauth at runtime.
+    fields: change.fields.filter((field) => field.system !== true),
+  };
+  return { format: "pgbase.schema/v1", collections: [collection], authCollections: [authCollection] };
 }
 
 function renamed(current: State, name: string): Partial<State> {
   return {
-    name, plan: null, confirmed: false,
+    name, plan: null, authPlan: null, confirmed: false,
     fields: current.fields.map((field) => field.selfRelation === true && field.relation !== undefined
       ? { ...field, relation: { ...field.relation, targetCollection: name } }
       : field),
@@ -389,7 +443,7 @@ function deleteTargetOf(definition: CollectionDefinition | null, plan: PlannedCh
 export interface CollectionDesigner {
   phase: State["phase"]; create: boolean; name: string; tableName: string; fields: DraftField[];
   relationTargets: RelationTargetOption[]; relationTargetsLoading: boolean; relationTargetsFailed: boolean; isNewField(name: string): boolean;
-  preview: PlannedChange | null; removedFields: string[]; destructiveConfirmed: boolean;
+  collectionType: CollectionType; preview: CollectionPreview | null; removedFields: string[]; destructiveConfirmed: boolean;
   applyBlocked: boolean; editingBlocked: boolean; pending: boolean; error: string | null;
   deleteTarget: DeleteTarget | null; deleteConfirmText: string; deleteConfirmed: boolean;
   deletePending: boolean; deleteError: string | null;
@@ -461,7 +515,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const storageBlocked = stored === false, restored = stored || null;
   const undecided = state.undecided ?? restored;
   const recovery = useOperationRecovery(undecided?.operationId ?? null);
-  const signature = draftSignature(state.name, state.fields, state.indexes, state.view);
+  const signature = draftSignature(state.name, state.fields, state.indexes, state.view, state.collectionType);
   const live = useRef(signature);
   live.current = signature;
   const recovered = recovery?.status === "committed" ? undecided : null;
@@ -482,14 +536,15 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     if (!wantsCatalog) return;
     const controller = new AbortController();
     update(identity, { targetsLoading: true });
-    void Promise.all([schema.catalog(controller.signal), state.scaffold === undefined ? Promise.resolve(undefined) : schema.scaffolds?.(controller.signal)])
-      .then(([catalog, scaffolds]) => { if (!controller.signal.aborted) update(identity, (current) => loadedState(current, catalog, scaffolds)); })
+    const exported = state.duplicateSource === undefined ? Promise.resolve(undefined) : schema.exportDocument?.(controller.signal);
+    void Promise.all([schema.catalog(controller.signal), state.scaffold === undefined ? Promise.resolve(undefined) : schema.scaffolds?.(controller.signal), exported])
+      .then(([catalog, scaffolds, document]) => { if (!controller.signal.aborted) update(identity, (current) => loadedState(current, catalog, scaffolds, document)); })
       .catch(() => {
         if (controller.signal.aborted) return;
         update(identity, (current) => current.create ? { targetsLoading: false, targetsFailed: true } : { phase: "unavailable" });
       });
     return () => controller.abort();
-  }, [identity, schema, state.scaffold, update, wantsCatalog]);
+  }, [identity, schema, state.duplicateSource, state.scaffold, update, wantsCatalog]);
 
   useEffect(() => {
     if (undecided === null || recovery?.status === "committed" || recovery?.status === "failed") return;
@@ -512,20 +567,37 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
 
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
-    try { return buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view); } catch { return null; }
-  }, [state.create, state.definition, state.fields, state.indexes, state.view, state.name]);
+    try { return buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view, state.collectionType); } catch { return null; }
+  }, [state.create, state.definition, state.fields, state.indexes, state.view, state.name, state.collectionType]);
   const preview = state.plan !== null && input !== null && state.plan.matches(input) ? state.plan : null;
+  const authPreview = state.authPlan !== null && state.authPlan.signature === signature ? state.authPlan : null;
+  const previewDetails = authPreview ?? preview;
   const removedFields = useMemo(() => {
-    if (preview === null || state.definition === null) return [];
-    const planned = new Set(preview.fields.map((field) => field.id ?? field.name));
+    if (previewDetails === null || state.definition === null) return [];
+    const planned = new Set(previewDetails.fields.map((field) => field.id ?? field.name));
     return state.definition.fields.filter((field) => !planned.has(field.id ?? field.name)).sort((left, right) => left.ordinal - right.ordinal).map((field) => field.name);
-  }, [preview, state.definition]);
+  }, [previewDetails, state.definition]);
   const existing = useMemo(() => new Set(state.definition?.fields.map((field) => field.name) ?? []), [state.definition]);
 
   const requestPreview = useCallback(async () => {
     if (editingBlocked || state.pending || (!state.create && state.definition === null)) return;
+    if (state.create && state.collectionType === "auth") {
+      if (schema.previewImport === undefined) { update(identity, { error: "This server cannot preview an authentication collection.", authPlan: null }); return; }
+      let document: SchemaDocument;
+      try { document = authImportDocument(state); }
+      catch (caught: unknown) { update(identity, { error: draftMessage(caught, "Authentication collection input is invalid."), authPlan: null }); return; }
+      update(identity, { error: null, pending: true, plan: null, authPlan: null });
+      try {
+        const planned = await schema.previewImport(document);
+        const definition = planned.changes.find((change) => change.definition.name === state.name)?.definition;
+        update(identity, { authPlan: { plan: planned, signature, baseVersion: planned.baseVersion, fields: definition?.fields ?? [], sql: planned.changes.flatMap((change) => change.sql) }, confirmed: false, deletePlan: null, deleteConfirmText: "" });
+      } catch (caught: unknown) {
+        update(identity, { error: schemaMessage(caught, "Unable to preview the authentication collection."), authPlan: null });
+      } finally { update(identity, { pending: false }); }
+      return;
+    }
     let change: CollectionChange;
-    try { change = buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view); }
+    try { change = buildInput(state.create ? "create" : "update", state.name, state.fields, state.indexes, state.view, state.collectionType); }
     catch (caught: unknown) { update(identity, { error: draftMessage(caught, "Collection input is invalid.") }); return; }
     update(identity, { error: null, pending: true });
     try {
@@ -534,17 +606,33 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
         update(identity, { error: catalogMovedText, plan: null, confirmed: false });
         return;
       }
-      update(identity, { plan: planned, confirmed: false, deletePlan: null, deleteConfirmText: "", ...(recoveryFailed ? { undecided: null } : {}) });
+      update(identity, { plan: planned, authPlan: null, confirmed: false, deletePlan: null, deleteConfirmText: "", ...(recoveryFailed ? { undecided: null } : {}) });
     } catch (caught: unknown) {
       const fallback = state.create ? "Unable to preview the collection." : "Unable to preview the collection change.";
-      update(identity, { error: schemaMessage(caught, fallback), plan: null, confirmed: false });
+      update(identity, { error: schemaMessage(caught, fallback), plan: null, authPlan: null, confirmed: false });
     } finally {
       update(identity, { pending: false });
     }
-  }, [editingBlocked, identity, recoveryFailed, schema, state.create, state.definition, state.fields, state.indexes, state.view, state.name, state.pending, state.catalog?.version, update]);
+  }, [editingBlocked, identity, recoveryFailed, schema, signature, state, update]);
 
   const requestApply = useCallback(async () => {
-    if (editingBlocked || recoveryFailed || preview === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
+    if (editingBlocked || recoveryFailed || previewDetails === null || state.pending || (removedFields.length > 0 && !state.confirmed)) return;
+    if (authPreview !== null) {
+      if (schema.applyImport === undefined) { update(identity, { error: "This server cannot apply an authentication collection." }); return; }
+      update(identity, { pending: true, error: null });
+      try {
+        const result = await schema.applyImport(authPreview.plan);
+        if (!active()) return;
+        if (result.status !== "committed") { update(identity, { error: `Authentication collection import ${result.status}. Check schema operations before retrying.` }); return; }
+        update(identity, { pristine: signature, terminal: true, authPlan: null });
+        if (live.current === signature) savedDraft();
+        navigate({ kind: "collections" });
+      } catch (caught: unknown) {
+        update(identity, { error: schemaMessage(caught, "Unable to create the authentication collection.") });
+      } finally { update(identity, { pending: false }); }
+      return;
+    }
+    if (preview === null) return;
     update(identity, { pending: true, error: null, undecided: null });
     issued.current = identity;
     const pending = { kind: "change" as const, operationId: attempt.current.identityFor(preview).operationId, draft: signature, expiresAt: Date.now() + recoverabilityWindowMs };
@@ -576,7 +664,7 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
       forgetPending(administratorId, identity, pending.operationId);
       update(identity, applyFailure(caught, state.create));
     } finally { issued.current = null; update(identity, { pending: false }); }
-  }, [active, administratorId, editingBlocked, identity, navigate, preview, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
+  }, [active, administratorId, authPreview, editingBlocked, identity, navigate, preview, previewDetails, recoveryFailed, removedFields.length, savedDraft, schema, signature, state.confirmed, state.create, state.definition, state.name, state.pending, update]);
 
   const deleteTarget = useMemo(() => recoveryFailed ? null : deleteTargetOf(state.definition, state.deletePlan), [recoveryFailed, state.definition, state.deletePlan]);
 
@@ -632,13 +720,14 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     indexesTouched: state.indexes !== undefined,
     view: state.view,
     viewSources: (state.catalog?.all() ?? []).filter((collection) => collection.view === undefined),
-		isView: state.definition?.view !== undefined,
+		collectionType: state.collectionType ?? (state.view === undefined ? "base" : "view"),
+    isView: state.definition?.view !== undefined,
 		isSQLView: state.definition?.view !== undefined && "sql" in state.definition.view,
     relationTargets: relationTargets(state.catalog, state.name),
     relationTargetsLoading: state.targetsLoading,
     relationTargetsFailed: state.targetsFailed,
     isNewField: (name) => !state.create && !existing.has(name),
-    preview,
+    preview: previewDetails,
     removedFields,
     destructiveConfirmed: state.confirmed,
     applyBlocked: editingBlocked || recoveryFailed || (removedFields.length > 0 && !state.confirmed),
@@ -654,9 +743,9 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
     rename: (name) => { if (!editingBlocked) update(identity, (current) => renamed(current, name)); },
     editField: (index, edit) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.map((field, position) => position === index ? applyEdit(field, edit, current.name) : field))); },
     addField: () => { if (!editingBlocked) update(identity, (current) => redrafted([...current.fields, newField()])); },
-    removeField: (index) => { if (!editingBlocked) update(identity, (current) => redrafted(current.fields.filter((_, position) => position !== index))); },
-    setIndexes: (indexes) => { if (!editingBlocked) update(identity, { indexes, plan: null, confirmed: false }); },
-    setView: (view) => { if (!editingBlocked) update(identity, { view, plan: null, confirmed: false }); },
+    removeField: (index) => { if (!editingBlocked) update(identity, (current) => current.fields[index]?.system ? {} : redrafted(current.fields.filter((_, position) => position !== index))); },
+    setIndexes: (indexes) => { if (!editingBlocked) update(identity, { indexes, plan: null, authPlan: null, confirmed: false }); },
+    setView: (view) => { if (!editingBlocked) update(identity, { view, plan: null, authPlan: null, confirmed: false }); },
     confirmDestructive: (confirmed) => update(identity, { confirmed }),
     confirmDeleteName: (deleteConfirmText) => update(identity, { deleteConfirmText }),
     requestPreview: () => void requestPreview(),

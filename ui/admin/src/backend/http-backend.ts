@@ -46,7 +46,7 @@ import {
   type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthMailPreview, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
-	type SchemaDocument, type SchemaDocumentCollection, type SchemaImportPlan, type SchemaImportResult,
+	type SchemaDocument, type CollectionScaffolds, type SchemaImportPlan, type SchemaImportResult,
 } from "./ports";
 
 interface Wire {
@@ -282,7 +282,7 @@ class HTTPBackend implements AdminBackend {
 			catch (caught) { if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body")) return (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult; throw caught; }
 		},
 		sampleView: async (query: string, signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/view/sample", method: "POST", body: { query }, csrf: true, signal })).data as { fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] },
-		scaffolds: async (signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/scaffolds", signal })).data as { base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection },
+		scaffolds: async (signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/scaffolds", signal })).data as CollectionScaffolds,
 		truncate: async (collection: string, confirmation: string, signal?: AbortSignal) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/truncate`, method: "POST", body: { name: confirmation }, csrf: true, signal })).data as { name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number },
 		importStatus: async (operationId: string, signal?: AbortSignal) => (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(operationId)}`, signal })).data as SchemaImportResult,
   };

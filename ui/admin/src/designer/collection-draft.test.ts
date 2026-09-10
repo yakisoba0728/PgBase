@@ -21,6 +21,17 @@ describe("collection default contract", () => {
     expect(stringifyJSON(input)).toBe(`{"operation":"create","name":"defaults","fields":[{"name":"enabled","type":"boolean","required":false,"unique":false,"indexed":false,"default":false},{"name":"count","type":"integer","required":false,"unique":false,"indexed":false,"default":"42"},{"name":"views","type":"bigint","required":false,"unique":false,"indexed":false,"default":"9223372036854775807"},{"name":"amount","type":"numeric","required":false,"unique":false,"indexed":false,"default":"12345678901234567890.123456789"},{"name":"empty","type":"text","required":false,"unique":false,"indexed":false,"default":""},{"name":"published_at","type":"timestamptz","required":false,"unique":false,"indexed":false,"default":{"kind":"now"}},{"name":"metadata","type":"jsonb","required":false,"unique":false,"indexed":false,"default":{"sequence":9007199254740993}}]}`);
   });
 
+  it("keeps auth collection kind and server-owned field markers in the request", () => {
+    const input = buildInput("create", "members", [{
+      ...field("email", "text", ""), system: true, hasDefault: false,
+    }], undefined, undefined, "auth");
+
+    expect(input).toMatchObject({
+      operation: "create", name: "members", type: "auth",
+      fields: [{ name: "email", system: true }],
+    });
+  });
+
   it("rejects boolean and integer defaults that the backend will reject", () => {
     expect(() => buildInput("create", "invalid", [field("enabled", "boolean", "yes")])).toThrow();
     expect(() => buildInput("create", "invalid", [field("count", "integer", "1.5")])).toThrow();

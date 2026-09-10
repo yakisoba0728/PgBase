@@ -48,7 +48,8 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
         <label htmlFor="collection-name">Collection name</label>
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
-      {designer.create && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
+      {designer.create && designer.collectionType === "auth" && <p>Collection kind: Authentication realm. System fields and authentication policy are preserved in the server-owned template.</p>}
+      {designer.create && designer.collectionType !== "auth" && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
 		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} schema={schema} /> : <>
       <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
