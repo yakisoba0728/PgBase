@@ -230,7 +230,12 @@ func (c *extensionCompatibility) safePath(name string, allowMissing bool) (strin
 	}
 	check := path
 	if allowMissing {
-		check = filepath.Dir(path)
+		if _, err := os.Lstat(path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", err
+			}
+			check = filepath.Dir(path)
+		}
 	}
 	real, err := filepath.EvalSymlinks(check)
 	if err != nil {

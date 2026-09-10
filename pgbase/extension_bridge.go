@@ -7,6 +7,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -196,6 +199,9 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		host.servedObject = &extensionServedObject{name: request.Name, path: path}
 		return json.RawMessage(`{"served":true}`), nil
 	}
+	if method == "filesystem.localCreateThumb" {
+		return host.callLocalCreateThumb(operationContext, input)
+	}
 	switch method {
 	case "apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords":
 		return host.callAuthAPI(operationContext, method, input)
@@ -259,6 +265,69 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
+}
+
+func (host *extensionHost) callLocalCreateThumb(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if host.bridge.compatibility == nil || host.bridge.files == nil {
+		return nil, extensionError("thumbnail_unavailable", errors.New("local thumbnail service unavailable"))
+	}
+	var request struct {
+		OriginalPath string `json:"originalPath"`
+		ThumbPath    string `json:"thumbPath"`
+		ThumbSize    string `json:"thumbSize"`
+	}
+	if err := decodeExtensionInput(raw, &request); err != nil {
+		return nil, err
+	}
+	source, err := host.bridge.compatibility.safePath(request.OriginalPath, false)
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	destination, err := host.bridge.compatibility.safePath(request.ThumbPath, true)
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	defer input.Close()
+	probe := make([]byte, 512)
+	n, readErr := io.ReadFull(input, probe)
+	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+		return nil, extensionError("thumbnail_failed", readErr)
+	}
+	if _, err := input.Seek(0, io.SeekStart); err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(probe[:n]), ";")[0])
+	data, err := host.bridge.files.RenderThumbnailReader(input, contentType, request.ThumbSize)
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".pgbase-thumb-*")
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err == nil {
+		var written int
+		written, err = temporary.Write(data)
+		if err == nil && written != len(data) {
+			err = io.ErrShortWrite
+		}
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(temporaryName, destination)
+	}
+	if err != nil {
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	return json.Marshal(map[string]any{"created": true, "size": len(data)})
 }
 
 type authMailCollectionLookup interface {
