@@ -84,6 +84,15 @@ func (c *pbCompiler) parameter(value any) string {
 	c.args = append(c.args, value)
 	return "$" + strconv.Itoa(c.context.ArgOffset+len(c.args))
 }
+
+func (c *pbCompiler) typedParameter(kind PBKind, value any) string {
+	parameter := c.parameter(value)
+	cast := map[PBKind]string{PBBool: "boolean", PBNumber: "numeric", PBTime: "timestamptz", PBUUID: "uuid", PBJSON: "jsonb"}[kind]
+	if cast != "" {
+		return parameter + "::" + cast
+	}
+	return parameter
+}
 func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 	c.nodes++
 	if depth > 8 || c.nodes > 64 {
@@ -151,7 +160,7 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 		if !ok {
 			return "", ErrInvalid
 		}
-		rightSQL = c.parameter(value)
+		rightSQL = c.typedParameter(left.Kind, value)
 	} else {
 		value, err := pbTypedValue(left.Kind, rule.Value)
 		if err != nil {
@@ -167,7 +176,7 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 			}
 			rightSQL = "NULL"
 		} else {
-			rightSQL = c.parameter(value)
+			rightSQL = c.typedParameter(left.Kind, value)
 		}
 	}
 	compare := func(valueSQL string) string {
@@ -217,7 +226,7 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 		return PBOperand{}, ErrInvalid
 	}
 	text := func(value any) PBOperand {
-		return PBOperand{SQL: c.parameter(value), Kind: PBText, Cardinality: PBScalar}
+		return PBOperand{SQL: c.typedParameter(PBText, value), Kind: PBText, Cardinality: PBScalar}
 	}
 	if path == "__pgbase_request_method" {
 		return text(r.Method), nil
@@ -235,7 +244,7 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, json.Number:
 			kind = PBNumber
 		}
-		return PBOperand{SQL: c.parameter(value), Kind: kind, Cardinality: PBScalar}, nil
+		return PBOperand{SQL: c.typedParameter(kind, value), Kind: kind, Cardinality: PBScalar}, nil
 	}
 	lookup := func(prefix string, values map[string][]string) (PBOperand, error) {
 		key := strings.TrimPrefix(path, prefix)
@@ -265,10 +274,10 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 			key, modifier, _ = strings.Cut(key, ":")
 		}
 		if modifier == "isset" {
-			return PBOperand{SQL: c.parameter(r.Present[key]), Kind: PBBool, Cardinality: PBScalar}, nil
+			return PBOperand{SQL: c.typedParameter(PBBool, r.Present[key]), Kind: PBBool, Cardinality: PBScalar}, nil
 		}
 		if modifier == "changed" {
-			return PBOperand{SQL: c.parameter(r.Changed[key]), Kind: PBBool, Cardinality: PBScalar}, nil
+			return PBOperand{SQL: c.typedParameter(PBBool, r.Changed[key]), Kind: PBBool, Cardinality: PBScalar}, nil
 		}
 		field, err := c.context.Resolver.Resolve(key)
 		if err != nil {
@@ -276,13 +285,13 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 		}
 		raw, ok := r.Body[key]
 		if !ok {
-			return PBOperand{SQL: c.parameter(nil), Kind: field.Kind, Cardinality: PBScalar}, nil
+			return PBOperand{SQL: c.typedParameter(field.Kind, nil), Kind: field.Kind, Cardinality: PBScalar}, nil
 		}
 		value, err := pbTypedValue(field.Kind, raw)
 		if err != nil {
 			return PBOperand{}, err
 		}
-		return PBOperand{SQL: c.parameter(value), Kind: field.Kind, Cardinality: PBScalar}, nil
+		return PBOperand{SQL: c.typedParameter(field.Kind, value), Kind: field.Kind, Cardinality: PBScalar}, nil
 	}
 	return PBOperand{}, ErrInvalid
 }
