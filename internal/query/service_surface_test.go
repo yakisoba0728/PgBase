@@ -107,7 +107,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// accounting is in docs/phase3-local-contracts.md with no spare allowance.
 	// P8 adds coordinate paths and advanced-field codecs; measured scope is
 	// in docs/phase4-local-contracts.md with no spare allowance.
-	if runtimeLines > 5786 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 5786", runtimeLines)
+	// R3 adds schema-validated response projection after authorization,
+	// expansion, cursor assembly, and ETag calculation: +74/-0.
+	if runtimeLines > 5860 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 5860", runtimeLines)
 	}
 }

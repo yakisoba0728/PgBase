@@ -39,7 +39,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand") {
+	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -65,7 +65,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), Limit: limit, Cursor: values.Get("cursor"), Filter: values.Get("filter"), Sort: values.Get("sort"), Expand: values.Get("expand")}
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), Limit: limit, Cursor: values.Get("cursor"), Filter: values.Get("filter"), Sort: values.Get("sort"), Expand: values.Get("expand"), Fields: values.Get("fields")}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "record.list", event)
 	if err != nil {
 		finish(err)
@@ -79,7 +79,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := e.service.List(r.Context(), recordops.ListRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand,
+		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand, Fields: event.Fields,
 	})
 	finish(err)
 	if err != nil {
@@ -95,7 +95,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "expand") {
+	if duplicateSingleton(values, "expand", "fields") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -111,7 +111,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), RecordID: id, Expand: values.Get("expand")}
+	event := &RecordRequestEvent{Actor: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), RecordID: id, Expand: values.Get("expand"), Fields: values.Get("fields")}
 	finish, err := beginLifecycle(r.Context(), e.hooks, "record.view", event)
 	if err != nil {
 		finish(err)
@@ -120,7 +120,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := e.service.Get(r.Context(), recordops.GetRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
-		Expand: event.Expand,
+		Expand: event.Expand, Fields: event.Fields,
 	})
 	finish(err)
 	if err != nil {

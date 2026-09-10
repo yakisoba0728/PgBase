@@ -22,6 +22,7 @@ type RecordRequestEvent struct {
 	Filter         string
 	Sort           string
 	Expand         string
+	Fields         string
 	Input          map[string]json.RawMessage
 	Result         *recordops.MutationResult
 }

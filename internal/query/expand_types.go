@@ -15,6 +15,7 @@ type GetRequest struct {
 	Collection string
 	ID         uuid.UUID
 	Expand     string
+	Fields     string
 }
 
 type ListRequest struct {
@@ -25,6 +26,7 @@ type ListRequest struct {
 	Filter     string
 	Sort       string
 	Expand     string
+	Fields     string
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,

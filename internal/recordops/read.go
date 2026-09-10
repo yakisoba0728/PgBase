@@ -22,7 +22,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 	}
 	page, err = s.reader.List(ctx, query.ListRequest{
 		Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
-		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand,
+		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 	})
 	if errors.Is(err, membership.ErrUnavailable) {
 		return RecordPage{}, unavailableMembership(err)
@@ -41,5 +41,5 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 		return Record{}, &Error{Code: CodeInvalidRequest}
 	}
 	return s.reader.Get(ctx, query.GetRequest{Principal: request.Principal,
-		Collection: request.Collection, ID: request.ID, Expand: request.Expand})
+		Collection: request.Collection, ID: request.ID, Expand: request.Expand, Fields: request.Fields})
 }

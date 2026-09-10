@@ -171,6 +171,29 @@ func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 	assertErrorCode(t, response.Body.Bytes(), "validation_failed")
 }
 
+func TestRecordReadsForwardFieldsProjection(t *testing.T) {
+	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	records := &fakeRecordService{
+		page:   query.RecordPage{Items: []map[string]any{{"id": id.String(), "title": "hello"}}},
+		record: recordops.Record{Data: map[string]any{"id": id.String(), "title": "hello"}, ETag: `"pgb1.current"`},
+	}
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+
+	list := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?fields=title%2Cid", "", true)
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, list)
+	if listResponse.Code != http.StatusOK || records.listRequest.Fields != "title,id" {
+		t.Fatalf("list status=%d fields=%q body=%s", listResponse.Code, records.listRequest.Fields, listResponse.Body.String())
+	}
+
+	get := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/"+id.String()+"?fields=title%2Cid", "", true)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || records.getRequest.Fields != "title,id" {
+		t.Fatalf("get status=%d fields=%q body=%s", getResponse.Code, records.getRequest.Fields, getResponse.Body.String())
+	}
+}
+
 func TestRecordGetForwardsStrictlyParsedExpandParam(t *testing.T) {
 	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 	records := &fakeRecordService{record: recordops.Record{
@@ -226,7 +249,7 @@ func TestRecordListRejectsMalformedQueryEncodingBeforeServiceCall(t *testing.T) 
 }
 
 func TestRecordReadsRejectDuplicateSingletonQueryParametersBeforeServiceCall(t *testing.T) {
-	for _, parameter := range []string{"limit", "cursor", "filter", "sort", "expand"} {
+	for _, parameter := range []string{"limit", "cursor", "filter", "sort", "expand", "fields"} {
 		t.Run("list/"+parameter, func(t *testing.T) {
 			records := &fakeRecordService{}
 			handler := mustRouter(t, recordTestDependencies(
@@ -248,6 +271,20 @@ func TestRecordReadsRejectDuplicateSingletonQueryParametersBeforeServiceCall(t *
 			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 		request := authenticatedRecordRequest(http.MethodGet,
 			"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?expand=owner&expand=reviewers", "", true)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || records.getCalls != 0 {
+			t.Fatalf("status=%d get calls=%d body=%s", response.Code, records.getCalls, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+	})
+
+	t.Run("get/fields", func(t *testing.T) {
+		records := &fakeRecordService{}
+		handler := mustRouter(t, recordTestDependencies(
+			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		request := authenticatedRecordRequest(http.MethodGet,
+			"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?fields=id&fields=title", "", true)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusBadRequest || records.getCalls != 0 {

@@ -53,6 +53,7 @@ type ListRequest struct {
 	Filter     string
 	Sort       string
 	Expand     string
+	Fields     string
 }
 
 type GetRequest struct {
@@ -61,6 +62,7 @@ type GetRequest struct {
 	Collection string
 	ID         uuid.UUID
 	Expand     string
+	Fields     string
 }
 
 type CreateRequest struct {

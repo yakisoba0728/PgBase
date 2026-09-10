@@ -94,6 +94,10 @@ func (s *Service) readGetInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "view"); err != nil {
 		return err
 	}
+	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
+	if err != nil {
+		return err
+	}
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return err
 	}
@@ -178,7 +182,7 @@ func (s *Service) readGetInTx(
 	if err != nil {
 		return err
 	}
-	result.record = Record{Data: response, ETag: etag, Version: version}
+	result.record = Record{Data: projection.apply(response), ETag: etag, Version: version}
 	return nil
 }
 
@@ -233,12 +237,16 @@ func (s *Service) readListInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
 		return listResult{}, false, err
 	}
+	var err error
+	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
+	if err != nil {
+		return listResult{}, false, err
+	}
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return listResult{}, false, err
 	}
 	var expansion expandPlan
 	var usage *expansionUsage
-	var err error
 	if request.Expand != "" {
 		usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
 		expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
@@ -324,7 +332,7 @@ func (s *Service) readListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		return listResult{page: root.page}, relationOperation, nil
+		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, usage)
@@ -354,7 +362,7 @@ func (s *Service) readListInTx(
 		}
 	}
 	return listResult{
-		page:     RecordPage{Items: items, NextCursor: cursor},
+		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
 		expanded: expanded[:keep], querySteps: usage.querySteps,
 	}, relationOperation, nil
 }
