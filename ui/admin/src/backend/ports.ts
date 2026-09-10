@@ -261,6 +261,8 @@ export interface SchemaPort {
 	previewImport?(document: SchemaDocument, signal?: AbortSignal): Promise<SchemaImportPlan>;
 	applyImport?(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
 	importStatus?(operationId: string, signal?: AbortSignal): Promise<SchemaImportResult>;
+	/** Validates a prospective SQL view without storing it and returns its bounded sample. */
+	sampleView?(query: string, signal?: AbortSignal): Promise<{ fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] }>;
 }
 export interface SchemaDocumentCollection { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
 export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] }
@@ -316,6 +318,8 @@ export interface SystemPort {
   status(signal?: AbortSignal): Promise<SystemStatus>;
   health(signal?: AbortSignal): Promise<SchemaHealth>;
 }
+export interface AdminSettings { batch: { enabled: boolean; maxRequests: number; maxBodyBytes: number; timeoutMs: number }; logs: { retentionDays: number; level: "debug" | "info" | "warn" | "error"; includeIP: boolean; includeAuth: boolean }; proxy: { trustedProxyCIDRs: string[] }; backups: { schedule: string; timezone: string; enabled: boolean; keep: number }; application: { theme: "system" | "light" | "dark"; accent: string; branding: string }; revision: number }
+export interface SettingsPort { get(signal?: AbortSignal): Promise<AdminSettings>; save(value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings>; reload(signal?: AbortSignal): Promise<void> }
 
 export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
 export interface UserPage { items: ManagedUser[]; nextAfter?: string }
@@ -367,6 +371,7 @@ export interface AdminBackend {
   schema: SchemaPort;
   records: RecordPort;
   system: SystemPort;
+	settings?: SettingsPort;
   users: UsersPort;
   files: FilePort;
   rules: RecordRulesPort;

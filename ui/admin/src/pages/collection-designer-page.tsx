@@ -5,6 +5,7 @@ import type { AdminRoute } from "../routing/admin-location";
 import { CollectionFieldEditor } from "./collection-field-editor";
 import { ViewDefinitionEditor } from "./view-definition-editor";
 import { RecordRulesEditor } from "./record-rules-editor";
+import { useBackend } from "../auth/session";
 
 /**
  * The outcome of an apply the server could not decide within the request. It
@@ -25,6 +26,7 @@ function ApplyRecovery({ navigate, recovery }: { navigate(route: AdminRoute): vo
 }
 
 export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode; navigate(route: AdminRoute): void }) {
+  const { schema } = useBackend();
   const designer = useCollectionDesigner(mode, navigate);
   const heading = designer.create ? "Create collection" : "Edit collection";
 
@@ -47,7 +49,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
       {designer.create && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
-		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} /> : <>
+		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} schema={schema} /> : <>
       <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor

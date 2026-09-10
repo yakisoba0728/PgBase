@@ -1,7 +1,7 @@
 import { BackupStoragePage } from "./pages/backup-storage-page";
 import { StorageSettingsPage } from "./pages/storage-settings-page";
-import { useRef, useState } from "react";
-import { SessionProvider, useSession } from "./auth/session";
+import { useEffect, useRef, useState } from "react";
+import { SessionProvider, useBackend, useSession } from "./auth/session";
 import { AdminLink } from "./routing/admin-link";
 import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
 import { UnsavedDrafts, draftLedger } from "./routing/unsaved-draft";
@@ -21,6 +21,7 @@ import { AuthCollectionsPage } from "./pages/auth-collections-page";
 import { ServiceTokensPage } from "./pages/service-tokens-page";
 import { SchemaTransferPage } from "./pages/schema-transfer-page";
 import { SQLConsolePage } from "./pages/sql-console-page";
+import { SettingsPage } from "./pages/settings-page";
 
 type Navigate = (route: AdminRoute) => void;
 
@@ -33,6 +34,7 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   if (route.kind === "operations") return <SchemaOperationsPage key={key} />;
 	if (route.kind === "sql-console" && sqlConsole !== undefined) return <SQLConsolePage key={key} port={sqlConsole} />;
   if (route.kind === "system") return <SystemPage key={key} />;
+  if (route.kind === "settings") return <SettingsPage key={key} />;
   if (route.kind === "users") return <UsersPage key={key} />;
   if (route.kind === "auth-collections") return <AuthCollectionsPage key={key} />;
   if (route.kind === "service-tokens") return <ServiceTokensPage key={key} />;
@@ -45,10 +47,17 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
 
 function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; sqlConsole?: SQLConsolePort }) {
   const { logout, state } = useSession();
+	const { settings } = useBackend();
   const [drafts] = useState(draftLedger);
   const logoutInFlight = useRef(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+	useEffect(() => {
+		if (!settings) return;
+		const controller = new AbortController();
+		void settings.get(controller.signal).then((value) => { if (!controller.signal.aborted) { document.documentElement.dataset.theme = value.application.theme; document.documentElement.style.setProperty("--accent", value.application.accent); document.title = value.application.branding || "pgBase administration"; } }).catch(() => { /* the workspace remains usable when optional settings are unavailable */ });
+		return () => controller.abort();
+	}, [settings]);
   // The ref closes navigation synchronously with starting the request; the
   // rendered pending state then makes every control and link inert until it
   // either fails or this shell unmounts after success.
@@ -84,7 +93,7 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
     </header>
     <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
       {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
       <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined)}</UnsavedDrafts>
     </fieldset>
   </main>;

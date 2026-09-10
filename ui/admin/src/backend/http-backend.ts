@@ -18,6 +18,7 @@ import {
   type AuthenticatedSession,
   type CollectionChange,
   type CollectionDefinition,
+	 type FieldDefinition,
   type CreateAttempt,
   type ListOptions,
   type OperationHistory,
@@ -31,6 +32,7 @@ import {
   type SchemaHealth,
   type SetupInput,
   type SystemStatus,
+	 type AdminSettings,
   type ManagedUser,
   type UserPage,
   type ImpersonatedUserSession,
@@ -261,6 +263,7 @@ class HTTPBackend implements AdminBackend {
 			try { return (await this.#schemaCall({ path: "/api/admin/schema/import/apply", method: "POST", body: { document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }, headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, csrf: true, signal })).data as SchemaImportResult; }
 			catch (caught) { if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body")) return (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult; throw caught; }
 		},
+		sampleView: async (query: string, signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/view/sample", method: "POST", body: { query }, csrf: true, signal })).data as { fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] },
 		importStatus: async (operationId: string, signal?: AbortSignal) => (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(operationId)}`, signal })).data as SchemaImportResult,
   };
 
@@ -324,6 +327,12 @@ class HTTPBackend implements AdminBackend {
         throw this.#systemFailure(caught);
       }
     },
+  };
+
+  readonly settings = {
+    get: async (signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", signal })).data as AdminSettings,
+    save: async (value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", method: "PATCH", body: value, csrf: true, signal })).data as AdminSettings,
+    reload: async (signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/settings/reload", method: "POST", csrf: true, signal }); },
   };
 
   readonly operations = {
