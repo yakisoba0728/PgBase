@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"log/slog"
@@ -24,13 +26,7 @@ func apiRateLimitMiddleware(limiter *apiratelimit.Service, trusted func() []neti
 		if !ok {
 			address = "unknown"
 		}
-		actor := ""
-		if p, ok := AdminPrincipalFromContext(r.Context()); ok {
-			actor = "admin:" + p.Administrator.ID.String()
-		}
-		if p, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
-			actor = "user:" + p.principal.User.ID.String()
-		}
+		actor := apiRateLimitActor(r.Context())
 		decision, err := limiter.Admit(r.Context(), r.Method, pattern, actor, address)
 		if err != nil {
 			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "rate_limit_unavailable", Message: "Rate limit unavailable"})
@@ -43,6 +39,23 @@ func apiRateLimitMiddleware(limiter *apiratelimit.Service, trusted func() []neti
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// apiRateLimitActor derives the quota audience from the identity already
+// admitted by the route policy. Service tokens use their durable token UUID,
+// never the bearer credential, so a service request belongs to @auth without
+// leaking or making buckets depend on the raw secret.
+func apiRateLimitActor(ctx context.Context) string {
+	if p, ok := AdminPrincipalFromContext(ctx); ok && p.Administrator.ID != uuid.Nil {
+		return "admin:" + p.Administrator.ID.String()
+	}
+	if p, ok := ctx.Value(userPrincipalKey{}).(authenticatedUser); ok && p.principal.User.ID != uuid.Nil {
+		return "user:" + p.principal.User.ID.String()
+	}
+	if subject, ok := ctx.Value(publicRecordPrincipalKey{}).(identity.Subject); ok && subject.Kind == identity.Service && subject.ID != uuid.Nil {
+		return "service:" + subject.ID.String()
+	}
+	return ""
 }
 
 const (
