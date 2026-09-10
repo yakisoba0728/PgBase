@@ -2,11 +2,11 @@
 
 PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) `5684ee24f1e88f71a2ede73d20cf547fbd509e16`이다.
 
-기준선 `a7b8ac0`; 현재 코드 기준 `c0e5b0da1876`. `done`은 구현 commit과 회귀 테스트 파일이 표에 기록된 경우다. 67개 행은 `done`이며 SCH-02는 `pending_verification`이다: authRule/manageRule 전 경로가 아직 완결되지 않았다.
+기준선 `a7b8ac0`; 최종 코드 검증 HEAD `cd6684d79bbec793a6e03ea34812223261a845be`. `done`은 구현 commit, 실제 호출 경로와 회귀/통합 테스트가 기록된 경우다. 원래 부분 구현 68개 행은 모두 `done`이다.
 
 | ID | 기능 | 상태 | 구현 commit | 테스트 근거 | 남은 PB wire/native PostgreSQL 차이 |
 | --- | --- | --- | --- | --- | --- |
-| SCH-02 | auth collection data model | pending_verification | post-a7b8ac0:4b41d09 | internal/userauth/auth_rules_test.go | OAuth·OTP·MFA·refresh authRule 및 delegated manageRule이 남아 있다. |
+| SCH-02 | auth collection data model | done | post-a7b8ac0:4b41d09; round2:529d4a2,bd99e3e | internal/schema/auth_collection_document_integration_test.go; internal/userauth/nullable_rules_integration_test.go | auth aggregate는 여러 PostgreSQL meta table에 저장하지만 nullable rules와 token/auth policy를 compatibility document에서 손실 없이 합성한다. |
 | SCH-03 | catalog list and single lookup | done | post-a7b8ac0:f36d11a,de20469,b35eeb5 | internal/api/schema_handlers_test.go | PB의 전체 collection wire와 native catalog의 UUID/DDL receipt는 같지 않다. |
 | SCH-04 | name, system and type invariants | done | post-a7b8ac0:619d460,62b9620,993f70b,c8bb322 | internal/schema/compatibility_integration_test.go | native PostgreSQL table identity와 PB collection id/이름 범위는 별도이며 compat mode에서만 PB 제약을 강제한다. |
 | SCH-10 | common field metadata and system protection | done | post-a7b8ac0:619d460,62b9620 | internal/schema/compatibility_integration_test.go | PgBase는 physical ColumnName을 별도로 보존한다. |
@@ -77,4 +77,4 @@ PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/po
 
 ## 최종 통합 결과
 
-원래 부분 구현 68개 중 67개는 `done`이고 SCH-02는 `pending_verification`이다. 아래 차이는 기능 미완료 또는 명시된 wire·저장소·API 설계 차이를 구분해 기록한다.
+원래 부분 구현 68개는 모두 `done`이다. 별도 source audit 기준의 부분 8개도 round2에서 완료됐고, 원래 미구현 중 QRY-04/08/11/12가 추가 완료됐다. 최종 232행 집계는 구현 211, 부분 0, 미구현 21이다. 아래 차이는 명시된 wire·저장소·API 설계 차이이며 PocketBase 전체 100% 호환 주장이 아니다.
