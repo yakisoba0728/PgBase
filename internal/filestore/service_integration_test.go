@@ -422,7 +422,7 @@ func TestAuthRecordFileUsesSharedStorageWithExplicitOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	collection, user := uuid.New(), uuid.New()
-	fields := `[{"name":"avatar","type":"file","required":false,"unique":false,"indexed":false,"options":{"maxFileSize":32,"maxSelect":1,"mimeTypes":["text/plain"],"protected":true}}]`
+	fields := `[{"name":"avatar","type":"file","required":false,"unique":false,"indexed":false,"options":{"maxFileSize":999,"maxSelect":2,"mimeTypes":["text/plain"],"protected":false}},{"name":"secret","type":"file","required":false,"unique":false,"indexed":false,"hidden":true,"options":{"maxFileSize":32,"maxSelect":1,"mimeTypes":["text/plain"]}}]`
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,created_at,updated_at) values($1,'file_members',true,'{}',$2,now(),now())`, collection, fields); err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,32 @@ func TestAuthRecordFileUsesSharedStorageWithExplicitOwnership(t *testing.T) {
 	if _, _, err := service.Open(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, file.ID, Original, ""); !errors.Is(err, ErrDenied) {
 		t.Fatalf("foreign open=%v", err)
 	}
-	if err := service.Delete(ctx, principal, file.ID); err != nil {
+	publicFile, reader, err := service.OpenPublic(ctx, file.ID, Original)
+	if err != nil {
+		t.Fatalf("public open=%v", err)
+	}
+	_ = reader.Close()
+	if publicFile.ID != file.ID {
+		t.Fatal("wrong public file")
+	}
+	if _, err := service.Upload(ctx, principal, Upload{CollectionID: collection, RecordID: user, Field: "secret", Filename: "secret.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: sum, Body: bytes.NewReader(body)}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("hidden owner upload=%v", err)
+	}
+	if _, err := service.Upload(ctx, identity.Subject{Kind: identity.Anonymous}, Upload{CollectionID: collection, RecordID: user, Field: "avatar", Filename: "anon.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: sum, Body: bytes.NewReader(body)}); !errors.Is(err, ErrDenied) {
+		t.Fatalf("anonymous upload=%v", err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.auth_collections set update_rule='false' where id=$1`, collection); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Upload(ctx, principal, Upload{CollectionID: collection, RecordID: user, Field: "avatar", Filename: "locked.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: sum, Body: bytes.NewReader(body)}); !errors.Is(err, ErrDenied) {
+		t.Fatalf("false update rule=%v", err)
+	}
+	large := bytes.Repeat([]byte{'x'}, 65)
+	largeSum := sha256.Sum256(large)
+	if _, err := service.Upload(ctx, identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, Upload{CollectionID: collection, RecordID: user, Field: "avatar", Filename: "large.txt", ContentType: "text/plain", Size: 65, SHA256: largeSum, Body: bytes.NewReader(large)}); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("global cap=%v", err)
+	}
+	if err := service.Delete(ctx, identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, file.ID); err != nil {
 		t.Fatal(err)
 	}
 }
