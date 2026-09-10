@@ -227,7 +227,14 @@ func (s *Service) insertMFAChallenge(ctx context.Context, tx pgx.Tx, userID uuid
 		return nil, err
 	}
 	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
-	expires := now.Add(mfaChallengeTTL)
+	// The collection policy controls the lifespan of the single-use challenge.
+	// Falling back to the historic five minute value is intentionally avoided:
+	// every user row has an auth collection and a policy row created by trigger.
+	var durationSeconds int
+	if err := tx.QueryRow(ctx, `select p.mfa_duration_seconds from pgbase_meta.users u join pgbase_meta.auth_collection_policies p on p.auth_collection_id=u.auth_collection_id where u.id=$1`, userID).Scan(&durationSeconds); err != nil {
+		return nil, err
+	}
+	expires := now.Add(time.Duration(durationSeconds) * time.Second)
 	_, err := tx.Exec(ctx, `insert into pgbase_meta.user_mfa_challenges(id,user_id,token_hash,expires_at,created_at) values($1,$2,$3,$4,$5)`, uuid.New(), userID, s.mfaChallengeHash(raw), expires, now)
 	if err != nil {
 		return nil, err
