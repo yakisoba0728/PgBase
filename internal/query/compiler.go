@@ -254,6 +254,13 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	if isMultipleRelation(field) {
 		return "", validation("filter", "relation_filter_unsupported")
 	}
+	if comparison.otherField != "" {
+		other, ok := filterField(collection, comparison.otherField)
+		if !ok {
+			return "", validation("filter", "unknown_field")
+		}
+		return compileFieldComparison(field, other, comparison, quoted(field.ColumnName), quoted(other.ColumnName))
+	}
 	return compileQualifiedComparison(field, comparison, quoted(field.ColumnName), builder)
 }
 

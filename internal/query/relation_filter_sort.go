@@ -32,9 +32,10 @@ type plannedRelationFilter struct {
 }
 
 type plannedRelationComparison struct {
-	input     filterComparison
-	rootField *schema.Field
-	path      *plannedRelationPath
+	input          filterComparison
+	rootField      *schema.Field
+	otherRootField *schema.Field
+	path           *plannedRelationPath
 }
 
 type plannedRelationPath struct {
@@ -99,7 +100,16 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 				return nil, 0, validation("filter", "unsupported_modifier")
 			}
 			copy := field
-			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, rootField: &copy}}, 0, nil
+			planned := &plannedRelationComparison{input: value, rootField: &copy}
+			if value.otherField != "" {
+				other, found := filterField(root, value.otherField)
+				if !found || other.Type == schema.TypeRelation || strings.Contains(value.otherField, ".") {
+					return nil, 0, validation("filter", "unknown_field")
+				}
+				otherCopy := other
+				planned.otherRootField = &otherCopy
+			}
+			return &plannedRelationFilter{comparison: planned}, 0, nil
 		}
 		if !ok && !strings.Contains(value.field, ".") {
 			return nil, 0, validation("filter", "unknown_field")
@@ -402,6 +412,9 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	if node.comparison != nil {
 		comparison := node.comparison
 		if comparison.rootField != nil {
+			if comparison.otherRootField != nil {
+				return compileFieldComparison(*comparison.rootField, *comparison.otherRootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), qualified(sourceAlias, comparison.otherRootField.ColumnName))
+			}
 			return compileQualifiedComparison(*comparison.rootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), renderer.builder)
 		}
 		if comparison.path.geoProperty != "" && len(comparison.path.hops) == 0 {
@@ -484,6 +497,47 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 		return "(" + comparisonSQL + ")", nil
 	}
 	return "(" + column + " " + comparison.operator + " " + builder.placeholder(value) + ")", nil
+}
+
+func compileFieldComparison(left, right schema.Field, comparison filterComparison, leftColumn, rightColumn string) (string, error) {
+	if left.Type != right.Type || left.Type == schema.TypeJSONB || left.Type == schema.TypeGeoPoint || left.Type == schema.TypeFile || left.Type == schema.TypePassword || left.Type == schema.TypeRelation {
+		return "", validation("filter", "type_mismatch")
+	}
+	apply := func(field schema.Field, modifier, column string) (string, error) {
+		if modifier == "" {
+			return column, nil
+		}
+		if field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+			return "", validation("filter", "unsupported_modifier")
+		}
+		switch modifier {
+		case "lower":
+			return "lower(" + column + ")", nil
+		case "length":
+			return "char_length(" + column + ")", nil
+		default:
+			return "", validation("filter", "unsupported_modifier")
+		}
+	}
+	var err error
+	leftColumn, err = apply(left, comparison.modifier, leftColumn)
+	if err != nil {
+		return "", err
+	}
+	rightColumn, err = apply(right, comparison.otherModifier, rightColumn)
+	if err != nil {
+		return "", err
+	}
+	if comparison.operator == "~" {
+		return "(" + leftColumn + " LIKE ('%' || " + rightColumn + " || '%') ESCAPE '\\')", nil
+	}
+	if comparison.operator == "!~" {
+		return "(" + leftColumn + " NOT LIKE ('%' || " + rightColumn + " || '%') ESCAPE '\\')", nil
+	}
+	if left.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
+		return "", validation("filter", "type_mismatch")
+	}
+	return "(" + leftColumn + " " + comparison.operator + " " + rightColumn + ")", nil
 }
 
 func renderRelationExists(

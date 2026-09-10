@@ -20,11 +20,13 @@ const (
 type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
-	field       string
-	modifier    string
-	operator    string
-	value       filterLiteral
-	literalLeft bool
+	field         string
+	modifier      string
+	otherField    string
+	otherModifier string
+	operator      string
+	value         filterLiteral
+	literalLeft   bool
 }
 
 type filterAnd struct{ children []filterNode }
@@ -150,6 +152,8 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
 	switch {
+	case left.field != "" && right.field != "":
+		return filterComparison{field: left.field, modifier: left.modifier, otherField: right.field, otherModifier: right.modifier, operator: operator}, nil
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
 	case left.field == "" && right.field != "":
