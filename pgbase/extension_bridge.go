@@ -407,15 +407,7 @@ func (host *extensionHost) callAppRecords(ctx context.Context, method string, ra
 		if err := decodeExtensionInput(raw, &request); err != nil {
 			return nil, extensionError("invalid_record_request", err)
 		}
-		var id uuid.UUID
-		if request.ID != "" {
-			var err error
-			id, err = requiredUUID(request.ID)
-			if err != nil {
-				return nil, extensionError("invalid_record_request", err)
-			}
-		}
-		err := host.bridge.records.Validate(ctx, recordops.ValidateRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, ID: id, Input: request.Input})
+		err := host.bridge.records.Validate(ctx, recordops.ValidateRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, PublicID: request.ID, Input: request.Input})
 		return marshalExtensionResult(map[string]bool{"valid": err == nil}, err)
 	}
 	return nil, extensionError("unsupported_operation", nil)
@@ -536,17 +528,16 @@ func (host *extensionHost) callRecords(ctx context.Context, method string, raw j
 		finish(err)
 		return marshalExtensionResult(extensionRecordResult{Items: page.Items, NextCursor: page.NextCursor}, err)
 	case "records.get":
-		id, err := requiredUUID(request.ID)
-		if err != nil {
-			return nil, extensionError("invalid_record_request", err)
+		if request.ID == "" {
+			return nil, extensionError("invalid_record_request", errors.New("record id is required"))
 		}
-		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: id, Expand: request.Expand}
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: request.ID, Expand: request.Expand}
 		finish, err := host.beginRecordLifecycle(ctx, HookRecordViewRequest, event)
 		if err != nil {
 			finish(err)
 			return nil, err
 		}
-		record, err := host.bridge.records.Get(ctx, recordops.GetRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, ID: id, Expand: event.Expand})
+		record, err := host.bridge.records.Get(ctx, recordops.GetRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, PublicID: event.RecordID, Expand: event.Expand})
 		finish(err)
 		return marshalExtensionResult(publicRecordResult(record, recordops.MutationResult{}), err)
 	case "records.create":
@@ -563,35 +554,33 @@ func (host *extensionHost) callRecords(ctx context.Context, method string, raw j
 		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
 	case "records.update":
-		id, err := requiredUUID(request.ID)
-		if err != nil {
-			return nil, extensionError("invalid_record_request", err)
+		if request.ID == "" {
+			return nil, extensionError("invalid_record_request", errors.New("record id is required"))
 		}
 		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection,
-			RecordID: id, Input: cloneRawFields(request.Input)}
+			RecordID: request.ID, Input: cloneRawFields(request.Input)}
 		finish, err := host.beginRecordLifecycle(ctx, HookRecordUpdateRequest, event)
 		if err != nil {
 			finish(err)
 			return nil, err
 		}
 		result, err := host.bridge.records.Update(ctx, recordops.UpdateRequest{Principal: host.principal, RequestID: host.requestID,
-			Collection: request.Collection, ID: id, Input: event.Input, IfMatch: extensionIfMatch(request.IfMatch)})
+			Collection: request.Collection, PublicID: event.RecordID, Input: event.Input, IfMatch: extensionIfMatch(request.IfMatch)})
 		event.Result = cloneExtensionMutationResult(result)
 		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
 	case "records.delete":
-		id, err := requiredUUID(request.ID)
-		if err != nil {
-			return nil, extensionError("invalid_record_request", err)
+		if request.ID == "" {
+			return nil, extensionError("invalid_record_request", errors.New("record id is required"))
 		}
-		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: id}
+		event := &api.RecordRequestEvent{Actor: host.principal, RequestID: host.requestID, Collection: request.Collection, RecordID: request.ID}
 		finish, err := host.beginRecordLifecycle(ctx, HookRecordDeleteRequest, event)
 		if err != nil {
 			finish(err)
 			return nil, err
 		}
 		result, err := host.bridge.records.Delete(ctx, recordops.DeleteRequest{Principal: host.principal, RequestID: host.requestID,
-			Collection: request.Collection, ID: id, IfMatch: extensionIfMatch(request.IfMatch)})
+			Collection: request.Collection, PublicID: event.RecordID, IfMatch: extensionIfMatch(request.IfMatch)})
 		event.Result = cloneExtensionMutationResult(result)
 		finish(err)
 		return marshalExtensionResult(publicMutationResult(result), err)
@@ -627,23 +616,23 @@ func (host *extensionHost) callRecordBatch(ctx context.Context, operations []ext
 	}
 	converted := make([]recordops.BatchOperation, len(operations))
 	for index, operation := range operations {
-		id := uuid.Nil
-		var err error
-		if operation.ID != "" {
-			id, err = requiredUUID(operation.ID)
-			if err != nil {
-				return nil, extensionError("invalid_record_request", err)
-			}
-		}
 		switch operation.Operation {
 		case "create":
-			converted[index].Create = &recordops.CreateRequest{Collection: operation.Collection, ID: id, Input: operation.Input, IdempotencyKey: operation.IdempotencyKey}
+			input := cloneRawFields(operation.Input)
+			if operation.ID != "" {
+				if input == nil {
+					input = make(map[string]json.RawMessage)
+				}
+				encoded, _ := json.Marshal(operation.ID)
+				input["id"] = encoded
+			}
+			converted[index].Create = &recordops.CreateRequest{Collection: operation.Collection, Input: input, IdempotencyKey: operation.IdempotencyKey}
 		case "update":
-			converted[index].Update = &recordops.UpdateRequest{Collection: operation.Collection, ID: id, Input: operation.Input, IfMatch: extensionIfMatch(operation.IfMatch)}
+			converted[index].Update = &recordops.UpdateRequest{Collection: operation.Collection, PublicID: operation.ID, Input: operation.Input, IfMatch: extensionIfMatch(operation.IfMatch)}
 		case "upsert":
-			converted[index].Upsert = &recordops.UpdateRequest{Collection: operation.Collection, ID: id, Input: operation.Input, IfMatch: extensionIfMatch(operation.IfMatch)}
+			converted[index].Upsert = &recordops.UpdateRequest{Collection: operation.Collection, PublicID: operation.ID, Input: operation.Input, IfMatch: extensionIfMatch(operation.IfMatch)}
 		case "delete":
-			converted[index].Delete = &recordops.DeleteRequest{Collection: operation.Collection, ID: id, IfMatch: extensionIfMatch(operation.IfMatch)}
+			converted[index].Delete = &recordops.DeleteRequest{Collection: operation.Collection, PublicID: operation.ID, IfMatch: extensionIfMatch(operation.IfMatch)}
 		default:
 			return nil, extensionError("invalid_record_request", errors.New("batch operation is invalid"))
 		}
