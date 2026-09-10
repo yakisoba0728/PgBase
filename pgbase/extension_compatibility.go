@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,17 +20,21 @@ import (
 const compatibilityMaximumBytes = 1 << 20
 
 type extensionCompatibility struct {
-	root        string
-	origins     map[string]bool
-	commands    map[string]string
-	environment map[string]string
-	arguments   []string
-	exit        func(int) error
-	client      *http.Client
+	root                string
+	origins             map[string]bool
+	commands            map[string]string
+	environment         map[string]string
+	arguments           []string
+	authMailCollections map[uuid.UUID]bool
+	exit                func(int) error
+	client              *http.Client
 }
 
 func newExtensionCompatibility(options PocketBaseCompatibilityOptions) *extensionCompatibility {
-	c := &extensionCompatibility{root: options.FilesystemRoot, origins: map[string]bool{}, commands: options.Commands, environment: options.Environment, arguments: options.Arguments, exit: options.ProcessExit}
+	c := &extensionCompatibility{root: options.FilesystemRoot, origins: map[string]bool{}, commands: options.Commands, environment: options.Environment, arguments: options.Arguments, exit: options.ProcessExit, authMailCollections: map[uuid.UUID]bool{}}
+	for _, id := range options.AuthMailCollections {
+		c.authMailCollections[id] = true
+	}
 	for _, origin := range options.HTTPAllowedOrigins {
 		c.origins[origin] = true
 	}

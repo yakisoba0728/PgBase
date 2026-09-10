@@ -45,11 +45,12 @@ type JavaScriptOptions struct {
 }
 
 type PocketBaseCompatibilityOptions struct {
-	FilesystemRoot     string
-	HTTPAllowedOrigins []string
-	Commands           map[string]string
-	Environment        map[string]string
-	Arguments          []string
+	AuthMailCollections []uuid.UUID
+	FilesystemRoot      string
+	HTTPAllowedOrigins  []string
+	Commands            map[string]string
+	Environment         map[string]string
+	Arguments           []string
 	// ProcessExit is an operator-provided process lifecycle request. Leaving it
 	// nil makes $os.exit fail closed. Tests and supervisors can inject it.
 	ProcessExit func(int) error
@@ -190,6 +191,12 @@ func (options PocketBaseCompatibilityOptions) normalized() (PocketBaseCompatibil
 	options.Commands = maps.Clone(options.Commands)
 	options.Environment = maps.Clone(options.Environment)
 	options.Arguments = slices.Clone(options.Arguments)
+	options.AuthMailCollections = slices.Clone(options.AuthMailCollections)
+	for _, id := range options.AuthMailCollections {
+		if id == uuid.Nil {
+			return options, errors.New("AuthMailCollections contains an empty collection id")
+		}
+	}
 	for name, command := range options.Commands {
 		if name == "" || !filepath.IsAbs(command) {
 			return options, errors.New("Commands requires names mapped to absolute paths")

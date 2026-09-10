@@ -42,7 +42,7 @@ type authMailService interface {
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
 	AdminRequestVerification(context.Context, uuid.UUID) error
 	AdminRequestEmailChange(context.Context, uuid.UUID, string) error
-	RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error)
+	AdminRequestEmailOTP(context.Context, uuid.UUID, uuid.UUID) (userauth.EmailOTPRequest, error)
 	AdminSendAuthAlert(context.Context, uuid.UUID) error
 }
 
@@ -171,12 +171,16 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 		NewEmail   string `json:"newEmail"`
 		OTPID      string `json:"otpId"`
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := decodeExtensionInput(raw, &r); err != nil {
 		return nil, extensionError("invalid_auth_mail_request", err)
 	}
 	id, err := requiredUUID(r.RecordID)
 	if err != nil {
 		return nil, extensionError("invalid_auth_mail_request", err)
+	}
+	realm, err := requiredUUID(r.Collection)
+	if err != nil || host.bridge.compatibility == nil || !host.bridge.compatibility.authMailCollections[realm] {
+		return nil, extensionError("permission_denied", errors.New("auth mail collection is not operator-authorized"))
 	}
 	switch r.Kind {
 	case "passwordReset":
@@ -188,11 +192,7 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 	case "authAlert":
 		err = host.bridge.authMail.AdminSendAuthAlert(ctx, id)
 	case "otp":
-		realm, e := requiredUUID(r.Collection)
-		if e != nil {
-			return nil, extensionError("invalid_auth_mail_request", e)
-		}
-		_, err = host.bridge.authMail.RequestEmailOTPInCollection(ctx, realm, r.OTPID, "admin-local")
+		_, err = host.bridge.authMail.AdminRequestEmailOTP(ctx, realm, id)
 	default:
 		return nil, extensionError("invalid_auth_mail_request", nil)
 	}
