@@ -83,7 +83,7 @@ func (d Dependencies) trustedProxies() []netip.Prefix {
 // the shape of a registration call.
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
-	schemas := schemaEndpoints{service: dependencies.Schema, hooks: dependencies.LifecycleHooks}
+	schemas := schemaEndpoints{service: dependencies.Schema, records: dependencies.Records, hooks: dependencies.LifecycleHooks}
 	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
 	if dependencies.RuntimeSettings != nil {
 		records.settings = dependencies.RuntimeSettings
@@ -137,6 +137,10 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationStatus)},
 		{method: "GET", pattern: "/api/admin/collections", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
+		{method: "GET", pattern: "/api/admin/collections/scaffolds", access: accessAdminSameOriginRead,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.scaffolds)},
+		{method: "POST", pattern: "/api/admin/collections/{collection}/truncate", access: accessAdminSession,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.truncate)},
 		{method: "GET", pattern: "/api/admin/collections/{collection}", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.collection)},
 		{method: "POST", pattern: "/api/admin/collections/view/sample", access: accessAdminSession,

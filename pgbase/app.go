@@ -14,6 +14,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
@@ -28,6 +29,7 @@ type App struct {
 	runtimeSettings        *runtimesettings.Controller
 	options                Options
 	pool                   *database.Pool
+	records                *recordops.Service
 	backupGate             *database.BackupGate
 	handler                http.Handler
 	httpServer             *http.Server

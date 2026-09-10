@@ -793,6 +793,20 @@
         "x-pgbase-csrf-required": true
       }
     },
+    "/api/admin/collections/scaffolds": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
     "/api/admin/collections/view/sample": {
       "post": {
         "responses": {
@@ -985,6 +999,31 @@
         ],
         "x-pgbase-csrf-required": true,
         "x-pgbase-maximum-request-bytes": 65536
+      }
+    },
+    "/api/admin/collections/{collection}/truncate": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
       }
     },
     "/api/admin/collections/{collection}/user-access": {

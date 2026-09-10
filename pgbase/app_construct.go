@@ -355,6 +355,7 @@ func newWithCatalogPreflight(
 		realtimeBroker:        applicationRealtimeBroker,
 		runtimeSettings:       runtimeSettings,
 		pool:                  pool,
+		records:               recordService,
 		backupGate:            gate,
 		handler:               handler,
 		readiness:             readiness,

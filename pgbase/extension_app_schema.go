@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -51,7 +52,7 @@ func (control *extensionAppControl) callSchemaDatabase(ctx context.Context, meth
 	case "app-control.collectionSave", "app-control.collectionSaveNoValidate", "app-control.collectionValidate", "app-control.collectionDelete", "app-control.collectionSync":
 		return control.mutateCollection(ctx, service, method, raw, actor, requestID)
 	case "app-control.collectionTruncate":
-		return control.truncateCollection(ctx, service, raw)
+		return control.truncateCollection(ctx, raw, actor, requestID)
 	case "app-control.databaseTables", "app-control.databaseColumns", "app-control.databaseIndexes":
 		return control.introspectDatabase(ctx, service, method, raw)
 	case "app-control.databaseHasTable", "app-control.databaseTableInfo", "app-control.databaseDeleteTable", "app-control.databaseDeleteView", "app-control.databaseSaveView", "app-control.databaseCreateViewFields", "app-control.databaseDryRunView", "app-control.databaseFindRecordByViewFile", "app-control.databaseVacuum":
@@ -143,29 +144,18 @@ func (control *extensionAppControl) mutateCollection(ctx context.Context, servic
 	return control.applySchema(ctx, service, extensionSchemaApplyRequest{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum}, actor, requestID)
 }
 
-func (control *extensionAppControl) truncateCollection(ctx context.Context, service *schema.Service, raw json.RawMessage) (json.RawMessage, error) {
+func (control *extensionAppControl) truncateCollection(ctx context.Context, raw json.RawMessage, actor uuid.UUID, requestID string) (json.RawMessage, error) {
 	var request struct {
 		Name string `json:"name"`
 	}
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
 	}
-	catalog, err := service.Catalog(ctx)
-	if err != nil {
-		return nil, err
+	if control.app.records == nil {
+		return nil, extensionError("collection_truncate_failed", errors.New("record service is unavailable"))
 	}
-	collection, ok := catalog.Collections[request.Name]
-	if !ok {
-		return nil, extensionError("collection_not_found", schema.ErrCollectionNotFound)
-	}
-	if collection.System {
-		return nil, extensionError("collection_system", errors.New("system collection cannot be truncated"))
-	}
-	tag, err := control.app.pool.Exec(ctx, "truncate table "+qualifiedAppIdentifier(collection.TableName))
-	if err != nil {
-		return nil, extensionError("collection_truncate_failed", err)
-	}
-	return json.Marshal(map[string]any{"truncated": true, "rowsAffected": tag.RowsAffected()})
+	result, err := control.app.records.Truncate(ctx, recordops.TruncateRequest{Principal: identity.Subject{Kind: identity.Administrator, ID: actor}, RequestID: requestID, Collection: request.Name})
+	return marshalAppControl(result, err)
 }
 
 func (control *extensionAppControl) introspectDatabase(ctx context.Context, service *schema.Service, method string, raw json.RawMessage) (json.RawMessage, error) {

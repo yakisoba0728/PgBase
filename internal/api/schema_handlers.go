@@ -14,6 +14,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -32,7 +33,47 @@ type SchemaService interface {
 
 type schemaEndpoints struct {
 	service SchemaService
+	records RecordService
 	hooks   *lifecycle.Registry
+}
+
+func (e schemaEndpoints) scaffolds(w http.ResponseWriter, r *http.Request) {
+	provider, ok := e.service.(interface {
+		Scaffolds() schema.CollectionScaffolds
+	})
+	if !ok {
+		writeSchemaError(w, r, errors.New("schema scaffolds are unavailable"))
+		return
+	}
+	writeJSON(w, http.StatusOK, provider.Scaffolds())
+}
+
+func (e schemaEndpoints) truncate(w http.ResponseWriter, r *http.Request) {
+	service, ok := e.records.(interface {
+		Truncate(context.Context, recordops.TruncateRequest) (recordops.TruncateResult, error)
+	})
+	if !ok {
+		writeSchemaError(w, r, errors.New("record truncate is unavailable"))
+		return
+	}
+	var request struct {
+		Name string `json:"name"`
+	}
+	if decodeStrictJSON(r, &request) != nil || request.Name == "" || request.Name != r.PathValue("collection") {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Exact collection name confirmation is required"})
+		return
+	}
+	principal, ok := AdminPrincipalFromContext(r.Context())
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+		return
+	}
+	result, err := service.Truncate(r.Context(), recordops.TruncateRequest{Principal: recordops.Principal{Kind: recordops.PrincipalAdministrator, ID: principal.Administrator.ID}, RequestID: requestID(r.Context()), Collection: request.Name})
+	if err != nil {
+		writeSchemaError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (e schemaEndpoints) beginRequest(r *http.Request, operation, name string) (*CollectionRequestEvent, func(error), error) {
