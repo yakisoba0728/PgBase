@@ -2,14 +2,17 @@ package mailer
 
 import (
 	"bufio"
+	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 )
@@ -135,16 +138,67 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 
 func encodeMessage(from string, message Message) (string, error) {
 	headers := "From: " + from + "\r\nTo: " + message.To + "\r\nSubject: " + message.Subject + "\r\nMIME-Version: 1.0\r\n"
-	if message.HTML == "" {
+	if message.HTML == "" && len(message.Attachments) == 0 {
 		return headers + "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.Text, nil
 	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", fmt.Errorf("create MIME boundary: %w", err)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	subtype := "multipart/mixed"
+	if len(message.Attachments) == 0 {
+		subtype = "multipart/alternative"
 	}
-	boundary := "pgbase-" + hex.EncodeToString(random[:])
-	return headers + "Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n" +
-		"--" + boundary + "\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.Text + "\r\n" +
-		"--" + boundary + "\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + message.HTML + "\r\n" +
-		"--" + boundary + "--\r\n", nil
+	if err := writeMailPart(writer, "text/plain; charset=UTF-8", "", []byte(message.Text), false); err != nil {
+		return "", err
+	}
+	if message.HTML != "" {
+		if err := writeMailPart(writer, "text/html; charset=UTF-8", "", []byte(message.HTML), false); err != nil {
+			return "", err
+		}
+	}
+	total := 0
+	for _, attachment := range message.Attachments {
+		if attachment.Filename == "" || strings.ContainsAny(attachment.Filename, "\r\n/\\") || strings.ContainsAny(attachment.ContentType, "\r\n") {
+			return "", errors.New("invalid email attachment")
+		}
+		total += len(attachment.Data)
+		if total > 8<<20 {
+			return "", errors.New("email attachments exceed 8 MiB")
+		}
+		contentType := attachment.ContentType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		if err := writeMailPart(writer, contentType, attachment.Filename, attachment.Data, true); err != nil {
+			return "", err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+	return headers + "Content-Type: " + subtype + "; boundary=\"" + writer.Boundary() + "\"\r\n\r\n" + body.String(), nil
+}
+
+func writeMailPart(writer *multipart.Writer, contentType, filename string, data []byte, encoded bool) error {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	if !encoded {
+		header.Set("Content-Transfer-Encoding", "8bit")
+	}
+	if encoded {
+		header.Set("Content-Transfer-Encoding", "base64")
+		header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	}
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if !encoded {
+		_, err = part.Write(data)
+		return err
+	}
+	encoder := base64.NewEncoder(base64.StdEncoding, part)
+	if _, err = encoder.Write(data); err != nil {
+		return err
+	}
+	return encoder.Close()
 }

@@ -14,6 +14,10 @@ import (
 type TrustedDatabase struct{ pool *database.Pool }
 
 type trustedTransactionKey struct{}
+type trustedTransaction struct {
+	owner *TrustedDatabase
+	tx    pgx.Tx
+}
 
 type trustedQuerier interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
@@ -37,8 +41,8 @@ func (d *TrustedDatabase) querier(ctx context.Context) (trustedQuerier, error) {
 	if d == nil || d.pool == nil {
 		return nil, errors.New("trusted database is unavailable")
 	}
-	if tx, ok := ctx.Value(trustedTransactionKey{}).(pgx.Tx); ok {
-		return tx, nil
+	if bound, ok := ctx.Value(trustedTransactionKey{}).(trustedTransaction); ok && bound.owner == d {
+		return bound.tx, nil
 	}
 	return d.pool, nil
 }
@@ -72,25 +76,36 @@ func (d *TrustedDatabase) RunInTransaction(ctx context.Context, fn func(callback
 	if fn == nil {
 		return errors.New("transaction callback is required")
 	}
-	if parent, ok := ctx.Value(trustedTransactionKey{}).(pgx.Tx); ok {
-		nested, err := parent.Begin(ctx)
+	if bound, ok := ctx.Value(trustedTransactionKey{}).(trustedTransaction); ok && bound.owner == d {
+		nested, err := bound.tx.Begin(ctx)
 		if err != nil {
 			return err
 		}
-		return finishTrustedTransaction(ctx, nested, fn(context.WithValue(ctx, trustedTransactionKey{}, nested)))
+		return runTrustedTransaction(ctx, d, nested, fn)
 	}
 	if d == nil || d.pool == nil {
 		return errors.New("trusted database is unavailable")
 	}
-	return d.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return fn(context.WithValue(ctx, trustedTransactionKey{}, tx)) })
+	return d.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return fn(context.WithValue(ctx, trustedTransactionKey{}, trustedTransaction{owner: d, tx: tx}))
+	})
 }
 
-func finishTrustedTransaction(ctx context.Context, tx pgx.Tx, err error) error {
-	if err != nil {
-		_ = tx.Rollback(context.WithoutCancel(ctx))
+func runTrustedTransaction(ctx context.Context, owner *TrustedDatabase, tx pgx.Tx, fn func(context.Context) error) (err error) {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.WithoutCancel(ctx))
+		}
+	}()
+	if err = fn(context.WithValue(ctx, trustedTransactionKey{}, trustedTransaction{owner: owner, tx: tx})); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 type errorRow struct{ err error }

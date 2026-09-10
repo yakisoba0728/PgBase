@@ -174,16 +174,16 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 			}
 		}
 		results, err := runner.DownN(ctx, count)
+		for _, result := range results {
+			if _, writeErr := fmt.Fprintf(streams.stdout(), "down %s %s\n", result.Migration.ID, hex.EncodeToString(result.Migration.Revision[:])); writeErr != nil {
+				return writeErr
+			}
+		}
 		if err != nil {
 			return operationError(options.Logger, "revert user migrations", err)
 		}
 		if len(results) == 0 {
 			return operationError(options.Logger, "revert user migrations", errors.New("no applied user migration to revert"))
-		}
-		for _, result := range results {
-			if _, err := fmt.Fprintf(streams.stdout(), "down %s %s\n", result.Migration.ID, hex.EncodeToString(result.Migration.Revision[:])); err != nil {
-				return err
-			}
 		}
 	case "list":
 		entries, err := runner.List(ctx)

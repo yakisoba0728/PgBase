@@ -369,10 +369,16 @@ func marshalExtensionResult(value any, err error) (json.RawMessage, error) {
 }
 
 type extensionMailRequest struct {
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Text    string `json:"text"`
-	HTML    string `json:"html,omitempty"`
+	To          string                    `json:"to"`
+	Subject     string                    `json:"subject"`
+	Text        string                    `json:"text"`
+	HTML        string                    `json:"html,omitempty"`
+	Attachments []extensionMailAttachment `json:"attachments,omitempty"`
+}
+type extensionMailAttachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"contentType,omitempty"`
+	DataBase64  string `json:"dataBase64"`
 }
 
 func (host *extensionHost) callMail(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -383,7 +389,15 @@ func (host *extensionHost) callMail(ctx context.Context, raw json.RawMessage) (j
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, extensionError("invalid_mail_request", err)
 	}
-	if err := host.bridge.mailer.Send(ctx, mailer.Message{To: request.To, Subject: request.Subject, Text: request.Text, HTML: request.HTML}); err != nil {
+	attachments := make([]mailer.Attachment, len(request.Attachments))
+	for index, attachment := range request.Attachments {
+		data, err := base64.StdEncoding.DecodeString(attachment.DataBase64)
+		if err != nil {
+			return nil, extensionError("invalid_mail_request", err)
+		}
+		attachments[index] = mailer.Attachment{Filename: attachment.Filename, ContentType: attachment.ContentType, Data: data}
+	}
+	if err := host.bridge.mailer.Send(ctx, mailer.Message{To: request.To, Subject: request.Subject, Text: request.Text, HTML: request.HTML, Attachments: attachments}); err != nil {
 		return nil, mapExtensionError(err)
 	}
 	return json.RawMessage(`{"sent":true}`), nil

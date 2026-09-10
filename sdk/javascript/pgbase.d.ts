@@ -72,7 +72,8 @@ declare module "pgbase" {
       delete(input: { collection: string; id: string; ifMatch: string }): RecordResult
       batch(input: { operations: BatchOperation[] }): { results: RecordResult[] }
     }
-    mail: { send(input: { to: string; subject: string; text: string; html?: string }): { sent: true } }
+    mail: { send(input: { to: string; subject: string; text: string; html?: string; attachments?: Array<{ filename: string; contentType?: string; dataBase64: string }> }): { sent: true } }
+		template: { render(input: { name: string; data: JSONValue }): { output: string } }
     files: {
       list(input: { collection: string; recordId: string; field: string }): FileResult
       /** Fails with file_stream_active until an open handle is closed. */

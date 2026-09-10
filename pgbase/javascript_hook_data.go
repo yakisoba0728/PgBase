@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,14 +31,14 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 		value = map[string]any{"method": data.Request.Method, "path": data.Request.URL.Path,
 			"query": cloneQuery(data.Request.URL.Query()), "headers": safeJavaScriptHeaders(data.Request.Header), "principal": principal}
 	case *mailer.Message:
-		value = extensionMailRequest{To: data.To, Subject: data.Subject, Text: data.Text, HTML: data.HTML}
+		value = extensionMailHookRequest(*data)
 	case *MailEvent:
 		value = map[string]any{"purpose": data.Purpose, "message": extensionMailRequest{
 			To: data.Message.To, Subject: data.Message.Subject, Text: data.Message.Text, HTML: data.Message.HTML}}
 	case *api.RecordRequestEvent, *api.BatchRequestEvent, *api.SchemaImportRequestEvent,
 		*schema.CollectionMutationEvent, *filestore.FileEvent, *filestore.FileAccessEvent,
 		*ApplicationEvent, *AuthEvent, *StorageSettingsEvent, *backup.LifecycleEvent,
-		*api.RealtimeLifecycleEvent, recordops.Mutation, *recordops.Mutation:
+		*api.RealtimeLifecycleEvent, *SettingsReloadEvent, *ModelMutationEvent, recordops.Mutation, *recordops.Mutation:
 		value = data
 	default:
 		return nil, fmt.Errorf("JavaScript hook %s has unsupported data type %T", event.Kind, event.Data)
@@ -57,6 +58,14 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 		return nil, errors.New("JavaScript hook data has trailing JSON")
 	}
 	return json.Marshal(normalizeJavaScriptHookValue(decoded))
+}
+
+func extensionMailHookRequest(message mailer.Message) extensionMailRequest {
+	result := extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML}
+	for _, attachment := range message.Attachments {
+		result.Attachments = append(result.Attachments, extensionMailAttachment{Filename: attachment.Filename, ContentType: attachment.ContentType, DataBase64: base64.StdEncoding.EncodeToString(attachment.Data)})
+	}
+	return result
 }
 
 func normalizeJavaScriptHookValue(value any) any {

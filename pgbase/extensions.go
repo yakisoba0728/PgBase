@@ -150,10 +150,17 @@ func (record extensionPublicRecord) public() ExtensionRecord {
 }
 
 type ExtensionMailMessage struct {
-	To      string
-	Subject string
-	Text    string
-	HTML    string
+	To          string
+	Subject     string
+	Text        string
+	HTML        string
+	Attachments []ExtensionMailAttachment
+}
+
+type ExtensionMailAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
 }
 
 type ExtensionMail struct{ host *extensionHost }
@@ -162,7 +169,11 @@ func (mail ExtensionMail) Send(ctx context.Context, message ExtensionMailMessage
 	var output struct {
 		Sent bool `json:"sent"`
 	}
-	return extensionCall(ctx, mail.host, "mail.send", extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML}, &output)
+	attachments := make([]extensionMailAttachment, len(message.Attachments))
+	for index, attachment := range message.Attachments {
+		attachments[index] = extensionMailAttachment{Filename: attachment.Filename, ContentType: attachment.ContentType, DataBase64: base64.StdEncoding.EncodeToString(attachment.Data)}
+	}
+	return extensionCall(ctx, mail.host, "mail.send", extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML, Attachments: attachments}, &output)
 }
 
 type ExtensionFile struct {

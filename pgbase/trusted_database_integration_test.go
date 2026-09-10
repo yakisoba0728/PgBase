@@ -44,6 +44,49 @@ func TestTrustedDatabaseOptInAndNestedTransactionsStayBound(t *testing.T) {
 	}
 }
 
+func TestTrustedDatabaseContextCannotCrossAppAndNestedPanicRollsBack(t *testing.T) {
+	firstFixture := newPublicUsersAppOptions(t, false, func(options *Options) { options.EnableTrustedDatabaseAccess = true })
+	secondFixture := newPublicUsersAppOptions(t, false, func(options *Options) { options.EnableTrustedDatabaseAccess = true })
+	first, _ := firstFixture.app.TrustedDatabase()
+	second, _ := secondFixture.app.TrustedDatabase()
+	var secondName string
+	if err := second.QueryRow(context.Background(), `select current_database()`).Scan(&secondName); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.RunInTransaction(context.Background(), func(txCtx context.Context) error {
+		var crossName string
+		if err := second.QueryRow(txCtx, `select current_database()`).Scan(&crossName); err != nil {
+			return err
+		}
+		if crossName != secondName {
+			t.Fatalf("cross app query used database %q, want %q", crossName, secondName)
+		}
+		if _, err := first.Exec(txCtx, `create temporary table panic_tx(value text)`); err != nil {
+			return err
+		}
+		if _, err := first.Exec(txCtx, `insert into panic_tx values ('outer')`); err != nil {
+			return err
+		}
+		func() {
+			defer func() { _ = recover() }()
+			_ = first.RunInTransaction(txCtx, func(nested context.Context) error {
+				_, _ = first.Exec(nested, `insert into panic_tx values ('nested')`)
+				panic("fixture")
+			})
+		}()
+		var count int
+		if err := first.QueryRow(txCtx, `select count(*) from panic_tx`).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			t.Fatalf("count after recovered nested panic=%d", count)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTrustedDatabaseRequiresExplicitOptIn(t *testing.T) {
 	app := &App{pool: nil, options: Options{}}
 	if _, err := app.TrustedDatabase(); err == nil {

@@ -73,6 +73,28 @@ func TestSMTPDeliversMultipartAlternative(t *testing.T) {
 	}
 }
 
+func TestSMTPDeliversAttachment(t *testing.T) {
+	address, messages := startSMTPFixture(t)
+	sender, err := NewSMTP(SMTPConfig{Address: address, From: "sender@example.test", ServerName: "localhost", AllowInsecure: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := Message{To: "user@example.test", Subject: "Report", Text: "attached", Attachments: []Attachment{{Filename: "report.txt", ContentType: "text/plain", Data: []byte("hello")}}}
+	if err := sender.Send(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-messages:
+		for _, expected := range []string{"multipart/mixed", `filename=report.txt`, "aGVsbG8="} {
+			if !strings.Contains(delivered, expected) {
+				t.Fatalf("message missing %q: %q", expected, delivered)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SMTP fixture received no message")
+	}
+}
+
 func startSMTPFixture(t *testing.T) (string, <-chan string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

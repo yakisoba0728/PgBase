@@ -223,6 +223,7 @@ func knownJavaScriptHook(kind string) bool {
 		HookAuthImpersonate, HookRealtimeConnect, HookRealtimeSubscribe, HookRealtimeMessage,
 		HookStorageSettingsList, HookStorageSettingsUpdate, HookStorageSettingsTest,
 		HookBackupCreate, HookBackupRestore, HookBackupDelete,
+		HookAuthAlert, HookSettingsReload, HookModelValidate, HookModelExecute, HookModelSuccess, HookModelError,
 	}, kind)
 }
 

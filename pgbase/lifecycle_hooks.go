@@ -60,6 +60,8 @@ const (
 	HookAuthEmailChangeRequest   = "auth.email_change.request"
 	HookAuthEmailChangeConfirm   = "auth.email_change.confirm"
 	HookAuthImpersonate          = "auth.impersonate"
+	HookAuthAlert                = "auth.alert"
+	HookSettingsReload           = "settings.reload"
 )
 
 type CollectionEvent = schema.CollectionMutationEvent
@@ -194,9 +196,25 @@ func mailPurposeHook(purpose string) string {
 		return HookMailEmailChange
 	case "smtp_test":
 		return HookMailSMTPTest
+	case "auth_alert":
+		return HookAuthAlert
 	default:
 		return ""
 	}
+}
+
+// SettingsReloadEvent is emitted after durable settings are committed and the
+// live snapshot is replaced. Changed contains stable setting names, not secrets.
+type SettingsReloadEvent struct{ Changed []string }
+
+// NotifySettingsReload lets the settings service publish its commit boundary
+// without exposing settings storage to extensions.
+func (a *App) NotifySettingsReload(ctx context.Context, changed []string) {
+	if a == nil || a.options.Hooks == nil {
+		return
+	}
+	copyOfChanged := append([]string(nil), changed...)
+	_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: HookSettingsReload, Data: &SettingsReloadEvent{Changed: copyOfChanged}}, func() error { return nil })
 }
 
 func applicationMutationHooks(options Options) []MutationHook {

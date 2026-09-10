@@ -31,6 +31,7 @@ func NewRouteGroup(prefix string, middleware ...RouteMiddleware) *RouteGroup {
 
 // Group returns a child that appends routes to the same builder.
 func (g *RouteGroup) Group(prefix string, middleware ...RouteMiddleware) *RouteGroup {
+	g.ensureRoutes()
 	child := &RouteGroup{prefix: joinRoutePattern(g.prefix, prefix), routes: g.routes}
 	child.middleware = append(append([]RouteMiddleware(nil), g.middleware...), middleware...)
 	return child
@@ -67,12 +68,20 @@ func (g *RouteGroup) Routes() []CustomRoute {
 }
 
 func (g *RouteGroup) append(route CustomRoute) {
+	g.ensureRoutes()
 	handler := route.Handler
 	for index := len(g.middleware) - 1; index >= 0; index-- {
 		handler = g.middleware[index](handler)
 	}
 	route.Handler = handler
 	*g.routes = append(*g.routes, route)
+}
+
+func (g *RouteGroup) ensureRoutes() {
+	if g.routes == nil {
+		routes := []CustomRoute{}
+		g.routes = &routes
+	}
 }
 
 func cleanRoutePrefix(prefix string) string {
