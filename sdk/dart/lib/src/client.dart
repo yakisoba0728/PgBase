@@ -68,7 +68,8 @@ final class PgBaseClient {
     List<BatchOperation> operations, {
     String? fields,
     CancellationToken? cancellation,
-  }) => submitBatch(this, operations, fields: fields, cancellation: cancellation);
+  }) =>
+      submitBatch(this, operations, fields: fields, cancellation: cancellation);
 
   /// Submits the HTTP-shaped batch form. Each request is an object with the
   /// server's `method`, `url`, `body`, and optional `headers` fields.
@@ -125,14 +126,17 @@ final class PgBaseClient {
     fields: fields,
     mfa: true,
   );
-  Future<UserSession> session({CancellationToken? cancellation}) async =>
-      _decodeSession(
-        await request(
-          'GET',
-          '/api/v1/auth/session',
-          cancellation: cancellation,
-        ),
-      );
+  Future<UserSession> session({
+    String? fields,
+    CancellationToken? cancellation,
+  }) async => _decodeSession(
+    await request(
+      'GET',
+      '/api/v1/auth/session',
+      query: {if (fields != null) 'fields': fields},
+      cancellation: cancellation,
+    ),
+  );
 
   Future<void> logout({CancellationToken? cancellation}) async {
     try {
@@ -199,31 +203,44 @@ final class PgBaseClient {
 
   Future<JsonObject> requestOtp(
     String email, {
+    String? fields,
     CancellationToken? cancellation,
-  }) => _objectRequest(
-    'POST',
-    '/api/v1/auth/otp/request',
-    JsonObject({'email': JsonString(email)}),
-    cancellation,
-  );
+  }) async {
+    final value = await request(
+      'POST',
+      '/api/v1/auth/otp/request',
+      body: JsonObject({'email': JsonString(email)}),
+      query: {if (fields != null) 'fields': fields},
+      cancellation: cancellation,
+    );
+    if (value is! JsonObject)
+      throw const PgBaseProtocolError('invalid_otp_response');
+    return value;
+  }
+
   Future<UserSession> completeOtp(
     String otpId,
     String code, {
+    String? fields,
     CancellationToken? cancellation,
   }) => _completeSession(
     '/api/v1/auth/otp/complete',
     {'otpId': JsonString(otpId), 'code': JsonString(code)},
     cancellation,
     mfa: true,
+    fields: fields,
   );
   Future<UserSession> completeMfa(
     String challengeToken,
     String code, {
+    String? fields,
     CancellationToken? cancellation,
-  }) => _completeSession('/api/v1/auth/mfa/complete', {
-    'challengeToken': JsonString(challengeToken),
-    'code': JsonString(code),
-  }, cancellation);
+  }) => _completeSession(
+    '/api/v1/auth/mfa/complete',
+    {'challengeToken': JsonString(challengeToken), 'code': JsonString(code)},
+    cancellation,
+    fields: fields,
+  );
   Future<JsonObject> beginTotpEnrollment(
     String currentPassword, {
     CancellationToken? cancellation,
@@ -235,6 +252,7 @@ final class PgBaseClient {
   );
   Future<JsonObject> confirmTotpEnrollment(
     String code, {
+    String? fields,
     CancellationToken? cancellation,
   }) => _objectRequest(
     'POST',
@@ -264,7 +282,11 @@ final class PgBaseClient {
     OAuthUrlLauncher open, {
     CancellationToken? cancellation,
   }) async {
-    final started = await oauthStart(provider, redirectUri, cancellation: cancellation);
+    final started = await oauthStart(
+      provider,
+      redirectUri,
+      cancellation: cancellation,
+    );
     final authorizationUrl = started['authorizationUrl'];
     if (authorizationUrl is! JsonString) {
       throw const PgBaseProtocolError('invalid_oauth_start_response');
@@ -282,24 +304,43 @@ final class PgBaseClient {
     CancellationToken? cancellation,
   }) async {
     try {
-      final started = await oauthStart(provider, redirectUri, cancellation: cancellation);
+      final started = await oauthStart(
+        provider,
+        redirectUri,
+        cancellation: cancellation,
+      );
       final authorizationUrl = started['authorizationUrl'];
-      if (authorizationUrl is! JsonString) throw const OAuthCallbackError('invalid_start');
-      final expectedState = Uri.parse(authorizationUrl.value).queryParameters['state'];
-      if (expectedState == null || expectedState.isEmpty) throw const OAuthCallbackError('invalid_start');
+      if (authorizationUrl is! JsonString)
+        throw const OAuthCallbackError('invalid_start');
+      final expectedState = Uri.parse(authorizationUrl.value)
+          .queryParameters['state'];
+      if (expectedState == null || expectedState.isEmpty)
+        throw const OAuthCallbackError('invalid_start');
       await adapter.open(Uri.parse(authorizationUrl.value));
       final callback = await adapter.waitForCallback(cancellation);
       final redirect = Uri.parse(redirectUri);
-      if (callback.scheme != redirect.scheme || callback.authority != redirect.authority) {
+      if (callback.scheme != redirect.scheme ||
+          callback.authority != redirect.authority) {
         throw const OAuthCallbackError('invalid_callback_origin');
       }
       final error = callback.queryParameters['error'];
-      if (error != null) throw OAuthCallbackError(error, callback.queryParameters['error_description']);
+      if (error != null)
+        throw OAuthCallbackError(
+          error,
+          callback.queryParameters['error_description'],
+        );
       final state = callback.queryParameters['state'];
       final code = callback.queryParameters['code'];
-      if (state == null || state.isEmpty || code == null || code.isEmpty) throw const OAuthCallbackError('invalid_callback');
-      if (state != expectedState) throw const OAuthCallbackError('invalid_state');
-      return await oauthComplete(provider, state, code, cancellation: cancellation);
+      if (state == null || state.isEmpty || code == null || code.isEmpty)
+        throw const OAuthCallbackError('invalid_callback');
+      if (state != expectedState)
+        throw const OAuthCallbackError('invalid_state');
+      return await oauthComplete(
+        provider,
+        state,
+        code,
+        cancellation: cancellation,
+      );
     } finally {
       adapter.close?.call();
     }
@@ -325,12 +366,18 @@ final class PgBaseClient {
     String provider,
     String state,
     String code, {
+    String? fields,
     CancellationToken? cancellation,
-  }) => _completeSession('/api/v1/auth/oauth/complete', {
-    'provider': JsonString(provider),
-    'state': JsonString(state),
-    'code': JsonString(code),
-  }, cancellation);
+  }) => _completeSession(
+    '/api/v1/auth/oauth/complete',
+    {
+      'provider': JsonString(provider),
+      'state': JsonString(state),
+      'code': JsonString(code),
+    },
+    cancellation,
+    fields: fields,
+  );
 
   /// Parses a browser redirect or mobile deep link then completes OAuth.
   Future<UserSession> oauthCompleteFromUri(
@@ -340,12 +387,18 @@ final class PgBaseClient {
   }) {
     final error = callback.queryParameters['error'];
     if (error != null) {
-      throw OAuthCallbackError(error, callback.queryParameters['error_description']);
+      throw OAuthCallbackError(
+        error,
+        callback.queryParameters['error_description'],
+      );
     }
     final state = callback.queryParameters['state'];
     final code = callback.queryParameters['code'];
     if (state == null || state.isEmpty || code == null || code.isEmpty) {
-      throw const OAuthCallbackError('invalid_callback', 'The OAuth callback is missing state or code.');
+      throw const OAuthCallbackError(
+        'invalid_callback',
+        'The OAuth callback is missing state or code.',
+      );
     }
     return oauthComplete(provider, state, code, cancellation: cancellation);
   }
@@ -366,20 +419,20 @@ final class PgBaseClient {
     );
     try {
       final response = await transport.json(
-      method,
-      path,
-      headers: headersFor(headers),
-      body: body,
-      query: query,
-      cancellation: effectiveCancellation.token,
-    );
-    if (response.status < 200 || response.status >= 300)
-      throw pgBaseError(response);
-    if (response.status == 204 || response.bytes.isEmpty)
-      return const JsonNull();
+        method,
+        path,
+        headers: headersFor(headers),
+        body: body,
+        query: query,
+        cancellation: effectiveCancellation.token,
+      );
+      if (response.status < 200 || response.status >= 300)
+        throw pgBaseError(response);
+      if (response.status == 204 || response.bytes.isEmpty)
+        return const JsonNull();
       try {
-      return decodeExactJson(response.bytes);
-    } on PgBaseProtocolError {
+        return decodeExactJson(response.bytes);
+      } on PgBaseProtocolError {
         throw const PgBaseProtocolError('invalid_success_json');
       }
     } finally {
@@ -594,27 +647,35 @@ final class AuthRealm {
       );
 
   /// Rotates the current bearer token after validating its replacement session.
-  Future<UserSession> refresh({CancellationToken? cancellation}) async {
+  Future<UserSession> refresh({
+    String? fields,
+    CancellationToken? cancellation,
+  }) async {
     final generation = client.auth.generation;
     final session = _decodeRefreshSession(
       await client.request(
         'POST',
         '$_path/refresh',
+        query: {if (fields != null) 'fields': fields},
         cancellation: cancellation,
       ),
     );
-    if (generation == client.auth.generation) await client.auth.save(session.token!, record: session.user);
+    if (generation == client.auth.generation)
+      await client.auth.save(session.token!, record: session.user);
     return session;
   }
 
-  Future<UserSession> session({CancellationToken? cancellation}) async =>
-      _decodeSession(
-        await client.request(
-          'GET',
-          '$_path/session',
-          cancellation: cancellation,
-        ),
-      );
+  Future<UserSession> session({
+    String? fields,
+    CancellationToken? cancellation,
+  }) async => _decodeSession(
+    await client.request(
+      'GET',
+      '$_path/session',
+      query: {if (fields != null) 'fields': fields},
+      cancellation: cancellation,
+    ),
+  );
   Future<void> logout({CancellationToken? cancellation}) async {
     try {
       await client.request('POST', '$_path/logout', cancellation: cancellation);
@@ -637,12 +698,14 @@ final class AuthRealm {
 
   Future<JsonObject> requestOtp(
     String email, {
+    String? fields,
     CancellationToken? cancellation,
   }) async {
     final value = await client.request(
       'POST',
       '$_path/otp/request',
       body: JsonObject({'email': JsonString(email)}),
+      query: {if (fields != null) 'fields': fields},
       cancellation: cancellation,
     );
     if (value is! JsonObject)
@@ -653,12 +716,14 @@ final class AuthRealm {
   Future<UserSession> completeOtp(
     String otpId,
     String code, {
+    String? fields,
     CancellationToken? cancellation,
   }) => client._completeSession(
     '$_path/otp/complete',
     {'otpId': JsonString(otpId), 'code': JsonString(code)},
     cancellation,
     mfa: true,
+    fields: fields,
   );
 
   Future<JsonObject> oauthStart(
@@ -703,9 +768,16 @@ final class AuthRealm {
     String provider,
     Uri callback, {
     CancellationToken? cancellation,
-  }) => client.oauthCompleteFromUri(provider, callback, cancellation: cancellation);
+  }) => client.oauthCompleteFromUri(
+    provider,
+    callback,
+    cancellation: cancellation,
+  );
 
-  Future<JsonObject> profile({String? fields, CancellationToken? cancellation}) async {
+  Future<JsonObject> profile({
+    String? fields,
+    CancellationToken? cancellation,
+  }) async {
     final value = await client.request(
       'GET',
       '$_path/profile',
