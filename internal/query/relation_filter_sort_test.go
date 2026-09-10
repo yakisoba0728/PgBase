@@ -148,8 +148,14 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 	if err != nil {
 		t.Fatalf("parseSort(reviewers.name) error = %v", err)
 	}
-	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
-	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
+	multiPlan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
+	if err != nil {
+		t.Fatal(err)
+	}
+	multiStatement, err := multiPlan.statement(nil, 2)
+	if err != nil || !strings.Contains(multiStatement.SQL, "LEFT JOIN LATERAL") || !strings.Contains(multiStatement.SQL, `"pgbase_relation"`) || !strings.Contains(multiStatement.SQL, `"sort_value"`) {
+		t.Fatalf("multi relation sort SQL=%q err=%v", multiStatement.SQL, err)
+	}
 }
 
 func TestOrderSpecV5DescriptorUsesStableFieldIDsAndExplicitSemantics(t *testing.T) {

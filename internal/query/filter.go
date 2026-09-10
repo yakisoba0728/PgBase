@@ -20,13 +20,14 @@ const (
 type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
-	field         string
-	modifier      string
-	otherField    string
-	otherModifier string
-	operator      string
-	value         filterLiteral
-	literalLeft   bool
+	field          string
+	modifier       string
+	otherField     string
+	otherModifier  string
+	operator       string
+	value          filterLiteral
+	literalLeft    bool
+	pocketBaseLike bool
 }
 
 type filterAnd struct{ children []filterNode }
@@ -36,6 +37,26 @@ type filterOr struct{ children []filterNode }
 func (filterComparison) isFilterNode() {}
 func (filterAnd) isFilterNode()        {}
 func (filterOr) isFilterNode()         {}
+
+func markPocketBaseLike(node filterNode) filterNode {
+	switch value := node.(type) {
+	case filterComparison:
+		value.pocketBaseLike = true
+		return value
+	case filterAnd:
+		for i := range value.children {
+			value.children[i] = markPocketBaseLike(value.children[i])
+		}
+		return value
+	case filterOr:
+		for i := range value.children {
+			value.children[i] = markPocketBaseLike(value.children[i])
+		}
+		return value
+	default:
+		return node
+	}
+}
 
 type filterLiteralKind int
 

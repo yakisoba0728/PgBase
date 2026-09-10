@@ -212,6 +212,9 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 		return listResult{}, validation("principal", "invalid")
 	}
 	filterNode, err := parseFilterRequest(request.Filter)
+	if request.PocketBaseCompatibility {
+		filterNode = markPocketBaseLike(filterNode)
+	}
 	if err != nil {
 		return listResult{}, err
 	}

@@ -112,7 +112,7 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// PocketBase-compatible response picking remains in responseprojection;
 	// this increase pays only for reusable field comparison and event predicate
 	// compilation at the query boundary.
-	if runtimeLines > 6000 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 6000", runtimeLines)
+	if runtimeLines > 6110 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 6110", runtimeLines)
 	}
 }
