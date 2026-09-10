@@ -49,8 +49,15 @@ func (s *Store) schemaVersion(ctx context.Context, lockClause string) (int64, er
 }
 
 func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error) {
-	rows, err := s.db.Query(ctx, `select id, name, table_name, compatibility_name, collection_type, system, validation_mode, created_at
-		from pgbase_meta.collections order by name`)
+	var hasCompatibility bool
+	if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='collections' and column_name='validation_mode')`).Scan(&hasCompatibility); err != nil {
+		return Catalog{}, err
+	}
+	collectionMetadata := "null::text, 'base'::text, false, 'postgres'::text"
+	if hasCompatibility {
+		collectionMetadata = "compatibility_name, collection_type, system, validation_mode"
+	}
+	rows, err := s.db.Query(ctx, `select id, name, table_name, `+collectionMetadata+`, created_at from pgbase_meta.collections order by name`)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read collections: %w", err)
 	}
@@ -338,6 +345,16 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 }
 
 func (s *Store) InsertCollection(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {
+	if collection.Type == "" {
+		if collection.View != nil {
+			collection.Type = CollectionTypeView
+		} else {
+			collection.Type = CollectionTypeBase
+		}
+	}
+	if collection.ValidationMode == "" {
+		collection.ValidationMode = ValidationModePostgres
+	}
 	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collections
 		(id, name, table_name, compatibility_name, collection_type, system, validation_mode, status, created_at, updated_at)
 		values ($1, $2, $3, nullif($4,''), $5, $6, $7, 'active', $8, $8)`,
@@ -379,6 +396,9 @@ func nullableUUIDs(values []uuid.UUID) any {
 }
 
 func (s *Store) UpdateCollection(ctx context.Context, collection Collection, definition PlannedCollection, updatedAt time.Time) error {
+	if collection.ValidationMode == "" {
+		collection.ValidationMode = ValidationModePostgres
+	}
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
 		set compatibility_name=nullif($2,''), validation_mode=$3, updated_at = $4
 		where id = $1`,

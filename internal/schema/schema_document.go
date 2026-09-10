@@ -336,8 +336,24 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 		if exists && sameImportedBase(current, fields, indexes, catalog) {
 			continue
 		}
-		typeValue, system, mode, compatibility := item.Type, item.System, item.ValidationMode, item.CompatibilityName
-		changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, CompatibilityName: &compatibility, Type: &typeValue, System: &system, ValidationMode: &mode, Fields: fields, Indexes: &indexes}))
+		update := UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}
+		if item.CompatibilityName != "" {
+			value := item.CompatibilityName
+			update.CompatibilityName = &value
+		}
+		if item.Type != "" {
+			value := item.Type
+			update.Type = &value
+		}
+		if item.System {
+			value := true
+			update.System = &value
+		}
+		if item.ValidationMode != "" {
+			value := item.ValidationMode
+			update.ValidationMode = &value
+		}
+		changes = append(changes, NewUpdateChange(update))
 	}
 	for _, item := range views {
 		if current, exists := catalog.Collections[item.Name]; exists {
