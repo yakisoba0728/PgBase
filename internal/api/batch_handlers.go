@@ -11,13 +11,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
@@ -141,22 +138,13 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			statuses = append(statuses, status)
 		}
 	}
-	attachments, err := extractBatchAttachments(items, staged)
+	attachments, err := extractBatchAttachments(r.Context(), e.files, items, staged)
 	if err != nil {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
 		}
 		writeInvalidRecordRequest(w, r)
 		return
-	}
-	for index := range attachments {
-		id, lookupErr := e.files.CollectionID(r.Context(), attachments[index].collection)
-		if lookupErr != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-			writeFileError(w, r, lookupErr)
-			return
-		}
-		attachments[index].collectionID = id
 	}
 	for _, item := range items {
 		operation, ok := batchOperation(item)
@@ -360,140 +348,6 @@ func (identities batchIdentities) restore(operations []recordops.BatchOperation)
 		operations[index].Create.IdempotencyContext = append([]byte(nil), identity.context...)
 	}
 	return true
-}
-
-type batchAttachment struct {
-	operation    int
-	collection   string
-	collectionID uuid.UUID
-	field        string
-	file         filestore.StagedFile
-}
-type fileBatchParticipant struct {
-	service     FileService
-	principal   identity.Subject
-	attachments []batchAttachment
-}
-
-func (p *fileBatchParticipant) CommitBatch(ctx context.Context, tx pgx.Tx, results []recordops.MutationResult) error {
-	groups := map[string]*filestore.AttachmentChange{}
-	order := []string{}
-	for _, item := range p.attachments {
-		if item.operation >= len(results) || results[item.operation].Record == nil {
-			return filestore.ErrInvalid
-		}
-		if results[item.operation].Replayed {
-			continue
-		}
-		raw, ok := results[item.operation].Record.Data["id"].(string)
-		if !ok {
-			return filestore.ErrInvalid
-		}
-		recordID, err := uuid.Parse(raw)
-		if err != nil {
-			return filestore.ErrInvalid
-		}
-		key := strconv.Itoa(item.operation) + "/" + item.collectionID.String() + "/" + recordID.String() + "/" + item.field
-		change := groups[key]
-		if change == nil {
-			change = &filestore.AttachmentChange{CollectionID: item.collectionID, RecordID: recordID, Field: item.field}
-			groups[key] = change
-			order = append(order, key)
-		}
-		change.Additions = append(change.Additions, item.file)
-	}
-	for _, key := range order {
-		change := groups[key]
-		rows, queryErr := tx.Query(ctx, `select id from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status='ready'`, change.CollectionID, change.RecordID, change.Field)
-		if queryErr != nil {
-			return queryErr
-		}
-		for rows.Next() {
-			var id uuid.UUID
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return err
-			}
-			change.DeleteIDs = append(change.DeleteIDs, id)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		if _, err := p.service.Commit(ctx, tx, p.principal, []filestore.AttachmentChange{*change}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func extractBatchAttachments(items []batchOperationInput, staged namedStagedFiles) ([]batchAttachment, error) {
-	attachments := []batchAttachment{}
-	used := map[string]bool{}
-	for index := range items {
-		fields := make([]string, 0, len(items[index].Input))
-		for field := range items[index].Input {
-			fields = append(fields, field)
-		}
-		sort.Strings(fields)
-		var fingerprint bytes.Buffer
-		for _, field := range fields {
-			raw := items[index].Input[field]
-			var one struct {
-				File string `json:"$file"`
-			}
-			if json.Unmarshal(raw, &one) == nil && one.File != "" {
-				file, ok := staged[one.File]
-				if !ok || used[one.File] {
-					return nil, errors.New("invalid file reference")
-				}
-				used[one.File] = true
-				appendFileFingerprint(&fingerprint, field, file)
-				attachments = append(attachments, batchAttachment{operation: index, collection: items[index].Collection, field: field, file: file})
-				items[index].SidecarFields = append(items[index].SidecarFields, field)
-				delete(items[index].Input, field)
-				continue
-			}
-			var many []struct {
-				File string `json:"$file"`
-			}
-			if json.Unmarshal(raw, &many) == nil && len(many) > 0 {
-				for _, ref := range many {
-					file, ok := staged[ref.File]
-					if ref.File == "" || !ok || used[ref.File] {
-						return nil, errors.New("invalid file reference")
-					}
-					used[ref.File] = true
-					appendFileFingerprint(&fingerprint, field, file)
-					attachments = append(attachments, batchAttachment{operation: index, collection: items[index].Collection, field: field, file: file})
-				}
-				delete(items[index].Input, field)
-				items[index].SidecarFields = append(items[index].SidecarFields, field)
-			}
-		}
-		if fingerprint.Len() > 0 {
-			digest := sha256.Sum256(fingerprint.Bytes())
-			items[index].IdempotencyContext = append([]byte(nil), digest[:]...)
-		}
-	}
-	if len(used) != len(staged) {
-		return nil, errors.New("unreferenced file part")
-	}
-	return attachments, nil
-}
-
-func appendFileFingerprint(buffer *bytes.Buffer, field string, file filestore.StagedFile) {
-	digest := file.SHA256()
-	buffer.WriteString(field)
-	buffer.WriteByte(0)
-	buffer.WriteString(file.Filename())
-	buffer.WriteByte(0)
-	buffer.WriteString(file.ContentType())
-	buffer.WriteByte(0)
-	buffer.WriteString(strconv.FormatInt(file.Size(), 10))
-	buffer.WriteByte(0)
-	buffer.Write(digest[:])
 }
 
 type batchResult struct {

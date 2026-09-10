@@ -19,6 +19,7 @@ import (
 
 type FileService interface {
 	CollectionID(context.Context, string) (uuid.UUID, error)
+	IsFileField(context.Context, uuid.UUID, string) (bool, error)
 	Upload(context.Context, identity.Subject, filestore.Upload) (filestore.File, error)
 	List(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string) ([]filestore.File, error)
 	Open(context.Context, identity.Subject, uuid.UUID, filestore.Variant, string) (filestore.File, io.ReadCloser, error)
