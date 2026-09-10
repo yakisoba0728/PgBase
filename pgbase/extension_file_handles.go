@@ -157,5 +157,5 @@ func (host *extensionHost) Close() error {
 		}
 		delete(host.fileHandles, id)
 	}
-	return result
+	return errors.Join(result, host.closeObjectHandles())
 }

@@ -105,16 +105,25 @@ func (bridge *extensionBridge) forHook(ctx context.Context, event string) jsvm.H
 }
 
 func (host *extensionHost) Call(ctx context.Context, method string, input json.RawMessage) (json.RawMessage, error) {
+	if host == nil || host.bridge == nil || !host.valid {
+		return nil, extensionError("extension_context_unavailable", errors.New("request admission context is unavailable"))
+	}
+	// An object reader is consumed by later host calls in the same JS
+	// invocation. Its context must therefore be the invocation context, not
+	// the short-lived operation context that is released after open returns.
+	if method == "objects.open" {
+		return host.callObjects(ctx, method, input)
+	}
+	if method == "filesystem.open" {
+		return host.callObjects(ctx, "objects.open", input)
+	}
 	operationContext, cleanup, err := host.operationContext(ctx)
 	if err != nil {
 		return nil, extensionError("extension_context_expired", err)
 	}
 	defer cleanup()
-	if host != nil && host.bridge != nil && strings.HasPrefix(method, "log.") {
+	if strings.HasPrefix(method, "log.") {
 		return host.callLog(operationContext, method, input)
-	}
-	if host == nil || host.bridge == nil || !host.valid {
-		return nil, extensionError("extension_context_unavailable", errors.New("request admission context is unavailable"))
 	}
 	if strings.HasPrefix(host.hookEvent, "record.") && (method == "records.create" || method == "records.update" || method == "records.delete" || method == "records.batch") ||
 		strings.HasPrefix(host.hookEvent, "mail.") && method == "mail.send" ||
