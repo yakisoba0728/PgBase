@@ -45,6 +45,9 @@ type Route struct {
 	Capabilities         []string   `json:"capabilities,omitempty"`
 	MaximumRequestBytes  int64      `json:"maximumRequestBytes,omitempty"`
 	MaximumResponseBytes int        `json:"maximumResponseBytes,omitempty"`
+	// StreamResponse permits a route to use response adapters that send output
+	// directly to the client. It cannot be combined with a response byte cap.
+	StreamResponse bool `json:"streamResponse,omitempty"`
 }
 
 type Hook struct {

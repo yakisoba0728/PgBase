@@ -50,11 +50,24 @@ type extensionHost struct {
 	objectWriters    map[uuid.UUID]extensionObjectWriter
 	objectBytesRead  int64
 	namespace        string
+	multipart        multipartFieldOpener
+}
+
+// multipartFieldOpener is an invocation-local, opaque source for a parsed
+// multipart field. It deliberately exposes no Request, filesystem path, or
+// credentials to JavaScript. Every call returns a new reader and the caller
+// context cancels the copy that consumes it.
+type multipartFieldOpener interface {
+	OpenMultipartField(context.Context, string) (name string, contentType string, size int64, body io.ReadCloser, err error)
 }
 
 func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
+	return bridge.forRouteRequest(ctx, nil)
+}
+
+func (bridge *extensionBridge) forRouteRequest(ctx context.Context, multipart multipartFieldOpener) *extensionHost {
 	principal, requestID, ok := api.ExtensionRequestContext(ctx)
-	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx}
+	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx, multipart: multipart}
 }
 
 func namespacedHost(host jsvm.Host, namespace string) jsvm.Host {

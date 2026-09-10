@@ -60,11 +60,12 @@ type JavaScriptHandler struct {
 }
 
 type JavaScriptRoute struct {
-	Method       string
-	Pattern      string
-	Access       string
-	Handler      JavaScriptHandler
-	Capabilities []string
+	Method         string
+	Pattern        string
+	Access         string
+	Handler        JavaScriptHandler
+	Capabilities   []string
+	StreamResponse bool
 }
 
 type JavaScriptHook struct {
@@ -220,7 +221,7 @@ func validateJavaScriptRegistration(manifest jsvm.Manifest, enabled map[string]b
 		access := CustomRouteAccess(route.Access)
 		routes = append(routes, CustomRoute{Method: route.Method, Pattern: route.Pattern, Access: access,
 			Handler: http.NotFoundHandler(), MaximumRequestBytes: route.MaximumRequestBytes,
-			MaximumResponseBytes: route.MaximumResponseBytes})
+			MaximumResponseBytes: route.MaximumResponseBytes, StreamResponse: route.StreamResponse})
 		if err := validateRequestedCapabilities(route.Capabilities, enabled, "route "+route.Pattern); err != nil {
 			return err
 		}
@@ -293,7 +294,7 @@ func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
 	result := JavaScriptManifest{Digest: bundle.Digest(), Bootstrap: manifest.Bootstrap}
 	for _, route := range manifest.Routes {
 		result.Routes = append(result.Routes, JavaScriptRoute{Method: route.Method, Pattern: route.Pattern, Access: route.Access,
-			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...)})
+			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...), StreamResponse: route.StreamResponse})
 	}
 	for _, hook := range manifest.Hooks {
 		converted := JavaScriptHook{Event: hook.Event, Priority: hook.Priority}
