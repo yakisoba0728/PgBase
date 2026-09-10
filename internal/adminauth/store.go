@@ -234,6 +234,43 @@ func (s *Store) ResetAdministratorPasswordByID(ctx context.Context, administrato
 	return administratorUTC(administrator), nil
 }
 
+func (s *Store) ReplaceEmailOTP(ctx context.Context, id, administratorID uuid.UUID, codeHash []byte, expiresAt, now time.Time) error {
+	if _, err := s.db.Exec(ctx, `update pgbase_meta.admin_email_otps set consumed_at=$2 where admin_id=$1 and consumed_at is null`, administratorID, now); err != nil {
+		return fmt.Errorf("expire earlier administrator email OTPs: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.admin_email_otps(id,admin_id,code_hash,expires_at,created_at) values($1,$2,$3,$4,$5)`, id, administratorID, codeHash, expiresAt, now); err != nil {
+		return fmt.Errorf("create administrator email OTP: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ConsumeEmailOTP(ctx context.Context, id uuid.UUID, now time.Time) (Administrator, []byte, error) {
+	var administrator Administrator
+	var codeHash []byte
+	err := s.db.QueryRow(ctx, `select a.id,a.email,a.active,a.created_at,a.updated_at,o.code_hash
+		from pgbase_meta.admin_email_otps o join pgbase_meta.admins a on a.id=o.admin_id
+		where o.id=$1 and o.consumed_at is null and o.expires_at>$2 and a.active
+		for update of o,a`, id, now).Scan(&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt, &codeHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, nil, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, nil, fmt.Errorf("read administrator email OTP: %w", err)
+	}
+	return administratorUTC(administrator), codeHash, nil
+}
+
+func (s *Store) MarkEmailOTPConsumed(ctx context.Context, id uuid.UUID, now time.Time) error {
+	tag, err := s.db.Exec(ctx, `update pgbase_meta.admin_email_otps set consumed_at=$2 where id=$1 and consumed_at is null`, id, now)
+	if err != nil {
+		return fmt.Errorf("consume administrator email OTP: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
 // UpsertAdministratorPassword reactivates a locked existing administrator,
 // replaces its password, and removes every existing session. TOTP and IP
 // policy rows remain associated with the administrator's stable ID.

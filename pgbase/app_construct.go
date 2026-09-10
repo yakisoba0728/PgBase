@@ -280,6 +280,9 @@ func newWithCatalogPreflight(
 		if err := authService.ConfigurePasswordReset(extensionMailer, normalized.PublicURL.String(), time.Hour); err != nil {
 			return nil, fmt.Errorf("configure administrator password reset: %w", err)
 		}
+		if err := authService.ConfigureEmailOTP(extensionMailer, 5*time.Minute); err != nil {
+			return nil, fmt.Errorf("configure administrator email OTP: %w", err)
+		}
 	}
 	if normalized.Hooks != nil {
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}

@@ -124,6 +124,16 @@ type Service struct {
 	resetMailer     mailer.Sender
 	resetBaseURL    string
 	resetTTL        time.Duration
+	emailOTPMailer  mailer.Sender
+	emailOTPTTL     time.Duration
+}
+
+// EmailOTP is an administrator one-time credential. Code is only returned to
+// the explicit local CLI issuance flow and is never persisted in plaintext.
+type EmailOTP struct {
+	ID        string
+	Code      string
+	ExpiresAt time.Time
 }
 
 const passwordWorkConcurrency = 2

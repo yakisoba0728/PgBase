@@ -445,6 +445,17 @@
         "x-pgbase-csrf-required": true
       }
     },
+    "/api/admin/auth/otp/complete": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/admin/auth/request-password-reset": {
       "post": {
         "responses": {

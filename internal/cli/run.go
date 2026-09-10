@@ -20,6 +20,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/config"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -328,7 +329,7 @@ func runAdminPolicy(ctx context.Context, operation string, args []string, env en
 	if _, err := adminauth.NormalizeEmail(*email); err != nil {
 		return configurationError{err: err, message: "invalid administrator email"}
 	}
-	if operation == "otp" && action != "enable" && action != "disable" || operation == "ip" && action != "allow" && action != "deny" && action != "list" {
+	if operation == "otp" && action != "enable" && action != "disable" && action != "email" || operation == "ip" && action != "allow" && action != "deny" && action != "list" {
 		return configurationError{err: errors.New("invalid admin policy action"), message: adminUsage}
 	}
 	if (operation == "otp" && action == "enable" && !*secretStdin) || (operation == "ip" && action != "list" && *cidr == "") {
@@ -347,8 +348,21 @@ func runAdminPolicy(ctx context.Context, operation string, args []string, env en
 				return configurationError{err: readErr, message: "invalid administrator OTP secret"}
 			}
 			err = service.EnableTOTP(ctx, *email, secret)
-		} else {
+		} else if action == "disable" {
 			err = service.DisableTOTP(ctx, *email)
+		} else {
+			sender, senderErr := mailer.NewSMTP(mailer.SMTPConfig{Address: runtime.options.SMTP.Address, From: runtime.options.SMTP.From, Username: runtime.options.SMTP.Username, Password: runtime.options.SMTP.Password, ServerName: runtime.options.SMTP.ServerName, ImplicitTLS: runtime.options.SMTP.ImplicitTLS, AllowInsecure: runtime.options.SMTP.AllowInsecure, Timeout: runtime.options.SMTP.Timeout})
+			if senderErr != nil {
+				return configurationError{err: senderErr, message: "administrator email OTP requires SMTP configuration"}
+			}
+			if err = service.ConfigureEmailOTP(sender, 5*time.Minute); err == nil {
+				var issued adminauth.EmailOTP
+				issued, err = service.IssueEmailOTP(ctx, *email)
+				if err == nil {
+					_, err = fmt.Fprintf(streams.stdout(), "administrator email OTP created: %s\n├─ Id:    %s\n├─ Pass:  %s\n└─ Valid: %ds\n", strings.ToLower(strings.TrimSpace(*email)), issued.ID, issued.Code, int(time.Until(issued.ExpiresAt).Seconds()))
+					return err
+				}
+			}
 		}
 	} else if action == "allow" {
 		err = service.AllowIP(ctx, *email, *cidr)

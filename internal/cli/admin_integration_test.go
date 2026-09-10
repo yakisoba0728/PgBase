@@ -3,16 +3,19 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"io"
+	"net"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
@@ -177,4 +180,123 @@ func TestN3AdminCLIUpsertUpdateDeleteAndPolicies(t *testing.T) {
 	if code, _ := run([]string{"admin", "delete", "--email", "admin@example.com"}, ""); code != 0 {
 		t.Fatalf("delete exit=%d", code)
 	}
+}
+
+func TestAdminEmailOTPCLIPrintsPBCompatibleReceiptDeliversMailAndCompletes(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	prepareAdminDatabase(t, databaseURL)
+	address, messages := cliSMTPFixture(t)
+	env := func(key string) (string, bool) {
+		values := map[string]string{
+			"PGBASE_DATABASE_URL": databaseURL,
+			"PGBASE_TOKEN_SECRET": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+			"PGBASE_PUBLIC_URL":   "http://localhost",
+			"PGBASE_SMTP_ADDRESS": address, "PGBASE_SMTP_FROM": "sender@example.test", "PGBASE_SMTP_ALLOW_INSECURE": "true",
+		}
+		value, ok := values[key]
+		return value, ok
+	}
+	pool, err := database.Open(context.Background(), databaseURL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	service := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, nil)
+	if _, err := service.CreateAdministrator(context.Background(), "admin@example.test", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Execute(context.Background(), []string{"admin", "otp", "email", "--email", "admin@example.test"}, env, testIO(nil, &stdout, &stderr)); code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "administrator email OTP created") || !strings.Contains(stdout.String(), "├─ Id:") || !strings.Contains(stdout.String(), "├─ Pass:") || !strings.Contains(stdout.String(), "└─ Valid:") {
+		t.Fatalf("receipt=%q", stdout.String())
+	}
+	code := receiptValue(t, stdout.String(), "├─ Pass:")
+	id := receiptValue(t, stdout.String(), "├─ Id:")
+	select {
+	case message := <-messages:
+		if !strings.Contains(message, "To: admin@example.test") || !strings.Contains(message, code) {
+			t.Fatalf("mail=%q", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CLI did not deliver administrator email OTP")
+	}
+	sender, err := mailer.NewSMTP(mailer.SMTPConfig{Address: address, From: "sender@example.test", AllowInsecure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigureEmailOTP(sender, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CompleteEmailOTP(context.Background(), id, code, "192.0.2.1"); err != nil {
+		t.Fatalf("complete CLI OTP: %v", err)
+	}
+}
+
+func receiptValue(t *testing.T, output, label string) string {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, label) {
+			return strings.TrimSpace(strings.TrimPrefix(line, label))
+		}
+	}
+	t.Fatalf("receipt missing %s: %q", label, output)
+	return ""
+}
+
+func cliSMTPFixture(t *testing.T) (string, <-chan string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	messages := make(chan string, 1)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				reader, writer := bufio.NewReader(conn), bufio.NewWriter(conn)
+				write := func(value string) { _, _ = writer.WriteString(value); _ = writer.Flush() }
+				write("220 localhost\r\n")
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					command := strings.ToUpper(strings.TrimSpace(line))
+					switch {
+					case strings.HasPrefix(command, "EHLO"), strings.HasPrefix(command, "HELO"), strings.HasPrefix(command, "MAIL FROM"), strings.HasPrefix(command, "RCPT TO"):
+						write("250 ok\r\n")
+					case command == "DATA":
+						write("354 data\r\n")
+						var body strings.Builder
+						for {
+							line, err = reader.ReadString('\n')
+							if err != nil {
+								return
+							}
+							if line == ".\r\n" {
+								break
+							}
+							body.WriteString(line)
+						}
+						messages <- body.String()
+						write("250 queued\r\n")
+					case command == "QUIT":
+						write("221 bye\r\n")
+						return
+					default:
+						write("250 ok\r\n")
+					}
+				}
+			}()
+		}
+	}()
+	return listener.Addr().String(), messages
 }

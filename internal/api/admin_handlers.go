@@ -45,6 +45,10 @@ type adminPasswordReset interface {
 	ConfirmPasswordReset(context.Context, string, string) error
 }
 
+type adminEmailOTP interface {
+	CompleteEmailOTP(context.Context, string, string, string) (adminauth.Session, error)
+}
+
 func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 	if e.auth == nil {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
@@ -199,7 +203,7 @@ func (e adminEndpoints) requestPasswordReset(w http.ResponseWriter, r *http.Requ
 		writeAdminAuthError(w, r, errors.New("administrator password reset is unavailable"))
 		return
 	}
-	address, ok := clientIP(r, e.trustedProxies())
+	address, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
 	if !ok {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
@@ -232,6 +236,33 @@ func (e adminEndpoints) confirmPasswordReset(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (e adminEndpoints) completeEmailOTP(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		OTPID string `json:"otpId"`
+		Code  string `json:"code"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminEmailOTP)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator email OTP is unavailable"))
+		return
+	}
+	address, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	session, err := service.CompleteEmailOTP(r.Context(), input.OTPID, input.Code, address)
+	if err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	e.writeIssuedSession(w, r, http.StatusOK, session)
 }
 
 func (e adminEndpoints) recordOperation(ctx context.Context, operation observability.Operation, outcome observability.Outcome, duration time.Duration) {

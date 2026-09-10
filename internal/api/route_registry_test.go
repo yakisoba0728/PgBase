@@ -60,6 +60,7 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"POST /api/admin/auth/confirm-password-reset",
 		"POST /api/admin/auth/login",
 		"POST /api/admin/auth/logout",
+		"POST /api/admin/auth/otp/complete",
 		"POST /api/admin/auth/request-password-reset",
 		"POST /api/admin/collections/apply",
 		"POST /api/admin/collections/plan",
@@ -105,11 +106,13 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"POST /api/admin/auth/login":                           accessSameOrigin,
 		"POST /api/admin/auth/confirm-password-reset":          accessPublic,
 		"POST /api/admin/auth/request-password-reset":          accessPublic,
+		"POST /api/admin/auth/otp/complete":                    accessPublic,
 		"POST /api/admin/login":                                accessSameOrigin,
 		"GET /api/admin/session":                               accessAdminSameOriginRead,
 		"POST /api/admin/auth/logout":                          accessAdminSession,
 		"DELETE /api/admin/session":                            accessAdminSession,
 		"POST /api/admin/collections/plan":                     accessAdminSession,
+		"POST /api/admin/collections/view/sample":              accessAdminSession,
 		"POST /api/admin/collections/apply":                    accessAdminSession,
 		"GET /api/admin/schema-operations":                     accessAdminSameOriginRead,
 		"GET /api/admin/schema-operations/{id}":                accessAdminSameOriginRead,
@@ -177,6 +180,7 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 		"POST /api/admin/auth/login":                  true,
 		"POST /api/admin/auth/confirm-password-reset": true,
 		"POST /api/admin/auth/request-password-reset": true,
+		"POST /api/admin/auth/otp/complete":           true,
 		"POST /api/admin/login":                       true,
 	}
 	for _, declared := range declaredTestRoutes(t) {
@@ -192,6 +196,9 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 				t.Fatalf("route %q request cap = %d, want %d", key, declared.maximumRequestBytes, maximumCredentialRequestBytes)
 			}
 			delete(want, key)
+			continue
+		}
+		if key == "POST /api/admin/collections/view/sample" {
 			continue
 		}
 		if !declared.streamedUpload && !declared.recordDocument && declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {

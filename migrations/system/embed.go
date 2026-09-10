@@ -157,6 +157,9 @@ var adminPasswordResetsSQL string
 //go:embed 000054_runtime_settings_encryption.sql
 var runtimeSettingsEncryptionSQL string
 
+//go:embed 000056_admin_email_otps.sql
+var adminEmailOTPsSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -253,6 +256,8 @@ var migrations = []Migration{
 	{Version: 51, Name: "admin_password_resets", SQL: adminPasswordResetsSQL, SHA256: sha256.Sum256([]byte(adminPasswordResetsSQL))},
 
 	{Version: 54, Name: "runtime_settings_encryption", SQL: runtimeSettingsEncryptionSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsEncryptionSQL))},
+
+	{Version: 56, Name: "admin_email_otps", SQL: adminEmailOTPsSQL, SHA256: sha256.Sum256([]byte(adminEmailOTPsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

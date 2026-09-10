@@ -98,3 +98,32 @@ func TestAdministratorPasswordResetHTTPIntegration(t *testing.T) {
 		t.Fatalf("SMTP failure status=%d", smtpFailure.Code)
 	}
 }
+
+func TestAdministratorEmailOTPHTTPCompletionIntegration(t *testing.T) {
+	pool := newSecurityDatabase(t)
+	clock := &resetAPIClock{now: time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)}
+	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "admin-email-otp-api-setup-token-012345", time.Hour, clock)
+	if err := auth.ConfigureEmailOTP(&resetAPIMailer{}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Setup(context.Background(), "admin-email-otp-api-setup-token-012345", "admin@example.test", "correct horse battery staple", "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+	issued, err := auth.IssueEmailOTP(context.Background(), "admin@example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
+	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/otp/complete", `{"otpId":"`+issued.ID+`","code":"`+issued.Code+`"}`)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	reused := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/otp/complete", `{"otpId":"`+issued.ID+`","code":"`+issued.Code+`"}`)
+	reusedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(reusedResponse, reused)
+	if reusedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("reused status=%d", reusedResponse.Code)
+	}
+}
