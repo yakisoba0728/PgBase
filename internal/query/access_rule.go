@@ -119,7 +119,7 @@ func accessRuleNode(node filterNode) (accessrule.Rule, error) {
 }
 
 func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
-	op, ok := map[string]string{"=": "eq", "!=": "ne", "<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[value.operator]
+	op, ok := map[string]string{"=": "eq", "!=": "ne", "<": "lt", "<=": "lte", ">": "gt", ">=": "gte", "~": "contains", "!~": "not_contains", "?=": "any_eq", "?!=": "any_ne", "?<": "any_lt", "?<=": "any_lte", "?>": "any_gt", "?>=": "any_gte", "?~": "any_contains", "?!~": "any_not_contains"}[value.operator]
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}

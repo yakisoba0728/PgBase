@@ -121,8 +121,10 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// EXT14 also adds an exact, repeatable-read count facade without widening
 	// the exported Service method surface.
 	// RULE03 adds the catalog-aware PocketBase predicate entry point while the
-	// native compiler remains stable. Ratchet to the measured final surface.
-	if runtimeLines > 7145 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7145", runtimeLines)
+	// native compiler remains stable. The final integration restores the three
+	// source lines that recognize @collection operands after an older auth-rule
+	// merge removed them; ratchet to that verified surface without spare room.
+	if runtimeLines > 7148 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7148", runtimeLines)
 	}
 }

@@ -198,11 +198,12 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 		if len(rule.Args) != 0 || rule.Field == "" || rhsCount != 1 {
 			return "", ErrInvalid
 		}
-		column, fieldType, err := c.field(rule.Field)
+		column, fieldType, err := c.fieldForValue(rule.Field, rule.Value)
 		if err != nil {
 			return "", err
 		}
-		ordered := rule.Op != "eq" && rule.Op != "ne"
+		baseOp := strings.TrimPrefix(rule.Op, "any_")
+		ordered := baseOp != "eq" && baseOp != "ne" && baseOp != "contains" && baseOp != "not_contains"
 		if ordered && (fieldType == schema.TypeBoolean || fieldType == schema.TypeUUID) {
 			return "", ErrInvalid
 		}
@@ -243,20 +244,77 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 					return "", ErrInvalid
 				}
 				op := " IS NULL"
-				if rule.Op == "ne" {
+				if baseOp == "ne" {
 					op = " IS NOT NULL"
 				}
 				return column + op, nil
 			}
 			rhs = c.parameter(value)
 		}
-		operator := map[string]string{"eq": "=", "ne": "<>", "lt": "<", "lte": "<=", "gt": ">", "gte": ">="}[rule.Op]
+		if baseOp == "contains" || baseOp == "not_contains" {
+			if fieldType != schema.TypeText && fieldType != schema.TypeEditor {
+				return "", ErrInvalid
+			}
+			op := "LIKE"
+			if baseOp == "not_contains" {
+				op = "NOT LIKE"
+			}
+			return "COALESCE(" + column + " " + op + " ('%' || " + rhs + " || '%') ESCAPE '\\\\',false)", nil
+		}
+		operator := map[string]string{"eq": "=", "ne": "<>", "lt": "<", "lte": "<=", "gt": ">", "gte": ">="}[baseOp]
 		return "COALESCE(" + column + " " + operator + " " + rhs + ",false)", nil
 	}
 	return "", ErrInvalid
 }
 
+func (c *compiler) fieldForValue(name string, raw json.RawMessage) (string, schema.FieldType, error) {
+	column, kind, err := c.field(name)
+	if err == nil {
+		return column, kind, nil
+	}
+	segments := strings.Split(name, ".")
+	if len(segments) < 2 {
+		return "", "", err
+	}
+	var root schema.Field
+	for _, field := range c.collection.Fields {
+		if field.Name == segments[0] {
+			root = field
+			break
+		}
+	}
+	if root.Type != schema.TypeJSONB || root.Hidden {
+		return "", "", ErrInvalid
+	}
+	for _, segment := range segments[1:] {
+		if segment == "" || len(segment) > 48 {
+			return "", "", ErrInvalid
+		}
+		for _, ch := range segment {
+			if !(ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9') {
+				return "", "", ErrInvalid
+			}
+		}
+	}
+	path := strings.Join(segments[1:], ",")
+	expr := "(" + c.alias + "." + pgx.Identifier{root.ColumnName}.Sanitize() + "#>>'{" + path + "}')"
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] != '"' && string(trimmed) != "null" && string(trimmed) != "true" && string(trimmed) != "false" {
+		return "NULLIF(" + expr + ",'')::numeric", schema.TypeNumeric, nil
+	}
+	if string(trimmed) == "true" || string(trimmed) == "false" {
+		return "NULLIF(" + expr + ",'')::boolean", schema.TypeBoolean, nil
+	}
+	return expr, schema.TypeText, nil
+}
+
 func (c *compiler) field(name string) (string, schema.FieldType, error) {
+	if strings.HasPrefix(name, "__pgbase_request_") {
+		if c.request == nil {
+			return "", "", ErrInvalid
+		}
+		return c.requestField(name)
+	}
 	modifier := ""
 	if strings.Contains(name, ":") {
 		if strings.Count(name, ":") != 1 {
@@ -292,6 +350,73 @@ func (c *compiler) field(name string) (string, schema.FieldType, error) {
 			column := "((" + c.alias + "." + pgx.Identifier{field.ColumnName}.Sanitize() + "->>'" + path[1] + "')::numeric)"
 			return c.ruleFieldExpression(column, schema.TypeNumeric, modifier)
 		}
+	}
+	return "", "", ErrInvalid
+}
+
+func (c *compiler) requestField(name string) (string, schema.FieldType, error) {
+	if name == "__pgbase_request_method" {
+		return c.parameter(c.request.Method), schema.TypeText, nil
+	}
+	lookup := func(prefix string, values map[string][]string) (string, schema.FieldType, error) {
+		if !strings.HasPrefix(name, prefix) {
+			return "", "", ErrInvalid
+		}
+		key := strings.TrimPrefix(name, prefix)
+		if key == "" {
+			return "", "", ErrInvalid
+		}
+		items := values[key]
+		if len(items) == 0 {
+			return c.parameter(""), schema.TypeText, nil
+		}
+		return c.parameter(items[0]), schema.TypeText, nil
+	}
+	if strings.HasPrefix(name, "__pgbase_request_query_") {
+		return lookup("__pgbase_request_query_", c.request.Query)
+	}
+	if strings.HasPrefix(name, "__pgbase_request_header_") {
+		return lookup("__pgbase_request_header_", c.request.Headers)
+	}
+	if strings.HasPrefix(name, "__pgbase_request_context_") {
+		key := strings.TrimPrefix(name, "__pgbase_request_context_")
+		value, ok := c.request.Context[key]
+		if !ok {
+			value = ""
+		}
+		return c.parameter(fmt.Sprint(value)), schema.TypeText, nil
+	}
+	if strings.HasPrefix(name, "__pgbase_request_body_") {
+		key := strings.TrimPrefix(name, "__pgbase_request_body_")
+		modifier := ""
+		if strings.Contains(key, ":") {
+			key, modifier, _ = strings.Cut(key, ":")
+		}
+		if modifier == "isset" {
+			return c.parameter(c.request.Present[key]), schema.TypeBoolean, nil
+		}
+		if modifier == "changed" {
+			return c.parameter(c.request.Changed[key]), schema.TypeBoolean, nil
+		}
+		var field schema.Field
+		for _, candidate := range c.collection.Fields {
+			if candidate.Name == key {
+				field = candidate
+				break
+			}
+		}
+		if field.Name == "" {
+			return "", "", ErrInvalid
+		}
+		raw, ok := c.request.Body[key]
+		if !ok {
+			return c.parameter(nil), field.Type, nil
+		}
+		value, err := typedValue(field.Type, raw)
+		if err != nil {
+			return "", "", err
+		}
+		return c.parameter(value), field.Type, nil
 	}
 	return "", "", ErrInvalid
 }

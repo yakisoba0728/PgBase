@@ -275,6 +275,9 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 			return filterOperand{literal: filterLiteral{kind: filterLiteralNull}}, nil
 		}
 		if strings.HasPrefix(word, "@") {
+			if strings.HasPrefix(word, "@collection.") {
+				return filterOperand{field: word}, nil
+			}
 			literal, ok := filterTimeMacro(word, time.Now().UTC())
 			if !ok {
 				return filterOperand{}, validation("filter", "invalid_filter")

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -30,7 +32,7 @@ func TestAuthRuleGuardsPasswordWithCurrentCustomRecord(t *testing.T) {
 	_, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{
 		ID: realmID, Name: "auth_rule_" + realmID.String()[:8], RegistrationEnabled: true,
 		Fields: []schema.FieldInput{{Name: "score", Type: schema.TypeInteger}},
-		Rules:  AuthCollectionRules{Create: "true", Auth: "active = true && score >= 2"},
+		Rules:  AuthCollectionRules{Create: "true"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +41,7 @@ func TestAuthRuleGuardsPasswordWithCurrentCustomRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setAuthRuleForTest(t, service, realmID, "active = true && score >= 2")
 	if _, err := service.SetProfile(ctx, registered.User.ID, map[string]any{"score": float64(1)}); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +50,15 @@ func TestAuthRuleGuardsPasswordWithCurrentCustomRecord(t *testing.T) {
 	}
 	if _, err := service.SetProfile(ctx, registered.User.ID, map[string]any{"score": float64(2)}); err != nil {
 		t.Fatal(err)
+	}
+	allowed := false
+	err = service.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var evaluateErr error
+		allowed, evaluateErr = EvaluateAuthRecordRuleInTx(ctx, tx, realmID, "active = true && score >= 2", AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: registered.User.ID}, Current: AuthRecord{ID: registered.User.ID}})
+		return evaluateErr
+	})
+	if err != nil || !allowed {
+		t.Fatalf("direct authRule evaluation allowed=%v err=%v", allowed, err)
 	}
 	if _, err := service.LoginInCollection(ctx, realmID, registered.User.Email, "correct horse battery staple", "login-allow"); err != nil {
 		t.Fatalf("password authRule allow=%v", err)
