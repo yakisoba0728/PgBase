@@ -47,7 +47,7 @@ func (s *Service) Impersonate(ctx context.Context, userID uuid.UUID, rawAdminSes
 		var configuredTTL int
 		var version string
 		var cipher []byte
-		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='impersonation'`, user.AuthCollectionID).Scan(&configuredTTL, &version, &cipher); err == nil {
+		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='impersonation' for share`, user.AuthCollectionID).Scan(&configuredTTL, &version, &cipher); err == nil {
 			key, decryptErr := s.decrypt("auth-token-policy:impersonation", cipher)
 			if decryptErr != nil {
 				return decryptErr

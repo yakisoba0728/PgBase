@@ -28,9 +28,6 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 	if collectionID == uuid.Nil {
 		return Session{}, ErrValidation
 	}
-	if _, err := s.sessionHash(ctx, rawToken); err != nil {
-		return Session{}, ErrInvalidCredentials
-	}
 	release, err := admit(s.sessionSlots)
 	if err != nil {
 		return Session{}, err
@@ -44,29 +41,35 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 	if _, err := rand.Read(raw); err != nil {
 		return Session{}, fmt.Errorf("generate refreshed user session token: %w", err)
 	}
-	refreshed := base64.RawURLEncoding.EncodeToString(raw)
-	oldHash, err := s.sessionHash(ctx, rawToken)
-	if err != nil {
-		return Session{}, ErrInvalidCredentials
-	}
-	expires := now.Add(s.ttl)
-	newHash := s.tokenHash(refreshed)
-	var ttlSeconds int
-	var version string
-	var cipher []byte
-	if err := s.pool.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, collectionID).Scan(&ttlSeconds, &version, &cipher); err == nil {
-		key, e := s.decrypt("auth-token-policy:session", cipher)
-		if e != nil {
-			return Session{}, e
+	var result Session
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var lockedRealm uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&lockedRealm); err != nil {
+			return ErrInvalidCredentials
 		}
-		expires = now.Add(time.Duration(ttlSeconds) * time.Second)
-		refreshed = collectionID.String() + "." + version + "." + refreshed
-		newHash = keyedDigest(key, "user-session\x00", refreshed)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, err
-	}
-	var user User
-	err = s.pool.QueryRow(ctx, `
+		oldHash, err := s.sessionHash(ctx, rawToken)
+		if err != nil {
+			return ErrInvalidCredentials
+		}
+		refreshed := base64.RawURLEncoding.EncodeToString(raw)
+		expires := now.Add(s.ttl)
+		newHash := s.tokenHash(refreshed)
+		var ttlSeconds int
+		var version string
+		var cipher []byte
+		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, collectionID).Scan(&ttlSeconds, &version, &cipher); err == nil {
+			key, decryptErr := s.decrypt("auth-token-policy:session", cipher)
+			if decryptErr != nil {
+				return decryptErr
+			}
+			expires = now.Add(time.Duration(ttlSeconds) * time.Second)
+			refreshed = collectionID.String() + "." + version + "." + refreshed
+			newHash = keyedDigest(key, "user-session\x00", refreshed)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		var user User
+		err = tx.QueryRow(ctx, `
 		update pgbase_meta.user_sessions as sessions
 		set token_hash=$1, expires_at=$2
 		from pgbase_meta.users as users
@@ -78,13 +81,16 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		  and users.active
 		  and users.auth_collection_id=$4
 		returning users.id,users.auth_collection_id,users.email,users.verified,users.created_at`,
-		newHash, expires, oldHash, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, ErrInvalidCredentials
-	}
-	if err != nil {
-		return Session{}, fmt.Errorf("refresh user session: %w", err)
-	}
-	user.CreatedAt = user.CreatedAt.UTC()
-	return Session{User: user, RawToken: refreshed, ExpiresAt: expires}, nil
+			newHash, expires, oldHash, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrInvalidCredentials
+		}
+		if err != nil {
+			return fmt.Errorf("refresh user session: %w", err)
+		}
+		user.CreatedAt = user.CreatedAt.UTC()
+		result = Session{User: user, RawToken: refreshed, ExpiresAt: expires}
+		return nil
+	})
+	return result, err
 }

@@ -123,7 +123,7 @@ func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
 func TestConfiguredSessionKeyRoundTripRefreshAndRotation(t *testing.T) {
 	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()
-	if _, e := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "one", Key: "first-key"}); e != nil {
+	if _, e := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "one", Key: "first-session-policy-key-0000000001"}); e != nil {
 		t.Fatal(e)
 	}
 	v, e := s.Register(ctx, "keyed-session@example.test", "Correct horse battery", "keyed")
@@ -146,11 +146,90 @@ func TestConfiguredSessionKeyRoundTripRefreshAndRotation(t *testing.T) {
 	if _, e = s.Authenticate(ctx, r.RawToken); !errors.Is(e, ErrInvalidCredentials) {
 		t.Fatalf("logout=%v", e)
 	}
-	if _, e = s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "two", Key: "second-key"}); e != nil {
+	if _, e = s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "two", Key: "second-session-policy-key-000000001"}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.Authenticate(ctx, v.RawToken); !errors.Is(e, ErrInvalidCredentials) {
 		t.Fatalf("rotated=%v", e)
+	}
+}
+
+func TestDurationOnlyTokenPolicyUpdatePreservesLiveSessionUntilExplicitRotation(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	for _, invalid := range []TokenPolicy{
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "bad.version", Key: "0123456789abcdef0123456789abcdef"},
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "short", Key: "too-short"},
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "unpaired"},
+	} {
+		if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, invalid); !errors.Is(err, ErrValidation) {
+			t.Fatalf("invalid token policy %+v = %v", invalid, err)
+		}
+	}
+	created, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.Register(ctx, "duration-policy@example.test", "Correct horse battery", "duration-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 120, KeyVersion: "separate-purpose", Key: "separate-impersonation-domain-key-001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatalf("separate impersonation policy affected session policy: %v", err)
+	}
+	updated, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 240})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.KeyVersion != created.KeyVersion {
+		t.Fatalf("duration-only update changed key version from %q to %q", created.KeyVersion, updated.KeyVersion)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatalf("duration-only update invalidated live session: %v", err)
+	}
+	if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 240, KeyVersion: "explicit-rotation", Key: "explicit-session-rotation-key-00001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("explicit rotation left prior session valid: %v", err)
+	}
+}
+
+func TestConfiguredSessionTokensRemainBoundToTheirAuthCollection(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	realm := uuid.New()
+	if _, err := s.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "token_realm_" + realm.String()[:8], RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uuid.UUID{DefaultCollectionID, realm} {
+		version := "default-realm"
+		if id == realm {
+			version = "other-realm"
+		}
+		if _, err := s.PutTokenPolicy(ctx, id, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: version, Key: "shared-policy-key-across-realms-0001"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.PutTokenPolicy(ctx, realm, TokenPolicy{Purpose: "verify", TTLSeconds: 120, KeyVersion: "default-realm", Key: "cross-realm-version-reuse-key-00001"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cross-realm key version reuse = %v, want conflict", err)
+	}
+	defaultSession, err := s.Register(ctx, "default-realm@example.test", "Correct horse battery", "default-realm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	realmSession, err := s.RegisterInCollection(ctx, realm, "other-realm@example.test", "Correct horse battery", "other-realm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AuthenticateForCollection(ctx, DefaultCollectionID, realmSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("other-realm token authenticated in default realm: %v", err)
+	}
+	if _, err := s.AuthenticateForCollection(ctx, realm, defaultSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("default-realm token authenticated in other realm: %v", err)
 	}
 }
 

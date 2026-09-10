@@ -103,7 +103,7 @@ func TestConfiguredOTPKeyRotationExpiryAndSingleUse(t *testing.T) {
 	if _, err = service.pool.Exec(ctx, `update pgbase_meta.auth_collection_policies set otp_enabled=true,otp_duration_seconds=300,otp_max_attempts=3 where auth_collection_id=$1`, DefaultCollectionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-one", Key: "first-otp-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-one", Key: "first-email-otp-policy-key-00000001"}); err != nil {
 		t.Fatal(err)
 	}
 	rotated, err := service.RequestEmailOTP(ctx, registered.User.Email, "keyed-otp-rotate")
@@ -111,7 +111,7 @@ func TestConfiguredOTPKeyRotationExpiryAndSingleUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	rotatedCode := otpFromMessage(t, sender)
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-two", Key: "second-otp-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-two", Key: "second-email-otp-policy-key-0000001"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.CompleteEmailOTP(ctx, rotated.OTPID, rotatedCode); !errors.Is(err, ErrInvalidCredentials) {

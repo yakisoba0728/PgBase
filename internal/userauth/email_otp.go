@@ -67,7 +67,7 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 		}
 		var configuredTTL int
 		var cipher []byte
-		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp'`, collectionID).Scan(&configuredTTL, &keyVersion, &cipher); err == nil {
+		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp' for share`, collectionID).Scan(&configuredTTL, &keyVersion, &cipher); err == nil {
 			duration = configuredTTL
 			key, e := s.decrypt("auth-token-policy:otp", cipher)
 			if e != nil {

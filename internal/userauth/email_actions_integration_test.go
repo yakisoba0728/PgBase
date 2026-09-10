@@ -99,14 +99,14 @@ func TestConfiguredVerificationKeyRotationExpiryAndSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-one", Key: "first-verify-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-one", Key: "first-verification-policy-key-000001"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	rotated := sender.token(t)
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-two", Key: "second-verify-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-two", Key: "second-verification-policy-key-00001"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = service.ConfirmVerification(ctx, rotated); !errors.Is(err, ErrInvalidCredentials) {

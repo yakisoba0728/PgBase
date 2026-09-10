@@ -260,14 +260,21 @@ func (s *Service) emailReady() error {
 }
 
 func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash string) (string, error) {
-	raw, hash, ttl, err := s.issueActionPolicy(ctx, userID, purpose)
-	if err != nil {
-		return "", err
-	}
-	if hash == nil {
-		hash = s.actionTokenHash(purpose, raw)
-	}
-	_, err = s.pool.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.credentialHash(passwordHash), postgresInterval(ttl))
+	var raw string
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var hash []byte
+		var ttl time.Duration
+		var err error
+		raw, hash, ttl, err = s.issueActionPolicy(ctx, tx, userID, purpose)
+		if err != nil {
+			return err
+		}
+		if hash == nil {
+			hash = s.actionTokenHash(purpose, raw)
+		}
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.credentialHash(passwordHash), postgresInterval(ttl))
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("create user email action: %w", err)
 	}

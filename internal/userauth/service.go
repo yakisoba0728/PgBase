@@ -373,7 +373,7 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 	var configured int
 	var version string
 	var cipher []byte
-	if err := db.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, user.AuthCollectionID).Scan(&configured, &version, &cipher); err == nil {
+	if err := db.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session' for share`, user.AuthCollectionID).Scan(&configured, &version, &cipher); err == nil {
 		ttl = time.Duration(configured) * time.Second
 		key, err := s.decrypt("auth-token-policy:session", cipher)
 		if err != nil {

@@ -115,7 +115,7 @@ func TestConfiguredImpersonationKeyCapsExpiryAndRotates(t *testing.T) {
 	if _, err = pool.Exec(ctx, `insert into pgbase_meta.admin_sessions(id,admin_id,token_hash,expires_at,last_seen_at,revoked_at,created_at) values($1,$2,$3,CURRENT_TIMESTAMP+interval '10 minutes',CURRENT_TIMESTAMP,null,CURRENT_TIMESTAMP)`, adminSessionID, adminID, adminauth.HashSessionToken(secret, rawAdmin)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 60, KeyVersion: "imp-one", Key: "first-impersonation-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 60, KeyVersion: "imp-one", Key: "first-impersonation-policy-key-0001"}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := service.Impersonate(ctx, user.User.ID, rawAdmin, 5*time.Minute)
@@ -131,7 +131,7 @@ func TestConfiguredImpersonationKeyCapsExpiryAndRotates(t *testing.T) {
 	if _, err = service.Authenticate(ctx, first.RawToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 60, KeyVersion: "imp-two", Key: "second-impersonation-key"}); err != nil {
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 60, KeyVersion: "imp-two", Key: "second-impersonation-policy-key-001"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.Authenticate(ctx, first.RawToken); !errors.Is(err, ErrInvalidCredentials) {
