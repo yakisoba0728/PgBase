@@ -295,7 +295,15 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		}
 		return json.Marshal(map[string]any{"copied": true, "size": size})
 	}
-	var request struct{ Key, Data string }
+	var request struct {
+		Key        string `json:"key"`
+		Data       string `json:"data"`
+		Descriptor *struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+			Size int64  `json:"size"`
+		} `json:"descriptor"`
+	}
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
 	}
@@ -306,6 +314,9 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		data, err := base64.StdEncoding.DecodeString(request.Data)
 		if err != nil {
 			return nil, extensionError("invalid_object_request", err)
+		}
+		if request.Descriptor != nil && (request.Descriptor.Kind != "inline" || request.Descriptor.Name == "" || request.Descriptor.Size < 0 || request.Descriptor.Size != int64(len(data))) {
+			return nil, extensionError("invalid_object_request", errors.New("invalid inline file descriptor"))
 		}
 		err = host.bridge.objects.Write(ctx, host.namespace, request.Key, data)
 		if err != nil {

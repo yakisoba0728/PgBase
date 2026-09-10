@@ -188,16 +188,38 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
 }
+
+type authMailCollectionLookup interface {
+	GetAuthCollection(context.Context, string) (userauth.AuthCollection, error)
+}
+
+func (host *extensionHost) resolveAuthMailCollection(ctx context.Context, value string) (uuid.UUID, error) {
+	if id, err := uuid.Parse(value); err == nil {
+		return id, nil
+	}
+	lookup, ok := host.bridge.authMail.(authMailCollectionLookup)
+	if !ok {
+		return uuid.Nil, errors.New("auth mail collection lookup unavailable")
+	}
+	collection, err := lookup.GetAuthCollection(ctx, strings.TrimSpace(value))
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return collection.ID, nil
+}
+
 func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if host.bridge.authMail == nil {
 		return nil, extensionError("auth_mail_unavailable", nil)
 	}
 	var r struct {
-		Kind       string `json:"kind"`
-		Collection string `json:"collection"`
-		RecordID   string `json:"recordId"`
-		NewEmail   string `json:"newEmail"`
-		OTPID      string `json:"otpId"`
+		Kind       string          `json:"kind"`
+		Collection string          `json:"collection"`
+		RecordID   string          `json:"recordId"`
+		NewEmail   string          `json:"newEmail"`
+		OTPID      string          `json:"otpId"`
+		OTPPass    string          `json:"otpPass"`
+		AlertInfo  json.RawMessage `json:"alertInfo"`
 	}
 	if err := decodeExtensionInput(raw, &r); err != nil {
 		return nil, extensionError("invalid_auth_mail_request", err)
@@ -206,7 +228,7 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 	if err != nil {
 		return nil, extensionError("invalid_auth_mail_request", err)
 	}
-	realm, err := requiredUUID(r.Collection)
+	realm, err := host.resolveAuthMailCollection(ctx, r.Collection)
 	if err != nil || host.bridge.compatibility == nil || !host.bridge.compatibility.authMailCollections[realm] {
 		return nil, extensionError("permission_denied", errors.New("auth mail collection is not operator-authorized"))
 	}
@@ -214,19 +236,32 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 	if err != nil {
 		return nil, mapExtensionError(err)
 	}
+	noExtra := func() bool { return r.NewEmail == "" && r.OTPID == "" && r.OTPPass == "" && len(r.AlertInfo) == 0 }
 	switch r.Kind {
 	case "changeEmail":
-		if strings.TrimSpace(r.NewEmail) == "" || r.OTPID != "" {
+		if strings.TrimSpace(r.NewEmail) == "" || r.OTPID != "" || r.OTPPass != "" || len(r.AlertInfo) != 0 {
 			return nil, extensionError("invalid_auth_mail_request", errors.New("change email requires newEmail only"))
 		}
 		err = host.bridge.authMail.AdminRequestEmailChange(ctx, id, r.NewEmail)
 	case "passwordReset":
+		if !noExtra() {
+			return nil, extensionError("invalid_auth_mail_request", errors.New("password reset has no extra arguments"))
+		}
 		err = host.bridge.authMail.AdminRequestPasswordReset(ctx, id)
 	case "verification":
+		if !noExtra() {
+			return nil, extensionError("invalid_auth_mail_request", errors.New("verification has no extra arguments"))
+		}
 		err = host.bridge.authMail.AdminRequestVerification(ctx, id)
 	case "authAlert":
+		if r.NewEmail != "" || r.OTPID != "" || r.OTPPass != "" || len(r.AlertInfo) == 0 || !json.Valid(r.AlertInfo) {
+			return nil, extensionError("invalid_auth_mail_request", errors.New("auth alert requires alert info only"))
+		}
 		err = host.bridge.authMail.AdminSendAuthAlert(ctx, id)
 	case "otp":
+		if r.NewEmail != "" || len(r.AlertInfo) != 0 || strings.TrimSpace(r.OTPID) == "" || strings.TrimSpace(r.OTPPass) == "" {
+			return nil, extensionError("invalid_auth_mail_request", errors.New("OTP requires otpId and otpPass only"))
+		}
 		_, err = host.bridge.authMail.RequestEmailOTPInCollection(ctx, realm, record.Email, "admin-local")
 	default:
 		return nil, extensionError("invalid_auth_mail_request", nil)

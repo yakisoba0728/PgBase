@@ -69,7 +69,7 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		if json.Unmarshal(result, &response) != nil {
 			return nil, errors.New("invalid HTTP response")
 		}
-		return json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString([]byte(response.Body)), "size": len(response.Body)})
+		return compatibilityInlineFile("", []byte(response.Body))
 	case "filesystem.fileFromBytes":
 		var request struct {
 			Bytes any    `json:"bytes"`
@@ -82,7 +82,7 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"name": request.Name, "data": base64.StdEncoding.EncodeToString(data), "size": len(data)})
+		return compatibilityInlineFile(request.Name, data)
 	case "filesystem.local":
 		var request struct {
 			Root string `json:"root"`
@@ -106,7 +106,7 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"name": filepath.Base(request.Path), "data": base64.StdEncoding.EncodeToString(data), "size": len(data)})
+		return compatibilityInlineFile(filepath.Base(request.Path), data)
 	case "os.getwd":
 		if c.root == "" {
 			return nil, errors.New("filesystem root is not configured")
@@ -504,4 +504,11 @@ func (c *extensionCompatibility) send(ctx context.Context, raw json.RawMessage) 
 		headers[k] = strings.Join(v, ", ")
 	}
 	return json.Marshal(map[string]any{"statusCode": response.StatusCode, "headers": headers, "body": string(body)})
+}
+
+// compatibilityInlineFile is the only inline descriptor accepted by the
+// filesystem write bridge. It is intentionally small; larger data uses the
+// opaque streaming writer handles.
+func compatibilityInlineFile(name string, data []byte) (json.RawMessage, error) {
+	return json.Marshal(map[string]any{"kind": "inline", "name": name, "data": base64.StdEncoding.EncodeToString(data), "size": len(data)})
 }

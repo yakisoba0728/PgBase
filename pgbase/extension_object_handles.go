@@ -12,7 +12,13 @@ import (
 )
 
 const maximumExtensionObjectChunk = 64 << 10
-const maximumExtensionObjectBytes = 5 << 20
+
+func (h *extensionHost) maximumObjectBytes() int64 {
+	if h != nil && h.bridge != nil && h.bridge.objects != nil && h.bridge.objects.maximumBytes > 0 {
+		return h.bridge.objects.maximumBytes
+	}
+	return 5 << 20
+}
 
 func (h *extensionHost) openObjectHandle(ctx context.Context, key string) (json.RawMessage, error) {
 	r, e := h.bridge.objects.Open(ctx, h.namespace, key)
@@ -58,8 +64,8 @@ func (h *extensionHost) readObjectChunk(raw json.RawMessage) (json.RawMessage, e
 	if r == nil {
 		return nil, errors.New("object handle is closed")
 	}
-	if h.objectBytesRead+int64(n) > maximumExtensionObjectBytes {
-		n = int(maximumExtensionObjectBytes - h.objectBytesRead)
+	if h.objectBytesRead+int64(n) > h.maximumObjectBytes() {
+		n = int(h.maximumObjectBytes() - h.objectBytesRead)
 	}
 	if n <= 0 {
 		return nil, errors.New("object stream limit reached")
@@ -67,7 +73,7 @@ func (h *extensionHost) readObjectChunk(raw json.RawMessage) (json.RawMessage, e
 	b := make([]byte, n)
 	got, er := r.Read(b)
 	h.objectBytesRead += int64(got)
-	eof := er == io.EOF
+	eof := er == io.EOF || got < len(b)
 	if er != nil && !eof {
 		_ = r.Close()
 		delete(h.objectHandles, id)
@@ -170,7 +176,7 @@ func (h *extensionHost) writeObjectChunk(raw json.RawMessage) (json.RawMessage, 
 	if !ok {
 		return nil, errors.New("object writer is closed")
 	}
-	if w.size+int64(len(b)) > maximumExtensionObjectBytes {
+	if w.size+int64(len(b)) > h.maximumObjectBytes() {
 		return nil, errors.New("object stream limit reached")
 	}
 	n, e := w.file.Write(b)
@@ -247,7 +253,7 @@ func (h *extensionHost) fileFromMultipart(ctx context.Context, raw json.RawMessa
 		return nil, e
 	}
 	defer r.Close()
-	if size < 0 || size > maximumExtensionObjectBytes {
+	if size < 0 || size > h.maximumObjectBytes() {
 		return nil, errors.New("multipart object too large")
 	}
 	f, e := os.CreateTemp("", "pgbase-extension-multipart-*")
@@ -255,8 +261,8 @@ func (h *extensionHost) fileFromMultipart(ctx context.Context, raw json.RawMessa
 		return nil, e
 	}
 	path := f.Name()
-	n, e := io.Copy(f, io.LimitReader(r, maximumExtensionObjectBytes+1))
-	if e != nil || n > maximumExtensionObjectBytes {
+	n, e := io.Copy(f, io.LimitReader(r, h.maximumObjectBytes()+1))
+	if e != nil || n > h.maximumObjectBytes() {
 		_ = f.Close()
 		_ = os.Remove(path)
 		if e != nil {
