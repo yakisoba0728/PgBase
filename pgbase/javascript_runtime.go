@@ -249,6 +249,20 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 		writeJavaScriptRouteError(w, err)
 		return
 	}
+	if invoked, ok := host.(*extensionHost); ok {
+		if served := invoked.takeServedObject(); served != nil {
+			if !descriptor.StreamResponse || !hasJavaScriptCapability(descriptor.Capabilities, "filesystem") {
+				http.Error(w, "extension response is not permitted", http.StatusForbidden)
+				return
+			}
+			if served.path != "" {
+				serveJavaScriptLocalPath(w, r, served.path, served.name)
+			} else {
+				serveJavaScriptExtensionObject(w, r, runtime.bridge.objects, invoked.namespace, *served)
+			}
+			return
+		}
+	}
 	response, err := decodeJavaScriptRouteResponse(output)
 	if err != nil {
 		http.Error(w, "extension returned an invalid response", http.StatusInternalServerError)
@@ -283,6 +297,59 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 	writeJavaScriptRouteBody(w, response)
 }
 
+func serveJavaScriptLocalPath(w http.ResponseWriter, r *http.Request, path, name string) {
+	file, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		http.Error(w, "extension file is unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
+	http.ServeContent(w, r, name, info.ModTime(), file)
+}
+
+func serveJavaScriptExtensionObject(w http.ResponseWriter, r *http.Request, objects *ExtensionObjects, namespace string, served extensionServedObject) {
+	if objects == nil || namespace == "" {
+		http.Error(w, "extension file is unavailable", http.StatusNotFound)
+		return
+	}
+	info, err := objects.Attributes(r.Context(), namespace, served.key)
+	if err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusNotFound)
+		return
+	}
+	reader, err := objects.Open(r.Context(), namespace, served.key)
+	if err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
+		return
+	}
+	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
+	if typed := mime.TypeByExtension(filepath.Ext(served.name)); typed != "" {
+		contentType = strings.TrimSpace(strings.Split(typed, ";")[0])
+	}
+	disposition := "attachment"
+	if r.URL.Query().Get("download") != "" {
+		disposition = "attachment"
+	} else if strings.HasPrefix(contentType, "image/") || strings.HasPrefix(contentType, "audio/") || strings.HasPrefix(contentType, "video/") || contentType == "application/pdf" || strings.HasPrefix(contentType, "text/") {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", disposition+"; filename="+strconv.Quote(served.name))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("Cache-Control", "max-age=2592000, stale-while-revalidate=86400")
+	http.ServeContent(w, r, served.name, info.UpdatedAt, bytes.NewReader(data))
+}
 func hasJavaScriptCapability(capabilities []string, wanted string) bool {
 	for _, capability := range capabilities {
 		if capability == wanted {

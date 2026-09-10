@@ -81,7 +81,7 @@ type extensionHost struct {
 	servedObject     *extensionServedObject
 }
 
-type extensionServedObject struct{ key, name string }
+type extensionServedObject struct{ key, name, path string }
 
 func (host *extensionHost) takeServedObject() *extensionServedObject {
 	host.objectMu.Lock()
@@ -175,6 +175,26 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 			return nil, extensionError("hooks_bypass_denied", errors.New("record validation bypass requires administrator authority"))
 		}
 		return host.callAppRecords(operationContext, "app.model.save", input)
+	}
+	if method == "filesystem.localServe" {
+		var request struct{ Path, Name string }
+		if err := decodeExtensionInput(input, &request); err != nil {
+			return nil, err
+		}
+		if request.Name == "" || len(request.Name) > 255 || host.bridge.compatibility == nil {
+			return nil, extensionError("invalid_local_serve", errors.New("invalid local serve request"))
+		}
+		path, err := host.bridge.compatibility.safePath(request.Path, false)
+		if err != nil {
+			return nil, extensionError("invalid_local_serve", err)
+		}
+		host.objectMu.Lock()
+		defer host.objectMu.Unlock()
+		if host.servedObject != nil {
+			return nil, extensionError("invalid_local_serve", errors.New("response already selected"))
+		}
+		host.servedObject = &extensionServedObject{name: request.Name, path: path}
+		return json.RawMessage(`{"served":true}`), nil
 	}
 	switch method {
 	case "apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords":
