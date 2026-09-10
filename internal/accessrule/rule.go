@@ -90,6 +90,21 @@ type compiler struct {
 	eventAlias       string
 	nodes            int
 	args             []any
+	request          *RequestContext
+}
+
+type RequestContext struct {
+	Present map[string]bool
+	Changed map[string]bool
+}
+
+func CompileWithRequest(rule Rule, collection schema.Collection, alias string, principal identity.Subject, offset int, prospectiveOwner bool, request RequestContext) (string, []any, error) {
+	if offset < 0 || offset > 10000 || alias == "" {
+		return "", nil, ErrInvalid
+	}
+	compiler := compiler{collection: collection, alias: pgx.Identifier{alias}.Sanitize(), principal: principal, offset: offset, prospectiveOwner: prospectiveOwner, request: &request}
+	sql, err := compiler.rule(rule, 0)
+	return sql, compiler.args, err
 }
 
 func (c *compiler) parameter(value any) string {
@@ -202,10 +217,20 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 func (c *compiler) field(name string) (string, schema.FieldType, error) {
 	modifier := ""
 	if strings.Contains(name, ":") {
-		if strings.Count(name, ":") != 1 || !strings.HasSuffix(name, ":lower") {
+		if strings.Count(name, ":") != 1 {
 			return "", "", ErrInvalid
 		}
-		name, modifier = strings.TrimSuffix(name, ":lower"), "lower"
+		name, modifier, _ = strings.Cut(name, ":")
+		if modifier == "isset" || modifier == "changed" {
+			if c.request == nil {
+				return "", "", ErrInvalid
+			}
+			value := c.request.Present[name]
+			if modifier == "changed" {
+				value = c.request.Changed[name]
+			}
+			return c.parameter(value) + "::boolean", schema.TypeBoolean, nil
+		}
 	}
 	switch name {
 	case "id":
@@ -233,10 +258,16 @@ func (c *compiler) ruleFieldExpression(column string, kind schema.FieldType, mod
 	if modifier == "" {
 		return column, kind, nil
 	}
-	if modifier != "lower" || kind != schema.TypeText && kind != schema.TypeEditor {
+	if kind != schema.TypeText && kind != schema.TypeEditor {
 		return "", "", ErrInvalid
 	}
-	return "lower(" + column + ")", kind, nil
+	if modifier == "lower" {
+		return "lower(" + column + ")", kind, nil
+	}
+	if modifier == "length" {
+		return "char_length(" + column + ")", schema.TypeInteger, nil
+	}
+	return "", "", ErrInvalid
 }
 
 func typedValue(kind schema.FieldType, raw json.RawMessage) (any, error) {

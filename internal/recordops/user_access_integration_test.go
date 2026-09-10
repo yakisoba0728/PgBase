@@ -79,6 +79,42 @@ func TestUserAccessDefaultsLockedAndDoesNotBackfillAdminRecords(t *testing.T) {
 	}
 }
 
+func TestMutationRulesEvaluateIssetAndChangedRequestContext(t *testing.T) {
+	f := newUserAccessFixture(t)
+	ctx := context.Background()
+	f.enable(t, "records")
+	owner := accessrule.Rule{Op: "owner"}
+	rules := accessrule.Rules{List: owner, View: owner, Create: accessrule.Rule{Op: "eq", Field: "title:isset", Value: json.RawMessage(`true`)}, Update: accessrule.Rule{Op: "eq", Field: "count:changed", Value: json.RawMessage(`true`)}, Delete: owner}
+	if _, err := recordaccess.NewRuleService(f.pool, f.schemas).Set(ctx, "records", rules); err != nil {
+		t.Fatal(err)
+	}
+	created := f.create(t, f.first, "request-context", "request-context-create-01")
+	id := uuid.MustParse(created.Record.Data["id"].(string))
+	for name, input := range map[string]map[string]json.RawMessage{"no-op": {}, "same-value": {"count": json.RawMessage(`0`)}} {
+		_, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-" + name, Collection: "records", ID: id, Input: input})
+		if !errors.Is(err, query.ErrRecordNotFound) {
+			t.Fatalf("%s error=%v", name, err)
+		}
+	}
+	if _, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-changed", Collection: "records", ID: id, Input: map[string]json.RawMessage{"count": json.RawMessage(`1`)}}); err != nil {
+		t.Fatal(err)
+	}
+	rules.Update = accessrule.Rule{Op: "eq", Field: "count:isset", Value: json.RawMessage(`true`)}
+	if _, err := recordaccess.NewRuleService(f.pool, f.schemas).Set(ctx, "records", rules); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-missing", Collection: "records", ID: id, Input: map[string]json.RawMessage{}}); !errors.Is(err, query.ErrRecordNotFound) {
+		t.Fatalf("missing error=%v", err)
+	}
+	if _, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-present", Collection: "records", ID: id, Input: map[string]json.RawMessage{"count": json.RawMessage(`1`)}}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-present-null", Collection: "records", ID: id, Input: map[string]json.RawMessage{"count": json.RawMessage(`null`)}})
+	if err == nil || errors.Is(err, query.ErrRecordNotFound) {
+		t.Fatalf("present null error=%v", err)
+	}
+}
+
 func TestUserCreateOwnershipReplayCursorAndRollback(t *testing.T) {
 	f := newUserAccessFixture(t)
 	ctx := context.Background()

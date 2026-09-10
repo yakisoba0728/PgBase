@@ -70,7 +70,12 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 		for _, action := range []string{"list", "view", "create", "update", "delete"} {
 			rule, _ := rules.Action(action)
 			if _, _, err := accessrule.Compile(rule, collection, collection.TableName, identity.Subject{Kind: identity.User, ID: uuid.New()}, 0, false); err != nil {
-				return err
+				if action != "create" && action != "update" {
+					return err
+				}
+				if _, _, requestErr := accessrule.CompileWithRequest(rule, collection, collection.TableName, identity.Subject{Kind: identity.User, ID: uuid.New()}, 0, action == "create", accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}); requestErr != nil {
+					return requestErr
+				}
 			}
 		}
 		raw, err := json.Marshal(rules)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
@@ -156,7 +157,8 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 					if err != nil {
 						return query.ErrRecordNotFound
 					}
-					if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, recordID, "create"); err != nil {
+					requestContext := mutationRuleContext(request.Input, nil)
+					if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 						return err
 					}
 				}
@@ -189,6 +191,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err != nil {
 			return query.NormalizeRecordError(err)
 		}
+		requestContext := mutationRuleContext(request.Input, nil)
+		if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, recordID, "create", &requestContext); err != nil {
+			return err
+		}
 		if err := createFence.RecordCreated(ctx, recordID); err != nil {
 			return transactionalMembership(err)
 		}
@@ -213,6 +219,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				eventID: eventID, recordID: recordID, newVersion: 1,
 				newETag: etag, changedFields: committedUserFields(collection), changes: data,
 				idempotencyKeyHash: keyHash, compatibility: compatibility, validator: validator,
+				requestContext: &requestContext,
 			}},
 		}); err != nil {
 			return err
@@ -299,9 +306,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return err
 		}
-		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "update"); err != nil {
-			return err
-		}
 		relationOperation = inputTouchesRelationField(collection, request.Input)
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
@@ -327,6 +331,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		before, err := readRecord(ctx, tx, collection, request.ID, !relations.LocksSource())
 		if err != nil {
+			return err
+		}
+		requestContext := mutationRuleContext(request.Input, before)
+		if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, request.ID, "update", &requestContext); err != nil {
 			return err
 		}
 		if err := validateEntityTagSet(request.IfMatch); err != nil {
@@ -375,6 +383,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				previousETag: previousETag, newETag: newETag,
 				changedFields: mutationChangedFields(mutationInput, request.SidecarFields), changes: after,
 				compatibility: compatibility, validator: validator,
+				requestContext: &requestContext,
 			}},
 		}); err != nil {
 			return err
@@ -450,9 +459,6 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 }
 
 func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal Principal, recordID uuid.UUID, actions ...string) error {
-	if principal.Kind == PrincipalAdministrator {
-		return nil
-	}
 	action := "view"
 	if recordID == uuid.Nil {
 		action = "create"
@@ -460,13 +466,20 @@ func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection sch
 	if len(actions) > 0 {
 		action = actions[0]
 	}
+	return authorizeUserRecordOperationWithRequest(ctx, tx, collection, principal, recordID, action, nil)
+}
+
+func authorizeUserRecordOperationWithRequest(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal Principal, recordID uuid.UUID, action string, request *accessrule.RequestContext) error {
+	if principal.Kind == PrincipalAdministrator {
+		return nil
+	}
 	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action); err != nil {
 		return err
 	}
 	if recordID == uuid.Nil || principal.Kind == identity.Service {
 		return nil
 	}
-	allowed, err := recordaccess.AllowsRecord(ctx, tx, policyCollection(collection), principal, action, recordID, false)
+	allowed, err := recordaccess.AllowsRecordWithRequest(ctx, tx, policyCollection(collection), principal, action, recordID, action == "create", request)
 	if err != nil {
 		return err
 	}
@@ -474,6 +487,32 @@ func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection sch
 		return query.ErrRecordNotFound
 	}
 	return nil
+}
+
+func mutationRuleContext(input map[string]json.RawMessage, before map[string]any) accessrule.RequestContext {
+	result := accessrule.RequestContext{Present: make(map[string]bool, len(input)), Changed: make(map[string]bool, len(input))}
+	for name, raw := range input {
+		result.Present[name] = true
+		if before == nil {
+			result.Changed[name] = true
+			continue
+		}
+		previous, exists := before[name]
+		if !exists {
+			result.Changed[name] = true
+			continue
+		}
+		encoded, err := json.Marshal(previous)
+		if err != nil {
+			result.Changed[name] = true
+			continue
+		}
+		var left, right bytes.Buffer
+		if json.Compact(&left, raw) != nil || json.Compact(&right, encoded) != nil || !bytes.Equal(left.Bytes(), right.Bytes()) {
+			result.Changed[name] = true
+		}
+	}
+	return result
 }
 
 func (s *Service) validateRequest(principal Principal, requestID string) error {

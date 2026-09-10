@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
@@ -38,6 +39,7 @@ type artifactRow struct {
 	compatibility      Compatibility
 	validator          []byte
 	revisionPresent    bool
+	requestContext     *accessrule.RequestContext
 }
 
 // artifactBatch is every row one collection contributes to one operation of a
@@ -70,16 +72,26 @@ func commitMutation(
 			continue
 		}
 		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
-			ids := make([]uuid.UUID, len(batch.rows))
-			for index, row := range batch.rows {
-				ids[index] = row.recordID
-			}
-			allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				return recordaccess.ErrDenied
+			if len(batch.rows) == 1 && batch.rows[0].requestContext != nil {
+				allowed, err := recordaccess.AllowsRecordWithRequest(ctx, tx, policyCollection(batch.collection), principal, batch.operation, batch.rows[0].recordID, batch.operation == "create", batch.rows[0].requestContext)
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					return recordaccess.ErrDenied
+				}
+			} else {
+				ids := make([]uuid.UUID, len(batch.rows))
+				for index, row := range batch.rows {
+					ids[index] = row.recordID
+				}
+				allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					return recordaccess.ErrDenied
+				}
 			}
 		}
 		if err := beforeMutationHooks(ctx, principal, batch); err != nil {

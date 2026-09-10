@@ -13,6 +13,10 @@ import (
 // AllowsRecord evaluates the action on the row inside the caller's pinned
 // transaction. It also works on newly inserted rows before ownership publish.
 func AllowsRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool) (bool, error) {
+	return AllowsRecordWithRequest(ctx, tx, collection, principal, action, id, prospectiveOwner, nil)
+}
+
+func AllowsRecordWithRequest(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
 	rules, _, err := LoadRules(ctx, tx, collection.ID)
 	if err != nil {
 		return false, err
@@ -21,7 +25,13 @@ func AllowsRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, 
 	if err != nil {
 		return false, err
 	}
-	predicate, args, err := accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
+	var predicate string
+	var args []any
+	if request == nil {
+		predicate, args, err = accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
+	} else {
+		predicate, args, err = accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 1, prospectiveOwner, *request)
+	}
 	if err != nil {
 		return false, err
 	}
