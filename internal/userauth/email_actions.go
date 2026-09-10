@@ -3,8 +3,6 @@ package userauth
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -142,14 +140,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 	if err := validatePassword(newPassword); err != nil {
 		return err
 	}
-	var collectionID uuid.UUID
-	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose='password_reset' and a.consumed_at is null`, s.actionTokenHash("password_reset", rawToken)).Scan(&collectionID); err == nil {
-		policy, policyErr := s.authPolicy(ctx, collectionID)
-		if policyErr != nil || !passwordMatchesPolicy(newPassword, policy) {
-			return ErrValidation
-		}
-	}
-	if validateToken(rawToken) != nil {
+	if validateToken(rawToken) != nil && !policyTokenValid(rawToken) {
 		return ErrInvalidCredentials
 	}
 	release, err := admit(s.passwordSlots)
@@ -162,10 +153,18 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 		return err
 	}
 	return s.consumeEmailAction(ctx, "password_reset", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
+		var realm uuid.UUID
+		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, action.userID).Scan(&realm); err != nil {
+			return err
+		}
+		policy, err := authPolicyTx(ctx, tx, realm)
+		if err != nil || !passwordMatchesPolicy(newPassword, policy) {
+			return ErrValidation
+		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.users set password_hash=$2,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID, newHash); err != nil {
 			return err
 		}
-		_, err := revokeSessionsInTx(ctx, tx, action.userID)
+		_, err = revokeSessionsInTx(ctx, tx, action.userID)
 		return err
 	})
 }
@@ -261,12 +260,14 @@ func (s *Service) emailReady() error {
 }
 
 func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash string) (string, error) {
-	rawBytes := make([]byte, 32)
-	if _, err := rand.Read(rawBytes); err != nil {
-		return "", fmt.Errorf("generate email action token: %w", err)
+	raw, hash, ttl, err := s.issueActionPolicy(ctx, userID, purpose)
+	if err != nil {
+		return "", err
 	}
-	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
-	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, s.actionTokenHash(purpose, raw), payload, s.credentialHash(passwordHash), postgresInterval(s.emailActionTTL))
+	if hash == nil {
+		hash = s.actionTokenHash(purpose, raw)
+	}
+	_, err = s.pool.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.credentialHash(passwordHash), postgresInterval(ttl))
 	if err != nil {
 		return "", fmt.Errorf("create user email action: %w", err)
 	}
@@ -277,13 +278,26 @@ func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken stri
 	if err := s.emailReady(); err != nil {
 		return err
 	}
-	if validateToken(rawToken) != nil {
+	if validateToken(rawToken) != nil && !policyTokenValid(rawToken) {
 		return ErrInvalidCredentials
 	}
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		hash := s.actionTokenHash(purpose, rawToken)
+		if version, _, ok := splitPolicyToken(rawToken); ok {
+			var cipher []byte
+			err := tx.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where key_version=$1 and purpose=$2`, version, purpose).Scan(&cipher)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			key, err := s.decrypt("auth-token-policy:"+purpose, cipher)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			hash = keyedDigest(key, "user-email-action\x00"+purpose+"\x00", rawToken)
+		}
 		var action emailAction
 		var currentHash string
-		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, s.actionTokenHash(purpose, rawToken), purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
+		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, hash, purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalidCredentials
 		}

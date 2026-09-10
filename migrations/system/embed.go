@@ -148,6 +148,9 @@ var runtimeSettingsSQL string
 //go:embed 000048_auth_oidc_compat.sql
 var authOIDCCompatSQL string
 
+//go:embed 000050_auth_token_policies.sql
+var authTokenPoliciesSQL string
+
 //go:embed 000051_admin_password_resets.sql
 var adminPasswordResetsSQL string
 
@@ -245,6 +248,8 @@ var migrations = []Migration{
 	{Version: 43, Name: "auth_pb_compat", SQL: authPBCompatSQL, SHA256: sha256.Sum256([]byte(authPBCompatSQL))},
 	{Version: 45, Name: "runtime_settings", SQL: runtimeSettingsSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsSQL))},
 	{Version: 48, Name: "auth_oidc_compat", SQL: authOIDCCompatSQL, SHA256: sha256.Sum256([]byte(authOIDCCompatSQL))},
+	{Version: 50, Name: "auth_token_policies", SQL: authTokenPoliciesSQL, SHA256: sha256.Sum256([]byte(authTokenPoliciesSQL))},
+
 	{Version: 51, Name: "admin_password_resets", SQL: adminPasswordResetsSQL, SHA256: sha256.Sum256([]byte(adminPasswordResetsSQL))},
 
 	{Version: 54, Name: "runtime_settings_encryption", SQL: runtimeSettingsEncryptionSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsEncryptionSQL))},
