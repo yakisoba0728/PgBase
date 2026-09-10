@@ -69,11 +69,12 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		58: "8b0d489f5401fb04b797cb0f0301d895f6f69ba64d6233d2c3d3af26b41d860d",
 		59: "a9a2df49c7af3c9aca9c56fd1804e3c9ee8ca62992d9eb0933f706c708581a0b",
 		60: "3aa7f1f2f54d85183e7d55e91e58ba8e645d5bdd00b3a5363b795afe15cbc753",
+		62: "3eadda68191f1cc77ba44d8e1bc87dd6c1d3e7a24ff6cdee6dd85e5d8cedbfbd",
 		55: "157df7385a28770bcf64dff7ba195b5a719100c68accc6b38a0dd0cb97884bef",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 55 || migrations[len(migrations)-1].Version != 60 ||
-		migrations[len(migrations)-1].Name != "nullable_auth_rules" || migrations[7].Version != 8 ||
+	if len(migrations) != 56 || migrations[len(migrations)-1].Version != 62 ||
+		migrations[len(migrations)-1].Name != "auth_email_visibility" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

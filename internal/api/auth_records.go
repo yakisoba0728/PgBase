@@ -56,11 +56,12 @@ func (e authCollectionEndpoints) adminRecordGet(w http.ResponseWriter, r *http.R
 func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *http.Request) {
 	collection, _, err := authRecordIDs(r)
 	var in struct {
-		Email    string         `json:"email"`
-		Password string         `json:"password"`
-		Verified bool           `json:"verified"`
-		Active   *bool          `json:"active"`
-		Fields   map[string]any `json:"fields"`
+		Email           string         `json:"email"`
+		EmailVisibility bool           `json:"emailVisibility"`
+		Password        string         `json:"password"`
+		Verified        bool           `json:"verified"`
+		Active          *bool          `json:"active"`
+		Fields          map[string]any `json:"fields"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
@@ -70,7 +71,7 @@ func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *htt
 	if in.Active != nil {
 		active = *in.Active
 	}
-	value, err := e.dependencies.AuthCollections.CreateAuthRecord(r.Context(), collection, userauth.CreateAuthRecordInput{Email: in.Email, Password: in.Password, Verified: in.Verified, Active: active, Fields: in.Fields})
+	value, err := e.dependencies.AuthCollections.CreateAuthRecord(r.Context(), collection, userauth.CreateAuthRecordInput{Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: active, Fields: in.Fields})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -80,17 +81,18 @@ func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *htt
 func (e authCollectionEndpoints) adminRecordUpdate(w http.ResponseWriter, r *http.Request) {
 	collection, record, err := authRecordIDs(r)
 	var in struct {
-		Email    *string        `json:"email"`
-		Password *string        `json:"password"`
-		Verified *bool          `json:"verified"`
-		Active   *bool          `json:"active"`
-		Fields   map[string]any `json:"fields"`
+		Email           *string        `json:"email"`
+		EmailVisibility *bool          `json:"emailVisibility"`
+		Password        *string        `json:"password"`
+		Verified        *bool          `json:"verified"`
+		Active          *bool          `json:"active"`
+		Fields          map[string]any `json:"fields"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
-	value, err := e.dependencies.AuthCollections.UpdateAuthRecord(r.Context(), collection, record, userauth.UpdateAuthRecordInput{Email: in.Email, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})
+	value, err := e.dependencies.AuthCollections.UpdateAuthRecord(r.Context(), collection, record, userauth.UpdateAuthRecordInput{Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -216,17 +218,18 @@ func (e authCollectionEndpoints) authorizedRecordGet(w http.ResponseWriter, r *h
 func (e authCollectionEndpoints) authorizedRecordUpdate(w http.ResponseWriter, r *http.Request) {
 	collection, principal, target, err := e.authorizedRecordContext(r)
 	var in struct {
-		Email    *string        `json:"email"`
-		Password *string        `json:"password"`
-		Verified *bool          `json:"verified"`
-		Active   *bool          `json:"active"`
-		Fields   map[string]any `json:"fields"`
+		Email           *string        `json:"email"`
+		EmailVisibility *bool          `json:"emailVisibility"`
+		Password        *string        `json:"password"`
+		Verified        *bool          `json:"verified"`
+		Active          *bool          `json:"active"`
+		Fields          map[string]any `json:"fields"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Email: in.Email, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})
+	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})
 	if err != nil {
 		writeUserAuthError(w, r, err)
 		return

@@ -42,6 +42,7 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		return route{method: method, pattern: pattern, access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: handler}
 	}
 	return []route{
+		write(http.MethodPost, "/api/admin/settings/apple/generate-client-secret", e.appleClientSecret),
 		read("/api/admin/auth-collections/{id}/administration", e.get),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/policy", e.policy),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/oauth-providers/{provider}", e.provider),
@@ -58,6 +59,34 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		read("/api/admin/auth-collections/{id}/token-policies", e.tokenPolicies),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/token-policies/{purpose}", e.tokenPolicy),
 	}
+}
+
+// appleClientSecret creates a one-time Apple OAuth client secret. The P8 is
+// deliberately only held in the request and returned token; neither reaches
+// collection settings, audit state, or response logs.
+func (e authAdministrationEndpoints) appleClientSecret(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ClientID   string `json:"clientId"`
+		TeamID     string `json:"teamId"`
+		KeyID      string `json:"keyId"`
+		PrivateKey string `json:"privateKey"`
+		Duration   int    `json:"duration"`
+	}
+	if decodeStrictJSON(r, &input) != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	secret, err := userauth.GenerateAppleClientSecret(userauth.AppleClientSecretInput{
+		ClientID: input.ClientID, TeamID: input.TeamID, KeyID: input.KeyID, PrivateKey: input.PrivateKey, Duration: input.Duration,
+	})
+	if err != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, struct {
+		Secret string `json:"secret"`
+	}{secret})
 }
 func (e authAdministrationEndpoints) tokenPolicies(w http.ResponseWriter, r *http.Request) {
 	id, err := collectionID(r)

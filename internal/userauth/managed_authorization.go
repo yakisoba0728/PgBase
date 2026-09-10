@@ -39,12 +39,15 @@ func (s *Service) authorizeManagedAuthRecordTx(ctx context.Context, tx database.
 }
 
 func authRecordMutationValues(in UpdateAuthRecordInput) map[string]any {
-	values := make(map[string]any, len(in.Fields)+4)
+	values := make(map[string]any, len(in.Fields)+5)
 	for name, value := range in.Fields {
 		values[name] = value
 	}
 	if in.Email != nil {
 		values["email"] = *in.Email
+	}
+	if in.EmailVisibility != nil {
+		values["emailVisibility"] = *in.EmailVisibility
 	}
 	if in.Password != nil {
 		// Rules may inspect presence/change but never receive the secret.

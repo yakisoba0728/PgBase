@@ -116,9 +116,9 @@ func extensionVisibleAuthRecord(record userauth.AuthRecord, showEmail bool) map[
 	for name, value := range record.Fields {
 		result[name] = value
 	}
-	result["id"], result["collectionId"], result["verified"], result["active"] = record.ID, record.AuthCollectionID, record.Verified, record.Active
+	result["id"], result["collectionId"], result["emailVisibility"], result["verified"], result["active"] = record.ID, record.AuthCollectionID, record.EmailVisibility, record.Verified, record.Active
 	result["created"], result["updated"] = record.CreatedAt.UTC().Format(time.RFC3339Nano), record.UpdatedAt.UTC().Format(time.RFC3339Nano)
-	if showEmail {
+	if showEmail || record.EmailVisibility {
 		result["email"] = record.Email
 	}
 	return result

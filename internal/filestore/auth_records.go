@@ -21,9 +21,10 @@ func (s *Service) authFieldPolicy(ctx context.Context, tx pgx.Tx, principal iden
 	var profileRaw []byte
 	var viewRule, updateRule string
 	var email string
+	var emailVisibility bool
 	var verified, active bool
 	var created, updated time.Time
-	err := tx.QueryRow(ctx, `select c.fields_json,c.view_rule,c.update_rule,coalesce(p.attributes,'{}'),u.email,u.verified,u.active,u.created_at,u.updated_at from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where c.id=$1 and u.id=$2 and u.active`, collectionID, recordID).Scan(&fieldsRaw, &viewRule, &updateRule, &profileRaw, &email, &verified, &active, &created, &updated)
+	err := tx.QueryRow(ctx, `select c.fields_json,c.view_rule,c.update_rule,coalesce(p.attributes,'{}'),u.email,u.email_visibility,u.verified,u.active,u.created_at,u.updated_at from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where c.id=$1 and u.id=$2 and u.active`, collectionID, recordID).Scan(&fieldsRaw, &viewRule, &updateRule, &profileRaw, &email, &emailVisibility, &verified, &active, &created, &updated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
 		if e := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where id=$1)`, collectionID).Scan(&exists); e != nil {
@@ -85,7 +86,7 @@ func (s *Service) authFieldPolicy(ctx context.Context, tx pgx.Tx, principal iden
 		if operation == OperationWrite {
 			rule = updateRule
 		}
-		current := userauth.AuthRecord{ID: recordID, AuthCollectionID: collectionID, Email: email, Verified: verified, Active: active, Fields: profile, CreatedAt: created, UpdatedAt: updated}
+		current := userauth.AuthRecord{ID: recordID, AuthCollectionID: collectionID, Email: email, EmailVisibility: emailVisibility, Verified: verified, Active: active, Fields: profile, CreatedAt: created, UpdatedAt: updated}
 		allowed, err := userauth.EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rule, userauth.AuthRuleContext{Principal: principal, Current: current})
 		if err != nil {
 			return FieldPolicy{}, true, err

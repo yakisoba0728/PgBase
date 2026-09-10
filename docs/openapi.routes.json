@@ -1501,6 +1501,22 @@
         "x-pgbase-csrf-required": true
       }
     },
+    "/api/admin/settings/apple/generate-client-secret": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/admin/settings/reload": {
       "post": {
         "responses": {

@@ -65,9 +65,9 @@ func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.
 		return nil
 	}
 	var email string
-	var verified, active bool
+	var emailVisibility, verified, active bool
 	var raw []byte
-	err := db.QueryRow(ctx, `select email,verified,active,coalesce(p.attributes,'{}') from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 and u.active`, collectionID, principal.ID).Scan(&email, &verified, &active, &raw)
+	err := db.QueryRow(ctx, `select email,email_visibility,verified,active,coalesce(p.attributes,'{}') from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 and u.active`, collectionID, principal.ID).Scan(&email, &emailVisibility, &verified, &active, &raw)
 	if err != nil {
 		return err
 	}
@@ -77,6 +77,7 @@ func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.
 	}
 	request.Auth["id"] = principal.ID.String()
 	request.Auth["email"] = email
+	request.Auth["emailVisibility"] = emailVisibility
 	request.Auth["verified"] = verified
 	request.Auth["active"] = active
 	for name, value := range attributes {
@@ -138,6 +139,8 @@ func authPBRequestContext(context AuthRuleContext) accessrule.RequestContext {
 		switch name {
 		case "email":
 			current = context.Current.Email
+		case "emailVisibility":
+			current = context.Current.EmailVisibility
 		case "verified":
 			current = context.Current.Verified
 		case "active":
@@ -162,8 +165,8 @@ func (s *Service) authorizeSessionTx(ctx context.Context, db database.DBTX, user
 	var rule *string
 	var raw []byte
 	var current AuthRecord
-	err := db.QueryRow(ctx, `select c.auth_rule,u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for share of u`, collectionID, user.ID).Scan(
-		&rule, &current.ID, &current.AuthCollectionID, &current.Email, &current.Verified, &current.Active, &raw, &current.CreatedAt, &current.UpdatedAt,
+	err := db.QueryRow(ctx, `select c.auth_rule,u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for share of u`, collectionID, user.ID).Scan(
+		&rule, &current.ID, &current.AuthCollectionID, &current.Email, &current.EmailVisibility, &current.Verified, &current.Active, &raw, &current.CreatedAt, &current.UpdatedAt,
 	)
 	if err != nil {
 		return false, err
@@ -234,6 +237,8 @@ func (r authRuleResolver) resolve(collection authRuleCollection, userAlias, prof
 		return scalarOperand(userAlias+`.id`, accessrule.PBUUID, parts[1:])
 	case "email":
 		return scalarOperand(userAlias+`.email`, accessrule.PBText, parts[1:])
+	case "emailVisibility":
+		return scalarOperand(userAlias+`.email_visibility`, accessrule.PBBool, parts[1:])
 	case "password":
 		// The persisted hash and plaintext are never rule operands. This typed
 		// placeholder exists only so request.body.password modifiers compile.

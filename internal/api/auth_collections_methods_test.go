@@ -114,7 +114,7 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	actor := userauth.User{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b2"), AuthCollectionID: collection.ID}
 	target := uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b3")
 	service := &authCollectionMethodStub{collection: collection}
-	r := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/members/records/"+target.String(), bytes.NewBufferString(`{"email":"managed@example.test","password":"replacement secret","verified":true,"active":false,"fields":{"name":"Managed"}}`))
+	r := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/members/records/"+target.String(), bytes.NewBufferString(`{"email":"managed@example.test","emailVisibility":true,"password":"replacement secret","verified":true,"active":false,"fields":{"name":"Managed"}}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.SetPathValue("authCollection", collection.Name)
 	r.SetPathValue("record", target.String())
@@ -124,7 +124,7 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if service.actorID != actor.ID || service.updateID != target || service.updated.Email == nil || *service.updated.Email != "managed@example.test" || service.updated.Password == nil || service.updated.Verified == nil || service.updated.Active == nil || service.updated.Fields["name"] != "Managed" {
+	if service.actorID != actor.ID || service.updateID != target || service.updated.Email == nil || *service.updated.Email != "managed@example.test" || service.updated.EmailVisibility == nil || !*service.updated.EmailVisibility || service.updated.Password == nil || service.updated.Verified == nil || service.updated.Active == nil || service.updated.Fields["name"] != "Managed" {
 		t.Fatalf("managed update forwarding actor=%s target=%s input=%#v", service.actorID, service.updateID, service.updated)
 	}
 }

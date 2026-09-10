@@ -19,7 +19,8 @@ import (
 type AuthRecord struct {
 	ID               uuid.UUID      `json:"id"`
 	AuthCollectionID uuid.UUID      `json:"authCollectionId"`
-	Email            string         `json:"email"`
+	Email            string         `json:"email,omitempty"`
+	EmailVisibility  bool           `json:"emailVisibility"`
 	Verified         bool           `json:"verified"`
 	Active           bool           `json:"active"`
 	Fields           map[string]any `json:"fields"`
@@ -29,11 +30,13 @@ type AuthRecord struct {
 
 type CreateAuthRecordInput struct {
 	Email, Password  string
+	EmailVisibility  bool
 	Verified, Active bool
 	Fields           map[string]any
 }
 type UpdateAuthRecordInput struct {
 	Email            *string
+	EmailVisibility  *bool
 	Password         *string
 	Verified, Active *bool
 	Fields           map[string]any
@@ -51,7 +54,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	result := values[:0]
 	for _, value := range values {
 		if !rules.IsNull("list") && s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
-			result = append(result, visibleAuthRecord(value, fields))
+			result = append(result, visibleAuthRecordForPrincipal(value, fields, principal))
 		}
 	}
 	return result, nil
@@ -68,7 +71,7 @@ func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, pri
 	if rules.IsNull("view") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
-	return visibleAuthRecord(value, fields), nil
+	return visibleAuthRecordForPrincipal(value, fields, principal), nil
 }
 func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
 	fields, rules, err := s.authRecordRules(ctx, collectionID)
@@ -99,7 +102,7 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 		}
 		return nil
 	})
-	return visibleAuthRecord(updated, fields), err
+	return visibleAuthRecordForPrincipal(updated, fields, principal), err
 }
 
 func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord {
@@ -114,6 +117,17 @@ func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord
 		}
 	}
 	record.Fields = visible
+	return record
+}
+
+// visibleAuthRecordForPrincipal removes an email only after the record has
+// passed its collection rule. Owners retain their own email, while every other
+// authenticated or anonymous principal needs the explicit visibility opt-in.
+func visibleAuthRecordForPrincipal(record AuthRecord, fields []schema.FieldInput, principal uuid.UUID) AuthRecord {
+	record = visibleAuthRecord(record, fields)
+	if principal != record.ID && !record.EmailVisibility {
+		record.Email = ""
+	}
 	return record
 }
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
@@ -158,7 +172,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 order by u.id limit $2`, collectionID, limit)
+	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 order by u.id limit $2`, collectionID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +181,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 	for rows.Next() {
 		var v AuthRecord
 		var raw []byte
-		if err := rows.Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.EmailVisibility, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if json.Unmarshal(raw, &v.Fields) != nil {
@@ -185,7 +199,7 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 	}
 	var v AuthRecord
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2`, collectionID, id).Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2`, collectionID, id).Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.EmailVisibility, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AuthRecord{}, ErrNotFound
 	}
@@ -242,13 +256,13 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		if err := tx.QueryRow(ctx, `select current_timestamp`).Scan(&now); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,verified,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$7)`, id, collectionID, normalized, hash, in.Active, in.Verified, now)
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,email_visibility,active,verified,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$8)`, id, collectionID, normalized, hash, in.EmailVisibility, in.Active, in.Verified, now)
 		if err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,$3)`, id, raw, now)
 		if err == nil {
-			out = AuthRecord{id, collectionID, normalized, in.Verified, in.Active, publicAuthFields(storedFields, fields), now, now}
+			out = AuthRecord{ID: id, AuthCollectionID: collectionID, Email: normalized, EmailVisibility: in.EmailVisibility, Verified: in.Verified, Active: in.Active, Fields: publicAuthFields(storedFields, fields), CreatedAt: now, UpdatedAt: now}
 		}
 		return err
 	})
@@ -296,7 +310,7 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var rawExisting []byte
 		var current AuthRecord
-		if err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.Verified, &current.Active, &rawExisting, &current.CreatedAt, &current.UpdatedAt); errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.EmailVisibility, &current.Verified, &current.Active, &rawExisting, &current.CreatedAt, &current.UpdatedAt); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
@@ -334,7 +348,7 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 				return err
 			}
 		}
-		tag, e := tx.Exec(ctx, `update pgbase_meta.users set email=coalesce($3,email),password_hash=coalesce($4,password_hash),verified=coalesce($5,verified),active=coalesce($6,active),updated_at=current_timestamp where auth_collection_id=$1 and id=$2`, collectionID, id, email, hash, in.Verified, in.Active)
+		tag, e := tx.Exec(ctx, `update pgbase_meta.users set email=coalesce($3,email),email_visibility=coalesce($4,email_visibility),password_hash=coalesce($5,password_hash),verified=coalesce($6,verified),active=coalesce($7,active),updated_at=current_timestamp where auth_collection_id=$1 and id=$2`, collectionID, id, email, in.EmailVisibility, hash, in.Verified, in.Active)
 		if e != nil {
 			return e
 		}
