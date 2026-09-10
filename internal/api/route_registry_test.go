@@ -197,9 +197,6 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 			delete(want, key)
 			continue
 		}
-		if key == "POST /api/admin/collections/view/sample" {
-			continue
-		}
 		if !declared.streamedUpload && !declared.recordDocument && declared.maximumRequestBytes != 0 && declared.maximumRequestBytes != maxJSONBodyBytes {
 			t.Fatalf("route %q unexpectedly narrows the global request cap to %d", key, declared.maximumRequestBytes)
 		}

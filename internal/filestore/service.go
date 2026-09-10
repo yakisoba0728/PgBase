@@ -545,7 +545,7 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 		if err := s.authorizeField(ctx, tx, principal, collectionID, recordID, field, OperationRead); err != nil {
 			return err
 		}
-		policy, err := s.resolvedPolicy(ctx, tx, collectionID, field)
+		policy, err := s.resolvedPolicy(ctx, tx, principal, collectionID, recordID, field, OperationRead)
 		if err != nil {
 			return err
 		}
