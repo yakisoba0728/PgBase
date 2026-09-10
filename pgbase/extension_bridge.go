@@ -107,6 +107,8 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return nil, extensionError("js_reentrant_operation", errors.New("hook cannot reenter its mutating operation family"))
 	}
 	switch method {
+	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.model.save", "app.model.delete":
+		return host.callAppRecords(operationContext, method, input)
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
 		return host.callRecords(operationContext, method, input)
 	case "mail.send":
@@ -145,6 +147,39 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
+}
+
+// callAppRecords is the PocketBase-shaped adapter.  It is intentionally only
+// a mapper: recordops remains the sole place that evaluates collection rules,
+// validates fields, assigns IDs and owns transactions.
+func (host *extensionHost) callAppRecords(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+	switch method {
+	case "app.record.query", "app.record.findByFilter", "app.record.findFirstByFilter":
+		var request extensionRecordRequest
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		if method == "app.record.findFirstByFilter" {
+			request.Limit = 1
+		}
+		encoded, _ := json.Marshal(request)
+		return host.callRecords(ctx, "records.list", encoded)
+	case "app.record.findByID":
+		return host.callRecords(ctx, "records.get", raw)
+	case "app.model.save":
+		var request extensionRecordRequest
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		encoded, _ := json.Marshal(request)
+		if request.ID == "" {
+			return host.callRecords(ctx, "records.create", encoded)
+		}
+		return host.callRecords(ctx, "records.update", encoded)
+	case "app.model.delete":
+		return host.callRecords(ctx, "records.delete", raw)
+	}
+	return nil, extensionError("unsupported_operation", nil)
 }
 
 func (host *extensionHost) operationContext(caller context.Context) (context.Context, func(), error) {

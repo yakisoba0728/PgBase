@@ -40,6 +40,15 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 			return err
 		}
 	}
+	app := vm.NewObject()
+	for _, method := range []string{"record.query", "record.findByID", "record.findByFilter", "record.findFirstByFilter", "model.save", "model.delete"} {
+		if err := app.Set(method, r.hostFunction(vm, state, "records", "app."+method)); err != nil {
+			return err
+		}
+	}
+	if err := host.Set("app", app); err != nil {
+		return err
+	}
 	if err := vm.Set("__pgbaseCompatHost", host); err != nil {
 		return err
 	}
@@ -349,5 +358,6 @@ const recordInput=(record)=>{if(record&&STATE.get(record)){const value=record.ex
 const appStore=Object.freeze({get:(key)=>H["app-control"].storeGet({key}),set:(key,value)=>H["app-control"].storeSet({key,value}),delete:(key)=>H["app-control"].storeDelete({key})});
 const appCron=Object.freeze({list:()=>H["app-control"].cronList({}),configure:(id,schedule,timezone="UTC",enabled=true)=>H["app-control"].cronConfigure({id,schedule,timezone,enabled}),run:(id)=>H["app-control"].cronRun({id})});
 const backupFS=Object.freeze({list:()=>H["app-control"].backupList({}),read:(id)=>H["app-control"].backupRead({id}),delete:(id)=>H["app-control"].backupDelete({id})});
-globalThis.$app={isBootstrapped:()=>H["app-control"].isBootstrapped({}),bootstrap:unsupported("$app.bootstrap"),resetBootstrapState:unsupported("$app.resetBootstrapState"),dataDir:()=>H["app-control"].dataDir({}),encryptionEnv:()=>H["app-control"].encryptionEnv({}),isDev:()=>H["app-control"].isDev({}),settings:()=>H["app-control"].settings({}),store:()=>appStore,cron:()=>appCron,subscriptionsBroker:unsupported("$app.subscriptionsBroker"),newBackupsFilesystem:()=>backupFS,reloadSettings:()=>H["app-control"].reloadSettings({}),createBackup:()=>H["app-control"].createBackup({}),restoreBackup:(id)=>H["app-control"].restoreBackup({id}),restart:()=>H["app-control"].restart({}),runSystemMigrations:()=>H["app-control"].runSystemMigrations({}),runAppMigrations:()=>H["app-control"].runAppMigrations({}),runAllMigrations:()=>H["app-control"].runAllMigrations({}),isTransactional:()=>false,transactionInfo:()=>H["app-control"].transactionInfo({}),unsafeWithoutHooks:unsupported("$app.unsafeWithoutHooks"),findRecordsByFilter:(collection,filter,sort,limit)=>require("pgbase").records.list({collection,filter,sort,limit}),findFirstRecordByFilter:(collection,filter)=>require("pgbase").records.list({collection,filter,limit:1}).items[0],findRecordById:(collection,id)=>require("pgbase").records.get({collection,id}),save:(record)=>record.id?require("pgbase").records.update(recordInput(record)):require("pgbase").records.create(recordInput(record)),delete:(record)=>require("pgbase").records.delete({collection:record.collection||record.collectionName,id:record.id}),logger:()=>require("pgbase").log,mailer:()=>require("pgbase").mail,db:()=>require("pgbase").database,filesystem:()=>$filesystem};
+const appRecord=(method,value)=>H.app[method](value);
+globalThis.$app={isBootstrapped:()=>H["app-control"].isBootstrapped({}),bootstrap:unsupported("$app.bootstrap"),resetBootstrapState:unsupported("$app.resetBootstrapState"),dataDir:()=>H["app-control"].dataDir({}),encryptionEnv:()=>H["app-control"].encryptionEnv({}),isDev:()=>H["app-control"].isDev({}),settings:()=>H["app-control"].settings({}),store:()=>appStore,cron:()=>appCron,subscriptionsBroker:unsupported("$app.subscriptionsBroker"),newBackupsFilesystem:()=>backupFS,reloadSettings:()=>H["app-control"].reloadSettings({}),createBackup:()=>H["app-control"].createBackup({}),restoreBackup:(id)=>H["app-control"].restoreBackup({id}),restart:()=>H["app-control"].restart({}),runSystemMigrations:()=>H["app-control"].runSystemMigrations({}),runAppMigrations:()=>H["app-control"].runAppMigrations({}),runAllMigrations:()=>H["app-control"].runAllMigrations({}),isTransactional:()=>false,transactionInfo:()=>H["app-control"].transactionInfo({}),unsafeWithoutHooks:unsupported("$app.unsafeWithoutHooks"),recordQuery:(collection,filter,sort,limit)=>appRecord("record.query",{collection,filter,sort,limit}),findRecordsByFilter:(collection,filter,sort,limit)=>require("pgbase").records.list({collection,filter,sort,limit}),findFirstRecordByFilter:(collection,filter)=>require("pgbase").records.list({collection,filter,limit:1}).items[0],findRecordById:(collection,id)=>require("pgbase").records.get({collection,id}),save:(record)=>record.id?require("pgbase").records.update(recordInput(record)):require("pgbase").records.create(recordInput(record)),delete:(record)=>require("pgbase").records.delete({collection:record.collection||record.collectionName,id:record.id}),logger:()=>require("pgbase").log,mailer:()=>require("pgbase").mail,db:()=>require("pgbase").database,filesystem:()=>$filesystem};
 })();`
