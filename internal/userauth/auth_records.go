@@ -94,6 +94,10 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
 		return nil, ErrValidation
 	}
+	fields, _, err := s.authRecordContract(ctx, collectionID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 order by u.id limit $2`, collectionID, limit)
 	if err != nil {
 		return nil, err
@@ -109,6 +113,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 		if json.Unmarshal(raw, &v.Fields) != nil {
 			return nil, errors.New("invalid stored auth profile")
 		}
+		v.Fields = publicAuthFields(v.Fields, fields)
 		result = append(result, v)
 	}
 	return result, rows.Err()
@@ -130,6 +135,11 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 	if json.Unmarshal(raw, &v.Fields) != nil {
 		return AuthRecord{}, errors.New("invalid stored auth profile")
 	}
+	fields, _, err := s.authRecordContract(ctx, collectionID)
+	if err != nil {
+		return AuthRecord{}, err
+	}
+	v.Fields = publicAuthFields(v.Fields, fields)
 	return v, nil
 }
 
@@ -143,7 +153,11 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		return AuthRecord{}, err
 	}
 	in.Fields = applyAuthAutoDates(in.Fields, fields, true, time.Now())
-	if !validateTypedProfile(in.Fields, fields) {
+	if !validateTypedProfile(in.Fields, fields, false) {
+		return AuthRecord{}, ErrValidation
+	}
+	storedFields, ok := prepareAuthPasswordFields(fields, in.Fields, true)
+	if !ok || !validateTypedProfile(storedFields, fields, true) {
 		return AuthRecord{}, ErrValidation
 	}
 	policy, err := s.authPolicy(ctx, collectionID)
@@ -154,14 +168,14 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	raw, _ := json.Marshal(in.Fields)
+	raw, _ := json.Marshal(storedFields)
 	id := uuid.New()
 	var out AuthRecord
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := validateAuthRelationTargets(ctx, tx, id, in.Fields, fields); err != nil {
+		if err := validateAuthRelationTargets(ctx, tx, id, storedFields, fields); err != nil {
 			return err
 		}
-		if err := validateAuthIdentityUnique(ctx, tx, collectionID, id, in.Fields, policy.IdentityFields); err != nil {
+		if err := validateAuthIdentityUnique(ctx, tx, collectionID, id, storedFields, policy.IdentityFields); err != nil {
 			return err
 		}
 		var now time.Time
@@ -174,7 +188,7 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,$3)`, id, raw, now)
 		if err == nil {
-			out = AuthRecord{id, collectionID, normalized, in.Verified, in.Active, in.Fields, now, now}
+			out = AuthRecord{id, collectionID, normalized, in.Verified, in.Active, publicAuthFields(storedFields, fields), now, now}
 		}
 		return err
 	})
@@ -226,7 +240,11 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		if json.Unmarshal(rawExisting, &merged) != nil {
 			return errors.New("invalid stored auth profile")
 		}
-		for k, v := range in.Fields {
+		changes, ok := prepareAuthPasswordFields(fields, in.Fields, false)
+		if !ok {
+			return ErrValidation
+		}
+		for k, v := range changes {
 			if v == nil {
 				delete(merged, k)
 			} else {
@@ -234,7 +252,7 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 			}
 		}
 		merged = applyAuthAutoDates(merged, fields, false, time.Now())
-		if !validateTypedProfile(merged, fields) {
+		if !validateTypedProfile(merged, fields, true) {
 			return ErrValidation
 		}
 		if in.Fields != nil {

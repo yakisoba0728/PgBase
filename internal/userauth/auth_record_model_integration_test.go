@@ -4,12 +4,15 @@ package userauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -115,5 +118,104 @@ func TestAuthRecordRelationValidatesTargetAndAppliesSetNull(t *testing.T) {
 	}
 	if _, ok := got.Fields["manager"]; ok {
 		t.Fatalf("set-null retained relation: %#v", got.Fields)
+	}
+}
+
+func TestCustomAuthPasswordFieldsHashRedactAndPatch(t *testing.T) {
+	pool := newUserAuthPool(t)
+	service := NewService(pool, adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	collectionID := uuid.New()
+	minimum, maximum := 8, 16
+	fields := []schema.FieldInput{
+		{Name: "display_name", Type: schema.TypeText},
+		{Name: "recovery_pin", Type: schema.TypePassword, Required: true, Options: &schema.FieldOptions{MinLength: &minimum, MaxLength: &maximum, Pattern: `^[A-Z0-9]+$`}},
+	}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: collectionID, Name: "password_" + collectionID.String()[:8], RegistrationEnabled: true, Fields: fields}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{Email: "invalid-pin@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"display_name": "Ada", "recovery_pin": "too-short"}}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("invalid custom password accepted: %v", err)
+	}
+	const pin = "ABCD1234"
+	record, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{Email: "custom-pin@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"display_name": "Ada", "recovery_pin": pin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := record.Fields["recovery_pin"]; present {
+		t.Fatalf("create response leaked custom password: %#v", record.Fields)
+	}
+	var raw []byte
+	var systemHash string
+	if err := pool.QueryRow(ctx, `select p.attributes,u.password_hash from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where p.user_id=$1`, record.ID).Scan(&raw, &systemHash); err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	storedPin, ok := stored["recovery_pin"].(string)
+	if !ok || storedPin == pin || !strings.HasPrefix(storedPin, "$argon2id$") || passwordfield.Verify(storedPin, pin) != nil {
+		t.Fatalf("custom password was not an Argon2 hash: %#v", stored["recovery_pin"])
+	}
+	loaded, err := service.GetAuthRecord(ctx, collectionID, record.ID)
+	if err != nil || loaded.Fields["display_name"] != "Ada" {
+		t.Fatalf("record=%#v err=%v", loaded, err)
+	}
+	if _, present := loaded.Fields["recovery_pin"]; present {
+		t.Fatalf("get response leaked custom password: %#v", loaded.Fields)
+	}
+	profile, err := service.GetProfile(ctx, record.ID)
+	if err != nil || profile["display_name"] != "Ada" {
+		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+	if _, present := profile["recovery_pin"]; present {
+		t.Fatalf("profile response leaked custom password: %#v", profile)
+	}
+	updated, err := service.UpdateAuthRecord(ctx, collectionID, record.ID, UpdateAuthRecordInput{Fields: map[string]any{"display_name": "Ada Lovelace", "recovery_pin": ""}})
+	if err != nil || updated.Fields["display_name"] != "Ada Lovelace" {
+		t.Fatalf("blank patch=%#v err=%v", updated, err)
+	}
+	if err := pool.QueryRow(ctx, `select p.attributes,u.password_hash from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where p.user_id=$1`, record.ID).Scan(&raw, &systemHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored["recovery_pin"] != storedPin {
+		t.Fatalf("blank patch changed password: %#v", stored["recovery_pin"])
+	}
+	if _, err := service.SetProfile(ctx, record.ID, map[string]any{"display_name": "Grace", "recovery_pin": ""}); err != nil {
+		t.Fatalf("profile blank patch: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `select p.attributes,u.password_hash from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where p.user_id=$1`, record.ID).Scan(&raw, &systemHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored["recovery_pin"] != storedPin || stored["display_name"] != "Grace" {
+		t.Fatalf("profile patch did not preserve custom password: %#v", stored)
+	}
+	const newPin = "ZXCV1234"
+	profile, err = service.SetProfile(ctx, record.ID, map[string]any{"recovery_pin": newPin})
+	if err != nil {
+		t.Fatalf("profile password patch: %v", err)
+	}
+	if _, present := profile["recovery_pin"]; present {
+		t.Fatalf("profile password response leaked hash: %#v", profile)
+	}
+	if err := pool.QueryRow(ctx, `select p.attributes,u.password_hash from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where p.user_id=$1`, record.ID).Scan(&raw, &systemHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	currentPin, ok := stored["recovery_pin"].(string)
+	if !ok || currentPin == storedPin || passwordfield.Verify(currentPin, newPin) != nil {
+		t.Fatalf("profile password patch did not rotate hash: %#v", stored["recovery_pin"])
+	}
+	if passwordfield.Verify(systemHash, "correct horse battery staple") != nil {
+		t.Fatal("custom password patch changed system credential password")
 	}
 }

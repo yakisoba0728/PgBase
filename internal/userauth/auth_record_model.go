@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -48,7 +49,7 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 		}
 		seen[field.Name] = true
 		switch field.Type {
-		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText, schema.TypeEditor, schema.TypeTimestampTZ, schema.TypeAutoDate, schema.TypeUUID, schema.TypeJSONB, schema.TypeGeoPoint:
+		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText, schema.TypeEditor, schema.TypePassword, schema.TypeTimestampTZ, schema.TypeAutoDate, schema.TypeUUID, schema.TypeJSONB, schema.TypeGeoPoint:
 		case schema.TypeRelation:
 			if field.Relation == nil || strings.TrimSpace(field.Relation.TargetCollection) == "" {
 				return nil, nil, false
@@ -114,14 +115,14 @@ func ruleAllowsOperation(rule string, authenticated, target uuid.UUID) bool {
 	return ruleAllowsSelf(rule, authenticated, target)
 }
 
-func validateTypedProfile(attributes map[string]any, fields []schema.FieldInput) bool {
+func validateTypedProfile(attributes map[string]any, fields []schema.FieldInput, storedPasswords bool) bool {
 	definitions := map[string]schema.FieldInput{}
 	for _, f := range fields {
 		definitions[f.Name] = f
 	}
 	for name, value := range attributes {
 		field, ok := definitions[name]
-		if !ok || !validAuthFieldValue(field, value) {
+		if !ok || !validAuthFieldValue(field, value, storedPasswords) {
 			return false
 		}
 	}
@@ -137,13 +138,29 @@ func validateTypedProfile(attributes map[string]any, fields []schema.FieldInput)
 	return err == nil && len(raw) <= 64<<10
 }
 
-func validAuthFieldValue(field schema.FieldInput, value any) bool {
+func validAuthFieldValue(field schema.FieldInput, value any, storedPasswords bool) bool {
 	o := field.Options
 	options := fieldvalue.Options{}
 	if o != nil {
 		options = fieldvalue.Options{MinLength: o.MinLength, MaxLength: o.MaxLength, Pattern: o.Pattern, Format: o.Format, AllowedDomains: o.AllowedDomains, DeniedDomains: o.DeniedDomains, AllowedValues: o.AllowedValues, MinSelect: o.MinSelect, MaxSelect: o.MaxSelect, Min: o.Min, Max: o.Max}
 	}
 	switch field.Type {
+	case schema.TypePassword:
+		value, ok := value.(string)
+		if !ok {
+			return false
+		}
+		if storedPasswords {
+			return value != ""
+		}
+		if value == "" {
+			return !field.Required
+		}
+		maximum := 71
+		if o != nil && o.MaxLength != nil {
+			maximum = *o.MaxLength
+		}
+		return fieldvalue.ValidateText(value, fieldvalue.Options{MinLength: options.MinLength, MaxLength: &maximum, Pattern: options.Pattern}) == ""
 	case schema.TypeBoolean:
 		_, ok := value.(bool)
 		return ok
@@ -258,6 +275,60 @@ func validAuthFieldValue(field schema.FieldInput, value any) bool {
 	default:
 		return false
 	}
+}
+
+// prepareAuthPasswordFields hashes only explicitly supplied custom password
+// attributes. Empty values during an update retain the existing hash, matching
+// PocketBase's unchanged-password patch behavior.
+func prepareAuthPasswordFields(fields []schema.FieldInput, attributes map[string]any, create bool) (map[string]any, bool) {
+	result := make(map[string]any, len(attributes))
+	for name, value := range attributes {
+		result[name] = value
+	}
+	for _, field := range fields {
+		if field.Type != schema.TypePassword {
+			continue
+		}
+		value, supplied := result[field.Name]
+		if !supplied {
+			continue
+		}
+		plaintext, ok := value.(string)
+		if !ok {
+			return nil, false
+		}
+		if !create && plaintext == "" {
+			delete(result, field.Name)
+			continue
+		}
+		if !validAuthFieldValue(field, plaintext, false) || create && field.Required && plaintext == "" {
+			return nil, false
+		}
+		if plaintext == "" {
+			delete(result, field.Name)
+			continue
+		}
+		hash, err := passwordfield.Hash(plaintext)
+		if err != nil {
+			return nil, false
+		}
+		result[field.Name] = hash
+	}
+	return result, true
+}
+
+func publicAuthFields(attributes map[string]any, fields []schema.FieldInput) map[string]any {
+	result := make(map[string]any, len(attributes))
+	passwords := map[string]bool{}
+	for _, field := range fields {
+		passwords[field.Name] = field.Type == schema.TypePassword
+	}
+	for name, value := range attributes {
+		if !passwords[name] {
+			result[name] = value
+		}
+	}
+	return result
 }
 
 func applyAuthAutoDates(attributes map[string]any, fields []schema.FieldInput, create bool, now time.Time) map[string]any {

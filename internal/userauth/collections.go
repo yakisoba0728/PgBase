@@ -114,7 +114,7 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		for rows.Next() {
 			var profileRaw []byte
 			var profile map[string]any
-			if rows.Scan(&profileRaw) != nil || json.Unmarshal(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields) {
+			if rows.Scan(&profileRaw) != nil || json.Unmarshal(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields, true) {
 				return ErrConflict
 			}
 		}
@@ -229,10 +229,12 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 	if userID == uuid.Nil || len(attributes) > 64 {
 		return nil, ErrValidation
 	}
+	var public map[string]any
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var fieldsRaw []byte
 		var updateRule string
-		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&fieldsRaw, &updateRule); errors.Is(err, pgx.ErrNoRows) {
+		var existingRaw []byte
+		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule,coalesce(p.attributes,'{}') from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1 and u.active for update of u`, userID).Scan(&fieldsRaw, &updateRule, &existingRaw); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
@@ -241,11 +243,26 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		if json.Unmarshal(fieldsRaw, &fields) != nil {
 			return ErrValidation
 		}
-		attributes = applyAuthAutoDates(attributes, fields, false, time.Now())
-		if !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule, userID, userID) {
+		changes, ok := prepareAuthPasswordFields(fields, attributes, false)
+		if !ok || !ruleAllowsOperation(updateRule, userID, userID) {
 			return ErrValidation
 		}
-		if err := validateAuthRelationTargets(ctx, tx, userID, attributes, fields); err != nil {
+		merged := map[string]any{}
+		if json.Unmarshal(existingRaw, &merged) != nil {
+			return ErrValidation
+		}
+		for name, value := range changes {
+			if value == nil {
+				delete(merged, name)
+			} else {
+				merged[name] = value
+			}
+		}
+		merged = applyAuthAutoDates(merged, fields, false, time.Now())
+		if !validateTypedProfile(merged, fields, true) {
+			return ErrValidation
+		}
+		if err := validateAuthRelationTargets(ctx, tx, userID, merged, fields); err != nil {
 			return err
 		}
 		var collectionID uuid.UUID
@@ -256,37 +273,23 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		if err != nil {
 			return err
 		}
-		for _, field := range policy.IdentityFields {
-			if field == "email" {
-				continue
-			}
-			value, present := attributes[field]
-			text, ok := value.(string)
-			if !present || !ok || text == "" {
-				continue
-			}
-			if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext($1))`, collectionID.String()+":"+field+":"+text); err != nil {
-				return err
-			}
-			var duplicate bool
-			if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 and u.id<>$2 and p.attributes ->> $3=$4)`, collectionID, userID, field, text).Scan(&duplicate); err != nil {
-				return err
-			}
-			if duplicate {
-				return ErrConflict
-			}
+		if err := validateAuthIdentityUnique(ctx, tx, collectionID, userID, merged, policy.IdentityFields); err != nil {
+			return err
 		}
-		raw, marshalErr := json.Marshal(attributes)
+		raw, marshalErr := json.Marshal(merged)
 		if marshalErr != nil {
 			return ErrValidation
 		}
-		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw)
-		return err
+		if _, err := tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw); err != nil {
+			return err
+		}
+		public = publicAuthFields(merged, fields)
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return attributes, nil
+	return public, nil
 }
 
 func authPolicyTx(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID) (AuthPolicy, error) {
@@ -299,19 +302,20 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 	if userID == uuid.Nil {
 		return nil, ErrValidation
 	}
-	var raw []byte
-	err := s.pool.QueryRow(ctx, `select attributes from pgbase_meta.user_auth_profiles where user_id=$1`, userID).Scan(&raw)
+	var raw, fieldsRaw []byte
+	err := s.pool.QueryRow(ctx, `select coalesce(p.attributes,'{}'),c.fields_json from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1`, userID).Scan(&raw, &fieldsRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return map[string]any{}, nil
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil {
+	var fields []schema.FieldInput
+	if json.Unmarshal(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
 		return nil, errors.New("invalid stored auth profile")
 	}
-	return value, nil
+	return publicAuthFields(value, fields), nil
 }
 
 func validateProfile(attributes map[string]any, schema map[string]string) bool {
