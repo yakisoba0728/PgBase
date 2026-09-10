@@ -3119,6 +3119,107 @@
         "x-pgbase-maximum-request-bytes": 50335744
       }
     },
+    "/api/v1/public/auth/{authCollection}/records": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/public/auth/{authCollection}/records/{record}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/v1/public/collections/batch": {
       "post": {
         "responses": {

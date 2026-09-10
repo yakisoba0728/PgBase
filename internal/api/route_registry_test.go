@@ -87,10 +87,10 @@ func TestRouteRegistryIsCompleteUniqueAndWithinTheMetricBudget(t *testing.T) {
 			methodAgnostic++
 		}
 	}
-	if len(routes) > maximumRegisteredRoutes || methodAgnostic > maximumMethodAgnosticRoutes {
+	if len(routes) > maximumBuiltinRoutes || methodAgnostic > maximumMethodAgnosticRoutes {
 		t.Fatalf("route budget exceeded: routes=%d/%d method-agnostic=%d/%d; update the telemetry "+
 			"design and series budget before expanding",
-			len(routes), maximumRegisteredRoutes, methodAgnostic, maximumMethodAgnosticRoutes)
+			len(routes), maximumBuiltinRoutes, methodAgnostic, maximumMethodAgnosticRoutes)
 	}
 }
 

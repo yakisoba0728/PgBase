@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 type AuthAuxiliaryRecord struct {
@@ -61,11 +62,7 @@ func (s *Service) ListAuthAuxiliary(ctx context.Context, collectionID, userID uu
 	if collectionID == uuid.Nil || userID == uuid.Nil {
 		return nil, ErrValidation
 	}
-	var manageRule string
-	if err := s.pool.QueryRow(ctx, `select manage_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&manageRule); err != nil {
-		return nil, err
-	}
-	if !ruleAllowsOperation(manageRule, userID, userID) {
+	if !s.authorizeManageRule(ctx, collectionID, userID) {
 		return nil, ErrInvalidCredentials
 	}
 	var query string
@@ -101,11 +98,7 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 	if collectionID == uuid.Nil || userID == uuid.Nil || id == uuid.Nil {
 		return ErrValidation
 	}
-	var manageRule string
-	if err := s.pool.QueryRow(ctx, `select manage_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&manageRule); err != nil {
-		return err
-	}
-	if !ruleAllowsOperation(manageRule, userID, userID) {
+	if !s.authorizeManageRule(ctx, collectionID, userID) {
 		return ErrInvalidCredentials
 	}
 	var tag pgconn.CommandTag
@@ -129,4 +122,16 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *Service) authorizeManageRule(ctx context.Context, collectionID, userID uuid.UUID) bool {
+	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	if err != nil {
+		return false
+	}
+	record, err := s.GetAuthRecord(ctx, collectionID, userID)
+	if err != nil {
+		return false
+	}
+	return EvaluateAuthRecordRule(rules.Manage, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: userID}, AuthEmail: record.Email, Current: record})
 }

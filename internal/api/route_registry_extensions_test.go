@@ -12,7 +12,7 @@ func TestAllOptionalRoutesFitTheDeclaredBudget(t *testing.T) {
 	if err := validateRoutes(routes); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("all optional modules: %d routes, budget %d", len(routes), maximumRegisteredRoutes)
+	t.Logf("all optional modules: %d routes, built-in budget %d; custom capacity %d", len(routes), maximumBuiltinRoutes, MaximumCustomRoutes)
 	patterns := map[string]bool{}
 	for _, route := range routes {
 		patterns[route.muxPattern()] = true

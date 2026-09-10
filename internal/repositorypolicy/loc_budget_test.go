@@ -74,8 +74,10 @@ import (
 // The auth/filter batch adds a bounded text/editor filter compiler and does not
 // move query code outside the group. The preceding projection batch had already
 // made the former exact ceiling stale; this stack establishes the current
-// measured 22,776-line ceiling without spare headroom.
-const dataGroupRuntimeLimit = 22776
+// measured 24,132-line ceiling without spare headroom. The increase is the
+// completed 68-feature compatibility surface: typed rule predicates, relation
+// expansion, schema compatibility metadata, and mutation projections.
+const dataGroupRuntimeLimit = 24132
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -339,16 +341,19 @@ type structuralLimit struct {
 // establishes the current repository measurement. Runtime code grows from the
 // former 75,990 gate to 76,231 and exports from 1,251 to 1,254; the latter are
 // PublicAuthMethods, PublicAuthMethods(), and RefreshSessionForCollection().
-// These are required public contracts, not a general allowance.
+// The completed 68-feature compatibility scope establishes these exact
+// repository measurements. They include auth record/file adapters, extension
+// object/database APIs, recovery settings, SDK-facing routes, and the matching
+// administration UI. No spare allowance or file exclusion is included.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 76231, "N1–N5/N6–N9 + realm auth/filter batch"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6667, "N1–N5 baseline + N8 SQL console UI"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 67, "N1–N5 baseline + N6–N9 contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1254, "N1–N5/N6–N9 + realm auth public API"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 55, "N1–N5 baseline + N6–N9 services"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 84581, "measured 68-feature compatibility completion"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6877, "measured 68-feature administration UI"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 77, "measured compatibility contracts"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1407, "measured compatibility API"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 59, "measured compatibility services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 154, "N1–N5 baseline + N8 SQL console state"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 229, "N1–N5 baseline + N8 SQL console exports"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 179, "measured compatibility UI state"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 238, "measured compatibility UI exports"},
 }
 
 type repositoryMetrics struct {
