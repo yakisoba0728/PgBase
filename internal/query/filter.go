@@ -340,15 +340,15 @@ func filterTimeMacro(name string, now time.Time) (filterLiteral, bool) {
 	case "@todayStart":
 		return date(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)), true
 	case "@todayEnd":
-		return date(time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, time.UTC)), true
+		return date(time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
 	case "@monthStart":
 		return date(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)), true
 	case "@monthEnd":
-		return date(time.Date(now.Year(), now.Month()+1, 0, 23, 59, 59, 999999999, time.UTC)), true
+		return date(time.Date(now.Year(), now.Month()+1, 0, 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
 	case "@yearStart":
 		return date(time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)), true
 	case "@yearEnd":
-		return date(time.Date(now.Year(), 12, 31, 23, 59, 59, 999999999, time.UTC)), true
+		return date(time.Date(now.Year(), 12, 31, 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
 	}
 	numbers := map[string]int{"@second": now.Second(), "@minute": now.Minute(), "@hour": now.Hour(), "@day": now.Day(), "@month": int(now.Month()), "@weekday": int(now.Weekday()), "@year": now.Year()}
 	value, ok := numbers[name]
