@@ -13,8 +13,11 @@ func rejectHiddenInput(collection schema.Collection, principal Principal, input 
 	}
 	for _, field := range collection.Fields {
 		if field.Hidden {
-			if _, found := input[field.Name]; found {
-				return &validationdomain.Error{Details: []validationdomain.Detail{{Field: field.Name, Code: "hidden_field"}}}
+			for key := range input {
+				name, _ := splitInputModifier(key)
+				if name == field.Name {
+					return &validationdomain.Error{Details: []validationdomain.Detail{{Field: field.Name, Code: "hidden_field"}}}
+				}
 			}
 		}
 	}

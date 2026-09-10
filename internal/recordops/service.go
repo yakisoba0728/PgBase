@@ -72,30 +72,6 @@ func NewService(
 	}
 }
 
-// Validate checks the typed payload accepted by Create/Update without writing.
-func (s *Service) Validate(ctx context.Context, request ValidateRequest) error {
-	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
-		return err
-	}
-	catalog, err := s.schemas.Catalog(ctx)
-	if err != nil {
-		return err
-	}
-	collection, ok := catalog.Collections[request.Collection]
-	if !ok || collection.IsView() {
-		return recordaccess.ErrUnsupported
-	}
-	if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
-		return err
-	}
-	if request.ID == uuid.Nil {
-		_, err = query.CompileInsert(collection, request.Input, uuid.New())
-	} else {
-		_, err = query.CompileUpdate(collection, request.ID, request.Input)
-	}
-	return err
-}
-
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
 	defer hooks.after(ctx, &err)
@@ -162,7 +138,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, uuid.Nil); err != nil {
 			return err
 		}
-		relationOperation = inputTouchesRelationField(collection, request.Input)
+		resolvedInput, err := resolveInputModifiers(collection, request.Input, modifierCreateValues(collection))
+		if err != nil {
+			return err
+		}
+		relationOperation = inputTouchesRelationField(collection, resolvedInput)
 		createFence, err := membershipWriter.LockCreate(ctx, tx, collection.ID)
 		if err != nil {
 			return transactionalMembership(err)
@@ -185,7 +165,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 					if err != nil {
 						return query.ErrRecordNotFound
 					}
-					requestContext := mutationRuleContext(collection, request.Input, nil, request.RuleContext)
+					requestContext := mutationRuleContext(collection, resolvedInput, nil, request.RuleContext)
 					if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 						return err
 					}
@@ -194,7 +174,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				return nil
 			}
 		}
-		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, true)
+		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, resolvedInput, true)
 		if err != nil {
 			return err
 		}
@@ -219,7 +199,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err != nil {
 			return query.NormalizeRecordError(err)
 		}
-		requestContext := mutationRuleContext(collection, request.Input, nil, request.RuleContext)
+		requestContext := mutationRuleContext(collection, mutationInput, nil, request.RuleContext)
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 			return err
 		}
@@ -330,14 +310,34 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
-		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
+		mutationSeed, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
 		if err != nil {
 			return err
 		}
-		relationOperation = inputTouchesRelationField(collection, request.Input)
+		if err := validateModifierInput(collection, mutationSeed); err != nil {
+			return err
+		}
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
 		}
+		before, err := readRecord(ctx, tx, collection, request.ID, true)
+		if err != nil {
+			return err
+		}
+		bindings, err := bindRecordRelations(catalog, collection)
+		if err != nil {
+			return err
+		}
+		if bindings != nil && bindings.HasMultiple() {
+			if err := bindings.Hydrate(ctx, tx, []uuid.UUID{request.ID}, map[uuid.UUID]map[string]any{request.ID: before}); err != nil {
+				return normalizeRelationError(err)
+			}
+		}
+		mutationInput, err := resolveInputModifiers(collection, mutationSeed, before)
+		if err != nil {
+			return err
+		}
+		relationOperation = inputTouchesRelationField(collection, mutationInput)
 		relations, err := prepareRelationWrite(catalog, collection, relation.PatchWrite, mutationInput)
 		if err != nil {
 			return err
@@ -357,11 +357,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
 			return err
 		}
-		before, err := readRecord(ctx, tx, collection, request.ID, !relations.LocksSource())
-		if err != nil {
-			return err
-		}
-		requestContext := mutationRuleContext(collection, request.Input, before, request.RuleContext)
+		requestContext := mutationRuleContext(collection, mutationInput, before, request.RuleContext)
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, request.ID, "update", &requestContext); err != nil {
 			return err
 		}
