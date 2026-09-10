@@ -46,6 +46,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	golang.org/x/image v0.46.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 

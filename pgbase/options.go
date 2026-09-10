@@ -76,6 +76,9 @@ type Options struct {
 	// network such as the bundled Compose stack.
 	AllowInsecureDatabase bool
 	HTTPAddress           string
+	// TLS enables the built-in HTTPS listener. Nil preserves the ordinary HTTP
+	// listener, which is appropriate when a trusted reverse proxy terminates TLS.
+	TLS *TLSOptions
 	// PublicDir is an absolute directory of user-owned static files. An empty
 	// value leaves user-site hosting disabled.
 	PublicDir string
@@ -117,6 +120,13 @@ func (o Options) Normalized() (Options, error) {
 	o.Files = files
 	if o.HTTPAddress == "" {
 		o.HTTPAddress = "127.0.0.1:8090"
+	}
+	if o.TLS != nil {
+		tlsOptions, err := o.TLS.normalized()
+		if err != nil {
+			return Options{}, err
+		}
+		o.TLS = &tlsOptions
 	}
 	if o.PublicDir != "" && !filepath.IsAbs(o.PublicDir) {
 		return Options{}, fmt.Errorf("PublicDir: must be an absolute path")

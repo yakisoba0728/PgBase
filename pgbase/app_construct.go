@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
@@ -20,6 +21,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 	adminui "github.com/yakisoba0728/PgBase/ui/admin"
+	"golang.org/x/crypto/acme/autocert"
 	"net"
 	"net/http"
 	"time"
@@ -391,6 +393,38 @@ func newWithCatalogPreflight(
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
+	}
+	if normalized.TLS != nil {
+		tlsOptions := *normalized.TLS
+		if len(tlsOptions.ACMEHosts) == 0 {
+			certificate, err := tls.LoadX509KeyPair(tlsOptions.CertificateFile, tlsOptions.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("load TLS certificate: %w", err)
+			}
+			app.httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+			app.serve = func(listener net.Listener) error { return app.httpServer.ServeTLS(listener, "", "") }
+		} else {
+			manager := &autocert.Manager{Cache: autocert.DirCache(tlsOptions.ACMECacheDirectory), Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(tlsOptions.ACMEHosts...)}
+			app.httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: manager.GetCertificate}
+			app.serve = func(listener net.Listener) error { return app.httpServer.ServeTLS(listener, "", "") }
+			redirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				host := r.Host
+				if host == "" {
+					http.Error(w, "missing host", http.StatusBadRequest)
+					return
+				}
+				http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+			})
+			app.challengeServer = &http.Server{Addr: tlsOptions.HTTPChallengeAddress, Handler: manager.HTTPHandler(redirect), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+			app.startChallenge = func() error {
+				listener, err := net.Listen("tcp", tlsOptions.HTTPChallengeAddress)
+				if err != nil {
+					return err
+				}
+				go func() { _ = app.challengeServer.Serve(listener) }()
+				return nil
+			}
+		}
 	}
 	keepPool = true
 	keepGate = true
