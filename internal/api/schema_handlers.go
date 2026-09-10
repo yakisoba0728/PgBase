@@ -144,6 +144,7 @@ type collectionChangeRequest struct {
 	Fields      *[]schema.FieldInput `json:"fields"`
 	Indexes     *[]schema.IndexInput `json:"indexes"`
 	View        *schema.ViewInput    `json:"view,omitempty"`
+	ViewQuery   *string              `json:"viewQuery,omitempty"`
 	Checksum    string               `json:"checksum"`
 	BaseVersion *int64               `json:"baseVersion"`
 }
@@ -181,6 +182,16 @@ func (r collectionChangeRequest) fieldInputs() []schema.FieldInput {
 		return nil
 	}
 	return *r.Fields
+}
+
+func (r collectionChangeRequest) resolvedView() (*schema.ViewInput, bool) {
+	if r.View != nil && r.ViewQuery != nil {
+		return nil, false
+	}
+	if r.ViewQuery != nil {
+		return &schema.ViewInput{SQL: *r.ViewQuery}, true
+	}
+	return r.View, true
 }
 
 func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
@@ -241,13 +252,17 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 // fields key is rejected here, before either apply path runs, because an
 // omitted key would otherwise read as "drop every column".
 func (c collectionChangeRequest) change() (schema.Change, bool) {
+	view, valid := c.resolvedView()
+	if !valid {
+		return schema.Change{}, false
+	}
 	switch c.Operation {
 	case "create":
 		indexes := []schema.IndexInput(nil)
 		if c.Indexes != nil {
 			indexes = *c.Indexes
 		}
-		input := schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: c.View}
+		input := schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: view}
 		if c.CompatibilityName != nil {
 			input.CompatibilityName = *c.CompatibilityName
 		}
@@ -262,11 +277,11 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 		}
 		return schema.NewCreateChange(input), true
 	case "update":
-		if c.View != nil {
+		if view != nil {
 			if c.Fields != nil || c.Indexes != nil {
 				return schema.Change{}, false
 			}
-			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: c.View}), true
+			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: view}), true
 		}
 		if c.Fields == nil {
 			return schema.Change{}, false
