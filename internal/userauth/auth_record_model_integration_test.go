@@ -56,3 +56,40 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAuthRecordRelationValidatesTargetAndAppliesSetNull(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	targetID := uuid.New()
+	targetName := "people_" + targetID.String()[:8]
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetID, Name: targetName, RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.CreateAuthRecord(ctx, targetID, CreateAuthRecordInput{Email: "target@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceID := uuid.New()
+	relation := schema.RelationInput{TargetCollection: targetName, Cardinality: schema.RelationSingle, OnDelete: schema.RelationSetNull}
+	fields := []schema.FieldInput{{Name: "manager", Type: schema.TypeRelation, Relation: &relation}}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: sourceID, Name: "staff_" + sourceID.String()[:8], Fields: fields}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "badref@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": uuid.New().String()}}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("missing target=%v", err)
+	}
+	source, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "source@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": target.ID.String()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteAuthRecord(ctx, targetID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.GetAuthRecord(ctx, sourceID, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Fields["manager"]; ok {
+		t.Fatalf("set-null retained relation: %#v", got.Fields)
+	}
+}

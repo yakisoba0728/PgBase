@@ -64,6 +64,9 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 	fieldsRaw, _ := json.Marshal(fields)
 	var value AuthCollection
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := validateAuthRelationDefinitions(ctx, tx, fields); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext('pgbase-auth-collection-limit'))`); err != nil {
 			return err
 		}
@@ -95,6 +98,9 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 	fieldsRaw, _ := json.Marshal(fields)
 	var value AuthCollection
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := validateAuthRelationDefinitions(ctx, tx, fields); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for update`, id).Scan(&value.ID); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
@@ -230,14 +236,17 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var fieldsRaw []byte
 		var updateRule string
-		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&fieldsRaw,&updateRule); errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&fieldsRaw, &updateRule); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
 		}
 		var fields []schema.FieldInput
-		if json.Unmarshal(fieldsRaw, &fields) != nil || !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule,userID,userID) {
+		if json.Unmarshal(fieldsRaw, &fields) != nil || !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule, userID, userID) {
 			return ErrValidation
+		}
+		if err := validateAuthRelationTargets(ctx, tx, attributes, fields); err != nil {
+			return err
 		}
 		var collectionID uuid.UUID
 		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1 for share`, userID).Scan(&collectionID); err != nil {

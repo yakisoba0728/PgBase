@@ -33,10 +33,26 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 		seen[field.Name] = true
 		switch field.Type {
 		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText, schema.TypeEditor, schema.TypeTimestampTZ, schema.TypeUUID, schema.TypeJSONB, schema.TypeGeoPoint:
+		case schema.TypeRelation:
+			if field.Relation == nil || strings.TrimSpace(field.Relation.TargetCollection) == "" {
+				return nil, nil, false
+			}
+			if field.Relation.Cardinality == "" {
+				field.Relation.Cardinality = schema.RelationSingle
+			}
+			if field.Relation.OnDelete == "" {
+				field.Relation.OnDelete = schema.RelationRestrict
+			}
+			if field.Relation.Cardinality != schema.RelationSingle && field.Relation.Cardinality != schema.RelationMultiple {
+				return nil, nil, false
+			}
+			if field.Relation.OnDelete != schema.RelationRestrict && field.Relation.OnDelete != schema.RelationCascade && field.Relation.OnDelete != schema.RelationSetNull {
+				return nil, nil, false
+			}
 		default:
 			return nil, nil, false
 		}
-		if field.Relation != nil || field.Unique || field.Indexed || len(field.Default) > 0 {
+		if field.Type != schema.TypeRelation && field.Relation != nil || field.Unique || len(field.Default) > 0 {
 			return nil, nil, false
 		}
 		result[i] = field
@@ -166,6 +182,37 @@ func validAuthFieldValue(field schema.FieldInput, value any) bool {
 		lat, a := m["lat"].(float64)
 		lon, b := m["lon"].(float64)
 		return a && b && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+	case schema.TypeRelation:
+		if field.Relation == nil {
+			return false
+		}
+		if field.Relation.Cardinality == schema.RelationMultiple {
+			values, ok := value.([]any)
+			if !ok {
+				return false
+			}
+			min, max := 0, 1000
+			if field.Relation.MinSelect != nil {
+				min = *field.Relation.MinSelect
+			}
+			if field.Relation.MaxSelect != nil {
+				max = *field.Relation.MaxSelect
+			}
+			if len(values) < min || len(values) > max {
+				return false
+			}
+			seen := map[string]bool{}
+			for _, raw := range values {
+				v, ok := raw.(string)
+				if !ok || uuid.Validate(v) != nil || seen[v] {
+					return false
+				}
+				seen[v] = true
+			}
+			return true
+		}
+		v, ok := value.(string)
+		return ok && uuid.Validate(v) == nil
 	default:
 		return false
 	}

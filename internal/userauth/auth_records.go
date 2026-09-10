@@ -101,6 +101,9 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	id := uuid.New()
 	var out AuthRecord
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := validateAuthRelationTargets(ctx, tx, in.Fields, fields); err != nil {
+			return err
+		}
 		var now time.Time
 		if err := tx.QueryRow(ctx, `select current_timestamp`).Scan(&now); err != nil {
 			return err
@@ -152,6 +155,11 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		hash = &v
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if in.Fields != nil {
+			if err := validateAuthRelationTargets(ctx, tx, in.Fields, fields); err != nil {
+				return err
+			}
+		}
 		tag, e := tx.Exec(ctx, `update pgbase_meta.users set email=coalesce($3,email),password_hash=coalesce($4,password_hash),verified=coalesce($5,verified),active=coalesce($6,active),updated_at=current_timestamp where auth_collection_id=$1 and id=$2`, collectionID, id, email, hash, in.Verified, in.Active)
 		if e != nil {
 			return e
@@ -178,14 +186,21 @@ func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	if collectionID == uuid.Nil || id == uuid.Nil {
 		return ErrValidation
 	}
-	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.users where auth_collection_id=$1 and id=$2`, collectionID, id)
-	if err != nil {
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var name string
+		err := tx.QueryRow(ctx, `select c.name from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id where c.id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&name)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := enforceAuthRelationDeletes(ctx, tx, name, id); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `delete from pgbase_meta.users where id=$1`, id)
 		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrNotFound
-	}
-	return nil
+	})
 }
 
 func (s *Service) authRecordContract(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
