@@ -477,8 +477,18 @@ export class AuthRealm {
     try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt }); } throw error; }
   }
-  async profile<T extends RecordData = RecordData>(signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), {}, signal)).attributes; }
-  async updateProfile<T extends RecordData = RecordData>(profile: T, signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
+  async profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    const [query, requestSignal] = recordGetArguments(options, signal);
+    const parameters = new URLSearchParams();
+    if (query?.expand !== undefined) parameters.set("expand", query.expand);
+    if (query?.fields !== undefined) parameters.set("fields", query.fields);
+    return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal)).attributes;
+  }
+  async updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
+    return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
+  }
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
   async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }

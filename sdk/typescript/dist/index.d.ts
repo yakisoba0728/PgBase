@@ -265,8 +265,8 @@ export declare class AuthRealm {
         expiresAt: string;
     }>;
     completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
-    profile<T extends RecordData = RecordData>(signal?: AbortSignal): Promise<T>;
-    updateProfile<T extends RecordData = RecordData>(profile: T, signal?: AbortSignal): Promise<T>;
+    profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
+    updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{
         authorizationUrl: string;
         expiresAt: string;

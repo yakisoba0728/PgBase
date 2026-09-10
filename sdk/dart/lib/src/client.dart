@@ -615,10 +615,11 @@ final class AuthRealm {
     CancellationToken? cancellation,
   }) => client.oauthCompleteFromUri(provider, callback, cancellation: cancellation);
 
-  Future<JsonObject> profile({CancellationToken? cancellation}) async {
+  Future<JsonObject> profile({String? fields, CancellationToken? cancellation}) async {
     final value = await client.request(
       'GET',
       '$_path/profile',
+      query: {if (fields != null) 'fields': fields},
       cancellation: cancellation,
     );
     return _profileAttributes(value);
@@ -626,12 +627,14 @@ final class AuthRealm {
 
   Future<JsonObject> updateProfile(
     JsonObject value, {
+    String? fields,
     CancellationToken? cancellation,
   }) async {
     final response = await client.request(
       'PATCH',
       '$_path/profile',
       body: value,
+      query: {if (fields != null) 'fields': fields},
       cancellation: cancellation,
     );
     return _profileAttributes(response);

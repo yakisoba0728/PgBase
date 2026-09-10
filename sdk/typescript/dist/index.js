@@ -412,8 +412,20 @@ export class AuthRealm {
             throw error;
         }
     }
-    async profile(signal) { return (await this.client._request(this.path("profile"), {}, signal)).attributes; }
-    async updateProfile(profile, signal) { return (await this.client._request(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
+    async profile(options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        const parameters = new URLSearchParams();
+        if (query?.expand !== undefined)
+            parameters.set("expand", query.expand);
+        if (query?.fields !== undefined)
+            parameters.set("fields", query.fields);
+        return (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal)).attributes;
+    }
+    async updateProfile(profile, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
+        return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
+    }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
     async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)

@@ -17,6 +17,8 @@ const writeOptions: RecordWriteOptions = { fields: "id,title" };
 void records.create({ title: "created" }, "create-note-0001", writeOptions);
 void records.update("note-1", { title: "updated" }, '"pgb1.current"', writeOptions);
 void realm.methods();
+void realm.profile({ fields: "id,email" });
+void realm.updateProfile({ title: "person" }, { fields: "id,title" });
 void realm.refresh();
 void methods.oauthProviders;
 void operations;
