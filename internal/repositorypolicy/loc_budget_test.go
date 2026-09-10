@@ -71,7 +71,11 @@ import (
 // planner/store paths cannot move behind a different package boundary without
 // broad product redesign; no file is excluded from this group to manufacture
 // headroom.
-const dataGroupRuntimeLimit = 22693
+// The auth/filter batch adds a bounded text/editor filter compiler and does not
+// move query code outside the group. The preceding projection batch had already
+// made the former exact ceiling stale; this stack establishes the current
+// measured 22,776-line ceiling without spare headroom.
+const dataGroupRuntimeLimit = 22776
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -330,11 +334,17 @@ type structuralLimit struct {
 // boundaries. Exact measured scope and independent review are recorded in
 // docs/workstreams/n6-n9/structural-budget.md. No spare allowance or file
 // exclusion is added; the 800-line hard limit remains unchanged.
+//
+// The realm auth discovery/opaque token rotation and bounded contains batch
+// establishes the current repository measurement. Runtime code grows from the
+// former 75,990 gate to 76,231 and exports from 1,251 to 1,254; the latter are
+// PublicAuthMethods, PublicAuthMethods(), and RefreshSessionForCollection().
+// These are required public contracts, not a general allowance.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 75990, "N1–N5 baseline + measured N6–N9 scope"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 76231, "N1–N5/N6–N9 + realm auth/filter batch"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6667, "N1–N5 baseline + N8 SQL console UI"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 67, "N1–N5 baseline + N6–N9 contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1251, "N1–N5 baseline + N6–N9 public API"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1254, "N1–N5/N6–N9 + realm auth public API"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 55, "N1–N5 baseline + N6–N9 services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 154, "N1–N5 baseline + N8 SQL console state"},
