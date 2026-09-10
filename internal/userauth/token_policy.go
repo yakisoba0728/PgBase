@@ -42,7 +42,7 @@ func (s *Service) ListTokenPolicies(ctx context.Context, realm uuid.UUID) ([]Tok
 }
 
 func (s *Service) PutTokenPolicy(ctx context.Context, realm uuid.UUID, p TokenPolicy) (TokenPolicy, error) {
-	if realm == uuid.Nil || (p.Purpose != "verify" && p.Purpose != "password_reset" && p.Purpose != "email_change") || p.TTLSeconds < 60 || p.TTLSeconds > 86400 || len(p.Key) > 4096 {
+	if realm == uuid.Nil || !tokenPolicyPurpose(p.Purpose) || p.TTLSeconds < 60 || p.TTLSeconds > 86400 || len(p.Key) > 4096 {
 		return p, ErrValidation
 	}
 	if p.KeyVersion == "" {
@@ -66,6 +66,9 @@ func (s *Service) PutTokenPolicy(ctx context.Context, realm uuid.UUID, p TokenPo
 	p.Key = ""
 	p.KeyConfigured = e == nil
 	return p, e
+}
+func tokenPolicyPurpose(v string) bool {
+	return v == "verify" || v == "password_reset" || v == "email_change" || v == "session" || v == "otp" || v == "impersonation"
 }
 func keyedDigest(key []byte, domain, value string) []byte {
 	h := hmac.New(sha256.New, key)

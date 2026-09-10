@@ -343,7 +343,14 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 		return Session{}, fmt.Errorf("generate user session token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	expires := now.Add(s.ttl)
+	ttl := s.ttl
+	var configured int
+	if err := db.QueryRow(ctx, `select ttl_seconds from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session'`, user.AuthCollectionID).Scan(&configured); err == nil {
+		ttl = time.Duration(configured) * time.Second
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, err
+	}
+	expires := now.Add(ttl)
 	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, s.tokenHash(token), expires, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("create user session: %w", err)
