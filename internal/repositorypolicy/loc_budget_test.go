@@ -74,10 +74,11 @@ import (
 // The auth/filter batch adds a bounded text/editor filter compiler and does not
 // move query code outside the group. The preceding projection batch had already
 // made the former exact ceiling stale; this stack establishes the current
-// measured 24,132-line ceiling without spare headroom. The increase is the
+// measured 24,135-line ceiling without spare headroom. The increase is the
 // completed 68-feature compatibility surface: typed rule predicates, relation
-// expansion, schema compatibility metadata, and mutation projections.
-const dataGroupRuntimeLimit = 24132
+// expansion, schema compatibility metadata, mutation projections, and the
+// three-line create-denial status distinction found by live integration.
+const dataGroupRuntimeLimit = 24135
 
 var dataGroupPackages = []string{
 	"internal/database",
