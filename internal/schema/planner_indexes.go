@@ -126,7 +126,7 @@ func normalizeIndexInput(collection string, input IndexInput, fields map[string]
 	}
 	statement.Table.Schema = "app"
 	statement.Using = ""
-	canonical := pgparse.Deparse(statement)
+	canonical := deparseRawIndex(statement)
 	planned := PlannedIndex{Name: input.Name, Fields: dependencies, Unique: input.Unique, RawSQL: canonical}
 	return planned, indexDefinitionSignature(planned), nil
 }
@@ -176,12 +176,57 @@ func parseRawIndex(raw string) (*pgparse.CreateIndexStmt, bool) {
 	if len(raw) == 0 || len(raw) > 64<<10 {
 		return nil, false
 	}
-	parsed, err := pgparse.Parse(strings.TrimSpace(raw))
+	trimmed := strings.TrimSpace(raw)
+	if !supportedRawIndexPrefix(trimmed) {
+		return nil, false
+	}
+	parsed, err := pgparse.Parse(trimmed)
 	if err != nil || len(parsed.Stmts) != 1 {
 		return nil, false
 	}
 	statement, ok := parsed.Stmts[0].(*pgparse.CreateIndexStmt)
 	return statement, ok
+}
+
+// supportedRawIndexPrefix closes the gap between pgparse's best-effort CREATE
+// parser and the index AST we persist. pgparse deliberately consumes some
+// CREATE modifiers without representing them, so accepting the AST alone can
+// silently change the requested DDL when it is deparsed. Token positions keep
+// comments and quoted occurrences from being mistaken for syntax.
+func supportedRawIndexPrefix(raw string) bool {
+	tokens, err := pgparse.Tokenize(raw)
+	if err != nil || len(tokens) < 4 || !rawIndexWord(tokens[0], "create") {
+		return false
+	}
+	position := 1
+	if rawIndexWord(tokens[position], "unique") {
+		position++
+	}
+	if position >= len(tokens) || !rawIndexWord(tokens[position], "index") {
+		return false
+	}
+	position++
+	return position < len(tokens) && !rawIndexWord(tokens[position], "concurrently")
+}
+
+func rawIndexWord(token pgparse.Token, value string) bool {
+	return (token.Type == pgparse.TokenIdent || token.Type == pgparse.TokenKeyword) &&
+		strings.EqualFold(token.Val, value)
+}
+
+// deparseRawIndex quotes the logical index name explicitly. pgparse correctly
+// remembers the decoded identifier but its generic identifier renderer does
+// not know CREATE INDEX's contextual CONCURRENTLY and IF words; leaving either
+// unquoted would make the durable canonical SQL impossible to parse again.
+func deparseRawIndex(statement *pgparse.CreateIndexStmt) string {
+	if statement.Name == "" {
+		return pgparse.Deparse(statement)
+	}
+	const placeholder = "pgbase_raw_index_name_placeholder"
+	cloned := *statement
+	cloned.Name = placeholder
+	rendered := pgparse.Deparse(&cloned)
+	return strings.Replace(rendered, placeholder, pgx.Identifier{statement.Name}.Sanitize(), 1)
 }
 
 func parseIndexExpression(raw string, fields map[string]PlannedField, predicate bool) (string, []string, error) {
@@ -319,7 +364,7 @@ func createCompoundIndexStatement(collection, table string, index PlannedIndex, 
 		rewriteIndexStatement(statement, physical)
 		statement.Name = compoundIndexName(collection, index.Name)
 		statement.Table = &pgparse.TableName{Schema: "app", Name: table}
-		return pgparse.Deparse(statement)
+		return deparseRawIndex(statement)
 	}
 	prefix := "CREATE INDEX "
 	if index.Unique {
@@ -487,7 +532,7 @@ func indexInputForCollection(index Index, collection string) IndexInput {
 	}
 	statement.Name = input.Name
 	statement.Table = &pgparse.TableName{Schema: "app", Name: collection}
-	input.RawSQL = pgparse.Deparse(statement)
+	input.RawSQL = deparseRawIndex(statement)
 	return input
 }
 
