@@ -161,9 +161,9 @@ void main() {
       );
 
       expect((page.items.single['title'] as JsonString).value, 'listed');
-      expect(page.items.single.containsKey('private'), isFalse);
+      expect(page.items.single.values.containsKey('private'), isFalse);
       expect((record['title'] as JsonString).value, 'viewed');
-      expect(record.containsKey('private'), isFalse);
+      expect(record.values.containsKey('private'), isFalse);
       expect(client.urls, hasLength(2));
       for (final url in client.urls) {
         expect(url.query, 'fields=title%2Csummary');
@@ -199,7 +199,7 @@ void main() {
     await admin.configureJob('daily', '0 0 * * *', true);
 
     final mutation = client.requests.last;
-    expect(mutation.headers['cookie'], 'pgbase_admin=new');
+    expect(mutation.headers['cookie'], 'admin-session=new');
     expect(mutation.headers['x-pgbase-csrf'], 'csrf-new');
   });
 
