@@ -3,16 +3,17 @@ package api
 import (
 	"context"
 	"errors"
-	"github.com/yakisoba0728/PgBase/internal/backup"
 	"mime"
 	"net/http"
+
+	"github.com/yakisoba0728/PgBase/internal/backup"
 )
 
-type setupAuthorizer interface {
-	AuthorizeSetup(context.Context, string) error
-}
 type setupGuarder interface {
 	BeginSetupGuard(context.Context, string) (func(), error)
+}
+type setupRestorer interface {
+	RestoreWithGuard(context.Context, string, func()) (backup.Job, error)
 }
 
 func setupBackupRoutes(d Dependencies) []route {
@@ -52,12 +53,23 @@ func setupBackupRoutes(d Dependencies) []route {
 		if !ok {
 			return
 		}
-		defer release()
-		job, err := d.Backups.Restore(r.Context(), r.PathValue("id"))
+		transferred := false
+		defer func() {
+			if !transferred {
+				release()
+			}
+		}()
+		restorer, ok := d.Backups.(setupRestorer)
+		if !ok {
+			writeSetupBackupError(w, r, errors.New("guarded restore is unavailable"))
+			return
+		}
+		job, err := restorer.RestoreWithGuard(r.Context(), r.PathValue("id"), release)
 		if err != nil {
 			writeSetupBackupError(w, r, err)
 			return
 		}
+		transferred = true
 		writeJSON(w, 202, job)
 	})
 	status := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

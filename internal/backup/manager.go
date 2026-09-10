@@ -194,15 +194,29 @@ func (m *Manager) Create(ctx context.Context) (Job, error) {
 	return m.start(ctx, "create", uuid.NewString())
 }
 func (m *Manager) Restore(ctx context.Context, id string) (Job, error) {
+	return m.restore(ctx, id, nil)
+}
+
+// RestoreWithGuard transfers an admission guard to the background operation.
+// On error the caller still owns release; on success the worker releases it
+// after activation and the final receipt, including failed or cancelled jobs.
+func (m *Manager) RestoreWithGuard(ctx context.Context, id string, release func()) (Job, error) {
+	return m.restore(ctx, id, release)
+}
+
+func (m *Manager) restore(ctx context.Context, id string, release func()) (Job, error) {
 	if !validID(id) {
 		return Job{}, ErrNotFound
 	}
 	if _, err := m.options.Repository.Get(ctx, id); err != nil {
 		return Job{}, ErrNotFound
 	}
-	return m.start(ctx, "restore", id)
+	return m.startGuarded(ctx, "restore", id, release)
 }
 func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) {
+	return m.startGuarded(ctx, operation, id, nil)
+}
+func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func()) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
 	}
@@ -230,7 +244,12 @@ func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) 
 	m.mu.Lock()
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
-	go m.execute(job, event, finish)
+	go func() {
+		if release != nil {
+			defer release()
+		}
+		m.execute(job, event, finish)
+	}()
 	return job, nil
 }
 func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
