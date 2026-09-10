@@ -36,6 +36,8 @@ export type EventOptions = {
   reconnectDelayMs?: number;
 };
 export type RequestOptions = { signal?: AbortSignal; requestKey?: string };
+/** Opens the provider URL using a browser popup, redirect, or mobile launcher. */
+export type OAuthLaunchOptions = { open(url: string): void | Promise<void> };
 export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "create"; collection: string; input: Omit<T, "id">; idempotencyKey?: string }
   | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
@@ -490,6 +492,12 @@ export class AuthRealm {
     return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
   }
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+  /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
+  async oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> {
+    const started = await this.oauthStart(provider, redirectUri, signal);
+    await options.open(started.authorizationUrl);
+    return started;
+  }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
   async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
   oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession> {

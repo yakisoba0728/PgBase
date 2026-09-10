@@ -293,6 +293,17 @@ void main() {
     expect(restored.record?.email, 'person@example.test');
   });
 
+  test('OAuth launcher receives the provider URL before callback completion', () async {
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: _OAuthClient());
+    Uri? opened;
+    await client.realm('members').oauthStartAndOpen(
+      'github',
+      'app://callback',
+      (url) { opened = url; },
+    );
+    expect(opened, Uri.parse('https://provider.test/authorize'));
+  });
+
   test('a delayed restore cannot replace a newer clear', () async {
     final storage = _DelayedAuthStorage()..value = 'stale-token';
     final auth = AuthStore(storage: storage);
@@ -715,6 +726,18 @@ final class _NetworkClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     await request.finalize().drain<void>();
     throw http.ClientException('offline', request.url);
+  }
+}
+
+final class _OAuthClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    if (!request.url.path.endsWith('/oauth/start')) throw StateError('unexpected request');
+    return _jsonResponse(200, {
+      'authorizationUrl': 'https://provider.test/authorize',
+      'expiresAt': '2026-01-02T00:00:00Z',
+    });
   }
 }
 

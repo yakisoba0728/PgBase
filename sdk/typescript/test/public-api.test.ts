@@ -1,4 +1,4 @@
-import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, Query, Records, RecordWriteOptions } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, OAuthLaunchOptions, Query, Records, RecordWriteOptions } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -24,3 +24,5 @@ void methods.oauthProviders;
 void operations;
 const batchOptions: BatchOptions = { fields: "id,title" };
 void batchOptions;
+const launchOptions: OAuthLaunchOptions = { open: () => {} };
+void realm.oauthStartAndOpen("github", "https://app.test/callback", launchOptions);

@@ -427,6 +427,12 @@ export class AuthRealm {
         return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
     }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+    /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
+    async oauthStartAndOpen(provider, redirectUri, options, signal) {
+        const started = await this.oauthStart(provider, redirectUri, signal);
+        await options.open(started.authorizationUrl);
+        return started;
+    }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
     async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
         this.client.auth.save(session.token, session.user); return session; }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -9,6 +10,8 @@ import 'files.dart';
 import 'records.dart';
 import 'transport.dart';
 import 'types.dart';
+
+typedef OAuthUrlLauncher = FutureOr<void> Function(Uri url);
 
 final class PgBaseClient {
   PgBaseClient(Uri baseUri, {http.Client? httpClient, AuthStore? auth})
@@ -240,6 +243,22 @@ final class PgBaseClient {
     }),
     cancellation,
   );
+
+  /// Starts OAuth and lets the host open a browser popup, redirect, or deep link.
+  Future<JsonObject> oauthStartAndOpen(
+    String provider,
+    String redirectUri,
+    OAuthUrlLauncher open, {
+    CancellationToken? cancellation,
+  }) async {
+    final started = await oauthStart(provider, redirectUri, cancellation: cancellation);
+    final authorizationUrl = started['authorizationUrl'];
+    if (authorizationUrl is! JsonString) {
+      throw const PgBaseProtocolError('invalid_oauth_start_response');
+    }
+    await open(Uri.parse(authorizationUrl.value));
+    return started;
+  }
 
   Future<JsonObject> oauthLink(
     String currentPassword,
@@ -607,6 +626,18 @@ final class AuthRealm {
       'redirectUri': JsonString(redirectUri),
     }),
     cancellation,
+  );
+
+  Future<JsonObject> oauthStartAndOpen(
+    String provider,
+    String redirectUri,
+    OAuthUrlLauncher open, {
+    CancellationToken? cancellation,
+  }) => client.oauthStartAndOpen(
+    provider,
+    redirectUri,
+    open,
+    cancellation: cancellation,
   );
 
   Future<UserSession> oauthCompleteFromUri(

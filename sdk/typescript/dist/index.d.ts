@@ -61,6 +61,10 @@ export type RequestOptions = {
     signal?: AbortSignal;
     requestKey?: string;
 };
+/** Opens the provider URL using a browser popup, redirect, or mobile launcher. */
+export type OAuthLaunchOptions = {
+    open(url: string): void | Promise<void>;
+};
 export type BatchOperation<T extends RecordData = RecordData> = {
     operation: "create";
     collection: string;
@@ -268,6 +272,11 @@ export declare class AuthRealm {
     profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{
+        authorizationUrl: string;
+        expiresAt: string;
+    }>;
+    /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
+    oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{
         authorizationUrl: string;
         expiresAt: string;
     }>;

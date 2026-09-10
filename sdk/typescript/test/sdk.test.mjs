@@ -196,6 +196,9 @@ try {
   assert.equal(client.auth.token, "otp-token");
   client.auth.save("realm-token");
   await realm.oauthStart("github", "https://app.test/callback");
+  let openedOAuthURL = "";
+  await realm.oauthStartAndOpen("github", "https://app.test/callback", { open: (url) => { openedOAuthURL = url; } });
+  assert.equal(openedOAuthURL, "https://provider.test/authorize");
   assert.equal(requests.at(-1).path, "/api/v1/auth/members/oauth/start");
   assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", redirectUri: "https://app.test/callback" });
   await realm.oauthLink("password", "github", "https://app.test/callback");
