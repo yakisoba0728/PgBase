@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -117,21 +118,45 @@ func (s *Service) UnlinkOAuthIdentity(ctx context.Context, userID uuid.UUID, pro
 	if userID == uuid.Nil || !validProviderName(provider) {
 		return ErrValidation
 	}
+	return s.unlinkOAuthIdentity(ctx, uuid.Nil, userID, provider, uuid.Nil)
+}
+
+func (s *Service) unlinkOAuthIdentityByID(ctx context.Context, collectionID, userID, identityID uuid.UUID) error {
+	if collectionID == uuid.Nil || userID == uuid.Nil || identityID == uuid.Nil {
+		return ErrValidation
+	}
+	return s.unlinkOAuthIdentity(ctx, collectionID, userID, "", identityID)
+}
+
+func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID uuid.UUID, provider string, identityID uuid.UUID) error {
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var passwordEnabled bool
-		if err := tx.QueryRow(ctx, `select password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
+		var actualCollection uuid.UUID
+		var passwordEnabled, otpEnabled bool
+		if err := tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&actualCollection, &passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
 		}
-		var count int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where user_id=$1`, userID).Scan(&count); err != nil {
+		if collectionID != uuid.Nil && actualCollection != collectionID {
+			return ErrNotFound
+		}
+		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actualCollection).Scan(&otpEnabled); err != nil {
 			return err
 		}
-		if !passwordEnabled && count <= 1 {
+		var count int
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actualCollection, userID).Scan(&count); err != nil {
+			return err
+		}
+		if !passwordEnabled && !otpEnabled && count <= 1 {
 			return ErrValidation
 		}
-		tag, err := tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where user_id=$1 and provider=$2`, userID, provider)
+		var tag pgconn.CommandTag
+		var err error
+		if identityID != uuid.Nil {
+			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and id=$3`, actualCollection, userID, identityID)
+		} else {
+			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and provider=$3`, actualCollection, userID, provider)
+		}
 		if err != nil {
 			return err
 		}
@@ -369,6 +394,9 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 			} else if err != nil {
 				return err
 			}
+		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
+			return ErrInvalidCredentials
 		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.user_oauth_states set consumed_at=CURRENT_TIMESTAMP where id=$1`, stateID); err != nil {
 			return err

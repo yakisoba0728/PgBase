@@ -159,6 +159,10 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 			operationErr = ErrInvalidCredentials
 			return err
 		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
+			operationErr = ErrInvalidCredentials
+			return nil
+		}
 		if _, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where id=$1`, id); err != nil {
 			return err
 		}

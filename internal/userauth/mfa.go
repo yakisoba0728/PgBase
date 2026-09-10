@@ -262,6 +262,10 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 		if err != nil {
 			return err
 		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
+			invalid = true
+			return nil
+		}
 		valid, err := s.consumeFactorCode(ctx, tx, userID, code, now)
 		if err != nil {
 			return err

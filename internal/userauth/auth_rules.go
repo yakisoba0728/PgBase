@@ -1,14 +1,59 @@
 package userauth
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+// enforceAuthRuleForSession evaluates the current collection rule against the
+// current persisted record in the transaction that will mint the credential.
+// Callers lock the user first; the collection share lock keeps a concurrent
+// rule update from granting a session under a stale policy.
+func (s *Service) enforceAuthRuleForSession(ctx context.Context, db database.DBTX, collectionID, userID uuid.UUID) error {
+	var rawFields []byte
+	var rule string
+	if err := db.QueryRow(ctx, `select fields_json,auth_rule from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&rawFields, &rule); errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidCredentials
+	} else if err != nil {
+		return err
+	}
+	var fields []schema.FieldInput
+	if err := json.Unmarshal(rawFields, &fields); err != nil {
+		return err
+	}
+	var current AuthRecord
+	var rawProfile []byte
+	err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at
+		from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id
+		where u.id=$1 and u.auth_collection_id=$2 and u.active`, userID, collectionID).
+		Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.Verified, &current.Active, &rawProfile, &current.CreatedAt, &current.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidCredentials
+	}
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(rawProfile, &current.Fields); err != nil {
+		return err
+	}
+	if !EvaluateAuthRecordRule(rule, fields, AuthRuleContext{
+		Principal: identity.Subject{Kind: identity.User, ID: current.ID}, AuthEmail: current.Email, Current: current,
+	}) {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
 
 type AuthRuleContext struct {
 	Principal identity.Subject

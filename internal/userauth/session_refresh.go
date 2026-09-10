@@ -68,20 +68,27 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		var sessionID uuid.UUID
 		var user User
-		err = tx.QueryRow(ctx, `
-		update pgbase_meta.user_sessions as sessions
+		err = tx.QueryRow(ctx, `select sessions.id,users.id,users.auth_collection_id,users.email,users.verified,users.created_at
+			from pgbase_meta.user_sessions as sessions join pgbase_meta.users as users on users.id=sessions.user_id
+			where sessions.token_hash=$1 and sessions.revoked_at is null and sessions.expires_at>CURRENT_TIMESTAMP
+			and sessions.session_kind='user' and users.active and users.auth_collection_id=$2
+			for update of sessions,users`, oldHash, collectionID).
+			Scan(&sessionID, &user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrInvalidCredentials
+		}
+		if err != nil {
+			return fmt.Errorf("lock user session for refresh: %w", err)
+		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, collectionID, user.ID); err != nil {
+			return ErrInvalidCredentials
+		}
+		err = tx.QueryRow(ctx, `update pgbase_meta.user_sessions as sessions
 		set token_hash=$1, expires_at=$2
-		from pgbase_meta.users as users
-		where sessions.token_hash=$3
-		  and sessions.revoked_at is null
-		  and sessions.expires_at>CURRENT_TIMESTAMP
-		  and sessions.session_kind='user'
-		  and sessions.user_id=users.id
-		  and users.active
-		  and users.auth_collection_id=$4
-		returning users.id,users.auth_collection_id,users.email,users.verified,users.created_at`,
-			newHash, expires, oldHash, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+		where sessions.id=$3 and sessions.token_hash=$4
+		returning sessions.id`, newHash, expires, sessionID, oldHash).Scan(&sessionID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalidCredentials
 		}

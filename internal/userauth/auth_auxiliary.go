@@ -105,7 +105,7 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 	var err error
 	switch kind {
 	case "externalAuths":
-		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and id=$3`, collectionID, userID, id)
+		return s.unlinkOAuthIdentityByID(ctx, collectionID, userID, id)
 	case "mfas":
 		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id=$1 and id=$2`, userID, id)
 	case "otps":

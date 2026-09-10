@@ -191,15 +191,6 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		}
 		return Session{}, ErrInvalidCredentials
 	}
-	var authRule string
-	if err := s.pool.QueryRow(ctx, `select auth_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&authRule); err != nil {
-		return Session{}, err
-	}
-	fields, _, contractErr := s.authRecordContract(ctx, collectionID)
-	current, recordErr := s.GetAuthRecord(ctx, collectionID, user.ID)
-	if contractErr != nil || recordErr != nil || !EvaluateAuthRecordRule(authRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.User, ID: user.ID}, AuthEmail: user.Email, Current: current}) {
-		return Session{}, ErrInvalidCredentials
-	}
 	issued, err := s.issueCheckedSession(ctx, user, hash, now)
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
@@ -339,6 +330,10 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 			return err
 		}
 		if current.ID != user.ID || !hmac.Equal([]byte(hash), []byte(expectedHash)) {
+			opErr = ErrInvalidCredentials
+			return nil
+		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, current.AuthCollectionID, current.ID); err != nil {
 			opErr = ErrInvalidCredentials
 			return nil
 		}
