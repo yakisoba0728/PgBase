@@ -37,4 +37,10 @@ describe("file field", () => {
     await act(async () => stale.settle({ value: [item] }));
     expect(screen.queryByText("note.txt")).not.toBeInTheDocument();
   });
+
+	it("previews protected images only after minting a file-scoped token", async () => {
+		const image = { ...item, contentType: "image/png", filename: "cover.png" }; const script = backendScript(); script.listFiles.push({ value: [image] }); script.createDownloadToken.push({ value: "short-lived-token" }); script.downloadBlob.push({ value: new Blob(["png"], { type: "image/png" }) }); vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:protected-preview");
+		view(script); const button = await screen.findByRole("button", { name: "Preview" }); fireEvent.click(button); await act(async () => {});
+		expect(callsTo(script, "createDownloadToken")[0]?.detail).toEqual({ id: "file-1", variant: "original" }); expect(callsTo(script, "downloadBlob")[0]?.detail).toEqual({ id: "file-1", token: "short-lived-token", variant: "original" }); expect(await screen.findByRole("img", { name: "cover.png" })).toHaveAttribute("src", "blob:protected-preview");
+	});
 });

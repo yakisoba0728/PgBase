@@ -101,6 +101,7 @@ export function FileField({ collection, recordID, field }: { collection: string;
 	}
 	return <fieldset className="record-field"><legend>{field.name} files</legend>
 		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
+		<p>Preview and download mint a short-lived, file-scoped token. They never expose a protected file through a public URL.</p>
 		{message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>Upload</button>
 		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>Preview</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
 		{preview && <div role="dialog" aria-label={`Preview ${preview.name}`}><img alt={preview.name} src={preview.url} /><button type="button" onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }}>Close preview</button></div>}
@@ -109,11 +110,14 @@ export function FileField({ collection, recordID, field }: { collection: string;
 
 function AtomicFileInput({ field, files, error, disabled, onChange }: { field: FieldDefinition; files: File[]; error?: string; disabled: boolean; onChange(files: File[]): void }) {
 	const maximum = field.options?.maxSelect ?? 1;
+	const [previews, setPreviews] = useState<Array<{ name: string; type: string; url: string }>>([]);
+	useEffect(() => { const next = files.filter(file => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")).map(file => ({ name: file.name, type: file.type, url: URL.createObjectURL(file) })); setPreviews(next); return () => next.forEach(preview => URL.revokeObjectURL(preview.url)); }, [files]);
 	return <fieldset className="record-field">
 		<legend>{field.name} replacement files on save</legend>
-		<input aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
+		<input accept={field.options?.mimeTypes?.join(",")} aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
 		<p>On an existing record, selecting files replaces the current set when you save. Select {maximum === 1 ? "one file" : `up to ${maximum} files`}. File selections stay only in this page and must be selected again after a reload.</p>
 		{files.length > 0 && <ul>{files.map((file, index) => <li key={`${file.name}:${index}`}>{file.name}</li>)}</ul>}
+		{previews.length > 0 && <div aria-label={`${field.name} selected file previews`}>{previews.map(preview => preview.type.startsWith("image/") ? <img alt={`Selected ${preview.name}`} key={preview.url} src={preview.url} /> : preview.type.startsWith("video/") ? <video aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} /> : <audio aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} />)}</div>}
 		{error && <p className="field-error" id={`record-${field.name}-file-error`}>{error}</p>}
 	</fieldset>;
 }
