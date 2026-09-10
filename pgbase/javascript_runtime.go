@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
@@ -109,21 +110,92 @@ type javaScriptRouteTransport struct {
 }
 
 type javaScriptStaticResponse struct {
-	Root string `json:"root"`
-	Path string `json:"path"`
+	Root          string `json:"root"`
+	Path          string `json:"path"`
+	IndexFallback bool   `json:"indexFallback"`
 }
 
-type javaScriptMultipartFields struct{ request *http.Request }
+type javaScriptRouteBody struct {
+	request     *http.Request
+	response    http.ResponseWriter
+	maximum     int64
+	contentType string
+	mu          sync.Mutex
+	loaded      bool
+	body        []byte
+	err         error
+}
 
-func (fields javaScriptMultipartFields) OpenMultipartField(ctx context.Context, field string) (string, string, int64, io.ReadCloser, error) {
-	if fields.request == nil || field == "" {
+type javaScriptRequestTooLargeError struct{}
+
+func (javaScriptRequestTooLargeError) Error() string       { return "extension request body is too large" }
+func (javaScriptRequestTooLargeError) InputTooLarge() bool { return true }
+
+var errJavaScriptRequestTooLarge = javaScriptRequestTooLargeError{}
+
+func (body *javaScriptRouteBody) OpenMultipartField(ctx context.Context, field string) (string, string, int64, io.ReadCloser, error) {
+	if body == nil || body.request == nil || field == "" {
 		return "", "", 0, nil, errors.New("multipart field is required")
 	}
-	file, header, err := fields.request.FormFile(field)
+	if _, err := body.read(ctx, 0); err != nil {
+		return "", "", 0, nil, err
+	}
+	file, header, err := body.request.FormFile(field)
 	if err != nil {
 		return "", "", 0, nil, err
 	}
 	return header.Filename, header.Header.Get("Content-Type"), header.Size, &contextReadCloser{ctx: ctx, ReadCloser: file}, nil
+}
+
+func (body *javaScriptRouteBody) PrepareInput(ctx context.Context, input json.RawMessage, requestedLimit int64) (json.RawMessage, error) {
+	raw, err := body.read(ctx, requestedLimit)
+	if err != nil {
+		return nil, err
+	}
+	var request javaScriptRouteRequest
+	if err := json.Unmarshal(input, &request); err != nil {
+		return nil, err
+	}
+	if len(raw) > 0 && body.contentType == "application/json" {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		if decoder.Decode(&value) != nil || ensureRouteJSONEnd(decoder) != nil {
+			return nil, errors.New("extension request JSON is invalid")
+		}
+		request.JSON = raw
+	} else if len(raw) > 0 {
+		request.Body = string(raw)
+	}
+	return json.Marshal(request)
+}
+
+func (body *javaScriptRouteBody) read(ctx context.Context, requestedLimit int64) ([]byte, error) {
+	body.mu.Lock()
+	defer body.mu.Unlock()
+	if body.loaded {
+		return body.body, body.err
+	}
+	maximum := body.maximum
+	if requestedLimit > 0 && requestedLimit < maximum {
+		maximum = requestedLimit
+	}
+	if body.request.ContentLength > maximum {
+		body.loaded = true
+		body.err = errJavaScriptRequestTooLarge
+		return nil, body.err
+	}
+	if strings.HasPrefix(body.contentType, "multipart/form-data") {
+		body.request.Body = http.MaxBytesReader(body.response, body.request.Body, maximum)
+		body.err = body.request.ParseMultipartForm(maximum)
+	} else {
+		body.body, body.err = io.ReadAll(io.LimitReader(body.request.Body, maximum+1))
+		if body.err != nil || int64(len(body.body)) > maximum {
+			body.err = errJavaScriptRequestTooLarge
+		}
+	}
+	body.loaded = true
+	return body.body, body.err
 }
 
 type contextReadCloser struct {
@@ -143,29 +215,13 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 	if maximum == 0 {
 		maximum = 1 << 20
 	}
-	// Tests may invoke the handler without the outer custom-route middleware;
-	// keep multipart parsing under the manifest body ceiling in either case.
-	r.Body = http.MaxBytesReader(w, r.Body, maximum)
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
-	var body []byte
-	var multipart multipartFieldOpener
-	if strings.HasPrefix(contentType, "multipart/form-data") {
-		if err := r.ParseMultipartForm(maximum); err != nil {
-			http.Error(w, "extension multipart body is invalid", http.StatusRequestEntityTooLarge)
-			return
-		}
+	body := &javaScriptRouteBody{request: r, response: w, maximum: maximum, contentType: contentType}
+	defer func() {
 		if r.MultipartForm != nil {
-			defer r.MultipartForm.RemoveAll()
+			_ = r.MultipartForm.RemoveAll()
 		}
-		multipart = javaScriptMultipartFields{request: r}
-	} else {
-		var err error
-		body, err = io.ReadAll(io.LimitReader(r.Body, maximum+1))
-		if err != nil || int64(len(body)) > maximum {
-			http.Error(w, "extension request body is invalid", http.StatusRequestEntityTooLarge)
-			return
-		}
-	}
+	}()
 	request := javaScriptRouteRequest{
 		Method: r.Method, Path: r.URL.Path, PathValues: routePathValues(descriptor.Pattern, r),
 		Query: cloneQuery(r.URL.Query()), Headers: safeJavaScriptHeaders(r.Header),
@@ -173,24 +229,15 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 	if principal, ok := PrincipalFromContext(r.Context()); ok {
 		request.Principal = &principal
 	}
-	if len(body) > 0 && contentType == "application/json" {
-		decoder := json.NewDecoder(bytes.NewReader(body))
-		decoder.UseNumber()
-		var value any
-		if decoder.Decode(&value) != nil || ensureRouteJSONEnd(decoder) != nil {
-			http.Error(w, "extension request JSON is invalid", http.StatusBadRequest)
-			return
-		}
-		request.JSON = body
-	} else if len(body) > 0 {
-		request.Body = string(body)
-	}
 	input, err := json.Marshal(request)
 	if err != nil {
 		http.Error(w, "extension request is invalid", http.StatusBadRequest)
 		return
 	}
-	host := namespacedHost(runtime.bridge.forRouteRequest(r.Context(), multipart), descriptor.Handler.Module)
+	host := namespacedHost(runtime.bridge.forRouteRequest(r.Context(), body), descriptor.Handler.Module)
+	if _, ok := host.(jsvm.InputPreparer); !ok {
+		panic("debug no preparer")
+	}
 	output, err := runtime.engine.Invoke(r.Context(), jsvm.Invocation{
 		Handler: descriptor.Handler, Capabilities: descriptor.Capabilities, Input: input, Host: host,
 	})
@@ -322,6 +369,9 @@ func serveJavaScriptStatic(w http.ResponseWriter, r *http.Request, configuredRoo
 		return
 	}
 	name, err := javaScriptStaticPath(root, response.Path)
+	if err != nil && response.IndexFallback {
+		name, err = javaScriptStaticPath(root, "index.html")
+	}
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -453,6 +503,8 @@ func writeJavaScriptRouteError(w http.ResponseWriter, err error) {
 			status = http.StatusServiceUnavailable
 		case jsvm.CodeTimeout:
 			status = http.StatusGatewayTimeout
+		case jsvm.CodeLimitExceeded:
+			status = http.StatusRequestEntityTooLarge
 		case jsvm.CodeCapabilityDenied:
 			status = http.StatusForbidden
 		}

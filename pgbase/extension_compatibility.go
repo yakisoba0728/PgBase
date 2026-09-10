@@ -530,11 +530,24 @@ func (c *extensionCompatibility) send(ctx context.Context, raw json.RawMessage) 
 	if len(body) > compatibilityMaximumBytes {
 		return nil, errors.New("HTTP response exceeds compatibility limit")
 	}
-	headers := map[string]string{}
+	headers := map[string][]string{}
 	for k, v := range response.Header {
-		headers[k] = strings.Join(v, ", ")
+		headers[k] = append([]string(nil), v...)
 	}
-	return json.Marshal(map[string]any{"statusCode": response.StatusCode, "headers": headers, "body": string(body)})
+	bytes := make([]int, len(body))
+	for index, value := range body {
+		bytes[index] = int(value)
+	}
+	cookies := map[string]map[string]string{}
+	for _, cookie := range response.Cookies() {
+		cookies[cookie.Name] = map[string]string{"value": cookie.Value}
+	}
+	result := map[string]any{"statusCode": response.StatusCode, "headers": headers, "cookies": cookies, "body": bytes, "raw": string(body)}
+	var decoded any
+	if json.Unmarshal(body, &decoded) == nil {
+		result["json"] = decoded
+	}
+	return json.Marshal(result)
 }
 
 // compatibilityInlineFile is the only inline descriptor accepted by the

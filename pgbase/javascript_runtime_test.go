@@ -48,6 +48,29 @@ func TestJavaScriptRouteUsesBoundedHTTPAdapter(t *testing.T) {
 	}
 }
 
+func TestJavaScriptBodyLimitBoundsTheHTTPReader(t *testing.T) {
+	directory := t.TempDir()
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/limited","access":"public","handler":{"module":"route.js","export":"run"},"maximumRequestBytes":1024}]}`, `exports.run=$apis.bodyLimit(4)((request)=>({status:200,body:request.body}));`)
+	runtime, err := prepareJavaScript(JavaScriptOptions{Directory: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+
+	ok := httptest.NewRecorder()
+	runtime.routes()[0].Handler.ServeHTTP(ok, httptest.NewRequest(http.MethodPost, "/limited", strings.NewReader("four")))
+	if ok.Code != http.StatusOK || ok.Body.String() != "four" {
+		t.Fatalf("accepted response=%d body=%q", ok.Code, ok.Body.String())
+	}
+	over := httptest.NewRecorder()
+	overRequest := httptest.NewRequest(http.MethodPost, "/limited", strings.NewReader("five"))
+	overRequest.ContentLength = 5
+	runtime.routes()[0].Handler.ServeHTTP(over, overRequest)
+	if over.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("limited response=%d body=%q", over.Code, over.Body.String())
+	}
+}
+
 func TestJavaScriptStaticTransportServesRootedFilesWithRangeAndHead(t *testing.T) {
 	directory := t.TempDir()
 	root := filepath.Join(directory, "root")

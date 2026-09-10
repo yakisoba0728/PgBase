@@ -55,6 +55,15 @@ type Host interface {
 	Call(context.Context, string, json.RawMessage) (json.RawMessage, error)
 }
 
+// InputPreparer lets a transport host defer request-body consumption until the
+// exported handler has been loaded. It is intentionally optional so jobs and
+// hooks retain their existing JSON-only invocation contract.
+type InputPreparer interface {
+	PrepareInput(context.Context, json.RawMessage, int64) (json.RawMessage, error)
+}
+
+type inputTooLarge interface{ InputTooLarge() bool }
+
 type Invocation struct {
 	Handler      HandlerRef
 	Capabilities []string
@@ -135,6 +144,7 @@ type Runtime struct {
 	waiting     int
 	active      sync.WaitGroup
 	initializer func(*goja.Runtime) error
+	bodyLimits  sync.Map
 }
 
 type callState struct {
@@ -363,6 +373,7 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	}()
 
 	var handler goja.Callable
+	var handlerValue goja.Value
 	var ok bool
 	if strings.HasPrefix(ref.Export, registeredExportPrefix) {
 		registered, replayErr := r.replayRegistrations(vm, requireModule)
@@ -375,10 +386,33 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		if requireErr != nil {
 			return nil, classifyExecutionError(ctx, requireErr)
 		}
-		handler, ok = goja.AssertFunction(exports.ToObject(vm).Get(ref.Export))
+		handlerValue = exports.ToObject(vm).Get(ref.Export)
+		handler, ok = goja.AssertFunction(handlerValue)
 	}
 	if !ok {
 		return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("export %q is not a function", ref.Export)}
+	}
+	if preparer, ok := invocationHostPreparer(state.host); ok {
+		bodyLimit, err := javaScriptHandlerBodyLimit(vm, handlerValue)
+		if err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+		key := ref.Module + "\x00" + ref.Export
+		if bodyLimit == 0 {
+			if cached, ok := r.bodyLimits.Load(key); ok {
+				bodyLimit = cached.(int64)
+			}
+		} else {
+			r.bodyLimits.Store(key, bodyLimit)
+		}
+		input, err = preparer.PrepareInput(ctx, input, bodyLimit)
+		if err != nil {
+			var tooLarge inputTooLarge
+			if errors.As(err, &tooLarge) && tooLarge.InputTooLarge() {
+				return nil, &Error{Code: CodeLimitExceeded, cause: err}
+			}
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
 	}
 	inputValue, err := decodeValue(vm, input, r.limits.MaximumJSONDepth)
 	if err != nil {
@@ -403,6 +437,26 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		return nil, &Error{Code: CodeLimitExceeded}
 	}
 	return encoded, nil
+}
+
+func invocationHostPreparer(host Host) (InputPreparer, bool) {
+	preparer, ok := host.(InputPreparer)
+	return preparer, ok
+}
+
+func javaScriptHandlerBodyLimit(vm *goja.Runtime, handler goja.Value) (int64, error) {
+	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
+		return 0, nil
+	}
+	value := handler.ToObject(vm).Get("pgbaseBodyLimit")
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
+		return 0, nil
+	}
+	limit := value.ToInteger()
+	if limit < 1 || limit > 1<<31-1 || value.ToFloat() != float64(limit) {
+		return 0, errors.New("invalid JavaScript body limit")
+	}
+	return limit, nil
 }
 
 func (r *Runtime) validateHandlers(ctx context.Context) error {

@@ -68,6 +68,7 @@ type extensionHost struct {
 	namespace        string
 	multipart        multipartFieldOpener
 	bypassHooks      bool
+	inputPreparer    *javaScriptRouteBody
 }
 
 // multipartFieldOpener is an invocation-local, opaque source for a parsed
@@ -82,9 +83,16 @@ func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
 	return bridge.forRouteRequest(ctx, nil)
 }
 
-func (bridge *extensionBridge) forRouteRequest(ctx context.Context, multipart multipartFieldOpener) *extensionHost {
+func (bridge *extensionBridge) forRouteRequest(ctx context.Context, body *javaScriptRouteBody) *extensionHost {
 	principal, requestID, ok := api.ExtensionRequestContext(ctx)
-	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx, multipart: multipart}
+	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx, multipart: body, inputPreparer: body}
+}
+
+func (host *extensionHost) PrepareInput(ctx context.Context, input json.RawMessage, bodyLimit int64) (json.RawMessage, error) {
+	if host == nil || host.inputPreparer == nil {
+		return input, nil
+	}
+	return host.inputPreparer.PrepareInput(ctx, input, bodyLimit)
 }
 
 func namespacedHost(host jsvm.Host, namespace string) jsvm.Host {
