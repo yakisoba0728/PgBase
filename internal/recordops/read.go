@@ -32,6 +32,13 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 	return page, err
 }
 
+func (s *Service) Count(ctx context.Context, request ListRequest) (int64, error) {
+	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
+		return 0, err
+	}
+	return query.Count(ctx, s.reader, query.ListRequest{Principal: request.Principal, Collection: request.Collection, Filter: request.Filter, Sort: request.Sort, PocketBaseCompatibility: request.PocketBaseCompatibility})
+}
+
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {
 	operationStarted := time.Now()
 	relationOperation := readTouchesRelationField(request.Expand, "", "")

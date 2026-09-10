@@ -42,6 +42,7 @@ type Service struct {
 	resolveTraversal func(context.Context, pgx.Tx, uuid.UUID) (membership.Traversal, error)
 	logger           *slog.Logger
 	recorder         observability.Recorder
+	countPageHook    func()
 }
 
 func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byte, logger *slog.Logger, recorder observability.Recorder) *Service {
@@ -54,6 +55,50 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 func (s *Service) List(ctx context.Context, request ListRequest) (RecordPage, error) {
 	result, err := s.readList(ctx, request)
 	return result.page, err
+}
+
+// Count evaluates the same filter and access plan as List inside one
+// repeatable-read transaction. It requests only record identities and never
+// exposes a page boundary as the result.
+func Count(ctx context.Context, s *Service, request ListRequest) (total int64, err error) {
+	if err := s.ready(); err != nil {
+		return 0, err
+	}
+	if !request.Principal.Valid() {
+		return 0, validation("principal", "invalid")
+	}
+	filterNode, err := parseFilterRequest(request.Filter)
+	if err != nil {
+		return 0, err
+	}
+	if request.PocketBaseCompatibility {
+		filterNode = markPocketBaseLike(filterNode)
+	}
+	sortKeys, err := parseSort(request.Sort)
+	if err != nil {
+		return 0, err
+	}
+	request.Limit, request.Fields, request.Expand = 200, "id", ""
+	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		request.Cursor = ""
+		pageNumber := 0
+		for {
+			result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request, filterNode, sortKeys)
+			if readErr != nil {
+				return readErr
+			}
+			total += int64(len(result.page.Items))
+			pageNumber++
+			if pageNumber == 1 && s.countPageHook != nil {
+				s.countPageHook()
+			}
+			if result.page.NextCursor == "" {
+				return nil
+			}
+			request.Cursor = result.page.NextCursor
+		}
+	}, request.Collection)
+	return total, err
 }
 
 func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {

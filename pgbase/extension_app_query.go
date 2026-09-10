@@ -12,6 +12,7 @@ import (
 
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
 
 type extensionAppQueryRequest struct {
@@ -89,8 +90,11 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			items = append(items, item.Data)
 		}
 		return json.Marshal(extensionRecordResult{Items: items})
-	case "app.record.findAll", "app.record.count":
-		cursor, items, count := "", []map[string]any{}, int64(0)
+	case "app.record.count":
+		count, err := host.bridge.records.Count(ctx, recordops.ListRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, Filter: request.Filter, Sort: request.Sort})
+		return marshalExtensionResult(count, err)
+	case "app.record.findAll":
+		cursor, items := "", []map[string]any{}
 		for {
 			raw, err := call("records.list", extensionRecordRequest{Collection: request.Collection, Cursor: cursor, Limit: 200, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand})
 			if err != nil {
@@ -100,17 +104,11 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			if json.Unmarshal(raw, &page) != nil {
 				return nil, extensionError("invalid_record_result", nil)
 			}
-			count += int64(len(page.Items))
-			if method == "app.record.findAll" {
-				items = append(items, page.Items...)
-			}
+			items = append(items, page.Items...)
 			if page.NextCursor == "" {
 				break
 			}
 			cursor = page.NextCursor
-		}
-		if method == "app.record.count" {
-			return json.Marshal(count)
 		}
 		return json.Marshal(extensionRecordResult{Items: items})
 	case "app.record.findFirstByData":

@@ -118,7 +118,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// RULE-03 adds the bounded PocketBase operand grammar, JSON extraction and
 	// function renderers at this existing query seam. The measured increase has
 	// no spare allowance.
-	if runtimeLines > 7096 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7096", runtimeLines)
+	// EXT14 also adds an exact, repeatable-read count facade without widening
+	// the exported Service method surface.
+	if runtimeLines > 7140 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7140", runtimeLines)
 	}
 }
