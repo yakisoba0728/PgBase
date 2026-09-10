@@ -1,0 +1,309 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/realtime"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+)
+
+type realtimeV2 interface {
+	ReadFor(context.Context, realtime.ReadRequest) ([]realtime.Event, int64, error)
+}
+
+type realtimeSubscription struct {
+	raw, collection, filter, expand, fields string
+	recordID                                uuid.UUID
+	cursor                                  *int64
+}
+type realtimeClient struct {
+	mu                 sync.RWMutex
+	id, address, token string
+	principal          identity.Subject
+	subscriptions      []realtimeSubscription
+}
+type realtimeHub struct {
+	mu           sync.RWMutex
+	clients      map[string]*realtimeClient
+	dependencies Dependencies
+}
+
+func newRealtimeHub(dependencies Dependencies) *realtimeHub {
+	return &realtimeHub{clients: map[string]*realtimeClient{}, dependencies: dependencies}
+}
+
+func realtimeSessionRoutes(dependencies Dependencies) []route {
+	if dependencies.Realtime == nil {
+		return nil
+	}
+	hub := newRealtimeHub(dependencies)
+	handler := optionalRealtimeAdmission(dependencies, http.HandlerFunc(hub.serve))
+	return []route{
+		{method: http.MethodGet, pattern: "/api/realtime", access: accessPublic, response: passthrough(), deadline: deadlineDefault, handler: handler},
+		{method: http.MethodPost, pattern: "/api/realtime", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: handler},
+	}
+}
+
+func optionalRealtimeAdmission(d Dependencies, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookieName := adminCookieNameForRequest(r, d.PublicURL, d.trustedProxies())
+		if _, err := r.Cookie(cookieName); err == nil {
+			middleware := adminSameOriginReadMiddleware(d.AdminAuth, d.PublicURL, d.trustedProxies, next)
+			if r.Method == http.MethodPost {
+				middleware = adminSessionMiddleware(d.AdminAuth, d.PublicURL, d.trustedProxies, next)
+			}
+			middleware.ServeHTTP(w, r)
+			return
+		}
+		values := r.Header.Values("Authorization")
+		if len(values) == 0 {
+			anonymousSessionMiddleware(next).ServeHTTP(w, r)
+			return
+		}
+		if len(values) != 1 {
+			writeAPIError(w, r, APIError{Status: 401, Code: "authentication_required", Message: "Authentication failed"})
+			return
+		}
+		parts := strings.Fields(values[0])
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			writeAPIError(w, r, APIError{Status: 401, Code: "authentication_required", Message: "Authentication failed"})
+			return
+		}
+		if d.UserAuth != nil {
+			if p, err := d.UserAuth.Authenticate(r.Context(), parts[1]); err == nil {
+				ctx := context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: p, token: parts[1]})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
+		serviceSessionMiddleware(d.ServiceTokens, next).ServeHTTP(w, r)
+	})
+}
+
+func realtimeSubject(r *http.Request) identity.Subject {
+	if user, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
+		return identity.Subject{Kind: identity.User, ID: user.principal.User.ID}
+	}
+	if admin, ok := AdminPrincipalFromContext(r.Context()); ok {
+		return identity.Subject{Kind: identity.Administrator, ID: admin.Administrator.ID}
+	}
+	if subject, ok := r.Context().Value(publicRecordPrincipalKey{}).(identity.Subject); ok {
+		return subject
+	}
+	return identity.Subject{Kind: identity.Anonymous}
+}
+
+func (h *realtimeHub) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.replace(w, r)
+		return
+	}
+	h.connect(w, r)
+}
+
+func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
+	cursor, err := realtimeCursor(r)
+	if err != nil {
+		writeRealtimeError(w, r, err)
+		return
+	}
+	address, _ := clientIP(r, h.dependencies.trustedProxies())
+	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r)}
+	h.mu.Lock()
+	if len(h.clients) >= 128 {
+		h.mu.Unlock()
+		writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
+		return
+	}
+	h.clients[client.id] = client
+	h.mu.Unlock()
+	defer func() { h.mu.Lock(); delete(h.clients, client.id); h.mu.Unlock() }()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	control := http.NewResponseController(w)
+	if _, err := fmt.Fprintf(w, "id: %s\nevent: PB_CONNECT\ndata: {\"clientId\":%q}\n\n", client.id, client.id); err != nil {
+		return
+	}
+	if err := control.Flush(); err != nil {
+		return
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+		if !h.revalidate(r.Context(), client) {
+			return
+		}
+		client.mu.RLock()
+		subscriptions := append([]realtimeSubscription(nil), client.subscriptions...)
+		client.mu.RUnlock()
+		for index := range subscriptions {
+			sub := &subscriptions[index]
+			if sub.cursor == nil && cursor != nil {
+				value := *cursor
+				sub.cursor = &value
+			}
+			reader, ok := h.dependencies.Realtime.(realtimeV2)
+			if !ok {
+				return
+			}
+			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: client.principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
+			if err != nil {
+				continue
+			}
+			for _, event := range events {
+				record := event.Record
+				if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
+					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: client.principal, RequestID: requestID(r.Context()), Collection: event.Collection, ID: event.RecordID, Expand: sub.expand, Fields: sub.fields})
+					if getErr == nil {
+						record = current.Data
+					}
+				}
+				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
+				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
+					return
+				}
+			}
+			value := next
+			sub.cursor = &value
+		}
+		client.mu.Lock()
+		for i := range client.subscriptions {
+			for _, updated := range subscriptions {
+				if client.subscriptions[i].raw == updated.raw {
+					client.subscriptions[i].cursor = updated.cursor
+				}
+			}
+		}
+		client.mu.Unlock()
+		if err := control.Flush(); err != nil {
+			return
+		}
+	}
+}
+
+func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
+	var form struct {
+		ClientID      string   `json:"clientId"`
+		Subscriptions []string `json:"subscriptions"`
+	}
+	if decodeStrictJSON(r, &form) != nil || form.ClientID == "" || len(form.Subscriptions) > 1000 {
+		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid realtime subscription"})
+		return
+	}
+	h.mu.RLock()
+	client := h.clients[form.ClientID]
+	h.mu.RUnlock()
+	if client == nil {
+		writeAPIError(w, r, APIError{Status: 404, Code: "realtime_client_not_found", Message: "Missing or invalid client id"})
+		return
+	}
+	principal := realtimeSubject(r)
+	address, _ := clientIP(r, h.dependencies.trustedProxies())
+	if client.address != address || client.principal.Kind != identity.Anonymous && client.principal != principal {
+		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_realtime_client", Message: "Invalid realtime client"})
+		return
+	}
+	subscriptions := make([]realtimeSubscription, 0, len(form.Subscriptions))
+	seen := map[string]bool{}
+	for _, raw := range form.Subscriptions {
+		sub, err := parseRealtimeSubscription(raw)
+		if err != nil || seen[raw] {
+			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_subscription", Message: "Invalid realtime subscription"})
+			return
+		}
+		seen[raw] = true
+		subscriptions = append(subscriptions, sub)
+	}
+	client.mu.Lock()
+	client.principal = principal
+	client.token = realtimeCredential(r)
+	client.subscriptions = subscriptions
+	client.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func realtimeCredential(r *http.Request) string {
+	if user, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
+		return user.token
+	}
+	if admin, ok := AdminPrincipalFromContext(r.Context()); ok {
+		return admin.RawSession
+	}
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return ""
+}
+
+func (h *realtimeHub) revalidate(ctx context.Context, client *realtimeClient) bool {
+	client.mu.RLock()
+	principal, token := client.principal, client.token
+	client.mu.RUnlock()
+	switch principal.Kind {
+	case identity.Anonymous:
+		return true
+	case identity.User:
+		p, err := h.dependencies.UserAuth.Authenticate(ctx, token)
+		return err == nil && p.User.ID == principal.ID
+	case identity.Service:
+		p, err := h.dependencies.ServiceTokens.Authenticate(ctx, token)
+		return err == nil && p.Subject == principal
+	case identity.Administrator:
+		p, err := h.dependencies.AdminAuth.Authenticate(ctx, token)
+		return err == nil && p.Administrator.ID == principal.ID
+	default:
+		return false
+	}
+}
+
+func parseRealtimeSubscription(raw string) (realtimeSubscription, error) {
+	if raw == "" || len(raw) > 2500 {
+		return realtimeSubscription{}, errors.New("invalid topic")
+	}
+	parts := strings.SplitN(raw, "?", 2)
+	topic := strings.TrimSuffix(parts[0], "/*")
+	segments := strings.Split(topic, "/")
+	if len(segments) > 2 || segments[0] == "" {
+		return realtimeSubscription{}, errors.New("invalid topic")
+	}
+	sub := realtimeSubscription{raw: raw, collection: segments[0]}
+	if len(segments) == 2 {
+		id, err := uuid.Parse(segments[1])
+		if err != nil {
+			return realtimeSubscription{}, err
+		}
+		sub.recordID = id
+	}
+	if len(parts) == 2 {
+		values, err := url.ParseQuery(parts[1])
+		if err != nil {
+			return realtimeSubscription{}, err
+		}
+		for key := range values {
+			if key != "filter" && key != "expand" && key != "fields" {
+				return realtimeSubscription{}, errors.New("unknown option")
+			}
+		}
+		sub.filter = values.Get("filter")
+		sub.expand = values.Get("expand")
+		sub.fields = values.Get("fields")
+	}
+	return sub, nil
+}

@@ -182,6 +182,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	routes = append(routes, serviceTokenRoutes(dependencies)...)
 	routes = append(routes, serviceRecordRoutes(dependencies)...)
 	routes = append(routes, realtimeOperationRoutes(dependencies)...)
+	routes = append(routes, realtimeSessionRoutes(dependencies)...)
 	routes = append(routes, ruleRoutes(dependencies)...)
 	routes = append(routes, fileRoutes(dependencies)...)
 	if console := dependencies.SQLConsole; console != nil {

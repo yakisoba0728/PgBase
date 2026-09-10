@@ -1861,6 +1861,25 @@
         "security": []
       }
     },
+    "/api/realtime": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/v1/auth/avatar": {
       "get": {
         "responses": {
