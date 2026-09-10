@@ -131,15 +131,18 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 		request := *operation.Upsert
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
 		tx, _ := ctx.Value(batchTransactionKey{}).(pgx.Tx)
-		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-		if err != nil {
+		var tableName string
+		if err := tx.QueryRow(ctx, `select table_name from pgbase_meta.collections where name=$1`, request.Collection).Scan(&tableName); err != nil {
+			if err == pgx.ErrNoRows {
+				return s.Update(ctx, request)
+			}
 			return MutationResult{}, err
 		}
-		collection, exists := catalog.Collections[request.Collection]
-		if !exists {
+		var exists bool
+		if tableName == "" {
 			return s.Update(ctx, request)
 		}
-		if err := tx.QueryRow(ctx, `select exists(select 1 from `+pgx.Identifier{"app", collection.TableName}.Sanitize()+` where id=$1)`, request.ID).Scan(&exists); err != nil {
+		if err := tx.QueryRow(ctx, `select exists(select 1 from `+pgx.Identifier{"app", tableName}.Sanitize()+` where id=$1)`, request.ID).Scan(&exists); err != nil {
 			return MutationResult{}, err
 		}
 		// Preserve conditional PUT semantics for an absent row. Creating here

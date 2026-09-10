@@ -34,12 +34,51 @@ func TestCompileRecordProjectionLeavesDefaultResponseUntouched(t *testing.T) {
 func TestCompileRecordProjectionRejectsUnsafeFields(t *testing.T) {
 	collection := schema.Collection{Fields: []schema.Field{{Name: "title"}, {Name: "secret", Hidden: true}}}
 	user := Principal{Kind: identity.User, ID: uuid.New()}
-	for _, fields := range []string{"*", "title.*", "title,,id", "unknown", "secret"} {
+	for _, fields := range []string{"title,,id", "unknown", "secret"} {
 		t.Run(fields, func(t *testing.T) {
 			_, err := compileRecordProjection(collection, user, fields)
 			if err == nil {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestProjectionSupportsNestedWildcardsArraysAndExcerpt(t *testing.T) {
+	projection, err := CompileProjection("id,expand.author.*,expand.comments.text:excerpt(5,true)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
+		"id": "root", "secret": "hidden",
+		"expand": map[string]any{
+			"author":   map[string]any{"id": "author", "name": "Ada"},
+			"comments": []any{map[string]any{"id": "one", "text": "<p>Hello world</p>"}},
+		},
+	}
+	got := projection.Apply(input).(map[string]any)
+	if _, exists := got["secret"]; exists || got["id"] != "root" {
+		t.Fatalf("projection=%#v", got)
+	}
+	expand := got["expand"].(map[string]any)
+	author := expand["author"].(map[string]any)
+	comments := expand["comments"].([]any)
+	comment := comments[0].(map[string]any)
+	if author["id"] != "author" || author["name"] != "Ada" || len(comment) != 1 || comment["text"] != "Hello..." {
+		t.Fatalf("expand=%#v", expand)
+	}
+}
+
+func TestRecordProjectionWildcardCannotRestoreHiddenField(t *testing.T) {
+	collection := schema.Collection{Fields: []schema.Field{{Name: "title"}, {Name: "secret", Hidden: true}}}
+	projection, err := compileRecordProjection(collection, Principal{Kind: identity.User, ID: uuid.New()}, "*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Query callers remove hidden fields before applying the generic picker.
+	visible := map[string]any{"id": "one", "title": "hello"}
+	got := projection.apply(visible)
+	if _, exists := got["secret"]; exists || got["title"] != "hello" {
+		t.Fatalf("projection=%#v", got)
 	}
 }
