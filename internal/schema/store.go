@@ -452,6 +452,9 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 	if collection.ValidationMode == "" {
 		collection.ValidationMode = ValidationModePostgres
 	}
+	if err := s.renameCollectionReferences(ctx, collection.ID, collection.Name); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
 		set name=$2, table_name=$3, compatibility_name=nullif($4,''), validation_mode=$5, updated_at = $6
 		where id = $1`,

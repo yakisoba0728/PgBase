@@ -3,6 +3,7 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -18,6 +19,13 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 			{Name: "score_raw", RawSQL: "CREATE INDEX score_raw ON rename_source ((abs(score))) WHERE score IS NOT NULL"},
 		},
 	}), admin).Collection
+	rules := `{"list":{"op":"eq","field":"@collection.rename_source.title","value":"@collection.rename_source.title"},"view":{"op":"allow"},"create":{"op":"allow"},"update":{"op":"allow"},"delete":{"op":"allow"}}`
+	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb) on conflict(collection_id) do update set rules=excluded.rules`, created.ID, rules); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `update pgbase_meta.auth_collections set list_rule='@collection.rename_source.title = ''visible''' where name='users'`); err != nil {
+		t.Fatal(err)
+	}
 
 	change := NewUpdateChange(UpdateCollectionInput{Name: "rename_target", CollectionID: &created.ID})
 	plan, err := service.Preview(context.Background(), change)
@@ -48,6 +56,17 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 	}
 	if _, stale := catalog.Collections["rename_source"]; stale || catalog.Collections["rename_target"].ID != created.ID {
 		t.Fatalf("catalog after rename = %#v", catalog.Collections)
+	}
+	var storedRules []byte
+	var authRule string
+	if err := pool.QueryRow(context.Background(), `select rules from pgbase_meta.collection_rules where collection_id=$1`, created.ID).Scan(&storedRules); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `select list_rule from pgbase_meta.auth_collections where name='users'`).Scan(&authRule); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(storedRules, []byte(`"field": "@collection.rename_target.title"`)) || !bytes.Contains(storedRules, []byte(`"value": "@collection.rename_source.title"`)) || !strings.Contains(authRule, "@collection.rename_target.title") {
+		t.Fatalf("renamed rules collection=%s auth=%q", storedRules, authRule)
 	}
 	if err := PreflightCatalog(context.Background(), pool, &Cache{}); err != nil {
 		t.Fatalf("renamed physical schema drifted: %v", err)
