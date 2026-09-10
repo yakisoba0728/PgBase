@@ -213,6 +213,26 @@ func (r *Runner) Down(ctx context.Context) (Result, error) {
 	return result, nil
 }
 
+// DownN reverts at most count migrations, newest first. A negative count
+// reverts every applied migration. Zero performs no work. Each migration uses
+// its own transaction, so a later failure does not undo successful rollbacks.
+func (r *Runner) DownN(ctx context.Context, count int) ([]Result, error) {
+	results := []Result{}
+	for count < 0 || len(results) < count {
+		result, found, err := r.applyOne(ctx, false)
+		if found {
+			results = append(results, result)
+		}
+		if err != nil {
+			return results, err
+		}
+		if !found {
+			break
+		}
+	}
+	return results, nil
+}
+
 func (r *Runner) applyOne(ctx context.Context, up bool) (result Result, found bool, err error) {
 	if r == nil || r.pool == nil {
 		return result, false, errors.New("user migration pool is nil")

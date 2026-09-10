@@ -195,3 +195,12 @@ func (r *UserMigrationRunner) Down(ctx context.Context) (UserMigrationResult, er
 	}
 	return r.runner.Down(ctx)
 }
+
+// DownN reverts at most count applied migrations in reverse order. Pass a
+// negative count to revert all migrations or zero to perform no work.
+func (r *UserMigrationRunner) DownN(ctx context.Context, count int) ([]UserMigrationResult, error) {
+	if r == nil || r.runner == nil {
+		return nil, errors.New("user migration runner is nil")
+	}
+	return r.runner.DownN(ctx, count)
+}
