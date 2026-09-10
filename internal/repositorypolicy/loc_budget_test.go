@@ -352,11 +352,10 @@ type structuralLimit struct {
 // The final 232-feature closure establishes the exact values below after the
 // extension facades were split back under the 800-line per-file ceiling. It
 // includes the real PostgreSQL app methods, lifecycle hooks, filesystem/SSE
-// adapters, nullable auth schema, SDK-facing contracts, administration UI, and
-// Apple client-secret signing plus auth-record email visibility.
+// adapters, nullable auth schema, SDK-facing contracts, and administration UI.
 // These values contain no spare allowance or additional exclusions.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 92999, "measured Apple client-secret and email-visibility closure"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 92940, "measured 232-feature closure after restoring catalog-aware rule compilation"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6902, "measured administration UI closure"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 90, "measured compatibility contracts"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1500, "measured compatibility API"},
