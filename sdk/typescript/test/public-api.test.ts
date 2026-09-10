@@ -26,3 +26,4 @@ const batchOptions: BatchOptions = { fields: "id,title" };
 void batchOptions;
 const launchOptions: OAuthLaunchOptions = { open: () => {} };
 void realm.oauthStartAndOpen("github", "https://app.test/callback", launchOptions);
+void records.events({ fields: "id,title" });

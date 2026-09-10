@@ -580,7 +580,7 @@ export class Records {
         try {
             while (!controller.signal.aborted && generation === this.client.auth.generation) {
                 try {
-                    const response = await this.client._eventStream(this.eventsPath(), lastEventId, controller.signal);
+                    const response = await this.client._eventStream(this.eventsPath(options.fields), lastEventId, controller.signal);
                     for await (const message of parseEventStream(response.body, controller.signal)) {
                         if (generation !== this.client.auth.generation || controller.signal.aborted) {
                             return;
@@ -640,8 +640,9 @@ export class Records {
         const suffix = parameters.size ? `?${parameters}` : "";
         return `${base}/${encodeURIComponent(id)}${suffix}`;
     }
-    eventsPath() {
-        return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+    eventsPath(fields) {
+        const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+        return fields === undefined ? base : `${base}?fields=${encodeURIComponent(fields)}`;
     }
     async recordResponse(path, init, signal) {
         const response = await this.client._response(path, init, signal);

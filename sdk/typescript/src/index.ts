@@ -30,6 +30,8 @@ export type RecordEvent = {
   version: number;
 };
 export type EventOptions = {
+  /** Comma-separated record fields requested for realtime payloads. */
+  fields?: string;
   lastEventId?: string | number;
   signal?: AbortSignal;
   maxReconnects?: number;
@@ -638,7 +640,7 @@ export class Records<T extends RecordData> {
     try {
       while (!controller.signal.aborted && generation === this.client.auth.generation) {
         try {
-          const response = await this.client._eventStream(this.eventsPath(), lastEventId, controller.signal);
+          const response = await this.client._eventStream(this.eventsPath(options.fields), lastEventId, controller.signal);
           for await (const message of parseEventStream(response.body!, controller.signal)) {
             if (generation !== this.client.auth.generation || controller.signal.aborted) {
               return;
@@ -696,8 +698,9 @@ export class Records<T extends RecordData> {
     return `${base}/${encodeURIComponent(id)}${suffix}`;
   }
 
-  private eventsPath(): string {
-    return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+  private eventsPath(fields?: string): string {
+    const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+    return fields === undefined ? base : `${base}?fields=${encodeURIComponent(fields)}`;
   }
 
   private async recordResponse(path: string, init: RequestInit, signal?: AbortSignal): Promise<RecordResult<T>> {

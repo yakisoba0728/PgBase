@@ -52,6 +52,8 @@ export type RecordEvent = {
     version: number;
 };
 export type EventOptions = {
+    /** Comma-separated record fields requested for realtime payloads. */
+    fields?: string;
     lastEventId?: string | number;
     signal?: AbortSignal;
     maxReconnects?: number;

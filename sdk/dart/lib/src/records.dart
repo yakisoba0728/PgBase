@@ -152,6 +152,7 @@ final class Records {
 
   Stream<RecordEvent> events({
     String? lastEventId,
+    String? fields,
     CancellationToken? cancellation,
     int maxReconnects = 5,
     Duration reconnectDelay = const Duration(milliseconds: 250),
@@ -159,6 +160,7 @@ final class Records {
     _client,
     collection,
     lastEventId: lastEventId,
+    fields: fields,
     cancellation: cancellation,
     maxReconnects: maxReconnects,
     reconnectDelay: reconnectDelay,

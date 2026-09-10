@@ -14,6 +14,7 @@ Stream<RecordEvent> recordEvents(
   PgBaseClient client,
   String collection, {
   String? lastEventId,
+  String? fields,
   CancellationToken? cancellation,
   int maxReconnects = 5,
   Duration reconnectDelay = const Duration(milliseconds: 250),
@@ -51,6 +52,7 @@ Stream<RecordEvent> recordEvents(
         final response = await client.transport.eventStream(
           path,
           headers: headers,
+          query: {if (fields != null) 'fields': fields},
           cancellation: stop,
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
