@@ -107,16 +107,21 @@ func (s *Service) sessionHash(ctx context.Context, raw string) ([]byte, error) {
 	if e != nil || !policyTokenValid(p[1]+"."+p[2]) {
 		return nil, ErrValidation
 	}
+	var purpose string
 	var cipher []byte
-	e = s.pool.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose='session'`, realm, p[1]).Scan(&cipher)
+	e = s.pool.QueryRow(ctx, `select purpose,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose in ('session','impersonation')`, realm, p[1]).Scan(&purpose, &cipher)
 	if e != nil {
 		return nil, ErrInvalidCredentials
 	}
-	key, e := s.decrypt("auth-token-policy:session", cipher)
+	key, e := s.decrypt("auth-token-policy:"+purpose, cipher)
 	if e != nil {
 		return nil, ErrInvalidCredentials
 	}
-	return keyedDigest(key, "user-session\x00", raw), nil
+	domain := "user-session\x00"
+	if purpose == "impersonation" {
+		domain = "user-impersonation\x00"
+	}
+	return keyedDigest(key, domain, raw), nil
 }
 func (s *Service) issueActionPolicy(ctx context.Context, userID uuid.UUID, purpose string) (string, []byte, time.Duration, error) {
 	var realm uuid.UUID
@@ -128,7 +133,14 @@ func (s *Service) issueActionPolicy(ctx context.Context, userID uuid.UUID, purpo
 	var cipher []byte
 	e := s.pool.QueryRow(ctx, `select key_version,ttl_seconds,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose=$2`, realm, purpose).Scan(&version, &ttl, &cipher)
 	if e == pgx.ErrNoRows {
-		return "", nil, s.emailActionTTL, nil
+		// Collections without a policy keep issuing the original opaque token
+		// format.  This is both the migration path and the compatibility
+		// behavior for existing clients.
+		b := make([]byte, 32)
+		if _, e = rand.Read(b); e != nil {
+			return "", nil, 0, e
+		}
+		return base64.RawURLEncoding.EncodeToString(b), nil, s.emailActionTTL, nil
 	}
 	if e != nil {
 		return "", nil, 0, e
