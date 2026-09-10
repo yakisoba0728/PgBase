@@ -63,3 +63,35 @@ func TestExtensionCompatibilityProcessControlDefaultsToDenied(t *testing.T) {
 		t.Fatal("process exit accepted without callback")
 	}
 }
+
+func TestExtensionCompatibilityGlobIsRooted(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skip(err)
+	}
+	options, err := (PocketBaseCompatibilityOptions{FilesystemRoot: root}).normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := newExtensionCompatibility(options)
+	raw, err := adapter.call(context.Background(), "os.glob", json.RawMessage(`{"path":"*.txt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	if err := json.Unmarshal(raw, &got); err != nil || len(got) != 1 || got[0] != "one.txt" {
+		t.Fatalf("glob=%s err=%v", raw, err)
+	}
+	for _, pattern := range []string{"../*.txt", "escape/*.txt"} {
+		if _, err := adapter.call(context.Background(), "os.glob", json.RawMessage(`{"path":"`+pattern+`"}`)); err == nil {
+			t.Fatalf("glob %q escaped root", pattern)
+		}
+	}
+}

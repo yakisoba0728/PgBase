@@ -149,6 +149,10 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		return c.writeFile(raw)
 	case "os.readDir":
 		return c.readDir(raw)
+	case "os.glob":
+		return c.glob(raw)
+	case "os.walk", "os.walkDir":
+		return c.walk(raw)
 	case "os.truncate", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll":
 		return c.mutatePath(method, raw)
 	case "os.cmd":
@@ -184,6 +188,71 @@ func (c *extensionCompatibility) safePath(name string, allowMissing bool) (strin
 	}
 	return path, nil
 }
+func (c *extensionCompatibility) glob(raw json.RawMessage) (json.RawMessage, error) {
+	var q struct {
+		Path string `json:"path"`
+	}
+	if err := decodeExtensionInput(raw, &q); err != nil {
+		return nil, err
+	}
+	pattern, err := c.safePath(q.Path, true)
+	if err != nil {
+		return nil, err
+	}
+	values, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		logical, err := filepath.Rel(c.root, value)
+		if err != nil {
+			return nil, err
+		}
+		safe, err := c.safePath(logical, false)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(c.root, safe)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return json.Marshal(out)
+}
+
+func (c *extensionCompatibility) walk(raw json.RawMessage) (json.RawMessage, error) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := decodeExtensionInput(raw, &request); err != nil {
+		return nil, err
+	}
+	root, err := c.safePath(request.Path, false)
+	if err != nil {
+		return nil, err
+	}
+	values := []string{}
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, e := filepath.Rel(root, path)
+		if e != nil {
+			return e
+		}
+		if rel != "." {
+			values = append(values, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(values)
+}
+
 func (c *extensionCompatibility) readFile(name string) ([]byte, error) {
 	path, err := c.safePath(name, false)
 	if err != nil {

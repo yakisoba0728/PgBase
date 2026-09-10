@@ -24,8 +24,8 @@ import (
 func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) error {
 	host := vm.NewObject()
 	for capability, methods := range map[string][]string{
-		"http": {"send"}, "os": {"args", "getenv", "exit", "stat", "readFile", "writeFile", "readDir", "truncate", "getwd", "mkdir", "mkdirAll", "rename", "remove", "removeAll", "cmd"},
-		"filesystem": {"local", "fileFromPath", "fileFromBytes", "fileFromURL", "list", "copy", "read", "write", "delete"},
+		"http": {"send"}, "os": {"args", "getenv", "exit", "stat", "readFile", "writeFile", "readDir", "glob", "walk", "walkDir", "truncate", "getwd", "mkdir", "mkdirAll", "rename", "remove", "removeAll", "cmd"},
+		"filesystem": {"local", "fileFromPath", "fileFromBytes", "fileFromMultipart", "commitMultipart", "fileFromURL", "list", "copy", "read", "write", "delete", "open", "readChunk", "close", "beginWrite", "writeChunk", "commit", "abort"},
 	} {
 		object := vm.NewObject()
 		for _, method := range methods {
@@ -53,8 +53,8 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 	if err := installFilepath(vm); err != nil {
 		return err
 	}
-	_, err := vm.RunString(pocketBaseCompatibilitySource)
-	return err
+	if _, err := vm.RunString(pocketBaseCompatibilitySource); err != nil { return err }
+	return r.installPocketBaseFilesystemGlobals(vm,state)
 }
 
 func installSecurity(vm *goja.Runtime) error {
@@ -228,7 +228,6 @@ func installFilepath(vm *goja.Runtime) error {
 		"match": filepath.Match, "rel": filepath.Rel, "splitList": filepath.SplitList,
 		"toSlash": filepath.ToSlash,
 		"split":   func(path string) []string { dir, file := filepath.Split(path); return []string{dir, file} },
-		"glob":    func(pattern string) ([]string, error) { return filepath.Glob(pattern) },
 	}
 	for name, value := range values {
 		if err := object.Set(name, value); err != nil {
