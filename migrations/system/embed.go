@@ -160,6 +160,9 @@ var runtimeSettingsEncryptionSQL string
 //go:embed 000056_admin_email_otps.sql
 var adminEmailOTPsSQL string
 
+//go:embed 000052_auth_record_model.sql
+var authRecordModelSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -252,11 +255,9 @@ var migrations = []Migration{
 	{Version: 45, Name: "runtime_settings", SQL: runtimeSettingsSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsSQL))},
 	{Version: 48, Name: "auth_oidc_compat", SQL: authOIDCCompatSQL, SHA256: sha256.Sum256([]byte(authOIDCCompatSQL))},
 	{Version: 50, Name: "auth_token_policies", SQL: authTokenPoliciesSQL, SHA256: sha256.Sum256([]byte(authTokenPoliciesSQL))},
-
 	{Version: 51, Name: "admin_password_resets", SQL: adminPasswordResetsSQL, SHA256: sha256.Sum256([]byte(adminPasswordResetsSQL))},
-
+	{Version: 52, Name: "auth_record_model", SQL: authRecordModelSQL, SHA256: sha256.Sum256([]byte(authRecordModelSQL))},
 	{Version: 54, Name: "runtime_settings_encryption", SQL: runtimeSettingsEncryptionSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsEncryptionSQL))},
-
 	{Version: 56, Name: "admin_email_otps", SQL: adminEmailOTPsSQL, SHA256: sha256.Sum256([]byte(adminEmailOTPsSQL))},
 }
 

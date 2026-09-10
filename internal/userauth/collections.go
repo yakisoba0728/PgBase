@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var DefaultCollectionID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
@@ -21,8 +22,20 @@ type AuthCollection struct {
 	Name                string
 	RegistrationEnabled bool
 	ProfileSchema       map[string]string
+	Fields              []schema.FieldInput
+	Rules               AuthCollectionRules
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type AuthCollectionRules struct {
+	List   string `json:"list"`
+	View   string `json:"view"`
+	Create string `json:"create"`
+	Update string `json:"update"`
+	Delete string `json:"delete"`
+	Auth   string `json:"auth"`
+	Manage string `json:"manage"`
 }
 
 type CreateAuthCollectionInput struct {
@@ -30,24 +43,26 @@ type CreateAuthCollectionInput struct {
 	Name                string
 	RegistrationEnabled bool
 	ProfileSchema       map[string]string
+	Fields              []schema.FieldInput
+	Rules               AuthCollectionRules
 }
 type UpdateAuthCollectionInput struct {
 	RegistrationEnabled bool
 	ProfileSchema       map[string]string
+	Fields              []schema.FieldInput
+	Rules               AuthCollectionRules
 }
 
 func (s *Service) ConfigureDefaultRegistration(enabled bool) { s.defaultRegistration = enabled }
 
 func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthCollectionInput) (AuthCollection, error) {
-	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !validProfileSchema(input.ProfileSchema) {
+	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
+	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !ok || !validAuthRules(input.Rules) {
 		return AuthCollection{}, ErrValidation
 	}
-	if input.ProfileSchema == nil {
-		input.ProfileSchema = map[string]string{}
-	}
-	schema, _ := json.Marshal(input.ProfileSchema)
+	profileRaw, _ := json.Marshal(legacy)
+	fieldsRaw, _ := json.Marshal(fields)
 	var value AuthCollection
-	var raw []byte
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext('pgbase-auth-collection-limit'))`); err != nil {
 			return err
@@ -59,7 +74,8 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 		if count >= 100 {
 			return ErrConflict
 		}
-		return tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,created_at,updated_at) values($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning id,name,registration_enabled,profile_schema,created_at,updated_at`, input.ID, input.Name, input.RegistrationEnabled, schema).Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &raw, &value.CreatedAt, &value.UpdatedAt)
+		row := tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning `+authCollectionColumns, input.ID, input.Name, input.RegistrationEnabled, profileRaw, fieldsRaw, input.Rules.List, input.Rules.View, input.Rules.Create, input.Rules.Update, input.Rules.Delete, input.Rules.Auth, input.Rules.Manage)
+		return scanAuthCollection(row, &value)
 	})
 	if database.Classify(err) == database.KindConflict {
 		return AuthCollection{}, ErrConflict
@@ -67,20 +83,17 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 	if err != nil {
 		return AuthCollection{}, err
 	}
-	_ = json.Unmarshal(raw, &value.ProfileSchema)
 	return value, nil
 }
 
 func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input UpdateAuthCollectionInput) (AuthCollection, error) {
-	if id == uuid.Nil || !validProfileSchema(input.ProfileSchema) {
+	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
+	if id == uuid.Nil || !ok || !validAuthRules(input.Rules) {
 		return AuthCollection{}, ErrValidation
 	}
-	if input.ProfileSchema == nil {
-		input.ProfileSchema = map[string]string{}
-	}
-	schema, _ := json.Marshal(input.ProfileSchema)
+	profileRaw, _ := json.Marshal(legacy)
+	fieldsRaw, _ := json.Marshal(fields)
 	var value AuthCollection
-	var raw []byte
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for update`, id).Scan(&value.ID); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
@@ -95,14 +108,15 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		for rows.Next() {
 			var profileRaw []byte
 			var profile map[string]any
-			if rows.Scan(&profileRaw) != nil || json.Unmarshal(profileRaw, &profile) != nil || !validateProfile(profile, input.ProfileSchema) {
+			if rows.Scan(&profileRaw) != nil || json.Unmarshal(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields) {
 				return ErrConflict
 			}
 		}
 		if rows.Err() != nil {
 			return rows.Err()
 		}
-		return tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,updated_at=CURRENT_TIMESTAMP where id=$1 returning id,name,registration_enabled,profile_schema,created_at,updated_at`, id, input.RegistrationEnabled, schema).Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &raw, &value.CreatedAt, &value.UpdatedAt)
+		row := tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,fields_json=$4,list_rule=$5,view_rule=$6,create_rule=$7,update_rule=$8,delete_rule=$9,auth_rule=$10,manage_rule=$11,updated_at=CURRENT_TIMESTAMP where id=$1 returning `+authCollectionColumns, id, input.RegistrationEnabled, profileRaw, fieldsRaw, input.Rules.List, input.Rules.View, input.Rules.Create, input.Rules.Update, input.Rules.Delete, input.Rules.Auth, input.Rules.Manage)
+		return scanAuthCollection(row, &value)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AuthCollection{}, ErrNotFound
@@ -110,7 +124,6 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 	if err != nil {
 		return AuthCollection{}, err
 	}
-	_ = json.Unmarshal(raw, &value.ProfileSchema)
 	return value, nil
 }
 
@@ -143,7 +156,7 @@ func isAuthCollectionDeleteConflict(err error) bool {
 }
 
 func (s *Service) ListAuthCollections(ctx context.Context) ([]AuthCollection, error) {
-	rows, err := s.pool.Query(ctx, `select id,name,registration_enabled,profile_schema,created_at,updated_at from pgbase_meta.auth_collections order by name limit 100`)
+	rows, err := s.pool.Query(ctx, `select `+authCollectionColumns+` from pgbase_meta.auth_collections order by name limit 100`)
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +164,7 @@ func (s *Service) ListAuthCollections(ctx context.Context) ([]AuthCollection, er
 	values := make([]AuthCollection, 0)
 	for rows.Next() {
 		var v AuthCollection
-		var raw []byte
-		if err := rows.Scan(&v.ID, &v.Name, &v.RegistrationEnabled, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(raw, &v.ProfileSchema); err != nil {
+		if err := scanAuthCollection(rows, &v); err != nil {
 			return nil, err
 		}
 		values = append(values, v)
@@ -168,18 +177,29 @@ func (s *Service) GetAuthCollection(ctx context.Context, name string) (AuthColle
 		return AuthCollection{}, ErrValidation
 	}
 	var v AuthCollection
-	var raw []byte
-	err := s.pool.QueryRow(ctx, `select id,name,registration_enabled,profile_schema,created_at,updated_at from pgbase_meta.auth_collections where name=$1`, name).Scan(&v.ID, &v.Name, &v.RegistrationEnabled, &raw, &v.CreatedAt, &v.UpdatedAt)
+	err := scanAuthCollection(s.pool.QueryRow(ctx, `select `+authCollectionColumns+` from pgbase_meta.auth_collections where name=$1`, name), &v)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AuthCollection{}, ErrNotFound
 	}
 	if err != nil {
 		return AuthCollection{}, err
 	}
-	if json.Unmarshal(raw, &v.ProfileSchema) != nil {
-		return AuthCollection{}, errors.New("invalid stored auth collection")
-	}
 	return v, nil
+}
+
+const authCollectionColumns = `id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at`
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanAuthCollection(row rowScanner, value *AuthCollection) error {
+	var profileRaw, fieldsRaw []byte
+	if err := row.Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &profileRaw, &fieldsRaw, &value.Rules.List, &value.Rules.View, &value.Rules.Create, &value.Rules.Update, &value.Rules.Delete, &value.Rules.Auth, &value.Rules.Manage, &value.CreatedAt, &value.UpdatedAt); err != nil {
+		return err
+	}
+	if json.Unmarshal(profileRaw, &value.ProfileSchema) != nil || json.Unmarshal(fieldsRaw, &value.Fields) != nil {
+		return errors.New("invalid stored auth collection")
+	}
+	return nil
 }
 
 func validProfileSchema(schema map[string]string) bool {
@@ -208,14 +228,15 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		return nil, ErrValidation
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var rawSchema []byte
-		if err := tx.QueryRow(ctx, `select c.profile_schema from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&rawSchema); errors.Is(err, pgx.ErrNoRows) {
+		var fieldsRaw []byte
+		var updateRule string
+		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&fieldsRaw,&updateRule); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
 		}
-		var schema map[string]string
-		if json.Unmarshal(rawSchema, &schema) != nil || !validateProfile(attributes, schema) {
+		var fields []schema.FieldInput
+		if json.Unmarshal(fieldsRaw, &fields) != nil || !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule,userID,userID) {
 			return ErrValidation
 		}
 		var collectionID uuid.UUID

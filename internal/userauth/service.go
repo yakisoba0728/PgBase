@@ -69,12 +69,16 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, err
 	}
 	var registrationEnabled bool
-	if err := s.pool.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {
+	var createRule string
+	if err := s.pool.QueryRow(ctx, `select registration_enabled,create_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled, &createRule); errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrNotFound
 	} else if err != nil {
 		return Session{}, err
 	}
 	if !registrationEnabled {
+		return Session{}, ErrInvalidCredentials
+	}
+	if !ruleAllowsOperation(createRule, uuid.Nil, uuid.Nil) {
 		return Session{}, ErrInvalidCredentials
 	}
 	if collectionID == DefaultCollectionID && !s.defaultRegistration {
@@ -97,6 +101,9 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	issued, err := s.createUserAndSession(ctx, user, passwordHash, now)
 	if database.Classify(err) == database.KindConflict {
 		return Session{}, ErrConflict
+	}
+	if err == nil {
+		_ = s.recordAuthOrigin(ctx, user.ID, clientAddress, now)
 	}
 	return issued, err
 }
@@ -178,9 +185,19 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		}
 		return Session{}, ErrInvalidCredentials
 	}
+	var authRule string
+	if err := s.pool.QueryRow(ctx, `select auth_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&authRule); err != nil {
+		return Session{}, err
+	}
+	if !ruleAllowsOperation(authRule, user.ID, user.ID) {
+		return Session{}, ErrInvalidCredentials
+	}
 	issued, err := s.issueCheckedSession(ctx, user, hash, now)
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
+	}
+	if err == nil {
+		_ = s.recordAuthOrigin(ctx, user.ID, clientAddress, now)
 	}
 	return issued, err
 }

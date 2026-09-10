@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
@@ -30,6 +31,13 @@ type AuthCollections interface {
 	CompleteEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.Session, error)
 	GetProfile(context.Context, uuid.UUID) (map[string]any, error)
 	SetProfile(context.Context, uuid.UUID, map[string]any) (map[string]any, error)
+	ListAuthRecords(context.Context, uuid.UUID, int) ([]userauth.AuthRecord, error)
+	GetAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
+	CreateAuthRecord(context.Context, uuid.UUID, userauth.CreateAuthRecordInput) (userauth.AuthRecord, error)
+	UpdateAuthRecord(context.Context, uuid.UUID, uuid.UUID, userauth.UpdateAuthRecordInput) (userauth.AuthRecord, error)
+	DeleteAuthRecord(context.Context, uuid.UUID, uuid.UUID) error
+	ListAuthAuxiliary(context.Context, uuid.UUID, uuid.UUID, string) ([]userauth.AuthAuxiliaryRecord, error)
+	DeleteAuthAuxiliary(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error
 }
 
 type authCollectionEndpoints struct{ dependencies Dependencies }
@@ -45,6 +53,11 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "POST", pattern: "/api/admin/auth-collections", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminCreate)},
 		{method: "PATCH", pattern: "/api/admin/auth-collections/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminUpdate)},
 		{method: "DELETE", pattern: "/api/admin/auth-collections/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminDelete)},
+		{method: "GET", pattern: "/api/admin/auth-collections/{id}/records", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminRecordList)},
+		{method: "POST", pattern: "/api/admin/auth-collections/{id}/records", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminRecordCreate)},
+		{method: "GET", pattern: "/api/admin/auth-collections/{id}/records/{record}", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminRecordGet)},
+		{method: "PATCH", pattern: "/api/admin/auth-collections/{id}/records/{record}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminRecordUpdate)},
+		{method: "DELETE", pattern: "/api/admin/auth-collections/{id}/records/{record}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminRecordDelete)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/methods", access: accessPublic, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.methods)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/register", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.credentials(true)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.credentials(false)},
@@ -57,6 +70,8 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/logout", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.logout)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.profile)},
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.profile)},
+		{method: "GET", pattern: "/api/v1/auth/{authCollection}/aux/{kind}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.auxiliaryList)},
+		{method: "DELETE", pattern: "/api/v1/auth/{authCollection}/aux/{kind}/{id}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.auxiliaryDelete)},
 	}
 }
 
@@ -168,11 +183,14 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 
 func authCollectionResponse(v userauth.AuthCollection) any {
 	return struct {
-		ID                  string            `json:"id"`
-		Name                string            `json:"name"`
-		RegistrationEnabled bool              `json:"registrationEnabled"`
-		ProfileSchema       map[string]string `json:"profileSchema"`
-	}{v.ID.String(), v.Name, v.RegistrationEnabled, v.ProfileSchema}
+		ID                  string                       `json:"id"`
+		Name                string                       `json:"name"`
+		Type                string                       `json:"type"`
+		RegistrationEnabled bool                         `json:"registrationEnabled"`
+		ProfileSchema       map[string]string            `json:"profileSchema"`
+		Fields              []schema.FieldInput          `json:"fields"`
+		Rules               userauth.AuthCollectionRules `json:"rules"`
+	}{v.ID.String(), v.Name, "auth", v.RegistrationEnabled, v.ProfileSchema, v.Fields, v.Rules}
 }
 func (e authCollectionEndpoints) adminList(w http.ResponseWriter, r *http.Request) {
 	projection, err := authProjection(r)
@@ -200,10 +218,12 @@ func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var in struct {
-		ID                  string            `json:"id"`
-		Name                string            `json:"name"`
-		RegistrationEnabled bool              `json:"registrationEnabled"`
-		ProfileSchema       map[string]string `json:"profileSchema"`
+		ID                  string                       `json:"id"`
+		Name                string                       `json:"name"`
+		RegistrationEnabled bool                         `json:"registrationEnabled"`
+		ProfileSchema       map[string]string            `json:"profileSchema"`
+		Fields              []schema.FieldInput          `json:"fields"`
+		Rules               userauth.AuthCollectionRules `json:"rules"`
 	}
 	id := uuid.Nil
 	var parseErr error
@@ -216,7 +236,7 @@ func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Requ
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.dependencies.AuthCollections.CreateAuthCollection(r.Context(), userauth.CreateAuthCollectionInput{ID: id, Name: in.Name, RegistrationEnabled: in.RegistrationEnabled, ProfileSchema: in.ProfileSchema})
+	v, err := e.dependencies.AuthCollections.CreateAuthCollection(r.Context(), userauth.CreateAuthCollectionInput{ID: id, Name: in.Name, RegistrationEnabled: in.RegistrationEnabled, ProfileSchema: in.ProfileSchema, Fields: in.Fields, Rules: in.Rules})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -231,14 +251,20 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 	}
 	id, err := uuid.Parse(r.PathValue("id"))
 	var in struct {
-		RegistrationEnabled *bool              `json:"registrationEnabled"`
-		ProfileSchema       *map[string]string `json:"profileSchema"`
+		RegistrationEnabled *bool                        `json:"registrationEnabled"`
+		ProfileSchema       *map[string]string           `json:"profileSchema"`
+		Fields              []schema.FieldInput          `json:"fields"`
+		Rules               userauth.AuthCollectionRules `json:"rules"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil || in.ProfileSchema == nil {
+	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil || (in.ProfileSchema == nil && in.Fields == nil) {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: *in.ProfileSchema})
+	legacy := map[string]string(nil)
+	if in.ProfileSchema != nil {
+		legacy = *in.ProfileSchema
+	}
+	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: in.Rules})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
