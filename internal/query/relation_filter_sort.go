@@ -43,6 +43,7 @@ type plannedRelationPath struct {
 	terminal           schema.Field
 	terminalIsRelation bool
 	geoProperty        string
+	jsonPath           []string
 }
 
 type plannedRelationHop struct {
@@ -88,6 +89,9 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 	case filterOr:
 		return planRelationFilterGroup(catalog, root, value.children, " OR ")
 	case filterComparison:
+		if value.function != nil {
+			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value}}, 0, nil
+		}
 		field, ok := filterField(root, value.field)
 		if ok && field.Type != schema.TypeRelation && !strings.Contains(value.field, ".") {
 			// Reject here rather than only at statement compilation: the cursor
@@ -119,13 +123,13 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 		if err != nil {
 			return nil, 0, err
 		}
-		if (len(path.hops) == 0 && path.geoProperty == "") || len(path.hops) > maximumRelationFilterDepth {
+		if (len(path.hops) == 0 && path.geoProperty == "" && len(path.jsonPath) == 0) || len(path.hops) > maximumRelationFilterDepth {
 			return nil, 0, relationFilterUnsupported()
 		}
-		if path.terminalIsRelation && (value.operator != "=" || value.value.kind != filterLiteralString) {
+		if path.terminalIsRelation && (strings.TrimPrefix(value.operator, "?") != "=" || value.value.kind != filterLiteralString) {
 			return nil, 0, relationFilterUnsupported()
 		}
-		if value.modifier != "" && !(value.modifier == "each" && path.terminalIsRelation) && path.terminal.Type != schema.TypeText && path.terminal.Type != schema.TypeEditor {
+		if value.modifier != "" && !(value.modifier == "each" && len(path.hops) != 0) && path.terminal.Type != schema.TypeText && path.terminal.Type != schema.TypeEditor {
 			return nil, 0, validation("filter", "unsupported_modifier")
 		}
 		copy := path
@@ -248,6 +252,11 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 			return plannedRelationPath{}, relationPathUnsupported(operation)
 		}
 		if field.Type != schema.TypeRelation {
+			if field.Type == schema.TypeJSONB && index < len(segments)-1 {
+				path.terminal = schema.Field{ID: field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: schema.TypeJSONB, Indexed: field.Indexed, Hidden: field.Hidden}
+				path.jsonPath = append([]string(nil), segments[index+1:]...)
+				return path, nil
+			}
 			if field.Type == schema.TypeGeoPoint && index+1 == len(segments)-1 && (segments[index+1] == "lat" || segments[index+1] == "lon") {
 				path.terminal = schema.Field{ID: uuid.NewSHA1(field.ID, []byte("geoPoint:"+segments[index+1])), Name: field.Name + "." + segments[index+1], ColumnName: field.ColumnName, Type: schema.TypeNumeric, Indexed: field.Indexed, Hidden: field.Hidden}
 				path.geoProperty = segments[index+1]
@@ -430,6 +439,13 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	}
 	if node.comparison != nil {
 		comparison := node.comparison
+		if comparison.input.function != nil {
+			column, field, err := compileFilterFunction(renderer.root, comparison.input.function, renderer.builder)
+			if err != nil {
+				return "", err
+			}
+			return compileQualifiedComparison(field, comparison.input, column, renderer.builder)
+		}
 		if comparison.rootField != nil {
 			if comparison.otherRootField != nil {
 				return compileFieldComparison(*comparison.rootField, *comparison.otherRootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), qualified(sourceAlias, comparison.otherRootField.ColumnName))
@@ -440,16 +456,48 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 			column := geoPointExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.geoProperty)
 			return compileQualifiedComparison(comparison.path.terminal, comparison.input, column, renderer.builder)
 		}
+		if len(comparison.path.jsonPath) != 0 && len(comparison.path.hops) == 0 {
+			column, field := jsonPathExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.jsonPath, comparison.input.value)
+			return compileQualifiedComparison(field, comparison.input, column, renderer.builder)
+		}
+		if comparison.input.modifier == "each" && len(comparison.path.hops) != 0 {
+			input := comparison.input
+			input.modifier = ""
+			var ok bool
+			input.operator, ok = invertFilterOperator(input.operator)
+			if !ok {
+				return "", validation("filter", "invalid_filter")
+			}
+			mismatch, err := renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
+				column := qualified(alias, comparison.path.terminal.ColumnName)
+				field := comparison.path.terminal
+				if comparison.path.geoProperty != "" {
+					column = geoPointExpression(column, comparison.path.geoProperty)
+				}
+				if len(comparison.path.jsonPath) != 0 {
+					column, field = jsonPathExpression(column, comparison.path.jsonPath, input.value)
+				}
+				return compileQualifiedComparison(field, input, column, renderer.builder)
+			})
+			if err != nil {
+				return "", err
+			}
+			return "NOT (" + mismatch + ")", nil
+		}
 		return renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
 			column := qualified(alias, comparison.path.terminal.ColumnName)
 			if comparison.path.geoProperty != "" {
 				column = geoPointExpression(column, comparison.path.geoProperty)
 			}
+			field := comparison.path.terminal
+			if len(comparison.path.jsonPath) != 0 {
+				column, field = jsonPathExpression(column, comparison.path.jsonPath, comparison.input.value)
+			}
 			input := comparison.input
 			if input.modifier == "each" && comparison.path.terminalIsRelation {
 				input.modifier = ""
 			}
-			return compileQualifiedComparison(comparison.path.terminal, input, column, renderer.builder)
+			return compileQualifiedComparison(field, input, column, renderer.builder)
 		})
 	}
 	parts := make([]string, 0, len(node.children))
@@ -463,13 +511,63 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	return "(" + strings.Join(parts, node.separator) + ")", nil
 }
 
+func invertFilterOperator(op string) (string, bool) {
+	prefix := ""
+	if strings.HasPrefix(op, "?") {
+		prefix, op = "?", strings.TrimPrefix(op, "?")
+	}
+	switch op {
+	case "=":
+		return prefix + "!=", true
+	case "!=":
+		return prefix + "=", true
+	case "~":
+		return prefix + "!~", true
+	case "!~":
+		return prefix + "~", true
+	case "<":
+		return prefix + ">=", true
+	case "<=":
+		return prefix + ">", true
+	case ">":
+		return prefix + "<=", true
+	case ">=":
+		return prefix + "<", true
+	}
+	return "", false
+}
+
 func geoPointExpression(column, property string) string {
 	return "((" + column + "->>'" + property + "')::numeric)"
 }
+
+func jsonPathExpression(column string, path []string, literal filterLiteral) (string, schema.Field) {
+	parts := make([]string, len(path))
+	for i, part := range path {
+		parts[i] = strings.ReplaceAll(part, "'", "''")
+	}
+	text := "(" + column + "#>>'{" + strings.Join(parts, ",") + "}')"
+	field := schema.Field{Type: schema.TypeText}
+	switch literal.kind {
+	case filterLiteralNumber:
+		field.Type = schema.TypeNumeric
+		return "(NULLIF(" + text + ",'')::numeric)", field
+	case filterLiteralBool:
+		field.Type = schema.TypeBoolean
+		return "(NULLIF(" + text + ",'')::boolean)", field
+	default:
+		return text, field
+	}
+}
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
+	anyMatch := strings.HasPrefix(comparison.operator, "?")
+	if anyMatch {
+		comparison.operator = strings.TrimPrefix(comparison.operator, "?")
+	}
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
+	_ = anyMatch // scalar operands have identical PB any-match behavior
 	if (comparison.operator == "~" || comparison.operator == "!~") && (field.Type != schema.TypeText && field.Type != schema.TypeEditor || comparison.value.kind != filterLiteralString) || (field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=") {
 		return "", validation("filter", "type_mismatch")
 	}

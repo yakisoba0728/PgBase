@@ -264,7 +264,23 @@ func compileFilterGroup(collection schema.Collection, children []filterNode, sep
 }
 
 func compileComparison(collection schema.Collection, comparison filterComparison, builder *statementBuilder) (string, error) {
+	if comparison.function != nil {
+		column, field, err := compileFilterFunction(collection, comparison.function, builder)
+		if err != nil {
+			return "", err
+		}
+		return compileQualifiedComparison(field, comparison, column, builder)
+	}
 	field, ok := filterField(collection, comparison.field)
+	if !ok {
+		segments := strings.Split(comparison.field, ".")
+		if len(segments) > 1 {
+			if root, found := filterField(collection, segments[0]); found && root.Type == schema.TypeJSONB {
+				column, dynamic := jsonPathExpression(quoted(root.ColumnName), segments[1:], comparison.value)
+				return compileQualifiedComparison(dynamic, comparison, column, builder)
+			}
+		}
+	}
 	if !ok {
 		return "", validation("filter", "unknown_field")
 	}
@@ -282,6 +298,84 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 		return compileFieldComparison(field, other, comparison, quoted(field.ColumnName), quoted(other.ColumnName))
 	}
 	return compileQualifiedComparison(field, comparison, quoted(field.ColumnName), builder)
+}
+
+func compileFilterFunction(collection schema.Collection, fn *filterFunction, builder *statementBuilder) (string, schema.Field, error) {
+	resolveNumeric := func(arg filterOperand) (string, error) {
+		if arg.field != "" {
+			field, ok := filterField(collection, arg.field)
+			if !ok {
+				return "", validation("filter", "unknown_field")
+			}
+			if field.Type == schema.TypeGeoPoint && (strings.HasSuffix(arg.field, ".lon") || strings.HasSuffix(arg.field, ".lat")) {
+				return "", validation("filter", "invalid_filter")
+			}
+			if field.Type != schema.TypeInteger && field.Type != schema.TypeBigInt && field.Type != schema.TypeNumeric {
+				return "", validation("filter", "type_mismatch")
+			}
+			return quoted(field.ColumnName), nil
+		}
+		if arg.literal.kind != filterLiteralNumber {
+			return "", validation("filter", "type_mismatch")
+		}
+		value, err := decodeFilterValue(schema.Field{Type: schema.TypeNumeric}, arg.literal)
+		if err != nil {
+			return "", err
+		}
+		return builder.placeholder(value), nil
+	}
+	if fn.name == "geoDistance" {
+		if len(fn.args) != 4 {
+			return "", schema.Field{}, validation("filter", "invalid_filter")
+		}
+		values := make([]string, 4)
+		for i, arg := range fn.args {
+			if arg.field != "" && strings.Contains(arg.field, ".") {
+				parts := strings.Split(arg.field, ".")
+				field, ok := filterField(collection, parts[0])
+				if ok && field.Type == schema.TypeGeoPoint && len(parts) == 2 && (parts[1] == "lon" || parts[1] == "lat") {
+					values[i] = geoPointExpression(quoted(field.ColumnName), parts[1])
+					continue
+				}
+			}
+			var err error
+			values[i], err = resolveNumeric(arg)
+			if err != nil {
+				return "", schema.Field{}, err
+			}
+		}
+		expr := "(6371 * acos(LEAST(1, GREATEST(-1, cos(radians(" + values[1] + "))*cos(radians(" + values[3] + "))*cos(radians(" + values[2] + ")-radians(" + values[0] + "))+sin(radians(" + values[1] + "))*sin(radians(" + values[3] + "))))))"
+		return expr, schema.Field{Type: schema.TypeNumeric}, nil
+	}
+	if fn.name == "strftime" {
+		if len(fn.args) < 1 || len(fn.args) > 10 || fn.args[0].literal.kind != filterLiteralString {
+			return "", schema.Field{}, validation("filter", "invalid_filter")
+		}
+		format := strings.NewReplacer("%Y", "YYYY", "%m", "MM", "%d", "DD", "%H", "HH24", "%M", "MI", "%S", "SS", "%w", "D").Replace(fn.args[0].literal.text)
+		value := "clock_timestamp()"
+		if len(fn.args) > 1 {
+			arg := fn.args[1]
+			if arg.field != "" {
+				field, ok := filterField(collection, arg.field)
+				if !ok {
+					return "", schema.Field{}, validation("filter", "unknown_field")
+				}
+				if field.Type != schema.TypeTimestampTZ && field.Type != schema.TypeAutoDate {
+					return "", schema.Field{}, validation("filter", "type_mismatch")
+				}
+				value = quoted(field.ColumnName)
+			} else if arg.literal.kind == filterLiteralString {
+				value = builder.placeholder(arg.literal.text) + "::timestamptz"
+			} else {
+				return "", schema.Field{}, validation("filter", "type_mismatch")
+			}
+		}
+		if len(fn.args) > 2 {
+			return "", schema.Field{}, validation("filter", "unsupported_modifier")
+		}
+		return "to_char(" + value + "," + builder.placeholder(format) + ")", schema.Field{Type: schema.TypeText}, nil
+	}
+	return "", schema.Field{}, validation("filter", "invalid_filter")
 }
 
 func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {

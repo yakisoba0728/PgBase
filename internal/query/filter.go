@@ -1,7 +1,9 @@
 package query
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/cursor"
 	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
@@ -28,6 +30,12 @@ type filterComparison struct {
 	value          filterLiteral
 	literalLeft    bool
 	pocketBaseLike bool
+	function       *filterFunction
+}
+
+type filterFunction struct {
+	name string
+	args []filterOperand
 }
 
 type filterAnd struct{ children []filterNode }
@@ -174,6 +182,8 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
 	switch {
+	case left.function != nil && right.field == "" && right.function == nil:
+		return filterComparison{function: left.function, operator: operator, value: right.literal}, nil
 	case left.field != "" && right.field != "":
 		return filterComparison{field: left.field, modifier: left.modifier, otherField: right.field, otherModifier: right.modifier, operator: operator}, nil
 	case left.field != "" && right.field == "":
@@ -203,6 +213,7 @@ func flipComparisonOperator(operator string) string {
 type filterOperand struct {
 	field, modifier string
 	literal         filterLiteral
+	function        *filterFunction
 }
 
 func (p *filterParser) parseOperand() (filterOperand, error) {
@@ -222,11 +233,38 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 		if !ok {
 			return filterOperand{}, validation("filter", "invalid_filter")
 		}
+
 		return filterOperand{literal: filterLiteral{kind: filterLiteralNumber, text: number}}, nil
 	default:
 		word, ok := p.consumeWord()
 		if !ok {
 			return filterOperand{}, validation("filter", "invalid_filter")
+		}
+		p.skipSpaces()
+		if (word == "geoDistance" || word == "strftime") && p.consumeKeyword("(") {
+			args := []filterOperand{}
+			for {
+				p.skipSpaces()
+				if p.consumeKeyword(")") {
+					break
+				}
+				arg, err := p.parseOperand()
+				if err != nil {
+					return filterOperand{}, err
+				}
+				args = append(args, arg)
+				if len(args) > 10 {
+					return filterOperand{}, validation("filter", "filter_too_complex")
+				}
+				p.skipSpaces()
+				if p.consumeKeyword(")") {
+					break
+				}
+				if !p.consumeKeyword(",") {
+					return filterOperand{}, validation("filter", "invalid_filter")
+				}
+			}
+			return filterOperand{function: &filterFunction{name: word, args: args}}, nil
 		}
 		switch word {
 		case "true":
@@ -235,6 +273,13 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 			return filterOperand{literal: filterLiteral{kind: filterLiteralBool}}, nil
 		case "null":
 			return filterOperand{literal: filterLiteral{kind: filterLiteralNull}}, nil
+		}
+		if strings.HasPrefix(word, "@") {
+			literal, ok := filterTimeMacro(word, time.Now().UTC())
+			if !ok {
+				return filterOperand{}, validation("filter", "invalid_filter")
+			}
+			return filterOperand{literal: literal}, nil
 		}
 		field, modifier, ok := fieldvalue.SplitFilterModifier(word)
 		if !ok {
@@ -254,7 +299,7 @@ func (p *filterParser) consumeKeyword(keyword string) bool {
 }
 
 func (p *filterParser) consumeOperator() (string, bool) {
-	for _, operator := range []string{"!=", "!~", ">=", "<=", "=", ">", "<", "~"} {
+	for _, operator := range []string{"?!~", "?!=", "?>=", "?<=", "?=", "?~", "?>", "?<", "!=", "!~", ">=", "<=", "=", ">", "<", "~"} {
 		if strings.HasPrefix(p.input[p.pos:], operator) {
 			p.pos += len(operator)
 			return operator, true
@@ -316,7 +361,7 @@ func (p *filterParser) consumeNumber() (string, bool) {
 
 func (p *filterParser) consumeWord() (string, bool) {
 	start := p.pos
-	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.' || p.input[p.pos] == ':') {
+	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.' || p.input[p.pos] == ':' || (p.input[p.pos] == '@' && p.pos == start)) {
 		p.pos++
 	}
 	if p.pos == start {
