@@ -264,6 +264,10 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		return host.commitObjectWrite(ctx, raw)
 	case "objects.abort":
 		return host.abortObjectWrite(raw)
+	case "objects.fileFromMultipart":
+		return host.fileFromMultipart(ctx, raw)
+	case "objects.commitMultipart":
+		return host.commitMultipart(ctx, raw)
 	case "objects.list":
 		var list struct {
 			Prefix, Cursor string

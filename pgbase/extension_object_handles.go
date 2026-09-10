@@ -103,6 +103,10 @@ func (h *extensionHost) closeObjectHandles() error {
 		out = errors.Join(out, r.Close())
 		delete(h.objectHandles, id)
 	}
+	for id, w := range h.multipartFiles {
+		out = errors.Join(out, w.file.Close(), os.Remove(w.path))
+		delete(h.multipartFiles, id)
+	}
 	for id, w := range h.objectWriters {
 		out = errors.Join(out, w.file.Close(), os.Remove(w.path))
 		delete(h.objectWriters, id)
@@ -229,4 +233,79 @@ func (h *extensionHost) abortObjectWrite(raw json.RawMessage) (json.RawMessage, 
 		return nil, errors.New("object writer is closed")
 	}
 	return json.RawMessage(`{"aborted":true}`), errors.Join(w.file.Close(), os.Remove(w.path))
+}
+func (h *extensionHost) fileFromMultipart(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var q struct{ Field string }
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	if h.multipart == nil {
+		return nil, errors.New("multipart source unavailable")
+	}
+	name, ct, size, r, e := h.multipart.OpenMultipartField(ctx, q.Field)
+	if e != nil {
+		return nil, e
+	}
+	defer r.Close()
+	if size < 0 || size > maximumExtensionObjectBytes {
+		return nil, errors.New("multipart object too large")
+	}
+	f, e := os.CreateTemp("", "pgbase-extension-multipart-*")
+	if e != nil {
+		return nil, e
+	}
+	path := f.Name()
+	n, e := io.Copy(f, io.LimitReader(r, maximumExtensionObjectBytes+1))
+	if e != nil || n > maximumExtensionObjectBytes {
+		_ = f.Close()
+		_ = os.Remove(path)
+		if e != nil {
+			return nil, e
+		}
+		return nil, errors.New("multipart object too large")
+	}
+	id := uuid.New()
+	h.objectMu.Lock()
+	if h.multipartFiles == nil {
+		h.multipartFiles = map[uuid.UUID]extensionObjectWriter{}
+	}
+	h.multipartFiles[id] = extensionObjectWriter{path: path, file: f, size: n}
+	h.objectMu.Unlock()
+	return json.Marshal(map[string]any{"name": name, "contentType": ct, "size": n, "handle": id.String()})
+}
+func (h *extensionHost) commitMultipart(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var q struct{ Handle, Key string }
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	id, e := uuid.Parse(q.Handle)
+	if e != nil {
+		return nil, e
+	}
+	if _, e = extensionObjectKey(h.namespace, q.Key); e != nil {
+		return nil, e
+	}
+	h.objectMu.Lock()
+	w, ok := h.multipartFiles[id]
+	if ok {
+		delete(h.multipartFiles, id)
+	}
+	h.objectMu.Unlock()
+	if !ok {
+		return nil, errors.New("multipart handle is closed")
+	}
+	defer os.Remove(w.path)
+	if e := w.file.Close(); e != nil {
+		return nil, e
+	}
+	f, e := os.Open(w.path)
+	if e != nil {
+		return nil, e
+	}
+	defer f.Close()
+	n, e := h.bridge.objects.WriteStream(ctx, h.namespace, q.Key, f)
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(map[string]any{"written": true, "size": n})
 }
