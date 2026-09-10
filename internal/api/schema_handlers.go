@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -31,6 +32,16 @@ type SchemaService interface {
 
 type schemaEndpoints struct {
 	service SchemaService
+	hooks   *lifecycle.Registry
+}
+
+func (e schemaEndpoints) beginRequest(r *http.Request, operation, name string) (*CollectionRequestEvent, func(error), error) {
+	event := &CollectionRequestEvent{Operation: operation, Name: name, RequestID: requestID(r.Context())}
+	if principal, ok := AdminPrincipalFromContext(r.Context()); ok {
+		event.ActorID = principal.Administrator.ID
+	}
+	finish, err := beginLifecycle(r.Context(), e.hooks, "collection.request."+operation, event)
+	return event, finish, err
 }
 
 type plannedFieldResponse struct {
@@ -209,6 +220,21 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
+	_, finish, hookErr := e.beginRequest(r, request.Operation, request.Name)
+	if hookErr != nil {
+		finish(hookErr)
+		writeSchemaError(w, r, hookErr)
+		return
+	}
+	tracked := &collectionHookResponseWriter{ResponseWriter: w}
+	w = tracked
+	defer func() {
+		if tracked.status >= 400 {
+			finish(errors.New("collection request failed"))
+		} else {
+			finish(nil)
+		}
+	}()
 	identity, err := applyIdentityFrom(r)
 	if err != nil {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -347,7 +373,14 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
 	}
+	_, finish, hookErr := e.beginRequest(r, "list", "")
+	if hookErr != nil {
+		finish(hookErr)
+		writeSchemaError(w, r, hookErr)
+		return
+	}
 	catalog, err := e.service.Catalog(r.Context())
+	finish(err)
 	if err != nil {
 		writeSchemaError(w, r, err)
 		return
@@ -514,11 +547,36 @@ func (e schemaEndpoints) collection(w http.ResponseWriter, r *http.Request) {
 	key := strings.ToLower(r.PathValue("collection"))
 	for _, collection := range catalog.Collections {
 		if strings.ToLower(collection.Name) == key || strings.ToLower(collection.CompatibilityName) == key || strings.ToLower(collection.ID.String()) == key {
+			event, finish, hookErr := e.beginRequest(r, "view", collection.Name)
+			if hookErr != nil {
+				finish(hookErr)
+				writeSchemaError(w, r, hookErr)
+				return
+			}
+			event.Collection = &collection
+			finish(nil)
 			writeJSON(w, http.StatusOK, collectionDTO(collection))
 			return
 		}
 	}
 	writeSchemaError(w, r, schema.ErrCollectionNotFound)
+}
+
+type collectionHookResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *collectionHookResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *collectionHookResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(body)
 }
 
 func (e schemaEndpoints) sampleView(w http.ResponseWriter, r *http.Request) {

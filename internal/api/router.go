@@ -83,7 +83,7 @@ func (d Dependencies) trustedProxies() []netip.Prefix {
 // the shape of a registration call.
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
-	schemas := schemaEndpoints{service: dependencies.Schema}
+	schemas := schemaEndpoints{service: dependencies.Schema, hooks: dependencies.LifecycleHooks}
 	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
 	if dependencies.RuntimeSettings != nil {
 		records.settings = dependencies.RuntimeSettings

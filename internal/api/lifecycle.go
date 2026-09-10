@@ -71,6 +71,19 @@ type SchemaImportRequestEvent struct {
 	Result         *schema.SchemaImportResult
 }
 
+type CollectionRequestEvent struct {
+	Operation  string             `json:"operation"`
+	Name       string             `json:"name,omitempty"`
+	ActorID    uuid.UUID          `json:"actorId,omitempty"`
+	RequestID  string             `json:"requestId"`
+	Collection *schema.Collection `json:"collection,omitempty"`
+}
+
+type RecordEnrichEvent struct {
+	Collection string         `json:"collection"`
+	Record     map[string]any `json:"record"`
+}
+
 func cloneSchemaDocument(document schema.SchemaDocument) schema.SchemaDocument {
 	raw, err := json.Marshal(document)
 	if err != nil {

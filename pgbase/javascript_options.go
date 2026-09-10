@@ -337,7 +337,7 @@ func knownJavaScriptHook(kind string) bool {
 		HookAuthImpersonate, HookRealtimeConnect, HookRealtimeSubscribe, HookRealtimeMessage,
 		HookStorageSettingsList, HookStorageSettingsUpdate, HookStorageSettingsTest,
 		HookBackupCreate, HookBackupRestore, HookBackupDelete,
-		HookObjectWrite, HookObjectDelete,
+		HookObjectWrite, HookObjectDelete, "record.enrich", "collection.request.list", "collection.request.view", "collection.request.create", "collection.request.update", "collection.request.delete",
 		HookAuthAlert, HookSettingsReload, HookModelValidate, HookModelExecute, HookModelSuccess, HookModelError,
 	}, kind)
 }

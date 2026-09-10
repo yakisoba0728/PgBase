@@ -303,6 +303,10 @@ func hookGlobalName(event string) string {
 
 func hookGlobalNames(event string) []string {
 	aliases := map[string]string{"mail.send": "onMailerSend", "mail.otp": "onMailerRecordOTPSend", "mail.verification": "onMailerRecordVerificationSend", "mail.password_reset": "onMailerRecordPasswordResetSend", "mail.email_change": "onMailerRecordEmailChangeSend", "record.list": "onRecordsListRequest", "record.view": "onRecordViewRequest", "record.create": "onRecordCreateRequest", "record.update": "onRecordUpdateRequest", "record.delete": "onRecordDeleteRequest", "record.batch": "onBatchRequest", "file.download": "onFileDownloadRequest", "file.token": "onFileTokenRequest", "settings.list": "onSettingsListRequest", "settings.update": "onSettingsUpdateRequest", "settings.reload": "onSettingsReload", "realtime.connect": "onRealtimeConnectRequest", "realtime.subscribe": "onRealtimeSubscribeRequest", "realtime.message": "onRealtimeMessageSend", "backup.create": "onBackupCreate", "backup.restore": "onBackupRestore", "app.boot": "onBootstrap", "app.serve": "onServe", "app.terminate": "onTerminate"}
+	collectionRequests := map[string]string{"collection.request.list": "onCollectionsListRequest", "collection.request.view": "onCollectionViewRequest", "collection.request.create": "onCollectionCreateRequest", "collection.request.update": "onCollectionUpdateRequest", "collection.request.delete": "onCollectionDeleteRequest", "record.enrich": "onRecordEnrich"}
+	if alias := collectionRequests[event]; alias != "" {
+		return []string{alias, hookGlobalName(event)}
+	}
 	if event == "schema.import.preview" || event == "schema.import.apply" {
 		return []string{"onCollectionsImportRequest", hookGlobalName(event)}
 	}

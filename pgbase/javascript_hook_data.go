@@ -35,7 +35,7 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 	case *MailEvent:
 		value = map[string]any{"purpose": data.Purpose, "message": extensionMailRequest{
 			To: data.Message.To, Subject: data.Message.Subject, Text: data.Message.Text, HTML: data.Message.HTML}}
-	case *api.RecordRequestEvent, *api.BatchRequestEvent, *api.SchemaImportRequestEvent,
+	case *api.RecordRequestEvent, *api.BatchRequestEvent, *api.SchemaImportRequestEvent, *api.CollectionRequestEvent, *api.RecordEnrichEvent,
 		*schema.CollectionMutationEvent, *filestore.FileEvent, *filestore.FileAccessEvent,
 		*ApplicationEvent, *AuthEvent, *StorageSettingsEvent, *backup.LifecycleEvent,
 		*api.RealtimeLifecycleEvent, *api.SettingsLifecycleEvent, *SettingsReloadEvent, *ModelMutationEvent, recordops.Mutation, *recordops.Mutation:

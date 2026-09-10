@@ -55,6 +55,20 @@ type recordEndpoints struct {
 	settings batchSettings
 }
 
+func (e recordEndpoints) enrich(ctx context.Context, collection string, record map[string]any) error {
+	if e.hooks == nil || record == nil {
+		return nil
+	}
+	event := &RecordEnrichEvent{Collection: collection, Record: record}
+	finish, err := beginLifecycle(ctx, e.hooks, "record.enrich", event)
+	if err != nil {
+		finish(err)
+		return err
+	}
+	finish(nil)
+	return nil
+}
+
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	values, err := neturl.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -110,6 +124,12 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
+	for index := range page.Items {
+		if err := e.enrich(r.Context(), event.Collection, page.Items[index]); err != nil {
+			writeRecordError(w, r, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, page)
 }
 
@@ -149,6 +169,10 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	})
 	finish(err)
 	if err != nil {
+		writeRecordError(w, r, err)
+		return
+	}
+	if err := e.enrich(r.Context(), event.Collection, record.Data); err != nil {
 		writeRecordError(w, r, err)
 		return
 	}
@@ -221,6 +245,10 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", prefix+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
 	writeCompatibilityHeaders(w, result.Compatibility)
+	if err := e.enrich(r.Context(), event.Collection, result.Record.Data); err != nil {
+		writeRecordError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, projection.Apply(result.Record.Data))
 }
 
@@ -279,6 +307,10 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", result.Record.ETag)
 	writeCompatibilityHeaders(w, result.Compatibility)
+	if err := e.enrich(r.Context(), event.Collection, result.Record.Data); err != nil {
+		writeRecordError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, projection.Apply(result.Record.Data))
 }
 
