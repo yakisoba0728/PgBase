@@ -66,6 +66,35 @@ func TestAuthAdministrationPolicyTakesEffectAndRevokesSessions(t *testing.T) {
 	}
 }
 
+func TestAuthPolicyEnforcesMaximumPatternAndDeclaredProfileIdentity(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	realm := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "identity_" + realm.String()[:8], RegistrationEnabled: true, ProfileSchema: map[string]string{"username": "text"}}); err != nil {
+		t.Fatal(err)
+	}
+	policy := AuthPolicy{PasswordEnabled: true, MinimumPasswordBytes: 12, MaximumPasswordBytes: 30, PasswordPattern: "[A-Z]", IdentityFields: []string{"username"}, MFAEnabled: true, MFADurationSeconds: 120, OTPEnabled: false, OTPDurationSeconds: 300, OTPMaxAttempts: 5}
+	if _, err := service.SetAuthPolicy(ctx, realm, policy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RegisterInCollection(ctx, realm, "identity@example.test", "correct horse battery", "identity-register"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("pattern registration = %v", err)
+	}
+	session, err := service.RegisterInCollection(ctx, realm, "identity@example.test", "Correct horse battery", "identity-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetProfile(ctx, session.User.ID, map[string]any{"username": "alexa"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.LoginInCollection(ctx, realm, "alexa", "Correct horse battery", "identity-login"); err != nil {
+		t.Fatalf("profile identity login = %v", err)
+	}
+	if _, err := service.LoginInCollection(ctx, realm, "identity@example.test", "Correct horse battery", "identity-email"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("disabled email identity = %v", err)
+	}
+}
+
 func TestAuthAdministrationNeverReturnsAndPreservesSecrets(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()
