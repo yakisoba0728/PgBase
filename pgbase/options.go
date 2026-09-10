@@ -48,7 +48,10 @@ type Options struct {
 	// SQLConsole enables the administrator SQL console with dedicated,
 	// least-privileged database roles. A nil value keeps its routes disabled.
 	SQLConsole *SQLConsoleOptions
-	Backups    BackupOptions
+	// EnableTrustedDatabaseAccess exposes the application PostgreSQL connection
+	// to trusted in-process Go extensions. It never enables JavaScript SQL.
+	EnableTrustedDatabaseAccess bool
+	Backups                     BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions
