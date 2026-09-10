@@ -10,8 +10,10 @@ final class PgBaseUuid {
 
   static String _parse(String source) {
     final normalized = source.toLowerCase();
+    // PostgreSQL UUID accepts every canonical 128-bit value.  In particular
+    // the nil and max sentinels have no RFC version/variant bits.
     if (!RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
     ).hasMatch(normalized)) {
       throw const PgBaseProtocolError('invalid_uuid');
     }

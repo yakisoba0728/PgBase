@@ -32,6 +32,14 @@ void main() {
         '99999999999999999999999.0001',
       );
       expect(() => ExactDecimal('1e3'), throwsA(isA<PgBaseProtocolError>()));
+      expect(
+        PgBaseUuid('00000000-0000-0000-0000-000000000000').value,
+        '00000000-0000-0000-0000-000000000000',
+      );
+      expect(
+        PgBaseUuid('FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF').value,
+        'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      );
     });
   });
 
@@ -174,6 +182,25 @@ void main() {
     await admin.configureJob('daily', '0 0 * * *', true);
     expect(client.requests.last.headers['x-pgbase-csrf'], 'csrf-token');
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
+  });
+
+  test('concurrent admin logins keep the newest cookie and CSRF paired', () async {
+    final client = _RacingAdminLoginClient();
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    final older = admin.login('old@example.test', 'password');
+    await client.oldLoginStarted.future;
+    final newer = admin.login('new@example.test', 'password');
+    await newer;
+    client.oldLoginResponse.complete(_adminLoginResponse('old'));
+    await older;
+    await admin.configureJob('daily', '0 0 * * *', true);
+
+    final mutation = client.requests.last;
+    expect(mutation.headers['cookie'], 'pgbase_admin=new');
+    expect(mutation.headers['x-pgbase-csrf'], 'csrf-new');
   });
 
   test('structured HTTP errors retain their ETag and details', () async {
@@ -821,6 +848,32 @@ final class _AdminStale401Client extends http.BaseClient {
       3 => _adminLoginResponse('new'),
       _ => _jsonResponse(204, null),
     };
+  }
+}
+
+final class _RacingAdminLoginClient extends http.BaseClient {
+  final List<_CapturedRequest> requests = [];
+  final oldLoginStarted = Completer<void>();
+  final oldLoginResponse = Completer<http.StreamedResponse>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(_CapturedRequest(
+      request.method,
+      request.url.path,
+      Map.unmodifiable(request.headers),
+      body,
+    ));
+    if (request.url.path == '/api/admin/auth/login') {
+      final email = (jsonDecode(utf8.decode(body)) as Map<String, dynamic>)['email'];
+      if (email == 'old@example.test') {
+        oldLoginStarted.complete();
+        return oldLoginResponse.future;
+      }
+      return _adminLoginResponse('new');
+    }
+    return _jsonResponse(204, null);
   }
 }
 

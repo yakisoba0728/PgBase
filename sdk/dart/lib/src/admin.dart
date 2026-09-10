@@ -106,8 +106,13 @@ final class PgBaseAdminClient {
       }
       throw pgBaseError(response);
     }
+    // An auth operation increments the generation before it is dispatched.
+    // Do not let an older, slower login replace the cookie that belongs to
+    // the CSRF token adopted by the newer login.
     final setCookie = response.headers['set-cookie'];
-    if (setCookie != null && setCookie.contains('=')) {
+    if (generation == _generation &&
+        setCookie != null &&
+        setCookie.contains('=')) {
       _cookie = setCookie.split(';').first;
     }
     if (response.status == 204 || response.bytes.isEmpty)
