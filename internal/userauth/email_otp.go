@@ -63,6 +63,12 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 		if !enabled {
 			return ErrInvalidCredentials
 		}
+		var configuredTTL int
+		if err := tx.QueryRow(ctx, `select ttl_seconds from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp'`, collectionID).Scan(&configuredTTL); err == nil {
+			duration = configuredTTL
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		result.ExpiresAt = now.Add(time.Duration(duration) * time.Second)
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active for update`, collectionID, normalized).Scan(&userID); err != nil {
 			return err
