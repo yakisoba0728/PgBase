@@ -15,10 +15,27 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
+
+func TestHeadOnlyReadValidatesSubscriptionOptions(t *testing.T) {
+	s, user, _ := realtimeFixture(t)
+	for _, request := range []ReadRequest{
+		{Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", Fields: "missing"},
+		{Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", Filter: "missing = true"},
+	} {
+		_, _, err := s.ReadFor(context.Background(), request)
+		var validation *query.ValidationError
+		if !errors.As(err, &validation) {
+			t.Fatalf("head-only ReadFor(%+v) = %v, want validation error", request, err)
+		}
+	}
+}
 
 func realtimeFixture(t *testing.T) (*Service, uuid.UUID, uuid.UUID) {
 	t.Helper()
@@ -39,10 +56,13 @@ func realtimeFixture(t *testing.T) (*Service, uuid.UUID, uuid.UUID) {
 	if _, err := pool.Exec(ctx, `INSERT INTO pgbase_meta.collections(id,name,table_name,status,created_at,updated_at) VALUES($1,'notes','notes','active',now(),now())`, collection); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE app.notes (id uuid PRIMARY KEY, created_at timestamptz, updated_at timestamptz)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO pgbase_meta.collection_access(collection_id,enabled) VALUES($1,true)`, collection); err != nil {
 		t.Fatal(err)
 	}
-	return NewService(pool, logger), user, collection
+	return NewService(pool, logger, schema.NewService(pool, &schema.Cache{}, nil)), user, collection
 }
 
 func insertEvent(t *testing.T, tx pgx.Tx, user, collection uuid.UUID) uuid.UUID {
@@ -55,8 +75,9 @@ func insertEvent(t *testing.T, tx pgx.Tx, user, collection uuid.UUID) uuid.UUID 
 		t.Fatal(err)
 	}
 	envelope, _ := json.Marshal(map[string]any{"version": 1, "eventId": event, "collectionId": collection, "collectionName": "notes", "recordId": record, "operation": "create", "recordVersion": 1, "changes": map[string]any{"title": "private"}})
-	if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox(event_id,topic,collection_id,collection_name,record_id,operation,record_version,envelope,created_at,owner_user_id)
- VALUES($1,'record.mutation.v1',$2,'notes',$3,'create',1,$4::jsonb,now(),$5)`, event, collection, record, string(envelope), user); err != nil {
+	snapshot, _ := json.Marshal(map[string]any{"id": record})
+	if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox(event_id,topic,collection_id,collection_name,record_id,operation,record_version,envelope,created_at,owner_user_id,record_snapshot)
+ VALUES($1,'record.mutation.v1',$2,'notes',$3,'create',1,$4::jsonb,now(),$5,$6::jsonb)`, event, collection, record, string(envelope), user, string(snapshot)); err != nil {
 		t.Fatal(err)
 	}
 	return event

@@ -29,6 +29,7 @@ type realtimeSubscription struct {
 }
 type realtimeClient struct {
 	mu                 sync.RWMutex
+	deliveryMu         sync.Mutex
 	id, address, token string
 	principal          identity.Subject
 	subscriptions      []realtimeSubscription
@@ -156,7 +157,9 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 		}
+		client.deliveryMu.Lock()
 		if !h.revalidate(r.Context(), client) {
+			client.deliveryMu.Unlock()
 			return
 		}
 		client.mu.RLock()
@@ -171,6 +174,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 			}
 			reader, ok := h.dependencies.Realtime.(realtimeV2)
 			if !ok {
+				client.deliveryMu.Unlock()
 				return
 			}
 			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
@@ -182,6 +186,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
 				_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", payload)
 				_ = control.Flush()
+				client.deliveryMu.Unlock()
 				return
 			}
 			for _, event := range events {
@@ -206,10 +211,12 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				if sub.fields != "" {
 					projection, compileErr := query.CompileProjection(sub.fields)
 					if compileErr != nil {
+						client.deliveryMu.Unlock()
 						return
 					}
 					projected, ok := projection.Apply(record).(map[string]any)
 					if !ok {
+						client.deliveryMu.Unlock()
 						return
 					}
 					record = projected
@@ -218,11 +225,13 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				messageFinish, messageErr := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "message", messageLifecycle)
 				if messageErr != nil {
 					messageFinish(messageErr)
+					client.deliveryMu.Unlock()
 					return
 				}
 				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
 				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
 					messageFinish(err)
+					client.deliveryMu.Unlock()
 					return
 				}
 				messageFinish(nil)
@@ -240,8 +249,10 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		}
 		client.mu.Unlock()
 		if err := control.Flush(); err != nil {
+			client.deliveryMu.Unlock()
 			return
 		}
+		client.deliveryMu.Unlock()
 	}
 }
 
@@ -261,10 +272,19 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: 404, Code: "realtime_client_not_found", Message: "Missing or invalid client id"})
 		return
 	}
+	client.deliveryMu.Lock()
+	defer client.deliveryMu.Unlock()
 	principal := realtimeSubject(r)
 	address, _ := clientIP(r, h.dependencies.trustedProxies())
-	if client.address != address || client.principal.Kind != identity.Anonymous && client.principal != principal {
+	client.mu.RLock()
+	clientAddress, currentPrincipal := client.address, client.principal
+	client.mu.RUnlock()
+	if clientAddress != address {
 		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_realtime_client", Message: "Invalid realtime client"})
+		return
+	}
+	if currentPrincipal.Kind != identity.Anonymous && currentPrincipal != principal {
+		writeAPIError(w, r, APIError{Status: 403, Code: "realtime_authorization_mismatch", Message: "Realtime authorization does not match"})
 		return
 	}
 	subscriptions := make([]realtimeSubscription, 0, len(form.Subscriptions))
@@ -291,16 +311,39 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: 503, Code: "realtime_unavailable", Message: "Realtime is unavailable"})
 		return
 	}
+	client.mu.RLock()
+	resume := client.resume
+	previous := make(map[string]*int64, len(client.subscriptions))
+	if currentPrincipal == principal {
+		for _, subscription := range client.subscriptions {
+			previous[subscription.raw] = cloneRealtimeCursor(subscription.cursor)
+		}
+	}
+	client.mu.RUnlock()
 	for index := range subscriptions {
-		if client.resume != nil {
-			value := *client.resume
-			subscriptions[index].cursor = &value
-		} else {
-			_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields})
+		// Always validate against the current schema and policy before replacing
+		// client state, even when a reconnect cursor is already available.
+		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields})
+		if errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord) {
+			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID})
+		}
+		if err != nil {
+			writeRealtimeError(w, r, err)
+			return
+		}
+		if subscriptions[index].expand != "" && h.dependencies.Records != nil {
+			_, err = h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: subscriptions[index].collection, Limit: 1, Filter: subscriptions[index].filter, Expand: subscriptions[index].expand, Fields: subscriptions[index].fields})
 			if err != nil {
 				writeRealtimeError(w, r, err)
 				return
 			}
+		}
+		if cursor, exists := previous[subscriptions[index].raw]; exists {
+			subscriptions[index].cursor = cloneRealtimeCursor(cursor)
+		} else if resume != nil {
+			value := *resume
+			subscriptions[index].cursor = &value
+		} else {
 			subscriptions[index].cursor = &head
 		}
 	}
@@ -311,6 +354,14 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	client.resume = nil
 	client.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func cloneRealtimeCursor(cursor *int64) *int64 {
+	if cursor == nil {
+		return nil
+	}
+	value := *cursor
+	return &value
 }
 
 func realtimeCredential(r *http.Request) string {
