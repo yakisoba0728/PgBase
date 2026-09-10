@@ -357,12 +357,17 @@ func (host *extensionHost) callAppRecords(ctx context.Context, method string, ra
 			return nil, extensionError("invalid_record_request", err)
 		}
 		encoded, _ := json.Marshal(request)
-		if request.ID == "" {
-			return host.callRecords(ctx, "records.create", encoded)
+		operation, method := "create", "records.create"
+		if request.ID != "" {
+			operation, method = "update", "records.update"
 		}
-		return host.callRecords(ctx, "records.update", encoded)
+		return host.runAppModelMutation(ctx, operation, request, func() (json.RawMessage, error) { return host.callRecords(ctx, method, encoded) })
 	case "app.model.delete":
-		return host.callRecords(ctx, "records.delete", raw)
+		var request extensionRecordRequest
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		return host.runAppModelMutation(ctx, "delete", request, func() (json.RawMessage, error) { return host.callRecords(ctx, "records.delete", raw) })
 	case "app.model.validate":
 		var request extensionRecordRequest
 		if err := decodeExtensionInput(raw, &request); err != nil {
@@ -380,6 +385,27 @@ func (host *extensionHost) callAppRecords(ctx context.Context, method string, ra
 		return marshalExtensionResult(map[string]bool{"valid": err == nil}, err)
 	}
 	return nil, extensionError("unsupported_operation", nil)
+}
+
+func (host *extensionHost) runAppModelMutation(ctx context.Context, operation string, model any, execute func() (json.RawMessage, error)) (json.RawMessage, error) {
+	if host.bridge.appControl == nil || host.bridge.appControl.app == nil {
+		return nil, extensionError("app_control_unavailable", errors.New("application lifecycle unavailable"))
+	}
+	event := &ModelMutationEvent{Operation: operation, Model: model}
+	var output json.RawMessage
+	err := host.bridge.appControl.app.RunModelMutation(ctx, event, func(context.Context, *ModelMutationEvent) error {
+		var err error
+		output, err = execute()
+		if err == nil {
+			event.Result = json.RawMessage(output)
+		}
+		return err
+	})
+	if err != nil && host.bridge.appControl.app.options.Hooks != nil {
+		failed := &ModelMutationEvent{Operation: operation, Family: "record", Model: model, Err: err}
+		_ = host.bridge.appControl.app.options.Hooks.Run(ctx, &HookEvent{Kind: "record.model." + operation + ".error", Data: failed, Err: err}, func() error { return nil })
+	}
+	return output, err
 }
 
 func (host *extensionHost) operationContext(caller context.Context) (context.Context, func(), error) {

@@ -313,6 +313,14 @@ func validateRequestedCapabilities(requested []string, enabled map[string]bool, 
 }
 
 func knownJavaScriptHook(kind string) bool {
+	if strings.HasPrefix(kind, "model.") || strings.HasPrefix(kind, "record.model.") || strings.HasPrefix(kind, "collection.model.") {
+		parts := strings.Split(kind, ".")
+		phase := strings.Join(parts[1:], ".")
+		if parts[0] == "record" || parts[0] == "collection" {
+			phase = strings.Join(parts[2:], ".")
+		}
+		return slices.Contains([]string{"validate", "create", "create.execute", "create.success", "create.error", "update", "update.execute", "update.success", "update.error", "delete", "delete.execute", "delete.success", "delete.error"}, phase)
+	}
 	return slices.Contains([]string{
 		HookRequest, HookRecordBefore, HookRecordAfter, HookMailSend, HookMailOTP, HookMailVerification,
 		HookMailPasswordReset, HookMailEmailChange, HookMailSMTPTest, HookFileUpload, HookFileDelete,

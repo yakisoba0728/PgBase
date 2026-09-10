@@ -84,7 +84,28 @@ func (h schemaLifecycleHooks) BeginCollectionMutation(ctx context.Context, event
 	case "delete":
 		kind = HookCollectionDelete
 	}
-	return h.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+	model := &ModelMutationEvent{Operation: event.Operation, Family: "collection", Model: event}
+	if err := runMutationPhases(ctx, h.registry, model, "validate"); err != nil {
+		return func(error) {}, err
+	}
+	if err := runMutationPhases(ctx, h.registry, model, event.Operation); err != nil {
+		return func(error) {}, err
+	}
+	if err := runMutationPhases(ctx, h.registry, model, event.Operation+".execute"); err != nil {
+		return func(error) {}, err
+	}
+	finish, err := h.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+	return func(operationErr error) {
+		finish(operationErr)
+		model.Err = operationErr
+		phase := "success"
+		if operationErr != nil {
+			phase = "error"
+		}
+		for _, eventKind := range []string{"model." + event.Operation + "." + phase, "collection.model." + event.Operation + "." + phase} {
+			_ = h.registry.Run(ctx, &HookEvent{Kind: eventKind, Data: model, Err: operationErr}, func() error { return nil })
+		}
+	}, err
 }
 
 // RequestEvent gives trusted extensions the request and response writer before
@@ -138,10 +159,21 @@ type recordLifecycleHooks struct{ registry *HookRegistry }
 func (h recordLifecycleHooks) BeforeMutation(ctx context.Context, mutation recordops.Mutation) error {
 	// Validation is inside the write transaction and can repeat on retry. Do not
 	// perform external side effects here; record.after is commit-only observation.
-	return h.registry.Run(ctx, &HookEvent{Kind: HookRecordBefore, Data: mutation}, func() error { return nil })
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation}
+	return h.registry.Run(ctx, &HookEvent{Kind: HookRecordBefore, Data: mutation}, func() error {
+		if err := h.registry.Run(ctx, &HookEvent{Kind: "record.model.validate", Data: model}, func() error { return nil }); err != nil {
+			return err
+		}
+		if err := h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation, Data: model}, func() error { return nil }); err != nil {
+			return err
+		}
+		return h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".execute", Data: model}, func() error { return nil })
+	})
 }
 func (h recordLifecycleHooks) AfterMutation(ctx context.Context, mutation recordops.Mutation) {
 	_ = h.registry.Run(ctx, &HookEvent{Kind: HookRecordAfter, Data: mutation}, func() error { return nil })
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation}
+	_ = h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".success", Data: model}, func() error { return nil })
 }
 
 type hookedMailer struct {

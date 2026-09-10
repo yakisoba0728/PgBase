@@ -205,8 +205,33 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 	for event, slots := range hookSlots {
 		event, slots := event, slots
 		used := 0
-		registerHook := func(handler goja.Value) error {
-			id, err := register("hook", event, handler, nil)
+		registerHook := func(handlerValue goja.Value, tags ...string) error {
+			handler, ok := goja.AssertFunction(handlerValue)
+			if !ok {
+				return errors.New("registered handler must be a function")
+			}
+			registeredValue := vm.ToValue(func(inner goja.FunctionCall) goja.Value {
+				if len(inner.Arguments) == 0 {
+					panic(vm.NewTypeError("hook event is required"))
+				}
+				obj := inner.Arguments[0].ToObject(vm)
+				if len(tags) != 0 && !hookTagMatches(vm, obj, tags) {
+					return vm.ToValue(map[string]any{})
+				}
+				called := false
+				if err := obj.Set("next", func() { called = true }); err != nil {
+					panic(vm.NewGoError(err))
+				}
+				result, err := handler(goja.Undefined(), obj)
+				if err != nil {
+					panic(err)
+				}
+				// Existing PgBase handlers predate e.next and are terminal JSON
+				// transformers. Calling next is accepted; thrown errors still veto.
+				_ = called
+				return result
+			})
+			id, err := register("hook", event, registeredValue, nil)
 			if err != nil {
 				return err
 			}
@@ -235,6 +260,29 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 	return set, nil
 }
 
+func hookTagMatches(vm *goja.Runtime, event *goja.Object, tags []string) bool {
+	data := event.Get("data")
+	if data == nil || goja.IsUndefined(data) || goja.IsNull(data) {
+		return false
+	}
+	obj := data.ToObject(vm)
+	if nested := obj.Get("model"); nested != nil && !goja.IsUndefined(nested) && !goja.IsNull(nested) {
+		obj = nested.ToObject(vm)
+	}
+	for _, key := range []string{"collection", "collectionName", "name", "realm"} {
+		value := obj.Get(key)
+		if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
+			continue
+		}
+		for _, tag := range tags {
+			if value.String() == tag {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func hookGlobalName(event string) string {
 	var b strings.Builder
 	b.WriteString("on")
@@ -255,6 +303,23 @@ func hookGlobalName(event string) string {
 
 func hookGlobalNames(event string) []string {
 	aliases := map[string]string{"mail.send": "onMailerSend", "mail.otp": "onMailerRecordOTPSend", "mail.verification": "onMailerRecordVerificationSend", "mail.password_reset": "onMailerRecordPasswordResetSend", "mail.email_change": "onMailerRecordEmailChangeSend", "record.list": "onRecordsListRequest", "record.view": "onRecordViewRequest", "record.create": "onRecordCreateRequest", "record.update": "onRecordUpdateRequest", "record.delete": "onRecordDeleteRequest", "record.batch": "onBatchRequest", "file.download": "onFileDownloadRequest", "file.token": "onFileTokenRequest", "settings.reload": "onSettingsReload", "realtime.connect": "onRealtimeConnectRequest", "realtime.subscribe": "onRealtimeSubscribeRequest", "realtime.message": "onRealtimeMessageSend", "backup.create": "onBackupCreate", "backup.restore": "onBackupRestore", "app.boot": "onBootstrap", "app.serve": "onServe", "app.terminate": "onTerminate"}
+	if event == "schema.import.preview" || event == "schema.import.apply" {
+		return []string{"onCollectionsImportRequest", hookGlobalName(event)}
+	}
+	phaseAliases := map[string]string{
+		"model.validate": "onModelValidate", "model.create": "onModelCreate", "model.create.execute": "onModelCreateExecute", "model.create.success": "onModelAfterCreateSuccess", "model.create.error": "onModelAfterCreateError",
+		"model.update": "onModelUpdate", "model.update.execute": "onModelUpdateExecute", "model.update.success": "onModelAfterUpdateSuccess", "model.update.error": "onModelAfterUpdateError",
+		"model.delete": "onModelDelete", "model.delete.execute": "onModelDeleteExecute", "model.delete.success": "onModelAfterDeleteSuccess", "model.delete.error": "onModelAfterDeleteError",
+		"record.model.validate": "onRecordValidate", "record.model.create": "onRecordCreate", "record.model.create.execute": "onRecordCreateExecute", "record.model.create.success": "onRecordAfterCreateSuccess", "record.model.create.error": "onRecordAfterCreateError",
+		"record.model.update": "onRecordUpdate", "record.model.update.execute": "onRecordUpdateExecute", "record.model.update.success": "onRecordAfterUpdateSuccess", "record.model.update.error": "onRecordAfterUpdateError",
+		"record.model.delete": "onRecordDelete", "record.model.delete.execute": "onRecordDeleteExecute", "record.model.delete.success": "onRecordAfterDeleteSuccess", "record.model.delete.error": "onRecordAfterDeleteError",
+		"collection.model.validate": "onCollectionValidate", "collection.model.create": "onCollectionCreate", "collection.model.create.execute": "onCollectionCreateExecute", "collection.model.create.success": "onCollectionAfterCreateSuccess", "collection.model.create.error": "onCollectionAfterCreateError",
+		"collection.model.update": "onCollectionUpdate", "collection.model.update.execute": "onCollectionUpdateExecute", "collection.model.update.success": "onCollectionAfterUpdateSuccess", "collection.model.update.error": "onCollectionAfterUpdateError",
+		"collection.model.delete": "onCollectionDelete", "collection.model.delete.execute": "onCollectionDeleteExecute", "collection.model.delete.success": "onCollectionAfterDeleteSuccess", "collection.model.delete.error": "onCollectionAfterDeleteError",
+	}
+	if alias := phaseAliases[event]; alias != "" {
+		return []string{alias, hookGlobalName(event)}
+	}
 	base := hookGlobalName(event)
 	if event == "auth.refresh" {
 		return []string{"onRecordAuthRequest", "onRecordAuthRefreshRequest", base}
