@@ -21,6 +21,7 @@ import (
 
 	"github.com/dop251/goja/ast"
 	"github.com/dop251/goja/parser"
+	"github.com/evanw/esbuild/pkg/api"
 )
 
 const (
@@ -210,7 +211,7 @@ func LoadBundle(directory string) (*Bundle, error) {
 			return err
 		}
 		name := filepath.ToSlash(relative)
-		if name == "pgbase.scripts.json" || (!strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".json")) {
+		if name == "pgbase.scripts.json" || (!strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".json")) {
 			return nil
 		}
 		if len(sources) >= maximumSourceFiles {
@@ -219,6 +220,13 @@ func LoadBundle(directory string) (*Bundle, error) {
 		contents, err := readRegularFile(filename, maximumModuleSize)
 		if err != nil {
 			return fmt.Errorf("read JavaScript source %s: %w", name, err)
+		}
+		if strings.HasSuffix(name, ".ts") {
+			transformed := api.Transform(string(contents), api.TransformOptions{Loader: api.LoaderTS, Format: api.FormatCommonJS, Target: api.ES2020, Sourcefile: name, Sourcemap: api.SourceMapNone})
+			if len(transformed.Errors) > 0 {
+				return fmt.Errorf("transpile TypeScript source %s: %s", name, transformed.Errors[0].Text)
+			}
+			contents = transformed.Code
 		}
 		total += len(contents)
 		if total > maximumBundleSize {
@@ -442,8 +450,8 @@ func (b *Bundle) canonicalModule(name string) (string, error) {
 	if _, ok := b.sources[name]; ok {
 		return name, nil
 	}
-	if !strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".json") {
-		for _, suffix := range []string{".js", ".json"} {
+	if !strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".json") {
+		for _, suffix := range []string{".js", ".ts", ".json"} {
 			if _, ok := b.sources[name+suffix]; ok {
 				return name + suffix, nil
 			}

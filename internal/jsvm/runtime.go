@@ -123,17 +123,18 @@ func (limits Limits) normalized() (Limits, error) {
 func (limits Limits) NormalizedForPublic() (Limits, error) { return limits.normalized() }
 
 type Runtime struct {
-	bundle   *Bundle
-	limits   Limits
-	registry *require.Registry
-	states   sync.Map
-	slots    chan struct{}
-	root     context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	closed   bool
-	waiting  int
-	active   sync.WaitGroup
+	bundle      *Bundle
+	limits      Limits
+	registry    *require.Registry
+	states      sync.Map
+	slots       chan struct{}
+	root        context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
+	closed      bool
+	waiting     int
+	active      sync.WaitGroup
+	initializer func(*goja.Runtime) error
 }
 
 type callState struct {
@@ -154,6 +155,13 @@ type executionChain struct {
 const virtualRoot = "/pgbase-js"
 
 func NewRuntime(bundle *Bundle, limits Limits) (*Runtime, error) {
+	return NewRuntimeWithInitializer(bundle, limits, nil)
+}
+
+// NewRuntimeWithInitializer installs trusted host bindings into every fresh VM
+// used for validation and execution. The callback must be deterministic and
+// must not retain the VM after it returns.
+func NewRuntimeWithInitializer(bundle *Bundle, limits Limits, initializer func(*goja.Runtime) error) (*Runtime, error) {
 	if bundle == nil {
 		return nil, errors.New("JavaScript bundle is nil")
 	}
@@ -162,7 +170,7 @@ func NewRuntime(bundle *Bundle, limits Limits) (*Runtime, error) {
 		return nil, err
 	}
 	root, cancel := context.WithCancel(context.Background())
-	runtime := &Runtime{bundle: bundle, limits: normalized, slots: make(chan struct{}, normalized.Concurrency), root: root, cancel: cancel}
+	runtime := &Runtime{bundle: bundle, limits: normalized, slots: make(chan struct{}, normalized.Concurrency), root: root, cancel: cancel, initializer: initializer}
 	runtime.registry = require.NewRegistry(
 		require.WithLoader(runtime.loadSource),
 		require.WithPathResolver(resolveModulePath),
@@ -321,6 +329,11 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		return nil, &Error{Code: CodeExecutionFailed, cause: err}
 	}
 	vm := goja.New()
+	if r.initializer != nil {
+		if err := r.initializer(vm); err != nil {
+			return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("initialize JavaScript VM: %w", err)}
+		}
+	}
 	vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 	vm.SetParserOptions(parser.WithDisableSourceMaps)
 	r.states.Store(vm, state)
@@ -402,6 +415,11 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 	for _, ref := range refs {
 		state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
 		vm := goja.New()
+		if r.initializer != nil {
+			if err := r.initializer(vm); err != nil {
+				return fmt.Errorf("initialize JavaScript VM: %w", err)
+			}
+		}
 		vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 		vm.SetParserOptions(parser.WithDisableSourceMaps)
 		r.states.Store(vm, state)
@@ -465,6 +483,7 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 		"files":     {"list", "upload", "delete", "token", "read", "open", "readChunk", "close"},
 		"migration": {"query", "exec", "applySnapshot"},
 		"log":       {"debug", "info", "warn", "error"},
+		"template":  {"render"},
 	} {
 		object := vm.NewObject()
 		for _, method := range methods {

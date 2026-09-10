@@ -30,7 +30,7 @@ func prepareJavaScript(options JavaScriptOptions) (*javaScriptRuntime, error) {
 	if err := validateJavaScriptRegistration(bundle.Manifest(), options.Capabilities); err != nil {
 		return nil, err
 	}
-	engine, err := jsvm.NewRuntime(bundle, options.limits())
+	engine, err := jsvm.NewRuntimeWithInitializer(bundle, options.limits(), options.OnInit)
 	if err != nil {
 		return nil, err
 	}

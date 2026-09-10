@@ -51,7 +51,9 @@ type Options struct {
 	// EnableTrustedDatabaseAccess exposes the application PostgreSQL connection
 	// to trusted in-process Go extensions. It never enables JavaScript SQL.
 	EnableTrustedDatabaseAccess bool
-	Backups                     BackupOptions
+	// Templates is an optional precompiled registry shared by Go and JavaScript extensions.
+	Templates *TemplateRegistry
+	Backups   BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions

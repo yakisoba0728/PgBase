@@ -48,6 +48,8 @@ github.com/dop251/goja v0.0.0-20260906210903-70ad66ec7ce4 h1:GsWm9G80nlJAmJE/r9q
 github.com/dop251/goja v0.0.0-20260906210903-70ad66ec7ce4/go.mod h1:u8yZRUavu+N4EnFFy6J5fVtjE7lEcZ2YyV2GcBXY9c8=
 github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14 h1:3U8dTgyNBhEQ/GVw0jZW5q+93Zw2gAZPRWhJ9TwV3rM=
 github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14/go.mod h1:Tb7Xxye4LX7cT3i8YLvmPMGCV92IOi4CDZvm/V8ylc0=
+github.com/evanw/esbuild v0.28.2 h1:A2uETn4jrQTcXaT/shwTDTYBxDjl7fV7nXmUrJxfA2w=
+github.com/evanw/esbuild v0.28.2/go.mod h1:D2vIQZqV/vIf/VRHtViaUtViZmG7o+kKmlBfVQuRi48=
 github.com/go-sourcemap/sourcemap v2.1.4+incompatible h1:a+iTbH5auLKxaNwQFg0B+TCYl6lbukKPc7b5x0n1s6Q=
 github.com/go-sourcemap/sourcemap v2.1.4+incompatible/go.mod h1:F8jJfvm2KbVjc5NqelyYJmf/v5J0dwNLS2mL4sNA1Jg=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
@@ -101,6 +103,7 @@ golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
 golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
 golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
 golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
+golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
 golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
 golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=

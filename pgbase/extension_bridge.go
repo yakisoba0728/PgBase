@@ -24,11 +24,12 @@ import (
 )
 
 type extensionBridge struct {
-	records *recordops.Service
-	files   *filestore.Service
-	mailer  mailer.Sender
-	logger  *slog.Logger
-	hooks   *HookRegistry
+	records   *recordops.Service
+	files     *filestore.Service
+	mailer    mailer.Sender
+	logger    *slog.Logger
+	hooks     *HookRegistry
+	templates *TemplateRegistry
 }
 
 type extensionHost struct {
@@ -82,6 +83,22 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callMail(operationContext, input)
 	case "files.list", "files.upload", "files.delete", "files.token", "files.read", "files.open", "files.readChunk", "files.close":
 		return host.callFiles(operationContext, method, input)
+	case "template.render":
+		if host.bridge.templates == nil {
+			return nil, extensionError("template_unavailable", errors.New("template registry is unavailable"))
+		}
+		var request struct {
+			Name string          `json:"name"`
+			Data json.RawMessage `json:"data"`
+		}
+		if err := decodeExtensionInput(input, &request); err != nil {
+			return nil, err
+		}
+		output, err := host.bridge.templates.renderJSON(request.Name, request.Data)
+		if err != nil {
+			return nil, extensionError("template_render_failed", err)
+		}
+		return json.Marshal(map[string]string{"output": output})
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}

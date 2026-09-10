@@ -40,6 +40,7 @@ require (
 	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/dop251/goja v0.0.0-20260906210903-70ad66ec7ce4 // indirect
 	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14 // indirect
+	github.com/evanw/esbuild v0.28.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

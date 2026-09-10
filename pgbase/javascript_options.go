@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dop251/goja"
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
@@ -29,6 +30,9 @@ type JavaScriptOptions struct {
 	MaximumHostCalls   int
 	MaximumInputBytes  int
 	MaximumOutputBytes int
+	// OnInit installs trusted application bindings in every fresh VM. It runs
+	// during validation and each invocation and must not retain the VM.
+	OnInit func(*goja.Runtime) error
 }
 
 type JavaScriptHandler struct {
@@ -82,7 +86,7 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log":
+		case "records", "mail", "files", "log", "template":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
@@ -133,7 +137,7 @@ func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (manifes
 	if err != nil {
 		return JavaScriptManifest{}, err
 	}
-	runtime, err := jsvm.NewRuntime(bundle, normalized.limits())
+	runtime, err := jsvm.NewRuntimeWithInitializer(bundle, normalized.limits(), normalized.OnInit)
 	if err != nil {
 		return JavaScriptManifest{}, err
 	}

@@ -18,9 +18,10 @@ import (
 // ExtensionContext exposes PgBase domain operations for one admitted request.
 // It contains no session, bearer token, database handle, or storage key.
 type ExtensionContext struct {
-	Records ExtensionRecords
-	Mail    ExtensionMail
-	Files   ExtensionFiles
+	Records   ExtensionRecords
+	Mail      ExtensionMail
+	Files     ExtensionFiles
+	Templates *TemplateRegistry
 }
 
 // ExtensionsForRequest derives authority from PgBase's request middleware.
@@ -34,7 +35,7 @@ func (a *App) ExtensionsForRequest(ctx context.Context) (*ExtensionContext, erro
 		return nil, errors.New("extension request context is not admitted")
 	}
 	host := &extensionHost{bridge: a.extensions, principal: principal, requestID: requestID, valid: true, authorityContext: ctx}
-	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}}, nil
+	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}, Templates: a.extensions.templates}, nil
 }
 
 type ExtensionListOptions struct {
