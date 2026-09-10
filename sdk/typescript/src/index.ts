@@ -9,9 +9,13 @@ export type Query = {
   filter?: string;
   sort?: string;
   expand?: string;
+  /** Comma-separated record fields to return. */
+  fields?: string;
   cursor?: string;
   limit?: number;
 };
+/** Options accepted by a single-record read. */
+export type RecordGetOptions = Pick<Query, "expand" | "fields">;
 export type RecordEvent = {
   /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
   eventId: string;
@@ -31,7 +35,16 @@ export type EventOptions = {
 export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "create"; collection: string; input: Omit<T, "id">; idempotencyKey?: string }
   | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
+  | BatchUpsertOperation<T>
   | { operation: "delete"; collection: string; id: string; ifMatch?: string };
+/** An atomic PUT-equivalent batch operation: creates the ID when absent, otherwise updates it. */
+export type BatchUpsertOperation<T extends RecordData = RecordData> = {
+  operation: "upsert";
+  collection: string;
+  id: string;
+  input: Partial<T>;
+  ifMatch?: string;
+};
 export type BatchResult<T extends RecordData = RecordData> = { eventId: string; record?: T; etag?: string; version?: number };
 export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T>; headers?: Record<string,string> };
 export type BatchHTTPResult<T extends RecordData = RecordData> = { status: number; headers?: Record<string,string>; body?: T; eventId: string; etag?: string; version?: number };
@@ -422,11 +435,19 @@ export class Records<T extends RecordData> {
     return this.client._request(`${this.path()}${suffix}`, {}, signal);
   }
 
-  async get(id: string, signal?: AbortSignal): Promise<T> {
-    return (await this.getWithETag(id, signal)).record;
+  get(id: string, signal?: AbortSignal): Promise<T>;
+  get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
+  async get(id: string, optionsOrSignal?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+    return (await this.getWithETag(id, options, requestSignal)).record;
   }
 
-  getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>> { return this.recordResponse(this.path(id), {}, signal); }
+  getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
+  getWithETag(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordResult<T>>;
+  getWithETag(id: string, optionsOrSignal?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+    const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+    return this.recordResponse(this.path(id, options), {}, requestSignal);
+  }
 
   async create(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<T> {
     return (await this.createWithETag(data, idempotencyKey, signal)).record;
@@ -521,9 +542,14 @@ export class Records<T extends RecordData> {
     }
   }
 
-  private path(id?: string): string {
+  private path(id?: string, query?: RecordGetOptions): string {
     const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-    return id ? `${base}/${encodeURIComponent(id)}` : base;
+    if (!id) return base;
+    const parameters = new URLSearchParams();
+    if (query?.expand !== undefined) parameters.set("expand", query.expand);
+    if (query?.fields !== undefined) parameters.set("fields", query.fields);
+    const suffix = parameters.size ? `?${parameters}` : "";
+    return `${base}/${encodeURIComponent(id)}${suffix}`;
   }
 
   private eventsPath(): string {
@@ -534,6 +560,14 @@ export class Records<T extends RecordData> {
     const response = await this.client._response<T>(path, init, signal);
     return { record: response.body, etag: response.etag };
   }
+}
+
+function recordGetArguments(
+  optionsOrSignal?: RecordGetOptions | AbortSignal,
+  signal?: AbortSignal,
+): [RecordGetOptions | undefined, AbortSignal | undefined] {
+  if (optionsOrSignal && "aborted" in optionsOrSignal) return [undefined, optionsOrSignal];
+  return [optionsOrSignal as RecordGetOptions | undefined, signal];
 }
 
 function canonicalDeliveryCursor(value: string | number): string {

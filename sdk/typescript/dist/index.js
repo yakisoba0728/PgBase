@@ -379,10 +379,14 @@ export class Records {
         const suffix = parameters.size ? `?${parameters}` : "";
         return this.client._request(`${this.path()}${suffix}`, {}, signal);
     }
-    async get(id, signal) {
-        return (await this.getWithETag(id, signal)).record;
+    async get(id, optionsOrSignal, signal) {
+        const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+        return (await this.getWithETag(id, options, requestSignal)).record;
     }
-    getWithETag(id, signal) { return this.recordResponse(this.path(id), {}, signal); }
+    getWithETag(id, optionsOrSignal, signal) {
+        const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+        return this.recordResponse(this.path(id, options), {}, requestSignal);
+    }
     async create(data, idempotencyKey, signal) {
         return (await this.createWithETag(data, idempotencyKey, signal)).record;
     }
@@ -470,9 +474,17 @@ export class Records {
             stopOnAuthChange();
         }
     }
-    path(id) {
+    path(id, query) {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-        return id ? `${base}/${encodeURIComponent(id)}` : base;
+        if (!id)
+            return base;
+        const parameters = new URLSearchParams();
+        if (query?.expand !== undefined)
+            parameters.set("expand", query.expand);
+        if (query?.fields !== undefined)
+            parameters.set("fields", query.fields);
+        const suffix = parameters.size ? `?${parameters}` : "";
+        return `${base}/${encodeURIComponent(id)}${suffix}`;
     }
     eventsPath() {
         return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
@@ -481,6 +493,11 @@ export class Records {
         const response = await this.client._response(path, init, signal);
         return { record: response.body, etag: response.etag };
     }
+}
+function recordGetArguments(optionsOrSignal, signal) {
+    if (optionsOrSignal && "aborted" in optionsOrSignal)
+        return [undefined, optionsOrSignal];
+    return [optionsOrSignal, signal];
 }
 function canonicalDeliveryCursor(value) {
     if (typeof value === "number" && !Number.isSafeInteger(value))

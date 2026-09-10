@@ -35,13 +35,23 @@ final class Records {
     );
   }
 
-  Future<JsonObject> get(String id, {CancellationToken? cancellation}) async =>
-      (await getWithEtag(id, cancellation: cancellation)).record;
+  Future<JsonObject> get(
+    String id, {
+    String? fields,
+    CancellationToken? cancellation,
+  }) async =>
+      (await getWithEtag(id, fields: fields, cancellation: cancellation)).record;
 
   Future<RecordResult<JsonObject>> getWithEtag(
     String id, {
+    String? fields,
     CancellationToken? cancellation,
-  }) => _client.recordRequest('GET', _path(id), cancellation: cancellation);
+  }) => _client.recordRequest(
+    'GET',
+    _path(id),
+    query: {if (fields != null) 'fields': fields},
+    cancellation: cancellation,
+  );
 
   Future<JsonObject> create(
     JsonObject input,
@@ -121,6 +131,7 @@ final class Records {
           filter: query.filter,
           sort: query.sort,
           expand: query.expand,
+          fields: query.fields,
           cursor: next,
           limit: query.limit,
         ),
@@ -151,6 +162,86 @@ final class Records {
 final class BatchOperation {
   const BatchOperation(this.value);
   final JsonObject value;
+
+  factory BatchOperation.create({
+    required String collection,
+    required JsonObject input,
+    required String idempotencyKey,
+  }) => BatchOperation(
+    JsonObject({
+      'operation': const JsonString('create'),
+      'collection': JsonString(collection),
+      'input': input,
+      'idempotencyKey': JsonString(idempotencyKey),
+    }),
+  );
+
+  factory BatchOperation.update({
+    required String collection,
+    required String id,
+    required JsonObject input,
+    String? ifMatch,
+  }) => _mutation('update', collection, id, input, ifMatch);
+
+  /// Creates or replaces the supplied record through the batch upsert form.
+  factory BatchOperation.upsert({
+    required String collection,
+    required String id,
+    required JsonObject input,
+    String? ifMatch,
+  }) => _mutation('upsert', collection, id, input, ifMatch);
+
+  factory BatchOperation.delete({
+    required String collection,
+    required String id,
+    String? ifMatch,
+  }) => BatchOperation(
+    JsonObject({
+      'operation': const JsonString('delete'),
+      'collection': JsonString(collection),
+      'id': JsonString(id),
+      if (ifMatch != null) 'ifMatch': JsonString(ifMatch),
+    }),
+  );
+
+  static BatchOperation _mutation(
+    String operation,
+    String collection,
+    String id,
+    JsonObject input,
+    String? ifMatch,
+  ) => BatchOperation(
+    JsonObject({
+      'operation': JsonString(operation),
+      'collection': JsonString(collection),
+      'id': JsonString(id),
+      'input': input,
+      if (ifMatch != null) 'ifMatch': JsonString(ifMatch),
+    }),
+  );
+}
+
+/// A typed request for the generic batch endpoint.
+final class BatchHttpRequest {
+  const BatchHttpRequest(this.value);
+  final JsonObject value;
+
+  factory BatchHttpRequest.upsert({
+    required String collection,
+    required String id,
+    required JsonObject input,
+    String? ifMatch,
+  }) => BatchHttpRequest(
+    JsonObject({
+      'method': const JsonString('PUT'),
+      'url': JsonString(
+        '/api/v1/collections/${Uri.encodeComponent(collection)}/records/${Uri.encodeComponent(id)}',
+      ),
+      'body': input,
+      if (ifMatch != null)
+        'headers': JsonObject({'if-match': JsonString(ifMatch)}),
+    }),
+  );
 }
 
 Future<JsonObject> submitBatch(

@@ -40,7 +40,8 @@ const server = createServer(async (request, response) => {
     if(input.requests){response.end(JSON.stringify({results:[{eventId:"00000000-0000-0000-0000-000000000005",status:200,headers:{ETag:'"pgb1.upsert"'},body:{id:"note-upsert",title:"upserted"},etag:'"pgb1.upsert"',version:1}]}));return;}
     response.end(JSON.stringify({ results: [
       { eventId: "00000000-0000-0000-0000-000000000003", record: { id: "note-3", title: "batched" }, etag: '"pgb1.batch"', version: 1 },
-      { eventId: "00000000-0000-0000-0000-000000000004" },
+      { eventId: "00000000-0000-0000-0000-000000000004", record: { id: "00000000-0000-4000-8000-000000000099", title: "upserted" }, etag: '"pgb1.upsert"', version: 2 },
+      { eventId: "00000000-0000-0000-0000-000000000005" },
     ] }));
     return;
   }
@@ -73,6 +74,11 @@ const server = createServer(async (request, response) => {
 	  return;
 	}
     response.end('event: record\nid: 1\ndata: {"eventId":"00000000-0000-0000-0000-000000000001","collection":"notes","recordId":"note-1","operation":"create","version":1}\n\nevent: cursor\nid: 1\ndata: {}\n\nevent: record\nid: 2\ndata: {"eventId":"00000000-0000-0000-0000-000000000002","collection":"notes","recordId":"note-2","operation":"update","version":2}\n\n');
+    return;
+  }
+  if (request.url?.startsWith("/api/v1/user/collections/notes/records/note-1") && request.method === "GET") {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ id: "note-1", title: "private" }));
     return;
   }
   if (request.url?.startsWith("/api/v1/user/collections/notes/records") && request.method === "GET") {
@@ -151,14 +157,21 @@ try {
   assert.throws(() => realm.oauthCompleteFromURL("github", "https://app.test/callback?state=only"), (error) => error.code === "invalid_callback");
   client.auth.save("first-token");
 
-  const page = await client.records("notes").list({ filter: 'title = "private"', sort: "-createdAt", expand: "author", cursor: "current", limit: 20 });
+  const page = await client.records("notes").list({ filter: 'title = "private"', sort: "-createdAt", expand: "author", fields: "id,title", cursor: "current", limit: 20 });
   assert.equal(page.items[0].id, "note-1");
   const listRequest = requests.at(-1);
   assert.equal(listRequest.headers.authorization, "Bearer first-token");
   assert.match(listRequest.path, /filter=title/);
   assert.match(listRequest.path, /sort=-createdAt/);
   assert.match(listRequest.path, /expand=author/);
+  assert.match(listRequest.path, /fields=id%2Ctitle/);
   assert.match(listRequest.path, /cursor=current/);
+
+  const projected = await client.records("notes").get("note-1", { fields: "id,title", expand: "author" });
+  assert.equal(projected.id, "note-1");
+  const getRequest = requests.at(-1);
+  assert.equal(getRequest.method, "GET");
+  assert.match(getRequest.path, /records\/note-1\?expand=author&fields=id%2Ctitle$/);
 
   const iterated = [];
   for await (const record of client.iterate("notes")) iterated.push(record.id);
@@ -166,14 +179,21 @@ try {
 
   const batch = await client.batch([
     { operation: "create", collection: "notes", input: { title: "batched" }, idempotencyKey: "batch-create-0001" },
+    { operation: "upsert", collection: "notes", id: "00000000-0000-4000-8000-000000000099", input: { title: "upserted" }, ifMatch: '"pgb1.current"' },
     { operation: "delete", collection: "notes", id: "note-2", ifMatch: '"pgb1.updated"' },
   ]);
   assert.equal(batch.results[0].etag, '"pgb1.batch"');
-  assert.equal(batch.results[1].record, undefined, "delete results intentionally omit a record");
-  assert.equal(JSON.parse(requests.at(-1).body).operations[1].operation, "delete");
+  assert.equal(batch.results[1].record.title, "upserted");
+  assert.equal(batch.results[2].record, undefined, "delete results intentionally omit a record");
+  const operationRequest = requests.at(-1);
+  assert.equal(operationRequest.method, "POST");
+  assert.equal(JSON.parse(operationRequest.body).operations[1].operation, "upsert");
 
   const generic=await client.batchRequests([{method:"PUT",url:"/api/v1/collections/notes/records/00000000-0000-4000-8000-000000000099",body:{title:"upserted"}}]);
   assert.equal(generic.results[0].status,200);assert.equal(generic.results[0].body.title,"upserted");
+  const genericRequest = requests.at(-1);
+  assert.equal(genericRequest.method, "POST");
+  assert.deepEqual(JSON.parse(genericRequest.body), { requests: [{ method: "PUT", url: "/api/v1/collections/notes/records/00000000-0000-4000-8000-000000000099", body: { title: "upserted" } }] });
 
 	const created = await client.records("notes").createWithETag({ title: "created" }, "create-note-0001");
 	assert.equal(created.etag, '"pgb1.created"');

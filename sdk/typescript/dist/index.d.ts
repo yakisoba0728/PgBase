@@ -31,9 +31,13 @@ export type Query = {
     filter?: string;
     sort?: string;
     expand?: string;
+    /** Comma-separated record fields to return. */
+    fields?: string;
     cursor?: string;
     limit?: number;
 };
+/** Options accepted by a single-record read. */
+export type RecordGetOptions = Pick<Query, "expand" | "fields">;
 export type RecordEvent = {
     /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
     eventId: string;
@@ -61,10 +65,18 @@ export type BatchOperation<T extends RecordData = RecordData> = {
     id: string;
     input: Partial<T>;
     ifMatch?: string;
-} | {
+} | BatchUpsertOperation<T> | {
     operation: "delete";
     collection: string;
     id: string;
+    ifMatch?: string;
+};
+/** An atomic PUT-equivalent batch operation: creates the ID when absent, otherwise updates it. */
+export type BatchUpsertOperation<T extends RecordData = RecordData> = {
+    operation: "upsert";
+    collection: string;
+    id: string;
+    input: Partial<T>;
     ifMatch?: string;
 };
 export type BatchResult<T extends RecordData = RecordData> = {
@@ -231,7 +243,9 @@ export declare class Records<T extends RecordData> {
     constructor(client: PgBaseClient, collection: string);
     list(query?: Query, signal?: AbortSignal): Promise<RecordPage<T>>;
     get(id: string, signal?: AbortSignal): Promise<T>;
+    get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
     getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
+    getWithETag(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordResult<T>>;
     create(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<T>;
     createWithETag(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<RecordResult<T>>;
     update(id: string, data: Partial<T>, etag: string, signal?: AbortSignal): Promise<T>;

@@ -80,6 +80,74 @@ void main() {
     },
   );
 
+  test('batch upserts use both compact and generic PUT forms', () async {
+    final client = _ScriptedClient();
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    const id = '01900000-0000-7000-8000-000000000001';
+    final input = JsonObject({'title': const JsonString('upserted')});
+
+    await pgbase.batch([
+      BatchOperation.upsert(collection: 'notes', id: id, input: input),
+    ]);
+    await pgbase.batchHttpRequests([
+      BatchHttpRequest.upsert(
+        collection: 'notes',
+        id: id,
+        input: input,
+        ifMatch: '"pgb1.current"',
+      ),
+    ]);
+
+    final compact = decodeExactJson(client.requests[0].body) as JsonObject;
+    final operation =
+        ((compact['operations'] as JsonArray).values.single as JsonObject);
+    expect((operation['operation'] as JsonString).value, 'upsert');
+    expect((operation['id'] as JsonString).value, id);
+
+    final generic = decodeExactJson(client.requests[1].body) as JsonObject;
+    final request =
+        ((generic['requests'] as JsonArray).values.single as JsonObject);
+    expect((request['method'] as JsonString).value, 'PUT');
+    expect(
+      (request['url'] as JsonString).value,
+      '/api/v1/collections/notes/records/$id',
+    );
+    final headers = request['headers'] as JsonObject;
+    expect((headers['if-match'] as JsonString).value, '"pgb1.current"');
+  });
+
+  test(
+    'record fields projections reach list and get and preserve responses',
+    () async {
+      final client = _ProjectionClient();
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+
+      final page = await pgbase.records('notes').list(
+        const Query(fields: 'title,summary'),
+      );
+      final record = await pgbase.records('notes').get(
+        '01900000-0000-7000-8000-000000000001',
+        fields: 'title,summary',
+      );
+
+      expect((page.items.single['title'] as JsonString).value, 'listed');
+      expect(page.items.single.containsKey('private'), isFalse);
+      expect((record['title'] as JsonString).value, 'viewed');
+      expect(record.containsKey('private'), isFalse);
+      expect(client.urls, hasLength(2));
+      for (final url in client.urls) {
+        expect(url.query, 'fields=title%2Csummary');
+        expect(url.queryParameters['fields'], 'title,summary');
+      }
+    },
+  );
+
   test('admin client keeps CSRF apart from bearer authentication', () async {
     final client = _ScriptedClient();
     final admin = PgBaseAdminClient(
@@ -385,6 +453,33 @@ final class _CapturedRequest {
   final String path;
   final Map<String, String> headers;
   final List<int> body;
+}
+
+final class _ProjectionClient extends http.BaseClient {
+  final List<Uri> urls = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    urls.add(request.url);
+    final isList = request.url.path.endsWith('/records');
+    return _jsonResponse(
+      200,
+      isList
+          ? {
+              'items': [
+                {
+                  'id': '01900000-0000-7000-8000-000000000001',
+                  'title': 'listed',
+                },
+              ],
+            }
+          : {
+              'id': '01900000-0000-7000-8000-000000000001',
+              'title': 'viewed',
+            },
+    );
+  }
 }
 
 final class _ScriptedClient extends http.BaseClient {

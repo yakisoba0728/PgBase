@@ -89,11 +89,20 @@ final class RecordEvent {
 }
 
 final class Query {
-  const Query({this.filter, this.sort, this.expand, this.cursor, this.limit});
+  const Query({
+    this.filter,
+    this.sort,
+    this.expand,
+    this.fields,
+    this.cursor,
+    this.limit,
+  });
 
   final String? filter;
   final String? sort;
   final String? expand;
+  /// Comma-separated record fields to include in each response item.
+  final String? fields;
   final String? cursor;
   final int? limit;
 
@@ -101,6 +110,7 @@ final class Query {
     if (filter != null) 'filter': filter!,
     if (sort != null) 'sort': sort!,
     if (expand != null) 'expand': expand!,
+    if (fields != null) 'fields': fields!,
     if (cursor != null) 'cursor': cursor!,
     if (limit != null) 'limit': '$limit',
   };

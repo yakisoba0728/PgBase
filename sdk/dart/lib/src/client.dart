@@ -48,6 +48,15 @@ final class PgBaseClient {
     return response;
   }
 
+  /// Submits typed HTTP-shaped batch requests, including PUT upserts.
+  Future<JsonObject> batchHttpRequests(
+    List<BatchHttpRequest> requests, {
+    CancellationToken? cancellation,
+  }) => batchRequests(
+    requests.map((request) => request.value).toList(growable: false),
+    cancellation: cancellation,
+  );
+
   Future<UserSession> register(
     String email,
     String password, {
@@ -260,6 +269,7 @@ final class PgBaseClient {
     String path, {
     JsonValue? body,
     Map<String, String>? headers,
+    Map<String, String>? query,
     CancellationToken? cancellation,
   }) async {
     final response = await transport.json(
@@ -267,6 +277,7 @@ final class PgBaseClient {
       path,
       headers: headersFor(headers),
       body: body,
+      query: query,
       cancellation: cancellation,
     );
     if (response.status < 200 || response.status >= 300)
