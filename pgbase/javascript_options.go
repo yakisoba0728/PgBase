@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dop251/goja"
@@ -52,6 +53,12 @@ type PocketBaseCompatibilityOptions struct {
 	// ProcessExit is an operator-provided process lifecycle request. Leaving it
 	// nil makes $os.exit fail closed. Tests and supervisors can inject it.
 	ProcessExit func(int) error
+	// ProcessRestart delegates a restart request to the operator's managed host.
+	// A nil callback makes $app.restart fail closed.
+	ProcessRestart        func(context.Context) error
+	DataDirectory         string
+	EncryptionEnvironment string
+	Development           bool
 }
 
 type JavaScriptHandler struct {
@@ -107,7 +114,7 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem":
+		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem", "app-control":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
@@ -143,6 +150,20 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 }
 
 func (options PocketBaseCompatibilityOptions) normalized() (PocketBaseCompatibilityOptions, error) {
+	if options.DataDirectory != "" {
+		root, err := filepath.Abs(options.DataDirectory)
+		if err != nil {
+			return options, err
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			return options, errors.New("DataDirectory must be an existing directory")
+		}
+		options.DataDirectory = root
+	}
+	if value := options.EncryptionEnvironment; len(value) > 128 || strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" {
+		return options, errors.New("EncryptionEnvironment must be an environment variable name")
+	}
 	if options.FilesystemRoot != "" {
 		root, err := filepath.Abs(options.FilesystemRoot)
 		if err != nil {

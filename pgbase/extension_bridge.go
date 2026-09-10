@@ -33,6 +33,7 @@ type extensionBridge struct {
 	database      *TrustedDatabase
 	objects       *ExtensionObjects
 	compatibility *extensionCompatibility
+	appControl    *extensionAppControl
 }
 
 type extensionHost struct {
@@ -139,6 +140,8 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.bridge.compatibility.call(operationContext, method, input)
 	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close", "filesystem.beginWrite", "filesystem.writeChunk", "filesystem.commit", "filesystem.abort", "filesystem.fileFromMultipart", "filesystem.commitMultipart":
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
+	case "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo":
+		return host.callAppControl(operationContext, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}

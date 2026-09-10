@@ -368,6 +368,7 @@ func newWithCatalogPreflight(
 		lifecycleClosing:      make(chan struct{}),
 	}
 	bindRuntimeSettingsLifecycle(app, runtimeSettings)
+	extensions.appControl = newExtensionAppControl(app, normalized.JavaScript)
 	if jobService != nil {
 		app.jobWorker = jobService
 	}

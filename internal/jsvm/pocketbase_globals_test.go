@@ -96,3 +96,25 @@ func TestPocketBaseFilepathGlobRequiresFilesystemCapability(t *testing.T) {
 		t.Fatalf("host calls=%v", host.calls)
 	}
 }
+
+func TestPocketBaseAppControlUsesOnlyCapabilityHost(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/control","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{const store=$app.store();store.set("shared",{count:1});return {bootstrapped:$app.isBootstrapped(),value:store.get("shared"),deleted:store.delete("shared"),tx:$app.transactionInfo()}}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	host := &compatibilityHost{}
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control"}, Host: host}); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.calls) != 5 {
+		t.Fatalf("app control calls=%v", host.calls)
+	}
+}
