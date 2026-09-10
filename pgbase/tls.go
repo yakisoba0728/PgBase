@@ -3,6 +3,8 @@ package pgbase
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,10 @@ type TLSOptions struct {
 	ACMEHosts            []string
 	ACMECacheDirectory   string
 	HTTPChallengeAddress string
+	// ACMEDirectoryURL overrides the public CA directory for a private ACME CA.
+	// Empty uses autocert's production directory. It is useful for isolated
+	// staging and is intentionally not loaded from ambient environment settings.
+	ACMEDirectoryURL string
 }
 
 // NormalizedForConfig validates a TLS configuration before app construction.
@@ -65,6 +71,19 @@ func (o TLSOptions) normalized() (TLSOptions, error) {
 	}
 	if _, _, err := net.SplitHostPort(o.HTTPChallengeAddress); err != nil {
 		return TLSOptions{}, fmt.Errorf("TLS.HTTPChallengeAddress: %w", err)
+	}
+	if o.ACMEDirectoryURL != "" {
+		directory, err := url.Parse(o.ACMEDirectoryURL)
+		if err != nil || directory.Host == "" || directory.User != nil || (directory.Scheme != "https" && directory.Scheme != "http") {
+			return TLSOptions{}, fmt.Errorf("TLS.ACMEDirectoryURL: must be an HTTP(S) URL without credentials")
+		}
+		if directory.Scheme == "http" {
+			host := directory.Hostname()
+			address, addressErr := netip.ParseAddr(host)
+			if addressErr != nil || !address.IsLoopback() {
+				return TLSOptions{}, fmt.Errorf("TLS.ACMEDirectoryURL: HTTP is limited to a loopback test CA")
+			}
+		}
 	}
 	seen := map[string]bool{}
 	hosts := make([]string, 0, len(o.ACMEHosts))
