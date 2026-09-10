@@ -39,6 +39,39 @@ type FieldPolicy struct {
 	Thumbs       []string
 	Required     bool
 	Hidden       bool
+	// Protected requires a scoped download token. The zero value is deliberately
+	// secure so existing schemas stay protected until they opt into public files.
+	Protected bool
+}
+
+// OpenPublic opens an explicitly public file field. It never accepts a token
+// and still resolves the file and field policy transactionally, so changing a
+// field back to protected immediately revokes public URLs.
+func (s *Service) OpenPublic(ctx context.Context, id uuid.UUID, variant Variant) (File, io.ReadCloser, error) {
+	if id == uuid.Nil || !validVariant(variant) {
+		return File{}, nil, ErrInvalid
+	}
+	var file File
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
+			return err
+		}
+		policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+		if err != nil {
+			return err
+		}
+		if policy.Protected || policy.Hidden {
+			return ErrNotFound
+		}
+		if variant != Original && variant != Thumbnail && !containsVariant(policy.Thumbs, string(variant)) {
+			return ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return File{}, nil, err
+	}
+	return s.openAuthorizedObject(ctx, file, identity.Subject{Kind: identity.Anonymous}, variant)
 }
 
 type PolicyFunc func(context.Context, pgx.Tx, uuid.UUID, string) (FieldPolicy, error)
@@ -64,7 +97,7 @@ type Service struct {
 }
 
 func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, field string) (FieldPolicy, error) {
-	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...)}
+	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...), Protected: true}
 	if s.options.Policy != nil {
 		resolved, err := s.options.Policy(ctx, tx, collectionID, field)
 		if err != nil {
@@ -82,6 +115,7 @@ func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID,
 		policy.Thumbs = append([]string(nil), resolved.Thumbs...)
 		policy.Required = resolved.Required
 		policy.Hidden = resolved.Hidden
+		policy.Protected = resolved.Protected
 	}
 	return policy, nil
 }
@@ -378,11 +412,14 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 		if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead); err != nil {
 			return err
 		}
+		policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+		if err != nil {
+			return err
+		}
+		if policy.Protected && token == "" {
+			return ErrDenied
+		}
 		if variant != Original && variant != Thumbnail {
-			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
-			if err != nil {
-				return err
-			}
 			if !containsVariant(policy.Thumbs, string(variant)) {
 				return ErrNotFound
 			}
@@ -392,7 +429,12 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 	if err != nil {
 		return File{}, nil, err
 	}
+	return s.openAuthorizedObject(ctx, file, principal, variant)
+}
+
+func (s *Service) openAuthorizedObject(ctx context.Context, file File, principal identity.Subject, variant Variant) (File, io.ReadCloser, error) {
 	key := file.ObjectKey
+	var err error
 	if variant == Thumbnail {
 		key = file.ThumbnailKey
 		if key == "" {

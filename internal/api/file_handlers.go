@@ -30,6 +30,12 @@ type FileService interface {
 	CompleteStaged([]filestore.StagedFile, error)
 }
 
+// publicFileService is kept separate from FileService so applications that
+// supply a test or extension file service do not accidentally expose bytes.
+type publicFileService interface {
+	OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error)
+}
+
 func fileRoutes(dependencies Dependencies) []route {
 	if dependencies.Files == nil {
 		return nil
@@ -55,7 +61,39 @@ func fileRoutes(dependencies Dependencies) []route {
 			route{method: "POST", pattern: file + "/token", access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(endpoint.handler.token)},
 		)
 	}
+	if _, ok := dependencies.Files.(publicFileService); ok {
+		routes = append(routes, route{method: "GET", pattern: "/api/files/{fileId}", access: accessPublic, response: passthrough(), deadline: deadlineDefault, handler: http.HandlerFunc(user.publicDownload)})
+	}
 	return routes
+}
+
+func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
+	service, ok := e.service.(publicFileService)
+	if !ok {
+		writeFileError(w, r, filestore.ErrNotFound)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("fileId"))
+	variant := filestore.Variant(r.URL.Query().Get("variant"))
+	if variant == "" {
+		variant = filestore.Original
+	}
+	values := r.URL.Query()
+	variants, variantOK := values["variant"]
+	if err != nil || id == uuid.Nil || len(values) > 1 || (variantOK && len(variants) != 1) {
+		writeFileError(w, r, filestore.ErrInvalid)
+		return
+	}
+	file, reader, err := service.OpenPublic(r.Context(), id, variant)
+	if err != nil {
+		writeFileError(w, r, err)
+		return
+	}
+	defer func() { _ = reader.Close() }()
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Type", file.ContentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
+	_, _ = io.Copy(w, reader)
 }
 
 type fileEndpoints struct {
