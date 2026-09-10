@@ -216,13 +216,17 @@ func (e authCollectionEndpoints) authorizedRecordGet(w http.ResponseWriter, r *h
 func (e authCollectionEndpoints) authorizedRecordUpdate(w http.ResponseWriter, r *http.Request) {
 	collection, principal, target, err := e.authorizedRecordContext(r)
 	var in struct {
-		Fields map[string]any `json:"fields"`
+		Email    *string        `json:"email"`
+		Password *string        `json:"password"`
+		Verified *bool          `json:"verified"`
+		Active   *bool          `json:"active"`
+		Fields   map[string]any `json:"fields"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Fields: in.Fields})
+	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Email: in.Email, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})
 	if err != nil {
 		writeUserAuthError(w, r, err)
 		return

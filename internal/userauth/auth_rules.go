@@ -109,7 +109,7 @@ func authRuleScalars(fields []schema.FieldInput, context AuthRuleContext) (map[s
 		"created": {Time: context.Current.CreatedAt}, "updated": {Time: context.Current.UpdatedAt},
 		"request.auth.email": {String: context.AuthEmail},
 	}
-	for name, kind := range map[string]query.ScalarKind{"id": query.ScalarString, "email": query.ScalarString, "verified": query.ScalarBool, "active": query.ScalarBool} {
+	for name, kind := range map[string]query.ScalarKind{"id": query.ScalarString, "email": query.ScalarString, "password": query.ScalarString, "verified": query.ScalarBool, "active": query.ScalarBool} {
 		requestName := "request.body." + name
 		kinds[requestName] = kind
 		values[requestName] = authRuleScalarValue(kind, context.Request[name])
@@ -117,7 +117,7 @@ func authRuleScalars(fields []schema.FieldInput, context AuthRuleContext) (map[s
 			key := requestName + ":" + modifier
 			kinds[key] = query.ScalarBool
 			requested, present := context.Request[name]
-			current := map[string]any{"id": context.Current.ID.String(), "email": context.Current.Email, "verified": context.Current.Verified, "active": context.Current.Active}[name]
+			current := map[string]any{"id": context.Current.ID.String(), "email": context.Current.Email, "password": "", "verified": context.Current.Verified, "active": context.Current.Active}[name]
 			values[key] = query.ScalarValue{Bool: present && (modifier == "isset" || !authRuleValuesEqual(current, requested))}
 		}
 	}

@@ -79,13 +79,17 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	if !EvaluateAuthRecordRule(rules.Update, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current, Request: in.Fields}) {
+	request := authRecordMutationValues(in)
+	var principalEmail string
+	if principal != uuid.Nil {
+		_ = s.pool.QueryRow(ctx, `select email from pgbase_meta.users where id=$1 and auth_collection_id=$2`, principal, collectionID).Scan(&principalEmail)
+	}
+	if !EvaluateAuthRecordRule(rules.Update, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, AuthEmail: principalEmail, Current: current, Request: request}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
-	in.Email = nil
-	in.Password = nil
-	in.Verified = nil
-	in.Active = nil
+	if hasPrivilegedAuthMutation(in) && !s.authorizeManagedAuthRecord(ctx, collectionID, principal, current, fields, rules.Manage, request) {
+		return AuthRecord{}, ErrInvalidCredentials
+	}
 	updated, err := s.UpdateAuthRecord(ctx, collectionID, target, in)
 	return visibleAuthRecord(updated, fields), err
 }

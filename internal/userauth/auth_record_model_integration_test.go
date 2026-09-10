@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,13 +23,13 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 	id := uuid.New()
 	min := 1
 	fields := []schema.FieldInput{{Name: "display_name", Type: schema.TypeText, Required: true, Options: &schema.FieldOptions{MinLength: &min}}}
-	rules := AuthCollectionRules{Create: "true", Update: "@request.auth.id = id", Auth: "false", Manage: "@request.auth.id = id"}
+	rules := AuthCollectionRules{List: "true", View: "true", Create: "true", Update: "@request.auth.id = id", Delete: "@request.auth.id = id", Auth: "false", Manage: "@request.auth.id = id"}
 	created, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: id, Name: "typed_" + id.String()[:8], RegistrationEnabled: true, Fields: fields, Rules: rules})
 	if err != nil || len(created.Fields) != 1 || created.Rules.Auth != "false" {
 		t.Fatalf("create=%#v err=%v", created, err)
 	}
 	loaded, err := service.GetAuthCollection(ctx, created.Name)
-	if err != nil || loaded.Fields[0].Options.MinLength == nil || loaded.Rules.Update != rules.Update {
+	if err != nil || loaded.Fields[0].Options.MinLength == nil || !reflect.DeepEqual(loaded.Rules, rules) {
 		t.Fatalf("roundtrip=%#v err=%v", loaded, err)
 	}
 	if _, err := service.CreateAuthRecord(ctx, id, CreateAuthRecordInput{Email: "bad@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{}}); !errors.Is(err, ErrValidation) {
@@ -37,6 +38,10 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 	record, err := service.CreateAuthRecord(ctx, id, CreateAuthRecordInput{Email: "typed@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"display_name": "Ada"}})
 	if err != nil || record.Fields["display_name"] != "Ada" {
 		t.Fatalf("record=%#v err=%v", record, err)
+	}
+	listed, err := service.ListAuthorizedAuthRecords(ctx, id, record.ID, 10)
+	if err != nil || len(listed) != 1 || listed[0].ID != record.ID {
+		t.Fatalf("listRule result=%#v err=%v", listed, err)
 	}
 	if _, err := service.LoginInCollection(ctx, id, record.Email, "correct horse battery staple", "198.51.100.9"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("authRule refusal=%v", err)
@@ -79,8 +84,102 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 	if err := service.DeleteAuthAuxiliary(ctx, id, record.ID, "authOrigins", origins[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.DeleteAuthRecord(ctx, id, record.ID); err != nil {
+	if err := service.DeleteAuthorizedAuthRecord(ctx, id, record.ID, record.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAuthCollectionCreateRuleControlsPublicRegistration(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	id := uuid.New()
+	rules := AuthCollectionRules{Create: "false", Auth: "true"}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: id, Name: "create_rule_" + id.String()[:8], RegistrationEnabled: true, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RegisterInCollection(ctx, id, "blocked@example.test", "correct horse battery staple", "198.51.100.40"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("false create rule registration=%v", err)
+	}
+	rules.Create = "true"
+	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RegisterInCollection(ctx, id, "allowed@example.test", "correct horse battery staple", "198.51.100.40"); err != nil {
+		t.Fatalf("true create rule registration=%v", err)
+	}
+}
+
+func TestManagedAuthRecordMutationUsesDistinctActorAndRevokesTargetCredentials(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	collectionID := uuid.New()
+	hidden := schema.FieldInput{Name: "internal_note", Type: schema.TypeText, Hidden: true}
+	rules := AuthCollectionRules{
+		Create: "true", Update: "true", Auth: "true",
+		Manage: `@request.auth.email = 'manager@example.test' && id != @request.auth.id && @request.body.password:isset = true`,
+	}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{
+		ID: collectionID, Name: "managed_" + collectionID.String()[:8], RegistrationEnabled: true,
+		Fields: []schema.FieldInput{hidden}, Rules: rules,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{
+		Email: "manager@example.test", Password: "correct horse battery staple", Active: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{
+		Email: "target@example.test", Password: "correct horse battery staple", Active: true,
+		Fields: map[string]any{"internal_note": "never return this"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetSession, err := service.LoginInCollection(ctx, collectionID, target.Email, "correct horse battery staple", "198.51.100.30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := true
+	newPassword := "replacement correct horse battery staple"
+	updated, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, manager.ID, target.ID, UpdateAuthRecordInput{
+		Password: &newPassword, Verified: &verified,
+	})
+	if err != nil {
+		t.Fatalf("manager update: %v", err)
+	}
+	if !updated.Verified || updated.ID != target.ID || updated.Fields["internal_note"] != nil {
+		t.Fatalf("managed response exposed or changed the wrong record: %#v", updated)
+	}
+	if _, err := service.AuthenticateForCollection(ctx, collectionID, targetSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("managed credential update retained target session: %v", err)
+	}
+	if _, err := service.LoginInCollection(ctx, collectionID, target.Email, newPassword, "198.51.100.31"); err != nil {
+		t.Fatalf("managed password was not authoritative: %v", err)
+	}
+
+	active := false
+	if _, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, target.ID, manager.ID, UpdateAuthRecordInput{Active: &active}); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("target gained manager privilege: %v", err)
+	}
+	otherCollection := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: otherCollection, Name: "other_" + otherCollection.String()[:8]}); err != nil {
+		t.Fatal(err)
+	}
+	outsider, err := service.CreateAuthRecord(ctx, otherCollection, CreateAuthRecordInput{Email: "manager@example.test", Password: "correct horse battery staple", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, outsider.ID, target.ID, UpdateAuthRecordInput{Active: &active}); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("cross-realm manager accepted: %v", err)
+	}
+	rules.Manage = "false"
+	if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{hidden}, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, manager.ID, target.ID, UpdateAuthRecordInput{Active: &active}); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("false manage rule accepted: %v", err)
 	}
 }
 
