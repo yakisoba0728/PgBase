@@ -95,6 +95,31 @@ func TestAuthPolicyEnforcesMaximumPatternAndDeclaredProfileIdentity(t *testing.T
 	}
 }
 
+func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	session, err := service.Register(ctx, "unlink@example.test", "Correct horse battery", "unlink-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.pool.Exec(ctx, `insert into pgbase_meta.user_oauth_identities(auth_collection_id,provider,subject,user_id,created_at) values($1,'github','one',$2,CURRENT_TIMESTAMP),($1,'google','two',$2,CURRENT_TIMESTAMP)`, DefaultCollectionID, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "github"); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := service.ListOAuthIdentities(ctx, session.User.ID)
+	if err != nil || len(identities) != 1 || identities[0].Provider != "google" {
+		t.Fatalf("identities=%#v err=%v", identities, err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.users set password_enabled=false where id=$1`, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "google"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("last identity unlink=%v", err)
+	}
+}
+
 func TestAuthAdministrationNeverReturnsAndPreservesSecrets(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()
