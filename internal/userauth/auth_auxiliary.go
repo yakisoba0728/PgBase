@@ -64,6 +64,21 @@ func (s *Service) ListAuthAuxiliary(ctx context.Context, collectionID, userID uu
 	if !s.authorizeManageRule(ctx, collectionID, userID, userID) {
 		return nil, ErrInvalidCredentials
 	}
+	return s.listAuthAuxiliary(ctx, collectionID, userID, kind)
+}
+
+// AdminListAuthAuxiliary is the trusted administrator variant; callers must
+// supply an authenticated administrator identity rather than a target user.
+func (s *Service) AdminListAuthAuxiliary(ctx context.Context, administrator identity.Subject, collectionID, userID uuid.UUID, kind string) ([]AuthAuxiliaryRecord, error) {
+	if administrator.Kind != identity.Administrator || administrator.ID == uuid.Nil || collectionID == uuid.Nil || userID == uuid.Nil {
+		return nil, ErrValidation
+	}
+	if _, err := s.GetAuthRecord(ctx, collectionID, userID); err != nil {
+		return nil, err
+	}
+	return s.listAuthAuxiliary(ctx, collectionID, userID, kind)
+}
+func (s *Service) listAuthAuxiliary(ctx context.Context, collectionID, userID uuid.UUID, kind string) ([]AuthAuxiliaryRecord, error) {
 	var query string
 	switch kind {
 	case "externalAuths":
@@ -100,6 +115,18 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 	if !s.authorizeManageRule(ctx, collectionID, userID, userID) {
 		return ErrInvalidCredentials
 	}
+	return s.deleteAuthAuxiliary(ctx, collectionID, userID, kind, id)
+}
+func (s *Service) AdminDeleteAuthAuxiliary(ctx context.Context, administrator identity.Subject, collectionID, userID uuid.UUID, kind string, id uuid.UUID) error {
+	if administrator.Kind != identity.Administrator || administrator.ID == uuid.Nil || collectionID == uuid.Nil || userID == uuid.Nil || id == uuid.Nil {
+		return ErrValidation
+	}
+	if _, err := s.GetAuthRecord(ctx, collectionID, userID); err != nil {
+		return err
+	}
+	return s.deleteAuthAuxiliary(ctx, collectionID, userID, kind, id)
+}
+func (s *Service) deleteAuthAuxiliary(ctx context.Context, collectionID, userID uuid.UUID, kind string, id uuid.UUID) error {
 	var tag pgconn.CommandTag
 	var err error
 	switch kind {
