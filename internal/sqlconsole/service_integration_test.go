@@ -247,7 +247,7 @@ func TestServicePersistsAmbiguousCommitAsUnknown(t *testing.T) {
 	assertItemAbsent(t, fixture.pool, itemID)
 }
 
-func TestServiceStartupReconcilesPriorCommitUnknownAndPreservesNoReceiptUnknown(t *testing.T) {
+func TestServiceStartupRetainsUnreconciledCommitUnknownAndTTL(t *testing.T) {
 	fixture := newRunnerFixture(t)
 	ledger, err := NewLedger(fixture.pool.owner)
 	if err != nil {
@@ -271,8 +271,8 @@ func TestServiceStartupReconcilesPriorCommitUnknownAndPreservesNoReceiptUnknown(
 	if _, err := prior.Submit(context.Background(), actor, committedRequest); err != nil {
 		t.Fatal(err)
 	}
-	if execution := waitForStatus(t, prior, actor, committedRequest.ExecutionID, StatusUnknown); execution.Result == nil || execution.Result.Committed != nil || execution.Failure == nil || execution.Failure.Code != "commit_unknown" {
-		t.Fatalf("pre-restart ambiguous execution = %#v", execution)
+	if execution := waitForStatus(t, prior, actor, committedRequest.ExecutionID, StatusSucceeded); execution.Result == nil || execution.Result.Committed == nil || !*execution.Result.Committed || execution.Failure != nil {
+		t.Fatalf("reconciled lost-response execution = %#v", execution)
 	}
 	var receipts, items int
 	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from pgbase_meta.sql_console_write_receipts where execution_id=$1`, committedRequest.ExecutionID).Scan(&receipts); err != nil {
@@ -282,7 +282,7 @@ func TestServiceStartupReconcilesPriorCommitUnknownAndPreservesNoReceiptUnknown(
 		t.Fatal(err)
 	}
 	if receipts != 1 || items != 1 {
-		t.Fatalf("ambiguous commit durable effects receipts=%d items=%d", receipts, items)
+		t.Fatalf("lost-response commit durable effects receipts=%d items=%d", receipts, items)
 	}
 	if err := prior.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -311,12 +311,12 @@ func TestServiceStartupReconcilesPriorCommitUnknownAndPreservesNoReceiptUnknown(
 	}
 	t.Cleanup(func() { _ = service.Close(context.Background()) })
 
-	reconciled, err := service.Get(context.Background(), actor, committedRequest.ExecutionID)
-	if err != nil || reconciled.Status != StatusSucceeded || reconciled.Result == nil || reconciled.Result.Committed == nil || !*reconciled.Result.Committed || reconciled.Result.Rows != 2 || reconciled.Result.AffectedRows != 3 || reconciled.Result.Bytes != 41 {
-		t.Fatalf("startup reconciled execution = %#v, %v", reconciled, err)
+	retained, err := service.Get(context.Background(), actor, committedRequest.ExecutionID)
+	if err != nil || retained.Status != StatusSucceeded || retained.Result == nil || retained.Result.Committed == nil || !*retained.Result.Committed || retained.Result.Rows != 2 || retained.Result.AffectedRows != 3 || retained.Result.Bytes != 41 {
+		t.Fatalf("startup retained lost-response execution = %#v, %v", retained, err)
 	}
-	if reconciled.ResultUntil.Before(time.Now().UTC()) {
-		t.Fatalf("restart reconciliation has an expired result TTL: %#v", reconciled.Result)
+	if retained.ResultUntil.Before(time.Now().UTC()) {
+		t.Fatalf("restart retention has an expired result TTL: %#v", retained.Result)
 	}
 
 	preserved, err := service.Get(context.Background(), actor, unknownRequest.ExecutionID)
