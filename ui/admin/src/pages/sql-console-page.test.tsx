@@ -106,6 +106,29 @@ describe("SQL console page", () => {
     expect(submitted.mock.calls[1][0]).toEqual(submitted.mock.calls[0][0]);
   });
 
+  it("keeps an unknown write retained across a browser restart and never replays it", async () => {
+    const unknown = sample({ mode: "write", status: "unknown", result: { ...sample().result!, committed: undefined }, failure: { code: "commit_unknown", message: "Commit response was lost" } });
+    const submitted = vi.fn(async () => unknown);
+    const backend = port({ submit: submitted, execution: vi.fn(async () => unknown) });
+    vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValueOnce("write-operation-id").mockReturnValueOnce("write-idempotency-key") });
+    const first = render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+    expect(await screen.findByText(/could not determine the final commit state/)).toBeVisible();
+    first.unmount();
+
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByRole("button", { name: "Recheck write execution" }));
+
+    expect(backend.execution).toHaveBeenCalledWith("write-operation-id");
+    expect(submitted).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Recheck write execution" })).toBeVisible();
+  });
+
   it("never exposes a retained write across a different or expired administrator session scope", async () => {
     const submitted = vi.fn(async () => { throw new Error("response lost"); });
     const firstBackend = port({ submit: submitted });

@@ -46,3 +46,32 @@ The final five-case PostgreSQL command is `go test -tags=integration -race ./int
 At08:45 KST, the six task-owned N7/N8/G5 containers were identified by exact Compose project/config labels and AutoRemove=false, then stopped without removal. Named/anonymous volumes, container data and browser evidence are preserved. N8 API/UI/browser processes were already stopped. Completed N6 AutoRemove PG removal on the earlier pause remains historical. No command targeted live8090/55440/59000, the installed binary or existing userdata.
 
 Windows-native execution is unavailable and unclaimed; actual Windows helper code/compile and available Darwin-native tests satisfy the local boundary. JS code is trusted application code, with no hostile multitenant hard-heap sandbox claim. N8 supports its documented native expression/role/target subset; unsupported SQL fails closed. Compact write keys are retained indefinitely, so total key storage is not globally bounded. The additional browser restart/commit-unknown/real-time TTL exercise was not completed and is not claimed; deterministic backend and UI-unit evidence cover those mechanisms. No public release, npm/pub.dev publication, cloud deployment, remote merge or live update occurred.
+
+## Post-acceptance local follow-up (2026-09-10)
+
+The repository Git metadata was repaired before this follow-up: a backup was made at
+`/tmp/pgbase-git-metadata-backup.ZF8RfK/git`, the final missing newline in
+`packed-refs` was restored, and the missing local integration ref was recovered
+only from the matching `logs/HEAD` and index transition. `git show-ref` and
+`git fsck --full --connectivity-only` then passed. The recovered checkout is
+`codex/n6-n9-integration` at `8d52c8d49f16ad491d4f0e821c94fef2324757d1`;
+`origin/main` remains `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`.
+
+The previously excluded SQL-console browser restart/commit-unknown behaviour
+now has a focused UI test: it retains the session-scoped write identity across
+a browser reload, rechecks it, and does not submit it again. A matching
+PostgreSQL integration test specifies startup reconciliation: a durable receipt
+turns an earlier `commit_unknown` into `succeeded` without restoring bounded
+statement rows, while a no-receipt outcome stays `unknown`. The no-DB SQL
+console test package, focused UI suite (15 tests), and UI typecheck passed.
+The new PostgreSQL test was not run because this host has no
+`PGBASE_TEST_ADMIN_URL`; the Docker daemon is also unavailable, so no
+disposable staging upgrade/rollback or PITR drill was claimed.
+
+Six local CGO-free artifacts for the recovered source were built under
+`.local/artifacts/n6n9-8d52c8d/` with `n6n9-local` version metadata and a
+`SHA256SUMS` manifest. Native Darwin/arm64 `version --json` reports commit
+`8d52c8d49f16ad491d4f0e821c94fef2324757d1` and schema range `41..41`.
+Windows artifacts were cross-compiled only; native Windows replacement was not
+executed. These are local release-preparation artifacts, not a public release,
+remote merge, or live installation.

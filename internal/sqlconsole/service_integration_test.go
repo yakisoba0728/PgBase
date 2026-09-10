@@ -247,6 +247,75 @@ func TestServicePersistsAmbiguousCommitAsUnknown(t *testing.T) {
 	assertItemAbsent(t, fixture.pool, itemID)
 }
 
+func TestServiceStartupReconcilesPriorCommitUnknownWithoutRestoringBoundedRows(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	ledger, err := NewLedger(fixture.pool.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("n8-startup-reconcile-secret-long-enough")
+	actor := testActor(fixture.pool.actorID, "startup-reconcile-session")
+
+	committedRequest := writeRequest(uuid.New(), "startup-committed-write-00001", uuid.New())
+	committedIdentity := ledgerIdentity(actor.AdministratorID, committedRequest, secret)
+	committed, created, err := ledger.CreatePending(context.Background(), committedIdentity)
+	if err != nil || !created {
+		t.Fatalf("create committed pending = %#v, %v, %v", committed, created, err)
+	}
+	committed, err = ledger.MarkRunning(context.Background(), actor.AdministratorID, committed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed.Status = StatusUnknown
+	committed.Result = &Result{Rows: 2, AffectedRows: 3, Bytes: 41}
+	committed.Failure = &Failure{Code: "commit_unknown"}
+	if err := ledger.Finish(context.Background(), actor.AdministratorID, committed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.owner.Exec(context.Background(), `insert into pgbase_meta.sql_console_write_receipts
+		(execution_id,administrator_id,idempotency_hash,request_hash,row_count,affected_rows,result_bytes,committed_at)
+		values($1,$2,$3,$4,2,3,41,current_timestamp)`, committedRequest.ExecutionID, actor.AdministratorID,
+		committedIdentity.IdempotencyHash[:], committedIdentity.RequestHash[:]); err != nil {
+		t.Fatal(err)
+	}
+
+	unknownRequest := writeRequest(uuid.New(), "startup-unknown-write-0000001", uuid.New())
+	unknownIdentity := ledgerIdentity(actor.AdministratorID, unknownRequest, secret)
+	unknown, created, err := ledger.CreatePending(context.Background(), unknownIdentity)
+	if err != nil || !created {
+		t.Fatalf("create unknown pending = %#v, %v, %v", unknown, created, err)
+	}
+	unknown, err = ledger.MarkRunning(context.Background(), actor.AdministratorID, unknown.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown.Status = StatusUnknown
+	unknown.Result = &Result{}
+	unknown.Failure = &Failure{Code: "commit_unknown"}
+	if err := ledger.Finish(context.Background(), actor.AdministratorID, unknown); err != nil {
+		t.Fatal(err)
+	}
+
+	service, err := NewService(context.Background(), fixture.runner, ledger, secret, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close(context.Background()) })
+
+	reconciled, err := service.Get(context.Background(), actor, committedRequest.ExecutionID)
+	if err != nil || reconciled.Status != StatusSucceeded || reconciled.Result == nil || reconciled.Result.Committed == nil || !*reconciled.Result.Committed || reconciled.Result.Rows != 2 || reconciled.Result.AffectedRows != 3 || reconciled.Result.Bytes != 41 {
+		t.Fatalf("startup reconciled execution = %#v, %v", reconciled, err)
+	}
+	if reconciled.Result.Statements != nil || reconciled.ResultUntil.Before(time.Now().UTC()) {
+		t.Fatalf("restart restored bounded rows or an expired result TTL: %#v", reconciled.Result)
+	}
+
+	preserved, err := service.Get(context.Background(), actor, unknownRequest.ExecutionID)
+	if err != nil || preserved.Status != StatusUnknown || preserved.Result == nil || preserved.Result.Committed != nil || preserved.Failure == nil || preserved.Failure.Code != "commit_unknown" {
+		t.Fatalf("startup preserved unresolved execution = %#v, %v", preserved, err)
+	}
+}
+
 func TestServiceCoordinatorPreventsLiveExecutionReconciliation(t *testing.T) {
 	fixture := newPoolFixture(t)
 	ledger, err := NewLedger(fixture.owner)
