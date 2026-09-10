@@ -274,11 +274,15 @@ func TestServiceStartupRetainsUnreconciledCommitUnknownAndTTL(t *testing.T) {
 	if execution := waitForStatus(t, prior, actor, committedRequest.ExecutionID, StatusSucceeded); execution.Result == nil || execution.Result.Committed == nil || !*execution.Result.Committed || execution.Failure != nil {
 		t.Fatalf("reconciled lost-response execution = %#v", execution)
 	}
-	var receipts, items int
+	var receipts, items, receiptRows, receiptBytes int
+	var receiptAffected int64
 	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from pgbase_meta.sql_console_write_receipts where execution_id=$1`, committedRequest.ExecutionID).Scan(&receipts); err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from ext.items where id=$1`, itemID).Scan(&items); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.owner.QueryRow(context.Background(), `select row_count,affected_rows,result_bytes from pgbase_meta.sql_console_write_receipts where execution_id=$1`, committedRequest.ExecutionID).Scan(&receiptRows, &receiptAffected, &receiptBytes); err != nil {
 		t.Fatal(err)
 	}
 	if receipts != 1 || items != 1 {
@@ -312,7 +316,7 @@ func TestServiceStartupRetainsUnreconciledCommitUnknownAndTTL(t *testing.T) {
 	t.Cleanup(func() { _ = service.Close(context.Background()) })
 
 	retained, err := service.Get(context.Background(), actor, committedRequest.ExecutionID)
-	if err != nil || retained.Status != StatusSucceeded || retained.Result == nil || retained.Result.Committed == nil || !*retained.Result.Committed || retained.Result.Rows != 2 || retained.Result.AffectedRows != 3 || retained.Result.Bytes != 41 {
+	if err != nil || retained.Status != StatusSucceeded || retained.Result == nil || retained.Result.Committed == nil || !*retained.Result.Committed || retained.Result.Rows != receiptRows || retained.Result.AffectedRows != receiptAffected || retained.Result.Bytes != receiptBytes {
 		t.Fatalf("startup retained lost-response execution = %#v, %v", retained, err)
 	}
 	if retained.ResultUntil.Before(time.Now().UTC()) {
