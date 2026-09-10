@@ -2,13 +2,18 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 const maximumApplicationRealtimePayload = 64 << 10
+const applicationRealtimeTopicPrefix = "@app/"
+const maximumApplicationRealtimeTopicBytes = 188
 
 type ApplicationRealtimeMessage struct {
 	Topic string
@@ -107,6 +112,27 @@ func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, d
 		}
 	}
 	return delivered
+}
+
+// PublishApplication maps an arbitrary UTF-8 application topic into the
+// reserved wire namespace before publishing.  The mapping is reversible for
+// SDKs but is never inferred from a collection-looking topic.
+func (b *ApplicationRealtimeBroker) PublishApplication(ctx context.Context, topic string, data json.RawMessage) (int, error) {
+	encoded, err := ApplicationRealtimeTopic(topic)
+	if err != nil {
+		return 0, err
+	}
+	return b.Publish(ctx, encoded, data), nil
+}
+
+// ApplicationRealtimeTopic returns the one canonical wire topic for raw.
+// RawURLEncoding prevents separators, whitespace, and a raw @app/ prefix from
+// being interpreted as a second namespace layer.
+func ApplicationRealtimeTopic(raw string) (string, error) {
+	if raw == "" || len(raw) > maximumApplicationRealtimeTopicBytes || !utf8.ValidString(raw) {
+		return "", errors.New("invalid application realtime topic")
+	}
+	return applicationRealtimeTopicPrefix + base64.RawURLEncoding.EncodeToString([]byte(raw)), nil
 }
 
 func validBrokerTopic(topic string) bool {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
@@ -174,14 +175,18 @@ func TestJavaScriptApplicationBrokerDeliversArbitraryTopicThroughRealtimeHTTP(t 
 	if err := json.Unmarshal([]byte(connected.data), &connection); err != nil || connection.ClientID == "" {
 		t.Fatalf("connect=%s err=%v", connected.data, err)
 	}
-	const topic = "@app/extension-notice"
+	rawTopic := "@topic/한 글? #"
+	topic, err := api.ApplicationRealtimeTopic(rawTopic)
+	if err != nil {
+		t.Fatal(err)
+	}
 	replaceMultiplexSubscriptions(t, fixture, connection.ClientID, "", nil, "", []string{topic})
 
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/publish","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "route.js"), []byte(`exports.run=()=> $app.subscriptionsBroker().publish("@app/extension-notice", ["ready",true,3])`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "route.js"), []byte(fmt.Sprintf(`exports.run=()=> $app.subscriptionsBroker().publishApplication(%q, ["ready",true,3])`, rawTopic)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	bundle, err := jsvm.LoadBundle(directory)

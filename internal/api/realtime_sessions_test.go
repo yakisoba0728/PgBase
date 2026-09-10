@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -133,6 +134,25 @@ func TestRealtimeApplicationNamespaceCannotBypassCollectionAuthorization(t *test
 	hub.replace(custom, req)
 	if custom.Code != http.StatusNoContent || stream.readCount() != 1 {
 		t.Fatalf("namespaced custom status=%d collection reads=%d", custom.Code, stream.readCount())
+	}
+}
+
+func TestApplicationRealtimeTopicPreservesRawUTF8AndPrefix(t *testing.T) {
+	for _, raw := range []string{"custom-topic", "@topic/한 글? #", "@app/Y3VzdG9tLXRvcGlj"} {
+		wire, err := ApplicationRealtimeTopic(raw)
+		if err != nil || !strings.HasPrefix(wire, applicationRealtimeTopicPrefix) {
+			t.Fatalf("raw=%q wire=%q err=%v", raw, wire, err)
+		}
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(wire, applicationRealtimeTopicPrefix))
+		if decodeErr != nil || string(decoded) != raw {
+			t.Fatalf("raw=%q decoded=%q err=%v", raw, decoded, decodeErr)
+		}
+	}
+	if _, err := ApplicationRealtimeTopic(""); err == nil {
+		t.Fatal("empty application topic accepted")
+	}
+	if _, err := ApplicationRealtimeTopic(strings.Repeat("a", maximumApplicationRealtimeTopicBytes+1)); err == nil {
+		t.Fatal("oversized application topic accepted")
 	}
 }
 
