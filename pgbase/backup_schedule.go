@@ -18,7 +18,7 @@ func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, man
 	if worker == nil || manager == nil || settings == nil {
 		return nil
 	}
-	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", func(ctx context.Context, _ jobs.Job) error { _, err := manager.Create(ctx); return err }); err != nil {
+	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", func(ctx context.Context, _ jobs.Job) error { _, err := manager.CreateManaged(ctx); return err }); err != nil {
 		return err
 	}
 	apply := func(value runtimesettings.Settings) {

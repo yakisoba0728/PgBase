@@ -69,9 +69,10 @@ func RunManaged(ctx context.Context, options Options) error {
 		return err
 	}
 	h.controller, h.controllerPool = controller, controllerPool
+	alerter := newBackupFailureAlerter(controllerPool, normalized)
 	manager, err := backup.NewManager(backup.ManagerOptions{Directory: normalized.Backups.Directory, Repository: controller, Retention: normalized.Backups.Retention, Lifecycle: backupLifecycle(normalized.Hooks), LogError: func(ctx context.Context, err error) {
 		normalized.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
-	}, Create: h.createBackup, Restore: h.restoreBackup})
+	}, OnFailure: func(ctx context.Context, job backup.Job) { alerter.Notify(ctx, job) }, Create: h.createBackup, Restore: h.restoreBackup})
 	if err != nil {
 		controllerPool.Close()
 		return err

@@ -36,6 +36,10 @@ type Job struct {
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Managed is process-local scheduling metadata. It is deliberately omitted
+	// from receipts so a restore receipt remains an operation receipt, not a
+	// source of scheduler configuration.
+	Managed bool `json:"-"`
 }
 type ManagerOptions struct {
 	LogError   func(context.Context, error)
@@ -45,6 +49,9 @@ type ManagerOptions struct {
 	Repository Repository
 	Retention  int
 	Lifecycle  Lifecycle
+	// OnFailure observes final failed managed jobs after their receipt is
+	// updated. It receives only the safe public receipt, never operation errors.
+	OnFailure func(context.Context, Job)
 }
 
 type LifecycleEvent struct {
@@ -191,7 +198,14 @@ func (m *Manager) release() {
 	m.wg.Done()
 }
 func (m *Manager) Create(ctx context.Context) (Job, error) {
-	return m.start(ctx, "create", uuid.NewString())
+	return m.start(ctx, "create", uuid.NewString(), false)
+}
+
+// CreateManaged starts the built-in scheduler's backup operation. The marker
+// lets operators alert on failed scheduled protection without alerting for a
+// manually requested backup.
+func (m *Manager) CreateManaged(ctx context.Context) (Job, error) {
+	return m.start(ctx, "create", uuid.NewString(), true)
 }
 func (m *Manager) Restore(ctx context.Context, id string) (Job, error) {
 	return m.restore(ctx, id, nil)
@@ -211,12 +225,12 @@ func (m *Manager) restore(ctx context.Context, id string, release func()) (Job, 
 	if _, err := m.options.Repository.Get(ctx, id); err != nil {
 		return Job{}, ErrNotFound
 	}
-	return m.startGuarded(ctx, "restore", id, release)
+	return m.startGuarded(ctx, "restore", id, release, false)
 }
-func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) {
-	return m.startGuarded(ctx, operation, id, nil)
+func (m *Manager) start(ctx context.Context, operation, id string, managed bool) (Job, error) {
+	return m.startGuarded(ctx, operation, id, nil, managed)
 }
-func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func()) (Job, error) {
+func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func(), managed bool) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
 	}
@@ -235,7 +249,7 @@ func (m *Manager) startGuarded(ctx context.Context, operation, id string, releas
 		return Job{}, err
 	}
 	now := time.Now().UTC()
-	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now}
+	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now, Managed: managed}
 	if err := m.persistJob(job); err != nil {
 		m.release()
 		finish(err)
@@ -278,6 +292,9 @@ func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 	event.Job = job
+	if job.Managed && job.Status == "failed" && m.options.OnFailure != nil {
+		m.options.OnFailure(context.WithoutCancel(ctx), job)
+	}
 	finish(err)
 }
 func (m *Manager) executeOperation(ctx context.Context, job Job) error {
