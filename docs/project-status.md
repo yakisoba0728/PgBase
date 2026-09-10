@@ -9,7 +9,7 @@
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
 | 최신 제품 병합 기준 | [PR #34](https://github.com/yakisoba0728/PgBase/pull/34), `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
-| N6–N9 로컬 기준 | **구현·독립 검토·G5 로컬 인수 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, branch `codex/n6-n9-integration`. [인수 증거](workstreams/n6-n9/acceptance.md) |
+| N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
 | 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
 | 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
@@ -90,7 +90,7 @@ N8 SQL 콘솔은 parser/role guard, 정확한 결과·cancel, 영구 write ident
 
 G5는 전체 Go/PG18+MinIO baseline 실행과 정확한 실패 범위 수정·재검증을 결합한다. 최초 전체 PG 명령의43 package PASS와 두 test fixture 실패, 수정 뒤 성공, 최종 lint0/vet/SDK live+pack/UI build·repro/구조 실측/6build/native metadata를 [최종 인수](workstreams/n6-n9/acceptance.md)에 분리 기록했다. 기존 green N6/N7/N9 전체 인수는 반복하지 않았다.
 
-08:45 KST에 작업 전용 N7/N8/G5 컨테이너6개를 정지했고 data/evidence를 보존했다. 모든 worker/API/UI/browser도 종료했다. live PG17.9 `55440`, HTTP `8090`, MinIO `59000`, 설치 binary와 기존 userdata는 변경하지 않았다. N6–N9 원격 병합·공개 release/npm/pub.dev/cloud 배포·live 교체는 수행하지 않았다.
+08:45 KST에 작업 전용 N7/N8/G5 컨테이너6개를 정지했고 data/evidence를 보존했다. 모든 worker/API/UI/browser도 종료했다. live PG17.9 `55440`, HTTP `8090`, MinIO `59000`, 설치 binary와 기존 userdata는 변경하지 않았다. N6–N9는 이후 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 정상 병합됐고, 공개 release/npm/pub.dev/cloud 배포·live 교체는 수행하지 않았다.
 
 ## 7. 검증과 실제 수정한 문제
 
@@ -126,7 +126,7 @@ G5는 전체 Go/PG18+MinIO baseline 실행과 정확한 실패 범위 수정·�
 
 ## 8. 남은 범위와 문서 사용법
 
-N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료했다. 설치 제품은 여전히 N1–N5/schema40이며 공개·원격 배포와 구분한다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. N1–N5의 원격 PR/병합과 실제 설치는 구현 완료와 별도 상태로 남는다.
+N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료했고, 후속 수정까지 main `53a4741`에 병합됐다. 설치 제품은 여전히 N1–N5/schema40이며 공개 배포와 구분한다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. 원격 병합과 실제 설치는 별도 상태로 남는다.
 
 클라우드 배포·운영 SLO/RPO/RTO·외부 provider 계정·실제 다중 호스트 partition·공개 패키지 배포는 별도 대기다. 로컬 테스트와 cross-build가 이 증거를 대신하지 않는다. read replica·sharding·다중 프로젝트 control plane·online DDL 같은 장기 확장은 PB 기능 공백 및 현재 로컬 완료 조건과 분리한다.
 
