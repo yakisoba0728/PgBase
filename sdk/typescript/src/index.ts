@@ -200,8 +200,8 @@ export class PgBaseClient {
     this.realtime = new RealtimeService(this);
   }
 
-  register(email: string, password: string, signal?: AbortSignal): Promise<UserSession> {
-    return this.authenticate("/api/v1/auth/register", email, password, signal);
+  register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> {
+    return this.authenticate("/api/v1/auth/register", email, password, options, signal);
   }
 
   /** Binds authentication calls to an explicit auth realm without changing record APIs. */
@@ -209,8 +209,8 @@ export class PgBaseClient {
     return new AuthRealm(this, name);
   }
 
-  login(email: string, password: string, signal?: AbortSignal): Promise<UserSession> {
-    return this.authenticate("/api/v1/auth/login", email, password, signal).catch((error) => {
+  login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> {
+    return this.authenticate("/api/v1/auth/login", email, password, options, signal).catch((error) => {
       if (error instanceof PgBaseError && error.code === "mfa_required") {
         const [challengeToken] = error.details.challengeToken ?? [];
         const [expiresAt] = error.details.expiresAt ?? [];
@@ -399,16 +399,18 @@ export class PgBaseClient {
   }
 
   private async authenticate(
-    path: string,
-    email: string,
-    password: string,
-    signal?: AbortSignal,
-  ): Promise<UserSession> {
-    const generation = this.auth.generation;
-    const session = await this.request<UserSession>(path, {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }, signal);
+	path: string,
+	email: string,
+	password: string,
+	options?: RecordWriteOptions | AbortSignal,
+	signal?: AbortSignal,
+	): Promise<UserSession> {
+	const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+	const generation = this.auth.generation;
+	const session = await this.request<UserSession>(`${path}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, {
+		method: "POST",
+		body: JSON.stringify({ email, password }),
+	}, requestSignal);
     if (session.token && generation === this.auth.generation) {
       this.auth.save(session.token, session.user);
     }
@@ -512,10 +514,11 @@ export class RealtimeService {
 export class AuthRealm {
   constructor(private readonly client: PgBaseClient, readonly name: string) {}
   private path(action: string): string { return `/api/v1/auth/${encodeURIComponent(this.name)}/${action}`; }
-  private async authenticate(action: "register" | "login", email: string, password: string, signal?: AbortSignal): Promise<UserSession> {
+  private async authenticate(action: "register" | "login", email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> {
+	const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const generation = this.client.auth.generation;
     try {
-      const session = await this.client._request<UserSession>(this.path(action), { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+      const session = await this.client._request<UserSession>(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password }) }, requestSignal);
       if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user);
       return session;
     } catch (error) {
@@ -526,8 +529,8 @@ export class AuthRealm {
       throw error;
     }
   }
-  register(email: string, password: string, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("register", email, password, signal); }
-  login(email: string, password: string, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("login", email, password, signal); }
+  register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("register", email, password, options, signal); }
+  login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("login", email, password, options, signal); }
   /** Returns the sign-in methods enabled for this auth collection. */
   methods(signal?: AbortSignal): Promise<AuthMethods> { return this.client._request(this.path("methods"), {}, signal); }
   /** Rotates the current bearer token after validating its replacement session. */
