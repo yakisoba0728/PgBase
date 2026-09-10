@@ -76,11 +76,24 @@ func validateScalarNode(node filterNode, fields map[string]ScalarKind) error {
 		}
 	case filterComparison:
 		kind, ok := fields[value.field]
-		if !ok || strings.Contains(value.field, ".") || value.otherField != "" {
+		if !ok || strings.Contains(value.field, ".") {
 			return validation("filter", "unknown_field")
 		}
 		if value.modifier != "" && !(value.modifier == "lower" && kind == ScalarString) {
 			return validation("filter", "invalid_filter")
+		}
+		if value.otherField != "" {
+			other, ok := fields[value.otherField]
+			if !ok || strings.Contains(value.otherField, ".") || other != kind || (value.otherModifier != "" && !(value.otherModifier == "lower" && kind == ScalarString)) {
+				return validation("filter", "unknown_field")
+			}
+			if (value.operator == "~" || value.operator == "!~") && kind != ScalarString {
+				return validation("filter", "invalid_filter")
+			}
+			if kind == ScalarBool && value.operator != "=" && value.operator != "!=" {
+				return validation("filter", "invalid_filter")
+			}
+			return nil
 		}
 		if (value.operator == "~" || value.operator == "!~") && kind != ScalarString {
 			return validation("filter", "invalid_filter")
@@ -137,10 +150,37 @@ func evaluateScalarNode(node filterNode, fields map[string]ScalarKind, values ma
 		}
 		return false
 	case filterComparison:
+		if value.otherField != "" {
+			return evaluateScalarFields(value, fields[value.field], values[value.field], values[value.otherField])
+		}
 		return evaluateScalarComparison(value, fields[value.field], values[value.field])
 	default:
 		return false
 	}
+}
+
+func evaluateScalarFields(comparison filterComparison, kind ScalarKind, left, right ScalarValue) bool {
+	switch kind {
+	case ScalarString:
+		first, second := left.String, right.String
+		if comparison.modifier == "lower" {
+			first = strings.ToLower(first)
+		}
+		if comparison.otherModifier == "lower" {
+			second = strings.ToLower(second)
+		}
+		return compareScalarStrings(first, second, comparison.operator)
+	case ScalarBool:
+		if comparison.operator == "=" {
+			return left.Bool == right.Bool
+		}
+		return comparison.operator == "!=" && left.Bool != right.Bool
+	case ScalarNumber:
+		return compareScalarNumbers(left.Number, right.Number, comparison.operator)
+	case ScalarTime:
+		return compareScalarNumbers(float64(left.Time.UnixNano()), float64(right.Time.UnixNano()), comparison.operator)
+	}
+	return false
 }
 
 func evaluateScalarComparison(comparison filterComparison, kind ScalarKind, value ScalarValue) bool {
@@ -206,31 +246,80 @@ func compareScalarNumbers(left, right float64, operator string) bool {
 	return false
 }
 
-// scalarContains keeps PocketBase's useful contains behavior while accepting
-// '*' as a bounded glob wildcard. No regular expressions are compiled from
-// user input.
+// scalarContains mirrors PocketBase's LIKE treatment: '%' is the only explicit
+// wildcard. A pattern with no unescaped '%' is escaped and wrapped in '%'.
 func scalarContains(value, pattern string) bool {
-	if !strings.Contains(pattern, "*") {
-		return strings.Contains(value, pattern)
+	if !hasUnescapedPercent(pattern) {
+		pattern = "%" + escapeLikeLiteral(pattern) + "%"
 	}
-	parts := strings.Split(pattern, "*")
-	position := 0
-	if parts[0] != "" {
-		index := strings.Index(value, parts[0])
-		if index < 0 {
-			return false
-		}
-		position = index + len(parts[0])
-	}
-	for _, part := range parts[1:] {
-		if part == "" {
+	return matchLike([]rune(value), []rune(pattern))
+}
+
+func hasUnescapedPercent(value string) bool {
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			escaped = false
 			continue
 		}
-		index := strings.Index(value[position:], part)
-		if index < 0 {
-			return false
+		if r == '\\' {
+			escaped = true
+			continue
 		}
-		position += index + len(part)
+		if r == '%' {
+			return true
+		}
 	}
-	return true
+	return false
+}
+func escapeLikeLiteral(value string) string {
+	var out strings.Builder
+	escaped := false
+	for _, r := range value {
+		if !escaped && (r == '\\' || r == '%' || r == '_') {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+		escaped = !escaped && r == '\\'
+		if r != '\\' {
+			escaped = false
+		}
+	}
+	return out.String()
+}
+func matchLike(value, pattern []rune) bool {
+	var visit func(int, int) bool
+	visit = func(i, j int) bool {
+		for j < len(pattern) {
+			if pattern[j] == '\\' && j+1 < len(pattern) {
+				if i >= len(value) || value[i] != pattern[j+1] {
+					return false
+				}
+				i++
+				j += 2
+				continue
+			}
+			if pattern[j] == '%' {
+				for j < len(pattern) && pattern[j] == '%' {
+					j++
+				}
+				if j == len(pattern) {
+					return true
+				}
+				for k := i; k <= len(value); k++ {
+					if visit(k, j) {
+						return true
+					}
+				}
+				return false
+			}
+			if i >= len(value) || (pattern[j] != '_' && value[i] != pattern[j]) {
+				return false
+			}
+			i++
+			j++
+		}
+		return i == len(value)
+	}
+	return visit(0, 0)
 }

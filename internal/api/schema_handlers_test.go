@@ -74,7 +74,7 @@ func TestCatalogPocketBaseCompatibilityFiltersAndSortsMetadata(t *testing.T) {
 	if filtered.Code != http.StatusOK || !strings.Contains(filtered.Body.String(), `"name":"Alpha records"`) || strings.Contains(filtered.Body.String(), `"name":"Beta records"`) {
 		t.Fatalf("filtered status=%d body=%s", filtered.Code, filtered.Body.String())
 	}
-	lowerWildcard := request("filter=" + url.QueryEscape(`name:lower ~ 'beta*' || fieldCount >= 2`))
+	lowerWildcard := request("filter=" + url.QueryEscape(`name:lower ~ 'beta%' || fieldCount >= 2`))
 	if lowerWildcard.Code != http.StatusOK || !strings.Contains(lowerWildcard.Body.String(), `"name":"Beta records"`) || strings.Contains(lowerWildcard.Body.String(), `"name":"Alpha records"`) {
 		t.Fatalf("wildcard status=%d body=%s", lowerWildcard.Code, lowerWildcard.Body.String())
 	}
