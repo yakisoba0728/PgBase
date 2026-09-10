@@ -110,7 +110,7 @@ func TestMutationRulesEvaluateIssetAndChangedRequestContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := f.records.Update(ctx, UpdateRequest{Principal: f.first, RequestID: "request-context-present-null", Collection: "records", ID: id, Input: map[string]json.RawMessage{"count": json.RawMessage(`null`)}})
-	if err == nil || errors.Is(err, query.ErrRecordNotFound) {
+	if err != nil {
 		t.Fatalf("present null error=%v", err)
 	}
 }

@@ -87,6 +87,10 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 		}
 	}
+	projection, ok := compileMutationProjection(w, r)
+	if !ok {
+		return
+	}
 	service, ok := e.service.(batchRecordService)
 	if !ok || service == nil {
 		writeRecordError(w, r, errors.New("batch record service is unavailable"))
@@ -231,10 +235,10 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		}
 		if result.Record != nil {
 			if len(statuses) > 0 {
-				item.Body = result.Record.Data
+				item.Body, _ = projection.Apply(result.Record.Data).(map[string]any)
 				item.Headers = map[string]string{"ETag": result.Record.ETag}
 			} else {
-				item.Record = result.Record.Data
+				item.Record, _ = projection.Apply(result.Record.Data).(map[string]any)
 			}
 			item.ETag = result.Record.ETag
 			item.Version = result.Record.Version

@@ -135,6 +135,10 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileMutationProjection(w, r)
+	if !ok {
+		return
+	}
 	idempotencyKey, ok := parseIdempotencyKey(r.Header)
 	if !ok {
 		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidIdempotencyKey})
@@ -185,15 +189,24 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", result.Record.ETag)
 	w.Header().Set("Idempotency-Replayed", strconv.FormatBool(result.Replayed))
 	prefix := "/api/v1/collections/"
-	if principal.Kind == identity.User {
+	switch principal.Kind {
+	case identity.User:
 		prefix = "/api/v1/user/collections/"
+	case identity.Service:
+		prefix = "/api/v1/service/collections/"
+	case identity.Anonymous:
+		prefix = "/api/v1/public/collections/"
 	}
 	w.Header().Set("Location", prefix+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
 	writeCompatibilityHeaders(w, result.Compatibility)
-	writeJSON(w, http.StatusCreated, result.Record.Data)
+	writeJSON(w, http.StatusCreated, projection.Apply(result.Record.Data))
 }
 
 func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileMutationProjection(w, r)
+	if !ok {
+		return
+	}
 	id, ok := recordID(w, r)
 	if !ok {
 		return
@@ -244,7 +257,21 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", result.Record.ETag)
 	writeCompatibilityHeaders(w, result.Compatibility)
-	writeJSON(w, http.StatusOK, result.Record.Data)
+	writeJSON(w, http.StatusOK, projection.Apply(result.Record.Data))
+}
+
+func compileMutationProjection(w http.ResponseWriter, r *http.Request) (query.Projection, bool) {
+	values, err := neturl.ParseQuery(r.URL.RawQuery)
+	if err != nil || duplicateSingleton(values, "fields") {
+		writeInvalidRecordRequest(w, r)
+		return query.Projection{}, false
+	}
+	projection, err := query.CompileProjection(values.Get("fields"))
+	if err != nil {
+		writeInvalidRecordRequest(w, r)
+		return query.Projection{}, false
+	}
+	return projection, true
 }
 
 func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {

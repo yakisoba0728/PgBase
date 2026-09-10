@@ -511,6 +511,15 @@ func TestRecordResponsesExposeEntityTagReplayLocationAndCompatibility(t *testing
 		}
 	})
 
+	t.Run("mutation fields projection keeps Location identity", func(t *testing.T) {
+		records := &fakeRecordService{createResult: recordops.MutationResult{Record: &record}}
+		request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records?fields=title", `{"title":"hello"}`, true)
+		response := serveRecordRequest(t, records, auth, request)
+		if response.Code != http.StatusCreated || response.Header().Get("Location") != "/api/v1/collections/posts/records/"+id || strings.Contains(response.Body.String(), `"id"`) || !strings.Contains(response.Body.String(), `"title":"hello"`) {
+			t.Fatalf("status=%d location=%q body=%s", response.Code, response.Header().Get("Location"), response.Body.String())
+		}
+	})
+
 	t.Run("update compatibility", func(t *testing.T) {
 		records := &fakeRecordService{updateResult: recordops.MutationResult{Record: &record, Compatibility: recordops.CompatibilityLastWriteWins}}
 		response := serveRecordRequest(t, records, auth,

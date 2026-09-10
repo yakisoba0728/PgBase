@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,6 +22,87 @@ import (
 
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 var integerStringInput = regexp.MustCompile(`^-?[0-9]+$`)
+
+func FieldInputEqualsStored(field schema.Field, raw json.RawMessage, stored any) bool {
+	decoded, err := decodeFieldValue(field, raw)
+	if err != nil {
+		return false
+	}
+	if decoded == nil || stored == nil {
+		return decoded == nil && stored == nil
+	}
+	if field.Type == schema.TypeTimestampTZ || field.Type == schema.TypeAutoDate {
+		text, ok := stored.(string)
+		if !ok {
+			return false
+		}
+		value, err := time.Parse(time.RFC3339Nano, text)
+		return err == nil && decoded.(time.Time).Equal(value)
+	}
+	if field.Type == schema.TypeBigInt {
+		text, ok := stored.(string)
+		return ok && text == strconv.FormatInt(decoded.(int64), 10)
+	}
+	if field.Type == schema.TypeNumeric {
+		text, ok := stored.(string)
+		if !ok {
+			return false
+		}
+		storedNumber := new(big.Rat)
+		if _, ok := storedNumber.SetString(text); !ok {
+			return false
+		}
+		value, err := decoded.(pgtype.Numeric).Value()
+		if err != nil {
+			return false
+		}
+		proposedNumber := new(big.Rat)
+		_, ok = proposedNumber.SetString(value.(string))
+		return ok && proposedNumber.Cmp(storedNumber) == 0
+	}
+	left, err := json.Marshal(decoded)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(stored)
+	if err != nil {
+		return false
+	}
+	var lv, rv any
+	ld := json.NewDecoder(bytes.NewReader(left))
+	ld.UseNumber()
+	rd := json.NewDecoder(bytes.NewReader(right))
+	rd.UseNumber()
+	if ld.Decode(&lv) != nil || rd.Decode(&rv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(normalizeSemanticJSON(lv), normalizeSemanticJSON(rv))
+}
+
+func normalizeSemanticJSON(value any) any {
+	switch current := value.(type) {
+	case json.Number:
+		rational := new(big.Rat)
+		if _, ok := rational.SetString(string(current)); ok {
+			return "#number:" + rational.RatString()
+		}
+		return string(current)
+	case map[string]any:
+		result := make(map[string]any, len(current))
+		for key, child := range current {
+			result[key] = normalizeSemanticJSON(child)
+		}
+		return result
+	case []any:
+		result := make([]any, len(current))
+		for i := range current {
+			result[i] = normalizeSemanticJSON(current[i])
+		}
+		return result
+	default:
+		return value
+	}
+}
 
 var nonFiniteNumericLiterals = map[string]bool{"NaN": true, "Infinity": true, "-Infinity": true}
 

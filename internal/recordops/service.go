@@ -157,7 +157,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 					if err != nil {
 						return query.ErrRecordNotFound
 					}
-					requestContext := mutationRuleContext(request.Input, nil)
+					requestContext := mutationRuleContext(collection, request.Input, nil)
 					if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 						return err
 					}
@@ -191,7 +191,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err != nil {
 			return query.NormalizeRecordError(err)
 		}
-		requestContext := mutationRuleContext(request.Input, nil)
+		requestContext := mutationRuleContext(collection, request.Input, nil)
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 			return err
 		}
@@ -333,7 +333,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return err
 		}
-		requestContext := mutationRuleContext(request.Input, before)
+		requestContext := mutationRuleContext(collection, request.Input, before)
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, collection, request.Principal, request.ID, "update", &requestContext); err != nil {
 			return err
 		}
@@ -489,7 +489,7 @@ func authorizeUserRecordOperationWithRequest(ctx context.Context, tx pgx.Tx, col
 	return nil
 }
 
-func mutationRuleContext(input map[string]json.RawMessage, before map[string]any) accessrule.RequestContext {
+func mutationRuleContext(collection schema.Collection, input map[string]json.RawMessage, before map[string]any) accessrule.RequestContext {
 	result := accessrule.RequestContext{Present: make(map[string]bool, len(input)), Changed: make(map[string]bool, len(input))}
 	for name, raw := range input {
 		result.Present[name] = true
@@ -502,13 +502,14 @@ func mutationRuleContext(input map[string]json.RawMessage, before map[string]any
 			result.Changed[name] = true
 			continue
 		}
-		encoded, err := json.Marshal(previous)
-		if err != nil {
-			result.Changed[name] = true
-			continue
+		var field schema.Field
+		for _, candidate := range collection.Fields {
+			if candidate.Name == name {
+				field = candidate
+				break
+			}
 		}
-		var left, right bytes.Buffer
-		if json.Compact(&left, raw) != nil || json.Compact(&right, encoded) != nil || !bytes.Equal(left.Bytes(), right.Bytes()) {
+		if field.Name == "" || !query.FieldInputEqualsStored(field, raw, previous) {
 			result.Changed[name] = true
 		}
 	}

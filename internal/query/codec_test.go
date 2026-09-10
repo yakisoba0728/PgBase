@@ -391,6 +391,21 @@ func TestEncodeRecordKeepsNonFiniteLiteralsInTextFields(t *testing.T) {
 	}
 }
 
+func TestFieldInputEqualsStoredUsesPersistedSemantics(t *testing.T) {
+	jsonField := schema.Field{Name: "metadata", Type: schema.TypeJSONB}
+	if !FieldInputEqualsStored(jsonField, json.RawMessage(`{"b":2.0,"a":1}`), json.RawMessage(`{"a":1.0,"b":2}`)) {
+		t.Fatal("equivalent jsonb counted changed")
+	}
+	timeField := schema.Field{Name: "when", Type: schema.TypeTimestampTZ}
+	if !FieldInputEqualsStored(timeField, json.RawMessage(`"2026-09-10T01:00:00+01:00"`), "2026-09-10T00:00:00Z") {
+		t.Fatal("equivalent timestamp counted changed")
+	}
+	numericField := schema.Field{Name: "amount", Type: schema.TypeNumeric}
+	if !FieldInputEqualsStored(numericField, json.RawMessage(`"1.00"`), "1.0") {
+		t.Fatal("equivalent numeric counted changed")
+	}
+}
+
 func numericCollection() schema.Collection {
 	return schema.Collection{Fields: []schema.Field{{Name: "amount", ColumnName: "amount", Type: schema.TypeNumeric}}}
 }
