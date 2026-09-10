@@ -90,10 +90,17 @@ func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("Content-Type", file.ContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", downloadContentType(file, variant))
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
 	_, _ = io.Copy(w, reader)
+}
+
+func downloadContentType(file filestore.File, variant filestore.Variant) string {
+	if variant != filestore.Original && variant != filestore.Thumbnail && (file.ContentType == "image/gif" || file.ContentType == "image/webp") {
+		return "image/jpeg"
+	}
+	return file.ContentType
 }
 
 type fileEndpoints struct {

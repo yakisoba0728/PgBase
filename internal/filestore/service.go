@@ -39,9 +39,9 @@ type FieldPolicy struct {
 	Thumbs       []string
 	Required     bool
 	Hidden       bool
-	// Protected requires a scoped download token. The zero value is deliberately
-	// secure so existing schemas stay protected until they opt into public files.
-	Protected bool
+	// Nil preserves the secure default. A policy callback must explicitly opt
+	// into public delivery with a false value.
+	Protected *bool
 }
 
 // OpenPublic opens an explicitly public file field. It never accepts a token
@@ -60,7 +60,7 @@ func (s *Service) OpenPublic(ctx context.Context, id uuid.UUID, variant Variant)
 		if err != nil {
 			return err
 		}
-		if policy.Protected || policy.Hidden {
+		if *policy.Protected || policy.Hidden {
 			return ErrNotFound
 		}
 		if variant != Original && variant != Thumbnail && !containsVariant(policy.Thumbs, string(variant)) {
@@ -97,7 +97,8 @@ type Service struct {
 }
 
 func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, field string) (FieldPolicy, error) {
-	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...), Protected: true}
+	protected := true
+	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...), Protected: &protected}
 	if s.options.Policy != nil {
 		resolved, err := s.options.Policy(ctx, tx, collectionID, field)
 		if err != nil {
@@ -115,7 +116,9 @@ func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID,
 		policy.Thumbs = append([]string(nil), resolved.Thumbs...)
 		policy.Required = resolved.Required
 		policy.Hidden = resolved.Hidden
-		policy.Protected = resolved.Protected
+		if resolved.Protected != nil {
+			policy.Protected = resolved.Protected
+		}
 	}
 	return policy, nil
 }
@@ -416,7 +419,7 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 		if err != nil {
 			return err
 		}
-		if policy.Protected && token == "" {
+		if *policy.Protected && token == "" {
 			return ErrDenied
 		}
 		if variant != Original && variant != Thumbnail {
