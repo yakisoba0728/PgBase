@@ -61,6 +61,17 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 				return json.Marshal(map[string]any{"id": c.ID, "name": c.Name, "type": "auth", "fields": c.Fields})
 			}
 		}
+		if service, ok := host.bridge.authMail.(interface {
+			ListAuthCollections(context.Context) ([]userauth.AuthCollection, error)
+		}); ok {
+			if values, e := service.ListAuthCollections(ctx); e == nil {
+				for _, c := range values {
+					if c.ID.String() == q.Name {
+						return json.Marshal(map[string]any{"id": c.ID, "name": c.Name, "type": "auth", "fields": c.Fields})
+					}
+				}
+			}
+		}
 		return nil, extensionError("not_found", errors.New("collection not found"))
 	case "app.collection.list":
 		var q struct {
@@ -107,6 +118,31 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 			}
 		}
 		return json.RawMessage(`true`), nil
+	case "app.collection.references":
+		var q struct {
+			Name string `json:"name"`
+		}
+		if err := decodeExtensionInput(raw, &q); err != nil {
+			return nil, err
+		}
+		var target uuid.UUID
+		for _, c := range host.bridge.appControl.app.schemaCache.Load().Collections {
+			if c.Name == q.Name || c.ID.String() == q.Name {
+				target = c.ID
+			}
+		}
+		if target == uuid.Nil {
+			return nil, extensionError("not_found", errors.New("collection not found"))
+		}
+		out := make([]map[string]any, 0)
+		for _, c := range host.bridge.appControl.app.schemaCache.Load().Collections {
+			for _, f := range c.Fields {
+				if f.Relation != nil && f.Relation.TargetCollectionID == target {
+					out = append(out, map[string]any{"collectionId": c.ID, "collectionName": c.Name, "field": f.Name})
+				}
+			}
+		}
+		return json.Marshal(out)
 	case "app.authAux.list":
 		var q struct{ Collection, RecordID, Kind string }
 		if err := decodeExtensionInput(raw, &q); err != nil {
