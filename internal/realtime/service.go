@@ -245,17 +245,6 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			if err != nil {
 				return err
 			}
-			if request.Fields != "" {
-				projection, compileErr := query.CompileProjection(request.Fields)
-				if compileErr != nil {
-					return compileErr
-				}
-				if projected, ok := projection.Apply(event.Record).(map[string]any); ok {
-					event.Record = projected
-				} else {
-					return errors.New("realtime projection did not produce a record")
-				}
-			}
 			events = append(events, event)
 			cursor = event.Sequence
 		}

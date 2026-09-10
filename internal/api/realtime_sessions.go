@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
@@ -31,6 +32,7 @@ type realtimeClient struct {
 	id, address, token string
 	principal          identity.Subject
 	subscriptions      []realtimeSubscription
+	resume             *int64
 }
 type realtimeHub struct {
 	mu           sync.RWMutex
@@ -118,7 +120,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	address, _ := clientIP(r, h.dependencies.trustedProxies())
-	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r)}
+	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r), resume: cursor}
 	h.mu.Lock()
 	if len(h.clients) >= 128 {
 		h.mu.Unlock()
@@ -164,15 +166,31 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 			}
 			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: client.principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
 			if err != nil {
-				continue
+				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
+				_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", payload)
+				_ = control.Flush()
+				return
 			}
 			for _, event := range events {
 				record := event.Record
 				if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
 					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: client.principal, RequestID: requestID(r.Context()), Collection: event.Collection, ID: event.RecordID, Expand: sub.expand, Fields: sub.fields})
 					if getErr == nil {
-						record = current.Data
+						if expanded, ok := current.Data["expand"]; ok {
+							record["expand"] = expanded
+						}
 					}
+				}
+				if sub.fields != "" {
+					projection, compileErr := query.CompileProjection(sub.fields)
+					if compileErr != nil {
+						return
+					}
+					projected, ok := projection.Apply(record).(map[string]any)
+					if !ok {
+						return
+					}
+					record = projected
 				}
 				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
 				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
@@ -230,10 +248,29 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		seen[raw] = true
 		subscriptions = append(subscriptions, sub)
 	}
+	reader, ok := h.dependencies.Realtime.(realtimeV2)
+	if !ok {
+		writeAPIError(w, r, APIError{Status: 503, Code: "realtime_unavailable", Message: "Realtime is unavailable"})
+		return
+	}
+	for index := range subscriptions {
+		if client.resume != nil {
+			value := *client.resume
+			subscriptions[index].cursor = &value
+		} else {
+			_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields})
+			if err != nil {
+				writeRealtimeError(w, r, err)
+				return
+			}
+			subscriptions[index].cursor = &head
+		}
+	}
 	client.mu.Lock()
 	client.principal = principal
 	client.token = realtimeCredential(r)
 	client.subscriptions = subscriptions
+	client.resume = nil
 	client.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
