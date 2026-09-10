@@ -137,7 +137,7 @@ func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fe
 		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(order.root.AccessCollectionID())+` AND "rq_owner".record_id = `+quoted(order.root.TableName)+`.`+quoted("id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
 	}
 	if len(policy) > 0 && policy[0].rule != nil {
-		predicate, args, err := compilePolicyPredicate(*policy[0].rule, order.root, policy[0].collection, order.root.TableName, policy[0].principal, len(builder.args))
+		predicate, args, err := compilePolicyPredicateWithRequest(*policy[0].rule, order.root, policy[0].collection, order.root.TableName, policy[0].principal, len(builder.args), policy[0].catalog, policy[0].request)
 		if err != nil {
 			return Statement{}, err
 		}
@@ -164,17 +164,37 @@ type ruleBinding struct {
 	rule       *accessrule.Rule
 	principal  identity.Subject
 	collection schema.Collection
+	catalog    schema.Catalog
+	request    *accessrule.RequestContext
 }
 
-func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int) (string, []any, error) {
+func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int, catalogs ...schema.Catalog) (string, []any, error) {
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{policy.Name: policy}}
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	}
+	return compilePolicyPredicateWithRequest(rule, visible, policy, alias, principal, offset, catalog, nil)
+}
+
+func compilePolicyPredicateWithRequest(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int, catalog schema.Catalog, request *accessrule.RequestContext) (string, []any, error) {
+	compile := func(target schema.Collection, targetAlias string) (string, []any, error) {
+		if rule.PocketBase == nil {
+			return accessrule.Compile(rule, target, targetAlias, principal, offset, false)
+		}
+		resolver, err := accessrule.NewCatalogResolver(catalog, target, targetAlias)
+		if err != nil {
+			return "", nil, err
+		}
+		return accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: offset})
+	}
 	if !visible.IsView() || visible.IsSQLView() {
-		return accessrule.Compile(rule, policyCollection(visible), alias, principal, offset, false)
+		return compile(policyCollection(visible), alias)
 	}
 	if policy.ID == uuid.Nil {
 		return "", nil, schema.ErrConflict
 	}
 	policyAlias := alias + "_policy"
-	predicate, args, err := accessrule.Compile(rule, policy, policyAlias, principal, offset, false)
+	predicate, args, err := compile(policy, policyAlias)
 	if err != nil {
 		return "", nil, err
 	}

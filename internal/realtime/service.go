@@ -57,12 +57,13 @@ type Event struct {
 }
 
 type ReadRequest struct {
-	Principal  identity.Subject
-	Collection string
-	RecordID   uuid.UUID
-	Filter     string
-	Fields     string
-	After      *int64
+	Principal   identity.Subject
+	Collection  string
+	RecordID    uuid.UUID
+	Filter      string
+	Fields      string
+	After       *int64
+	RuleContext *accessrule.RequestContext
 }
 
 // Read checks current policy and active status for every batch. after=nil
@@ -173,7 +174,15 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		predicate, args = "event.owner_user_id=$3", []any{request.Principal.ID}
 	} else if revision != 0 {
 		rule := accessrule.Rule{Op: "all", Args: []accessrule.Rule{rules.List, rules.View}}
-		predicate, args, err = accessrule.CompileEvent(rule, collection, "acl_record", request.Principal, 2, "event")
+		if rules.List.PocketBase != nil || rules.View.PocketBase != nil {
+			resolver, resolveErr := accessrule.NewCatalogResolver(catalog, collection, "acl_record")
+			if resolveErr != nil {
+				return "", nil, schema.Collection{}, resolveErr
+			}
+			predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: request.Principal, Request: request.RuleContext, ArgOffset: 2})
+		} else {
+			predicate, args, err = accessrule.CompileEvent(rule, collection, "acl_record", request.Principal, 2, "event")
+		}
 		if err != nil {
 			return "", nil, schema.Collection{}, err
 		}

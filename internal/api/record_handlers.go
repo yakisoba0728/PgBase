@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
@@ -25,6 +26,26 @@ type RecordService interface {
 	Create(context.Context, recordops.CreateRequest) (recordops.MutationResult, error)
 	Update(context.Context, recordops.UpdateRequest) (recordops.MutationResult, error)
 	Delete(context.Context, recordops.DeleteRequest) (recordops.MutationResult, error)
+}
+
+func ruleRequestContext(r *http.Request) *accessrule.RequestContext {
+	queryValues := map[string][]string{}
+	for key, values := range r.URL.Query() {
+		queryValues[key] = append([]string(nil), values...)
+	}
+	headers := map[string][]string{}
+	for key, values := range r.Header {
+		normalized := strings.ReplaceAll(strings.ToLower(key), "-", "_")
+		headers[normalized] = append([]string(nil), values...)
+	}
+	auth := map[string]any{}
+	if current, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
+		auth["id"] = current.principal.User.ID
+		auth["email"] = current.principal.User.Email
+		auth["verified"] = current.principal.User.Verified
+		auth["created"] = current.principal.User.CreatedAt
+	}
+	return &accessrule.RequestContext{Method: r.Method, Query: queryValues, Headers: headers, Auth: auth, Context: map[string]any{"requestId": requestID(r.Context())}}
 }
 
 type recordEndpoints struct {
@@ -82,6 +103,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
 		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand, Fields: event.Fields,
 		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
+		RuleContext:             ruleRequestContext(r),
 	})
 	finish(err)
 	if err != nil {
@@ -122,7 +144,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := e.service.Get(r.Context(), recordops.GetRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
-		Expand: event.Expand, Fields: event.Fields,
+		Expand: event.Expand, Fields: event.Fields, RuleContext: ruleRequestContext(r),
 		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
 	})
 	finish(err)
@@ -167,7 +189,7 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Create(r.Context(), recordops.CreateRequest{
 			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-			Input: event.Input, IdempotencyKey: idempotencyKey,
+			Input: event.Input, IdempotencyKey: idempotencyKey, RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err
@@ -242,7 +264,7 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Update(r.Context(), recordops.UpdateRequest{
 			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-			ID: id, Input: event.Input, IfMatch: ifMatch,
+			ID: id, Input: event.Input, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err
@@ -304,7 +326,7 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	var result recordops.MutationResult
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Delete(r.Context(), recordops.DeleteRequest{
-			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch,
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err

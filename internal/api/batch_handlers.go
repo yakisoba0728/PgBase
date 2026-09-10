@@ -209,7 +209,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	var results []recordops.MutationResult
 	err = finishLifecycle(finish, func() error {
 		results, err = service.Batch(r.Context(), recordops.BatchRequest{
-			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants,
+			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants, RuleContext: ruleRequestContext(r),
 		})
 		event.Results = cloneMutationResults(results)
 		return err

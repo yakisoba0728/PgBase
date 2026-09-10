@@ -112,7 +112,7 @@ func (s *Service) readGetInTx(
 		if err != nil {
 			return err
 		}
-		predicate, args, err := compilePolicyPredicate(rules.View, collection, policyTarget, collection.TableName, request.Principal, len(statement.Args))
+		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, collection, policyTarget, collection.TableName, request.Principal, len(statement.Args), catalog, request.RuleContext)
 		if err != nil {
 			return err
 		}
@@ -288,6 +288,7 @@ func (s *Service) readListInTx(
 	}
 	rootPlan := plannedRootPlan(filterNode, relationPlan)
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
+	rootPlan.ruleContext = request.RuleContext
 	rootPlan.policyCollection, err = sourcePolicyCollection(catalog, collection)
 	if err != nil {
 		return listResult{}, relationOperation, err

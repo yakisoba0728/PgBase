@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
@@ -243,6 +245,10 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 			kind = PBBool
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, json.Number:
 			kind = PBNumber
+		case time.Time:
+			kind = PBTime
+		case uuid.UUID:
+			kind = PBUUID
 		}
 		return PBOperand{SQL: c.typedParameter(kind, value), Kind: kind, Cardinality: PBScalar}, nil
 	}

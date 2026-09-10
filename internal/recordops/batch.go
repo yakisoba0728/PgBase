@@ -122,16 +122,19 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 	if operation.Create != nil {
 		request := *operation.Create
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
+		request.RuleContext = batch.RuleContext
 		return s.Create(ctx, request)
 	}
 	if operation.Update != nil {
 		request := *operation.Update
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
+		request.RuleContext = batch.RuleContext
 		return s.Update(ctx, request)
 	}
 	if operation.Upsert != nil {
 		request := *operation.Upsert
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
+		request.RuleContext = batch.RuleContext
 		tx, _ := ctx.Value(batchTransactionKey{}).(pgx.Tx)
 		var tableName string
 		if err := tx.QueryRow(ctx, `select table_name from pgbase_meta.collections where name=$1`, request.Collection).Scan(&tableName); err != nil {
@@ -152,9 +155,10 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 		if exists || request.IfMatch.Present {
 			return s.Update(ctx, request)
 		}
-		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, ID: request.ID, Input: request.Input})
+		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, ID: request.ID, Input: request.Input, RuleContext: batch.RuleContext})
 	}
 	request := *operation.Delete
 	request.Principal, request.RequestID = batch.Principal, batch.RequestID
+	request.RuleContext = batch.RuleContext
 	return s.Delete(ctx, request)
 }

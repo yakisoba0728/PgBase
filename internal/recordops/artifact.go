@@ -62,6 +62,7 @@ type artifactBatch struct {
 func commitMutation(
 	ctx context.Context,
 	tx pgx.Tx,
+	catalog schema.Catalog,
 	principal Principal,
 	requestID string,
 	inputHash []byte,
@@ -73,7 +74,7 @@ func commitMutation(
 		}
 		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
 			if len(batch.rows) == 1 && batch.rows[0].requestContext != nil {
-				allowed, err := recordaccess.AllowsRecordWithRequest(ctx, tx, policyCollection(batch.collection), principal, batch.operation, batch.rows[0].recordID, batch.operation == "create", batch.rows[0].requestContext)
+				allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, batch.rows[0].recordID, batch.operation == "create", batch.rows[0].requestContext)
 				if err != nil {
 					return err
 				}
@@ -85,7 +86,7 @@ func commitMutation(
 				for index, row := range batch.rows {
 					ids[index] = row.recordID
 				}
-				allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
+				allowed, err := recordaccess.AllowsRecordsInCatalog(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
 				if err != nil {
 					return err
 				}

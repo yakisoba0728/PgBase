@@ -115,7 +115,10 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// The 68-feature PocketBase completion adds the shared scalar predicate,
 	// relation expansion, response projection, and compatibility pagination
 	// paths measured here. Keep the exact post-completion measurement.
-	if runtimeLines > 6732 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 6732", runtimeLines)
+	// RULE-03 adds the bounded PocketBase operand grammar, JSON extraction and
+	// function renderers at this existing query seam. The measured increase has
+	// no spare allowance.
+	if runtimeLines > 7057 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7057", runtimeLines)
 	}
 }

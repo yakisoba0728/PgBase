@@ -13,10 +13,14 @@ import (
 // AllowsRecord evaluates the action on the row inside the caller's pinned
 // transaction. It also works on newly inserted rows before ownership publish.
 func AllowsRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool) (bool, error) {
-	return AllowsRecordWithRequest(ctx, tx, collection, principal, action, id, prospectiveOwner, nil)
+	return AllowsRecordInCatalog(ctx, tx, schema.Catalog{Collections: map[string]schema.Collection{collection.Name: collection}}, collection, principal, action, id, prospectiveOwner, nil)
 }
 
 func AllowsRecordWithRequest(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
+	return AllowsRecordInCatalog(ctx, tx, schema.Catalog{Collections: map[string]schema.Collection{collection.Name: collection}}, collection, principal, action, id, prospectiveOwner, request)
+}
+
+func AllowsRecordInCatalog(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
 	rules, _, err := LoadRules(ctx, tx, collection.ID)
 	if err != nil {
 		return false, err
@@ -27,7 +31,13 @@ func AllowsRecordWithRequest(ctx context.Context, tx pgx.Tx, collection schema.C
 	}
 	var predicate string
 	var args []any
-	if request == nil {
+	if rule.PocketBase != nil {
+		resolver, resolveErr := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
+		if resolveErr != nil {
+			return false, resolveErr
+		}
+		predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: 1})
+	} else if request == nil {
 		predicate, args, err = accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
 	} else {
 		predicate, args, err = accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 1, prospectiveOwner, *request)
@@ -43,6 +53,14 @@ func AllowsRecordWithRequest(ctx context.Context, tx pgx.Tx, collection schema.C
 
 // AllowsRecords preserves set-based mutation work for large cascade batches.
 func AllowsRecords(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal identity.Subject, action string, ids []uuid.UUID, prospectiveOwner bool) (bool, error) {
+	return AllowsRecordsInCatalog(ctx, tx, schema.Catalog{Collections: map[string]schema.Collection{collection.Name: collection}}, collection, principal, action, ids, prospectiveOwner)
+}
+
+func AllowsRecordsInCatalog(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal identity.Subject, action string, ids []uuid.UUID, prospectiveOwner bool) (bool, error) {
+	return AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, collection, principal, action, ids, prospectiveOwner, nil)
+}
+
+func AllowsRecordsInCatalogWithRequest(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal identity.Subject, action string, ids []uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
 	if len(ids) == 0 {
 		return true, nil
 	}
@@ -54,7 +72,21 @@ func AllowsRecords(ctx context.Context, tx pgx.Tx, collection schema.Collection,
 	if err != nil {
 		return false, err
 	}
-	predicate, args, err := accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
+	var predicate string
+	var args []any
+	if rule.PocketBase != nil {
+		resolver, e := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
+		if e != nil {
+			return false, e
+		}
+		predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: 1})
+	} else {
+		if request == nil {
+			predicate, args, err = accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
+		} else {
+			predicate, args, err = accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 1, prospectiveOwner, *request)
+		}
+	}
 	if err != nil {
 		return false, err
 	}

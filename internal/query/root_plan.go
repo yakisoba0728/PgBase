@@ -21,6 +21,7 @@ type rootPlan struct {
 	ruleRevision     int64
 	policyCollection schema.Collection
 	outputRuleScope  string
+	ruleContext      *accessrule.RequestContext
 }
 
 func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
@@ -32,9 +33,9 @@ func (p rootPlan) order() orderSpec { return p.relation.order }
 
 func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
 	if p.order().relationAnchor {
-		return p.relation.pageStatementWithPolicy(after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
+		return p.relation.pageStatementWithPolicy(after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext})
 	}
-	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
+	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext})
 }
 
 func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {

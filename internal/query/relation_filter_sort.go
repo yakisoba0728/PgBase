@@ -319,6 +319,8 @@ func relationSortBudgetExceeded() error {
 type relationSQLRenderer struct {
 	builder *statementBuilder
 	next    int
+	root    schema.Collection
+	catalog schema.Catalog
 }
 
 func (r *relationSQLRenderer) alias(prefix string) string {
@@ -328,7 +330,7 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 
 func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
-	renderer := &relationSQLRenderer{builder: builder}
+	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
 	if err != nil {
 		return Statement{}, err
@@ -344,7 +346,7 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	if ownerID != nil {
 		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(p.order.root.AccessCollectionID())+` AND "rq_owner".record_id = `+qualified(relationRootAlias, "id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
 	} else if root.rule != nil {
-		predicate, args, err := compilePolicyPredicate(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args))
+		predicate, args, err := compilePolicyPredicateWithRequest(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args), p.catalog, root.request)
 		if err != nil {
 			return Statement{}, err
 		}
@@ -590,7 +592,7 @@ func renderRelationExists(
 			return "", schema.ErrConflict
 		}
 		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
 			if err != nil {
 				return "", err
 			}
@@ -654,7 +656,7 @@ func renderRelationSortJoins(
 			lateralAlias := renderer.alias(prefix + "_many")
 			conditions := []string{}
 			if hop.rule != nil {
-				predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+				predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
 				if err != nil {
 					return "", nil, err
 				}
@@ -689,7 +691,7 @@ func renderRelationSortJoins(
 		}
 		conditions := []string{qualified(targetAlias, systemFieldID) + " = " + qualified(parentAlias, hop.field.ColumnName)}
 		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
 			if err != nil {
 				return "", nil, err
 			}

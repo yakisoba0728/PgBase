@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 )
@@ -55,6 +56,7 @@ type ListRequest struct {
 	Expand                  string
 	Fields                  string
 	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type GetRequest struct {
@@ -65,6 +67,7 @@ type GetRequest struct {
 	Expand                  string
 	Fields                  string
 	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type CreateRequest struct {
@@ -75,6 +78,7 @@ type CreateRequest struct {
 	IdempotencyKey     string
 	ID                 uuid.UUID
 	IdempotencyContext []byte
+	RuleContext        *accessrule.RequestContext
 }
 
 type UpdateRequest struct {
@@ -86,14 +90,16 @@ type UpdateRequest struct {
 	IfMatch        EntityTagSet
 	SidecarFields  []string
 	SidecarContext []byte
+	RuleContext    *accessrule.RequestContext
 }
 
 type DeleteRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	ID         uuid.UUID
-	IfMatch    EntityTagSet
+	Principal   Principal
+	RequestID   string
+	Collection  string
+	ID          uuid.UUID
+	IfMatch     EntityTagSet
+	RuleContext *accessrule.RequestContext
 }
 
 // BatchRequest is an atomic, ordered group of record mutations. Batch is
@@ -104,6 +110,7 @@ type BatchRequest struct {
 	RequestID    string
 	Operations   []BatchOperation
 	Participants []BatchParticipant
+	RuleContext  *accessrule.RequestContext
 }
 
 // BatchParticipant joins sidecar state to the same transaction after all

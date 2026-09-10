@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
@@ -17,6 +18,7 @@ type GetRequest struct {
 	Expand                  string
 	Fields                  string
 	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type ListRequest struct {
@@ -29,6 +31,7 @@ type ListRequest struct {
 	Expand                  string
 	Fields                  string
 	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,

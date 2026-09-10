@@ -177,10 +177,10 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				client.deliveryMu.Unlock()
 				return
 			}
-			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor})
+			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 			relationFilter := errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord)
 			if relationFilter {
-				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, After: sub.cursor})
+				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 			}
 			if err != nil {
 				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
@@ -194,7 +194,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 					if event.Operation == "delete" {
 						continue
 					}
-					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.RecordID.String() + "'"})
+					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.RecordID.String() + "'", RuleContext: ruleRequestContext(r)})
 					if listErr != nil || len(page.Items) == 0 {
 						continue
 					}
@@ -323,16 +323,16 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	for index := range subscriptions {
 		// Always validate against the current schema and policy before replacing
 		// client state, even when a reconnect cursor is already available.
-		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields})
+		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
 		if errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord) {
-			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID})
+			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, RuleContext: ruleRequestContext(r)})
 		}
 		if err != nil {
 			writeRealtimeError(w, r, err)
 			return
 		}
 		if subscriptions[index].expand != "" && h.dependencies.Records != nil {
-			_, err = h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: subscriptions[index].collection, Limit: 1, Filter: subscriptions[index].filter, Expand: subscriptions[index].expand, Fields: subscriptions[index].fields})
+			_, err = h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: subscriptions[index].collection, Limit: 1, Filter: subscriptions[index].filter, Expand: subscriptions[index].expand, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
 			if err != nil {
 				writeRealtimeError(w, r, err)
 				return

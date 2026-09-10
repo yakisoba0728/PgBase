@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/query"
@@ -110,7 +111,7 @@ func (s *Service) deleteGraphInTransaction(
 	if request.IfMatch.Present && !request.IfMatch.matches(rootSnapshot.previousETag) {
 		return MutationResult{}, &Error{Code: CodePreconditionFailed, CurrentETag: rootSnapshot.previousETag}
 	}
-	if err := authorizeDeleteClosure(ctx, tx, groups, request.Principal); err != nil {
+	if err := authorizeDeleteClosure(ctx, tx, catalog, groups, request.Principal, request.RuleContext); err != nil {
 		return MutationResult{}, err
 	}
 
@@ -125,7 +126,7 @@ func (s *Service) deleteGraphInTransaction(
 	if err != nil {
 		return MutationResult{}, err
 	}
-	if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], updateBatches...); err != nil {
+	if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, inputHash[:], updateBatches...); err != nil {
 		return MutationResult{}, err
 	}
 
@@ -159,13 +160,13 @@ func (s *Service) deleteGraphInTransaction(
 	if err != nil {
 		return MutationResult{}, err
 	}
-	if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], deleteBatches...); err != nil {
+	if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, inputHash[:], deleteBatches...); err != nil {
 		return MutationResult{}, err
 	}
 	return MutationResult{EventID: identityCache.rootEventID, Compatibility: compatibility}, nil
 }
 
-func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, groups []deleteGroup, principal Principal) error {
+func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, groups []deleteGroup, principal Principal, request *accessrule.RequestContext) error {
 	if principal.Kind == PrincipalAdministrator {
 		return nil
 	}
@@ -192,7 +193,7 @@ func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, groups []deleteGroup
 			if principal.Kind == identity.Service {
 				continue
 			}
-			allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(group.collection), principal, check.action, check.ids, false)
+			allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(group.collection), principal, check.action, check.ids, false, request)
 			if err != nil {
 				return err
 			}
