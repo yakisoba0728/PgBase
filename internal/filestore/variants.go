@@ -102,7 +102,7 @@ func (s *Service) queueUnreferencedVariant(ctx context.Context, fileID uuid.UUID
 }
 
 func (s *Service) renderVariant(ctx context.Context, file File, variant string) (result []byte, resultErr error) {
-	if file.ContentType != "image/jpeg" && file.ContentType != "image/png" {
+	if !thumbnailImageType(file.ContentType) {
 		return nil, ErrInvalid
 	}
 	reader, err := s.objects.Open(ctx, file.ObjectKey)
@@ -114,7 +114,11 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	source, format, err := image.Decode(bytes.NewReader(data))
+	config, format, err := decodeImageConfig(bytes.NewReader(data), file.ContentType)
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(file.ContentType, format) {
+		return nil, ErrInvalid
+	}
+	source, format, err := decodeImage(bytes.NewReader(data), file.ContentType)
 	if err != nil {
 		return nil, ErrInvalid
 	}

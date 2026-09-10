@@ -5,6 +5,8 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"image/gif"
+	"image/jpeg"
 	"image/png"
 	"testing"
 )
@@ -19,6 +21,31 @@ func TestVariantGrammarIsBounded(t *testing.T) {
 		if validVariant(value) {
 			t.Errorf("%q accepted", value)
 		}
+	}
+}
+
+func TestRenderVariantSupportsGIF(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gifSource := image.NewPaletted(image.Rect(0, 0, 2, 1), color.Palette{color.Black, color.White})
+	gifSource.SetColorIndex(1, 0, 1)
+	var gifData bytes.Buffer
+	if err := gif.Encode(&gifData, gifSource, nil); err != nil {
+		t.Fatal(err)
+	}
+	const key = "objects/00000000-0000-4000-8000-000000000002"
+	if err := store.Put(context.Background(), key, bytes.NewReader(gifData.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{objects: store, options: Options{MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000}}
+	result, err := service.renderVariant(context.Background(), File{ObjectKey: key, ContentType: "image/gif"}, "1x1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jpeg.DecodeConfig(bytes.NewReader(result)); err != nil {
+		t.Fatalf("variant is not a decodable JPEG: %v", err)
 	}
 }
 
