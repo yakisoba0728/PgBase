@@ -19,6 +19,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
@@ -64,6 +65,7 @@ type extensionHost struct {
 	objectBytesRead  int64
 	namespace        string
 	multipart        multipartFieldOpener
+	bypassHooks      bool
 }
 
 // multipartFieldOpener is an invocation-local, opaque source for a parsed
@@ -157,6 +159,18 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
 	case "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo", "app-control.cronList", "app-control.cronConfigure", "app-control.cronRun", "app-control.backupList", "app-control.backupRead", "app-control.backupDelete":
 		return host.callAppControl(operationContext, method, input)
+	case "hooks-bypass.begin":
+		if host.principal.Kind != identity.Administrator || host.bypassHooks {
+			return nil, extensionError("hooks_bypass_denied", errors.New("hook bypass requires administrator authority and a single active scope"))
+		}
+		host.bypassHooks = true
+		return json.RawMessage(`{"active":true}`), nil
+	case "hooks-bypass.end":
+		if !host.bypassHooks {
+			return nil, extensionError("hooks_bypass_denied", errors.New("hook bypass scope is not active"))
+		}
+		host.bypassHooks = false
+		return json.RawMessage(`{"active":false}`), nil
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
@@ -261,6 +275,9 @@ func (host *extensionHost) operationContext(caller context.Context) (context.Con
 	if err := combined.Err(); err != nil {
 		cleanup()
 		return nil, func() {}, context.Cause(combined)
+	}
+	if host.bypassHooks {
+		combined = lifecycle.WithoutHooks(combined)
 	}
 	return combined, cleanup, nil
 }

@@ -60,6 +60,7 @@ type PocketBaseCompatibilityOptions struct {
 	DataDirectory         string
 	EncryptionEnvironment string
 	Development           bool
+	AllowHookBypass       bool
 }
 
 type JavaScriptHandler struct {
@@ -115,13 +116,16 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem", "app-control":
+		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem", "app-control", "hooks-bypass":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
 		capabilities[name] = enabled
 	}
 	options.Capabilities = capabilities
+	if capabilities["hooks-bypass"] && !options.PocketBaseCompatibility.AllowHookBypass {
+		return JavaScriptOptions{}, errors.New("JavaScript hooks-bypass capability requires PocketBaseCompatibility.AllowHookBypass")
+	}
 	compatibility, err := options.PocketBaseCompatibility.normalized()
 	if err != nil {
 		return JavaScriptOptions{}, fmt.Errorf("JavaScript.PocketBaseCompatibility: %w", err)
