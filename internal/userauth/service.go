@@ -103,7 +103,9 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, ErrConflict
 	}
 	if err == nil {
-		_ = s.recordAuthOrigin(ctx, user.ID, clientAddress, now)
+		if added, _ := s.recordAuthOrigin(ctx, user.ID, clientAddress, now); added {
+			s.sendAuthAlert(ctx, user, "New sign-in origin: "+clientAddress)
+		}
 	}
 	return issued, err
 }
@@ -197,7 +199,9 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		_ = s.recordFailures(ctx, buckets, now)
 	}
 	if err == nil {
-		_ = s.recordAuthOrigin(ctx, user.ID, clientAddress, now)
+		if added, _ := s.recordAuthOrigin(ctx, user.ID, clientAddress, now); added {
+			s.sendAuthAlert(ctx, user, "New sign-in origin: "+clientAddress)
+		}
 	}
 	return issued, err
 }

@@ -38,10 +38,57 @@ type UpdateAuthRecordInput struct {
 	Fields           map[string]any
 }
 
-func (s *Service) ListAuthorizedAuthRecords(ctx context.Context,collectionID,principal uuid.UUID,limit int)([]AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select list_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return nil,err};if !ruleAllowsOperation(rule,principal,principal){return nil,ErrInvalidCredentials};if rule=="@request.auth.id = id"{v,err:=s.GetAuthRecord(ctx,collectionID,principal);if err!=nil{return nil,err};return []AuthRecord{v},nil};return s.ListAuthRecords(ctx,collectionID,limit)}
-func (s *Service) GetAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID)(AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select view_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return AuthRecord{},err};if !ruleAllowsOperation(rule,principal,target){return AuthRecord{},ErrInvalidCredentials};return s.GetAuthRecord(ctx,collectionID,target)}
-func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID,in UpdateAuthRecordInput)(AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select update_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return AuthRecord{},err};if !ruleAllowsOperation(rule,principal,target){return AuthRecord{},ErrInvalidCredentials};in.Email=nil;in.Password=nil;in.Verified=nil;in.Active=nil;return s.UpdateAuthRecord(ctx,collectionID,target,in)}
-func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID)error{var rule string;if err:=s.pool.QueryRow(ctx,`select delete_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return err};if !ruleAllowsOperation(rule,principal,target){return ErrInvalidCredentials};return s.DeleteAuthRecord(ctx,collectionID,target)}
+func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
+	var rule string
+	if err := s.pool.QueryRow(ctx, `select list_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+		return nil, err
+	}
+	if !ruleAllowsOperation(rule, principal, principal) {
+		return nil, ErrInvalidCredentials
+	}
+	if rule == "@request.auth.id = id" {
+		v, err := s.GetAuthRecord(ctx, collectionID, principal)
+		if err != nil {
+			return nil, err
+		}
+		return []AuthRecord{v}, nil
+	}
+	return s.ListAuthRecords(ctx, collectionID, limit)
+}
+func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) (AuthRecord, error) {
+	var rule string
+	if err := s.pool.QueryRow(ctx, `select view_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+		return AuthRecord{}, err
+	}
+	if !ruleAllowsOperation(rule, principal, target) {
+		return AuthRecord{}, ErrInvalidCredentials
+	}
+	return s.GetAuthRecord(ctx, collectionID, target)
+}
+func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
+	var rule string
+	if err := s.pool.QueryRow(ctx, `select update_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+		return AuthRecord{}, err
+	}
+	if !ruleAllowsOperation(rule, principal, target) {
+		return AuthRecord{}, ErrInvalidCredentials
+	}
+	in.Email = nil
+	in.Password = nil
+	in.Verified = nil
+	in.Active = nil
+	return s.UpdateAuthRecord(ctx, collectionID, target, in)
+}
+func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
+	var rule string
+	if err := s.pool.QueryRow(ctx, `select delete_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+		return err
+	}
+	if !ruleAllowsOperation(rule, principal, target) {
+		return ErrInvalidCredentials
+	}
+	return s.DeleteAuthRecord(ctx, collectionID, target)
+}
 
 func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, limit int) ([]AuthRecord, error) {
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
@@ -95,6 +142,7 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	if err != nil {
 		return AuthRecord{}, err
 	}
+	in.Fields = applyAuthAutoDates(in.Fields, fields, true, time.Now())
 	if !validateTypedProfile(in.Fields, fields) {
 		return AuthRecord{}, ErrValidation
 	}
@@ -185,6 +233,7 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 				merged[k] = v
 			}
 		}
+		merged = applyAuthAutoDates(merged, fields, false, time.Now())
 		if !validateTypedProfile(merged, fields) {
 			return ErrValidation
 		}
@@ -230,7 +279,9 @@ func validateAuthIdentityUnique(ctx context.Context, tx pgx.Tx, collectionID, us
 		if !ok || value == "" {
 			continue
 		}
-		if _,err:=tx.Exec(ctx,`select pg_advisory_xact_lock(hashtext($1))`,collectionID.String()+":"+field+":"+value);err!=nil{return err}
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext($1))`, collectionID.String()+":"+field+":"+value); err != nil {
+			return err
+		}
 		var duplicate bool
 		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 and u.id<>$2 and p.attributes->>$3=$4)`, collectionID, userID, field, value).Scan(&duplicate); err != nil {
 			return err

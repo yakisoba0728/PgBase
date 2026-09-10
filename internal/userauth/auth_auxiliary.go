@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -20,10 +21,21 @@ type AuthAuxiliaryRecord struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 }
 
-func (s *Service) recordAuthOrigin(ctx context.Context, userID uuid.UUID, address string, now time.Time) error {
+func (s *Service) recordAuthOrigin(ctx context.Context, userID uuid.UUID, address string, now time.Time) (bool, error) {
 	hash := s.subjectHash("auth-origin", "network", address)
-	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.user_auth_origins(id,user_id,fingerprint_hash,first_seen_at,last_seen_at) values($1,$2,$3,$4,$4) on conflict(user_id,fingerprint_hash) do update set last_seen_at=excluded.last_seen_at`, uuid.New(), userID, hash, now)
-	return err
+	var added bool
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `insert into pgbase_meta.user_auth_origins(id,user_id,fingerprint_hash,first_seen_at,last_seen_at) values($1,$2,$3,$4,$4) on conflict(user_id,fingerprint_hash) do nothing`, uuid.New(), userID, hash, now)
+		if err != nil {
+			return err
+		}
+		added = tag.RowsAffected() == 1
+		if !added {
+			_, err = tx.Exec(ctx, `update pgbase_meta.user_auth_origins set last_seen_at=$3 where user_id=$1 and fingerprint_hash=$2`, userID, hash, now)
+		}
+		return err
+	})
+	return added, err
 }
 
 func (s *Service) ListAuthAuxiliary(ctx context.Context, collectionID, userID uuid.UUID, kind string) ([]AuthAuxiliaryRecord, error) {
@@ -31,8 +43,12 @@ func (s *Service) ListAuthAuxiliary(ctx context.Context, collectionID, userID uu
 		return nil, ErrValidation
 	}
 	var manageRule string
-	if err:=s.pool.QueryRow(ctx,`select manage_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&manageRule);err!=nil{return nil,err}
-	if !ruleAllowsOperation(manageRule,userID,userID){return nil,ErrInvalidCredentials}
+	if err := s.pool.QueryRow(ctx, `select manage_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&manageRule); err != nil {
+		return nil, err
+	}
+	if !ruleAllowsOperation(manageRule, userID, userID) {
+		return nil, ErrInvalidCredentials
+	}
 	var query string
 	switch kind {
 	case "externalAuths":
@@ -67,15 +83,19 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 		return ErrValidation
 	}
 	var manageRule string
-	if err:=s.pool.QueryRow(ctx,`select manage_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&manageRule);err!=nil{return err}
-	if !ruleAllowsOperation(manageRule,userID,userID){return ErrInvalidCredentials}
+	if err := s.pool.QueryRow(ctx, `select manage_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&manageRule); err != nil {
+		return err
+	}
+	if !ruleAllowsOperation(manageRule, userID, userID) {
+		return ErrInvalidCredentials
+	}
 	var tag pgconn.CommandTag
 	var err error
 	switch kind {
 	case "externalAuths":
 		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and id=$3`, collectionID, userID, id)
 	case "mfas":
-		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id=$1 and id=$2`, userID, id, uuid.NameSpaceOID)
+		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id=$1 and id=$2`, userID, id)
 	case "otps":
 		tag, err = s.pool.Exec(ctx, `delete from pgbase_meta.user_email_otps where auth_collection_id=$1 and user_id=$2 and id=$3`, collectionID, userID, id)
 	case "authOrigins":

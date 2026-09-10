@@ -229,11 +229,7 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 	if userID == uuid.Nil || len(attributes) > 64 {
 		return nil, ErrValidation
 	}
-	raw, err := json.Marshal(attributes)
-	if err != nil {
-		return nil, ErrValidation
-	}
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var fieldsRaw []byte
 		var updateRule string
 		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where u.id=$1 and u.active for share of c`, userID).Scan(&fieldsRaw, &updateRule); errors.Is(err, pgx.ErrNoRows) {
@@ -242,7 +238,11 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			return err
 		}
 		var fields []schema.FieldInput
-		if json.Unmarshal(fieldsRaw, &fields) != nil || !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule, userID, userID) {
+		if json.Unmarshal(fieldsRaw, &fields) != nil {
+			return ErrValidation
+		}
+		attributes = applyAuthAutoDates(attributes, fields, false, time.Now())
+		if !validateTypedProfile(attributes, fields) || !ruleAllowsOperation(updateRule, userID, userID) {
 			return ErrValidation
 		}
 		if err := validateAuthRelationTargets(ctx, tx, userID, attributes, fields); err != nil {
@@ -275,6 +275,10 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			if duplicate {
 				return ErrConflict
 			}
+		}
+		raw, marshalErr := json.Marshal(attributes)
+		if marshalErr != nil {
+			return ErrValidation
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw)
 		return err

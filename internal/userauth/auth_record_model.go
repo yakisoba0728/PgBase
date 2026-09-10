@@ -32,7 +32,7 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 		}
 		seen[field.Name] = true
 		switch field.Type {
-		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText, schema.TypeEditor, schema.TypeTimestampTZ, schema.TypeUUID, schema.TypeJSONB, schema.TypeGeoPoint:
+		case schema.TypeBoolean, schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeText, schema.TypeEditor, schema.TypeTimestampTZ, schema.TypeAutoDate, schema.TypeUUID, schema.TypeJSONB, schema.TypeGeoPoint:
 		case schema.TypeRelation:
 			if field.Relation == nil || strings.TrimSpace(field.Relation.TargetCollection) == "" {
 				return nil, nil, false
@@ -149,7 +149,7 @@ func validAuthFieldValue(field schema.FieldInput, value any) bool {
 			return o == nil || o.MaxSize == nil || int64(len(v)) <= *o.MaxSize
 		}
 		return len(v) <= 4096 && fieldvalue.ValidateText(v, options) == ""
-	case schema.TypeTimestampTZ:
+	case schema.TypeTimestampTZ, schema.TypeAutoDate:
 		v, ok := value.(string)
 		if !ok {
 			return false
@@ -242,6 +242,22 @@ func validAuthFieldValue(field schema.FieldInput, value any) bool {
 	default:
 		return false
 	}
+}
+
+func applyAuthAutoDates(attributes map[string]any, fields []schema.FieldInput, create bool, now time.Time) map[string]any {
+	result := make(map[string]any, len(attributes)+2)
+	for k, v := range attributes {
+		result[k] = v
+	}
+	for _, field := range fields {
+		if field.Type != schema.TypeAutoDate {
+			continue
+		}
+		if field.Options != nil && ((create && field.Options.OnCreate) || (!create && field.Options.OnUpdate)) {
+			result[field.Name] = now.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	return result
 }
 
 func jsonNumber(v float64) string { raw, _ := json.Marshal(v); return string(raw) }
