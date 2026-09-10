@@ -114,6 +114,11 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		return json.Marshal(c.root)
 	case "os.args":
 		return json.Marshal(c.arguments)
+	case "os.tempDir":
+		if c.root == "" {
+			return nil, errors.New("filesystem root is not configured")
+		}
+		return json.Marshal(c.root)
 	case "os.getenv":
 		var request struct {
 			Name string `json:"name"`
@@ -398,6 +403,9 @@ func (c *extensionCompatibility) command(ctx context.Context, raw json.RawMessag
 		Name  string   `json:"name"`
 		Args  []string `json:"args"`
 		Input string   `json:"input"`
+		Env   []string `json:"env"`
+		Dir   string   `json:"dir"`
+		Mode  string   `json:"mode"`
 	}
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
@@ -410,16 +418,39 @@ func (c *extensionCompatibility) command(ctx context.Context, raw json.RawMessag
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, request.Args...)
 	cmd.Dir = c.root
+	if request.Dir != "" {
+		dir, pathErr := c.safePath(request.Dir, false)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		cmd.Dir = dir
+	}
 	cmd.Env = []string{}
 	for k, v := range c.environment {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	for _, pair := range request.Env {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || c.environment[key] != value {
+			return nil, errors.New("command environment is not allowed")
+		}
+	}
 	cmd.Stdin = strings.NewReader(request.Input)
-	var output bytes.Buffer
-	cmd.Stdout = &limitedWriter{writer: &output, remaining: compatibilityMaximumBytes}
-	cmd.Stderr = &limitedWriter{writer: &output, remaining: compatibilityMaximumBytes}
+	var stdout, stderr, combined bytes.Buffer
+	if request.Mode == "combined" {
+		writer := &limitedWriter{writer: &combined, remaining: compatibilityMaximumBytes}
+		cmd.Stdout = writer
+		cmd.Stderr = writer
+	} else {
+		cmd.Stdout = &limitedWriter{writer: &stdout, remaining: compatibilityMaximumBytes}
+		cmd.Stderr = &limitedWriter{writer: &stderr, remaining: compatibilityMaximumBytes}
+	}
 	err := cmd.Run()
-	return json.Marshal(map[string]any{"output": output.String(), "success": err == nil, "error": errorString(err)})
+	output := combined.Bytes()
+	if request.Mode != "combined" {
+		output = stdout.Bytes()
+	}
+	return json.Marshal(map[string]any{"output": base64.StdEncoding.EncodeToString(output), "stdout": base64.StdEncoding.EncodeToString(stdout.Bytes()), "stderr": base64.StdEncoding.EncodeToString(stderr.Bytes()), "success": err == nil, "error": errorString(err)})
 }
 
 type limitedWriter struct {

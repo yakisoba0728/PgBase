@@ -169,7 +169,7 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callDatabase(operationContext, input)
 	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy", "objects.open", "objects.readChunk", "objects.close", "objects.beginWrite", "objects.writeChunk", "objects.commit", "objects.abort", "objects.fileFromMultipart", "objects.commitMultipart":
 		return host.callObjects(operationContext, method, input)
-	case "http.send", "os.args", "os.getenv", "os.exit", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
+	case "http.send", "os.args", "os.getenv", "os.exit", "os.tempDir", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
 		if host.bridge.compatibility == nil {
 			return nil, extensionError("compatibility_unavailable", errors.New("PocketBase compatibility adapter unavailable"))
 		}
