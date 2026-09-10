@@ -63,8 +63,8 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if err != nil || updated["title"] != "updated" || updated["active"] != true || updated["created_at"] == updated["updated_at"] {
 		t.Fatalf("Update() = %#v, %v", updated, err)
 	}
-	if _, err := records.Update(ctx, "records", id, map[string]json.RawMessage{}); err == nil {
-		t.Fatal("Update(empty) error=nil")
+	if autoUpdated, err := records.Update(ctx, "records", id, map[string]json.RawMessage{}); err != nil || autoUpdated["updated_at"] == updated["updated_at"] {
+		t.Fatalf("Update(empty autodate)=%#v %v", autoUpdated, err)
 	}
 	if _, err := records.Update(ctx, "records", uuid.New(), map[string]json.RawMessage{"title": json.RawMessage(`"missing"`)}); !errors.Is(err, ErrRecordNotFound) {
 		t.Fatalf("Update(missing) error=%v", err)

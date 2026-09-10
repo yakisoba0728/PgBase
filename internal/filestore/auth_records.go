@@ -72,8 +72,11 @@ func (s *Service) authFieldPolicy(ctx context.Context, tx pgx.Tx, principal iden
 		if field.Hidden {
 			return FieldPolicy{}, true, ErrNotFound
 		}
-		if principal.Kind == identity.Anonymous && (operation != OperationRead || p.Protected == nil || *p.Protected) {
-			return FieldPolicy{}, true, ErrDenied
+		if principal.Kind == identity.Anonymous {
+			if operation != OperationRead || p.Protected == nil || *p.Protected {
+				return FieldPolicy{}, true, ErrDenied
+			}
+			return p, true, nil
 		}
 		if principal.Kind != identity.User && principal.Kind != identity.Anonymous {
 			return FieldPolicy{}, true, ErrDenied

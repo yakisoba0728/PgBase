@@ -354,7 +354,7 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 		projectedBody["id"] != articleIDs[0] || projectedBody["title"] != "one" {
 		t.Fatalf("projected get status=%d headers=%v body=%s", projected.Code, projected.Header(), projected.Body.String())
 	}
-	invalidProjection := serve("/api/v1/collections/api_expand_articles/records/" + articleIDs[0] + "?fields=*")
+	invalidProjection := serve("/api/v1/collections/api_expand_articles/records/" + articleIDs[0] + "?fields=missing")
 	if invalidProjection.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid projection status=%d body=%s", invalidProjection.Code, invalidProjection.Body.String())
 	}

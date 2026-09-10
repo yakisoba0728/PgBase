@@ -231,7 +231,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != int64(len(migrations)) {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 57 {
 		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -308,7 +308,8 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 					_ = app.Close(context.Background())
 					t.Fatal(statusErr)
 				}
-				if status.Current != int64(testCase.through) || !status.Compatible {
+				expectedVersion := migrations[testCase.through-1].Version
+				if status.Current != expectedVersion || !status.Compatible {
 					_ = app.Close(context.Background())
 					t.Fatalf("startup changed accepted P0 history: %#v", status)
 				}

@@ -482,6 +482,9 @@ func authorizeUserRecordOperationWithRequest(ctx context.Context, tx pgx.Tx, col
 		return err
 	}
 	if !allowed {
+		if action == "create" {
+			return recordaccess.ErrDenied
+		}
 		return query.ErrRecordNotFound
 	}
 	return nil

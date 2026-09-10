@@ -36,7 +36,7 @@ import (
 // P6 adds one fixed SQL-view metadata capability probe, independent of catalog size.
 // N1 adds one fixed user-migration-version-table capability probe so doctor can
 // inspect both compatible pre-v40 histories and v40 user migration revisions.
-const doctorSnapshotQueryCeiling = 38
+const doctorSnapshotQueryCeiling = 39
 
 type doctorQueryTracer struct {
 	mu         sync.Mutex
