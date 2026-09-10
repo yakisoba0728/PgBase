@@ -39,6 +39,11 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 				return json.Marshal(c)
 			}
 		}
+		if lookup, ok := host.bridge.authMail.(authMailCollectionLookup); ok {
+			if c, err := lookup.GetAuthCollection(ctx, q.Name); err == nil {
+				return json.Marshal(map[string]any{"id": c.ID, "name": c.Name, "type": "auth", "fields": c.Fields})
+			}
+		}
 		return nil, extensionError("not_found", errors.New("collection not found"))
 	case "app.collection.list":
 		var q struct {
@@ -61,6 +66,11 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 		}
 		for _, c := range host.bridge.appControl.app.schemaCache.Load().Collections {
 			if strings.EqualFold(c.Name, q.Name) && c.ID.String() != q.ExcludeID {
+				return json.RawMessage(`false`), nil
+			}
+		}
+		if lookup, ok := host.bridge.authMail.(authMailCollectionLookup); ok {
+			if c, err := lookup.GetAuthCollection(ctx, q.Name); err == nil && c.ID.String() != q.ExcludeID {
 				return json.RawMessage(`false`), nil
 			}
 		}
