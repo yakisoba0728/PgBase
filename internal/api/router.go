@@ -262,9 +262,12 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	var handler http.Handler = mux
 	handler = corsMiddleware(dependencies.CORSAllowedOrigins, handler)
 	handler = securityHeadersMiddleware(handler)
+	handler = recoveryMiddleware(logger, handler)
+	// Keep recovery inside request logging.  A recovered panic is a completed
+	// HTTP request with a 500 response and must be visible in the same durable
+	// diagnostic trail as every other response.
 	handler = accessLogMiddleware(logger, handler, dependencies.RequestLog)
 	handler = requestIDMiddleware(handler)
-	handler = recoveryMiddleware(logger, handler)
 	if metricsEnabled {
 		handler = dependencies.Metrics.WrapHTTP(mux, handler)
 	}

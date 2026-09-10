@@ -48,7 +48,13 @@ func localMailSink(t *testing.T) (string, <-chan string) {
 					}
 					switch {
 					case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
-						fmt.Fprint(conn, "250 localhost\r\n")
+						// The administration SMTP test deliberately supplies
+						// credentials.  Advertise and accept the standard PLAIN
+						// exchange so this local protocol fixture represents the
+						// configured server rather than rejecting the client midway.
+						fmt.Fprint(conn, "250-localhost\r\n250-AUTH PLAIN\r\n250 OK\r\n")
+					case strings.HasPrefix(line, "AUTH PLAIN"):
+						fmt.Fprint(conn, "235 authenticated\r\n")
 					case line == "DATA":
 						data = true
 						fmt.Fprint(conn, "354 send data\r\n")
