@@ -46,6 +46,12 @@ type Service struct {
 }
 type batchTransactionKey struct{}
 
+// WithTransaction binds service operations to an already admitted PostgreSQL
+// transaction. The caller owns commit or rollback and must not retain ctx.
+func WithTransaction(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, batchTransactionKey{}, tx)
+}
+
 // A nil runtime is not a disabled membership: the writer provider registers
 // one on the first mutation, so a service built without the application's
 // heartbeating runtime still claims a durable writer lease of the same release

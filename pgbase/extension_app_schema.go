@@ -54,6 +54,8 @@ func (control *extensionAppControl) callSchemaDatabase(ctx context.Context, meth
 		return control.truncateCollection(ctx, service, raw)
 	case "app-control.databaseTables", "app-control.databaseColumns", "app-control.databaseIndexes":
 		return control.introspectDatabase(ctx, service, method, raw)
+	case "app-control.databaseHasTable", "app-control.databaseTableInfo", "app-control.databaseDeleteTable", "app-control.databaseDeleteView", "app-control.databaseSaveView", "app-control.databaseCreateViewFields", "app-control.databaseDryRunView", "app-control.databaseFindRecordByViewFile", "app-control.databaseVacuum":
+		return control.callDatabaseMetadata(ctx, method, raw)
 	case "app-control.databaseTransaction":
 		host := &extensionHost{bridge: &extensionBridge{database: &TrustedDatabase{pool: control.app.pool}}}
 		return host.callDatabase(ctx, raw)
@@ -191,10 +193,14 @@ func (control *extensionAppControl) introspectDatabase(ctx context.Context, serv
 		return nil, err
 	}
 	collection, ok := catalog.Collections[request.Name]
-	if !ok {
-		return nil, extensionError("collection_not_found", schema.ErrCollectionNotFound)
+	table := request.Name
+	if ok {
+		table = collection.TableName
 	}
-	schemaName, tableName := appTableParts(collection.TableName)
+	schemaName, tableName := appTableParts(table)
+	if schemaName != "app" {
+		return nil, extensionError("database_object_denied", errors.New("only app schema objects are allowed"))
+	}
 	if method == "app-control.databaseColumns" {
 		rows, err := control.app.pool.Query(ctx, `select column_name,data_type,is_nullable,column_default from information_schema.columns where table_schema=$1 and table_name=$2 order by ordinal_position`, schemaName, tableName)
 		if err != nil {

@@ -150,6 +150,7 @@ func (host *extensionHost) Close() error {
 	host.fileMu.Lock()
 	defer host.fileMu.Unlock()
 	var result error
+	result = errors.Join(result, host.rollbackAppTransaction())
 	result = errors.Join(result, host.closeObjectHandles())
 	for id, handle := range host.fileHandles {
 		if handle.reader != nil {
@@ -157,5 +158,5 @@ func (host *extensionHost) Close() error {
 		}
 		delete(host.fileHandles, id)
 	}
-	return errors.Join(result, host.closeObjectHandles())
+	return result
 }

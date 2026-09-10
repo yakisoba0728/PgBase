@@ -46,6 +46,9 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 	if control == nil || control.app == nil {
 		return nil, extensionError("app_control_unavailable", errors.New("application control is unavailable"))
 	}
+	if method == "app-control.databaseBegin" || method == "app-control.databaseExec" || method == "app-control.databaseCommit" || method == "app-control.databaseRollback" {
+		return host.callAppTransaction(ctx, method, raw)
+	}
 	switch method {
 	case "app-control.bootstrap", "app-control.resetBootstrapState":
 		if control.lifecycle == nil {

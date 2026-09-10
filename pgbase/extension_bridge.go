@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
@@ -77,6 +78,9 @@ type extensionHost struct {
 	namespace        string
 	multipart        multipartFieldOpener
 	bypassHooks      bool
+	databaseMu       sync.Mutex
+	databaseTx       pgx.Tx
+	databaseToken    uuid.UUID
 	inputPreparer    *javaScriptRouteBody
 }
 
@@ -432,6 +436,12 @@ func (host *extensionHost) operationContext(caller context.Context) (context.Con
 	}
 	if host.bypassHooks {
 		combined = lifecycle.WithoutHooks(combined)
+	}
+	host.databaseMu.Lock()
+	activeTx := host.databaseTx
+	host.databaseMu.Unlock()
+	if activeTx != nil {
+		combined = recordops.WithTransaction(combined, activeTx)
 	}
 	return combined, cleanup, nil
 }

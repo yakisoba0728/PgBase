@@ -22,6 +22,15 @@ type Pool struct {
 	closeDone chan struct{}
 }
 
+// Begin starts a caller-owned transaction on an acquired pooled connection.
+// The caller must commit or roll it back to release the connection.
+func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
+	if p == nil || p.inner == nil {
+		return nil, errors.New("database pool is unavailable")
+	}
+	return p.inner.Begin(ctx)
+}
+
 const minimumPoolConnections int32 = 4
 
 var errPoolConfiguration = errors.New("parse PostgreSQL pool configuration")
