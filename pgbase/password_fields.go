@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/passwordfield"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // VerifyRecordPassword verifies a general password field without returning its

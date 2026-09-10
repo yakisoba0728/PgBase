@@ -1,23 +1,25 @@
 # 다음 작업과 완료 기준
 
-기준: 2026-09-10. P8은 병합·schema v38 로컬 설치 완료이고 N1–N5는 로컬 integration branch에서 구현·독립 검토·전체 인수를 완료했다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료했다. 원격 병합·공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성
 
 | 순서 | ID | 작업 | 시작 조건 |
 | --- | --- | --- | --- |
 | 완료 | N0 | P8 최종 인수·PR·설치 | PR #32 및 로컬 v38 인수 완료 |
-| 로컬 완료 | N1 | 사용자 migration 자동화 | 구현·N4 option matrix·fresh/upgrade/doctor·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N2 | public 정적 사이트·SPA | 구현·실제 browser route/asset/deep-link·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. 원격 병합·설치 전 |
-| 로컬 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. 원격 병합·설치 전 |
-| 7 | N6 | JSVM | N1/N5 공개 API 및 runtime 계약 확정 |
-| 8 | N7 | Dart SDK | N0 API 안정화. 이후 다른 후속 작업과 병렬 가능 |
-| 9 | N8 | SQL 콘솔 | 실행·인증·권한·결과 제한 계약 확정 |
-| 10 | N9 | self-update | 로컬 교체/복구 및 artifact 검증 계약 확정 |
+| 완료 | N1 | 사용자 migration 자동화 | 구현·N4 option matrix·fresh/upgrade/doctor·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N2 | public 정적 사이트·SPA | 구현·실제 browser route/asset/deep-link·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N3 | 관리자 CLI 확장 | 구현·PG18 race·OTP/IP/session browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N4 | 필드 세부 옵션·조회 차이 | 구현·DB/HTTP/UI/SDK/browser·전체 race 통과. PR34 병합·schema40 설치 인수 완료 |
+| 완료 | N5 | 세부 lifecycle/request hooks | 구현·독립 review·집중/전체 race/HTTP 통과. PR34 병합·schema40 설치 인수 완료 |
+| 로컬 인수 완료 | N6 | JSVM | external Go+JS·PG/file/SMTP/job·same-origin browser·review zero 완료 |
+| 로컬 인수 완료 | N7 | Dart SDK | Dart/Flutter external consumer·cross-flow·browser·review zero 완료 |
+| 로컬 인수 완료 | N8 | SQL 콘솔 | 최종 `b7674f7`, PG17/18·race·실제 browser13·Gauss PASS/PASS/open0 |
+| 로컬 인수 완료 | N9 | self-update | private+shared review closure, Darwin fixture·six-build/Windows compile 근거 완료 |
 
-다음 제품 구현 순서는 N6–N9다. N1–N5는 계획 작성만으로 완료 처리한 것이 아니라 로컬 구현, 집중 검증, 독립 Standards/Spec 검토와 전체 통합 인수를 수행했다. 다만 push·PR·원격 병합·설치·공개 배포 상태와는 구분한다.
+통합 Sol은 `117a1db` 기반 `codex/n6-n9-integration`에서 계획 `133f644`/`8dadf42`를 적용했고 중앙 문서와 공통 seam을 단독 소유했다. 최종 제품/UI `b7674f7` 및 [G5 인수 기록](workstreams/n6-n9/acceptance.md)에 모든 안정 worker 수정과 focused closure를 통합했다. 과거 pause checkpoint는 이력으로 남기며 미통합 제품 WIP나 open finding은 없다. 모든 task fixture는 정지·보존했고 설치 N1–N5/schema40은 유지한다.
+
+N7 인계 갱신: 통합 lead가 03:38 KST 전용 `58091/55441` fixture에서 `tool/live_conformance.dart`의 upload 404를 재현했다. 무인증 file route도 인증 오류가 아닌 generic router 404였고 컨테이너에 `PGBASE_FILES_DRIVER`/`PGBASE_FILES_LOCAL_DIRECTORY`가 없었다. `withFileServices`가 file routes를 등록하지 않은 fixture 설정 누락으로 확정했다. N7 `52e23ce`가 task-owned local storage를 추가한 뒤 실제 user upload/list/token/byte-exact download/delete와 admin upload가 통과했다. SDK·Go server 계약 변경 사유는 없었고 해당 404 검사는 종료했다.
 
 ## N0 — 지금 작성한 P8 마무리
 
@@ -83,37 +85,39 @@
 
 완료 기준: 등록 가능한 이름뿐 아니라 실제 API 호출 경로와 최종 결과가 연결된다. 외부 효과의 durable delivery는 outbox 계약과 분리한다.
 
-## N6 — JSVM
+## N6 — JSVM (로컬 인수 완료)
 
-- [ ] 엔진·지원 문법·모듈 로딩·타입 정의·개발 reload와 PB API 호환 범위를 정한다.
-- [ ] Go API 위에 route/hook/migration/job 및 필요한 DB/mail/file 바인딩을 구현한다.
-- [ ] 실행 취소·timeout·동시 VM·공유 상태·shutdown·오류 전파·자원 한도를 검증한다.
-- [ ] 실제 JS 앱으로 CRUD 확장·메일·작업·migration 및 실패/재시도 시나리오를 검증한다.
+- [x] 엔진·지원 문법·모듈 로딩·타입 정의·개발 reload와 PB API 호환 범위를 정했다.
+- [x] Go API 위에 route/hook/migration/job 및 필요한 DB/mail/file 바인딩을 구현했다.
+- [x] 실행 취소·timeout·동시 VM·공유 상태·shutdown·오류 전파·자원 한도를 검증했다.
+- [x] 실제 JS 앱으로 CRUD 확장·메일·작업·migration 및 실패/재시도 시나리오를 검증했다.
 
 완료 기준: 실행 파일에 script를 넣어 읽는 수준을 넘어 문서화된 바인딩과 실패 계약을 갖춘다. PB JS API 전체 호환 여부는 별도로 표시한다.
 
-## N7 — Dart SDK
+## N7 — Dart SDK (로컬 인수 완료)
 
-- [ ] 패키지 구조, auth store, 정확 숫자·UUID·에러·취소 계약을 정의한다.
-- [ ] auth/CRUD/필터·페이지/ETag·idempotency/Batch/file/SSE 및 필요한 관리 API를 구현한다.
-- [ ] 실제 PgBase HTTP conformance, reconnect·로그아웃·에러·파일 전송을 검증한다.
-- [ ] 로컬 Dart/Flutter 예제와 설치 문서를 제공한다. pub.dev 공개 발행은 대기로 둔다.
+- [x] 패키지 구조, auth store, 정확 숫자·UUID·에러·취소 계약을 정의했다.
+- [x] auth/CRUD/필터·페이지/ETag·idempotency/Batch/file/SSE 및 필요한 관리 API를 구현했다.
+- [x] 실제 PgBase HTTP conformance, reconnect·로그아웃·에러·파일 전송을 검증했다.
+- [x] 로컬 Dart/Flutter 예제와 설치 문서를 제공했다. pub.dev 공개 발행은 대기로 둔다.
 
-## N8 — SQL 콘솔
+## N8 — SQL 콘솔 (로컬 인수 완료)
 
-- [ ] 허용 statement·읽기/쓰기·transaction·PgBase 소유 schema 변경 경계를 정한다.
-- [ ] 관리자 인가, timeout/cancel·행/본문 상한·실행 로그 및 오류 표시를 구현한다.
-- [ ] UI에서 쿼리 실행·결과 탐색·취소·정확 숫자를 지원한다.
-- [ ] rollback·lock contention·연결 종료와 schema/record/audit/outbox 불변식 보존을 검증한다.
+최종 제품 `b7674f7`의 backend/UI/shared composition은 Gauss Standards PASS/Spec PASS/open0이며 실제 browser13 시나리오와 PG17/18·전체 G5의 실패 범위 closure를 완료했다. [N8 계약](workstreams/n6-n9/N8.md), [browser 증거](workstreams/n6-n9/N8-browser.md), [최종 인수](workstreams/n6-n9/acceptance.md)를 따른다.
+
+- [x] 허용 statement·읽기/쓰기·transaction·PgBase 소유 schema 변경 경계 확정.
+- [x] 관리자 인가, timeout/cancel·행/본문 상한·durable 실행 로그/identity 및 오류 표시 구현.
+- [x] UI 쿼리 실행·결과 탐색·취소·정확 숫자·bounded scroll 구현/실브라우저 검증.
+- [x] rollback·lock/cancel·연결 종료·retention/replay·durable publication과 기존 불변식 검증.
 
 완료 기준: 현재 SQL View 편집과 독립된 기능으로 구현하고, 직접 SQL이 우회할 수 있는 제품 불변식의 처리 방식을 문서화한다.
 
-## N9 — self-update
+## N9 — self-update (로컬 인수 완료)
 
-- [ ] 버전/플랫폼 artifact 선택, checksum·서명 검증, 현재 파일 보존과 원자적 교체 계약을 정한다.
-- [ ] 다운로드 중단·검증 실패·권한 부족·실행 실패 시 복구를 로컬 fixture로 검증한다.
-- [ ] 실행 파일 업데이트와 DB migration의 순서·재시작·호환 범위를 문서화한다.
-- [ ] CLI 도움말·진행/오류·로컬 배포 예제를 제공한다.
+- [x] 버전/플랫폼 artifact 선택, checksum·서명 검증, 현재 파일 보존과 원자적 교체 계약을 정했다.
+- [x] 다운로드 중단·검증 실패·권한 부족·실행 실패 시 복구를 로컬 fixture로 검증했다.
+- [x] 실행 파일 업데이트와 DB migration의 순서·재시작·호환 범위를 문서화했다.
+- [x] CLI 도움말·진행/오류·로컬 배포 예제를 제공했다.
 
 완료 기준: 로컬 artifact로 업데이트와 실패 복원이 재현된다. 공개 release 채널 배포나 모든 플랫폼 실제 실행을 자동 완료로 계산하지 않는다.
 

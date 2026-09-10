@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
 )
 
 func TestDoctorJSONAlwaysReportsDatabaseConnectionFailureAsJSON(t *testing.T) {

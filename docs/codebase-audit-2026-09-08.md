@@ -38,7 +38,7 @@ A1의 스키마 검사는 행 수에 비례하는 읽기를 추가한다. 기존
 
 **A1 — [P2] 성공한 스키마 변경이 기존 레코드를 조회·수정할 수 없는 크기로 만든다.**
 
-주요 위치: [스키마 적용](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/schema/operation_apply.go#L272), [새 필드 추가 계획](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/schema/planner.go#L209), [레코드 크기 계약](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/recordops/types.go#L15).
+주요 위치: [스키마 적용](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/schema/operation_apply.go#L272), [새 필드 추가 계획](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/schema/planner.go#L209), [레코드 크기 계약](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/recordops/types.go#L15).
 
 레코드 Create/Update는 최종 레코드 JSON을 2 MiB로 제한하지만, 스키마 Apply는 기본값을 가진 컬럼을 추가한 뒤 기존 레코드의 크기를 검증하지 않는다. `ADD COLUMN ... DEFAULT`는 기존 행에서 읽히는 값도 늘린다. 따라서 레코드 쓰기 경로가 보장하던 제한을 스키마 변경 경로가 우회한다.
 
@@ -67,7 +67,7 @@ PATCH ordinary field: HTTP 422  details.record = ["record_too_large"]
 
 **A2 — [P2] 로그아웃 실패 후 미저장 편집 내용에 대한 이탈 경고가 사라진다.**
 
-주요 위치: [로그아웃 처리](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/app.tsx#L40), [draft ledger 해제](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/routing/unsaved-draft.tsx#L19), [dirty 상태 등록](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/routing/unsaved-draft.tsx#L46).
+주요 위치: [로그아웃 처리](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/app.tsx#L40), [draft ledger 해제](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/routing/unsaved-draft.tsx#L19), [dirty 상태 등록](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/routing/unsaved-draft.tsx#L46).
 
 `signOut`은 비동기 `logout()`을 기다리기 전에 `drafts.mayLeave()`를 호출한다. 사용자가 확인하면 ledger가 즉시 비워진다. 로그아웃 요청이 실패하면 편집 화면은 유지되지만 ledger는 복구되지 않는다. `useUnsavedDraft`는 dirty 여부가 계속 `true`이면 다시 등록하지 않는다.
 
@@ -83,7 +83,7 @@ expected confirmation to be called 2 times, but got 1 time
 
 **A3 — [P2] 관계 선택기가 첫 페이지에 없는 유효한 대상을 unavailable로 표시한다.**
 
-주요 위치: [선택 대상 조회](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-picker.ts#L108), [없는 대상으로 분류](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-picker.ts#L119), [배치 크기 가정](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-query.ts#L12).
+주요 위치: [선택 대상 조회](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-picker.ts#L108), [없는 대상으로 분류](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-picker.ts#L119), [배치 크기 가정](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/ui/admin/src/relation/relation-query.ts#L12).
 
 선택된 관계 ID의 표시 이름을 채울 때 ID 50개씩 `records.list`로 조회한다. 배치가 페이지의 행 수 제한 이내이면 전체 ID가 돌아온다고 가정하지만, 백엔드 페이지는 4 MiB 응답 크기에도 제한된다. 각 레코드가 정상 쓰기 제한 이내여도 여러 레코드를 합친 페이지는 잘릴 수 있다.
 
@@ -105,7 +105,7 @@ A2·A3의 보존된 재현 자료: `/tmp/pgbase-audit-ui-probes/audit-repro.test
 
 **A4 — [P3] `schema-index status`가 DB 조회에 실패하면 원인 진단을 출력하지 않는다.**
 
-주요 위치: [status 명령 분기](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/schema_index.go#L97), [DB 오류 반환](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/schema_index.go#L131), [명령 실패 진단 계약](https://github.com/webisnoteasy/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/database.go#L73).
+주요 위치: [status 명령 분기](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/schema_index.go#L97), [DB 오류 반환](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/schema_index.go#L131), [명령 실패 진단 계약](https://github.com/yakisoba0728/PgBase/blob/a3065c88e2a82712a41408012b704db3eb9e71f4/internal/cli/database.go#L73).
 
 `activate`, `build`, `rollback` 분기는 실패 시 `operationError`로 동작 이름과 원인을 기록한다. `status` 분기는 `writeSchemaIndexStatus` 오류를 그대로 반환한다. 최상위 `Execute`가 원인을 포함하지 않는 공통 문구만 출력하므로, 연결 이후 상태 조회나 writer 목록 조회에 실패하면 실제 원인을 확인할 수 없다.
 

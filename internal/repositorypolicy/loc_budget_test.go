@@ -326,15 +326,19 @@ type structuralLimit struct {
 	planned string
 }
 
+// N6–N9 adds the approved JS runtime/facade, SQL console and self-update
+// boundaries. Exact measured scope and independent review are recorded in
+// docs/workstreams/n6-n9/structural-budget.md. No spare allowance or file
+// exclusion is added; the 800-line hard limit remains unchanged.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 64762, "P8 baseline + N1–N5 integrated scope"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6249, "P8 baseline + N2/N3/N4 administrator UI"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 60, "P8 baseline + N1–N5 contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1053, "P8 baseline + N1–N5 public API"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 49, "P8 baseline + N1–N5 services"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 75990, "N1–N5 baseline + measured N6–N9 scope"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6667, "N1–N5 baseline + N8 SQL console UI"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 67, "N1–N5 baseline + N6–N9 contracts"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1251, "N1–N5 baseline + N6–N9 public API"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 55, "N1–N5 baseline + N6–N9 services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 131, "P8 baseline + N2/N3/N4 UI state"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 203, "plan 65"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 154, "N1–N5 baseline + N8 SQL console state"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 229, "N1–N5 baseline + N8 SQL console exports"},
 }
 
 type repositoryMetrics struct {

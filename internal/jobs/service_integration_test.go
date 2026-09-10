@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
@@ -62,6 +62,9 @@ func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
 	fresh, err := second.claim(ctx)
 	if err != nil || len(fresh) != 1 {
 		t.Fatalf("reclaim = %#v, %v", fresh, err)
+	}
+	if stale[0].ScheduledAt.IsZero() || !fresh[0].ScheduledAt.Equal(stale[0].ScheduledAt) {
+		t.Fatalf("retry scheduledAt changed: first=%s retry=%s", stale[0].ScheduledAt, fresh[0].ScheduledAt)
 	}
 	if err := first.complete(ctx, stale[0], errors.New("stale failure")); err != nil {
 		t.Fatal(err)

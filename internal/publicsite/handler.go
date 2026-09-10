@@ -14,6 +14,8 @@ import (
 
 var hashedAsset = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
 
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
 type handler struct {
 	root *os.Root
 	spa  bool
@@ -83,6 +85,9 @@ func (h handler) serveNamed(w http.ResponseWriter, r *http.Request, name string)
 	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	// PublicDir is an executable frontend surface. Override the API-safe
+	// default only for a file that was opened beneath the configured root.
+	w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 	if hashedAsset.MatchString(path.Base(name)) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {

@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/webisnoteasy/PgBase/internal/cli"
+	"github.com/yakisoba0728/PgBase/internal/cli"
 )
 
 func main() {

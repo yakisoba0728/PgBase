@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/releasephase"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/releasephase"
 )
 
 // schemaCompilerVersion is 2 in feature-off P0 and 3 in the final artifact.

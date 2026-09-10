@@ -1197,6 +1197,83 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/sql/queries": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 1048576
+      }
+    },
+    "/api/admin/sql/queries/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
+    "/api/admin/sql/queries/{id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
     "/api/admin/status": {
       "get": {
         "responses": {

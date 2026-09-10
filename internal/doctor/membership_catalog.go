@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 var membershipTableNames = []string{

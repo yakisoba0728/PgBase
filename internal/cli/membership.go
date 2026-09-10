@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 const membershipUsage = "usage: pgbase membership <status [--json], cutover --witness ID:VERSION [--witness ID:VERSION...], backfill, promote-ready, enable-v5 --witness ID:VERSION..., disable-v5, retire-v4 --witness ID:VERSION...>"

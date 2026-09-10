@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/filestore"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 type onlineObjectSource struct {

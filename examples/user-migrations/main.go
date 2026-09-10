@@ -5,8 +5,8 @@ import (
 	"context"
 	"os"
 
-	_ "github.com/webisnoteasy/PgBase/examples/user-migrations/migrations"
-	"github.com/webisnoteasy/PgBase/pgbasecli"
+	_ "github.com/yakisoba0728/PgBase/examples/user-migrations/migrations"
+	"github.com/yakisoba0728/PgBase/pgbasecli"
 )
 
 func main() {

@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/releasephase"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/releasephase"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestUpLogsAppliedMigrationOnlyAfterCommitSucceeds(t *testing.T) {

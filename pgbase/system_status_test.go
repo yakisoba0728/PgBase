@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 func TestSystemStatusBeforeTheFirstSampleIsUnavailableRatherThanHealthy(t *testing.T) {

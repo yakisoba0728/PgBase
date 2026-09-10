@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type Statement struct {

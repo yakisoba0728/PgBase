@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
 // SMTPOptions enables transactional account email when Address is set.

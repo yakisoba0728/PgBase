@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
@@ -47,6 +47,11 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	if err := loadJobs(lookup, &opts); err != nil {
 		return pgbase.Options{}, err
 	}
+	javascript, err := LoadJavaScriptEnv(lookup)
+	if err != nil {
+		return pgbase.Options{}, err
+	}
+	opts.JavaScript = javascript
 	if raw, ok := value(lookup, "PGBASE_HTTP_ADDRESS"); ok {
 		opts.HTTPAddress = raw
 	}

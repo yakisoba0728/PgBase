@@ -3,9 +3,9 @@ package pgbase
 import (
 	"context"
 	"errors"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/jobs"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 func newRequestLog(pool *database.Pool, options Options) *observability.RequestLog {

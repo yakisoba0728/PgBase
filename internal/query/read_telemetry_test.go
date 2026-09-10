@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 // Relation-path telemetry has to count the work the plan actually does. A bare

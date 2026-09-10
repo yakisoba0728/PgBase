@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
-const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration history | pgbase migration history-sync ID | pgbase migration auto-status | pgbase migration recover | pgbase migration list | pgbase migration up | pgbase migration down"
+const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration <history|history-sync ID|auto-status|recover|list|up|down> [--js-dir DIR]"
 
 func runUserMigration(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) >= 1 && args[0] == "create" {
@@ -69,9 +70,18 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 	if len(args) == 0 {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
 	}
+	var javaScriptDirectory string
+	args, javaScriptDirectory, err := parseUserMigrationJavaScriptDirectory(args)
+	if err != nil {
+		return configurationError{err: err, message: userMigrationUsage}
+	}
 	if args[0] == "snapshot" && len(args) != 2 || args[0] == "history-sync" && len(args) != 2 ||
 		args[0] != "snapshot" && args[0] != "history-sync" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
+	}
+	javaScriptOptions, err := preflightUserMigrationJavaScript(ctx, env, javaScriptDirectory)
+	if err != nil {
+		return configurationError{err: err, message: "JavaScript bundle is invalid: " + err.Error()}
 	}
 	runtime, err := openDatabase(ctx, env, streams)
 	if err != nil {
@@ -79,6 +89,9 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 	}
 	options := runtime.options
 	runtime.Close()
+	if javaScriptOptions != nil {
+		options.JavaScript = javaScriptOptions
+	}
 	app, err := pgbase.New(ctx, options)
 	if err != nil {
 		return operationError(options.Logger, "open PgBase application for user migrations", err)
@@ -128,6 +141,11 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return err
 	}
 	manifest := pgbase.RegisteredUserMigrations()
+	javaScriptMigrations, err := app.JavaScriptMigrations()
+	if err != nil {
+		return operationError(options.Logger, "load JavaScript user migrations", err)
+	}
+	manifest = append(manifest, javaScriptMigrations...)
 	if len(manifest) == 0 && args[0] != "history" {
 		return configurationError{err: errors.New("no user migrations are compiled into this executable"), message: "no user migrations are compiled into this executable"}
 	}
@@ -193,4 +211,47 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return err
 	}
 	return nil
+}
+
+func preflightUserMigrationJavaScript(ctx context.Context, env environment, directory string) (*pgbase.JavaScriptOptions, error) {
+	lookup := env
+	if directory != "" {
+		lookup = func(name string) (string, bool) {
+			if name == "PGBASE_JS_DIR" {
+				return directory, true
+			}
+			if env == nil {
+				return "", false
+			}
+			return env(name)
+		}
+	}
+	options, err := config.LoadJavaScriptEnv(lookup)
+	if err != nil || options == nil {
+		return options, err
+	}
+	if _, err := pgbase.ValidateJavaScript(ctx, *options); err != nil {
+		return nil, err
+	}
+	return options, nil
+}
+
+func parseUserMigrationJavaScriptDirectory(args []string) ([]string, string, error) {
+	if len(args) <= 1 {
+		return args, "", nil
+	}
+	result := []string{args[0]}
+	directory := ""
+	for index := 1; index < len(args); index++ {
+		if args[index] != "--js-dir" {
+			result = append(result, args[index])
+			continue
+		}
+		if directory != "" || index+1 >= len(args) || args[index+1] == "" {
+			return nil, "", errors.New("invalid --js-dir")
+		}
+		directory = args[index+1]
+		index++
+	}
+	return result, directory, nil
 }

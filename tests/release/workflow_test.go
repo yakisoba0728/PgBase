@@ -210,7 +210,7 @@ func TestReleasePhaseUsesTheSamePrivateSigningTrustRoot(t *testing.T) {
 		"scripts/support/create-release-provenance.sh",
 		"scripts/support/sign-release-attestation.sh",
 		"scripts/support/verify-release-attestation.sh",
-		"https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1",
+		"https://github.com/yakisoba0728/PgBase/attestations/release-phase/v1",
 	} {
 		if !strings.Contains(candidate, contract) {
 			t.Errorf("release-phase-image.yml candidate is missing private signing contract %q", contract)

@@ -20,11 +20,16 @@ type builtReleaseArtifactManifest struct {
 }
 
 type builtReleaseArtifact struct {
-	Phase     string `json:"phase"`
-	Commit    string `json:"commit"`
-	Version   string `json:"version"`
-	Path      string `json:"path"`
-	Digest    string `json:"digest"`
+	Phase   string `json:"phase"`
+	Commit  string `json:"commit"`
+	Version string `json:"version"`
+	Path    string `json:"path"`
+	Digest  string `json:"digest"`
+	Build   struct {
+		BuiltAt   string `json:"builtAt"`
+		SchemaMin string `json:"schemaMin"`
+		SchemaMax string `json:"schemaMax"`
+	} `json:"build"`
 	Toolchain struct {
 		GoVersion string `json:"goVersion"`
 		GOOS      string `json:"goOS"`

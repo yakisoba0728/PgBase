@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/query"
 )
 
 func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPage, err error) {

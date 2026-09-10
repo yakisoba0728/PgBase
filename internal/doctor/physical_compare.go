@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // compactSQL folds the incidental differences between two renderings of the

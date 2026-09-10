@@ -38,6 +38,9 @@ func TestHandlerServesAssetsAndSPAWithoutServingMissingAssets(t *testing.T) {
 			if response.Code != test.status || response.Body.String() != test.body || response.Header().Get("Cache-Control") != test.cache {
 				t.Fatalf("status=%d body=%q cache=%q", response.Code, response.Body.String(), response.Header().Get("Cache-Control"))
 			}
+			if test.status == http.StatusOK && response.Header().Get("Content-Security-Policy") != contentSecurityPolicy {
+				t.Fatalf("CSP=%q", response.Header().Get("Content-Security-Policy"))
+			}
 		})
 	}
 }

@@ -3,8 +3,8 @@ package recordops
 import (
 	"encoding/json"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 func rejectHiddenInput(collection schema.Collection, principal Principal, input map[string]json.RawMessage) error {

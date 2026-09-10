@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 // seededOffCapabilityPredicate is exactly the row migration 7 inserts. It is

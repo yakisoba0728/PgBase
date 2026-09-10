@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestReplayHydrationMaximumWidthProjectionFitsPostgresTargetList(t *testing.T) {

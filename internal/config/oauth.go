@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func loadOAuth(lookup func(string) (string, bool), opts *pgbase.Options) error {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 func TestReleaseBTraversalControlFailureIsStablyUnavailable(t *testing.T) {

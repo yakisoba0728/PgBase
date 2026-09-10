@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 var testMetricsToken = []byte("metrics-access-token")

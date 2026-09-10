@@ -13,11 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T) {
@@ -54,6 +55,12 @@ func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T
 			}
 			if test.body != "" && response.Body.String() != test.body {
 				t.Fatalf("body=%q", response.Body.String())
+			}
+			if test.status == http.StatusOK && strings.HasPrefix(test.path, "/assets/") {
+				policy := response.Header().Get("Content-Security-Policy")
+				if !strings.Contains(policy, "script-src 'self'") || !strings.Contains(policy, "connect-src 'self'") {
+					t.Fatalf("public asset CSP=%q", policy)
+				}
 			}
 			if test.path == "/api/not-a-route" && !bytes.Contains(response.Body.Bytes(), []byte(`"code":"not_found"`)) {
 				t.Fatalf("API 404 body=%q", response.Body.String())

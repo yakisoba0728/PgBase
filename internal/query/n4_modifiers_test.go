@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/cursor"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestLowerModifierCompilesAtRootAndRelationTerminal(t *testing.T) {

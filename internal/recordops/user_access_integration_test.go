@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/accessrule"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/identity"
-	"github.com/webisnoteasy/PgBase/internal/query"
-	"github.com/webisnoteasy/PgBase/internal/recordaccess"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/serviceauth"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
 
 type userAccessFixture struct {

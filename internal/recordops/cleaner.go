@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 const (

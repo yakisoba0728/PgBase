@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 // HistoryState is the checksum-pinned migration history at one point in time.

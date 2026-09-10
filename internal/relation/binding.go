@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var catalogIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)

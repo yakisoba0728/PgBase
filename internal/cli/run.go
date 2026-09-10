@@ -11,18 +11,20 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/config"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/doctor"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/selfupdate"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 type environment = func(string) (string, bool)
@@ -55,6 +57,9 @@ func productionCommands() commandTable {
 		"membership":   runMembership,
 		"healthcheck":  runHealthcheck,
 		"backup":       runBackup,
+		"js":           runJavaScript,
+		"version":      runVersion,
+		"update":       runUpdate,
 	}
 }
 
@@ -90,6 +95,19 @@ func execute(ctx context.Context, args []string, env environment, streams IO, co
 			}
 			return 2
 		}
+		var updateErr updateOperationalError
+		if errors.As(err, &updateErr) {
+			if encodeErr := json.NewEncoder(streams.stdout()).Encode(map[string]any{
+				"schemaVersion": updateJSONSchemaVersion,
+				"error": map[string]string{
+					"code":    updateErr.Error(),
+					"message": "update command failed",
+				},
+			}); encodeErr != nil {
+				return 1
+			}
+			return 1
+		}
 		if _, writeErr := fmt.Fprintln(stderr, "pgbase: command failed"); writeErr != nil {
 			return 1
 		}
@@ -108,7 +126,7 @@ func (e configurationError) Error() string { return e.err.Error() }
 func (e configurationError) Unwrap() error { return e.err }
 
 func printUsage(stderr io.Writer) error {
-	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup> [arguments]")
+	_, err := fmt.Fprintln(stderr, "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js, version, update> [arguments]")
 	return err
 }
 
@@ -151,13 +169,14 @@ func runHealthcheck(ctx context.Context, args []string, _ environment, _ IO) err
 	return nil
 }
 
-func runServe(ctx context.Context, args []string, env environment, streams IO) error {
+func runServe(ctx context.Context, args []string, env environment, streams IO) (runErr error) {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	publicDir := flags.String("public-dir", "", "")
 	publicSPAFallback := flags.Bool("public-spa-fallback", false, "")
+	javaScriptDirectory := flags.String("js-dir", "", "")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback]"}
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR]"}
 	}
 	options, err := config.LoadEnv(env)
 	if err != nil {
@@ -169,9 +188,27 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) e
 			options.PublicDir = *publicDir
 		case "public-spa-fallback":
 			options.PublicSPAFallback = *publicSPAFallback
+		case "js-dir":
+			if options.JavaScript == nil {
+				options.JavaScript = &pgbase.JavaScriptOptions{}
+			}
+			options.JavaScript.Directory = *javaScriptDirectory
 		}
 	})
 	options.Logger = observability.NewJSONLogger(streams.stderr())
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate pgbase executable: %w", err)
+	}
+	serveLock, err := selfupdate.AcquireServeLock(executable)
+	if err != nil {
+		return fmt.Errorf("lock pgbase executable: %w", err)
+	}
+	defer func() {
+		if err := serveLock.Close(); err != nil && runErr == nil {
+			runErr = fmt.Errorf("unlock pgbase executable: %w", err)
+		}
+	}()
 	if options.Backups.Directory != "" {
 		return pgbase.RunManaged(ctx, options)
 	}

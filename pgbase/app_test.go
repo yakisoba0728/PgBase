@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 func TestReadinessProbeOnlyPublishesProbeOwnedComponents(t *testing.T) {

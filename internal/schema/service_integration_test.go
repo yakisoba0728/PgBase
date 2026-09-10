@@ -20,10 +20,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestApplyIntentUsesOneKernelForCreateUpdateAndDelete(t *testing.T) {

@@ -17,10 +17,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/doctor"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestGeneratedSnapshotMigrationsReplayRenameDownAndRollback(t *testing.T) {
@@ -172,7 +172,7 @@ func TestGeneratedSnapshotRunsFromExternalModuleAgainstFreshPostgres(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module pgbase.external.replay\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n"
+	goMod := "module pgbase.external.replay\n\ngo 1.26.0\n\nrequire github.com/yakisoba0728/PgBase v0.0.0\nreplace github.com/yakisoba0728/PgBase => " + repository + "\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ import (
 	"testing"
 
 	_ "pgbase.external.replay/migrations"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func TestGeneratedMigrationUpDown(t *testing.T) {
@@ -257,7 +257,7 @@ func TestGeneratedIrreversibleDownFromExternalModuleDoesNotMutatePostgres(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module pgbase.external.irreversible\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n"
+	goMod := "module pgbase.external.irreversible\n\ngo 1.26.0\n\nrequire github.com/yakisoba0728/PgBase v0.0.0\nreplace github.com/yakisoba0728/PgBase => " + repository + "\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ import (
 	"testing"
 
 	_ "pgbase.external.irreversible/migrations"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func TestIrreversibleDown(t *testing.T) {

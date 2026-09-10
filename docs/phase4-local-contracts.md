@@ -132,7 +132,8 @@ The data group includes database/query/recordops/recordaccess/relation/schema.
 Its +504 lines cover advanced fields, schema lifecycle coordination and the
 dedicated coordination connection. The query public service still exposes only
 Get/List. Runtime ceilings equal the measurements; the 800-line per-file limit
-is unchanged. The built-in route registry is separately capped at 146 routes.
+is unchanged. The built-in route registry is separately capped at 150 routes
+after the four optional N8 SQL-console routes were added.
 
 ## N1–N5 integrated budget update
 

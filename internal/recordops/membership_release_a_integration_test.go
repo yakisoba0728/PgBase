@@ -13,12 +13,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/migrations/system"
-	"github.com/webisnoteasy/PgBase/tests/testsupport"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/tests/testsupport"
 )
 
 const releaseADelayedCreateLockKey int64 = 5_922_338_308_289_414_402
@@ -135,7 +135,8 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	defer cancel()
 	// Rewind to exactly v6. Remove every later object and history row so Up sees
 	// a contiguous pre-membership history even as new migrations are appended.
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.backup_storage_operations, pgbase_meta.backup_storage_settings;
+	if _, err := pool.Exec(ctx, `drop table pgbase_meta.sql_console_write_receipts, pgbase_meta.sql_console_write_identities, pgbase_meta.sql_console_executions;
+		drop table pgbase_meta.backup_storage_operations, pgbase_meta.backup_storage_settings;
 		drop table pgbase_meta.user_migration_schema_versions, pgbase_meta.user_migration_sources;
 		drop table pgbase_meta.admin_totp, pgbase_meta.admin_ip_allowlist;
 		drop table pgbase_meta.file_storage_source_cleanup, pgbase_meta.file_storage_migration_objects,

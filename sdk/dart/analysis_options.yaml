@@ -1,0 +1,13 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - example/flutter_app/**
+
+linter:
+  rules:
+    avoid_dynamic_calls: true
+    curly_braces_in_flow_control_structures: false
+    prefer_collection_literals: false
+    prefer_final_fields: true
+    use_null_aware_elements: false

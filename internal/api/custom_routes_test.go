@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 func TestCustomRoutesRejectInvalidRegistration(t *testing.T) {

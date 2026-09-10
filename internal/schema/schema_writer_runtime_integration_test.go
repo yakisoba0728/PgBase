@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 // A ready listener is one running pgbase process. Even without an Apply, it

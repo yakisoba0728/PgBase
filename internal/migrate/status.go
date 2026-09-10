@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 type Status struct {

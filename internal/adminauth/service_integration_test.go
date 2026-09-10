@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 func TestServiceConcurrentSetupAllowsExactlyOneAdministrator(t *testing.T) {

@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 const (
@@ -65,6 +65,7 @@ type adminEndpoints struct {
 	auth           AdminAuth
 	publicURL      *url.URL
 	trustedProxies []netip.Prefix
+	sqlConsole     bool
 	recorder       observability.Recorder
 	statusCache    *setupStatusCache
 }
@@ -78,9 +79,10 @@ type administratorResponse struct {
 }
 
 type adminSessionResponse struct {
-	Administrator administratorResponse `json:"administrator"`
-	CSRFToken     string                `json:"csrfToken"`
-	ExpiresAt     time.Time             `json:"expiresAt"`
+	Administrator     administratorResponse `json:"administrator"`
+	CSRFToken         string                `json:"csrfToken"`
+	ExpiresAt         time.Time             `json:"expiresAt"`
+	SQLConsoleEnabled bool                  `json:"sqlConsoleEnabled"`
 }
 
 func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
@@ -92,6 +94,7 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 		auth:           dependencies.AdminAuth,
 		publicURL:      dependencies.PublicURL,
 		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
+		sqlConsole:     dependencies.SQLConsole != nil,
 		recorder:       recorder,
 		statusCache:    newSetupStatusCache(),
 	}
@@ -220,7 +223,7 @@ func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken))
+	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken, e.sqlConsole))
 }
 
 func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
@@ -256,10 +259,10 @@ func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Reques
 		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken))
+	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken, e.sqlConsole))
 }
 
-func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, csrfToken string) adminSessionResponse {
+func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, csrfToken string, sqlConsole bool) adminSessionResponse {
 	return adminSessionResponse{
 		Administrator: administratorResponse{
 			ID:        administrator.ID,
@@ -268,8 +271,9 @@ func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time,
 			CreatedAt: administrator.CreatedAt.UTC(),
 			UpdatedAt: administrator.UpdatedAt.UTC(),
 		},
-		CSRFToken: csrfToken,
-		ExpiresAt: expiresAt.UTC(),
+		CSRFToken:         csrfToken,
+		ExpiresAt:         expiresAt.UTC(),
+		SQLConsoleEnabled: sqlConsole,
 	}
 }
 

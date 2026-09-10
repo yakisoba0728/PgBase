@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 )
 
 func TestExternalModuleCanRunCompiledMigrationCLI(t *testing.T) {
@@ -41,13 +41,13 @@ func TestExternalModuleCanRunCompiledMigrationCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"go.mod": "module external.test\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n",
+		"go.mod": "module external.test\n\ngo 1.26.0\n\nrequire github.com/yakisoba0728/PgBase v0.0.0\nreplace github.com/yakisoba0728/PgBase => " + repository + "\n",
 		"main.go": `package main
 import (
  "context"
  "os"
  _ "external.test/migrations"
- "github.com/webisnoteasy/PgBase/pgbasecli"
+ "github.com/yakisoba0728/PgBase/pgbasecli"
 )
 func main() { os.Exit(pgbasecli.Execute(context.Background(), os.Args[1:])) }
 `,

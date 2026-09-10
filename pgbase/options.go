@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 const (
@@ -42,7 +42,13 @@ const (
 type Options struct {
 	// CustomRoutes installs up to 64 application handlers with explicit access.
 	CustomRoutes []CustomRoute
-	Backups      BackupOptions
+	// JavaScript enables trusted local scripts after validating an immutable
+	// source manifest. A nil value keeps the runtime entirely disabled.
+	JavaScript *JavaScriptOptions
+	// SQLConsole enables the administrator SQL console with dedicated,
+	// least-privileged database roles. A nil value keeps its routes disabled.
+	SQLConsole *SQLConsoleOptions
+	Backups    BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions
@@ -121,6 +127,20 @@ func (o Options) Normalized() (Options, error) {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
+	if o.JavaScript != nil {
+		javascript, err := o.JavaScript.normalized()
+		if err != nil {
+			return Options{}, err
+		}
+		o.JavaScript = &javascript
+	}
+	if o.SQLConsole != nil {
+		sqlConsole, err := o.SQLConsole.normalized(o.AllowInsecureDatabase)
+		if err != nil {
+			return Options{}, err
+		}
+		o.SQLConsole = &sqlConsole
+	}
 	if err := validateOptions(o); err != nil {
 		return Options{}, err
 	}
@@ -154,6 +174,14 @@ func validateOptions(o Options) error {
 	}
 	if err := o.validateEmail(); err != nil {
 		return err
+	}
+	if o.JavaScript != nil {
+		if o.JavaScript.Capabilities["files"] && o.Files.Driver == "" {
+			return fmt.Errorf("JavaScript.Capabilities: files requires Files.Driver")
+		}
+		if o.JavaScript.Capabilities["mail"] && o.SMTP.Address == "" {
+			return fmt.Errorf("JavaScript.Capabilities: mail requires SMTP configuration")
+		}
 	}
 	if err := validateDatabaseURL(o.DatabaseURL, o.AllowInsecureDatabase); err != nil {
 		return fmt.Errorf("DatabaseURL: %w", err)

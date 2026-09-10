@@ -11,8 +11,8 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 // WriteMode controls whether an omitted relation is an empty create-time value

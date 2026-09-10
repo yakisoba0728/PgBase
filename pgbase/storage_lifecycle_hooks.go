@@ -3,8 +3,8 @@ package pgbase
 import (
 	"context"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
 const (

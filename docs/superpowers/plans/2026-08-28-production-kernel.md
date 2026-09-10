@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The Go module path is exactly `github.com/webisnoteasy/PgBase`, matching the configured Git remote.
+- The Go module path is exactly `github.com/yakisoba0728/PgBase`, matching the configured Git remote.
 - One pgBase project owns one PostgreSQL database; multiple stateless pgBase processes may share that database.
 - Support PostgreSQL 16 and newer, with PostgreSQL 16.13 as the minimum CI image.
 - Persist pgBase-owned state only in `pgbase_meta`; create user collection tables only in `app`.
@@ -166,7 +166,7 @@ func (o Options) Normalized() (Options, error) {
 }
 ```
 
-Create `go.mod` with `module github.com/webisnoteasy/PgBase`, `go 1.26.0`, and `toolchain go1.26.7`. Set `pgbase.Version` to `"dev"`; release builds replace it through `-ldflags -X`.
+Create `go.mod` with `module github.com/yakisoba0728/PgBase`, `go 1.26.0`, and `toolchain go1.26.7`. Set `pgbase.Version` to `"dev"`; release builds replace it through `-ldflags -X`.
 
 Use this repository hygiene:
 
@@ -1615,7 +1615,7 @@ Expected: FAIL because the container stack does not exist.
 
 - [ ] **Step 2: Create the multi-stage Dockerfile**
 
-Use `node:24.18.0-bookworm-slim` to run `npm ci && npm run build`, `golang:1.26.7-bookworm` to run tests and build with `CGO_ENABLED=0`, and a non-root distroless runtime. Build with `-trimpath` and `-ldflags "-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$VERSION"`, where `VERSION` is a non-secret build argument defaulting to `dev`. Copy only the binary and CA certificates. Set the OCI source label to the Git remote and expose 8090. Do not bake secrets into layers.
+Use `node:24.18.0-bookworm-slim` to run `npm ci && npm run build`, `golang:1.26.7-bookworm` to run tests and build with `CGO_ENABLED=0`, and a non-root distroless runtime. Build with `-trimpath` and `-ldflags "-s -w -X github.com/yakisoba0728/PgBase/pgbase.Version=$VERSION"`, where `VERSION` is a non-secret build argument defaulting to `dev`. Copy only the binary and CA certificates. Set the OCI source label to the Git remote and expose 8090. Do not bake secrets into layers.
 
 - [ ] **Step 3: Create the development Compose stack**
 

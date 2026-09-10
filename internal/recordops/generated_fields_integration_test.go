@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/passwordfield"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 func TestTextAutogeneratePrecedenceRetryReplayAndBatchRollback(t *testing.T) {

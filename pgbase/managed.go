@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/backup"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/filestore"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
 )
 
 // RunManaged hosts an application behind a stable HTTP listener. Web restore

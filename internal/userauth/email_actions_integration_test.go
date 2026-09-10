@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
 type capturedSender struct {

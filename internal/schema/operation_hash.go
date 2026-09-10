@@ -10,7 +10,7 @@ import (
 	"hash"
 	"sort"
 
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
 )
 
 const (

@@ -10,12 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/backup"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 )
 
 type App struct {
@@ -41,6 +42,9 @@ type App struct {
 	schemaHealth           backgroundRunner
 	userMigrationSources   backgroundRunner
 	userMigrationRecorder  *usermigrate.AutoRecorder
+	sqlConsole             *sqlconsole.Service
+	javaScriptRuntime      *javaScriptRuntime
+	extensions             *extensionBridge
 	listen                 func(string, string) (net.Listener, error)
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool
@@ -547,6 +551,12 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	}
 	if a.requestLog != nil {
 		closeErr = errors.Join(closeErr, a.requestLog.Shutdown(ctx))
+	}
+	if a.sqlConsole != nil {
+		closeErr = errors.Join(closeErr, a.sqlConsole.Close(ctx))
+	}
+	if a.javaScriptRuntime != nil {
+		closeErr = errors.Join(closeErr, a.javaScriptRuntime.Close(ctx))
 	}
 	if a.pool != nil {
 		if err := a.pool.CloseContext(ctx); err != nil {

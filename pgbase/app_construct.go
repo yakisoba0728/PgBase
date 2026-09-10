@@ -4,19 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/publicsite"
-	"github.com/webisnoteasy/PgBase/internal/realtime"
-	"github.com/webisnoteasy/PgBase/internal/recordaccess"
-	"github.com/webisnoteasy/PgBase/internal/recordops"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
-	adminui "github.com/webisnoteasy/PgBase/ui/admin"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/publicsite"
+	"github.com/yakisoba0728/PgBase/internal/realtime"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
+	adminui "github.com/yakisoba0728/PgBase/ui/admin"
 	"net"
 	"net/http"
 	"time"
@@ -42,6 +43,36 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	var javascript *javaScriptRuntime
+	if normalized.JavaScript != nil {
+		javascript, err = prepareJavaScript(*normalized.JavaScript)
+		if err != nil {
+			return nil, fmt.Errorf("initialize JavaScript: %w", err)
+		}
+		if err := installJavaScriptRoutes(&normalized, javascript); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
+		if len(javascript.bundle.Manifest().Hooks) > 0 && normalized.Hooks == nil {
+			normalized.Hooks = &HookRegistry{}
+		}
+		if err := javascript.installHooks(normalized.Hooks); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
+		if err := installJavaScriptJobs(&normalized, javascript); err != nil {
+			_ = javascript.Close(context.Background())
+			return nil, err
+		}
+	}
+	keepJavaScript := false
+	defer func() {
+		if !keepJavaScript && javascript != nil {
+			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
+			defer cancel()
+			_ = javascript.Close(shutdown)
+		}
+	}()
 	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false)
 	if err != nil {
 		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
@@ -155,6 +186,22 @@ func newWithCatalogPreflight(
 	recordService := recordops.NewService(
 		pool, schemaService, normalized.TokenSecret, normalized.Logger, metrics, membershipRuntime,
 	)
+	var sqlConsoleService *sqlconsole.Service
+	var sqlConsoleHandlers *api.SQLConsoleHandlers
+	if normalized.SQLConsole != nil {
+		sqlConsoleService, sqlConsoleHandlers, err = newSQLConsole(ctx, pool, schemaCache.Load(), normalized)
+		if err != nil {
+			return nil, err
+		}
+	}
+	keepSQLConsole := false
+	defer func() {
+		if !keepSQLConsole && sqlConsoleService != nil {
+			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
+			defer cancel()
+			_ = sqlConsoleService.Close(shutdown)
+		}
+	}()
 	adminHandler, err := adminui.Handler()
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
@@ -182,7 +229,7 @@ func newWithCatalogPreflight(
 			_ = requestLog.Shutdown(ctx)
 		}
 	}()
-	dependencies, err := withUserServices(api.Dependencies{
+	dependencies, extensionMailer, err := withUserServices(api.Dependencies{
 		Realtime:           realtimeService,
 		RequestLog:         requestLog,
 		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
@@ -202,6 +249,7 @@ func newWithCatalogPreflight(
 		Metrics:            metrics,
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
+		SQLConsole:         sqlConsoleHandlers,
 	}, pool, normalized)
 	if err != nil {
 		return nil, err
@@ -215,6 +263,10 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
+	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, logger: normalized.Logger, hooks: normalized.Hooks}
+	if javascript != nil {
+		javascript.bridge = extensions
+	}
 	dependencies, backupManager, err := withBackupServices(ctx, dependencies, fileService, pool, normalized)
 	if err != nil {
 		return nil, err
@@ -254,6 +306,9 @@ func newWithCatalogPreflight(
 		schemaHealth:          schemaHealth,
 		userMigrationSources:  userMigrationSources,
 		userMigrationRecorder: userMigrationRecorder,
+		sqlConsole:            sqlConsoleService,
+		javaScriptRuntime:     javascript,
+		extensions:            extensions,
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
@@ -277,5 +332,7 @@ func newWithCatalogPreflight(
 	}
 	keepPool = true
 	keepGate = true
+	keepJavaScript = true
+	keepSQLConsole = true
 	return app, nil
 }

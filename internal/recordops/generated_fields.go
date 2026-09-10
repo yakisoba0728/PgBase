@@ -12,10 +12,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
-	"github.com/webisnoteasy/PgBase/internal/passwordfield"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 const defaultPasswordMaxRunes = 71

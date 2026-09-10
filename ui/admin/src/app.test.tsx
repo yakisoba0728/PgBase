@@ -1,8 +1,11 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callsTo, deferredStep, scriptedHealth, scriptedStatus } from "./test/backend-script";
 import { collection, renderAdmin, scriptedAdmin, textField } from "./test/harness";
+import { App } from "./app";
+import { memoryBackend } from "./test/memory-backend";
+import type { SQLConsolePort } from "./backend/sql-console-backend";
 
 const posts = collection("posts", "posts-id", [textField("title", 0)]);
 const users = collection("users", "users-id", [textField("name", 0)]);
@@ -11,6 +14,23 @@ const recordID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 afterEach(() => vi.restoreAllMocks());
 
 describe("administration shell", () => {
+	it("shows the SQL console only for an enabled authenticated session", async () => {
+		const harness = scriptedAdmin("/admin/sql");
+		harness.script.resume[0] = { value: { kind: "authenticated", session: {
+			administrator: { id: "9a2e0000-0000-4000-8000-000000000001", email: "admin@example.com", createdAt: "2026-08-28T00:00:00Z" },
+			expiresAt: new Date(Date.now() + 60_000).toISOString(), sqlConsoleEnabled: true,
+		} } };
+		const sqlConsole: SQLConsolePort = {
+			submit: vi.fn(), execution: vi.fn(), cancel: vi.fn(),
+			history: vi.fn().mockResolvedValue({ executions: [], writeEnabled: false, writeTargets: [] }),
+		};
+		render(<App backend={memoryBackend(harness.script)} history={harness.history} sqlConsole={sqlConsole} />);
+
+		expect(await screen.findByRole("heading", { name: "SQL console" })).toBeVisible();
+		expect(screen.getByRole("link", { name: "SQL console" })).toHaveAttribute("href", "/admin/sql");
+		expect(sqlConsole.history).toHaveBeenCalledTimes(1);
+	});
+
   it("swaps the record list between collections as history moves", async () => {
     const harness = scriptedAdmin("/admin/collections/posts/records");
     for (const _ of [0, 1, 2]) harness.script.catalog.push({ value: { version: 4, collections: [posts, users] } });

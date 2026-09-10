@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestManifestValidationAndAppliedRevision(t *testing.T) {
@@ -75,7 +75,7 @@ func TestGenerateSnapshotSourceIsDeterministicAndBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module generated.snapshot.test\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n"
+	goMod := "module generated.snapshot.test\n\ngo 1.26.0\n\nrequire github.com/yakisoba0728/PgBase v0.0.0\nreplace github.com/yakisoba0728/PgBase => " + repository + "\n"
 	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestGenerateSameSecondDifferentNamesBuildTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module generated.test\n\ngo 1.26.0\n\nrequire github.com/webisnoteasy/PgBase v0.0.0\nreplace github.com/webisnoteasy/PgBase => " + repository + "\n"
+	goMod := "module generated.test\n\ngo 1.26.0\n\nrequire github.com/yakisoba0728/PgBase v0.0.0\nreplace github.com/yakisoba0728/PgBase => " + repository + "\n"
 	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}

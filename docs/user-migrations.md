@@ -29,7 +29,7 @@ import (
 	"os"
 
 	_ "example.com/myapp/migrations"
-	"github.com/webisnoteasy/PgBase/pgbasecli"
+	"github.com/yakisoba0728/PgBase/pgbasecli"
 )
 
 func main() {

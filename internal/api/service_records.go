@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 type publicRecordPrincipalKey struct{}

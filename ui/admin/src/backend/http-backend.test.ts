@@ -57,6 +57,22 @@ const session = (csrfToken = "csrf-token") => respond(200, JSON.stringify({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HTTP adapter wire contract", () => {
+	it("shares the authenticated cookie and CSRF boundary with SQL console requests", async () => {
+		const execution = { id: operationID, mode: "read", dryRun: false, status: "pending", createdAt: "2026-09-10T00:00:00Z" };
+		const mock = stub(session(), respond(202, JSON.stringify(execution)));
+		const backend = await authenticated(mock);
+
+		const response = await backend.sqlConsoleTransport.request({
+			path: "/api/admin/sql/queries", method: "POST", body: { mode: "read", statements: [{ sql: "select 1" }] },
+			headers: { "PgBase-Operation-ID": operationID },
+		});
+
+		expect(response).toEqual({ status: 202, body: execution });
+		expect(headerOf(mock, 1, "X-PgBase-CSRF")).toBe("csrf-token");
+		expect(headerOf(mock, 1, "PgBase-Operation-ID")).toBe(operationID);
+		expect(mock.mock.calls[1][1]).toMatchObject({ credentials: "include", method: "POST" });
+	});
+
 	it("sends record files and create metadata in one multipart batch", async () => {
 		const mock = stub(session(), respond(200, JSON.stringify({ results: [{ status: 201, body: { id: recordID, title: "contract" }, etag: '"pgb1.atomic"' }] })));
 		const backend = await authenticated(mock);

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestTextDefaultLiteralRoundTripsWithStandardConformingStringsDisabled(t *testing.T) {

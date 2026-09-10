@@ -6,9 +6,9 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/lifecycle"
-	"github.com/webisnoteasy/PgBase/internal/recordops"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 type RecordRequestEvent struct {

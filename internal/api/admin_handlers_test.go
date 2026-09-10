@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 )
 
 func TestSetupRouteRejectsMalformedJSON(t *testing.T) {

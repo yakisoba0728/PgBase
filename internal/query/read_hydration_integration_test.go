@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 const (

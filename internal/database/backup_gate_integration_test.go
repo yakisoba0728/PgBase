@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestBackupGateExcludesWritersAndOtherBackupOperations(t *testing.T) {

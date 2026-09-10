@@ -61,11 +61,11 @@ afterEach(() => vi.unstubAllGlobals());
 describe.each(harnesses)("$name conformance", ({ open }) => {
   it("resumes an authenticated administrator", async () => {
     const script = backendScript();
-    script.resume.push({ value: { kind: "authenticated", session: { administrator, expiresAt } } });
+    script.resume.push({ value: { kind: "authenticated", session: { administrator, expiresAt, sqlConsoleEnabled: false } } });
 
     await expect(open(script).session.resume()).resolves.toEqual({
       kind: "authenticated",
-      session: { administrator, expiresAt },
+      session: { administrator, expiresAt, sqlConsoleEnabled: false },
     });
   });
 

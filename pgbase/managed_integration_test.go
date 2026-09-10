@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/backup"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {

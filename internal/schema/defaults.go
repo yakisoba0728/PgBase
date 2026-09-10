@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
 )
 
 var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)

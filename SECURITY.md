@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report suspected vulnerabilities through [GitHub private vulnerability reporting for this repository](https://github.com/webisnoteasy/PgBase/security/advisories/new). Do not open a public issue, discussion, or pull request before coordinated disclosure.
+Report suspected vulnerabilities through [GitHub private vulnerability reporting for this repository](https://github.com/yakisoba0728/PgBase/security/advisories/new). Do not open a public issue, discussion, or pull request before coordinated disclosure.
 
 Include the affected commit or version, deployment assumptions, impact, reproduction steps, and a minimal proof of concept. Remove credentials, tokens, personal data, and production database contents. If private vulnerability reporting is unavailable to you, wait for a repository maintainer to publish an alternate private channel rather than posting exploit details publicly; this policy does not invent a contact address.
 

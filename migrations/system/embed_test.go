@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
@@ -55,10 +55,11 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		38: "530ffdd30ea33fb293469e050abac8a5a1ebed055bcf94634d9d4336d6f89b97",
 		39: "c6acb137040bbe69bc7f276aa74f0f1b94f1aa2bfd5fdc3f1d109dbffe2d35ed",
 		40: "ffecb2cff732be1c1922fa893d61ba3f0ad77c1d8c8d1e2159ece97c967d64ee",
+		41: "628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 40 || migrations[len(migrations)-1].Version != 40 ||
-		migrations[len(migrations)-1].Name != "user_migration_sources" || migrations[7].Version != 8 ||
+	if len(migrations) != 41 || migrations[len(migrations)-1].Version != 41 ||
+		migrations[len(migrations)-1].Name != "sql_console" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

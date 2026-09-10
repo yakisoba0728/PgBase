@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 const recentRequestCapacity = 1000

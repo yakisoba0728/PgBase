@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 // The rollout switch must be reachable only through this operator command, so

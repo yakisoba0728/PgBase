@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/relation"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/relation"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // deleteGraphAllocationCeiling is what one delete may spend on obtaining the

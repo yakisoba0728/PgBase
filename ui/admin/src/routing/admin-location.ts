@@ -9,6 +9,7 @@ export type AdminRoute =
   | { kind: "storage" }
   | { kind: "backup-storage" }
   | { kind: "operations" }
+	| { kind: "sql-console" }
   | { kind: "system" }
   | { kind: "users" }
   | { kind: "auth-collections" }
@@ -51,6 +52,7 @@ export function parseAdminRoute(path: string): AdminRoute {
   if (path === "/admin/storage/backups") return { kind: "backup-storage" };
   if (path === "/admin/storage") return { kind: "storage" };
   if (path === operationsPath) return { kind: "operations" };
+	if (path === "/admin/sql") return { kind: "sql-console" };
 	if (path === "/admin/system") return { kind: "system" };
 	if (path === "/admin/users") return { kind: "users" };
   if (path === "/admin/auth-collections") return { kind: "auth-collections" };
@@ -80,6 +82,7 @@ export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "backup-storage") return "/admin/storage/backups";
   if (route.kind === "storage") return "/admin/storage";
   if (route.kind === "operations") return operationsPath;
+	if (route.kind === "sql-console") return "/admin/sql";
 	if (route.kind === "system") return "/admin/system";
 	if (route.kind === "users") return "/admin/users";
   if (route.kind === "auth-collections") return "/admin/auth-collections";

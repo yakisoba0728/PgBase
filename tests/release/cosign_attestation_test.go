@@ -78,7 +78,7 @@ func TestPrivateReleaseAttestationRejectsWrongTrustAndBinding(t *testing.T) {
 		"COSIGN_PASSWORD="+password,
 		"COSIGN_PRIVATE_KEY="+string(privateKey),
 	)
-	predicateType := "https://github.com/webisnoteasy/PgBase/attestations/release-test/v1"
+	predicateType := "https://github.com/yakisoba0728/PgBase/attestations/release-test/v1"
 	// Two attestations of one type prove the verifier searches all valid DSSE
 	// envelopes instead of rejecting the first non-matching predicate.
 	runCommand(t, signingEnvironment, sign, candidate, predicateType, otherPredicate)

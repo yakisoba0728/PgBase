@@ -3,9 +3,9 @@ package query
 import (
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/internal/cursor"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 const (

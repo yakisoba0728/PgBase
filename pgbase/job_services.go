@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/jobs"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
 )
 
 // newJobService converts public option handlers into the private durable
@@ -24,6 +24,7 @@ func newJobService(ctx context.Context, pool *database.Pool, options Options) (*
 				JobID:           run.ID,
 				Name:            run.Name,
 				FenceGeneration: run.FenceGeneration,
+				ScheduledAt:     run.ScheduledAt,
 			})
 		}); err != nil {
 			return nil, fmt.Errorf("register scheduled job %q: %w", job.Name, err)
@@ -51,6 +52,6 @@ func registerRuntimeJob(ctx context.Context, service *jobs.Service, configured S
 		timezone = "UTC"
 	}
 	return service.Register(ctx, configured.Name, configured.Schedule, timezone, func(ctx context.Context, run jobs.Job) error {
-		return configured.Handler(ctx, JobRun{JobID: run.ID, Name: run.Name, FenceGeneration: run.FenceGeneration})
+		return configured.Handler(ctx, JobRun{JobID: run.ID, Name: run.Name, FenceGeneration: run.FenceGeneration, ScheduledAt: run.ScheduledAt})
 	})
 }

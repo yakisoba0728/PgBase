@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestOpenRejectsPoolTooSmallForListenerAndRequests(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestMigrationOperationPanicIsRecordedAsFailureAndRepanics(t *testing.T) {

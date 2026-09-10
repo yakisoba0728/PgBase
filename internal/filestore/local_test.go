@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 func TestLocalStoreRejectsTraversalAndPublishesAtomically(t *testing.T) {

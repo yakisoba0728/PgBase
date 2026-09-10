@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestMembershipHistoryAcceptsCompleteKnownFuturePrefix(t *testing.T) {

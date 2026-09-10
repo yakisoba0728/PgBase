@@ -236,7 +236,7 @@ jobs:
         run: |
           scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" slsaprovenance1 "$RUNNER_TEMP/release-provenance.json"
           scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson pgbase-release-phase.spdx.json
-          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1 "$RUNNER_TEMP/release-phase-source.json"
+          scripts/support/sign-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/yakisoba0728/PgBase/attestations/release-phase/v1 "$RUNNER_TEMP/release-phase-source.json"
 
       - name: Verify every signed phase attestation against the candidate digest
         shell: bash
@@ -249,7 +249,7 @@ jobs:
             "$RUNNER_TEMP/release-provenance.json" .github/cosign.pub "$RUNNER_TEMP/phase-attestation-provenance.json"
           scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" spdxjson \
             pgbase-release-phase.spdx.json .github/cosign.pub "$RUNNER_TEMP/phase-attestation-sbom.json"
-          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/webisnoteasy/PgBase/attestations/release-phase/v1 \
+          scripts/support/verify-release-attestation.sh "$CANDIDATE_IMAGE" https://github.com/yakisoba0728/PgBase/attestations/release-phase/v1 \
             "$RUNNER_TEMP/release-phase-source.json" .github/cosign.pub "$RUNNER_TEMP/phase-attestation-source.json"
 
       - name: Require the published package to remain private

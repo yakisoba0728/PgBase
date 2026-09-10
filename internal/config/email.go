@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func loadEmail(lookup func(string) (string, bool), opts *pgbase.Options) error {

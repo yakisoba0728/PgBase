@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 func TestListenerOperationPanicIsRecordedAsFailureAndRepanics(t *testing.T) {

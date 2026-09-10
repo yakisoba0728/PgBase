@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 // ApplySystemMigrationPrefix installs a prefix of the embedded system migrations

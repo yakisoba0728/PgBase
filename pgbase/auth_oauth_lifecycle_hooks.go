@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/userauth"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 func (h hookedUserAuth) oauthBegin(ctx context.Context, realm, user uuid.UUID, provider string, operation func() (userauth.OAuthAuthorization, error)) (result userauth.OAuthAuthorization, err error) {

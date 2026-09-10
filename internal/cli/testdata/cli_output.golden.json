@@ -4,13 +4,13 @@
       "name": "ordinary help",
       "exit": 2,
       "stdout": "",
-      "stderr": "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup> [arguments]\n"
+      "stderr": "usage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js, version, update> [arguments]\n"
     },
     {
       "name": "unknown command",
       "exit": 2,
       "stdout": "",
-      "stderr": "pgbase: unknown command \"unknown\"\nusage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup> [arguments]\n"
+      "stderr": "pgbase: unknown command \"unknown\"\nusage: pgbase <serve, migrate, migration, admin, doctor, schema-index, membership, backup, js, version, update> [arguments]\n"
     },
     {
       "name": "invalid configuration",

@@ -1,0 +1,578 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import 'auth.dart';
+import 'errors.dart';
+import 'exact_json.dart';
+import 'files.dart';
+import 'records.dart';
+import 'transport.dart';
+import 'types.dart';
+
+final class PgBaseClient {
+  PgBaseClient(Uri baseUri, {http.Client? httpClient, AuthStore? auth})
+    : transport = PgBaseTransport(baseUri, client: httpClient),
+      auth = auth ?? AuthStore();
+
+  final PgBaseTransport transport;
+  final AuthStore auth;
+
+  void close() => transport.close();
+
+  AuthRealm realm(String name) => AuthRealm(this, name);
+  Records records(String collection) => Records(this, collection);
+  Files files(String collection, String recordId) =>
+      Files(this, collection, recordId);
+
+  /// Submits the compact operation form accepted by PgBase's batch endpoint.
+  Future<JsonObject> batch(
+    List<BatchOperation> operations, {
+    CancellationToken? cancellation,
+  }) => submitBatch(this, operations, cancellation: cancellation);
+
+  /// Submits the HTTP-shaped batch form. Each request is an object with the
+  /// server's `method`, `url`, `body`, and optional `headers` fields.
+  Future<JsonObject> batchRequests(
+    List<JsonObject> requests, {
+    CancellationToken? cancellation,
+  }) async {
+    final response = await request(
+      'POST',
+      '/api/v1/user/collections/batch',
+      body: JsonObject({'requests': JsonArray(requests)}),
+      cancellation: cancellation,
+    );
+    if (response is! JsonObject)
+      throw const PgBaseProtocolError('invalid_batch_response');
+    return response;
+  }
+
+  Future<UserSession> register(
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+  }) => _authenticate(
+    '/api/v1/auth/register',
+    email,
+    password,
+    cancellation: cancellation,
+  );
+  Future<UserSession> login(
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+  }) => _authenticate(
+    '/api/v1/auth/login',
+    email,
+    password,
+    cancellation: cancellation,
+    mfa: true,
+  );
+  Future<UserSession> session({CancellationToken? cancellation}) async =>
+      _decodeSession(
+        await request(
+          'GET',
+          '/api/v1/auth/session',
+          cancellation: cancellation,
+        ),
+      );
+
+  Future<void> logout({CancellationToken? cancellation}) async {
+    try {
+      await request('POST', '/api/v1/auth/logout', cancellation: cancellation);
+    } finally {
+      await auth.clear();
+    }
+  }
+
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword, {
+    CancellationToken? cancellation,
+  }) => _clearAfter(
+    '/api/v1/auth/change-password',
+    JsonObject({
+      'currentPassword': JsonString(currentPassword),
+      'newPassword': JsonString(newPassword),
+    }),
+    cancellation,
+  );
+  Future<void> requestPasswordReset(
+    String email, {
+    CancellationToken? cancellation,
+  }) => _voidPost('/api/v1/auth/request-password-reset', {
+    'email': JsonString(email),
+  }, cancellation);
+  Future<void> confirmPasswordReset(
+    String token,
+    String newPassword, {
+    CancellationToken? cancellation,
+  }) => _voidPost('/api/v1/auth/confirm-password-reset', {
+    'token': JsonString(token),
+    'newPassword': JsonString(newPassword),
+  }, cancellation);
+  Future<void> requestVerification({CancellationToken? cancellation}) async =>
+      request(
+        'POST',
+        '/api/v1/auth/request-verification',
+        cancellation: cancellation,
+      );
+  Future<void> confirmVerification(
+    String token, {
+    CancellationToken? cancellation,
+  }) => _voidPost('/api/v1/auth/confirm-verification', {
+    'token': JsonString(token),
+  }, cancellation);
+  Future<void> requestEmailChange(
+    String currentPassword,
+    String newEmail, {
+    CancellationToken? cancellation,
+  }) => _voidPost('/api/v1/auth/request-email-change', {
+    'currentPassword': JsonString(currentPassword),
+    'newEmail': JsonString(newEmail),
+  }, cancellation);
+  Future<void> confirmEmailChange(
+    String token, {
+    CancellationToken? cancellation,
+  }) => _clearAfter(
+    '/api/v1/auth/confirm-email-change',
+    JsonObject({'token': JsonString(token)}),
+    cancellation,
+  );
+
+  Future<JsonObject> requestOtp(
+    String email, {
+    CancellationToken? cancellation,
+  }) => _objectRequest(
+    'POST',
+    '/api/v1/auth/otp/request',
+    JsonObject({'email': JsonString(email)}),
+    cancellation,
+  );
+  Future<UserSession> completeOtp(
+    String otpId,
+    String code, {
+    CancellationToken? cancellation,
+  }) => _completeSession(
+    '/api/v1/auth/otp/complete',
+    {'otpId': JsonString(otpId), 'code': JsonString(code)},
+    cancellation,
+    mfa: true,
+  );
+  Future<UserSession> completeMfa(
+    String challengeToken,
+    String code, {
+    CancellationToken? cancellation,
+  }) => _completeSession('/api/v1/auth/mfa/complete', {
+    'challengeToken': JsonString(challengeToken),
+    'code': JsonString(code),
+  }, cancellation);
+  Future<JsonObject> beginTotpEnrollment(
+    String currentPassword, {
+    CancellationToken? cancellation,
+  }) => _objectRequest(
+    'POST',
+    '/api/v1/auth/totp/enroll',
+    JsonObject({'currentPassword': JsonString(currentPassword)}),
+    cancellation,
+  );
+  Future<JsonObject> confirmTotpEnrollment(
+    String code, {
+    CancellationToken? cancellation,
+  }) => _objectRequest(
+    'POST',
+    '/api/v1/auth/totp/confirm',
+    JsonObject({'code': JsonString(code)}),
+    cancellation,
+  );
+
+  Future<JsonObject> oauthStart(
+    String provider,
+    String redirectUri, {
+    CancellationToken? cancellation,
+  }) => _objectRequest(
+    'POST',
+    '/api/v1/auth/oauth/start',
+    JsonObject({
+      'provider': JsonString(provider),
+      'redirectUri': JsonString(redirectUri),
+    }),
+    cancellation,
+  );
+
+  Future<JsonObject> oauthLink(
+    String currentPassword,
+    String provider,
+    String redirectUri, {
+    CancellationToken? cancellation,
+  }) => _objectRequest(
+    'POST',
+    '/api/v1/auth/oauth/link',
+    JsonObject({
+      'currentPassword': JsonString(currentPassword),
+      'provider': JsonString(provider),
+      'redirectUri': JsonString(redirectUri),
+    }),
+    cancellation,
+  );
+
+  Future<UserSession> oauthComplete(
+    String provider,
+    String state,
+    String code, {
+    CancellationToken? cancellation,
+  }) => _completeSession('/api/v1/auth/oauth/complete', {
+    'provider': JsonString(provider),
+    'state': JsonString(state),
+    'code': JsonString(code),
+  }, cancellation);
+
+  Future<JsonValue> request(
+    String method,
+    String path, {
+    JsonValue? body,
+    Map<String, String>? headers,
+    Map<String, String>? query,
+    CancellationToken? cancellation,
+  }) async {
+    final response = await transport.json(
+      method,
+      path,
+      headers: headersFor(headers),
+      body: body,
+      query: query,
+      cancellation: cancellation,
+    );
+    if (response.status < 200 || response.status >= 300)
+      throw pgBaseError(response);
+    if (response.status == 204 || response.bytes.isEmpty)
+      return const JsonNull();
+    try {
+      return decodeExactJson(response.bytes);
+    } on PgBaseProtocolError {
+      throw const PgBaseProtocolError('invalid_success_json');
+    }
+  }
+
+  Future<RecordResult<JsonObject>> recordRequest(
+    String method,
+    String path, {
+    JsonValue? body,
+    Map<String, String>? headers,
+    CancellationToken? cancellation,
+  }) async {
+    final response = await transport.json(
+      method,
+      path,
+      headers: headersFor(headers),
+      body: body,
+      cancellation: cancellation,
+    );
+    if (response.status < 200 || response.status >= 300)
+      throw pgBaseError(response);
+    final decoded = decodeExactJson(response.bytes);
+    if (decoded is! JsonObject)
+      throw const PgBaseProtocolError('invalid_record_response');
+    return RecordResult(record: decoded, etag: response.etag);
+  }
+
+  Future<JsonObject> batchMultipart(
+    JsonObject requests,
+    Map<String, UploadSource> files, {
+    CancellationToken? cancellation,
+  }) async {
+    if (files.keys.any((key) => key.isEmpty || key == 'requests'))
+      throw const PgBaseProtocolError('invalid_batch_file');
+    final response = await transport.multipart(
+      'POST',
+      '/api/v1/user/collections/batch',
+      fields: {'requests': utf8.decode(encodeExactJson(requests))},
+      files: files,
+      headers: headersFor(null),
+      cancellation: cancellation,
+    );
+    if (response.status < 200 || response.status >= 300)
+      throw pgBaseError(response);
+    final decoded = decodeExactJson(response.bytes);
+    if (decoded is! JsonObject)
+      throw const PgBaseProtocolError('invalid_batch_response');
+    return decoded;
+  }
+
+  Map<String, String> headersFor(Map<String, String>? extra) => {
+    if (auth.token != null) 'authorization': 'Bearer ${auth.token}',
+    ...?extra,
+  };
+
+  Future<UserSession> _authenticate(
+    String path,
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+    bool mfa = false,
+  }) => _completeSession(
+    path,
+    {'email': JsonString(email), 'password': JsonString(password)},
+    cancellation,
+    mfa: mfa,
+  );
+
+  Future<UserSession> _completeSession(
+    String path,
+    Map<String, JsonValue> body,
+    CancellationToken? cancellation, {
+    bool mfa = false,
+  }) async {
+    final generation = auth.generation;
+    try {
+      final session = _decodeSession(
+        await request(
+          'POST',
+          path,
+          body: JsonObject(body),
+          cancellation: cancellation,
+        ),
+      );
+      if (session.token != null && generation == auth.generation)
+        await auth.save(session.token!);
+      return session;
+    } on PgBaseError catch (error) {
+      if (mfa && error.code == 'mfa_required') {
+        final token = error.details['challengeToken']?.firstOrNull;
+        final expiresAt = error.details['expiresAt']?.firstOrNull;
+        if (token != null && expiresAt != null)
+          throw MfaChallengeError(
+            error.status,
+            error.code,
+            MfaChallenge(token: token, expiresAt: expiresAt),
+            details: error.details,
+            etag: error.etag,
+          );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _voidPost(
+    String path,
+    Map<String, JsonValue> body,
+    CancellationToken? cancellation,
+  ) async =>
+      request('POST', path, body: JsonObject(body), cancellation: cancellation);
+  Future<void> _clearAfter(
+    String path,
+    JsonObject body,
+    CancellationToken? cancellation,
+  ) async {
+    try {
+      await request('POST', path, body: body, cancellation: cancellation);
+    } finally {
+      await auth.clear();
+    }
+  }
+
+  Future<JsonObject> _objectRequest(
+    String method,
+    String path,
+    JsonObject body,
+    CancellationToken? cancellation,
+  ) async {
+    final result = await request(
+      method,
+      path,
+      body: body,
+      cancellation: cancellation,
+    );
+    if (result is! JsonObject)
+      throw const PgBaseProtocolError('invalid_object_response');
+    return result;
+  }
+}
+
+final class AuthRealm {
+  const AuthRealm(this.client, this.name);
+  final PgBaseClient client;
+  final String name;
+  String get _path => '/api/v1/auth/${Uri.encodeComponent(name)}';
+  Future<UserSession> register(
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+  }) => client._authenticate(
+    '$_path/register',
+    email,
+    password,
+    cancellation: cancellation,
+  );
+  Future<UserSession> login(
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+  }) => client._authenticate(
+    '$_path/login',
+    email,
+    password,
+    cancellation: cancellation,
+    mfa: true,
+  );
+  Future<UserSession> session({CancellationToken? cancellation}) async =>
+      _decodeSession(
+        await client.request(
+          'GET',
+          '$_path/session',
+          cancellation: cancellation,
+        ),
+      );
+  Future<void> logout({CancellationToken? cancellation}) async {
+    try {
+      await client.request('POST', '$_path/logout', cancellation: cancellation);
+    } finally {
+      await client.auth.clear();
+    }
+  }
+
+  Future<void> requestPasswordReset(
+    String email, {
+    CancellationToken? cancellation,
+  }) async {
+    await client.request(
+      'POST',
+      '$_path/request-password-reset',
+      body: JsonObject({'email': JsonString(email)}),
+      cancellation: cancellation,
+    );
+  }
+
+  Future<JsonObject> requestOtp(
+    String email, {
+    CancellationToken? cancellation,
+  }) async {
+    final value = await client.request(
+      'POST',
+      '$_path/otp/request',
+      body: JsonObject({'email': JsonString(email)}),
+      cancellation: cancellation,
+    );
+    if (value is! JsonObject)
+      throw const PgBaseProtocolError('invalid_otp_response');
+    return value;
+  }
+
+  Future<UserSession> completeOtp(
+    String otpId,
+    String code, {
+    CancellationToken? cancellation,
+  }) => client._completeSession(
+    '$_path/otp/complete',
+    {'otpId': JsonString(otpId), 'code': JsonString(code)},
+    cancellation,
+    mfa: true,
+  );
+
+  Future<JsonObject> oauthStart(
+    String provider,
+    String redirectUri, {
+    CancellationToken? cancellation,
+  }) => client._objectRequest(
+    'POST',
+    '$_path/oauth/start',
+    JsonObject({
+      'provider': JsonString(provider),
+      'redirectUri': JsonString(redirectUri),
+    }),
+    cancellation,
+  );
+
+  Future<JsonObject> profile({CancellationToken? cancellation}) async {
+    final value = await client.request(
+      'GET',
+      '$_path/profile',
+      cancellation: cancellation,
+    );
+    return _profileAttributes(value);
+  }
+
+  Future<JsonObject> updateProfile(
+    JsonObject value, {
+    CancellationToken? cancellation,
+  }) async {
+    final response = await client.request(
+      'PATCH',
+      '$_path/profile',
+      body: value,
+      cancellation: cancellation,
+    );
+    return _profileAttributes(response);
+  }
+}
+
+UserSession _decodeSession(JsonValue value) {
+  if (value is! JsonObject || value['user'] is! JsonObject)
+    throw const PgBaseProtocolError('invalid_session_response');
+  final user = value['user']! as JsonObject;
+  String string(String key, JsonObject from) {
+    final field = from[key];
+    if (field is! JsonString)
+      throw const PgBaseProtocolError('invalid_session_response');
+    return field.value;
+  }
+
+  final verified = user['verified'];
+  final impersonated = value['impersonated'];
+  return UserSession(
+    token: (value['token'] as JsonString?)?.value,
+    user: User(
+      id: string('id', user),
+      email: string('email', user),
+      createdAt: string('createdAt', user),
+      verified: verified is JsonBool ? verified.value : null,
+      authCollection: (user['authCollection'] as JsonString?)?.value,
+      authCollectionId: (user['authCollectionId'] as JsonString?)?.value,
+    ),
+    expiresAt: string('expiresAt', value),
+    impersonated: impersonated is JsonBool && impersonated.value,
+    impersonatingAdministratorId:
+        (value['impersonatingAdministratorId'] as JsonString?)?.value,
+  );
+}
+
+PgBaseError pgBaseError(PgBaseResponse response) {
+  try {
+    final body = decodeExactJson(response.bytes);
+    final envelope = body is JsonObject ? body['error'] : null;
+    if (envelope is JsonObject) {
+      final code = (envelope['code'] as JsonString?)?.value ?? 'request_failed';
+      final requestId = (envelope['requestId'] as JsonString?)?.value;
+      final detailsValue = envelope['details'];
+      final details = <String, List<String>>{};
+      if (detailsValue is JsonObject) {
+        for (final entry in detailsValue.values.entries) {
+          final list = entry.value;
+          if (list is JsonArray &&
+              list.values.every((item) => item is JsonString))
+            details[entry.key] = list.values
+                .cast<JsonString>()
+                .map((item) => item.value)
+                .toList(growable: false);
+        }
+      }
+      return PgBaseError(
+        response.status,
+        code,
+        details: details,
+        etag: response.etag,
+        requestId: requestId,
+      );
+    }
+  } on PgBaseProtocolError {
+    // Fall through to a stable transport error.
+  }
+  return PgBaseError(response.status, 'request_failed', etag: response.etag);
+}
+
+JsonObject _profileAttributes(JsonValue value) {
+  if (value is! JsonObject || value['attributes'] is! JsonObject)
+    throw const PgBaseProtocolError('invalid_profile_response');
+  return value['attributes']! as JsonObject;
+}

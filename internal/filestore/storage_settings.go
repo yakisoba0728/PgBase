@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 var ErrStorageConflict = errors.New("storage settings conflict")
@@ -247,8 +247,17 @@ func (c *StorageController) GuardStoragePublication(ctx context.Context, tx pgx.
 	if !ok {
 		return ErrStorageConflict
 	}
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock_shared($1)`, storageTransitionLock); err != nil {
+	// The coordination session already owns a shared transition lock. A
+	// blocking second shared lock can queue behind an exclusive waiter while
+	// that waiter is itself waiting for this operation's first lock. Fail the
+	// publication so its caller can retry after releasing the lease instead of
+	// waiting in that self-deadlock.
+	var acquired bool
+	if err := tx.QueryRow(ctx, `select pg_try_advisory_xact_lock_shared($1)`, storageTransitionLock).Scan(&acquired); err != nil {
 		return err
+	}
+	if !acquired {
+		return ErrStorageConflict
 	}
 	var revision int64
 	if err := tx.QueryRow(ctx, `select revision from pgbase_meta.file_storage_settings where singleton`).Scan(&revision); err != nil {

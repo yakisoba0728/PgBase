@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
 )
 
 func TestCursorV5QueryFingerprintUsesCanonicalTypedStableFieldPaths(t *testing.T) {

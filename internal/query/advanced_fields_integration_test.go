@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestGeoPointFilterSortAndCursorAgainstPostgres(t *testing.T) {

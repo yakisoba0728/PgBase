@@ -76,6 +76,11 @@ jobs:
     name: Go unit
     runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    env:
+      # The same tiering as PostgreSQL integration: fast PR feedback still
+      # exercises every unit test, while main, release-gate and manual runs
+      # retain race detection over the complete package graph.
+      PGBASE_FULL_UNIT_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,9 +111,14 @@ jobs:
       - name: Vet unit build
         run: go vet ./...
 
-      - name: Test unit suite with race detector and skip policy
+      - name: Test unit suite with skip policy
         shell: bash
-        run: scripts/test-go-unit.sh -race -count=1
+        run: |
+          test_arguments=(-count=1)
+          if [[ "$PGBASE_FULL_UNIT_RACE" == "true" ]]; then
+            test_arguments=(-race "${test_arguments[@]}")
+          fi
+          scripts/test-go-unit.sh "${test_arguments[@]}"
 
       - name: Install the pinned private attestation verifier
         if: inputs.source_commit == ''
@@ -181,6 +191,13 @@ jobs:
           --health-retries 30
     env:
       PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      # Unit tests always use -race. Re-running the full PostgreSQL suite with
+      # it on every PR dominated feedback time (15m21s in run 34428905056), so
+      # retain that expensive coverage for main, release-gate and manual runs.
+      # PRs run a representative database smoke set; the whole package graph
+      # stays mandatory on main, release-gate and manual runs.
+      PGBASE_FULL_INTEGRATION_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
+      PGBASE_INTEGRATION_PACKAGES: ${{ github.event_name == 'pull_request' && './internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase' || './...' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,6 +222,7 @@ jobs:
           echo "TEST_PGBASE_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
 
       - name: Vet integration build
+        if: env.PGBASE_FULL_INTEGRATION_RACE == 'true'
         run: go vet -tags=integration ./...
 
       - name: Start local S3 integration fixture
@@ -212,11 +230,15 @@ jobs:
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml up -d minio
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml run --rm create-bucket
 
-      - name: Test complete PostgreSQL suite with race detector and skip policy
+      - name: Test PostgreSQL integration suite with skip policy
         shell: bash
         run: |
           set -o pipefail
-          PGBASE_TEST_S3_ENDPOINT=http://127.0.0.1:59000 scripts/test-go-integration.sh -race -count=1 2>&1 | tee go-test.log
+          test_arguments=(-count=1)
+          if [[ "$PGBASE_FULL_INTEGRATION_RACE" == "true" ]]; then
+            test_arguments=(-race "${test_arguments[@]}")
+          fi
+          PGBASE_TEST_S3_ENDPOINT=http://127.0.0.1:59000 scripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log
 
       - name: Set up Node for live SDK conformance
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

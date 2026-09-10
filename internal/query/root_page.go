@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/cursor"
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 type rootPageReadRequest struct {

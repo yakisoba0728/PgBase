@@ -1,0 +1,53 @@
+package sqlconsole
+
+import (
+	"context"
+	"net/url"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+)
+
+func TestReviewR8CoerceViaIO(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	parsed, err := url.Parse(os.Getenv("N8_PG17_ADMIN_URL"))
+	if err != nil || parsed.Port() != "55470" || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") {
+		t.Fatal("requires coordinated local PG17 fixture")
+	}
+	admin, err := pgx.Connect(ctx, parsed.String())
+	if err != nil { t.Fatal(err) }
+	defer admin.Close(context.Background())
+	const dbName = "pgbase_n8_review_r8"
+	if _, err := admin.Exec(ctx, "create database "+pgx.Identifier{dbName}.Sanitize()); err != nil { t.Fatal(err) }
+	defer func() {
+		if _, err := admin.Exec(context.Background(), "drop database "+pgx.Identifier{dbName}.Sanitize()); err != nil { t.Error(err) }
+	}()
+	parsed.Path = "/"+dbName
+	pool, err := database.Open(ctx, parsed.String(), 10*time.Second)
+	if err != nil { t.Fatal(err) }
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, `create schema app; create schema ext;
+		create type ext.review_enum as enum ('x');
+		create table app.accounts(id uuid,created_at timestamptz,updated_at timestamptz,visible text);
+		create view app.visible_accounts as select id,created_at,updated_at,
+		(visible::ext.review_enum)::text as visible from app.accounts`); err != nil { t.Fatal(err) }
+	baseID := uuid.New()
+	fields := []schema.Field{{ID:uuid.New(),Name:"visible",ColumnName:"visible",Type:schema.TypeText}}
+	catalog := schema.Catalog{Version:1,Collections:map[string]schema.Collection{
+		"accounts":{ID:baseID,Name:"accounts",TableName:"accounts",Fields:fields},
+		"visible_accounts":{ID:uuid.New(),Name:"visible_accounts",TableName:"visible_accounts",Fields:fields,View:&schema.ViewSpec{Dependencies:[]uuid.UUID{baseID}}},
+	}}
+	var hasCoerceViaIO bool
+	if err := pool.QueryRow(ctx, `select exists(select 1 from pg_catalog.pg_rewrite r
+		where r.ev_class='app.visible_accounts'::regclass and r.ev_action::text like '%COERCEVIAIO%')`).Scan(&hasCoerceViaIO); err != nil { t.Fatal(err) }
+	if !hasCoerceViaIO { t.Fatal("fixture did not exercise CoerceViaIO") }
+	if _, err := inspectManagedReadRelations(ctx, pool, catalog); err == nil {
+		t.Fatal("R8: managed-view guard accepted custom enum CoerceViaIO outside allowedCasts")
+	}
+}

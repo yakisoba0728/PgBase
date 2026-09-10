@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/cursor"
-	"github.com/webisnoteasy/PgBase/internal/membership"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/tests/testsupport"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/tests/testsupport"
 )
 
 const r0DelayedCreateLockKey int64 = 5_922_338_308_289_414_401

@@ -1,4 +1,4 @@
-module github.com/webisnoteasy/PgBase
+module github.com/yakisoba0728/PgBase
 
 go 1.26.0
 
@@ -16,6 +16,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.70.1
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/zkrebbekx/pgparse v1.3.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 )
@@ -36,6 +37,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.49.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
+	github.com/dop251/goja v0.0.0-20260906210903-70ad66ec7ce4 // indirect
+	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
+	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

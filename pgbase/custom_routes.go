@@ -3,7 +3,7 @@ package pgbase
 import (
 	"context"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 // CustomRoute registers an application handler inside PgBase's request

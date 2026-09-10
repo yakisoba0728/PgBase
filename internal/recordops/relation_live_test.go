@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing.T) {

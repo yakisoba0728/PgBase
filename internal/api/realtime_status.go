@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/realtime"
+	"github.com/yakisoba0728/PgBase/internal/realtime"
 )
 
 type realtimeOperations interface {

@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
 )
 
 func unchangedStoredDefault(previous PlannedField, desired FieldInput) json.RawMessage {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t *testing.T) {
@@ -25,8 +25,11 @@ func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t 
 		t.Fatal("release workflow does not pin the BuildKit image by digest")
 	}
 	buildCommand := shellCommand(t, workflow, "docker buildx build")
-	if strings.Count(workflow, "docker buildx build") != 1 || !strings.Contains(buildCommand, `--build-arg "VERSION=$release_version"`) {
-		t.Fatal("release workflow does not inject the preflight version into exactly one candidate build")
+	if strings.Count(workflow, "docker buildx build") != 1 ||
+		!strings.Contains(buildCommand, `--build-arg "VERSION=$release_version"`) ||
+		!strings.Contains(buildCommand, `--build-arg "SOURCE_COMMIT=$GITHUB_SHA"`) ||
+		!strings.Contains(buildCommand, `--build-arg "BUILT_AT=$built_at"`) {
+		t.Fatal("release workflow does not inject complete build metadata into exactly one candidate build")
 	}
 	if strings.Contains(buildCommand, `--tag "$image:$tag"`) || strings.Contains(buildCommand, `--tag "$image:latest"`) {
 		t.Fatal("candidate build mutates an exact release tag or moving channel before verification")
@@ -37,13 +40,49 @@ func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t 
 	if err != nil {
 		t.Fatalf("read release Dockerfile: %v", err)
 	}
-	if !strings.Contains(string(dockerfile), `-X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}`) {
+	if !strings.Contains(string(dockerfile), `-X github.com/yakisoba0728/PgBase/pgbase.Version=${VERSION}`) {
 		t.Fatal("release Dockerfile does not link the VERSION build argument into pgbase.Version")
+	}
+	for _, metadataLink := range []string{
+		`internal/buildinfo.Commit=${SOURCE_COMMIT}`,
+		`internal/buildinfo.BuiltAt=${BUILT_AT}`,
+		`internal/buildinfo.SchemaMin=$schema_version`,
+		`internal/buildinfo.SchemaMax=$schema_version`,
+		`/out/pgbase version --json`,
+	} {
+		if !strings.Contains(string(dockerfile), metadataLink) {
+			t.Fatalf("release Dockerfile is missing build metadata contract %q", metadataLink)
+		}
 	}
 	runtimeStage := string(dockerfile)[strings.LastIndex(string(dockerfile), "\nFROM ")+1:]
 	if !strings.Contains(runtimeStage, "ARG VERSION=dev") ||
 		!strings.Contains(runtimeStage, `org.opencontainers.image.version="${VERSION}"`) {
 		t.Fatal("release runtime image does not carry the canonical version OCI label")
+	}
+}
+
+func TestNativeArtifactBuildersInjectCompleteBuildMetadata(t *testing.T) {
+	paths := []string{
+		filepath.Join("..", "..", "scripts", "build-local-artifacts.sh"),
+		filepath.Join("..", "..", "scripts", "support", "build-release-phase-artifacts.sh"),
+	}
+	markers := []string{
+		"internal/buildinfo.Commit=",
+		"internal/buildinfo.BuiltAt=",
+		"internal/buildinfo.SchemaMin=",
+		"internal/buildinfo.SchemaMax=",
+		"version --json",
+	}
+	for _, path := range paths {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, marker := range markers {
+			if !strings.Contains(string(contents), marker) {
+				t.Errorf("%s is missing build metadata contract %q", filepath.Base(path), marker)
+			}
+		}
 	}
 }
 
