@@ -333,10 +333,6 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 			opErr = ErrInvalidCredentials
 			return nil
 		}
-		if err := s.enforceAuthRuleForSession(ctx, tx, current.AuthCollectionID, current.ID); err != nil {
-			opErr = ErrInvalidCredentials
-			return nil
-		}
 		mfaActive, err := s.mfaRequiredTx(ctx, tx, current)
 		if err != nil {
 			return err

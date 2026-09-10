@@ -98,6 +98,12 @@ type compiler struct {
 type RequestContext struct {
 	Present map[string]bool
 	Changed map[string]bool
+	Method  string
+	Body    map[string]json.RawMessage
+	Query   map[string][]string
+	Headers map[string][]string
+	Auth    map[string]any
+	Context map[string]any
 }
 
 func CompileWithRequest(rule Rule, collection schema.Collection, alias string, principal identity.Subject, offset int, prospectiveOwner bool, request RequestContext) (string, []any, error) {

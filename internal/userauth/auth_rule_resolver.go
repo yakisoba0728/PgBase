@@ -176,6 +176,20 @@ func (s *Service) authorizeSessionTx(ctx context.Context, db database.DBTX, user
 	})
 }
 
+// enforceAuthRuleForSession is the pre-consumption form of the same
+// transaction-bound guard used by insertSession. OAuth state, OTP codes, MFA
+// challenges, and refresh tokens remain reusable when this guard denies.
+func (s *Service) enforceAuthRuleForSession(ctx context.Context, db database.DBTX, collectionID, userID uuid.UUID) error {
+	allowed, err := s.authorizeSessionTx(ctx, db, User{ID: userID, AuthCollectionID: collectionID})
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
 // authRuleResolver maps the virtual auth record aliases u/p to trusted SQL.
 // All collection and field metadata is loaded by the caller in its transaction
 // before compilation; the resolver performs no database work.

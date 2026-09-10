@@ -86,7 +86,11 @@ func (s *Service) authFieldPolicy(ctx context.Context, tx pgx.Tx, principal iden
 			rule = updateRule
 		}
 		current := userauth.AuthRecord{ID: recordID, AuthCollectionID: collectionID, Email: email, Verified: verified, Active: active, Fields: profile, CreatedAt: created, UpdatedAt: updated}
-		if !userauth.EvaluateAuthRecordRule(rule, fields, userauth.AuthRuleContext{Principal: principal, Current: current}) {
+		allowed, err := userauth.EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rule, userauth.AuthRuleContext{Principal: principal, Current: current})
+		if err != nil {
+			return FieldPolicy{}, true, err
+		}
+		if !allowed {
 			return FieldPolicy{}, true, ErrDenied
 		}
 		return p, true, nil
