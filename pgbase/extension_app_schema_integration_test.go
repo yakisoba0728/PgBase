@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -64,7 +65,10 @@ func TestExtensionAppSchemaAppliesIntrospectsTruncatesAndRollsBack(t *testing.T)
 		t.Fatal(err)
 	}
 	table := catalog.Collections["js_schema_items"].TableName
-	if _, err := fixture.app.pool.Exec(t.Context(), "insert into "+qualifiedAppIdentifier(table)+" (id,created_at,updated_at,title) values($1,now(),now(),$2)", uuid.New(), "before"); err != nil {
+	if _, err := fixture.app.records.Create(t.Context(), recordops.CreateRequest{
+		Principal: identity.Subject{Kind: identity.Administrator, ID: actor}, RequestID: "schema-create-0001", Collection: "js_schema_items",
+		Input: map[string]json.RawMessage{"title": json.RawMessage(`"before"`)},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	call("app-control.collectionTruncate", map[string]any{"name": "js_schema_items"})
