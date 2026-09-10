@@ -363,6 +363,8 @@ export class RealtimeService {
     async subscribe(topic, listener) {
         if (!topic)
             throw new PgBaseError(0, "invalid_realtime_topic");
+        if (this.controller?.signal.aborted && this.running)
+            await this.running;
         let set = this.listeners.get(topic);
         if (!set) {
             set = new Set();
@@ -387,7 +389,6 @@ export class RealtimeService {
         }
         if (this.listeners.size === 0) {
             this.controller?.abort();
-            this.controller = undefined;
             this.clientId = undefined;
             return;
         }
@@ -399,13 +400,12 @@ export class RealtimeService {
     async sync() { if (this.clientId)
         await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
     async run() {
-        this.controller = new AbortController();
-        while (!this.controller.signal.aborted && this.listeners.size) {
+        const controller = new AbortController();
+        this.controller = controller;
+        while (!controller.signal.aborted && this.listeners.size) {
             try {
-                const response = await this.client._eventStream("/api/realtime", this.lastEventId, this.controller.signal);
-                for await (const message of parseEventStream(response.body, this.controller.signal)) {
-                    if (message.id)
-                        this.lastEventId = canonicalDeliveryCursor(message.id);
+                const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
+                for await (const message of parseEventStream(response.body, controller.signal)) {
                     const data = JSON.parse(message.data);
                     if (message.event === "PB_CONNECT") {
                         this.clientId = String(data.clientId ?? "");
@@ -414,6 +414,8 @@ export class RealtimeService {
                         await this.sync();
                         continue;
                     }
+                    if (message.id)
+                        this.lastEventId = canonicalDeliveryCursor(message.id);
                     const topic = message.event;
                     if (!topic)
                         continue;
@@ -425,9 +427,9 @@ export class RealtimeService {
                 }
             }
             catch (error) {
-                if (this.controller.signal.aborted)
+                if (controller.signal.aborted)
                     return;
-                await waitForReconnect(250, this.controller.signal);
+                await waitForReconnect(250, controller.signal);
             }
         }
     }

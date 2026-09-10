@@ -460,6 +460,7 @@ export class RealtimeService {
 
   async subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>> {
     if (!topic) throw new PgBaseError(0, "invalid_realtime_topic");
+    if (this.controller?.signal.aborted && this.running) await this.running;
     let set = this.listeners.get(topic);
     if (!set) { set = new Set(); this.listeners.set(topic, set); }
     set.add(listener);
@@ -472,28 +473,29 @@ export class RealtimeService {
     if (topic === undefined) this.listeners.clear();
     else if (listener === undefined) this.listeners.delete(topic);
     else { const set = this.listeners.get(topic); set?.delete(listener); if (set?.size === 0) this.listeners.delete(topic); }
-    if (this.listeners.size === 0) { this.controller?.abort(); this.controller = undefined; this.clientId = undefined; return; }
+    if (this.listeners.size === 0) { this.controller?.abort(); this.clientId = undefined; return; }
     if (this.clientId) await this.sync();
   }
 
   private ensureRunning(): void { if (!this.running) this.running = this.run().finally(() => { this.running = undefined; }); }
   private async sync(): Promise<void> { if (this.clientId) await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
   private async run(): Promise<void> {
-    this.controller = new AbortController();
-    while (!this.controller.signal.aborted && this.listeners.size) {
+    const controller = new AbortController();
+    this.controller = controller;
+    while (!controller.signal.aborted && this.listeners.size) {
       try {
-        const response = await this.client._eventStream("/api/realtime", this.lastEventId, this.controller.signal);
-        for await (const message of parseEventStream(response.body!, this.controller.signal)) {
-          if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
+        const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
+        for await (const message of parseEventStream(response.body!, controller.signal)) {
           const data = JSON.parse(message.data) as Record<string, unknown>;
           if (message.event === "PB_CONNECT") { this.clientId = String(data.clientId ?? ""); if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect"); await this.sync(); continue; }
+          if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
           const topic = message.event;
           if (!topic) continue;
           const event: RealtimeEvent = { topic, action: data.action as RealtimeEvent["action"], record: data.record as RecordData };
           if (!event.record || !["create", "update", "delete"].includes(event.action)) continue;
           for (const listener of this.listeners.get(topic) ?? []) listener(event);
         }
-      } catch (error) { if (this.controller.signal.aborted) return; await waitForReconnect(250, this.controller.signal); }
+      } catch (error) { if (controller.signal.aborted) return; await waitForReconnect(250, controller.signal); }
     }
   }
 }

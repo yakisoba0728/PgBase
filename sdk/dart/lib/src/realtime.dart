@@ -29,6 +29,7 @@ final class RealtimeService {
 
   Future<Future<void> Function()> subscribe(String topic, void Function(RealtimeEvent) listener) async {
     if (topic.isEmpty) throw const PgBaseProtocolError('invalid_realtime_topic');
+    if (_stop?.isCancelled ?? false) await _running;
     (_listeners[topic] ??= {}).add(listener);
     _ensureRunning();
     if (_clientId != null) await _sync();
@@ -59,7 +60,6 @@ final class RealtimeService {
       try {
         final response = await _client.transport.eventStream('/api/realtime', headers: {'accept': 'text/event-stream', ..._client.headersFor(null), if (_lastEventId != null) 'last-event-id': _lastEventId!}, cancellation: stop);
         await for (final message in _messages(response.stream)) {
-          if (message.id != null) _lastEventId = message.id;
           final data = decodeExactJson(utf8.encode(message.data));
           if (data is! JsonObject) continue;
           if (message.event == 'PB_CONNECT') {
@@ -67,6 +67,7 @@ final class RealtimeService {
             if (id is! JsonString) throw const PgBaseProtocolError('invalid_realtime_connect');
             _clientId = id.value; await _sync(); continue;
           }
+          if (message.id != null) _lastEventId = _cursor(message.id!);
           final topic = message.event; final action = data['action']; final record = data['record'];
           if (topic == null || action is! JsonString || record is! JsonObject) continue;
           final event = RealtimeEvent(topic: topic, action: action.value, record: record);
