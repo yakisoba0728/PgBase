@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
@@ -21,10 +22,13 @@ type Realtime interface {
 }
 
 type RealtimeLifecycleEvent struct {
-	UserID     uuid.UUID
-	Collection string
-	Cursor     *int64
-	Event      *realtime.Event
+	UserID        uuid.UUID
+	Principal     identity.Subject
+	ClientID      string
+	Subscriptions []string
+	Collection    string
+	Cursor        *int64
+	Event         *realtime.Event
 }
 
 type RealtimeLifecycle interface {

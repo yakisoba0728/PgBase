@@ -121,6 +121,14 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	address, _ := clientIP(r, h.dependencies.trustedProxies())
 	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r), resume: cursor}
+	lifecycle := &RealtimeLifecycleEvent{UserID: client.principal.ID, Principal: client.principal, ClientID: client.id, Cursor: cursor}
+	finish, err := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "connect", lifecycle)
+	if err != nil {
+		finish(err)
+		writeRealtimeError(w, r, err)
+		return
+	}
+	defer func() { finish(nil) }()
 	h.mu.Lock()
 	if len(h.clients) >= 128 {
 		h.mu.Unlock()
@@ -192,10 +200,18 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 					}
 					record = projected
 				}
-				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
-				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
+				messageLifecycle := &RealtimeLifecycleEvent{UserID: client.principal.ID, Principal: client.principal, ClientID: client.id, Collection: event.Collection, Event: &event}
+				messageFinish, messageErr := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "message", messageLifecycle)
+				if messageErr != nil {
+					messageFinish(messageErr)
 					return
 				}
+				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
+				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
+					messageFinish(err)
+					return
+				}
+				messageFinish(nil)
 			}
 			value := next
 			sub.cursor = &value
@@ -248,6 +264,14 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		seen[raw] = true
 		subscriptions = append(subscriptions, sub)
 	}
+	lifecycle := &RealtimeLifecycleEvent{UserID: principal.ID, Principal: principal, ClientID: client.id, Subscriptions: append([]string(nil), form.Subscriptions...)}
+	finish, hookErr := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "subscribe", lifecycle)
+	if hookErr != nil {
+		finish(hookErr)
+		writeRealtimeError(w, r, hookErr)
+		return
+	}
+	defer func() { finish(nil) }()
 	reader, ok := h.dependencies.Realtime.(realtimeV2)
 	if !ok {
 		writeAPIError(w, r, APIError{Status: 503, Code: "realtime_unavailable", Message: "Realtime is unavailable"})
