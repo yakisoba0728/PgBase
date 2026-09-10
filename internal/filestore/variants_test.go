@@ -3,6 +3,7 @@ package filestore
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"image/gif"
@@ -21,6 +22,32 @@ func TestVariantGrammarIsBounded(t *testing.T) {
 		if validVariant(value) {
 			t.Errorf("%q accepted", value)
 		}
+	}
+}
+
+func TestRenderVariantSupportsWebP(t *testing.T) {
+	data, err := base64.StdEncoding.DecodeString("UklGRrIBAABXRUJQVlA4TKUBAAAvSsAYAA8w//M///MfeJAkbXvaSG7m8Q3GfYSBJekwQztm/IcZlgwnmWImn2BK7aFmBtnVir6q//8VOkFE/xm4baTIu8c48ArEo6+B3zFKYln3pqClSCKX0begFTAXFOLXHSyF8cCNcZEG4OywuA4KVVfJCiArU7GAgJI8+lJP/OKMT/fBAjevg1cYB7YVkFuWga2lyPi5I0HFy5YTpWIHg0RZpkniRVW9odHAKOwosWuOGdxIyn2OvaCDvhg/we6TwadPBPbqBV58MsLmMJ8yZnOWk8SRz4N+QoyPL+MnamzMvcE1rHNEr91F9GKZPVUcS9w7PhhH36suB9qPeYb/oLk6cuTiJ0wOK3m5h1cKjW6EVZCYMK7dxcKCBdgP9HkKr9gkAO2P8GKZGWVdIAatQa+1IDpt6qyorVwdy01xdW8Jkfk6xjEXmVQQ+HQdFr6OKhIN34dXWq0+0qr6EJSCeeVLH9+gvGTLyqM65PQ44ihzlTXxQKjKbAvshXgir7Lil9w4L2bvMycmjQcqXaMCO6BlY28i+FOLzbfI1vEqxAhotocAAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "objects/00000000-0000-4000-8000-000000000003"
+	if err := store.Put(context.Background(), key, bytes.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&Service{objects: store, options: Options{MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000}}).renderVariant(context.Background(), File{ObjectKey: key, ContentType: "image/webp"}, "16x16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(result))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Bounds().Dx() != 16 || decoded.Bounds().Dy() != 16 {
+		t.Fatalf("bounds=%v", decoded.Bounds())
 	}
 }
 
