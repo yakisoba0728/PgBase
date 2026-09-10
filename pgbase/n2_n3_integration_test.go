@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T) {

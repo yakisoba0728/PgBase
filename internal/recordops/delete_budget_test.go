@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/query"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestChargeDeleteRelationShapeBoundsWideEmptyMaterialization(t *testing.T) {

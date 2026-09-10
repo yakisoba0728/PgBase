@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
 
 type recordingHost struct {

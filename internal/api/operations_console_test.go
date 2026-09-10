@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/backup"
-	"github.com/webisnoteasy/PgBase/internal/jobs"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 type consoleJobs struct{ calls int }

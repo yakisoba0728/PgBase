@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // TestFunctionDigestRejectsACommentedOutBody fixes the property that replaced

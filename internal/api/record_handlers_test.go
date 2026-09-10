@@ -12,9 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/query"
-	"github.com/webisnoteasy/PgBase/internal/recordops"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestRecordRoutesRequireAdministratorAndCSRF(t *testing.T) {

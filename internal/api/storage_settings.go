@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
 type StorageAdministration interface {

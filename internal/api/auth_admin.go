@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/mailer"
-	"github.com/webisnoteasy/PgBase/internal/userauth"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 type AuthAdministration interface {

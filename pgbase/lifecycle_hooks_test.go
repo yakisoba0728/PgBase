@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 )
 
 type captureHookMail struct{ messages []MailMessage }

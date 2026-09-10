@@ -12,9 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)

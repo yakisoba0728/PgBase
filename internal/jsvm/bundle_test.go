@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
 
 func TestLoadBundleSnapshotsConfinedCommonJSGraph(t *testing.T) {

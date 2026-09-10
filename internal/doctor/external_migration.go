@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // ValidateRequiredPhysicalSchema verifies every planner-owned object while

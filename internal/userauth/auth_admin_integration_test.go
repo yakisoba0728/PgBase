@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 )
 
 func TestAuthAdministrationPolicyTakesEffectAndRevokesSessions(t *testing.T) {

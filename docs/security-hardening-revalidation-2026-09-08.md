@@ -1,6 +1,6 @@
 # Security hardening revalidation — 2026-09-08
 
-PR [#13](https://github.com/webisnoteasy/PgBase/pull/13) was revalidated from
+PR [#13](https://github.com/yakisoba0728/PgBase/pull/13) was revalidated from
 `a69ee1ec5a31eecb09c56859c843741bb01282a7` together with the latest main commit
 `47210a126fe7e6bc2b5f7ef631345d2d5c702e74` (PR #20). Before publication, the
 concurrent PR update `ae2ed7d6cf725a19599da33d69a5ef174f994996` was incorporated

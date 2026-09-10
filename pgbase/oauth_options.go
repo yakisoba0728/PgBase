@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/userauth"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 // OAuthProviderOptions describes a standard OAuth2 authorization-code provider.

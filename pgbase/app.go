@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/backup"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/schema"
-	"github.com/webisnoteasy/PgBase/internal/sqlconsole"
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 )
 
 type App struct {

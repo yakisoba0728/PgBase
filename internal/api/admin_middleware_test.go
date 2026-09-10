@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 )
 
 func TestAdminMutationsRejectAbsentOrMismatchedOrigin(t *testing.T) {

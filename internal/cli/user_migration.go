@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/config"
-	"github.com/webisnoteasy/PgBase/internal/usermigrate"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/internal/usermigrate"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration <history|history-sync ID|auto-status|recover|list|up|down> [--js-dir DIR]"

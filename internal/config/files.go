@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func loadFiles(lookup func(string) (string, bool), options *pgbase.Options) error {

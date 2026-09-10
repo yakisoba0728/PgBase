@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/webisnoteasy/PgBase/internal/config"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func main() {

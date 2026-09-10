@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func LoadJavaScriptEnv(lookup func(string) (string, bool)) (*pgbase.JavaScriptOptions, error) {

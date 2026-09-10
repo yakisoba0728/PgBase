@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/identity"
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
 
 type javaScriptJobRun struct {

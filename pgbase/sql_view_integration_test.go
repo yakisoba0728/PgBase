@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 )
 
 func TestSQLViewHTTPIndependentRulesCursorAndContentETag(t *testing.T) {

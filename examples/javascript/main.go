@@ -7,7 +7,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/webisnoteasy/PgBase/pgbasecli"
+	"github.com/yakisoba0728/PgBase/pgbasecli"
 )
 
 func main() {

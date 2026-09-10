@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/query"
 )
 
 // IsCode classifies a record operation failure. It lives here because no

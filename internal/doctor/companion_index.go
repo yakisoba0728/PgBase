@@ -3,8 +3,8 @@ package doctor
 import (
 	"context"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // checkCompanionIndexes reports the nullable-DESC companion rollout against the

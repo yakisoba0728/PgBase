@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 )
 
 func TestAppleOAuthDatabaseBoundBridgeFlow(t *testing.T) {

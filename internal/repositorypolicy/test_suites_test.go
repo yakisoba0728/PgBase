@@ -51,7 +51,9 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 		`{"version":"17.9"`,
 		`{"version":"18.3"`,
 		`|| '[{"version":"17.9"`,
-		"scripts/test-go-integration.sh -race -count=1",
+		"PGBASE_FULL_INTEGRATION_RACE",
+		"scripts/test-go-integration.sh \"${test_arguments[@]}\"",
+		"github.event_name != 'pull_request' || inputs.candidate_image != ''",
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("backend workflow is missing %q", marker)

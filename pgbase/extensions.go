@@ -12,7 +12,7 @@ import (
 	"io"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/api"
 )
 
 // ExtensionContext exposes PgBase domain operations for one admitted request.

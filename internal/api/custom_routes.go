@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 // CustomRoute is a trusted Go extension installed when the application starts.

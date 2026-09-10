@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 func TestCollectionLifecycleMaintainsMembershipMetadataOutsideThePublicPlan(t *testing.T) {

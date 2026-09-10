@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var validName = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
@@ -45,7 +45,7 @@ import (
 	_ "embed"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 //go:embed %s
@@ -137,7 +137,7 @@ import (
 	_ "embed"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 %s

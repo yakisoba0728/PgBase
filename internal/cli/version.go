@@ -7,7 +7,7 @@ import (
 	"flag"
 	"io"
 
-	"github.com/webisnoteasy/PgBase/internal/buildinfo"
+	"github.com/yakisoba0728/PgBase/internal/buildinfo"
 )
 
 const versionUsage = "usage: pgbase version --json"

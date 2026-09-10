@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 func TestMembershipFailuresBecomeStableAvailabilityErrors(t *testing.T) {

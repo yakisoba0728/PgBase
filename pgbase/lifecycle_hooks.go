@@ -5,12 +5,12 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/filestore"
-	"github.com/webisnoteasy/PgBase/internal/lifecycle"
-	"github.com/webisnoteasy/PgBase/internal/mailer"
-	"github.com/webisnoteasy/PgBase/internal/recordops"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // HookRegistry supports runtime registration/removal without changing in-flight

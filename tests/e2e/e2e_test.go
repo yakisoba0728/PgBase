@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/tests/testsupport"
+	"github.com/yakisoba0728/PgBase/tests/testsupport"
 )
 
 type e2eSuite struct {

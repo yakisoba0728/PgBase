@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func inspectManagedReadRelations(ctx context.Context, pool *database.Pool, catalog schema.Catalog) (map[RelationRef]managedReadSnapshot, error) {

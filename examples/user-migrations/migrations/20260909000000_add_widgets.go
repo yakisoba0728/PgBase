@@ -5,7 +5,7 @@ import (
 	_ "embed"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 //go:embed 20260909000000_add_widgets.go

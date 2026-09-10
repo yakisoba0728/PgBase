@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/backup"
+	"github.com/yakisoba0728/PgBase/internal/backup"
 )
 
 func TestFailedBackupActivationDiscardsOnlyOwnedTarget(t *testing.T) {

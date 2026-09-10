@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t *testing.T) {
@@ -40,7 +40,7 @@ func TestReleaseWorkflowPinsBuilderAndInjectsPreflightVersionIntoOneCandidate(t 
 	if err != nil {
 		t.Fatalf("read release Dockerfile: %v", err)
 	}
-	if !strings.Contains(string(dockerfile), `-X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}`) {
+	if !strings.Contains(string(dockerfile), `-X github.com/yakisoba0728/PgBase/pgbase.Version=${VERSION}`) {
 		t.Fatal("release Dockerfile does not link the VERSION build argument into pgbase.Version")
 	}
 	for _, metadataLink := range []string{

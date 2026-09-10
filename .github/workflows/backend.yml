@@ -181,6 +181,11 @@ jobs:
           --health-retries 30
     env:
       PGBASE_TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      # Unit tests always use -race. Re-running the full PostgreSQL suite with
+      # it on every PR dominated feedback time (15m21s in run 34428905056), so
+      # retain that expensive coverage for main, release-gate and manual runs.
+      # Every PR still runs the complete PostgreSQL suite against PG17.
+      PGBASE_FULL_INTEGRATION_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,6 +210,7 @@ jobs:
           echo "TEST_PGBASE_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
 
       - name: Vet integration build
+        if: env.PGBASE_FULL_INTEGRATION_RACE == 'true'
         run: go vet -tags=integration ./...
 
       - name: Start local S3 integration fixture
@@ -212,11 +218,15 @@ jobs:
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml up -d minio
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml run --rm create-bucket
 
-      - name: Test complete PostgreSQL suite with race detector and skip policy
+      - name: Test complete PostgreSQL suite with skip policy
         shell: bash
         run: |
           set -o pipefail
-          PGBASE_TEST_S3_ENDPOINT=http://127.0.0.1:59000 scripts/test-go-integration.sh -race -count=1 2>&1 | tee go-test.log
+          test_arguments=(-count=1)
+          if [[ "$PGBASE_FULL_INTEGRATION_RACE" == "true" ]]; then
+            test_arguments=(-race "${test_arguments[@]}")
+          fi
+          PGBASE_TEST_S3_ENDPOINT=http://127.0.0.1:59000 scripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log
 
       - name: Set up Node for live SDK conformance
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

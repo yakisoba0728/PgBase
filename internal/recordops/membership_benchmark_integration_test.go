@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 // BenchmarkHotCollectionCreate is the fixed-concurrency comparison point for

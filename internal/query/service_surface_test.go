@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/query"
 )
 
 type readKernel interface {

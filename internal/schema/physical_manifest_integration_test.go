@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 func TestExpectedPhysicalSchemaMatchesPlannerCatalogObjects(t *testing.T) {

@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/doctor"
-	"github.com/webisnoteasy/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
 )
 
 const systemComponentDoctor = "doctor"

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var physicalDecimalDefault = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 )
 
 func TestTypedRecordRulesFilterBeforePaginationAndRevokeCursors(t *testing.T) {

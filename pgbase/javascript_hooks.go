@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
-	"github.com/webisnoteasy/PgBase/internal/mailer"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 const maximumJavaScriptHookState = 8 << 10

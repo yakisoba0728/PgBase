@@ -17,11 +17,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/internal/query"
-	"github.com/webisnoteasy/PgBase/internal/recordartifact"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordartifact"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestRecordOperationsDeleteGraphRestrictSingleAndMultipleRollback(t *testing.T) {

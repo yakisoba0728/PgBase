@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/buildinfo"
-	"github.com/webisnoteasy/PgBase/internal/selfupdate"
+	"github.com/yakisoba0728/PgBase/internal/buildinfo"
+	"github.com/yakisoba0728/PgBase/internal/selfupdate"
 )
 
 const updateUsage = "usage: pgbase update <check|apply|status|rollback> ..."

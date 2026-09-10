@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/userauth"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 // AuthEvent contains operation identity and a secret-free result projection.

@@ -6,7 +6,7 @@ import (
 	"context"
 	"os"
 
-	internalcli "github.com/webisnoteasy/PgBase/internal/cli"
+	internalcli "github.com/yakisoba0728/PgBase/internal/cli"
 )
 
 // Execute runs PgBase commands with the process environment and standard IO.

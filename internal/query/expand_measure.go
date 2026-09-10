@@ -3,7 +3,7 @@ package query
 import (
 	"encoding/json"
 
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // materializedMeasurement computes the exact flattened JSON size while

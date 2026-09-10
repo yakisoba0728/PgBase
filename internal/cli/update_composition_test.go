@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/selfupdate"
+	"github.com/yakisoba0728/PgBase/internal/selfupdate"
 )
 
 func TestProductionCommandsComposeVersionAndUpdate(t *testing.T) {

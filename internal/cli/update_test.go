@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/buildinfo"
-	"github.com/webisnoteasy/PgBase/internal/selfupdate"
+	"github.com/yakisoba0728/PgBase/internal/buildinfo"
+	"github.com/yakisoba0728/PgBase/internal/selfupdate"
 )
 
 func TestRunVersionEmitsStableNetworkFreeJSON(t *testing.T) {

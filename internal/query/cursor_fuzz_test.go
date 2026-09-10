@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	cursorwire "github.com/webisnoteasy/PgBase/internal/cursor"
+	cursorwire "github.com/yakisoba0728/PgBase/internal/cursor"
 )
 
 func FuzzCursorDecode(f *testing.F) {

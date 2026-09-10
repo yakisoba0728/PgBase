@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/internal/api"
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
 
 type javaScriptRuntime struct {

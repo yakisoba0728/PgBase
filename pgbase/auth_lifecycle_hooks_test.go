@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/userauth"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 func TestEveryAuthLifecycleVetoPreventsDelegationAndPairsAfter(t *testing.T) {

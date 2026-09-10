@@ -29,11 +29,11 @@ COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
 RUN schema_version="$(find migrations/system -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' \
       | sed -E 's/^0*([0-9]+)_.*/\1/' | sort -n | tail -1)" \
     && test -n "$schema_version" \
-    && ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=${VERSION}" \
-    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=${SOURCE_COMMIT}" \
-    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=${BUILT_AT}" \
-    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version" \
-    && ldflags="$ldflags -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version" \
+    && ldflags="-s -w -X github.com/yakisoba0728/PgBase/pgbase.Version=${VERSION}" \
+    && ldflags="$ldflags -X github.com/yakisoba0728/PgBase/internal/buildinfo.Commit=${SOURCE_COMMIT}" \
+    && ldflags="$ldflags -X github.com/yakisoba0728/PgBase/internal/buildinfo.BuiltAt=${BUILT_AT}" \
+    && ldflags="$ldflags -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMin=$schema_version" \
+    && ldflags="$ldflags -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMax=$schema_version" \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags "$ldflags" -o /out/pgbase ./cmd/pgbase \
     && expected="{\"version\":\"${VERSION}\",\"commit\":\"${SOURCE_COMMIT}\",\"builtAt\":\"${BUILT_AT}\",\"goos\":\"${TARGETOS}\",\"goarch\":\"${TARGETARCH}\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}" \
     && test "$(/out/pgbase version --json)" = "$expected"

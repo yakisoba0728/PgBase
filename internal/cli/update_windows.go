@@ -2,7 +2,7 @@
 
 package cli
 
-import "github.com/webisnoteasy/PgBase/internal/selfupdate"
+import "github.com/yakisoba0728/PgBase/internal/selfupdate"
 
 func runWindowsUpdateHelper(args []string) error {
 	if len(args) != 1 {

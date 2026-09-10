@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	validationdomain "github.com/webisnoteasy/PgBase/internal/validation"
+	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type FieldType string

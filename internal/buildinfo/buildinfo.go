@@ -4,7 +4,7 @@ package buildinfo
 import (
 	"runtime"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 // The release build injects these values with -ldflags. Source builds retain

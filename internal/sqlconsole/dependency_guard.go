@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 type nativeDependencyScope struct {

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/sqlconsole"
+	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 )
 
 func TestSQLConsoleRoutesUseExistingAdminOriginSessionAndCSRFChain(t *testing.T) {

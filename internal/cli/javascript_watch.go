@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/config"
-	"github.com/webisnoteasy/PgBase/internal/jsvm"
-	"github.com/webisnoteasy/PgBase/internal/observability"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 type watchedJavaScriptSnapshot struct {

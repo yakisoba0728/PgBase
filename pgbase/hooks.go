@@ -1,6 +1,6 @@
 package pgbase
 
-import "github.com/webisnoteasy/PgBase/internal/recordops"
+import "github.com/yakisoba0728/PgBase/internal/recordops"
 
 // Mutation describes a record transition, including its stable event identity.
 type Mutation = recordops.Mutation

@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 )
 
 func (s *Service) Impersonate(ctx context.Context, userID uuid.UUID, rawAdminSession string, duration time.Duration) (Session, error) {

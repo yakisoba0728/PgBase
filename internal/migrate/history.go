@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/webisnoteasy/PgBase/internal/releasephase"
-	"github.com/webisnoteasy/PgBase/migrations/system"
+	"github.com/yakisoba0728/PgBase/internal/releasephase"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 // HistoryIssueKind identifies why committed migration history is not a clean

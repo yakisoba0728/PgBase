@@ -16,11 +16,11 @@ if [[ ! "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ||
   echo "local build metadata is invalid" >&2
   exit 1
 fi
-ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$version"
-ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=$commit"
-ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=$built_at"
-ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version"
-ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version"
+ldflags="-s -w -X github.com/yakisoba0728/PgBase/pgbase.Version=$version"
+ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.Commit=$commit"
+ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.BuiltAt=$built_at"
+ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMin=$schema_version"
+ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMax=$schema_version"
 host_os="$(GOTOOLCHAIN=go1.26.8 go env GOOS)"
 host_arch="$(GOTOOLCHAIN=go1.26.8 go env GOARCH)"
 for target_os in linux darwin windows; do

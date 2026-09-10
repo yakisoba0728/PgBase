@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/jsonvalue"
+	"github.com/yakisoba0728/PgBase/internal/jsonvalue"
 )
 
 func (s *Service) OperationStatus(ctx context.Context, ref OperationRef) (OperationReceipt, error) {

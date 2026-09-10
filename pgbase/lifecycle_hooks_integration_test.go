@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
 func TestLifecycleRecordAndFileHooksThroughHTTP(t *testing.T) {

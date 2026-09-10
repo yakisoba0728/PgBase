@@ -5,8 +5,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
-	"github.com/webisnoteasy/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 )
 
 // membershipWriterProvider keeps runtime registration outside record

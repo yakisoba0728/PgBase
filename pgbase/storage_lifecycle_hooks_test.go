@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/webisnoteasy/PgBase/internal/filestore"
+	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
 type storageAdminStub struct{ settings, updates, tests int }

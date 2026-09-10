@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
 )
 
 // validateChangedFieldOptions rejects a tightened contract while the old data

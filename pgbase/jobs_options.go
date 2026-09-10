@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/webisnoteasy/PgBase/internal/jobs"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
 )
 
 // ScheduledJob binds a durable database schedule to application code. Schedule

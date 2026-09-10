@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 func TestEventConstructorsExposeReadOnlyValues(t *testing.T) {

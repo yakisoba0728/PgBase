@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/internal/lifecycle"
-	"github.com/webisnoteasy/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 type Dependencies struct {

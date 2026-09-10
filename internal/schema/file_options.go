@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/webisnoteasy/PgBase/internal/fieldvalue"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
 )
 
 const (

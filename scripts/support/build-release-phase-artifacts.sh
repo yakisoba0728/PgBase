@@ -93,14 +93,14 @@ while IFS=$'\t' read -r phase commit version; do
 		echo "release artifact build metadata is invalid: $phase" >&2
 		exit 1
 	fi
-	ldflags="-s -w -X github.com/webisnoteasy/PgBase/pgbase.Version=$version"
+	ldflags="-s -w -X github.com/yakisoba0728/PgBase/pgbase.Version=$version"
 	has_buildinfo=false
 	if [[ -f "$source_directory/internal/buildinfo/buildinfo.go" ]]; then
 		has_buildinfo=true
-		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.Commit=$commit"
-		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.BuiltAt=$built_at"
-		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMin=$schema_version"
-		ldflags+=" -X github.com/webisnoteasy/PgBase/internal/buildinfo.SchemaMax=$schema_version"
+		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.Commit=$commit"
+		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.BuiltAt=$built_at"
+		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMin=$schema_version"
+		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMax=$schema_version"
 	fi
 	artifact="$output_directory/pgbase-$rollout-$phase_name"
 	(

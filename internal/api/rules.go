@@ -6,8 +6,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/webisnoteasy/PgBase/internal/accessrule"
-	"github.com/webisnoteasy/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 )
 
 type RecordRules interface {

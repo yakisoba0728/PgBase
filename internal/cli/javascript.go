@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/webisnoteasy/PgBase/internal/config"
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/internal/config"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 const javaScriptUsage = "usage: pgbase js check [--dir DIR] | pgbase js types [FILE] | pgbase js serve --watch [--dir DIR] [--poll DURATION]"

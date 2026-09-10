@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webisnoteasy/PgBase/pgbase"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {

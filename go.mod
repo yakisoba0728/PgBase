@@ -1,4 +1,4 @@
-module github.com/webisnoteasy/PgBase
+module github.com/yakisoba0728/PgBase
 
 go 1.26.0
 

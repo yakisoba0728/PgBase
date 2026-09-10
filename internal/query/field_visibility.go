@@ -1,8 +1,8 @@
 package query
 
 import (
-	"github.com/webisnoteasy/PgBase/internal/identity"
-	"github.com/webisnoteasy/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"strings"
 )
 
