@@ -129,7 +129,11 @@ type userResponse struct {
 }
 
 func publicUser(user userauth.User) userResponse {
-	return userResponse{ID: user.ID.String(), Email: user.Email, Verified: user.Verified, CreatedAt: user.CreatedAt}
+	id := user.PublicID
+	if id == "" {
+		id = user.ID.String()
+	}
+	return userResponse{ID: id, Email: user.Email, Verified: user.Verified, CreatedAt: user.CreatedAt}
 }
 
 type userSessionResponse struct {

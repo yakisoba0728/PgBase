@@ -205,7 +205,8 @@ func authCollectionResponse(v userauth.AuthCollection) any {
 		ProfileSchema       map[string]string            `json:"profileSchema"`
 		Fields              []schema.FieldInput          `json:"fields"`
 		Rules               userauth.AuthCollectionRules `json:"rules"`
-	}{v.ID.String(), v.Name, "auth", v.RegistrationEnabled, v.ProfileSchema, fields, v.Rules}
+		RecordID            *schema.RecordIDPolicy       `json:"recordId,omitempty"`
+	}{v.ID.String(), v.Name, "auth", v.RegistrationEnabled, v.ProfileSchema, fields, v.Rules, recordIDPolicyDTO(v.RecordID)}
 }
 func (e authCollectionEndpoints) adminList(w http.ResponseWriter, r *http.Request) {
 	projection, err := authProjection(r)
@@ -239,6 +240,7 @@ func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Requ
 		ProfileSchema       map[string]string            `json:"profileSchema"`
 		Fields              []schema.FieldInput          `json:"fields"`
 		Rules               userauth.AuthCollectionRules `json:"rules"`
+		RecordID            *schema.RecordIDPolicy       `json:"recordId,omitempty"`
 	}
 	id := uuid.Nil
 	var parseErr error
@@ -251,7 +253,7 @@ func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Requ
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.dependencies.AuthCollections.CreateAuthCollection(r.Context(), userauth.CreateAuthCollectionInput{ID: id, Name: in.Name, RegistrationEnabled: in.RegistrationEnabled, ProfileSchema: in.ProfileSchema, Fields: in.Fields, Rules: in.Rules})
+	v, err := e.dependencies.AuthCollections.CreateAuthCollection(r.Context(), userauth.CreateAuthCollectionInput{ID: id, Name: in.Name, RegistrationEnabled: in.RegistrationEnabled, ProfileSchema: in.ProfileSchema, Fields: in.Fields, Rules: in.Rules, RecordID: in.RecordID})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -270,6 +272,7 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 		ProfileSchema       *map[string]string            `json:"profileSchema"`
 		Fields              []schema.FieldInput           `json:"fields"`
 		Rules               *userauth.AuthCollectionRules `json:"rules"`
+		RecordID            *schema.RecordIDPolicy        `json:"recordId,omitempty"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil || (in.ProfileSchema == nil && in.Fields == nil) {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
@@ -301,7 +304,7 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: rules})
+	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: rules, RecordID: in.RecordID})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return

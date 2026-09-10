@@ -24,6 +24,7 @@ type AuthCollection struct {
 	ProfileSchema       map[string]string
 	Fields              []schema.FieldInput
 	Rules               AuthCollectionRules
+	RecordID            schema.RecordIDPolicy
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -141,19 +142,22 @@ type CreateAuthCollectionInput struct {
 	ProfileSchema       map[string]string
 	Fields              []schema.FieldInput
 	Rules               AuthCollectionRules
+	RecordID            *schema.RecordIDPolicy
 }
 type UpdateAuthCollectionInput struct {
 	RegistrationEnabled bool
 	ProfileSchema       map[string]string
 	Fields              []schema.FieldInput
 	Rules               AuthCollectionRules
+	RecordID            *schema.RecordIDPolicy
 }
 
 func (s *Service) ConfigureDefaultRegistration(enabled bool) { s.defaultRegistration = enabled }
 
 func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthCollectionInput) (AuthCollection, error) {
 	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
-	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !ok || !ValidateAuthRecordRules(input.Rules, fields) {
+	recordID, recordIDErr := schema.NormalizeRecordIDPolicy(input.RecordID)
+	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !ok || recordIDErr != nil || !ValidateAuthRecordRules(input.Rules, fields) {
 		return AuthCollection{}, ErrValidation
 	}
 	profileRaw, _ := json.Marshal(legacy)
@@ -174,7 +178,8 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 			return ErrConflict
 		}
 		rv := input.Rules.databaseValues()
-		row := tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning `+authCollectionColumns, input.ID, input.Name, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])
+		recordIDRaw, _ := json.Marshal(recordID)
+		row := tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,record_id,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning `+authCollectionColumns, input.ID, input.Name, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6], recordIDRaw)
 		return scanAuthCollection(row, &value)
 	})
 	if database.Classify(err) == database.KindConflict {
@@ -198,10 +203,21 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		if err := validateAuthRelationDefinitions(ctx, tx, "", fields); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for update`, id).Scan(&value.ID); errors.Is(err, pgx.ErrNoRows) {
+		var currentRecordIDRaw []byte
+		if err := tx.QueryRow(ctx, `select id,record_id from pgbase_meta.auth_collections where id=$1 for update`, id).Scan(&value.ID, &currentRecordIDRaw); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
+		}
+		var currentRecordID schema.RecordIDPolicy
+		if json.Unmarshal(currentRecordIDRaw, &currentRecordID) != nil {
+			return errors.New("invalid stored auth record ID policy")
+		}
+		if input.RecordID != nil {
+			requested, err := schema.NormalizeRecordIDPolicy(input.RecordID)
+			if err != nil || requested != currentRecordID {
+				return ErrConflict
+			}
 		}
 		rows, err := tx.Query(ctx, `select p.attributes from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 for update of p`, id)
 		if err != nil {
@@ -291,18 +307,18 @@ func (s *Service) GetAuthCollection(ctx context.Context, name string) (AuthColle
 	return v, nil
 }
 
-const authCollectionColumns = `id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at`
+const authCollectionColumns = `id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,record_id,created_at,updated_at`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanAuthCollection(row rowScanner, value *AuthCollection) error {
-	var profileRaw, fieldsRaw []byte
+	var profileRaw, fieldsRaw, recordIDRaw []byte
 	var rules [7]*string
-	if err := row.Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &profileRaw, &fieldsRaw, &rules[0], &rules[1], &rules[2], &rules[3], &rules[4], &rules[5], &rules[6], &value.CreatedAt, &value.UpdatedAt); err != nil {
+	if err := row.Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &profileRaw, &fieldsRaw, &rules[0], &rules[1], &rules[2], &rules[3], &rules[4], &rules[5], &rules[6], &recordIDRaw, &value.CreatedAt, &value.UpdatedAt); err != nil {
 		return err
 	}
 	applyNullableAuthRules(&value.Rules, rules)
-	if json.Unmarshal(profileRaw, &value.ProfileSchema) != nil || json.Unmarshal(fieldsRaw, &value.Fields) != nil {
+	if json.Unmarshal(profileRaw, &value.ProfileSchema) != nil || json.Unmarshal(fieldsRaw, &value.Fields) != nil || json.Unmarshal(recordIDRaw, &value.RecordID) != nil {
 		return errors.New("invalid stored auth collection")
 	}
 	return nil
@@ -342,6 +358,9 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		var fields []schema.FieldInput
 		if json.Unmarshal(fieldsRaw, &fields) != nil {
 			return ErrValidation
+		}
+		if err := s.resolveAuthRelationIdentities(ctx, tx, attributes, fields); err != nil {
+			return err
 		}
 		changes, ok := prepareAuthPasswordFields(fields, attributes, false)
 		if !ok || !ruleAllowsOperation(updateRule, userID, userID) {
@@ -384,6 +403,9 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			return err
 		}
 		public = publicAuthFields(merged, fields)
+		if err := s.projectAuthRelationIdentities(ctx, tx, public, fields); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -415,7 +437,11 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 	if json.Unmarshal(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
 		return nil, errors.New("invalid stored auth profile")
 	}
-	return publicAuthFields(value, fields), nil
+	value = publicAuthFields(value, fields)
+	if err := s.projectAuthRelationIdentities(ctx, s.pool, value, fields); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func validateProfile(attributes map[string]any, schema map[string]string) bool {

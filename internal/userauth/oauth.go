@@ -374,6 +374,13 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 				}
 				user = User{ID: uuid.New(), Email: identity.Email, Verified: identity.EmailVerified, CreatedAt: now}
 				user.AuthCollectionID = persistedCollectionID
+				recordIDPolicy, policyErr := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
+				if policyErr != nil {
+					return policyErr
+				}
+				if _, reserveErr := s.recordIdentities.ReserveAuth(ctx, tx, user.AuthCollectionID, user.ID, recordIDPolicy, nil); reserveErr != nil {
+					return reserveErr
+				}
 				_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,password_enabled,active,verified,created_at,updated_at) values($1,$2,$3,'!oauth-only',false,true,$4,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, user.Verified, now)
 				if database.Classify(err) == database.KindConflict {
 					operationErr = ErrConflict

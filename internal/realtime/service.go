@@ -19,6 +19,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
@@ -33,13 +34,14 @@ type Service struct {
 	pool    *database.Pool
 	logger  *slog.Logger
 	schemas *schema.Service
+	ids     *recordidentity.Service
 }
 
 func NewService(pool *database.Pool, logger *slog.Logger, schemas ...*schema.Service) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	service := &Service{pool: pool, logger: logger}
+	service := &Service{pool: pool, logger: logger, ids: recordidentity.New(nil)}
 	if len(schemas) > 0 {
 		service.schemas = schemas[0]
 	}
@@ -50,7 +52,8 @@ type Event struct {
 	Sequence   int64          `json:"-"`
 	EventID    uuid.UUID      `json:"eventId"`
 	Collection string         `json:"collection"`
-	RecordID   uuid.UUID      `json:"recordId"`
+	RecordID   uuid.UUID      `json:"-"`
+	PublicID   string         `json:"recordId"`
 	Operation  string         `json:"operation"`
 	Version    int64          `json:"version"`
 	Action     string         `json:"action,omitempty"`
@@ -61,6 +64,7 @@ type ReadRequest struct {
 	Principal   identity.Subject
 	Collection  string
 	RecordID    uuid.UUID
+	PublicID    string
 	Filter      string
 	Fields      string
 	After       *int64
@@ -122,6 +126,10 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		}
 		cursor = *request.After
 		statement, args, collection, err = s.eventQuery(ctx, tx, request, collectionID, cursor)
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, statement, args...)
 		if err != nil {
 			return err
@@ -135,6 +143,13 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			}
 			event.Action = event.Operation
 			event.Record, err = publicSnapshot(collection, snapshot)
+			if err != nil {
+				return err
+			}
+			if err := s.ids.Project(ctx, tx, catalog, collection, event.Record); err != nil {
+				return err
+			}
+			event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
 			if err != nil {
 				return err
 			}
@@ -193,6 +208,12 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	collection, ok := catalog.Collections[request.Collection]
 	if !ok {
 		return "", nil, schema.Collection{}, recordaccess.ErrDenied
+	}
+	if request.PublicID != "" {
+		request.RecordID, err = s.ids.Resolve(ctx, tx, collection, request.PublicID)
+		if err != nil {
+			return "", nil, schema.Collection{}, err
+		}
 	}
 	if err := validateEventFields(collection, request.Principal, request.Fields); err != nil {
 		return "", nil, schema.Collection{}, err

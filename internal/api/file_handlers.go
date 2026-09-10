@@ -37,6 +37,10 @@ type publicFileService interface {
 	OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error)
 }
 
+type fileRecordIDResolver interface {
+	ResolveRecordID(context.Context, string, string) (uuid.UUID, uuid.UUID, error)
+}
+
 func fileRoutes(dependencies Dependencies) []route {
 	if dependencies.Files == nil {
 		return nil
@@ -123,12 +127,20 @@ func (e fileEndpoints) resource(r *http.Request) (identity.Subject, uuid.UUID, u
 	if !ok || !principal.Valid() {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", filestore.ErrDenied
 	}
-	collectionID, err := e.service.CollectionID(r.Context(), r.PathValue("collection"))
+	var collectionID, recordID uuid.UUID
+	var err error
+	if resolver, ok := e.service.(fileRecordIDResolver); ok {
+		collectionID, recordID, err = resolver.ResolveRecordID(r.Context(), r.PathValue("collection"), r.PathValue("id"))
+	} else {
+		collectionID, err = e.service.CollectionID(r.Context(), r.PathValue("collection"))
+		if err == nil {
+			recordID, err = uuid.Parse(r.PathValue("id"))
+		}
+	}
 	if err != nil {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", err
 	}
-	recordID, err := uuid.Parse(r.PathValue("id"))
-	if err != nil || recordID == uuid.Nil || r.PathValue("field") == "" {
+	if recordID == uuid.Nil || r.PathValue("field") == "" {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", filestore.ErrInvalid
 	}
 	return principal, collectionID, recordID, r.PathValue("field"), nil

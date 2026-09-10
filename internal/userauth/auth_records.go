@@ -11,13 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // AuthRecord is the collection-facing form of an identity. Credentials remain
 // in users; collection-defined values remain in the profile JSON document.
 type AuthRecord struct {
-	ID               uuid.UUID      `json:"id"`
+	ID               uuid.UUID      `json:"-"`
+	PublicID         string         `json:"id"`
 	AuthCollectionID uuid.UUID      `json:"authCollectionId"`
 	Email            string         `json:"email,omitempty"`
 	EmailVisibility  bool           `json:"emailVisibility"`
@@ -29,11 +31,32 @@ type AuthRecord struct {
 }
 
 type CreateAuthRecordInput struct {
+	ID               string
 	Email, Password  string
 	EmailVisibility  bool
 	Verified, Active bool
 	Fields           map[string]any
 }
+
+func (r AuthRecord) MarshalJSON() ([]byte, error) {
+	publicID := r.PublicID
+	if publicID == "" && r.ID != uuid.Nil {
+		publicID = r.ID.String()
+	}
+	type wire struct {
+		ID               string         `json:"id"`
+		AuthCollectionID uuid.UUID      `json:"authCollectionId"`
+		Email            string         `json:"email,omitempty"`
+		EmailVisibility  bool           `json:"emailVisibility"`
+		Verified         bool           `json:"verified"`
+		Active           bool           `json:"active"`
+		Fields           map[string]any `json:"fields"`
+		CreatedAt        time.Time      `json:"createdAt"`
+		UpdatedAt        time.Time      `json:"updatedAt"`
+	}
+	return json.Marshal(wire{publicID, r.AuthCollectionID, r.Email, r.EmailVisibility, r.Verified, r.Active, r.Fields, r.CreatedAt, r.UpdatedAt})
+}
+
 type UpdateAuthRecordInput struct {
 	Email            *string
 	EmailVisibility  *bool
@@ -196,9 +219,18 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 			return nil, errors.New("invalid stored auth profile")
 		}
 		v.Fields = publicAuthFields(v.Fields, fields)
+		if err := s.projectAuthRelationIdentities(ctx, s.pool, v.Fields, fields); err != nil {
+			return nil, err
+		}
 		result = append(result, v)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.projectAuthRecords(ctx, result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID) (AuthRecord, error) {
@@ -222,6 +254,12 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 		return AuthRecord{}, err
 	}
 	v.Fields = publicAuthFields(v.Fields, fields)
+	if err := s.projectAuthRelationIdentities(ctx, s.pool, v.Fields, fields); err != nil {
+		return AuthRecord{}, err
+	}
+	if err := s.projectAuthRecord(ctx, s.pool, &v); err != nil {
+		return AuthRecord{}, err
+	}
 	return v, nil
 }
 
@@ -235,6 +273,9 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		return AuthRecord{}, err
 	}
 	in.Fields = applyAuthAutoDates(in.Fields, fields, true, time.Now())
+	if err := s.resolveAuthRelationIdentities(ctx, s.pool, in.Fields, fields); err != nil {
+		return AuthRecord{}, err
+	}
 	if !validateTypedProfile(in.Fields, fields, false) {
 		return AuthRecord{}, ErrValidation
 	}
@@ -254,6 +295,24 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	id := uuid.New()
 	var out AuthRecord
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		recordIDPolicy, err := authRecordIDPolicy(ctx, tx, collectionID)
+		if err != nil {
+			return err
+		}
+		var requestedID *string
+		if in.ID != "" {
+			requestedID = &in.ID
+		}
+		publicID, err := s.recordIdentities.ReserveAuth(ctx, tx, collectionID, id, recordIDPolicy, requestedID)
+		if errors.Is(err, recordidentity.ErrInvalid) {
+			return ErrValidation
+		}
+		if errors.Is(err, recordidentity.ErrConflict) {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
 		if err := validateAuthRelationTargets(ctx, tx, id, storedFields, fields); err != nil {
 			return err
 		}
@@ -264,13 +323,16 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		if err := tx.QueryRow(ctx, `select current_timestamp`).Scan(&now); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,email_visibility,active,verified,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$8)`, id, collectionID, normalized, hash, in.EmailVisibility, in.Active, in.Verified, now)
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,email_visibility,active,verified,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$8)`, id, collectionID, normalized, hash, in.EmailVisibility, in.Active, in.Verified, now)
 		if err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,$3)`, id, raw, now)
 		if err == nil {
-			out = AuthRecord{ID: id, AuthCollectionID: collectionID, Email: normalized, EmailVisibility: in.EmailVisibility, Verified: in.Verified, Active: in.Active, Fields: publicAuthFields(storedFields, fields), CreatedAt: now, UpdatedAt: now}
+			out = AuthRecord{ID: id, PublicID: publicID, AuthCollectionID: collectionID, Email: normalized, EmailVisibility: in.EmailVisibility, Verified: in.Verified, Active: in.Active, Fields: publicAuthFields(storedFields, fields), CreatedAt: now, UpdatedAt: now}
+			if projectErr := s.projectAuthRelationIdentities(ctx, tx, out.Fields, fields); projectErr != nil {
+				return projectErr
+			}
 		}
 		return err
 	})
@@ -332,6 +394,9 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 			if err := authorize(tx, current); err != nil {
 				return err
 			}
+		}
+		if err := s.resolveAuthRelationIdentities(ctx, tx, in.Fields, fields); err != nil {
+			return err
 		}
 		changes, ok := prepareAuthPasswordFields(fields, in.Fields, false)
 		if !ok {

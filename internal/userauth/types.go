@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 )
 
 type errorKind uint8
@@ -80,6 +81,7 @@ type Passwords interface {
 
 type User struct {
 	ID               uuid.UUID
+	PublicID         string
 	AuthCollectionID uuid.UUID
 	Email            string
 	Verified         bool
@@ -130,20 +132,28 @@ type Service struct {
 	oauthStateTTL       time.Duration
 	oauthRegistration   bool
 	defaultRegistration bool
+	recordIdentities    *recordidentity.Service
 	ratePolicy          atomic.Pointer[RatePolicy]
 }
 
-type RatePolicy struct { AccountMaxFailures, NetworkMaxFailures, RegistrationNetworkMaxFailures int; Window, Block time.Duration }
+type RatePolicy struct {
+	AccountMaxFailures, NetworkMaxFailures, RegistrationNetworkMaxFailures int
+	Window, Block                                                          time.Duration
+}
 
 func (s *Service) ConfigureRatePolicy(policy RatePolicy) error {
-	if policy.AccountMaxFailures < 1 || policy.NetworkMaxFailures < 1 || policy.RegistrationNetworkMaxFailures < 1 || policy.Window <= 0 || policy.Block <= 0 { return ErrValidation }
+	if policy.AccountMaxFailures < 1 || policy.NetworkMaxFailures < 1 || policy.RegistrationNetworkMaxFailures < 1 || policy.Window <= 0 || policy.Block <= 0 {
+		return ErrValidation
+	}
 	s.ratePolicy.Store(&policy)
 	return nil
 }
 
 func (s *Service) currentRatePolicy() RatePolicy {
-	if policy := s.ratePolicy.Load(); policy != nil { return *policy }
-	return RatePolicy{AccountMaxFailures: loginAccountLimit, NetworkMaxFailures: loginNetworkLimit, RegistrationNetworkMaxFailures: registerNetworkLimit, Window: 15*time.Minute, Block: 15*time.Minute}
+	if policy := s.ratePolicy.Load(); policy != nil {
+		return *policy
+	}
+	return RatePolicy{AccountMaxFailures: loginAccountLimit, NetworkMaxFailures: loginNetworkLimit, RegistrationNetworkMaxFailures: registerNetworkLimit, Window: 15 * time.Minute, Block: 15 * time.Minute}
 }
 
 type OAuthIdentity struct {
@@ -170,5 +180,6 @@ type OAuthAuthorization struct {
 
 func NewService(pool *database.Pool, passwords Passwords, secret []byte, ttl time.Duration) *Service {
 	return &Service{pool: pool, passwords: passwords, secret: append([]byte(nil), secret...), ttl: ttl,
-		credentialSlots: make(chan struct{}, 16), passwordSlots: make(chan struct{}, 2), sessionSlots: make(chan struct{}, 32), defaultRegistration: true}
+		credentialSlots: make(chan struct{}, 16), passwordSlots: make(chan struct{}, 2), sessionSlots: make(chan struct{}, 32), defaultRegistration: true,
+		recordIdentities: recordidentity.New(nil)}
 }

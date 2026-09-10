@@ -24,7 +24,7 @@ type realtimeV2 interface {
 
 type realtimeSubscription struct {
 	raw, collection, filter, expand, fields string
-	recordID                                uuid.UUID
+	recordID                                string
 	cursor                                  *int64
 	application                             bool
 }
@@ -83,8 +83,8 @@ func (h *realtimeHub) authorizeApplicationMessage(ctx context.Context, clientID 
 		if envelope.Record != nil {
 			id = envelope.Record.ID
 		}
-		if recordID, err := uuid.Parse(id); err == nil && h.dependencies.Records != nil {
-			_, getErr := h.dependencies.Records.Get(ctx, recordops.GetRequest{Principal: principal, RequestID: "realtime-broker-" + clientID, Collection: message.Topic, ID: recordID})
+		if id != "" && len(id) <= 1024 && h.dependencies.Records != nil {
+			_, getErr := h.dependencies.Records.Get(ctx, recordops.GetRequest{Principal: principal, RequestID: "realtime-broker-" + clientID, Collection: message.Topic, PublicID: id})
 			return getErr == nil
 		}
 	}
@@ -263,10 +263,10 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 				client.deliveryMu.Unlock()
 				return
 			}
-			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
+			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 			relationFilter := errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord)
 			if relationFilter {
-				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, RecordID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
+				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 			}
 			if err != nil {
 				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
@@ -280,14 +280,14 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 					if event.Operation == "delete" {
 						continue
 					}
-					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.RecordID.String() + "'", RuleContext: ruleRequestContext(r)})
+					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.PublicID + "'", RuleContext: ruleRequestContext(r)})
 					if listErr != nil || len(page.Items) == 0 {
 						continue
 					}
 				}
 				record := event.Record
 				if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
-					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, ID: event.RecordID, Expand: sub.expand, Fields: sub.fields})
+					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields})
 					if getErr == nil {
 						if expanded, ok := current.Data["expand"]; ok {
 							record["expand"] = expanded
@@ -414,9 +414,9 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		}
 		// Always validate against the current schema and policy before replacing
 		// client state, even when a reconnect cursor is already available.
-		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
+		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, PublicID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
 		if errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord) {
-			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, RuleContext: ruleRequestContext(r)})
+			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, PublicID: subscriptions[index].recordID, RuleContext: ruleRequestContext(r)})
 		}
 		if err != nil {
 			writeRealtimeError(w, r, err)
@@ -521,11 +521,10 @@ func parseRealtimeSubscription(raw string) (realtimeSubscription, error) {
 	}
 	sub := realtimeSubscription{raw: raw, collection: segments[0]}
 	if len(segments) == 2 {
-		id, err := uuid.Parse(segments[1])
-		if err != nil {
-			return realtimeSubscription{}, err
+		if segments[1] == "" || len(segments[1]) > 1024 {
+			return realtimeSubscription{}, errors.New("invalid record id")
 		}
-		sub.recordID = id
+		sub.recordID = segments[1]
 	}
 	if len(parts) == 2 {
 		values, err := url.ParseQuery(parts[1])

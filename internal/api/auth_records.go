@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -9,16 +10,27 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
-func authRecordIDs(r *http.Request) (uuid.UUID, uuid.UUID, error) {
+type authRecordIDResolver interface {
+	ResolveAuthRecordID(context.Context, uuid.UUID, string) (uuid.UUID, error)
+}
+
+func authRecordIDs(r *http.Request) (uuid.UUID, string, error) {
 	collection, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		return uuid.Nil, uuid.Nil, err
+		return uuid.Nil, "", err
 	}
-	record := uuid.Nil
-	if value := r.PathValue("record"); value != "" {
-		record, err = uuid.Parse(value)
+	return collection, r.PathValue("record"), nil
+}
+
+func (e authCollectionEndpoints) resolveAuthRecordID(ctx context.Context, collection uuid.UUID, public string) (uuid.UUID, error) {
+	if resolver, ok := e.dependencies.AuthCollections.(authRecordIDResolver); ok {
+		return resolver.ResolveAuthRecordID(ctx, collection, public)
 	}
-	return collection, record, err
+	id, err := uuid.Parse(public)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, userauth.ErrValidation
+	}
+	return id, nil
 }
 
 func (e authCollectionEndpoints) adminRecordList(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +53,11 @@ func (e authCollectionEndpoints) adminRecordList(w http.ResponseWriter, r *http.
 	}{items})
 }
 func (e authCollectionEndpoints) adminRecordGet(w http.ResponseWriter, r *http.Request) {
-	collection, record, err := authRecordIDs(r)
+	collection, public, err := authRecordIDs(r)
+	var record uuid.UUID
+	if err == nil {
+		record, err = e.resolveAuthRecordID(r.Context(), collection, public)
+	}
 	if err != nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
@@ -56,6 +72,7 @@ func (e authCollectionEndpoints) adminRecordGet(w http.ResponseWriter, r *http.R
 func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *http.Request) {
 	collection, _, err := authRecordIDs(r)
 	var in struct {
+		ID              string         `json:"id"`
 		Email           string         `json:"email"`
 		EmailVisibility bool           `json:"emailVisibility"`
 		Password        string         `json:"password"`
@@ -71,7 +88,7 @@ func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *htt
 	if in.Active != nil {
 		active = *in.Active
 	}
-	value, err := e.dependencies.AuthCollections.CreateAuthRecord(r.Context(), collection, userauth.CreateAuthRecordInput{Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: active, Fields: in.Fields})
+	value, err := e.dependencies.AuthCollections.CreateAuthRecord(r.Context(), collection, userauth.CreateAuthRecordInput{ID: in.ID, Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: active, Fields: in.Fields})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -79,7 +96,11 @@ func (e authCollectionEndpoints) adminRecordCreate(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusCreated, value)
 }
 func (e authCollectionEndpoints) adminRecordUpdate(w http.ResponseWriter, r *http.Request) {
-	collection, record, err := authRecordIDs(r)
+	collection, public, err := authRecordIDs(r)
+	var record uuid.UUID
+	if err == nil {
+		record, err = e.resolveAuthRecordID(r.Context(), collection, public)
+	}
 	var in struct {
 		Email           *string        `json:"email"`
 		EmailVisibility *bool          `json:"emailVisibility"`
@@ -100,7 +121,11 @@ func (e authCollectionEndpoints) adminRecordUpdate(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, value)
 }
 func (e authCollectionEndpoints) adminRecordDelete(w http.ResponseWriter, r *http.Request) {
-	collection, record, err := authRecordIDs(r)
+	collection, public, err := authRecordIDs(r)
+	var record uuid.UUID
+	if err == nil {
+		record, err = e.resolveAuthRecordID(r.Context(), collection, public)
+	}
 	if err != nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
@@ -183,7 +208,7 @@ func (e authCollectionEndpoints) authorizedRecordContext(r *http.Request) (usera
 	}
 	target := uuid.Nil
 	if raw := r.PathValue("record"); raw != "" {
-		target, err = uuid.Parse(raw)
+		target, err = e.resolveAuthRecordID(r.Context(), collection.ID, raw)
 	}
 	return collection, principal, target, err
 }

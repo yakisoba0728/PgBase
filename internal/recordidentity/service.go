@@ -83,7 +83,7 @@ func (s *Service) Reserve(ctx context.Context, db DB, collection schema.Collecti
 }
 
 func reserve(ctx context.Context, db DB, collectionID, internal uuid.UUID, external string) error {
-	_, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,internal_id,external_id) values($1,$2,$3)`, collectionID, internal, external)
+	_, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) values($1,'base',$1,$2,$3)`, collectionID, internal, external)
 	return err
 }
 

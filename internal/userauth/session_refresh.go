@@ -96,6 +96,9 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 			return fmt.Errorf("refresh user session: %w", err)
 		}
 		user.CreatedAt = user.CreatedAt.UTC()
+		if err := s.projectUser(ctx, tx, &user); err != nil {
+			return err
+		}
 		result = Session{User: user, RawToken: refreshed, ExpiresAt: expires}
 		return nil
 	})

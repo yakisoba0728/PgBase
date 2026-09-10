@@ -277,6 +277,9 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	p.User.CreatedAt = p.User.CreatedAt.UTC()
 	p.ExpiresAt = p.ExpiresAt.UTC()
+	if err := s.projectUser(ctx, s.pool, &p.User); err != nil {
+		return Principal{}, err
+	}
 	return p, nil
 }
 
@@ -306,7 +309,14 @@ func (s *Service) createUserAndSession(ctx context.Context, user User, passwordH
 		if user.AuthCollectionID == uuid.Nil {
 			user.AuthCollectionID = DefaultCollectionID
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,$3,$4,true,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, passwordHash, now)
+		policy, err := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
+		if err != nil {
+			return err
+		}
+		if _, err := s.recordIdentities.ReserveAuth(ctx, tx, user.AuthCollectionID, user.ID, policy, nil); err != nil {
+			return fmt.Errorf("create user identity: %w", err)
+		}
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,$3,$4,true,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, passwordHash, now)
 		if err != nil {
 			return fmt.Errorf("create user: %w", err)
 		}
@@ -388,6 +398,9 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, tokenHash, expires, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("create user session: %w", err)
+	}
+	if err := s.projectUser(ctx, db, &user); err != nil {
+		return Session{}, err
 	}
 	return Session{User: user, RawToken: token, ExpiresAt: expires}, nil
 }

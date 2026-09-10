@@ -78,6 +78,9 @@ func (s *Service) Impersonate(ctx context.Context, userID uuid.UUID, rawAdminSes
 		if err != nil {
 			return err
 		}
+		if err := s.projectUser(ctx, tx, &user); err != nil {
+			return err
+		}
 		result = Session{User: user, RawToken: raw, ExpiresAt: expires, Impersonated: true, ImpersonatingAdministratorID: adminID}
 		return nil
 	})
