@@ -21,6 +21,7 @@ type authCollectionMethodStub struct {
 	refreshErr error
 	refreshID  uuid.UUID
 	refreshTok string
+	profile    map[string]any
 }
 
 func (s *authCollectionMethodStub) GetAuthCollection(context.Context, string) (userauth.AuthCollection, error) {
@@ -32,6 +33,9 @@ func (s *authCollectionMethodStub) PublicAuthMethods(context.Context, uuid.UUID)
 func (s *authCollectionMethodStub) RefreshSessionForCollection(_ context.Context, id uuid.UUID, token string) (userauth.Session, error) {
 	s.refreshID, s.refreshTok = id, token
 	return s.refreshed, s.refreshErr
+}
+func (s *authCollectionMethodStub) GetProfile(context.Context, uuid.UUID) (map[string]any, error) {
+	return s.profile, nil
 }
 
 func TestCollectionAuthMethodsExposeOnlyPublicCapabilities(t *testing.T) {
@@ -74,6 +78,26 @@ func TestCollectionAuthRefreshUsesCurrentRealmAndReturnsReplacement(t *testing.T
 	}
 	if !json.Valid(w.Body.Bytes()) || !containsJSONValue(t, w.Body.Bytes(), "token", "replacement") {
 		t.Fatalf("replacement response=%s", w.Body.String())
+	}
+}
+
+func TestAuthCollectionProfileProjectionSelectsAttributes(t *testing.T) {
+	collection := userauth.AuthCollection{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b1"), Name: "members"}
+	user := userauth.User{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b2"), AuthCollectionID: collection.ID}
+	service := &authCollectionMethodStub{collection: collection, profile: map[string]any{"nickname": "Ada", "private": "not selected"}}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/members/profile?fields=attributes.nickname", nil)
+	r = r.WithContext(context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: userauth.Principal{User: user}}))
+	w := httptest.NewRecorder()
+	authCollectionEndpoints{dependencies: Dependencies{AuthCollections: service}}.profile(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body["attributes"]) != 1 || body["attributes"]["nickname"] != "Ada" {
+		t.Fatalf("projected profile=%#v", body)
 	}
 }
 

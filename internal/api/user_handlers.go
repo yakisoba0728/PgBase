@@ -75,6 +75,10 @@ type userEndpoints struct{ dependencies Dependencies }
 func (e userEndpoints) credentials(register bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		projection, ok := compileAuthProjection(w, r)
+		if !ok {
+			return
+		}
 		if register && !e.dependencies.UserRegistrationEnabled {
 			writeAPIError(w, r, APIError{Status: http.StatusForbidden, Code: "registration_disabled", Message: "User registration is disabled"})
 			return
@@ -110,7 +114,7 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 			writeUserAuthError(w, r, err)
 			return
 		}
-		writeJSON(w, status, userSessionResponse{Token: session.RawToken, User: publicUser(session.User), ExpiresAt: session.ExpiresAt})
+		writeAuthProjectedJSON(w, status, projection, userSessionResponse{Token: session.RawToken, User: publicUser(session.User), ExpiresAt: session.ExpiresAt})
 	})
 }
 
@@ -146,12 +150,16 @@ func userSessionFromPrincipal(principal userauth.Principal) userSessionResponse 
 }
 
 func (e userEndpoints) session(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	current, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
 	if !ok {
 		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionFromPrincipal(current.principal))
+	writeAuthProjectedJSON(w, http.StatusOK, projection, userSessionFromPrincipal(current.principal))
 }
 
 func (e userEndpoints) logout(w http.ResponseWriter, r *http.Request) {

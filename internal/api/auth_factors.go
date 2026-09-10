@@ -104,6 +104,10 @@ func (e userEndpoints) oauthAvatar(w http.ResponseWriter, r *http.Request) {
 func (e userEndpoints) factorAction(action string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		projection, ok := compileAuthProjection(w, r)
+		if !ok {
+			return
+		}
 		var input struct {
 			CurrentPassword string `json:"currentPassword"`
 			Code            string `json:"code"`
@@ -201,7 +205,7 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 		if result == nil {
 			w.WriteHeader(http.StatusNoContent)
 		} else {
-			writeJSON(w, http.StatusOK, result)
+			writeAuthProjectedJSON(w, http.StatusOK, projection, result)
 		}
 	})
 }

@@ -81,6 +81,10 @@ func (e authCollectionEndpoints) methods(w http.ResponseWriter, r *http.Request)
 }
 
 func (e authCollectionEndpoints) otpRequest(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	collection, err := e.resolve(r)
 	var in struct {
 		Email string `json:"email"`
@@ -99,9 +103,13 @@ func (e authCollectionEndpoints) otpRequest(w http.ResponseWriter, r *http.Reque
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, value)
+	writeAuthProjectedJSON(w, http.StatusOK, projection, value)
 }
 func (e authCollectionEndpoints) otpComplete(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	collection, err := e.resolve(r)
 	var in struct {
 		OTPID string `json:"otpId"`
@@ -116,9 +124,13 @@ func (e authCollectionEndpoints) otpComplete(w http.ResponseWriter, r *http.Requ
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt})
+	writeAuthProjectedJSON(w, http.StatusOK, projection, userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt})
 }
 func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	collection, err := e.resolve(r)
 	var in struct {
 		Provider    string `json:"provider"`
@@ -144,7 +156,7 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
+	writeAuthProjectedJSON(w, http.StatusOK, projection, struct {
 		AuthorizationURL    string    `json:"authorizationUrl"`
 		ExpiresAt           time.Time `json:"expiresAt"`
 		State               string    `json:"state"`
@@ -163,6 +175,11 @@ func authCollectionResponse(v userauth.AuthCollection) any {
 	}{v.ID.String(), v.Name, v.RegistrationEnabled, v.ProfileSchema}
 }
 func (e authCollectionEndpoints) adminList(w http.ResponseWriter, r *http.Request) {
+	projection, err := authProjection(r)
+	if err != nil {
+		writeAuthCollectionError(w, r, err)
+		return
+	}
 	values, err := e.dependencies.AuthCollections.ListAuthCollections(r.Context())
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
@@ -172,11 +189,16 @@ func (e authCollectionEndpoints) adminList(w http.ResponseWriter, r *http.Reques
 	for _, v := range values {
 		items = append(items, authCollectionResponse(v))
 	}
-	writeJSON(w, http.StatusOK, struct {
+	writeAuthProjectedJSON(w, http.StatusOK, projection, struct {
 		Items []any `json:"items"`
 	}{items})
 }
 func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Request) {
+	projection, err := authProjection(r)
+	if err != nil {
+		writeAuthCollectionError(w, r, err)
+		return
+	}
 	var in struct {
 		ID                  string            `json:"id"`
 		Name                string            `json:"name"`
@@ -199,9 +221,14 @@ func (e authCollectionEndpoints) adminCreate(w http.ResponseWriter, r *http.Requ
 		writeAuthCollectionError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, authCollectionResponse(v))
+	writeAuthProjectedJSON(w, http.StatusCreated, projection, authCollectionResponse(v))
 }
 func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Request) {
+	projection, projectionErr := authProjection(r)
+	if projectionErr != nil {
+		writeAuthCollectionError(w, r, projectionErr)
+		return
+	}
 	id, err := uuid.Parse(r.PathValue("id"))
 	var in struct {
 		RegistrationEnabled *bool              `json:"registrationEnabled"`
@@ -216,7 +243,7 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 		writeAuthCollectionError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, authCollectionResponse(v))
+	writeAuthProjectedJSON(w, http.StatusOK, projection, authCollectionResponse(v))
 }
 func (e authCollectionEndpoints) adminDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
@@ -236,6 +263,10 @@ func (e authCollectionEndpoints) resolve(r *http.Request) (userauth.AuthCollecti
 }
 func (e authCollectionEndpoints) credentials(register bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projection, ok := compileAuthProjection(w, r)
+		if !ok {
+			return
+		}
 		collection, err := e.resolve(r)
 		if err != nil {
 			writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
@@ -268,7 +299,7 @@ func (e authCollectionEndpoints) credentials(register bool) http.Handler {
 		if register {
 			status = http.StatusCreated
 		}
-		writeJSON(w, status, userSessionResponse{Token: session.RawToken, User: publicUser(session.User), ExpiresAt: session.ExpiresAt})
+		writeAuthProjectedJSON(w, status, projection, userSessionResponse{Token: session.RawToken, User: publicUser(session.User), ExpiresAt: session.ExpiresAt})
 	})
 }
 func (e authCollectionEndpoints) reset(w http.ResponseWriter, r *http.Request) {
@@ -303,14 +334,22 @@ func (e authCollectionEndpoints) current(r *http.Request) (authenticatedUser, er
 	return current, nil
 }
 func (e authCollectionEndpoints) session(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	current, err := e.current(r)
 	if err != nil {
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionFromPrincipal(current.principal))
+	writeAuthProjectedJSON(w, http.StatusOK, projection, userSessionFromPrincipal(current.principal))
 }
 func (e authCollectionEndpoints) refresh(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	current, err := e.current(r)
 	if err != nil {
 		writeUserAuthError(w, r, err)
@@ -321,7 +360,7 @@ func (e authCollectionEndpoints) refresh(w http.ResponseWriter, r *http.Request)
 		writeUserAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, userSessionFromResult(refreshed))
+	writeAuthProjectedJSON(w, http.StatusOK, projection, userSessionFromResult(refreshed))
 }
 
 func (e authCollectionEndpoints) logout(w http.ResponseWriter, r *http.Request) {
@@ -337,6 +376,10 @@ func (e authCollectionEndpoints) logout(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 func (e authCollectionEndpoints) profile(w http.ResponseWriter, r *http.Request) {
+	projection, ok := compileAuthProjection(w, r)
+	if !ok {
+		return
+	}
 	current, err := e.current(r)
 	if err != nil {
 		writeUserAuthError(w, r, err)
@@ -356,7 +399,7 @@ func (e authCollectionEndpoints) profile(w http.ResponseWriter, r *http.Request)
 		writeAuthCollectionError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
+	writeAuthProjectedJSON(w, http.StatusOK, projection, struct {
 		Attributes map[string]any `json:"attributes"`
 	}{value})
 }
