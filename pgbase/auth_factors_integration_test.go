@@ -130,7 +130,22 @@ func TestPublicOAuthPKCEStateExchangeSessionAndReplayHTTP(t *testing.T) {
 	realmID := uuid.New()
 	created := publicUsersRequest(t, app, http.MethodPost, "/api/admin/auth-collections", map[string]any{"id": realmID.String(), "name": "oauth-customers", "registrationEnabled": true}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, created, http.StatusCreated)
-	start := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/oauth-customers/oauth/start", map[string]any{"provider": "local", "redirectUri": "http://localhost/oauth/callback"}, "", nil, nil)
+	methods := publicUsersRequest(t, app, http.MethodGet, "/api/v1/auth/oauth-customers/methods", nil, "", nil, nil)
+	assertPublicUsersStatus(t, methods, http.StatusOK)
+	var methodResponse struct {
+		OAuth2 struct {
+			Enabled   bool `json:"enabled"`
+			Providers []struct {
+				Name          string `json:"name"`
+				StartEndpoint string `json:"startEndpoint"`
+			} `json:"providers"`
+		} `json:"oauth2"`
+	}
+	decodePublicUsersJSON(t, methods, &methodResponse)
+	if !methodResponse.OAuth2.Enabled || len(methodResponse.OAuth2.Providers) != 1 || methodResponse.OAuth2.Providers[0].Name != "local" {
+		t.Fatalf("methods=%s", methods.Body.String())
+	}
+	start := publicUsersRequest(t, app, http.MethodPost, methodResponse.OAuth2.Providers[0].StartEndpoint, map[string]any{"provider": methodResponse.OAuth2.Providers[0].Name, "redirectUri": "http://localhost/oauth/callback"}, "", nil, nil)
 	assertPublicUsersStatus(t, start, http.StatusOK)
 	var authorization struct {
 		AuthorizationURL    string `json:"authorizationUrl"`
@@ -151,11 +166,6 @@ func TestPublicOAuthPKCEStateExchangeSessionAndReplayHTTP(t *testing.T) {
 	mu.Unlock()
 	if state == "" || challenge == "" || query.Get("code_challenge_method") != "S256" || authorization.State != state || authorization.CodeVerifier == "" || authorization.CodeChallenge != challenge || authorization.CodeChallengeMethod != "S256" {
 		t.Fatalf("authorization query=%v", query)
-	}
-	methods := publicUsersRequest(t, app, http.MethodGet, "/api/v1/auth/oauth-customers/methods", nil, "", nil, nil)
-	assertPublicUsersStatus(t, methods, http.StatusOK)
-	if !strings.Contains(methods.Body.String(), `"oauth2":{"enabled":true,"providers":[{"name":"local","startEndpoint":"/api/v1/auth/oauth-customers/oauth/start"}]}`) {
-		t.Fatalf("methods=%s", methods.Body.String())
 	}
 	complete := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/oauth/complete", map[string]any{"provider": "local", "state": state, "code": "local-code"}, "", nil, nil)
 	assertPublicUsersStatus(t, complete, http.StatusOK)

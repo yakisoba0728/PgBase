@@ -92,6 +92,48 @@ func TestVerificationTokenIsHashedPurposeBoundAndSingleUse(t *testing.T) {
 	}
 }
 
+func TestConfiguredVerificationKeyRotationExpiryAndSingleUse(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "keyed-verify@example.test", "correct horse battery staple", "keyed-verify-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-one", Key: "first-verify-key"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	rotated := sender.token(t)
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-two", Key: "second-verify-key"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, rotated); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("rotated verification=%v", err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	expired := sender.token(t)
+	if _, err = service.pool.Exec(ctx, `update pgbase_meta.user_email_actions set expires_at=CURRENT_TIMESTAMP-interval '1 second' where user_id=$1 and purpose='verify' and consumed_at is null`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, expired); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expired verification=%v", err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	valid := sender.token(t)
+	if err = service.ConfirmVerification(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, valid); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("replayed verification=%v", err)
+	}
+}
+
 func TestPasswordResetIsNondisclosingAndCredentialBound(t *testing.T) {
 	service, sender := newEmailActionService(t)
 	ctx := context.Background()

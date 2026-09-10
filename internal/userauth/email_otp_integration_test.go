@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestEmailOTPIsHashedResentAttemptBoundAndSingleUse(t *testing.T) {
@@ -89,6 +90,57 @@ func TestEmailOTPIsHashedResentAttemptBoundAndSingleUse(t *testing.T) {
 	}
 	if session, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "otp-post-login"); err != nil || session.User.Verified {
 		t.Fatalf("OTP changed email verification: %#v %v", session.User, err)
+	}
+}
+
+func TestConfiguredOTPKeyRotationExpiryAndSingleUse(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "keyed-otp@example.test", "correct horse battery staple", "keyed-otp-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.pool.Exec(ctx, `update pgbase_meta.auth_collection_policies set otp_enabled=true,otp_duration_seconds=300,otp_max_attempts=3 where auth_collection_id=$1`, DefaultCollectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-one", Key: "first-otp-key"}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := service.RequestEmailOTP(ctx, registered.User.Email, "keyed-otp-rotate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedCode := otpFromMessage(t, sender)
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "otp", TTLSeconds: 60, KeyVersion: "otp-two", Key: "second-otp-key"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CompleteEmailOTP(ctx, rotated.OTPID, rotatedCode); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("rotated OTP=%v", err)
+	}
+	expired, err := service.RequestEmailOTP(ctx, registered.User.Email, "keyed-otp-expire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredCode := otpFromMessage(t, sender)
+	if _, err = service.pool.Exec(ctx, `update pgbase_meta.user_email_otps set expires_at=CURRENT_TIMESTAMP-interval '1 second' where id=$1`, expired.OTPID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CompleteEmailOTP(ctx, expired.OTPID, expiredCode); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expired OTP=%v", err)
+	}
+	valid, err := service.RequestEmailOTP(ctx, registered.User.Email, "keyed-otp-valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validCode := otpFromMessage(t, sender)
+	if remaining := time.Until(valid.ExpiresAt); remaining > 61*time.Second || remaining < 55*time.Second {
+		t.Fatalf("configured OTP expiry=%s", remaining)
+	}
+	if _, err = service.CompleteEmailOTP(ctx, valid.OTPID, validCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CompleteEmailOTP(ctx, valid.OTPID, validCode); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("replayed OTP=%v", err)
 	}
 }
 
