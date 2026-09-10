@@ -127,7 +127,7 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// QRY-15 through QRY-17 add the explicit PocketBase offset-page adapter,
 	// special sort rendering, exact authorized SQL count, and JSON-quoted
 	// compatibility operands while preserving List's cursor contract.
-	if runtimeLines > 7395 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7395", runtimeLines)
+	if runtimeLines > 7407 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7407", runtimeLines)
 	}
 }

@@ -25,8 +25,12 @@ type rootPlan struct {
 	ruleContext      *accessrule.RequestContext
 }
 
-func (p rootPlan) countStatement() (Statement, error) {
-	statement, err := p.pageStatement(nil, 1)
+func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
+	var boundary *pageBoundary
+	if len(memberships) > 0 && memberships[0] != nil {
+		boundary = &pageBoundary{membership: memberships[0], membershipOnly: true}
+	}
+	statement, err := p.pageStatement(boundary, 1)
 	if err != nil {
 		return Statement{}, err
 	}

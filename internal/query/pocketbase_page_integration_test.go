@@ -28,6 +28,10 @@ func TestPocketBaseListPageCountFilterAndSnapshot(t *testing.T) {
 		}
 	}
 
+	if _, err := pool.Exec(ctx, `insert into app.pb_pages(id,title,rank,created_at,updated_at) values($1,'untracked',99,current_timestamp,current_timestamp)`, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+
 	records.countPageHook = func() {
 		records.countPageHook = nil
 		if _, err := records.Create(ctx, "pb_pages", map[string]json.RawMessage{
@@ -56,7 +60,7 @@ func TestPocketBaseListPageCountFilterAndSnapshot(t *testing.T) {
 		t.Fatalf("page ranks = %#v", []any{page.Items[0]["rank"], page.Items[1]["rank"]})
 	}
 	var current int
-	if err := pool.QueryRow(ctx, `select count(*) from app.pb_pages`).Scan(&current); err != nil || current != 6 {
+	if err := pool.QueryRow(ctx, `select count(*) from app.pb_pages`).Scan(&current); err != nil || current != 7 {
 		t.Fatalf("current count=%d err=%v", current, err)
 	}
 }

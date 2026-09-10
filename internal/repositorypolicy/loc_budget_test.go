@@ -83,7 +83,7 @@ import (
 // collection import/export; no package or generated source is excluded.
 // REC-13/14 and QRY-15/16/17 add atomic modifier resolution and the exact
 // authorized PocketBase page/count adapter at the existing data boundary.
-const dataGroupRuntimeLimit = 25487
+const dataGroupRuntimeLimit = 25499
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -357,7 +357,7 @@ type structuralLimit struct {
 // adapters, nullable auth schema, SDK-facing contracts, and administration UI.
 // These values contain no spare allowance or additional exclusions.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 93803, "measured record modifier and PocketBase pagination closure"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 93824, "measured record modifier and PocketBase pagination closure"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6902, "measured administration UI closure"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 91, "measured file modifier routing contract"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1507, "measured PocketBase page and modifier API"},

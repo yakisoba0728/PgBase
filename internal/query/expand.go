@@ -431,7 +431,15 @@ func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.C
 			plan.rule, plan.ruleRevision = &rules.List, revision
 		}
 	}
-	statement, err := plan.countStatement()
+	traversal, err := s.resolveReadTraversal(ctx, tx, collection)
+	if err != nil {
+		return 0, err
+	}
+	var highWater *int64
+	if !collection.IsSQLView() {
+		highWater = &traversal.HighWater
+	}
+	statement, err := plan.countStatement(highWater)
 	if err != nil {
 		return 0, err
 	}
