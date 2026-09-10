@@ -256,6 +256,9 @@ func hookGlobalName(event string) string {
 func hookGlobalNames(event string) []string {
 	aliases := map[string]string{"mail.send": "onMailerSend", "mail.otp": "onMailerRecordOTPSend", "mail.verification": "onMailerRecordVerificationSend", "mail.password_reset": "onMailerRecordPasswordResetSend", "mail.email_change": "onMailerRecordEmailChangeSend", "record.list": "onRecordsListRequest", "record.view": "onRecordViewRequest", "record.create": "onRecordCreateRequest", "record.update": "onRecordUpdateRequest", "record.delete": "onRecordDeleteRequest", "record.batch": "onBatchRequest", "file.download": "onFileDownloadRequest", "file.token": "onFileTokenRequest", "settings.reload": "onSettingsReload", "app.boot": "onBootstrap", "app.serve": "onServe", "app.terminate": "onTerminate"}
 	base := hookGlobalName(event)
+	if event == "auth.refresh" {
+		return []string{"onRecordAuthRequest", "onRecordAuthRefreshRequest", base}
+	}
 	if event == "auth.password" {
 		return []string{"onRecordAuthRequest", "onRecordAuthWithPasswordRequest", base}
 	}

@@ -315,7 +315,7 @@ func knownJavaScriptHook(kind string) bool {
 		HookFileToken, HookFileDownload, HookFileTransform, HookRecordListRequest, HookRecordViewRequest,
 		HookRecordCreateRequest, HookRecordUpdateRequest, HookRecordDeleteRequest, HookRecordBatchRequest,
 		HookSchemaImportPreview, HookSchemaImportApply, HookCollectionCreate, HookCollectionUpdate,
-		HookCollectionDelete, HookAppBoot, HookAppServe, HookAppTerminate, HookAuthPassword,
+		HookCollectionDelete, HookAppBoot, HookAppServe, HookAppTerminate, HookAuthPassword, HookAuthRefresh,
 		HookAuthOAuthBegin, HookAuthOAuthComplete, HookAuthOTPRequest, HookAuthOTPComplete,
 		HookAuthVerificationRequest, HookAuthVerificationConfirm, HookAuthPasswordResetRequest,
 		HookAuthPasswordResetConfirm, HookAuthEmailChangeRequest, HookAuthEmailChangeConfirm,

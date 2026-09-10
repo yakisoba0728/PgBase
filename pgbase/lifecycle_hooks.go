@@ -49,6 +49,7 @@ const (
 	HookAppServe                 = "app.serve"
 	HookAppTerminate             = "app.terminate"
 	HookAuthPassword             = "auth.password"
+	HookAuthRefresh              = "auth.refresh"
 	HookAuthOAuthBegin           = "auth.oauth.begin"
 	HookAuthOAuthComplete        = "auth.oauth.complete"
 	HookAuthOTPRequest           = "auth.otp.request"
