@@ -61,6 +61,25 @@ return {inSQL:inExpr.build({},{}),likeSQL:likeExpr.build({},{}),limited:limited(
 	}
 }
 
+func TestPocketBaseOwnerMiddlewareUsesPathParameterName(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/owner","access":"public","handler":{"module":"route.js","export":"run"}}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{const next=(e)=>({allowed:e.principal.id}),guard=$apis.requireSuperuserOrOwnerAuth("ownerId")(next);return guard({principal:{kind:"user",id:"record-1"},pathValues:{ownerId:"record-1"}})}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	out, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler})
+	if err != nil || string(out) != `{"allowed":"record-1"}` {
+		t.Fatalf("owner path middleware output=%s error=%v", out, err)
+	}
+}
+
 type mailEntryHost struct{ calls []string }
 
 func (h *mailEntryHost) Call(_ context.Context, method string, input json.RawMessage) (json.RawMessage, error) {
