@@ -139,6 +139,36 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"copied": true, "size": len(data)})
+	case "filesystem.localReadRange":
+		var request struct {
+			Path         string
+			Offset       int64
+			MaximumBytes int
+		}
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		if request.Offset < 0 || request.MaximumBytes < 1 || request.MaximumBytes > maximumExtensionObjectChunk {
+			return nil, errors.New("invalid local read range")
+		}
+		path, err := c.safePath(request.Path, false)
+		if err != nil {
+			return nil, err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		if _, err := file.Seek(request.Offset, io.SeekStart); err != nil {
+			return nil, err
+		}
+		data := make([]byte, request.MaximumBytes)
+		n, readErr := file.Read(data)
+		if readErr != nil && readErr != io.EOF {
+			return nil, readErr
+		}
+		return json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(data[:n]), "eof": readErr == io.EOF || n < request.MaximumBytes})
 	case "filesystem.fileFromPath":
 		var request struct {
 			Path string `json:"path"`
