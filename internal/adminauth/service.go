@@ -239,6 +239,26 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	return s.setupRequired(ctx)
 }
 
+// AuthorizeSetup rechecks the setup boundary at action time. It is used only
+// by pre-install recovery operations; once any administrator exists the setup
+// token is no longer an authority.
+func (s *Service) AuthorizeSetup(ctx context.Context, token string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if s.setupToken == "" || !constantTimeStringEqual(s.setupToken, token) {
+		return ErrInvalidCredentials
+	}
+	required, err := s.setupRequired(ctx)
+	if err != nil {
+		return err
+	}
+	if !required {
+		return ErrSetupUnavailable
+	}
+	return nil
+}
+
 func (s *Service) setupRequired(ctx context.Context) (bool, error) {
 	count, err := NewStore(s.pool).AdministratorCount(ctx)
 	if err != nil {

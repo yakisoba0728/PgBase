@@ -149,6 +149,9 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	if dependencies.RuntimeSettings != nil {
 		routes = append(routes, runtimeSettingsRoutes(dependencies.RuntimeSettings)...)
 	}
+	if dependencies.Backups != nil {
+		routes = append(routes, setupBackupRoutes(dependencies)...)
+	}
 	routes = append(routes, storageAdministrationRoutes(dependencies)...)
 	routes = append(routes, storageMigrationRoutes(dependencies.StorageMigrations)...)
 	routes = append(routes, backupStorageAdministrationRoutes(dependencies.BackupStorageAdministration)...)
