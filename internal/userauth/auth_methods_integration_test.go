@@ -38,6 +38,9 @@ func TestPublicAuthMethodsExposeOnlyEnabledProviderNames(t *testing.T) {
 	if !methods.PasswordEnabled || !methods.OTPEnabled || !methods.MFAEnabled || len(methods.OAuthProviders) != 1 || methods.OAuthProviders[0] != "enabled" {
 		t.Fatalf("methods=%#v", methods)
 	}
+	if !methods.OAuth2.Enabled || len(methods.OAuth2.Providers) != 1 || methods.OAuth2.Providers[0].Name != "enabled" || methods.OAuth2.Providers[0].StartEndpoint != "/api/v1/auth/methods_"+realmID.String()[:8]+"/oauth/start" {
+		t.Fatalf("oauth2 methods=%#v", methods.OAuth2)
+	}
 	if _, err := service.PublicAuthMethods(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown methods=%v", err)
 	}

@@ -186,9 +186,13 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 				}
 			}
 			result = struct {
-				AuthorizationURL string    `json:"authorizationUrl"`
-				ExpiresAt        time.Time `json:"expiresAt"`
-			}{value.AuthorizationURL, value.ExpiresAt}
+				AuthorizationURL    string    `json:"authorizationUrl"`
+				ExpiresAt           time.Time `json:"expiresAt"`
+				State               string    `json:"state"`
+				CodeVerifier        string    `json:"codeVerifier"`
+				CodeChallenge       string    `json:"codeChallenge"`
+				CodeChallengeMethod string    `json:"codeChallengeMethod"`
+			}{value.AuthorizationURL, value.ExpiresAt, value.State, value.CodeVerifier, value.CodeChallenge, value.CodeChallengeMethod}
 		}
 		if err != nil {
 			writeUserAuthError(w, r, err)

@@ -145,9 +145,13 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		AuthorizationURL string    `json:"authorizationUrl"`
-		ExpiresAt        time.Time `json:"expiresAt"`
-	}{value.AuthorizationURL, value.ExpiresAt})
+		AuthorizationURL    string    `json:"authorizationUrl"`
+		ExpiresAt           time.Time `json:"expiresAt"`
+		State               string    `json:"state"`
+		CodeVerifier        string    `json:"codeVerifier"`
+		CodeChallenge       string    `json:"codeChallenge"`
+		CodeChallengeMethod string    `json:"codeChallengeMethod"`
+	}{value.AuthorizationURL, value.ExpiresAt, value.State, value.CodeVerifier, value.CodeChallenge, value.CodeChallengeMethod})
 }
 
 func authCollectionResponse(v userauth.AuthCollection) any {

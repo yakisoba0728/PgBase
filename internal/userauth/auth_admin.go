@@ -14,15 +14,28 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
+// OAuthMethodProvider describes a provider that can be started from the public
+// auth API. StartEndpoint accepts the provider name and an allowlisted
+// redirectUri, and returns the one-time URL and PKCE values.
+type OAuthMethodProvider struct {
+	Name          string `json:"name"`
+	StartEndpoint string `json:"startEndpoint"`
+}
+
+type OAuth2Methods struct {
+	Enabled   bool                  `json:"enabled"`
+	Providers []OAuthMethodProvider `json:"providers"`
+}
+
 // PublicAuthMethods is the non-sensitive authentication capability discovery
-// contract for one auth collection. It intentionally exposes provider names only;
-// provider endpoints, client IDs, and secrets remain administrator-only settings.
+// contract for one auth collection. OAuthProviders remains for legacy clients.
 type PublicAuthMethods struct {
-	PasswordEnabled bool     `json:"passwordEnabled"`
-	IdentityFields  []string `json:"identityFields"`
-	OTPEnabled      bool     `json:"otpEnabled"`
-	MFAEnabled      bool     `json:"mfaEnabled"`
-	OAuthProviders  []string `json:"oauthProviders"`
+	PasswordEnabled bool          `json:"passwordEnabled"`
+	IdentityFields  []string      `json:"identityFields"`
+	OTPEnabled      bool          `json:"otpEnabled"`
+	MFAEnabled      bool          `json:"mfaEnabled"`
+	OAuthProviders  []string      `json:"oauthProviders"`
+	OAuth2          OAuth2Methods `json:"oauth2"`
 }
 
 type AuthPolicy struct {

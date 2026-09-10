@@ -73,18 +73,29 @@ final class UserSession {
 }
 
 /// Enabled sign-in methods for one explicit public auth collection.
+final class OAuthMethodProvider {
+  const OAuthMethodProvider({required this.name, required this.startEndpoint});
+
+  final String name;
+  final String startEndpoint;
+}
+
 final class AuthMethods {
   const AuthMethods({
     required this.passwordEnabled,
     required this.otpEnabled,
     required this.mfaEnabled,
     required this.oauthProviders,
+    this.oauth2Enabled = false,
+    this.oauth2Providers = const [],
   });
 
   final bool passwordEnabled;
   final bool otpEnabled;
   final bool mfaEnabled;
   final List<String> oauthProviders;
+  final bool oauth2Enabled;
+  final List<OAuthMethodProvider> oauth2Providers;
 }
 
 final class RecordEvent {
@@ -118,6 +129,7 @@ final class Query {
   final String? filter;
   final String? sort;
   final String? expand;
+
   /// Comma-separated record fields to include in each response item.
   final String? fields;
   final String? cursor;

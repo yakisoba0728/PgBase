@@ -67,7 +67,9 @@ export type AuthMethods = {
   otpEnabled: boolean;
   mfaEnabled: boolean;
   oauthProviders: string[];
+  oauth2: { enabled: boolean; providers: Array<{ name: string; startEndpoint: string }> };
 };
+export type OAuthStart = { authorizationUrl: string; expiresAt: string; state: string; codeVerifier: string; codeChallenge: string; codeChallengeMethod: string };
 
 export class PgBaseError extends Error {
   constructor(
@@ -549,7 +551,7 @@ export class AuthRealm {
     const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
     return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
   }
-  oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+  oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
   /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
   async oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> {
     const started = await this.oauthStart(provider, redirectUri, signal);
@@ -572,7 +574,7 @@ export class AuthRealm {
       return await this.oauthComplete(provider, state, code, signal);
     } finally { adapter.close?.(); }
   }
-  oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
+  oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
   async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
   oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession> {
     const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;

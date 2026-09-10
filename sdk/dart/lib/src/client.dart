@@ -582,6 +582,7 @@ final class AuthRealm {
     fields: fields,
     mfa: true,
   );
+
   /// Returns the sign-in methods enabled for this auth collection.
   Future<AuthMethods> methods({CancellationToken? cancellation}) async =>
       _decodeAuthMethods(
@@ -605,6 +606,7 @@ final class AuthRealm {
     if (generation == client.auth.generation) await client.auth.save(session.token!, record: session.user);
     return session;
   }
+
   Future<UserSession> session({CancellationToken? cancellation}) async =>
       _decodeSession(
         await client.request(
@@ -777,6 +779,30 @@ AuthMethods _decodeAuthMethods(JsonValue value) {
   if (!providers.every((provider) => provider is JsonString)) {
     throw const PgBaseProtocolError('invalid_auth_methods_response');
   }
+  var oauth2Enabled = false;
+  var oauth2Providers = <OAuthMethodProvider>[];
+  final oauth2 = value['oauth2'];
+  if (oauth2 != null) {
+    if (oauth2 is! JsonObject ||
+        oauth2['enabled'] is! JsonBool ||
+        oauth2['providers'] is! JsonArray) {
+      throw const PgBaseProtocolError('invalid_auth_methods_response');
+    }
+    oauth2Enabled = (oauth2['enabled']! as JsonBool).value;
+    for (final provider in (oauth2['providers']! as JsonArray).values) {
+      if (provider is! JsonObject ||
+          provider['name'] is! JsonString ||
+          provider['startEndpoint'] is! JsonString) {
+        throw const PgBaseProtocolError('invalid_auth_methods_response');
+      }
+      oauth2Providers.add(
+        OAuthMethodProvider(
+          name: (provider['name']! as JsonString).value,
+          startEndpoint: (provider['startEndpoint']! as JsonString).value,
+        ),
+      );
+    }
+  }
   return AuthMethods(
     passwordEnabled: (value['passwordEnabled']! as JsonBool).value,
     otpEnabled: (value['otpEnabled']! as JsonBool).value,
@@ -785,6 +811,8 @@ AuthMethods _decodeAuthMethods(JsonValue value) {
         .cast<JsonString>()
         .map((item) => item.value)
         .toList(growable: false),
+    oauth2Enabled: oauth2Enabled,
+    oauth2Providers: List.unmodifiable(oauth2Providers),
   );
 }
 

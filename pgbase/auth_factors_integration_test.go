@@ -133,7 +133,11 @@ func TestPublicOAuthPKCEStateExchangeSessionAndReplayHTTP(t *testing.T) {
 	start := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/oauth-customers/oauth/start", map[string]any{"provider": "local", "redirectUri": "http://localhost/oauth/callback"}, "", nil, nil)
 	assertPublicUsersStatus(t, start, http.StatusOK)
 	var authorization struct {
-		AuthorizationURL string `json:"authorizationUrl"`
+		AuthorizationURL    string `json:"authorizationUrl"`
+		State               string `json:"state"`
+		CodeVerifier        string `json:"codeVerifier"`
+		CodeChallenge       string `json:"codeChallenge"`
+		CodeChallengeMethod string `json:"codeChallengeMethod"`
 	}
 	decodePublicUsersJSON(t, start, &authorization)
 	parsed, err := url.Parse(authorization.AuthorizationURL)
@@ -145,8 +149,13 @@ func TestPublicOAuthPKCEStateExchangeSessionAndReplayHTTP(t *testing.T) {
 	mu.Lock()
 	challenge = query.Get("code_challenge")
 	mu.Unlock()
-	if state == "" || challenge == "" || query.Get("code_challenge_method") != "S256" {
+	if state == "" || challenge == "" || query.Get("code_challenge_method") != "S256" || authorization.State != state || authorization.CodeVerifier == "" || authorization.CodeChallenge != challenge || authorization.CodeChallengeMethod != "S256" {
 		t.Fatalf("authorization query=%v", query)
+	}
+	methods := publicUsersRequest(t, app, http.MethodGet, "/api/v1/auth/oauth-customers/methods", nil, "", nil, nil)
+	assertPublicUsersStatus(t, methods, http.StatusOK)
+	if !strings.Contains(methods.Body.String(), `"oauth2":{"enabled":true,"providers":[{"name":"local","startEndpoint":"/api/v1/auth/oauth-customers/oauth/start"}]}`) {
+		t.Fatalf("methods=%s", methods.Body.String())
 	}
 	complete := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/oauth/complete", map[string]any{"provider": "local", "state": state, "code": "local-code"}, "", nil, nil)
 	assertPublicUsersStatus(t, complete, http.StatusOK)

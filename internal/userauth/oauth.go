@@ -232,7 +232,7 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 	if err != nil {
 		return OAuthAuthorization{}, errors.New("create OAuth authorization URL")
 	}
-	return OAuthAuthorization{AuthorizationURL: authorizationURL, ExpiresAt: expires}, nil
+	return OAuthAuthorization{AuthorizationURL: authorizationURL, ExpiresAt: expires, State: state, CodeVerifier: verifier, CodeChallenge: challenge, CodeChallengeMethod: "S256"}, nil
 }
 
 func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code string) (Session, error) {

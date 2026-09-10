@@ -146,8 +146,12 @@ type OAuthProvider interface {
 }
 
 type OAuthAuthorization struct {
-	AuthorizationURL string
-	ExpiresAt        time.Time
+	AuthorizationURL    string
+	ExpiresAt           time.Time
+	State               string
+	CodeVerifier        string
+	CodeChallenge       string
+	CodeChallengeMethod string
 }
 
 func NewService(pool *database.Pool, passwords Passwords, secret []byte, ttl time.Duration) *Service {
