@@ -582,8 +582,12 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		existingByID[field.ID] = field
 	}
 	fields := make([]Field, 0, len(definition.Fields))
+	usedIDs := make(map[uuid.UUID]bool, len(definition.Fields))
 	for ordinal, planned := range definition.Fields {
 		fieldID, ok := existingIDs[planned.Name]
+		if ok && usedIDs[fieldID] {
+			fieldID, ok = uuid.Nil, false
+		}
 		columnName := planned.ColumnName
 		if planned.ID != uuid.Nil {
 			prior, exists := existingByID[planned.ID]
@@ -601,6 +605,7 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 				return nil, fmt.Errorf("generate field ID: %w", err)
 			}
 		}
+		usedIDs[fieldID] = true
 		relation, err := resolvedPlannedRelation(fmt.Sprintf("fields.%d", ordinal), collectionID, planned)
 		if err != nil {
 			return nil, err

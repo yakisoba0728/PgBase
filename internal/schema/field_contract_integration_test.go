@@ -41,7 +41,11 @@ func TestScalarRenameNameReuseThenDropPreservesRetainedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	retainedID := created.Fields[0].ID
-	renamed := applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{ID: &retainedID, Name: "headline", Type: TypeText}, {Name: "title", Type: TypeText}}}), admin)
+	renameChange := NewUpdateChange(UpdateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{ID: &retainedID, Name: "headline", Type: TypeText}, {Name: "title", Type: TypeText}}})
+	if _, err := service.Preview(ctx, renameChange); err != nil {
+		t.Fatalf("preview rename/reuse: %#v", err)
+	}
+	renamed := applyChange(t, service, renameChange, admin)
 	reusedID := renamed.Collection.Fields[1].ID
 	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{ID: &retainedID, Name: "headline", Type: TypeText}}}), admin)
 	var value string

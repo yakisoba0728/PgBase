@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"strings"
 	"time"
 
@@ -21,9 +22,9 @@ const MaximumRecordBytes = 8 << 20
 // not rewrite its values. The caller holds the schema write fence and runs this
 // after DDL, so a failure rolls back both physical and catalog changes.
 func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Collection) error {
-	existing := make(map[string]FieldType, len(before.Fields))
+	existing := make(map[uuid.UUID]FieldType, len(before.Fields))
 	for _, field := range before.Fields {
-		existing[field.Name] = field.Type
+		existing[field.ID] = field.Type
 	}
 	grows := false
 	columns := []string{"root.id", "root.created_at", "root.updated_at"}
@@ -32,7 +33,7 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 		if field.Type == TypeFile {
 			continue
 		}
-		grows = grows || existing[field.Name] != field.Type
+		grows = grows || existing[field.ID] != field.Type
 		column := "root." + pgx.Identifier{field.ColumnName}.Sanitize()
 		switch field.Type {
 		case TypeBigInt, TypeNumeric:

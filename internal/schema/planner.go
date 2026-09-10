@@ -236,6 +236,12 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		desiredNames[field.Name] = struct{}{}
 
 		previous, exists := currentFields[field.Name]
+		if field.ID == nil && exists {
+			if _, alreadyClaimed := desiredIDs[previous.ID]; alreadyClaimed {
+				exists = false
+				previous = PlannedField{}
+			}
+		}
 		if field.ID != nil {
 			previous, exists = currentFieldsByID[*field.ID]
 			if !exists {
@@ -326,6 +332,10 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		previous, exists := currentFields[field.Name]
 		if field.ID != uuid.Nil {
 			previous, exists = currentFieldsByID[field.ID]
+		} else if exists {
+			if _, claimed := desiredIDs[previous.ID]; claimed {
+				previous, exists = PlannedField{}, false
+			}
 		}
 		if !exists {
 			if field.Type == TypeFile {
