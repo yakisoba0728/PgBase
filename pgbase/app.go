@@ -24,6 +24,7 @@ type App struct {
 	schemaCache            *schema.Cache
 	backupManager          *backup.Manager
 	requestLog             *observability.RequestLog
+	realtimeBroker         *api.ApplicationRealtimeBroker
 	runtimeSettings        *runtimesettings.Controller
 	options                Options
 	pool                   *database.Pool

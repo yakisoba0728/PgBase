@@ -139,6 +139,11 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	h.clients[client.id] = client
 	h.mu.Unlock()
 	defer func() { h.mu.Lock(); delete(h.clients, client.id); h.mu.Unlock() }()
+	var applicationMessages <-chan ApplicationRealtimeMessage
+	if h.dependencies.ApplicationRealtimeBroker != nil {
+		applicationMessages = h.dependencies.ApplicationRealtimeBroker.connect(client.id)
+		defer h.dependencies.ApplicationRealtimeBroker.disconnect(client.id)
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -155,6 +160,18 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case message := <-applicationMessages:
+			client.deliveryMu.Lock()
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", message.Topic, message.Data); err != nil {
+				client.deliveryMu.Unlock()
+				return
+			}
+			if err := control.Flush(); err != nil {
+				client.deliveryMu.Unlock()
+				return
+			}
+			client.deliveryMu.Unlock()
+			continue
 		case <-ticker.C:
 		}
 		client.deliveryMu.Lock()
@@ -353,6 +370,9 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	client.subscriptions = subscriptions
 	client.resume = nil
 	client.mu.Unlock()
+	if h.dependencies.ApplicationRealtimeBroker != nil {
+		h.dependencies.ApplicationRealtimeBroker.subscribe(client.id, form.Subscriptions)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -39,6 +39,7 @@ type Dependencies struct {
 	UserAuth                    UserAuth
 	RecordAccess                RecordAccess
 	Realtime                    Realtime
+	ApplicationRealtimeBroker   *ApplicationRealtimeBroker
 	RealtimeLifecycle           RealtimeLifecycle
 	EmailActions                EmailActions
 	AuthFactors                 AuthFactors

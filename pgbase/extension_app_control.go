@@ -22,11 +22,10 @@ type extensionAppControl struct {
 	restart    func(context.Context) error
 	mu         sync.RWMutex
 	store      map[string]json.RawMessage
-	broker     map[string]*extensionBrokerClient
 }
 
 func newExtensionAppControl(app *App, options *JavaScriptOptions) *extensionAppControl {
-	control := &extensionAppControl{app: app, store: map[string]json.RawMessage{}, broker: map[string]*extensionBrokerClient{}}
+	control := &extensionAppControl{app: app, store: map[string]json.RawMessage{}}
 	if options != nil {
 		control.dataDir = options.PocketBaseCompatibility.DataDirectory
 		control.encryptEnv = options.PocketBaseCompatibility.EncryptionEnvironment
@@ -124,7 +123,7 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 		return control.callCron(ctx, method, raw)
 	case "app-control.backupList", "app-control.backupRead", "app-control.backupDelete":
 		return control.callBackupFilesystem(ctx, method, raw)
-	case "app-control.brokerRegister", "app-control.brokerUnregister", "app-control.brokerClients", "app-control.brokerPublish", "app-control.brokerDrain":
+	case "app-control.brokerClients", "app-control.brokerPublish":
 		return control.callBroker(method, raw)
 	default:
 		return nil, extensionError("unsupported_app_control", errors.New("unsupported app control operation"))
