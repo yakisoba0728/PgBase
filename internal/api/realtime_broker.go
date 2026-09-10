@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"sync"
@@ -20,8 +21,15 @@ type applicationRealtimeClient struct {
 // capability-gated JavaScript app facade. It exposes only connected client IDs
 // and exact subscription topics; authentication remains owned by the hub.
 type ApplicationRealtimeBroker struct {
-	mu      sync.RWMutex
-	clients map[string]*applicationRealtimeClient
+	mu        sync.RWMutex
+	clients   map[string]*applicationRealtimeClient
+	authorize func(context.Context, string, ApplicationRealtimeMessage) bool
+}
+
+func (b *ApplicationRealtimeBroker) setAuthorizer(authorize func(context.Context, string, ApplicationRealtimeMessage) bool) {
+	b.mu.Lock()
+	b.authorize = authorize
+	b.mu.Unlock()
 }
 
 func NewApplicationRealtimeBroker() *ApplicationRealtimeBroker {
@@ -66,15 +74,22 @@ func (b *ApplicationRealtimeBroker) Clients() []string {
 	return ids
 }
 
-func (b *ApplicationRealtimeBroker) Publish(topic string, data json.RawMessage) int {
+func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, data json.RawMessage) int {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	authorize := b.authorize
+	targets := make(map[string]*applicationRealtimeClient, len(b.clients))
+	for id, client := range b.clients {
+		if _, ok := client.topics[topic]; ok {
+			targets[id] = client
+		}
+	}
+	b.mu.RUnlock()
 	delivered := 0
-	for _, client := range b.clients {
-		if _, ok := client.topics[topic]; !ok {
+	message := ApplicationRealtimeMessage{Topic: topic, Data: append(json.RawMessage(nil), data...)}
+	for id, client := range targets {
+		if authorize == nil || !authorize(ctx, id, message) {
 			continue
 		}
-		message := ApplicationRealtimeMessage{Topic: topic, Data: append(json.RawMessage(nil), data...)}
 		select {
 		case client.queue <- message:
 			delivered++

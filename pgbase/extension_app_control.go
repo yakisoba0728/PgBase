@@ -125,7 +125,7 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 	case "app-control.backupList", "app-control.backupRead", "app-control.backupDelete":
 		return control.callBackupFilesystem(ctx, method, raw)
 	case "app-control.brokerClients", "app-control.brokerPublish":
-		return control.callBroker(method, raw)
+		return control.callBroker(ctx, method, raw)
 	default:
 		if strings.HasPrefix(method, "app-control.schema") || strings.HasPrefix(method, "app-control.collection") || strings.HasPrefix(method, "app-control.database") {
 			return control.callSchemaDatabase(ctx, method, raw, host.principal.ID, host.requestID)

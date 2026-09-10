@@ -42,7 +42,52 @@ type realtimeHub struct {
 }
 
 func newRealtimeHub(dependencies Dependencies) *realtimeHub {
-	return &realtimeHub{clients: map[string]*realtimeClient{}, dependencies: dependencies}
+	hub := &realtimeHub{clients: map[string]*realtimeClient{}, dependencies: dependencies}
+	if dependencies.ApplicationRealtimeBroker != nil {
+		dependencies.ApplicationRealtimeBroker.setAuthorizer(hub.authorizeApplicationMessage)
+	}
+	return hub
+}
+
+type realtimeApplicationBroadcastAuthorizer interface {
+	AllowsApplicationBroadcast(context.Context, realtime.ReadRequest) (bool, error)
+}
+
+func (h *realtimeHub) authorizeApplicationMessage(ctx context.Context, clientID string, message ApplicationRealtimeMessage) bool {
+	h.mu.RLock()
+	client := h.clients[clientID]
+	h.mu.RUnlock()
+	if client == nil || !h.revalidate(ctx, client) {
+		return false
+	}
+	client.mu.RLock()
+	principal := client.principal
+	client.mu.RUnlock()
+	var envelope struct {
+		ID     string `json:"id"`
+		Record *struct {
+			ID string `json:"id"`
+		} `json:"record"`
+	}
+	if json.Unmarshal(message.Data, &envelope) == nil {
+		id := envelope.ID
+		if envelope.Record != nil {
+			id = envelope.Record.ID
+		}
+		if recordID, err := uuid.Parse(id); err == nil && h.dependencies.Records != nil {
+			_, getErr := h.dependencies.Records.Get(ctx, recordops.GetRequest{Principal: principal, RequestID: "realtime-broker-" + clientID, Collection: message.Topic, ID: recordID})
+			return getErr == nil
+		}
+	}
+	if principal.Kind == identity.Administrator {
+		return true
+	}
+	authorizer, ok := h.dependencies.Realtime.(realtimeApplicationBroadcastAuthorizer)
+	if !ok {
+		return false
+	}
+	allowed, err := authorizer.AllowsApplicationBroadcast(ctx, realtime.ReadRequest{Principal: principal, Collection: message.Topic})
+	return err == nil && allowed
 }
 
 func realtimeSessionRoutes(dependencies Dependencies) []route {

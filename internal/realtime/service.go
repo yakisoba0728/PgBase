@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -146,6 +147,35 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		return rows.Err()
 	})
 	return events, cursor, err
+}
+
+// AllowsApplicationBroadcast permits payloads without a record envelope only
+// when the current collection list and view rules are explicitly public.
+func (s *Service) AllowsApplicationBroadcast(ctx context.Context, request ReadRequest) (bool, error) {
+	allowed := false
+	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.schema_state WHERE singleton FOR SHARE`); err != nil {
+			return err
+		}
+		var collectionID uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1`, request.Collection).Scan(&collectionID); err != nil {
+			return err
+		}
+		rules, revision, err := recordaccess.LoadRules(ctx, tx, collectionID)
+		if err != nil {
+			return err
+		}
+		allowed = revision != 0 && applicationBroadcastRulePublic(rules.List) && applicationBroadcastRulePublic(rules.View)
+		return nil
+	})
+	return allowed, err
+}
+
+func applicationBroadcastRulePublic(rule accessrule.Rule) bool {
+	if rule.Op == "allow" {
+		return true
+	}
+	return rule.PocketBase != nil && strings.TrimSpace(*rule.PocketBase) == ""
 }
 
 func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest, collectionID uuid.UUID, cursor int64) (string, []any, schema.Collection, error) {
