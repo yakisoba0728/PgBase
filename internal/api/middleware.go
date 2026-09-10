@@ -55,6 +55,16 @@ type requestLogContextKey struct{}
 type requestLogContext struct {
 	clientIP, authKind, authID string
 	includeAuth                bool
+	skipSuccessActivityLog     bool
+}
+
+// SkipSuccessActivityLog records a request-local opt-out that the access log
+// reads after its nested handler returns. Only successful responses are
+// skipped; failures remain part of the diagnostic and security trail.
+func SkipSuccessActivityLog(ctx context.Context) {
+	if metadata, ok := ctx.Value(requestLogContextKey{}).(*requestLogContext); ok && metadata != nil {
+		metadata.skipSuccessActivityLog = true
+	}
 }
 
 func requestID(ctx context.Context) string {
@@ -262,6 +272,9 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 		status := response.status
 		if status == 0 {
 			status = http.StatusOK
+		}
+		if metadata.skipSuccessActivityLog && status >= http.StatusOK && status < http.StatusBadRequest {
+			return
 		}
 		for _, log := range logs {
 			log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)

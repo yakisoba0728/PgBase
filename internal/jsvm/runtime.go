@@ -70,6 +70,10 @@ type Invocation struct {
 	Input        json.RawMessage
 	Host         Host
 	Timeout      time.Duration
+	// OnSkipSuccessActivityLog is invoked after a route handler has been
+	// resolved and is marked by $apis.skipSuccessActivityLog. The callback is
+	// supplied by the HTTP transport, never by script input.
+	OnSkipSuccessActivityLog func()
 }
 
 type Limits struct {
@@ -256,7 +260,7 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (output jso
 		cancel()
 	}()
 	state := &callState{ctx: callContext, host: invocation.Host, capabilities: capabilitySet(invocation.Capabilities), hostCalls: chain.hostCalls, limits: r.limits}
-	return r.invoke(callContext, invocation.Handler, invocation.Input, state)
+	return r.invoke(callContext, invocation.Handler, invocation.Input, state, invocation.OnSkipSuccessActivityLog)
 }
 
 func (r *Runtime) Close(ctx context.Context) error {
@@ -337,7 +341,7 @@ func (r *Runtime) release() {
 	r.active.Done()
 }
 
-func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState) (json.RawMessage, error) {
+func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState, onSkipSuccessActivityLog func()) (json.RawMessage, error) {
 	moduleName, err := r.bundle.canonicalModule(ref.Module)
 	if err != nil {
 		return nil, &Error{Code: CodeExecutionFailed, cause: err}
@@ -381,6 +385,7 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 			return nil, classifyExecutionError(ctx, replayErr)
 		}
 		handler, ok = registered.handlers[ref.Export]
+		handlerValue = registered.handlerValues[ref.Export]
 	} else {
 		exports, requireErr := requireModule.Require(virtualRoot + "/" + moduleName)
 		if requireErr != nil {
@@ -413,6 +418,9 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 			}
 			return nil, &Error{Code: CodeInvalidResult, cause: err}
 		}
+	}
+	if onSkipSuccessActivityLog != nil && javaScriptHandlerSkipsSuccessActivityLog(vm, handlerValue) {
+		onSkipSuccessActivityLog()
 	}
 	inputValue, err := decodeValue(vm, input, r.limits.MaximumJSONDepth)
 	if err != nil {
@@ -457,6 +465,14 @@ func javaScriptHandlerBodyLimit(vm *goja.Runtime, handler goja.Value) (int64, er
 		return 0, errors.New("invalid JavaScript body limit")
 	}
 	return limit, nil
+}
+
+func javaScriptHandlerSkipsSuccessActivityLog(vm *goja.Runtime, handler goja.Value) bool {
+	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
+		return false
+	}
+	value := handler.ToObject(vm).Get("pgbaseSkipSuccessActivityLog")
+	return value != nil && value.ToBoolean()
 }
 
 func (r *Runtime) validateHandlers(ctx context.Context) error {

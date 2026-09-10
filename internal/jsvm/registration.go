@@ -19,6 +19,7 @@ const registeredExportPrefix = "$registered:"
 
 type registrationSet struct {
 	handlers         map[string]goja.Callable
+	handlerValues    map[string]goja.Value
 	closed           bool
 	ordinal          int
 	globalMiddleware []goja.Value
@@ -75,7 +76,7 @@ func (r *Runtime) collectBootstrap() error {
 }
 
 func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) (*registrationSet, error) {
-	set := &registrationSet{handlers: map[string]goja.Callable{}}
+	set := &registrationSet{handlers: map[string]goja.Callable{}, handlerValues: map[string]goja.Value{}}
 	register := func(kind, name string, value goja.Value, middlewares []goja.Value) (string, error) {
 		if set.closed {
 			return "", errors.New("registration_closed")
@@ -88,6 +89,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 		if kind == "route" {
 			all = append(append([]goja.Value{}, set.globalMiddleware...), all...)
 		}
+		handlerValue := value
 		for i := len(all) - 1; i >= 0; i-- {
 			mw, ok := goja.AssertFunction(all[i])
 			if !ok {
@@ -109,10 +111,12 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 			if !ok {
 				return "", errors.New("middleware must return a function")
 			}
+			handlerValue = wrapped
 		}
 		id := registrationID(r.bundle.manifest.Bootstrap, kind, name, set.ordinal)
 		set.ordinal++
 		set.handlers[id] = callable
+		set.handlerValues[id] = handlerValue
 		return id, nil
 	}
 	if err := vm.Set("routerUse", func(values ...goja.Value) error {

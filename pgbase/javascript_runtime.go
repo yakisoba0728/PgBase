@@ -240,6 +240,7 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 	}
 	output, err := runtime.engine.Invoke(r.Context(), jsvm.Invocation{
 		Handler: descriptor.Handler, Capabilities: descriptor.Capabilities, Input: input, Host: host,
+		OnSkipSuccessActivityLog: func() { api.SkipSuccessActivityLog(r.Context()) },
 	})
 	if err != nil {
 		writeJavaScriptRouteError(w, err)
