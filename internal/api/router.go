@@ -65,6 +65,13 @@ type Dependencies struct {
 	RuntimeSettings    *runtimesettings.Controller
 }
 
+func (d Dependencies) trustedProxies() []netip.Prefix {
+	if d.RuntimeSettings != nil {
+		return d.RuntimeSettings.TrustedProxies()
+	}
+	return d.TrustedProxies
+}
+
 // declareRoutes is the single authoritative description of the HTTP surface.
 // Access, response buffering and deadline are three independent axes, so each
 // route names all three and a reviewer never has to reconstruct admission from

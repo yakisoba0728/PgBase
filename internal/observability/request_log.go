@@ -45,17 +45,18 @@ func (o RequestLogOptions) normalized() RequestLogOptions {
 // RequestLog always maintains the previous 1,000-entry ring. NewRequestLog
 // additionally persists entries through a bounded asynchronous writer.
 type RequestLog struct {
-	mu          sync.RWMutex
-	entries     [recentRequestCapacity]RequestEntry
-	sequence    uint64
-	pool        *database.Pool
-	options     RequestLogOptions
-	queue       chan RequestEntry
-	flush, stop chan chan error
-	done        chan struct{}
-	dropped     atomic.Uint64
-	closed      atomic.Bool
-	lifecycle   sync.RWMutex
+	mu               sync.RWMutex
+	entries          [recentRequestCapacity]RequestEntry
+	sequence         uint64
+	pool             *database.Pool
+	options          RequestLogOptions
+	queue            chan RequestEntry
+	flush, stop      chan chan error
+	done             chan struct{}
+	dropped          atomic.Uint64
+	closed           atomic.Bool
+	retentionSeconds atomic.Int64
+	lifecycle        sync.RWMutex
 }
 
 type RequestEntry struct {
@@ -91,6 +92,7 @@ type RequestStatistics struct {
 func NewRequestLog(pool *database.Pool, options RequestLogOptions) *RequestLog {
 	options = options.normalized()
 	l := &RequestLog{pool: pool, options: options, queue: make(chan RequestEntry, options.QueueCapacity), flush: make(chan chan error), stop: make(chan chan error, 1), done: make(chan struct{})}
+	l.retentionSeconds.Store(int64(options.Retention.Seconds()))
 	go l.writeLoop()
 	return l
 }
@@ -330,6 +332,20 @@ func (l *RequestLog) Truncate(ctx context.Context) error {
 	l.mu.Unlock()
 	return nil
 }
+
+// SetRetention applies a new durable retention window immediately and makes
+// future writer cleanup use the same snapshot.
+func (l *RequestLog) SetRetention(ctx context.Context, retention time.Duration) error {
+	if l == nil || retention < 24*time.Hour {
+		return errors.New("invalid request log retention")
+	}
+	l.retentionSeconds.Store(int64(retention.Seconds()))
+	if l.pool == nil {
+		return nil
+	}
+	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1)`, l.retentionSeconds.Load())
+	return err
+}
 func (l *RequestLog) Flush(ctx context.Context) error {
 	if l == nil || l.flush == nil {
 		return nil
@@ -448,6 +464,6 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 	if _, err := l.pool.Exec(ctx, q.String(), values...); err != nil {
 		return err
 	}
-	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, int64(l.options.Retention.Seconds()), l.options.MaximumRows)
+	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, l.retentionSeconds.Load(), l.options.MaximumRows)
 	return err
 }

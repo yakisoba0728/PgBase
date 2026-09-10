@@ -64,7 +64,7 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 type adminEndpoints struct {
 	auth           AdminAuth
 	publicURL      *url.URL
-	trustedProxies []netip.Prefix
+	trustedProxies func() []netip.Prefix
 	sqlConsole     bool
 	recorder       observability.Recorder
 	statusCache    *setupStatusCache
@@ -93,7 +93,7 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 	return adminEndpoints{
 		auth:           dependencies.AdminAuth,
 		publicURL:      dependencies.PublicURL,
-		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
+		trustedProxies: dependencies.trustedProxies,
 		sqlConsole:     dependencies.SQLConsole != nil,
 		recorder:       recorder,
 		statusCache:    newSetupStatusCache(),
@@ -121,7 +121,7 @@ func (e adminEndpoints) setup(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	subject, ok := clientAddress(r, e.trustedProxies)
+	subject, ok := clientAddress(r, e.trustedProxies())
 	if !ok {
 		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -159,7 +159,7 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	subject, ok := clientIP(r, e.trustedProxies)
+	subject, ok := clientIP(r, e.trustedProxies())
 	if !ok {
 		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -237,13 +237,13 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
+		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies()),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(1, 0).UTC(),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
+		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies()),
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
@@ -251,12 +251,12 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 
 func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Request, status int, session adminauth.Session) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
+		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies()),
 		Value:    session.RawToken,
 		Path:     "/",
 		Expires:  session.ExpiresAt.UTC(),
 		HttpOnly: true,
-		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
+		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies()),
 		SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken, e.sqlConsole))

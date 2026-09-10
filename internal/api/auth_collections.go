@@ -82,7 +82,7 @@ func (e authCollectionEndpoints) otpRequest(w http.ResponseWriter, r *http.Reque
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+	address, ok := clientAddress(r, e.dependencies.trustedProxies())
 	if !ok {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
@@ -121,7 +121,7 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+	address, ok := clientAddress(r, e.dependencies.trustedProxies())
 	if !ok {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
@@ -238,7 +238,7 @@ func (e authCollectionEndpoints) credentials(register bool) http.Handler {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
-		address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+		address, ok := clientAddress(r, e.dependencies.trustedProxies())
 		if !ok {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
@@ -269,7 +269,7 @@ func (e authCollectionEndpoints) reset(w http.ResponseWriter, r *http.Request) {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+	address, ok := clientAddress(r, e.dependencies.trustedProxies())
 	if !ok {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return

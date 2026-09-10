@@ -227,6 +227,18 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
+	// Request diagnostics intentionally never retain IP addresses or auth
+	// material. The persisted privacy switches remain a truthful declaration of
+	// that fixed redaction boundary while retention is applied live.
+	applyLogSettings := func(value runtimesettings.Settings) {
+		retentionCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if applyErr := requestLog.SetRetention(retentionCtx, time.Duration(value.Logs.RetentionDays)*24*time.Hour); applyErr != nil {
+			normalized.Logger.ErrorContext(retentionCtx, "apply request log retention", "error", applyErr)
+		}
+	}
+	applyLogSettings(runtimeSettings.Get())
+	runtimeSettings.Subscribe(applyLogSettings)
 	defer func() {
 		if !keepPool {
 			ctx, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
@@ -286,6 +298,11 @@ func newWithCatalogPreflight(
 	}()
 	if jobService != nil {
 		dependencies.Jobs = jobService
+	}
+	if err := installManagedBackupSchedule(ctx, jobService, backupManager, runtimeSettings, func(ctx context.Context, err error) {
+		normalized.Logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
+	}); err != nil {
+		return nil, fmt.Errorf("install managed backup schedule: %w", err)
 	}
 	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
 	handler, err := api.NewRouter(dependencies)

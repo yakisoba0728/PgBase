@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,14 +60,16 @@ type Lifecycle interface {
 // a time. Job receipts survive database restore and process restart. Callbacks
 // receive verified directories, never user-selected paths or database URLs.
 type Manager struct {
-	options ManagerOptions
-	mu      sync.Mutex
-	busy    bool
-	closed  bool
-	jobs    map[string]Job
-	cancel  context.CancelFunc
-	ctx     context.Context
-	wg      sync.WaitGroup
+	options             ManagerOptions
+	mu                  sync.Mutex
+	busy                bool
+	closed              bool
+	jobs                map[string]Job
+	cancel              context.CancelFunc
+	ctx                 context.Context
+	wg                  sync.WaitGroup
+	retentionOverride   atomic.Int64
+	retentionConfigured atomic.Bool
 }
 
 func NewManager(options ManagerOptions) (*Manager, error) {
@@ -338,8 +341,13 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 
 func (m *Manager) prune(ctx context.Context, currentID string) error {
 	retention := m.options.Retention
+	if m.retentionConfigured.Load() {
+		retention = int(m.retentionOverride.Load())
+	}
 	if provider, ok := m.options.Repository.(interface{ Retention() int }); ok {
-		retention = provider.Retention()
+		if !m.retentionConfigured.Load() {
+			retention = provider.Retention()
+		}
 	}
 	if retention <= 0 {
 		return nil
@@ -363,6 +371,16 @@ func (m *Manager) prune(ctx context.Context, currentID string) error {
 		remove--
 	}
 	return nil
+}
+
+// SetRetention changes the pruning window used by future backups. Zero keeps
+// every archive; positive values prune after each successful publish.
+func (m *Manager) SetRetention(value int) {
+	if value < 0 {
+		return
+	}
+	m.retentionOverride.Store(int64(value))
+	m.retentionConfigured.Store(true)
 }
 func (m *Manager) Upload(ctx context.Context, source io.Reader) (Entry, error) {
 	if err := m.reserve(); err != nil {

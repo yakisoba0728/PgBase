@@ -13,7 +13,10 @@ import (
 // runner. It registers every handler before scheduling anything, so a process
 // never claims work it cannot execute.
 func newJobService(ctx context.Context, pool *database.Pool, options Options) (*jobs.Service, error) {
-	if !options.JobsEnabled {
+	// Managed backups own a built-in durable worker even when an embedder has
+	// not enabled arbitrary application jobs. Without it a saved backup
+	// schedule would be merely descriptive.
+	if !options.JobsEnabled && options.Backups.Directory == "" {
 		return nil, nil
 	}
 	registry := jobs.NewRegistry()

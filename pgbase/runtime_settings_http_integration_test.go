@@ -18,9 +18,7 @@ func TestRuntimeSettingsHTTPPersistsValidatedWholeDocument(t *testing.T) {
 		return value
 	}
 	initial := get()
-	batch := initial["batch"].(map[string]any)
-	batch["enabled"] = false
-	response := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/settings", initial, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	response := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/settings", map[string]any{"revision": initial["revision"], "batch": map[string]any{"enabled": false}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, response, http.StatusOK)
 	updated := get()
 	if updated["batch"].(map[string]any)["enabled"] != false || updated["revision"].(float64) <= initial["revision"].(float64) {
@@ -31,7 +29,6 @@ func TestRuntimeSettingsHTTPPersistsValidatedWholeDocument(t *testing.T) {
 	if got := decodePublicUsersError(t, disabled).Code; got != "batch_disabled" {
 		t.Fatalf("disabled batch code = %q", got)
 	}
-	initial["revision"] = float64(1)
-	stale := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/settings", initial, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	stale := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/settings", map[string]any{"revision": initial["revision"], "batch": map[string]any{"enabled": true}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, stale, http.StatusConflict)
 }

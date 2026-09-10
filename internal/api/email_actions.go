@@ -63,7 +63,7 @@ func (e userEndpoints) emailAction(action string) http.Handler {
 		case "confirm-verification":
 			err = service.ConfirmVerification(r.Context(), input.Token)
 		case "request-password-reset":
-			address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+			address, ok := clientAddress(r, e.dependencies.trustedProxies())
 			if !ok {
 				writeUserAuthError(w, r, userauth.ErrValidation)
 				return

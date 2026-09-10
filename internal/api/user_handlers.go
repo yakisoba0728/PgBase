@@ -87,7 +87,7 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
-		address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+		address, ok := clientAddress(r, e.dependencies.trustedProxies())
 		if !ok {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return

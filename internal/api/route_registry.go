@@ -179,11 +179,11 @@ func (d Dependencies) admit(policy accessPolicy, handler http.Handler) http.Hand
 	case accessUserSession:
 		return userSessionMiddleware(d.UserAuth, handler)
 	case accessSameOrigin:
-		return sameOriginMiddleware(d.PublicURL, d.TrustedProxies, handler)
+		return sameOriginMiddleware(d.PublicURL, d.trustedProxies, handler)
 	case accessAdminSession:
-		return adminSessionMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
+		return adminSessionMiddleware(d.AdminAuth, d.PublicURL, d.trustedProxies, handler)
 	case accessAdminSameOriginRead:
-		return adminSameOriginReadMiddleware(d.AdminAuth, d.PublicURL, d.TrustedProxies, handler)
+		return adminSameOriginReadMiddleware(d.AdminAuth, d.PublicURL, d.trustedProxies, handler)
 	}
 	return handler
 }

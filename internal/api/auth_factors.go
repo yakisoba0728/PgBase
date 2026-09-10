@@ -135,7 +135,7 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			}
 			result = userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt}
 		case "otp/request":
-			address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+			address, ok := clientAddress(r, e.dependencies.trustedProxies())
 			if !ok {
 				err = userauth.ErrValidation
 				break
@@ -150,7 +150,7 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 		case "oauth/start", "oauth/link":
 			var value userauth.OAuthAuthorization
 			if action == "oauth/start" {
-				address, ok := clientAddress(r, e.dependencies.TrustedProxies)
+				address, ok := clientAddress(r, e.dependencies.trustedProxies())
 				if !ok {
 					writeUserAuthError(w, r, userauth.ErrValidation)
 					return
