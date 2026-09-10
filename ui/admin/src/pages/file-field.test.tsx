@@ -38,9 +38,15 @@ describe("file field", () => {
     expect(screen.queryByText("note.txt")).not.toBeInTheDocument();
   });
 
-	it("previews protected images only after minting a file-scoped token", async () => {
+  it("previews protected images only after minting a file-scoped token", async () => {
 		const image = { ...item, contentType: "image/png", filename: "cover.png" }; const script = backendScript(); script.listFiles.push({ value: [image] }); script.createDownloadToken.push({ value: "short-lived-token" }); script.downloadBlob.push({ value: new Blob(["png"], { type: "image/png" }) }); vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:protected-preview");
 		view(script); const button = await screen.findByRole("button", { name: "Preview" }); fireEvent.click(button); await act(async () => {});
 		expect(callsTo(script, "createDownloadToken")[0]?.detail).toEqual({ id: "file-1", variant: "original" }); expect(callsTo(script, "downloadBlob")[0]?.detail).toEqual({ id: "file-1", token: "short-lived-token", variant: "original" }); expect(await screen.findByRole("img", { name: "cover.png" })).toHaveAttribute("src", "blob:protected-preview");
+  });
+
+	it("uses only the server-provided same-origin public URL for an explicitly public file", async () => {
+		const image = { ...item, contentType: "image/png", filename: "public.png", protected: false, publicUrl: "/api/files/11111111-1111-4111-8111-111111111111" }; const script = backendScript(); script.listFiles.push({ value: [image] }); script.createDownloadToken.push({ fault: { kind: "unreachable" } }); const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["png"], { type: "image/png" }), { status: 200 })); vi.stubGlobal("fetch", fetchMock); vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:public-preview");
+		view(script); expect(await screen.findByRole("link", { name: "Public link" })).toHaveAttribute("href", image.publicUrl); fireEvent.click(screen.getByRole("button", { name: "Preview" })); await act(async () => {});
+		expect(fetchMock).toHaveBeenCalledWith(image.publicUrl, { credentials: "omit" }); expect(callsTo(script, "createDownloadToken")).toHaveLength(0); expect(await screen.findByRole("img", { name: "public.png" })).toHaveAttribute("src", "blob:public-preview");
 	});
 });

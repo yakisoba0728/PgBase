@@ -7,7 +7,7 @@ interface Administrator { id: string; email: string; createdAt: string }
 export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean }
 export interface SetupInput { setupToken: string; email: string; password: string }
 export interface SetupBackup { id: string; createdAt?: string; size?: number; postgresqlMajor?: number }
-export interface SetupBackupJob { id: string; status?: string; phase?: string }
+export interface SetupBackupJob { id: string; status?: string; phase?: string; error?: string }
 export interface LoginInput { email: string; password: string; otpCode?: string }
 
 export type AuthSnapshot =
@@ -248,6 +248,7 @@ export interface SessionPort {
   logout(): Promise<void>;
 	uploadSetupBackup?(setupToken: string, archive: File, signal?: AbortSignal): Promise<SetupBackup>;
 	restoreSetupBackup?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
+	setupBackupJob?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
 	requestPasswordReset?(email: string, signal?: AbortSignal): Promise<void>;
 	confirmPasswordReset?(token: string, newPassword: string, signal?: AbortSignal): Promise<void>;
   onExpired(listener: () => void): () => void;
@@ -311,7 +312,7 @@ export interface RecordPort {
 	updateWithFiles(record: VersionedRecord, patch: RecordData, files: Record<string, File[]>): Promise<VersionedRecord>;
   remove(record: VersionedRecord): Promise<void>;
 }
-export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean }
+export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean; protected?: boolean; publicUrl?: string }
 export interface FilePort {
   listFiles(collection: string, recordID: string, field: string, signal?: AbortSignal): Promise<FileInfo[]>;
   uploadFile(collection: string, recordID: string, field: string, file: File, signal?: AbortSignal): Promise<FileInfo>;

@@ -10,6 +10,10 @@ import type { FieldState } from "../workspace/record-codec";
 
 function jsonSelections(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
 
+function safePublicURL(value: string | undefined): string | null {
+  if (!value) return null; try { const url = new URL(value, window.location.origin); return url.origin === window.location.origin && /^\/api\/files\/[0-9a-f-]+$/i.test(url.pathname) && url.search === "" && url.hash === "" ? url.pathname : null; } catch { return null; }
+}
+
 function datetimeLocal(value: unknown): string {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return "";
@@ -92,18 +96,18 @@ export function FileField({ collection, recordID, field }: { collection: string;
     catch { if (generation === lifetime.current) setMessage("Upload failed."); } finally { if (generation === lifetime.current) setPending(false); }
   }
   async function download(item: FileInfo, variant = "original") {
-	try { const token = await files.createDownloadToken(item.id, variant); const blob = await files.downloadBlob(item.id, token, variant); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = variant === "original" ? item.filename : `${variant}-${item.filename}`; link.click(); URL.revokeObjectURL(url); }
+	try { const publicURL = variant === "original" && item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await (await fetch(publicURL, { credentials: "omit" })).blob() : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, variant), variant); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = variant === "original" ? item.filename : `${variant}-${item.filename}`; link.click(); URL.revokeObjectURL(url); }
     catch { setMessage("Download failed."); }
   }
 	async function showPreview(item: FileInfo) {
-		try { const token = await files.createDownloadToken(item.id, "original"); const blob = await files.downloadBlob(item.id, token); setPreview((current) => { if (current) URL.revokeObjectURL(current.url); return { name: item.filename, url: URL.createObjectURL(blob) }; }); }
+		try { const publicURL = item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await (await fetch(publicURL, { credentials: "omit" })).blob() : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, "original")); setPreview((current) => { if (current) URL.revokeObjectURL(current.url); return { name: item.filename, url: URL.createObjectURL(blob) }; }); }
 		catch { setMessage("Preview failed. You may not have permission to read this protected file."); }
 	}
 	return <fieldset className="record-field"><legend>{field.name} files</legend>
 		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
-		<p>Preview and download mint a short-lived, file-scoped token. They never expose a protected file through a public URL.</p>
+		<p>Protected previews and downloads mint a short-lived, file-scoped token. A public link appears only when the server explicitly exposes this file.</p>
 		{message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>Upload</button>
-		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>Preview</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
+		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) {item.protected === false && safePublicURL(item.publicUrl) ? <a href={safePublicURL(item.publicUrl)!}>Public link</a> : <small>Protected</small>} <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>Preview</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
 		{preview && <div role="dialog" aria-label={`Preview ${preview.name}`}><img alt={preview.name} src={preview.url} /><button type="button" onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }}>Close preview</button></div>}
   </fieldset>;
 }

@@ -214,6 +214,10 @@ class HTTPBackend implements AdminBackend {
 			try { return (await this.#send({ path: `/api/admin/setup/backups/${encodeURIComponent(id)}/restore`, method: "POST", headers: { "X-PgBase-Setup-Token": setupToken }, anonymous: true, signal })).data as SetupBackupJob; }
 			catch (error) { throw error instanceof WireError && error.wire.status === 401 ? new SessionError("invalid-credentials") : error; }
 		},
+		setupBackupJob: async (setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob> => {
+			const response = await fetch(`/api/admin/setup/backup-jobs/${encodeURIComponent(id)}`, { credentials: "include", signal, headers: { "X-PgBase-Setup-Token": setupToken } });
+			if (!response.ok) throw new SessionError(response.status === 401 ? "invalid-credentials" : "failed"); return await decode(response) as SetupBackupJob;
+		},
 		requestPasswordReset: async (email: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/request-password-reset", method: "POST", body: { email }, anonymous: true, signal }); },
 		confirmPasswordReset: async (token: string, newPassword: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/confirm-password-reset", method: "POST", body: { token, newPassword }, anonymous: true, signal }); },
     onExpired: (listener: () => void) => {

@@ -132,9 +132,9 @@ describe("administrator setup", () => {
   });
 
 	it("uploads a setup-scoped backup and only starts restore after destructive confirmation", async () => {
-		const user = userEvent.setup(); const upload = vi.fn().mockResolvedValue({ id: "initial-backup" }); const restore = vi.fn().mockResolvedValue({ id: "job" }); vi.spyOn(window, "confirm").mockReturnValue(true);
-		render(<SetupPage onRestoreBackup={restore} onSetup={vi.fn()} onUploadBackup={upload} />);
+		const user = userEvent.setup(); const upload = vi.fn().mockResolvedValue({ id: "initial-backup" }); const restore = vi.fn().mockResolvedValue({ id: "job" }); const status = vi.fn().mockResolvedValue({ id: "job", status: "running" }); vi.spyOn(window, "confirm").mockReturnValue(true);
+		render(<SetupPage onRestoreBackup={restore} onSetup={vi.fn()} onSetupBackupJob={status} onUploadBackup={upload} />);
 		await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "initial.tar.gz", { type: "application/gzip" })); await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
-		expect(upload).toHaveBeenCalledWith("first-run-token", expect.any(File)); expect(restore).toHaveBeenCalledWith("first-run-token", "initial-backup"); expect(await screen.findByText(/Restore started/)).toBeVisible();
+		expect(upload).toHaveBeenCalledWith("first-run-token", expect.any(File)); expect(restore).toHaveBeenCalledWith("first-run-token", "initial-backup"); expect(await screen.findByText(/Restore started/)).toBeVisible(); expect(screen.getByRole("button", { name: "Waiting for backup restore…" })).toBeDisabled();
 	});
 });
