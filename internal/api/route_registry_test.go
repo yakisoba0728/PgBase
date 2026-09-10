@@ -44,6 +44,7 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"DELETE /api/admin/session",
 		"DELETE /api/v1/collections/{collection}/records/{id}",
 		"GET /api/admin/collections",
+		"GET /api/admin/collections/{collection}",
 		"GET /api/admin/jobs",
 		"GET /api/admin/schema-operations",
 		"GET /api/admin/schema-operations/{id}",
@@ -56,10 +57,13 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"GET /health/live",
 		"GET /health/ready",
 		"PATCH /api/v1/collections/{collection}/records/{id}",
+		"POST /api/admin/auth/confirm-password-reset",
 		"POST /api/admin/auth/login",
 		"POST /api/admin/auth/logout",
+		"POST /api/admin/auth/request-password-reset",
 		"POST /api/admin/collections/apply",
 		"POST /api/admin/collections/plan",
+		"POST /api/admin/collections/view/sample",
 		"POST /api/admin/login",
 		"POST /api/admin/setup",
 		"POST /api/v1/collections/batch",
@@ -99,6 +103,8 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"GET /api/admin/status":                                accessPublic,
 		"POST /api/admin/setup":                                accessSameOrigin,
 		"POST /api/admin/auth/login":                           accessSameOrigin,
+		"POST /api/admin/auth/confirm-password-reset":          accessPublic,
+		"POST /api/admin/auth/request-password-reset":          accessPublic,
 		"POST /api/admin/login":                                accessSameOrigin,
 		"GET /api/admin/session":                               accessAdminSameOriginRead,
 		"POST /api/admin/auth/logout":                          accessAdminSession,
@@ -165,9 +171,11 @@ func TestBufferedRoutesNameACapAndOnlySchemaApplyRunsLong(t *testing.T) {
 
 func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 	want := map[string]bool{
-		"POST /api/admin/setup":      true,
-		"POST /api/admin/auth/login": true,
-		"POST /api/admin/login":      true,
+		"POST /api/admin/setup":                       true,
+		"POST /api/admin/auth/login":                  true,
+		"POST /api/admin/auth/confirm-password-reset": true,
+		"POST /api/admin/auth/request-password-reset": true,
+		"POST /api/admin/login":                       true,
 	}
 	for _, declared := range declaredTestRoutes(t) {
 		key := declared.muxPattern()

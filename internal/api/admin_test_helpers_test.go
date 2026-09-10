@@ -38,6 +38,12 @@ type fakeAdminAuth struct {
 	loginSubject       string
 	authenticateToken  string
 	logoutToken        string
+	resetEmail         string
+	resetAddress       string
+	resetToken         string
+	resetPassword      string
+	resetRequestErr    error
+	resetConfirmErr    error
 }
 
 func (f *fakeAdminAuth) SetupRequired(context.Context) (bool, error) {
@@ -79,6 +85,16 @@ func (f *fakeAdminAuth) Logout(_ context.Context, rawToken string) error {
 	f.logoutCalls++
 	f.logoutToken = rawToken
 	return f.logoutErr
+}
+
+func (f *fakeAdminAuth) RequestPasswordReset(_ context.Context, email, address string) error {
+	f.resetEmail, f.resetAddress = email, address
+	return f.resetRequestErr
+}
+
+func (f *fakeAdminAuth) ConfirmPasswordReset(_ context.Context, token, password string) error {
+	f.resetToken, f.resetPassword = token, password
+	return f.resetConfirmErr
 }
 
 func validSession() adminauth.Session {

@@ -276,6 +276,11 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	if extensionMailer != nil {
+		if err := authService.ConfigurePasswordReset(extensionMailer, normalized.PublicURL.String(), time.Hour); err != nil {
+			return nil, fmt.Errorf("configure administrator password reset: %w", err)
+		}
+	}
 	if normalized.Hooks != nil {
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
 		dependencies.LifecycleHooks = normalized.Hooks

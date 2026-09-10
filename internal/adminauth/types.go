@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
 type ErrorKind uint8
@@ -120,6 +121,9 @@ type Service struct {
 	sessionSlots    chan struct{}
 	probeSlots      chan struct{}
 	passwordSlots   chan struct{}
+	resetMailer     mailer.Sender
+	resetBaseURL    string
+	resetTTL        time.Duration
 }
 
 const passwordWorkConcurrency = 2

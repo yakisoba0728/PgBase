@@ -190,6 +190,50 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	return administratorUTC(administrator), nil
 }
 
+func (s *Store) CreatePasswordReset(ctx context.Context, tokenHash []byte, administratorID uuid.UUID, expiresAt time.Time) error {
+	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.admin_password_resets (token_hash,admin_id,expires_at) values ($1,$2,$3)`, tokenHash, administratorID, expiresAt); err != nil {
+		return fmt.Errorf("create administrator password reset: %w", err)
+	}
+	return nil
+}
+
+// ConsumePasswordReset locks and marks one valid token consumed. The update is
+// deliberately performed before the password mutation so simultaneous callers
+// cannot both use the same credential.
+func (s *Store) ConsumePasswordReset(ctx context.Context, tokenHash []byte, now time.Time) (uuid.UUID, error) {
+	var administratorID uuid.UUID
+	err := s.db.QueryRow(ctx, `update pgbase_meta.admin_password_resets
+		set consumed_at=$2
+		where token_hash=$1 and consumed_at is null and expires_at > $2
+		returning admin_id`, tokenHash, now).Scan(&administratorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrInvalidCredentials
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("consume administrator password reset: %w", err)
+	}
+	return administratorID, nil
+}
+
+func (s *Store) ResetAdministratorPasswordByID(ctx context.Context, administratorID uuid.UUID, passwordHash string, now time.Time) (Administrator, error) {
+	var administrator Administrator
+	err := s.db.QueryRow(ctx, `update pgbase_meta.admins
+		set password_hash=$2, updated_at=$3
+		where id=$1 and active
+		returning id,email,active,created_at,updated_at`, administratorID, passwordHash, now).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("reset administrator password: %w", err)
+	}
+	if err := s.DeleteAdministratorSessions(ctx, administratorID); err != nil {
+		return Administrator{}, err
+	}
+	return administratorUTC(administrator), nil
+}
+
 // UpsertAdministratorPassword reactivates a locked existing administrator,
 // replaces its password, and removes every existing session. TOTP and IP
 // policy rows remain associated with the administrator's stable ID.

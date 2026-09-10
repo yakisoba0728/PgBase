@@ -40,6 +40,11 @@ type adminOTPLogin interface {
 	LoginWithOTP(context.Context, string, string, string, string) (adminauth.Session, error)
 }
 
+type adminPasswordReset interface {
+	RequestPasswordReset(context.Context, string, string) error
+	ConfirmPasswordReset(context.Context, string, string) error
+}
+
 func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 	if e.auth == nil {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
@@ -179,6 +184,54 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 	}
 	outcome = observability.OutcomeSuccess
 	e.writeIssuedSession(w, r, http.StatusOK, session)
+}
+
+func (e adminEndpoints) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminPasswordReset)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator password reset is unavailable"))
+		return
+	}
+	address, ok := clientIP(r, e.trustedProxies())
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	if err := service.RequestPasswordReset(r.Context(), input.Email, address); err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (e adminEndpoints) confirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminPasswordReset)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator password reset is unavailable"))
+		return
+	}
+	if err := service.ConfirmPasswordReset(r.Context(), input.Token, input.NewPassword); err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (e adminEndpoints) recordOperation(ctx context.Context, operation observability.Operation, outcome observability.Outcome, duration time.Duration) {

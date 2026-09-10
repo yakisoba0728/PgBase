@@ -23,6 +23,10 @@ func HashSessionToken(secret []byte, rawToken string) []byte {
 	return tokenHMAC(secret, "session\x00", rawToken)
 }
 
+func hashPasswordResetToken(secret []byte, rawToken string) []byte {
+	return tokenHMAC(secret, "admin-password-reset\x00", rawToken)
+}
+
 func DeriveCSRFToken(secret []byte, rawToken string) string {
 	return base64.RawURLEncoding.EncodeToString(tokenHMAC(secret, "csrf\x00", rawToken))
 }
