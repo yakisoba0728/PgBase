@@ -184,8 +184,10 @@ jobs:
       # Unit tests always use -race. Re-running the full PostgreSQL suite with
       # it on every PR dominated feedback time (15m21s in run 34428905056), so
       # retain that expensive coverage for main, release-gate and manual runs.
-      # Every PR still runs the complete PostgreSQL suite against PG17.
+      # PRs run a representative database smoke set; the whole package graph
+      # stays mandatory on main, release-gate and manual runs.
       PGBASE_FULL_INTEGRATION_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
+      PGBASE_INTEGRATION_PACKAGES: ${{ github.event_name == 'pull_request' && './internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase' || './...' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -218,7 +220,7 @@ jobs:
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml up -d minio
           docker compose -p pgbase-ci-files -f tests/filestore/compose.yaml run --rm create-bucket
 
-      - name: Test complete PostgreSQL suite with skip policy
+      - name: Test PostgreSQL integration suite with skip policy
         shell: bash
         run: |
           set -o pipefail

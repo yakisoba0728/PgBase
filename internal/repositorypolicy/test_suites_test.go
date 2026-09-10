@@ -36,6 +36,48 @@ func TestIntegrationSuiteRejectsMissingAdminURLBeforeInvokingGo(t *testing.T) {
 	}
 }
 
+func TestIntegrationSuiteAcceptsOnlyPackagePathsFromItsEnvironment(t *testing.T) {
+	root := filepath.Join("..", "..")
+	marker := filepath.Join(t.TempDir(), "go-arguments")
+	fakeBin := t.TempDir()
+	fakeGo := filepath.Join(fakeBin, "go")
+	if err := os.WriteFile(fakeGo, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$PGBASE_FAKE_GO_MARKER\"\nexit 99\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("bash", filepath.Join(root, "scripts", "test-go-integration.sh"))
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin,
+		"PGBASE_FAKE_GO_MARKER="+marker,
+		"PGBASE_TEST_ADMIN_URL=postgres://test",
+		"PGBASE_INTEGRATION_PACKAGES=./internal/sqlconsole ./pgbase",
+	)
+	if err := command.Run(); err == nil {
+		t.Fatal("integration suite unexpectedly succeeded with the fake Go command")
+	}
+	arguments, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(arguments), "-tags=integration\n") ||
+		!strings.Contains(string(arguments), "./internal/sqlconsole\n") ||
+		!strings.Contains(string(arguments), "./pgbase\n") {
+		t.Fatalf("Go test invocation does not use selected packages: %q", arguments)
+	}
+
+	command = exec.Command("bash", filepath.Join(root, "scripts", "test-go-integration.sh"))
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin,
+		"PGBASE_TEST_ADMIN_URL=postgres://test",
+		"PGBASE_INTEGRATION_PACKAGES=./internal/sqlconsole;echo unexpected",
+	)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Run(); err == nil || !strings.Contains(stderr.String(), "invalid package path") {
+		t.Fatalf("invalid package input error = %v, stderr = %q", err, stderr.String())
+	}
+}
+
 func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "backend.yml"))
 	if err != nil {
@@ -54,6 +96,9 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 		"PGBASE_FULL_INTEGRATION_RACE",
 		"scripts/test-go-integration.sh \"${test_arguments[@]}\"",
 		"github.event_name != 'pull_request' || inputs.candidate_image != ''",
+		"PGBASE_INTEGRATION_PACKAGES",
+		"./internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase",
+		"'./...'",
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("backend workflow is missing %q", marker)
