@@ -33,7 +33,8 @@ import {
   type SetupInput,
 	 type SetupBackup, type SetupBackupJob,
   type SystemStatus,
-	 type AdminSettings,
+  type AdminSettings,
+	 type AdministratorProfile,
   type ManagedUser,
 	 type OAuthIdentity,
   type UserPage,
@@ -350,6 +351,12 @@ class HTTPBackend implements AdminBackend {
     get: async (signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", signal })).data as AdminSettings,
     save: async (value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", method: "PATCH", body: value, csrf: true, signal })).data as AdminSettings,
     reload: async (signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/settings/reload", method: "POST", csrf: true, signal }); },
+  };
+  readonly profile = {
+    get: async (signal?: AbortSignal): Promise<AdministratorProfile> => (await this.#send({ path: "/api/admin/profile", signal })).data as AdministratorProfile,
+    update: async (value: { email: string }, signal?: AbortSignal): Promise<AdministratorProfile> => (await this.#send({ path: "/api/admin/profile", method: "PATCH", body: value, csrf: true, signal })).data as AdministratorProfile,
+    ipAllowlist: async (signal?: AbortSignal): Promise<string[]> => ((await this.#send({ path: "/api/admin/profile/ip-allowlist", signal })).data as { prefixes: string[] }).prefixes,
+    setIPAllowlist: async (prefixes: string[], signal?: AbortSignal): Promise<string[]> => ((await this.#send({ path: "/api/admin/profile/ip-allowlist", method: "PATCH", body: { prefixes }, csrf: true, signal })).data as { prefixes: string[] }).prefixes,
   };
 
   readonly operations = {

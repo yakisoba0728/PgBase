@@ -8,7 +8,7 @@ import { memoryHistory } from "../test/memory-history";
 import { sessionWrapper } from "../test/harness";
 import { SettingsPage } from "./settings-page";
 
-const settings: AdminSettings = { batch: { enabled: true, maxRequests: 10, maxBodyBytes: 1000, timeoutMs: 1000 }, logs: { retentionDays: 30, level: "info", includeIP: false, includeAuth: false }, proxy: { trustedProxyCIDRs: [] }, backups: { schedule: "@every 24h", timezone: "UTC", enabled: true, keep: 7 }, application: { theme: "system", accent: "#1d4ed8", branding: "pgBase" }, revision: 1 };
+const settings: AdminSettings = { batch: { enabled: true, maxRequests: 10, maxBodyBytes: 1000, timeoutMs: 1000 }, logs: { retentionDays: 30, level: "info", includeIP: false, includeAuth: false }, proxy: { trustedProxyCIDRs: [] }, backups: { schedule: "@every 24h", timezone: "UTC", enabled: true, keep: 7 }, application: { theme: "system", accent: "#1d4ed8", branding: "pgBase" }, rateLimits: { admin: { accountMaxFailures: 5, networkMaxFailures: 20, windowSeconds: 900, blockSeconds: 900 }, user: { accountMaxFailures: 5, networkMaxFailures: 20, registrationNetworkMaxFailures: 5, windowSeconds: 900, blockSeconds: 900 } }, revision: 1 };
 
 describe("application settings", () => {
   it("saves log capture controls and backup schedule as one revision", async () => {
