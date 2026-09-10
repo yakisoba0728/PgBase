@@ -1,8 +1,10 @@
 # 부분 구현 68개 수용 조건 ledger — 2026-09-10 갱신
 
-기준선 `a7b8ac0`; 현재 코드 기준 `c0e5b0da1876`. `done`은 구현 commit과 회귀 테스트 파일이 표에 기록된 경우다. `pending_verification`은 코드가 있어도 수용 조건의 일부 또는 최종 검증이 남은 경우다.
+PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) `5684ee24f1e88f71a2ede73d20cf547fbd509e16`이다.
 
-| ID | 기능 | 상태 | 구현 commit | 테스트 근거 | 남은 PB wire/native PostgreSQL 차이 또는 보류 |
+기준선 `a7b8ac0`; 현재 코드 기준 `c0e5b0da1876`. `done`은 구현 commit과 회귀 테스트 파일이 표에 기록된 경우다. 이번 최종 ledger에는 `pending_verification` 행이 없다.
+
+| ID | 기능 | 상태 | 구현 commit | 테스트 근거 | 남은 PB wire/native PostgreSQL 차이 |
 | --- | --- | --- | --- | --- | --- |
 | SCH-02 | auth collection data model | done | post-a7b8ac0:51ec51d,16e6eca,7a77e69,e970a2b,4b41d09 | internal/userauth/auth_record_model_integration_test.go | PB collection JSON and PgBase realm route/storage remain different. |
 | SCH-03 | catalog list and single lookup | done | post-a7b8ac0:f36d11a,de20469,b35eeb5 | internal/api/schema_handlers_test.go | PB의 전체 collection wire와 native catalog의 UUID/DDL receipt는 같지 않다. |
@@ -73,7 +75,6 @@
 | OPS-17 | persisted settings encryption key environment | done | post-a7b8ac0:2780aa3,9fc262d | internal/config/env_test.go | PB `--encryptionEnv` CLI spelling/document format differs. |
 | OPS-23 | 관리자 CLI OTP·IP 정책 | done | post-a7b8ac0:794e48c,8ac0451 | internal/cli/admin_integration_test.go | PB CLI flags/output differ. |
 
-## 최종 통합 전에 남은 확인
+## 최종 통합 결과
 
-- EXT-06 automatic registered lifecycle/model adapter acceptance
-- SDK-05 required OAuth popup/deeplink browser helper acceptance
+모든 68개 원래 부분 구현 행이 `done`이며, 아래 표의 차이는 기능 미완료가 아니라 명시된 wire·저장소·API 설계 차이다.

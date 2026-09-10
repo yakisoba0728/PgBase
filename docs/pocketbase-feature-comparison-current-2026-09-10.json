@@ -151,15 +151,15 @@
       "domain": "schema",
       "feature": "collection record rules",
       "pb": "list/view/create/update/delete의 nil·empty·filter rule을 collection JSON에 저장하고 schema context에서 검증한다.",
-      "pg": "동일 다섯 action의 typed rule을 별도 GET/PUT/preview API로 저장·컴파일한다.",
+      "pg": "다섯 action의 typed rule을 collection compatibility metadata와 GET/PUT/preview API에 저장·컴파일하고 PocketBase scalar expression 및 nil/empty semantics를 typed AST로 round-trip한다.",
       "status": "구현",
       "compatibility": "차이",
-      "evidence": "테스트 존재",
-      "gap": "PB filter DSL과 nil/empty 의미, collection JSON 내 rule 필드를 변환하는 계층이 필요하다.",
+      "evidence": "통합/단위 테스트 존재",
+      "gap": "PB collection JSON field names와 native PostgreSQL rule storage/API shape는 다르다.",
       "pbSource": "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L130-L158",
-      "pgSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/api/rules.go:13",
-      "testSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/pgbase/record_rules_integration_test.go:1",
-      "reviewSource": "schema",
+      "pgSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/api/rules.go",
+      "testSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/recordaccess/pocketbase_rule_integration_test.go",
+      "reviewSource": "post-a7b8ac0:14da805,4b41d09",
       "category": "schema"
     },
     {
@@ -299,7 +299,7 @@
       "status": "구현",
       "compatibility": "차이",
       "evidence": "테스트 존재",
-      "gap": "PB 호환 모드에서는 stable id 기반 add/drop을 유지하되 type mutation을 PB처럼 거절하거나 migration 정책을 명시해야 한다. SCH-16 결함 수정이 전제다.",
+      "gap": "PgBase는 안전한 numeric widening을 허용하고, PocketBase 호환 모드의 type-mutation 거절은 별도 정책으로 유지한다. physical ColumnName identity는 SCH-16에서 이미 보존한다.",
       "pbSource": "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L220-L243",
       "pgSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/schema/planner.go:513",
       "testSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/schema/planner_test.go:427",
@@ -3897,5 +3897,11 @@
     "OPS-24": {
       "testSource": "/Users/yakisoba0728/Documents/GitHub/PgBase/internal/api/middleware_test.go:231"
     }
+  },
+  "comparisonSource": {
+    "pocketbaseVersion": "v0.40.3",
+    "pocketbaseCommit": "5684ee24f1e88f71a2ede73d20cf547fbd509e16",
+    "officialRepository": "https://github.com/pocketbase/pocketbase",
+    "localPinnedCheckout": "/Users/yakisoba0728/Documents/GitHub/PgBase/.local/upstream/pocketbase"
   }
 }

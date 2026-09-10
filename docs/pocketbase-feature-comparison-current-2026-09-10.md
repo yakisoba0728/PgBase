@@ -1,5 +1,7 @@
 # PocketBase와 현재 PgBase — 기능별 1:1 비교 (최종 통합 갱신)
 
+PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)이며, 로컬 pinned checkout은 `/Users/yakisoba0728/Documents/GitHub/PgBase/.local/upstream/pocketbase`다.
+
 기준선은 `a7b8ac0`; 이 문서의 코드 기준 HEAD는 `c0e5b0da1876` (`codex/n6-n9-merged-status`)이다. 원래 232행은 구현 129·부분 68·미구현 35였다. 이번 갱신은 post-baseline commit과 테스트 파일을 각 행에 연결한다. **부분→구현 판정은 사용자 호출 경로와 회귀 테스트, 최종 통합 검증이 함께 있는 경우에만 바꿨다.**
 
 ## 집계
@@ -33,7 +35,7 @@
 
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
-| SCH-09 · collection record rules | 구현 → **구현** / 차이 | 동일 다섯 action의 typed rule을 별도 GET/PUT/preview API로 저장·컴파일한다. | PB filter DSL과 nil/empty 의미, collection JSON 내 rule 필드를 변환하는 계층이 필요하다. | 테스트 존재; `pgbase/record_rules_integration_test.go:1`; `schema` |
+| SCH-09 · collection record rules | 구현 → **구현** / 차이 | 다섯 action의 typed rule을 collection compatibility metadata와 GET/PUT/preview API에 저장·컴파일하고 PocketBase scalar expression 및 nil/empty semantics를 typed AST로 round-trip한다. | PB collection JSON field names와 native PostgreSQL rule storage/API shape는 다르다. | 통합/단위 테스트 존재; `internal/recordaccess/pocketbase_rule_integration_test.go`; `post-a7b8ac0:14da805,4b41d09` |
 | SCH-10 · common field metadata and system protection | 부분 → **구현** / 차이 | system field metadata와 protected/rename/delete 불변조건, presentation metadata를 schema document와 planner에 반영한다. 코드 경로: `internal/schema/schema_document.go; internal/schema/planner.go`. | PgBase는 physical ColumnName을 별도로 보존한다. | 통합/단위 테스트 존재; `internal/schema/compatibility_integration_test.go`; `post-a7b8ac0:619d460,62b9620` |
 | SCH-11 · required blank and zero-value semantics | 부분 → **구현** / 차이 | PocketBase validation mode에서 required의 blank/zero semantics를 decoder와 preflight에 적용한다. 코드 경로: `internal/query/codec.go; internal/schema/field_preflight.go`. | native PostgreSQL mode는 기존 nullable/zero semantics를 유지한다. | 통합/단위 테스트 존재; `internal/query/codec_test.go`; `post-a7b8ac0:62b9620` |
 | SCH-12 · field defaults | 구현 → **구현** / 차이 | 사용자 지정 JSON default를 타입별 정규화해 SQL DEFAULT로 저장하고 editor/geo는 고정 zero default, autodate/password/file은 별도 수명주기를 쓴다. | PB의 타입별 암시적 default와 PgBase의 명시적 default 사이 import/export 변환 규칙이 필요하다. | 테스트 존재; `internal/schema/advanced_fields_integration_test.go:13`; `schema` |
@@ -52,7 +54,7 @@
 | --- | --- | --- | --- | --- |
 | SCH-16 · scalar field rename then drop/name reuse | 부분 → **구현** / 차이 | logical rename 뒤 name 재사용·drop에서 ColumnName으로 DDL을 생성해 retained field/value/index를 보존한다. 코드 경로: `internal/schema/planner.go; internal/schema/service.go`. | PB SQLite DDL과 달리 PostgreSQL physical column identity를 유지한다. | 통합/단위 테스트 존재; `internal/schema/field_contract_integration_test.go`; `post-a7b8ac0:31e0bad,4b2e8e4` |
 | SCH-17 · renamed multi-relation collection delete | 부분 → **구현** / 차이 | relation storage identity를 사용해 renamed multi-relation의 edge table/trigger/function 삭제 계획을 만든다. 코드 경로: `internal/schema/planner.go; internal/schema/relation_types.go`. | PB relation table naming과 PostgreSQL schema namespace는 다르다. | 통합/단위 테스트 존재; `internal/schema/relation_planner_test.go`; `post-a7b8ac0:31e0bad,619d460` |
-| SCH-18 · field add, drop and type change policy | 구현 → **구현** / 차이 | add/drop을 계획하고 integer→bigint, integer/bigint→numeric의 안전한 widening만 허용한다. | PB 호환 모드에서는 stable id 기반 add/drop을 유지하되 type mutation을 PB처럼 거절하거나 migration 정책을 명시해야 한다. SCH-16 결함 수정이 전제다. | 테스트 존재; `internal/schema/planner_test.go:427`; `schema` |
+| SCH-18 · field add, drop and type change policy | 구현 → **구현** / 차이 | add/drop을 계획하고 integer→bigint, integer/bigint→numeric의 안전한 widening만 허용한다. | PgBase는 안전한 numeric widening을 허용하고, PocketBase 호환 모드의 type-mutation 거절은 별도 정책으로 유지한다. physical ColumnName identity는 SCH-16에서 이미 보존한다. | 테스트 존재; `internal/schema/planner_test.go:427`; `schema` |
 
 ### view
 

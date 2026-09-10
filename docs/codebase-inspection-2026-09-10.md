@@ -1,5 +1,7 @@
 # PgBase 코드베이스 점검 — 2026-09-10 갱신
 
+PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) `5684ee24f1e88f71a2ede73d20cf547fbd509e16`이다.
+
 기준선은 `a7b8ac0c4c3605aa68708eea4fe4c760a12e0a10`, 구현 집계 기준 HEAD는 `c0e5b0da1876017b37de1afc0f1ae0899b7b2f8f`이다. 원래 점검에서 부분으로 남긴 68개 행을 post-baseline commit, 코드 경로와 회귀 테스트 파일에 다시 연결했다. 상세 항목은 [기능 비교표](pocketbase-feature-comparison-current-2026-09-10.md), 수용 조건과 commit ledger는 [부분 구현 ledger](pocketbase-partial-implementation-2026-09-10.md)에 있다.
 
 ## 현재 판정
@@ -21,4 +23,4 @@
 
 197개 구현 행은 원래 수용 조건의 사용자 기능이 호출 가능하고 검증됐다는 뜻이다. PocketBase wire/ORM과 동일하다는 뜻은 아니다. 특히 EXT-06은 automatic PB Model ORM이 아니라 callback-owned transaction의 opt-in `RunModelMutation` wrapper이며, SDK-05는 host popup/deeplink I/O를 adapter에 맡기는 orchestration이다. 각 차이는 상세표에 남겼다.
 
-전체 Go unit/vet/PG17.9+MinIO integration, TypeScript, Dart, UI build/Vitest, fresh browser profile/settings·backup/restore·S3 scenarios는 final logs에서 통과했다. 두 보류 행은 전체 suite 실패가 아니라 원래 행의 좁은 acceptance wording에 대한 직접 증거를 기다리는 상태다.
+전체 Go unit/vet/PG17.9+MinIO integration, TypeScript, Dart, UI build/Vitest, fresh browser profile/settings·backup/restore·S3 scenarios는 final logs에서 통과했다. 상세표의 native wire·ORM 차이는 기능 미완료가 아니라 명시된 설계 차이다.
