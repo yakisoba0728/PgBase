@@ -4,6 +4,8 @@ import type { SetupInput } from "../backend/ports";
 
 interface SetupPageProps {
   onSetup(input: SetupInput): Promise<void>;
+	onUploadBackup?(setupToken: string, archive: File): Promise<{ id: string }>;
+	onRestoreBackup?(setupToken: string, id: string): Promise<unknown>;
 }
 
 type SetupField = "setupToken" | "email" | "password" | "confirmation";
@@ -27,7 +29,7 @@ function safeServerErrors(error: unknown): SetupErrors {
   return { form: "Unable to create the administrator. Try again." };
 }
 
-export function SetupPage({ onSetup }: SetupPageProps) {
+export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup }: SetupPageProps) {
   const [setupToken, setSetupToken] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,6 +37,8 @@ export function SetupPage({ onSetup }: SetupPageProps) {
   const [showSetupToken, setShowSetupToken] = useState(false);
   const [errors, setErrors] = useState<SetupErrors>({});
   const [pending, setPending] = useState(false);
+	const [backup, setBackup] = useState<{ id: string; name: string } | null>(null);
+	const [backupMessage, setBackupMessage] = useState("");
   const setupTokenRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -77,11 +81,18 @@ export function SetupPage({ onSetup }: SetupPageProps) {
       setPending(false);
     }
   }
+	async function restore(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault(); const archive = (event.currentTarget.elements.namedItem("setup-backup") as HTMLInputElement | null)?.files?.[0];
+		if (!onUploadBackup || !onRestoreBackup || !archive || !setupToken.trim() || pending) { setBackupMessage("Enter the setup token and select a gzip backup."); return; }
+		if (!window.confirm("Restore this backup before creating the first administrator? This replaces the initial database state.")) return;
+		setPending(true); setBackupMessage(""); try { const uploaded = await onUploadBackup(setupToken, archive); setBackup({ id: uploaded.id, name: archive.name }); await onRestoreBackup(setupToken, uploaded.id); setBackupMessage("Restore started. Wait for the replacement database to activate, then reload this setup page."); } catch { setBackupMessage("Backup restore could not be started. Verify the setup token and archive."); } finally { setPending(false); }
+	}
 
   return <main className="auth-page">
     <section aria-labelledby="setup-title" className="auth-card">
       <h1 id="setup-title">Set up pgBase</h1>
       <p>Create the first administrator for this pgBase instance.</p>
+		{onUploadBackup && onRestoreBackup && <form onSubmit={restore}><fieldset disabled={pending}><legend>Restore an initial backup</legend><p>Available only before the first administrator exists. Restore starts before account creation and may restart this instance.</p><label htmlFor="setup-backup">Gzip backup</label><input accept=".gz,application/gzip" id="setup-backup" name="setup-backup" type="file" /><button type="submit">Upload and restore backup</button>{backup && <p>Uploaded {backup.name}.</p>}{backupMessage && <p role="status">{backupMessage}</p>}</fieldset></form>}
       <form noValidate onSubmit={submit}>
         {errors.form && <p className="form-error" id="setup-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{errors.form}</p>}
         <label htmlFor="setup-token">Setup token</label>

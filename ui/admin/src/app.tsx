@@ -101,9 +101,10 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
 
 function SessionScreen({ history, sqlConsole }: { history?: AdminHistory; sqlConsole?: SQLConsolePort }) {
   const { login, sessionError, setup, state } = useSession();
+	const backend = useBackend();
   if (state.kind === "loading") return <main className="auth-page"><p aria-live="polite">Loading administrator session…</p></main>;
-  if (state.kind === "setup-required") return <SetupPage onSetup={setup} />;
-  if (state.kind === "anonymous") return <LoginPage onLogin={login} sessionError={sessionError} />;
+  if (state.kind === "setup-required") return <SetupPage onSetup={setup} onRestoreBackup={backend.session.restoreSetupBackup} onUploadBackup={backend.session.uploadSetupBackup} />;
+  if (state.kind === "anonymous") return <LoginPage onConfirmPasswordReset={backend.session.confirmPasswordReset} onLogin={login} onRequestPasswordReset={backend.session.requestPasswordReset} sessionError={sessionError} />;
   return <AuthenticatedShell history={history} sqlConsole={sqlConsole} />;
 }
 

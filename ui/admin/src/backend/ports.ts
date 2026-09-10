@@ -6,6 +6,8 @@ import { stringifyJSON } from "./json";
 interface Administrator { id: string; email: string; createdAt: string }
 export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean }
 export interface SetupInput { setupToken: string; email: string; password: string }
+export interface SetupBackup { id: string; createdAt?: string; size?: number; postgresqlMajor?: number }
+export interface SetupBackupJob { id: string; status?: string; phase?: string }
 export interface LoginInput { email: string; password: string; otpCode?: string }
 
 export type AuthSnapshot =
@@ -244,6 +246,10 @@ export interface SessionPort {
   setup(input: SetupInput): Promise<AuthenticatedSession>;
   login(input: LoginInput): Promise<AuthenticatedSession>;
   logout(): Promise<void>;
+	uploadSetupBackup?(setupToken: string, archive: File, signal?: AbortSignal): Promise<SetupBackup>;
+	restoreSetupBackup?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
+	requestPasswordReset?(email: string, signal?: AbortSignal): Promise<void>;
+	confirmPasswordReset?(token: string, newPassword: string, signal?: AbortSignal): Promise<void>;
   onExpired(listener: () => void): () => void;
 }
 
@@ -322,6 +328,7 @@ export interface AdminSettings { batch: { enabled: boolean; maxRequests: number;
 export interface SettingsPort { get(signal?: AbortSignal): Promise<AdminSettings>; save(value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings>; reload(signal?: AbortSignal): Promise<void> }
 
 export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
+export interface OAuthIdentity { provider: string; subject: string; createdAt: string }
 export interface UserPage { items: ManagedUser[]; nextAfter?: string }
 export interface ImpersonatedUserSession { token: string; user: { id: string; email: string; verified: boolean; createdAt: string }; expiresAt: string; impersonated: true; impersonatingAdministratorId: string }
 export interface UsersPort {
@@ -332,6 +339,8 @@ export interface UsersPort {
   sendVerification(id: string): Promise<void>;
   sendPasswordReset(id: string): Promise<void>;
   impersonate(id: string, durationSeconds?: number): Promise<ImpersonatedUserSession>;
+	oauthIdentities?(id: string, signal?: AbortSignal): Promise<OAuthIdentity[]>;
+	unlinkOAuthIdentity?(id: string, provider: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface RequestLogEntry { id: number; at: string; method: string; route: string; status: number; durationMs: number }

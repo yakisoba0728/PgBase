@@ -31,9 +31,11 @@ import {
   type ResumedSession,
   type SchemaHealth,
   type SetupInput,
+	 type SetupBackup, type SetupBackupJob,
   type SystemStatus,
 	 type AdminSettings,
   type ManagedUser,
+	 type OAuthIdentity,
   type UserPage,
   type ImpersonatedUserSession,
   type FileInfo,
@@ -203,6 +205,17 @@ class HTTPBackend implements AdminBackend {
       }
       if (authGeneration === this.#authGeneration) { this.#csrfToken = ""; this.#authGeneration += 1; }
     },
+		uploadSetupBackup: async (setupToken: string, archive: File, signal?: AbortSignal): Promise<SetupBackup> => {
+			const response = await fetch("/api/admin/setup/backups/upload", { method: "POST", body: archive, credentials: "include", signal, headers: { "Content-Type": "application/gzip", "X-PgBase-Setup-Token": setupToken } });
+			if (!response.ok) throw new SessionError(response.status === 401 ? "invalid-credentials" : "failed");
+			return await decode(response) as SetupBackup;
+		},
+		restoreSetupBackup: async (setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob> => {
+			try { return (await this.#send({ path: `/api/admin/setup/backups/${encodeURIComponent(id)}/restore`, method: "POST", headers: { "X-PgBase-Setup-Token": setupToken }, anonymous: true, signal })).data as SetupBackupJob; }
+			catch (error) { throw error instanceof WireError && error.wire.status === 401 ? new SessionError("invalid-credentials") : error; }
+		},
+		requestPasswordReset: async (email: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/request-password-reset", method: "POST", body: { email }, anonymous: true, signal }); },
+		confirmPasswordReset: async (token: string, newPassword: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/confirm-password-reset", method: "POST", body: { token, newPassword }, anonymous: true, signal }); },
     onExpired: (listener: () => void) => {
       this.#expired.add(listener);
       return () => { this.#expired.delete(listener); };
@@ -428,6 +441,8 @@ class HTTPBackend implements AdminBackend {
     sendPasswordReset: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-password-reset`, method: "POST", csrf: true }); },
     impersonate: async (id: string, durationSeconds = 300) =>
       (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/impersonate`, method: "POST", body: { durationSeconds }, csrf: true })).data as ImpersonatedUserSession,
+		oauthIdentities: async (id: string, signal?: AbortSignal): Promise<OAuthIdentity[]> => ((await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/oauth-identities`, signal })).data as { items: OAuthIdentity[] }).items,
+		unlinkOAuthIdentity: async (id: string, provider: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/oauth-identities/${encodeURIComponent(provider)}`, method: "DELETE", csrf: true, signal }); },
   };
 
   readonly files = {
