@@ -113,14 +113,15 @@ type IndexKeyInput struct {
 }
 
 type CreateCollectionInput struct {
-	Name              string         `json:"name"`
-	CompatibilityName string         `json:"compatibilityName,omitempty"`
-	Type              CollectionType `json:"type,omitempty"`
-	System            bool           `json:"system,omitempty"`
-	ValidationMode    ValidationMode `json:"validationMode,omitempty"`
-	Fields            []FieldInput   `json:"fields"`
-	Indexes           []IndexInput   `json:"indexes,omitempty"`
-	View              *ViewInput     `json:"view,omitempty"`
+	Name              string          `json:"name"`
+	CompatibilityName string          `json:"compatibilityName,omitempty"`
+	Type              CollectionType  `json:"type,omitempty"`
+	System            bool            `json:"system,omitempty"`
+	ValidationMode    ValidationMode  `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
+	Fields            []FieldInput    `json:"fields"`
+	Indexes           []IndexInput    `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
 }
 
 type ViewInput struct {
@@ -147,6 +148,7 @@ type UpdateCollectionInput struct {
 	Type              *CollectionType `json:"type,omitempty"`
 	System            *bool           `json:"system,omitempty"`
 	ValidationMode    *ValidationMode `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
 	Fields            []FieldInput    `json:"fields"`
 	Indexes           *[]IndexInput   `json:"indexes,omitempty"`
 	View              *ViewInput      `json:"view,omitempty"`
@@ -313,6 +315,7 @@ type Collection struct {
 	Type              CollectionType `json:"type"`
 	System            bool           `json:"system,omitempty"`
 	ValidationMode    ValidationMode `json:"validationMode"`
+	RecordID          RecordIDPolicy `json:"recordId"`
 	TableName         string         `json:"tableName"`
 	Fields            []Field        `json:"fields"`
 	Indexes           []Index        `json:"indexes,omitempty"`
@@ -373,6 +376,7 @@ type PlannedCollection struct {
 	Type              CollectionType
 	System            bool
 	ValidationMode    ValidationMode
+	RecordID          RecordIDPolicy
 	TableName         string
 	Fields            []PlannedField
 	Indexes           []PlannedIndex

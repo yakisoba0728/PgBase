@@ -15,7 +15,7 @@ type RecordRequestEvent struct {
 	Actor          recordops.Principal
 	RequestID      string
 	Collection     string
-	RecordID       uuid.UUID
+	RecordID       string
 	IdempotencyKey string
 	Limit          int
 	Page           int

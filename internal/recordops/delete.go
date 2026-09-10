@@ -143,6 +143,9 @@ func (s *Service) deleteGraphInTransaction(
 		if err := expectRows(tag, len(group.deletes), schema.ErrConflict); err != nil {
 			return MutationResult{}, err
 		}
+		if err := s.identities.ForgetMany(ctx, tx, group.collection, group.deletes); err != nil {
+			return MutationResult{}, normalizeIdentityMutationError(err)
+		}
 		for _, recordID := range group.deletes {
 			removedMembership = append(removedMembership, membership.Record{
 				CollectionID: group.collection.ID, RecordID: recordID,

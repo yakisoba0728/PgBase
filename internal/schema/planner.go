@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -36,6 +37,16 @@ func normalizeCreateCollectionMetadata(input *CreateCollectionInput) error {
 	}
 	if (input.View != nil) != (input.Type == CollectionTypeView) {
 		return validation("type", "view_mismatch")
+	}
+	if input.View != nil && input.RecordID != nil {
+		return validation("recordId", "view_inherited")
+	}
+	if input.View == nil {
+		policy, err := NormalizeRecordIDPolicy(input.RecordID)
+		if err != nil {
+			return err
+		}
+		input.RecordID = &policy
 	}
 	return nil
 }
@@ -145,7 +156,7 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 	if err != nil {
 		return Plan{}, err
 	}
-	definition := PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: input.Type, System: input.System, ValidationMode: input.ValidationMode, TableName: input.Name, Fields: fields, Indexes: indexes}
+	definition := PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: input.Type, System: input.System, ValidationMode: input.ValidationMode, RecordID: *input.RecordID, TableName: input.Name, Fields: fields, Indexes: indexes}
 	return Plan{
 		Operation:   createCollectionOperation,
 		BaseVersion: catalog.Version,
@@ -197,6 +208,19 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 	if input.ValidationMode != nil {
 		validationMode = *input.ValidationMode
+	}
+	recordID := current.RecordID
+	if recordID.Kind == "" {
+		recordID = DefaultRecordIDPolicy()
+	}
+	if input.RecordID != nil {
+		requested, err := NormalizeRecordIDPolicy(input.RecordID)
+		if err != nil {
+			return Plan{}, err
+		}
+		if !reflect.DeepEqual(requested, recordID) {
+			return Plan{}, validation("recordId", "immutable")
+		}
 	}
 	if validationMode != ValidationModePostgres && validationMode != ValidationModePocketBase {
 		return Plan{}, validation("validationMode", "invalid")
@@ -421,7 +445,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, TableName: input.Name, Fields: desired, Indexes: indexes},
+		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, RecordID: recordID, TableName: input.Name, Fields: desired, Indexes: indexes},
 		Statements:  statements,
 	}, nil
 }

@@ -33,6 +33,7 @@ type SchemaDocumentCollection struct {
 	Type              CollectionType  `json:"type,omitempty"`
 	System            bool            `json:"system,omitempty"`
 	ValidationMode    ValidationMode  `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
 	Fields            []FieldInput    `json:"fields,omitempty"`
 	Indexes           []IndexInput    `json:"indexes,omitempty"`
 	View              *ViewInput      `json:"view,omitempty"`
@@ -100,6 +101,10 @@ func (s *Service) ExportSchema(ctx context.Context) (SchemaDocument, error) {
 
 func exportDocumentCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, c Collection) (SchemaDocumentCollection, error) {
 	item := SchemaDocumentCollection{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)}
+	if c.RecordID.Kind == RecordIDText {
+		policy := c.RecordID
+		item.RecordID = &policy
+	}
 	for _, field := range c.Fields {
 		system := field.System
 		input := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: &system, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
@@ -303,7 +308,7 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 				scalars = append(scalars, field)
 			}
 		}
-		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: item.Type, System: item.System, ValidationMode: item.ValidationMode, Fields: scalars}))
+		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: item.Type, System: item.System, ValidationMode: item.ValidationMode, RecordID: item.RecordID, Fields: scalars}))
 		created[item.Name] = true
 	}
 	for _, item := range base {
@@ -316,10 +321,14 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 			return nil, err
 		}
 		indexes := importedIndexes(current, item.Indexes)
-		if exists && sameImportedBase(current, fields, indexes, catalog) {
+		if exists && sameImportedBase(current, item.RecordID, fields, indexes, catalog) {
 			continue
 		}
 		update := UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}
+		if item.RecordID != nil {
+			policy := *item.RecordID
+			update.RecordID = &policy
+		}
 		if item.CompatibilityName != "" {
 			value := item.CompatibilityName
 			update.CompatibilityName = &value
@@ -357,8 +366,12 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 	return changes, nil
 }
 
-func sameImportedBase(current Collection, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
+func sameImportedBase(current Collection, requested *RecordIDPolicy, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
 	if current.IsView() || len(current.Fields) != len(fields) || len(current.Indexes) != len(indexes) {
+		return false
+	}
+	policy, err := NormalizeRecordIDPolicy(requested)
+	if err != nil || !reflect.DeepEqual(policy, current.RecordID) {
 		return false
 	}
 	for i, old := range current.Fields {

@@ -30,6 +30,7 @@ type MigrationSnapshot struct {
 
 type MigrationSnapshotCollection struct {
 	Name       string          `json:"name"`
+	RecordID   *RecordIDPolicy `json:"recordId,omitempty"`
 	Fields     []FieldInput    `json:"fields,omitempty"`
 	Indexes    []IndexInput    `json:"indexes,omitempty"`
 	View       *ViewInput      `json:"view,omitempty"`
@@ -87,6 +88,10 @@ func migrationSnapshotCollection(ctx context.Context, tx pgx.Tx, catalog Catalog
 	item := MigrationSnapshotCollection{
 		Name:  collection.Name,
 		Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`),
+	}
+	if collection.RecordID.Kind == RecordIDText {
+		policy := collection.RecordID
+		item.RecordID = &policy
 	}
 	for _, field := range collection.Fields {
 		id := field.ID
@@ -492,7 +497,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 			field.ID = nil
 			scalars = append(scalars, field)
 		}
-		change := NewCreateChange(CreateCollectionInput{Name: item.Name, Fields: scalars})
+		change := NewCreateChange(CreateCollectionInput{Name: item.Name, RecordID: item.RecordID, Fields: scalars})
 		if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 			return err
 		}
@@ -511,7 +516,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 			return err
 		}
 		indexes := cloneIndexInputs(item.Indexes)
-		change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes})
+		change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, RecordID: item.RecordID, Fields: fields, Indexes: &indexes})
 		if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 			return err
 		}
@@ -536,7 +541,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 		}
 		if len(scalars) != len(current.Fields) {
 			emptyIndexes := []IndexInput{}
-			change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: scalars, Indexes: &emptyIndexes})
+			change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, RecordID: item.RecordID, Fields: scalars, Indexes: &emptyIndexes})
 			if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 				return err
 			}

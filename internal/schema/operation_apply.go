@@ -308,7 +308,7 @@ func (s *Service) executeClaimedOperation(
 			return ApplyResult{}, nil, operationRow{}, err
 		}
 		result.Collection = Collection{
-			ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, TableName: plan.Definition.TableName,
+			ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, RecordID: plan.Definition.RecordID, TableName: plan.Definition.TableName,
 			Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt,
 		}
 	case changeDelete:
@@ -562,7 +562,7 @@ func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedColle
 		return Collection{}, err
 	}
 	return Collection{
-		ID: collectionID, Name: definition.Name, CompatibilityName: definition.CompatibilityName, Type: definition.Type, System: definition.System, ValidationMode: definition.ValidationMode, TableName: definition.TableName,
+		ID: collectionID, Name: definition.Name, CompatibilityName: definition.CompatibilityName, Type: definition.Type, System: definition.System, ValidationMode: definition.ValidationMode, RecordID: definition.RecordID, TableName: definition.TableName,
 		Fields: fields, Indexes: indexes,
 		View: resolvedViewSpec(definition.View),
 	}, nil

@@ -32,7 +32,7 @@ func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Sto
 		if indexErr != nil {
 			return indexErr
 		}
-		collection = Collection{ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, TableName: plan.Definition.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
+		collection = Collection{ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, RecordID: plan.Definition.RecordID, TableName: plan.Definition.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
 	case changeDelete:
 		current = catalog.Collections[change.deleteName]
 	default:

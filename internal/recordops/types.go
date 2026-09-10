@@ -41,6 +41,7 @@ type Record = query.Record
 type MutationResult struct {
 	Record        *Record
 	EventID       uuid.UUID
+	InternalID    uuid.UUID
 	Replayed      bool
 	Compatibility Compatibility
 }
@@ -64,6 +65,7 @@ type GetRequest struct {
 	RequestID               string
 	Collection              string
 	ID                      uuid.UUID
+	PublicID                string
 	Expand                  string
 	Fields                  string
 	PocketBaseCompatibility bool
@@ -86,6 +88,7 @@ type UpdateRequest struct {
 	RequestID      string
 	Collection     string
 	ID             uuid.UUID
+	PublicID       string
 	Input          map[string]json.RawMessage
 	IfMatch        EntityTagSet
 	SidecarFields  []string
@@ -98,6 +101,7 @@ type DeleteRequest struct {
 	RequestID   string
 	Collection  string
 	ID          uuid.UUID
+	PublicID    string
 	IfMatch     EntityTagSet
 	RuleContext *accessrule.RequestContext
 }
@@ -109,6 +113,7 @@ type ValidateRequest struct {
 	RequestID  string
 	Collection string
 	ID         uuid.UUID
+	PublicID   string
 	Input      map[string]json.RawMessage
 }
 
@@ -177,6 +182,8 @@ const (
 	CodeInvalidPrecondition   ErrorCode = "invalid_precondition"
 	CodePreconditionFailed    ErrorCode = "precondition_failed"
 	CodeUnavailable           ErrorCode = "record_unavailable"
+	CodeInvalidRecordID       ErrorCode = "invalid_record_id"
+	CodeRecordIDConflict      ErrorCode = "record_id_conflict"
 )
 
 // Error exposes a stable, non-sensitive failure code. CurrentETag is populated

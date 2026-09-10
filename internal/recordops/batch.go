@@ -3,10 +3,13 @@ package recordops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/query"
 )
 
 // HTTP admission applies the published operator limit (50 by default).
@@ -92,6 +95,13 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 			for index, operation := range request.Operations {
 				name := operationCollection(operation)
 				if collection, ok := catalog.Collections[name]; ok {
+					if results[index].Record != nil {
+						publicData := cloneRecordData(results[index].Record.Data)
+						if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+							return err
+						}
+						results[index].Record.Data = publicData
+					}
 					projectMutationResult(collection, request.Principal, &results[index])
 				}
 			}
@@ -136,26 +146,42 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
 		request.RuleContext = batch.RuleContext
 		tx, _ := ctx.Value(batchTransactionKey{}).(pgx.Tx)
-		var tableName string
-		if err := tx.QueryRow(ctx, `select table_name from pgbase_meta.collections where name=$1`, request.Collection).Scan(&tableName); err != nil {
-			if err == pgx.ErrNoRows {
-				return s.Update(ctx, request)
-			}
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
 			return MutationResult{}, err
 		}
-		var exists bool
-		if tableName == "" {
+		collection, ok := catalog.Collections[request.Collection]
+		if !ok || collection.TableName == "" {
 			return s.Update(ctx, request)
 		}
-		if err := tx.QueryRow(ctx, `select exists(select 1 from `+pgx.Identifier{"app", tableName}.Sanitize()+` where id=$1)`, request.ID).Scan(&exists); err != nil {
-			return MutationResult{}, err
+		tableName := collection.TableName
+		var exists bool
+		resolvedID, resolveErr := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+		if resolveErr != nil && !errors.Is(resolveErr, query.ErrRecordNotFound) {
+			return MutationResult{}, resolveErr
+		}
+		if resolveErr == nil {
+			request.ID = resolvedID
+			if err := tx.QueryRow(ctx, `select exists(select 1 from `+pgx.Identifier{"app", tableName}.Sanitize()+` where id=$1)`, resolvedID).Scan(&exists); err != nil {
+				return MutationResult{}, err
+			}
 		}
 		// Preserve conditional PUT semantics for an absent row. Creating here
 		// would discard If-Match and could resurrect a concurrently deleted row.
 		if exists || request.IfMatch.Present {
 			return s.Update(ctx, request)
 		}
-		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, ID: request.ID, Input: request.Input, RuleContext: batch.RuleContext})
+		input := cloneRawInput(request.Input)
+		publicID := request.PublicID
+		if publicID == "" && request.ID != uuid.Nil {
+			publicID = request.ID.String()
+		}
+		encodedID, err := json.Marshal(publicID)
+		if err != nil {
+			return MutationResult{}, err
+		}
+		input["id"] = encodedID
+		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, Input: input, RuleContext: batch.RuleContext})
 	}
 	request := *operation.Delete
 	request.Principal, request.RequestID = batch.Principal, batch.RequestID

@@ -172,6 +172,9 @@ var extensionObjectInventorySQL string
 //go:embed 000060_nullable_auth_rules.sql
 var nullableAuthRulesSQL string
 
+//go:embed 000061_record_identities.sql
+var recordIdentitiesSQL string
+
 //go:embed 000062_auth_email_visibility.sql
 var authEmailVisibilitySQL string
 
@@ -285,6 +288,7 @@ var migrations = []Migration{
 	{Version: 58, Name: "api_rate_limits", SQL: apiRateLimitsSQL, SHA256: sha256.Sum256([]byte(apiRateLimitsSQL))},
 	{Version: 59, Name: "extension_object_inventory", SQL: extensionObjectInventorySQL, SHA256: sha256.Sum256([]byte(extensionObjectInventorySQL))},
 	{Version: 60, Name: "nullable_auth_rules", SQL: nullableAuthRulesSQL, SHA256: sha256.Sum256([]byte(nullableAuthRulesSQL))},
+	{Version: 61, Name: "record_identities", SQL: recordIdentitiesSQL, SHA256: sha256.Sum256([]byte(recordIdentitiesSQL))},
 	{Version: 62, Name: "auth_email_visibility", SQL: authEmailVisibilitySQL, SHA256: sha256.Sum256([]byte(authEmailVisibilitySQL))},
 	{Version: 63, Name: "advanced_collection_indexes", SQL: advancedCollectionIndexesSQL, SHA256: sha256.Sum256([]byte(advancedCollectionIndexesSQL))},
 }

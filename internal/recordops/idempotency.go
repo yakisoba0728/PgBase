@@ -64,7 +64,7 @@ func findIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, c
 	}
 	return MutationResult{
 		Record:  &Record{Data: data, ETag: etag, Version: 1},
-		EventID: eventID, Replayed: true,
+		EventID: eventID, InternalID: recordID, Replayed: true,
 	}, true, nil
 }
 

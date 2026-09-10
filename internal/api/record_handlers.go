@@ -242,7 +242,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	record, err := e.service.Get(r.Context(), recordops.GetRequest{
-		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
+		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), PublicID: id,
 		Expand: event.Expand, Fields: event.Fields, RuleContext: ruleRequestContext(r),
 		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
 	})
@@ -306,8 +306,7 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	createdID, ok := result.Record.Data["id"].(string)
-	parsedCreatedID, parseErr := uuid.Parse(createdID)
-	if !ok || parseErr != nil || parsedCreatedID == uuid.Nil {
+	if !ok || createdID == "" {
 		writeRecordError(w, r, errors.New("record service returned an invalid created record id"))
 		return
 	}
@@ -371,7 +370,7 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Update(r.Context(), recordops.UpdateRequest{
 			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
-			ID: id, Input: event.Input, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
+			PublicID: id, Input: event.Input, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err
@@ -437,7 +436,7 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	var result recordops.MutationResult
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Delete(r.Context(), recordops.DeleteRequest{
-			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), PublicID: id, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err
@@ -567,11 +566,11 @@ func recordInput(w http.ResponseWriter, r *http.Request) (map[string]json.RawMes
 	return input, true
 }
 
-func recordID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	id, err := uuid.Parse(r.PathValue("id"))
-	if err != nil || id == uuid.Nil {
+func recordID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id := r.PathValue("id")
+	if id == "" || len(id) > 1024 {
 		writeInvalidRecordRequest(w, r)
-		return uuid.Nil, false
+		return "", false
 	}
 	return id, true
 }
@@ -628,6 +627,10 @@ func writeRecordOperationError(w http.ResponseWriter, r *http.Request, err error
 		apiError = APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"}
 	case recordops.CodeInvalidRequest:
 		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"}
+	case recordops.CodeInvalidRecordID:
+		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_record_id", Message: "Record id is invalid"}
+	case recordops.CodeRecordIDConflict:
+		apiError = APIError{Status: http.StatusConflict, Code: "record_id_conflict", Message: "Record id already exists"}
 	case recordops.CodeInvalidIdempotencyKey:
 		apiError = APIError{Status: http.StatusBadRequest, Code: "invalid_idempotency_key", Message: "Idempotency-Key is invalid"}
 	case recordops.CodeIdempotencyConflict:

@@ -124,6 +124,7 @@ type plannedCollectionResponse struct {
 	Type              schema.CollectionType  `json:"type"`
 	System            bool                   `json:"system,omitempty"`
 	ValidationMode    schema.ValidationMode  `json:"validationMode"`
+	RecordID          *schema.RecordIDPolicy `json:"recordId,omitempty"`
 	TableName         string                 `json:"tableName"`
 	Fields            []plannedFieldResponse `json:"fields"`
 	Indexes           []schema.PlannedIndex  `json:"indexes,omitempty"`
@@ -166,17 +167,18 @@ type relationResponse struct {
 }
 
 type collectionResponse struct {
-	ID                uuid.UUID             `json:"id"`
-	Name              string                `json:"name"`
-	CompatibilityName string                `json:"compatibilityName,omitempty"`
-	Type              schema.CollectionType `json:"type,omitempty"`
-	System            bool                  `json:"system,omitempty"`
-	ValidationMode    schema.ValidationMode `json:"validationMode,omitempty"`
-	TableName         string                `json:"tableName"`
-	Fields            []fieldResponse       `json:"fields"`
-	Indexes           []schema.Index        `json:"indexes,omitempty"`
-	View              *schema.ViewSpec      `json:"view,omitempty"`
-	CreatedAt         time.Time             `json:"createdAt"`
+	ID                uuid.UUID              `json:"id"`
+	Name              string                 `json:"name"`
+	CompatibilityName string                 `json:"compatibilityName,omitempty"`
+	Type              schema.CollectionType  `json:"type,omitempty"`
+	System            bool                   `json:"system,omitempty"`
+	ValidationMode    schema.ValidationMode  `json:"validationMode,omitempty"`
+	RecordID          *schema.RecordIDPolicy `json:"recordId,omitempty"`
+	TableName         string                 `json:"tableName"`
+	Fields            []fieldResponse        `json:"fields"`
+	Indexes           []schema.Index         `json:"indexes,omitempty"`
+	View              *schema.ViewSpec       `json:"view,omitempty"`
+	CreatedAt         time.Time              `json:"createdAt"`
 }
 
 type collectionDeleteResponse struct {
@@ -192,6 +194,7 @@ type collectionChangeRequest struct {
 	Type              *schema.CollectionType `json:"type,omitempty"`
 	System            *bool                  `json:"system,omitempty"`
 	ValidationMode    *schema.ValidationMode `json:"validationMode,omitempty"`
+	RecordID          *schema.RecordIDPolicy `json:"recordId,omitempty"`
 	// Fields is a pointer so an update can distinguish an omitted key (which
 	// would otherwise silently drop every column) from an explicit empty list.
 	Fields      *[]schema.FieldInput `json:"fields"`
@@ -330,7 +333,7 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 		if c.Indexes != nil {
 			indexes = *c.Indexes
 		}
-		input := schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: view}
+		input := schema.CreateCollectionInput{Name: c.Name, RecordID: c.RecordID, Fields: c.fieldInputs(), Indexes: indexes, View: view}
 		if c.CompatibilityName != nil {
 			input.CompatibilityName = *c.CompatibilityName
 		}
@@ -349,12 +352,12 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 			if c.Fields != nil || c.Indexes != nil {
 				return schema.Change{}, false
 			}
-			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: view}), true
+			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, RecordID: c.RecordID, View: view}), true
 		}
 		if c.Fields == nil && c.CollectionID == nil {
 			return schema.Change{}, false
 		}
-		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
+		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CollectionID: c.CollectionID, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, RecordID: c.RecordID, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
 	case "delete":
 		return schema.NewDeleteChange(c.Name), true
 	default:
@@ -654,7 +657,7 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: field.System,
 		})
 	}
-	return plannedCollectionResponse{Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
+	return plannedCollectionResponse{Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, RecordID: recordIDPolicyDTO(collection.RecordID), TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
 }
 
 func collectionDTO(collection schema.Collection) collectionResponse {
@@ -669,9 +672,17 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 		})
 	}
 	return collectionResponse{
-		ID: collection.ID, Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, TableName: collection.TableName,
+		ID: collection.ID, Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, RecordID: recordIDPolicyDTO(collection.RecordID), TableName: collection.TableName,
 		Fields: fields, Indexes: append([]schema.Index(nil), collection.Indexes...), View: collection.View, CreatedAt: collection.CreatedAt.UTC(),
 	}
+}
+
+func recordIDPolicyDTO(policy schema.RecordIDPolicy) *schema.RecordIDPolicy {
+	if policy.Kind != schema.RecordIDText {
+		return nil
+	}
+	copy := policy
+	return &copy
 }
 
 func plannedRelationDTO(relation *schema.PlannedRelation) *plannedRelationResponse {

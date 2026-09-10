@@ -54,7 +54,7 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 	}
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM " + pgx.Identifier{"app", source.TableName}.Sanitize() + ` AS "source" WHERE ` + predicate
 	view := &PlannedView{SourceCollectionID: source.ID, Source: source.Name, Projection: append([]string(nil), input.View.Projection...), Filter: cloneViewFilter(input.View.Filter)}
-	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, TableName: input.Name, Fields: fields, View: view}, Statements: []string{statement}}, nil
+	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, RecordID: source.RecordID, TableName: input.Name, Fields: fields, View: view}, Statements: []string{statement}}, nil
 }
 
 func planSQLViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
@@ -94,7 +94,7 @@ func planSQLViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, erro
 	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM (" + sql + ") AS " + alias
 	plannedView := &PlannedView{SQL: view.SQL, Dependencies: append([]uuid.UUID(nil), inspection.Dependencies...)}
-	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, TableName: input.Name, Fields: fields, View: plannedView}, Statements: []string{statement}}, nil
+	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, RecordID: DefaultRecordIDPolicy(), TableName: input.Name, Fields: fields, View: plannedView}, Statements: []string{statement}}, nil
 }
 
 func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {

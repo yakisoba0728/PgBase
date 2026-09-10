@@ -58,9 +58,16 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='collections' and column_name='validation_mode')`).Scan(&hasCompatibility); err != nil {
 		return Catalog{}, err
 	}
-	collectionMetadata := "null::text, 'base'::text, false, 'postgres'::text"
+	collectionMetadata := "null::text, 'base'::text, false, 'postgres'::text, '{\"kind\":\"uuid\"}'::jsonb"
 	if hasCompatibility {
-		collectionMetadata = "compatibility_name, collection_type, system, validation_mode"
+		var hasRecordID bool
+		if err := s.db.QueryRow(ctx, `select exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='collections' and column_name='record_id')`).Scan(&hasRecordID); err != nil {
+			return Catalog{}, err
+		}
+		collectionMetadata = "compatibility_name, collection_type, system, validation_mode, '{\"kind\":\"uuid\"}'::jsonb"
+		if hasRecordID {
+			collectionMetadata = "compatibility_name, collection_type, system, validation_mode, record_id"
+		}
 	}
 	rows, err := s.db.Query(ctx, `select id, name, table_name, `+collectionMetadata+`, created_at from pgbase_meta.collections order by name`)
 	if err != nil {
@@ -71,12 +78,22 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	for rows.Next() {
 		var collection Collection
 		var compatibilityName *string
-		if err := rows.Scan(&collection.ID, &collection.Name, &collection.TableName, &compatibilityName, &collection.Type, &collection.System, &collection.ValidationMode, &collection.CreatedAt); err != nil {
+		var recordIDJSON []byte
+		if err := rows.Scan(&collection.ID, &collection.Name, &collection.TableName, &compatibilityName, &collection.Type, &collection.System, &collection.ValidationMode, &recordIDJSON, &collection.CreatedAt); err != nil {
 			rows.Close()
 			return Catalog{}, fmt.Errorf("scan collection: %w", err)
 		}
 		if compatibilityName != nil {
 			collection.CompatibilityName = *compatibilityName
+		}
+		if err := json.Unmarshal(recordIDJSON, &collection.RecordID); err != nil {
+			rows.Close()
+			return Catalog{}, fmt.Errorf("decode record identity policy: %w", err)
+		}
+		collection.RecordID, err = NormalizeRecordIDPolicy(&collection.RecordID)
+		if err != nil {
+			rows.Close()
+			return Catalog{}, fmt.Errorf("normalize record identity policy: %w", err)
 		}
 		collection.CreatedAt = collection.CreatedAt.UTC()
 		collection.Fields = []Field{}
@@ -408,10 +425,14 @@ func (s *Store) InsertCollection(ctx context.Context, collection Collection, def
 	if collection.ValidationMode == "" {
 		collection.ValidationMode = ValidationModePostgres
 	}
+	recordIDJSON, err := json.Marshal(collection.RecordID)
+	if err != nil {
+		return fmt.Errorf("encode record identity policy: %w", err)
+	}
 	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collections
-		(id, name, table_name, compatibility_name, collection_type, system, validation_mode, status, created_at, updated_at)
-		values ($1, $2, $3, nullif($4,''), $5, $6, $7, 'active', $8, $8)`,
-		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.Type, collection.System, collection.ValidationMode, createdAt); err != nil {
+		(id, name, table_name, compatibility_name, collection_type, system, validation_mode, record_id, status, created_at, updated_at)
+		values ($1, $2, $3, nullif($4,''), $5, $6, $7, $8::jsonb, 'active', $9, $9)`,
+		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.Type, collection.System, collection.ValidationMode, recordIDJSON, createdAt); err != nil {
 		return fmt.Errorf("insert collection metadata: %w", err)
 	}
 	if err := s.insertFieldMetadata(ctx, collection, definition, createdAt); err != nil {
@@ -455,10 +476,14 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 	if err := s.renameCollectionReferences(ctx, collection.ID, collection.Name); err != nil {
 		return err
 	}
+	recordIDJSON, err := json.Marshal(collection.RecordID)
+	if err != nil {
+		return fmt.Errorf("encode record identity policy: %w", err)
+	}
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
-		set name=$2, table_name=$3, compatibility_name=nullif($4,''), validation_mode=$5, updated_at = $6
+		set name=$2, table_name=$3, compatibility_name=nullif($4,''), validation_mode=$5, record_id=$6::jsonb, updated_at = $7
 		where id = $1`,
-		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.ValidationMode, updatedAt); err != nil {
+		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.ValidationMode, recordIDJSON, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
 	}
 	if collection.IsSQLView() {

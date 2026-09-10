@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -52,7 +53,7 @@ func (s namedStagedFiles) files() []filestore.StagedFile {
 	return result
 }
 
-var batchRecordURL = regexp.MustCompile(`^/api/(v1|admin)/collections/([a-z][a-z0-9_]{0,47})/records(?:/([0-9a-fA-F-]{36}))?$`)
+var batchRecordURL = regexp.MustCompile(`^/api/(v1|admin)/collections/([a-z][a-z0-9_]{0,47})/records(?:/([^/?#]+))?$`)
 
 type batchOperationInput struct {
 	Operation          string                     `json:"operation"`
@@ -247,6 +248,7 @@ type batchAttachmentBinding struct {
 	kind               string
 	collection         string
 	id                 uuid.UUID
+	publicID           string
 	idempotencyKey     string
 	idempotencyContext []byte
 	ifMatch            recordops.EntityTagSet
@@ -266,13 +268,13 @@ func batchAttachmentBindingFor(operation recordops.BatchOperation) batchAttachme
 		return batchAttachmentBinding{kind: "create", collection: operation.Create.Collection, id: operation.Create.ID, idempotencyKey: operation.Create.IdempotencyKey, idempotencyContext: append([]byte(nil), operation.Create.IdempotencyContext...)}
 	}
 	if operation.Update != nil {
-		return batchAttachmentBinding{kind: "update", collection: operation.Update.Collection, id: operation.Update.ID, idempotencyContext: append([]byte(nil), operation.Update.SidecarContext...), ifMatch: operation.Update.IfMatch, sidecarFields: append([]string(nil), operation.Update.SidecarFields...)}
+		return batchAttachmentBinding{kind: "update", collection: operation.Update.Collection, id: operation.Update.ID, publicID: operation.Update.PublicID, idempotencyContext: append([]byte(nil), operation.Update.SidecarContext...), ifMatch: operation.Update.IfMatch, sidecarFields: append([]string(nil), operation.Update.SidecarFields...)}
 	}
 	if operation.Upsert != nil {
-		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
+		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, publicID: operation.Upsert.PublicID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
 	}
 	if operation.Delete != nil {
-		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, ifMatch: operation.Delete.IfMatch}
+		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, publicID: operation.Delete.PublicID, ifMatch: operation.Delete.IfMatch}
 	}
 	return batchAttachmentBinding{}
 }
@@ -291,7 +293,7 @@ func (bindings batchAttachmentBindings) compatible(operations []recordops.BatchO
 }
 
 func sameBatchOperationBinding(left, right batchAttachmentBinding) bool {
-	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
+	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && left.publicID == right.publicID && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
 }
 
 func sameEntityTagSet(left, right recordops.EntityTagSet) bool {
@@ -454,6 +456,13 @@ func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, i
 		return batchOperationInput{}, 0, false
 	}
 	collection, id := m[2], m[3]
+	if id != "" {
+		var err error
+		id, err = url.PathUnescape(id)
+		if err != nil || id == "" || len(id) > 1024 {
+			return batchOperationInput{}, 0, false
+		}
+	}
 	method := strings.ToUpper(request.Method)
 	ifMatch := batchHeader(request.Headers, "If-Match")
 	switch method {
@@ -490,8 +499,7 @@ func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) 
 		}
 		return recordops.BatchOperation{Create: &recordops.CreateRequest{Collection: input.Collection, Input: input.Input, IdempotencyKey: input.IdempotencyKey, IdempotencyContext: input.IdempotencyContext}}, input.Collection != "" && input.Input != nil
 	case "update", "delete", "upsert":
-		id, err := uuid.Parse(input.ID)
-		if err != nil || id == uuid.Nil || input.Collection == "" {
+		if input.ID == "" || len(input.ID) > 1024 || input.Collection == "" {
 			return recordops.BatchOperation{}, false
 		}
 		ifMatch, ok := parseIfMatch(http.Header{"If-Match": []string{input.IfMatch}})
@@ -506,15 +514,15 @@ func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) 
 			if input.Input != nil || input.IdempotencyKey != "" {
 				return recordops.BatchOperation{}, false
 			}
-			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, ID: id, IfMatch: ifMatch}}, true
+			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, PublicID: input.ID, IfMatch: ifMatch}}, true
 		}
 		if input.IdempotencyKey != "" {
 			return recordops.BatchOperation{}, false
 		}
 		if input.Operation == "upsert" {
-			return recordops.BatchOperation{Upsert: &recordops.UpdateRequest{Collection: input.Collection, ID: id, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
+			return recordops.BatchOperation{Upsert: &recordops.UpdateRequest{Collection: input.Collection, PublicID: input.ID, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
 		}
-		return recordops.BatchOperation{Update: &recordops.UpdateRequest{Collection: input.Collection, ID: id, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
+		return recordops.BatchOperation{Update: &recordops.UpdateRequest{Collection: input.Collection, PublicID: input.ID, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
 	default:
 		return recordops.BatchOperation{}, false
 	}

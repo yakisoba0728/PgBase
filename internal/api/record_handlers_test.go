@@ -82,7 +82,7 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 		}
 	}
 	if records.listRequest.Collection != "posts" || records.listRequest.Cursor != "signed" || records.listRequest.Limit != 2 ||
-		records.getRequest.ID != id || records.updateRequest.ID != id || records.deleteRequest.ID != id {
+		records.getRequest.PublicID != id.String() || records.updateRequest.PublicID != id.String() || records.deleteRequest.PublicID != id.String() {
 		t.Fatalf("service calls=%+v", records)
 	}
 	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?limit=999", "", true)
@@ -124,7 +124,7 @@ func TestPocketBasePageAdapterHasExactEnvelopeAndInputs(t *testing.T) {
 }
 
 func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
-	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{}))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{getErr: &recordops.Error{Code: recordops.CodeInvalidRecordID}}))
 	for _, test := range []struct {
 		name, method, path, body, contentType string
 	}{

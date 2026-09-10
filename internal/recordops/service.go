@@ -16,6 +16,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"io"
@@ -43,6 +44,7 @@ type Service struct {
 	members    *membershipWriterProvider
 	hooks      []MutationHook
 	validators []TransactionValidator
+	identities *recordidentity.Service
 }
 type batchTransactionKey struct{}
 
@@ -68,7 +70,8 @@ func NewService(
 		pool: pool, schemas: schemas,
 		reader: query.NewService(pool, schemas, cursorSecret, logger, recorder),
 		logger: logger, recorder: recorder, random: rand.Reader,
-		members: newMembershipWriterProvider(pool, runtime),
+		members:    newMembershipWriterProvider(pool, runtime),
+		identities: recordidentity.New(rand.Reader),
 	}
 }
 
@@ -105,12 +108,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		keyHash = digest[:]
 	}
 	recordID := request.ID
-	if recordID == uuid.Nil {
-		recordID, err = uuid.NewV7()
-		if err != nil {
-			return MutationResult{}, fmt.Errorf("generate record id: %w", err)
-		}
-	}
 	eventID, err := uuid.NewV7()
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
@@ -135,10 +132,21 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
+		recordInput, requestedID, requestedPublicID, err := recordIdentityInput(collection, request.Input, recordID)
+		if err != nil {
+			return err
+		}
+		recordID = requestedID
+		if recordID == uuid.Nil {
+			recordID, err = uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate record id: %w", err)
+			}
+		}
 		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, uuid.Nil); err != nil {
 			return err
 		}
-		resolvedInput, err := resolveInputModifiers(collection, request.Input, modifierCreateValues(collection))
+		resolvedInput, err := resolveInputModifiers(collection, recordInput, modifierCreateValues(collection))
 		if err != nil {
 			return err
 		}
@@ -153,28 +161,33 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				return err
 			}
 			if found {
+				recordID = replayed.InternalID
 				if request.Principal.Kind != PrincipalAdministrator {
 					if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, replayed.Record.Data); err != nil {
 						return err
-					}
-					id, ok := replayed.Record.Data["id"].(string)
-					if !ok {
-						return query.ErrRecordNotFound
-					}
-					recordID, err := uuid.Parse(id)
-					if err != nil {
-						return query.ErrRecordNotFound
 					}
 					requestContext := mutationRuleContext(collection, resolvedInput, nil, request.RuleContext)
 					if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 						return err
 					}
 				}
+				publicReplay := cloneRecordData(replayed.Record.Data)
+				if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicReplay); err != nil {
+					return err
+				}
+				replayed.Record.Data = publicReplay
 				result = replayed
 				return nil
 			}
 		}
+		if _, err := s.identities.Reserve(ctx, tx, collection, recordID, requestedPublicID); err != nil {
+			return normalizeIdentityMutationError(err)
+		}
 		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, resolvedInput, true)
+		if err != nil {
+			return err
+		}
+		mutationInput, err = s.resolveRelationIdentities(ctx, tx, catalog, collection, mutationInput)
 		if err != nil {
 			return err
 		}
@@ -249,13 +262,18 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		}
 		result = MutationResult{
 			Record:  &Record{Data: data, ETag: etag, Version: 1},
-			EventID: eventID, Compatibility: compatibility,
+			EventID: eventID, InternalID: recordID, Compatibility: compatibility,
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Create: &request}}}
 			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
 				return err
 			}
+			publicData := cloneRecordData(data)
+			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+				return err
+			}
+			result.Record.Data = publicData
 			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
@@ -275,9 +293,11 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	if request.ID == uuid.Nil {
-		return MutationResult{}, &Error{Code: CodeInvalidRequest}
+	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+	if err != nil {
+		return MutationResult{}, err
 	}
+	request.ID = resolvedID
 	canonicalRequest, err := canonicalInput(request.Input)
 	if err != nil {
 		return MutationResult{}, err
@@ -334,6 +354,10 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 			}
 		}
 		mutationInput, err := resolveInputModifiers(collection, mutationSeed, before)
+		if err != nil {
+			return err
+		}
+		mutationInput, err = s.resolveRelationIdentities(ctx, tx, catalog, collection, mutationInput)
 		if err != nil {
 			return err
 		}
@@ -414,13 +438,18 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		result = MutationResult{
 			Record:  &Record{Data: after, ETag: newETag, Version: newVersion},
-			EventID: eventID, Compatibility: compatibility,
+			EventID: eventID, InternalID: request.ID, Compatibility: compatibility,
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Update: &request}}}
 			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
 				return err
 			}
+			publicData := cloneRecordData(after)
+			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+				return err
+			}
+			result.Record.Data = publicData
 			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
@@ -440,9 +469,11 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	if request.ID == uuid.Nil {
-		return MutationResult{}, &Error{Code: CodeInvalidRequest}
+	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+	if err != nil {
+		return MutationResult{}, err
 	}
+	request.ID = resolvedID
 	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	eventID, err := uuid.NewV7()
 	if err != nil {

@@ -52,12 +52,8 @@ func (p *fileBatchParticipant) CommitBatch(ctx context.Context, tx pgx.Tx, resul
 		if results[item.operation].Replayed {
 			continue
 		}
-		raw, ok := results[item.operation].Record.Data["id"].(string)
-		if !ok {
-			return filestore.ErrInvalid
-		}
-		recordID, err := uuid.Parse(raw)
-		if err != nil {
+		recordID := results[item.operation].InternalID
+		if recordID == uuid.Nil {
 			return filestore.ErrInvalid
 		}
 		key := strconv.Itoa(item.operation) + "/" + item.collectionID.String() + "/" + recordID.String() + "/" + item.field
@@ -69,9 +65,8 @@ func (p *fileBatchParticipant) CommitBatch(ctx context.Context, tx pgx.Tx, resul
 	for _, key := range order {
 		items := groups[key]
 		first := items[0]
-		recordID := results[first.operation].Record.Data["id"].(string)
-		parsedID, err := uuid.Parse(recordID)
-		if err != nil {
+		parsedID := results[first.operation].InternalID
+		if parsedID == uuid.Nil {
 			return filestore.ErrInvalid
 		}
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, first.collectionID.String()+"/"+parsedID.String()+"/"+first.field); err != nil {
