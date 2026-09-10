@@ -247,7 +247,7 @@ func TestServicePersistsAmbiguousCommitAsUnknown(t *testing.T) {
 	assertItemAbsent(t, fixture.pool, itemID)
 }
 
-func TestServiceStartupReconcilesPriorCommitUnknownWithoutRestoringBoundedRows(t *testing.T) {
+func TestServiceStartupReconcilesPriorCommitUnknownAndPreservesNoReceiptUnknown(t *testing.T) {
 	fixture := newRunnerFixture(t)
 	ledger, err := NewLedger(fixture.pool.owner)
 	if err != nil {
@@ -256,26 +256,35 @@ func TestServiceStartupReconcilesPriorCommitUnknownWithoutRestoringBoundedRows(t
 	secret := []byte("n8-startup-reconcile-secret-long-enough")
 	actor := testActor(fixture.pool.actorID, "startup-reconcile-session")
 
-	committedRequest := writeRequest(uuid.New(), "startup-committed-write-00001", uuid.New())
-	committedIdentity := ledgerIdentity(actor.AdministratorID, committedRequest, secret)
-	committed, created, err := ledger.CreatePending(context.Background(), committedIdentity)
-	if err != nil || !created {
-		t.Fatalf("create committed pending = %#v, %v, %v", committed, created, err)
+	itemID := uuid.New()
+	committedRequest := writeRequest(uuid.New(), "startup-committed-write-00001", itemID)
+	fixture.runner.commit = func(ctx context.Context, transaction pgx.Tx) error {
+		if err := transaction.Commit(ctx); err != nil {
+			return err
+		}
+		return io.ErrUnexpectedEOF
 	}
-	committed, err = ledger.MarkRunning(context.Background(), actor.AdministratorID, committed.ID)
+	prior, err := NewService(context.Background(), fixture.runner, ledger, secret, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	committed.Status = StatusUnknown
-	committed.Result = &Result{Rows: 2, AffectedRows: 3, Bytes: 41}
-	committed.Failure = &Failure{Code: "commit_unknown"}
-	if err := ledger.Finish(context.Background(), actor.AdministratorID, committed); err != nil {
+	if _, err := prior.Submit(context.Background(), actor, committedRequest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.pool.owner.Exec(context.Background(), `insert into pgbase_meta.sql_console_write_receipts
-		(execution_id,administrator_id,idempotency_hash,request_hash,row_count,affected_rows,result_bytes,committed_at)
-		values($1,$2,$3,$4,2,3,41,current_timestamp)`, committedRequest.ExecutionID, actor.AdministratorID,
-		committedIdentity.IdempotencyHash[:], committedIdentity.RequestHash[:]); err != nil {
+	if execution := waitForStatus(t, prior, actor, committedRequest.ExecutionID, StatusUnknown); execution.Result == nil || execution.Result.Committed != nil || execution.Failure == nil || execution.Failure.Code != "commit_unknown" {
+		t.Fatalf("pre-restart ambiguous execution = %#v", execution)
+	}
+	var receipts, items int
+	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from pgbase_meta.sql_console_write_receipts where execution_id=$1`, committedRequest.ExecutionID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.owner.QueryRow(context.Background(), `select count(*) from ext.items where id=$1`, itemID).Scan(&items); err != nil {
+		t.Fatal(err)
+	}
+	if receipts != 1 || items != 1 {
+		t.Fatalf("ambiguous commit durable effects receipts=%d items=%d", receipts, items)
+	}
+	if err := prior.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -306,8 +315,8 @@ func TestServiceStartupReconcilesPriorCommitUnknownWithoutRestoringBoundedRows(t
 	if err != nil || reconciled.Status != StatusSucceeded || reconciled.Result == nil || reconciled.Result.Committed == nil || !*reconciled.Result.Committed || reconciled.Result.Rows != 2 || reconciled.Result.AffectedRows != 3 || reconciled.Result.Bytes != 41 {
 		t.Fatalf("startup reconciled execution = %#v, %v", reconciled, err)
 	}
-	if reconciled.Result.Statements != nil || reconciled.ResultUntil.Before(time.Now().UTC()) {
-		t.Fatalf("restart restored bounded rows or an expired result TTL: %#v", reconciled.Result)
+	if reconciled.ResultUntil.Before(time.Now().UTC()) {
+		t.Fatalf("restart reconciliation has an expired result TTL: %#v", reconciled.Result)
 	}
 
 	preserved, err := service.Get(context.Background(), actor, unknownRequest.ExecutionID)

@@ -60,9 +60,10 @@ only from the matching `logs/HEAD` and index transition. `git show-ref` and
 The previously excluded SQL-console browser restart/commit-unknown behaviour
 now has a focused UI test: it retains the session-scoped write identity across
 a browser reload, rechecks it, and does not submit it again. A matching
-PostgreSQL integration test specifies startup reconciliation: a durable receipt
-turns an earlier `commit_unknown` into `succeeded` without restoring bounded
-statement rows, while a no-receipt outcome stays `unknown`. The no-DB SQL
+PostgreSQL integration test specifies startup reconciliation: a committed write
+whose commit response is lost creates the durable receipt, is recorded as
+`commit_unknown`, and is reconciled to `succeeded` after a new service starts;
+a no-receipt outcome stays `unknown`. The no-DB SQL
 console test package, focused UI suite (15 tests), and UI typecheck passed.
 The new PostgreSQL test was not run because this host has no
 `PGBASE_TEST_ADMIN_URL`; the Docker daemon is also unavailable, so no
