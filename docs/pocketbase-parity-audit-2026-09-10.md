@@ -1,5 +1,7 @@
 # PocketBase 1:1 기능 대비 감사 — 2026-09-10
 
+> **대체 안내:** 기능 단위 79행 및 두 축 판정은 [정밀 감사](pocketbase-parity-detailed-audit-2026-09-10.md)를 기준으로 한다. 이 문서는 당시 32행 요약 기록이다.
+
 ## 결론과 비교 기준
 
 이 문서는 “같은 이름의 기능이 있는가”가 아니라, PocketBase 사용자가 관찰하는 입력·출력·제약·확장 계약을 비교한다. **PgBase는 PocketBase의 무수정 대체품이 아니다.** PostgreSQL/UUID/typed schema/keyset cursor/명시적 서비스 경계를 택했으므로, 일부 차이는 의도된 비호환이다.
