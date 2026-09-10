@@ -129,6 +129,9 @@ func applyNullableAuthRules(r *AuthCollectionRules, values [7]*string) {
 			r.Manage = *values[i]
 		}
 	}
+	if len(r.nulls) == 0 {
+		r.nulls = nil
+	}
 }
 
 type CreateAuthCollectionInput struct {
