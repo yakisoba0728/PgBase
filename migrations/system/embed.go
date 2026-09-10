@@ -163,6 +163,9 @@ var adminEmailOTPsSQL string
 //go:embed 000057_extension_objects.sql
 var extensionObjectsSQL string
 
+//go:embed 000058_api_rate_limits.sql
+var apiRateLimitsSQL string
+
 //go:embed 000052_auth_record_model.sql
 var authRecordModelSQL string
 
@@ -267,6 +270,7 @@ var migrations = []Migration{
 	{Version: 55, Name: "request_log_context", SQL: requestLogContextSQL, SHA256: sha256.Sum256([]byte(requestLogContextSQL))},
 	{Version: 56, Name: "admin_email_otps", SQL: adminEmailOTPsSQL, SHA256: sha256.Sum256([]byte(adminEmailOTPsSQL))},
 	{Version: 57, Name: "extension_objects", SQL: extensionObjectsSQL, SHA256: sha256.Sum256([]byte(extensionObjectsSQL))},
+	{Version: 58, Name: "api_rate_limits", SQL: apiRateLimitsSQL, SHA256: sha256.Sum256([]byte(apiRateLimitsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

@@ -62,8 +62,20 @@ type UserRatePolicy struct {
 	BlockSeconds                   int `json:"blockSeconds"`
 }
 type RateLimits struct {
-	Admin AuthRatePolicy `json:"admin"`
-	User  UserRatePolicy `json:"user"`
+	Admin       AuthRatePolicy `json:"admin"`
+	User        UserRatePolicy `json:"user"`
+	Enabled     bool           `json:"enabled"`
+	Rules       []APIRateRule  `json:"rules"`
+	ExcludedIPs []string       `json:"excludedIPs"`
+}
+
+// APIRateRule deliberately follows PocketBase's persisted settings contract.
+// Label is a tag, an exact path, or a path prefix ending in '/'.
+type APIRateRule struct {
+	Label       string `json:"label"`
+	Audience    string `json:"audience"`
+	Duration    int64  `json:"duration"`
+	MaxRequests int    `json:"maxRequests"`
 }
 type Settings struct {
 	Batch       Batch       `json:"batch"`
@@ -98,6 +110,23 @@ func validate(v Settings) error {
 	}
 	if v.RateLimits.Admin.AccountMaxFailures < 1 || v.RateLimits.Admin.AccountMaxFailures > 10000 || v.RateLimits.Admin.NetworkMaxFailures < 1 || v.RateLimits.Admin.NetworkMaxFailures > 10000 || v.RateLimits.Admin.WindowSeconds < 1 || v.RateLimits.Admin.WindowSeconds > 86400 || v.RateLimits.Admin.BlockSeconds < 1 || v.RateLimits.Admin.BlockSeconds > 604800 || v.RateLimits.User.AccountMaxFailures < 1 || v.RateLimits.User.AccountMaxFailures > 10000 || v.RateLimits.User.NetworkMaxFailures < 1 || v.RateLimits.User.NetworkMaxFailures > 10000 || v.RateLimits.User.RegistrationNetworkMaxFailures < 1 || v.RateLimits.User.RegistrationNetworkMaxFailures > 10000 || v.RateLimits.User.WindowSeconds < 1 || v.RateLimits.User.WindowSeconds > 86400 || v.RateLimits.User.BlockSeconds < 1 || v.RateLimits.User.BlockSeconds > 604800 {
 		return ErrInvalid
+	}
+	if len(v.RateLimits.Rules) > 100 || len(v.RateLimits.ExcludedIPs) > 100 {
+		return ErrInvalid
+	}
+	seen := make(map[string]bool, len(v.RateLimits.Rules))
+	for _, rule := range v.RateLimits.Rules {
+		if len(rule.Label) == 0 || len(rule.Label) > 256 || (rule.Audience != "" && rule.Audience != "@guest" && rule.Audience != "@auth") || rule.Duration < 1 || rule.Duration > 86400 || rule.MaxRequests < 1 || rule.MaxRequests > 100000 || seen[rule.Label+"\x00"+rule.Audience] {
+			return ErrInvalid
+		}
+		seen[rule.Label+"\x00"+rule.Audience] = true
+	}
+	for _, raw := range v.RateLimits.ExcludedIPs {
+		if _, err := netip.ParsePrefix(raw); err != nil {
+			if _, err := netip.ParseAddr(raw); err != nil {
+				return ErrInvalid
+			}
+		}
 	}
 	for _, raw := range v.Proxy.TrustedProxyCIDRs {
 		p, err := netip.ParsePrefix(raw)

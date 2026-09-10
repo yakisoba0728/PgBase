@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -231,6 +232,8 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
+	apiLimits := apiratelimit.New(pool, normalized.TokenSecret, runtimeSettings.Get())
+	runtimeSettings.Subscribe(apiLimits.Set)
 	applyAdminRatePolicy := func(value runtimesettings.Settings) {
 		p := value.RateLimits.Admin
 		_ = authService.ConfigureRatePolicy(adminauth.RatePolicy{AccountMaxFailures: p.AccountMaxFailures, NetworkMaxFailures: p.NetworkMaxFailures, Window: time.Duration(p.WindowSeconds) * time.Second, Block: time.Duration(p.BlockSeconds) * time.Second})
@@ -278,6 +281,7 @@ func newWithCatalogPreflight(
 		MetricsExposition:  metricsExposition,
 		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
 		SQLConsole:         sqlConsoleHandlers,
+		APIRateLimits:      apiLimits,
 	}, pool, normalized)
 	if err != nil {
 		return nil, err

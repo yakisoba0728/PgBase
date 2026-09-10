@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
@@ -64,6 +65,7 @@ type Dependencies struct {
 	SchemaApplyTimeout time.Duration
 	SQLConsole         *SQLConsoleHandlers
 	RuntimeSettings    *runtimesettings.Controller
+	APIRateLimits      *apiratelimit.Service
 }
 
 func (d Dependencies) trustedProxies() []netip.Prefix {
@@ -277,6 +279,9 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 			requestLimit = maxJSONBodyBytes
 		}
 		handler = requestBodyLimitMiddleware(requestLimit, handler)
+		if dependencies.APIRateLimits != nil {
+			handler = apiRateLimitMiddleware(dependencies.APIRateLimits, dependencies.trustedProxies, declared.pattern, handler)
+		}
 		handler = dependencies.admit(declared.access, handler)
 		if declared.noStore {
 			handler = noStoreCustomHandler(handler)

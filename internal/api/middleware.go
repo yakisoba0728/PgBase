@@ -6,14 +6,44 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 )
+
+func apiRateLimitMiddleware(limiter *apiratelimit.Service, trusted func() []netip.Prefix, pattern string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		address, ok := clientAddress(r, currentTrustedProxies(trusted))
+		if !ok {
+			address = "unknown"
+		}
+		actor := ""
+		if p, ok := AdminPrincipalFromContext(r.Context()); ok {
+			actor = "admin:" + p.Administrator.ID.String()
+		}
+		if p, ok := r.Context().Value(userPrincipalKey{}).(authenticatedUser); ok {
+			actor = "user:" + p.principal.User.ID.String()
+		}
+		decision, err := limiter.Admit(r.Context(), r.Method, pattern, actor, address)
+		if err != nil {
+			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "rate_limit_unavailable", Message: "Rate limit unavailable"})
+			return
+		}
+		if !decision.Allowed {
+			w.Header().Set("Retry-After", strconv.FormatInt(int64(math.Ceil(decision.RetryAfter.Seconds())), 10))
+			writeAPIError(w, r, APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Too many requests"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 const (
 	maxJSONBodyBytes              = 1 << 20
