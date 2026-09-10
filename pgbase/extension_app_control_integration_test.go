@@ -56,6 +56,10 @@ func TestExtensionAppControlUsesCurrentAppStateAndAdministratorAuthority(t *test
 	if restarted.Load() != 1 || lifecycle.Load() != 2 {
 		t.Fatalf("restart callbacks=%d", restarted.Load())
 	}
+	control.lifecycle = nil
+	if _, err := host.callAppControl(t.Context(), "app-control.bootstrap", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("bootstrap succeeded without an operator lifecycle callback")
+	}
 	denied := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.User, ID: uuid.New()}, valid: true}
 	if _, err := denied.callAppControl(t.Context(), "app-control.settings", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("user authority reached app control")
