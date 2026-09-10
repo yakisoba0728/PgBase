@@ -49,7 +49,8 @@ func (s *Service) IssueEmailOTP(ctx context.Context, email string) (EmailOTP, er
 		return EmailOTP{}, err
 	}
 	now := s.clock.Now().UTC()
-	if err := s.admitRateLimit(ctx, []rateLimitBucket{{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-issue", "account", normalized), limit: accountFailureLimit}}, now); err != nil {
+	policy := s.currentRatePolicy()
+	if err := s.admitRateLimit(ctx, []rateLimitBucket{{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-issue", "account", normalized), limit: policy.AccountMaxFailures, window: policy.Window, block: policy.Block}}, now); err != nil {
 		return EmailOTP{}, err
 	}
 	var random [8]byte
@@ -93,7 +94,8 @@ func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code, subject str
 		return Session{}, ErrValidation
 	}
 	now := s.clock.Now().UTC()
-	network := rateLimitBucket{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-complete", "network", subject), limit: networkFailureLimit}
+	policy := s.currentRatePolicy()
+	network := rateLimitBucket{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-complete", "network", subject), limit: policy.NetworkMaxFailures, window: policy.Window, block: policy.Block}
 	if err := s.admitRateLimit(ctx, []rateLimitBucket{network}, now); err != nil {
 		return Session{}, err
 	}
@@ -106,7 +108,7 @@ func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code, subject str
 			operationErr = ErrInvalidCredentials
 			return nil
 		}
-		account := rateLimitBucket{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-complete", "account", administrator.Email), limit: accountFailureLimit, clearOnSuccess: true}
+		account := rateLimitBucket{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-complete", "account", administrator.Email), limit: policy.AccountMaxFailures, window: policy.Window, block: policy.Block, clearOnSuccess: true}
 		if err := store.LockRateLimits(ctx, rateLimitLockKeys([]rateLimitBucket{account})); err != nil {
 			return err
 		}

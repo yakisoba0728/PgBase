@@ -924,3 +924,35 @@ func TestServiceResetAdministratorPasswordRollsBackWhenSessionRevocationFails(t 
 		t.Fatalf("old password did not survive rollback: %v", err)
 	}
 }
+
+func TestServiceLoginUsesLiveRatePolicy(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	clock := &fakeClock{now: time.Date(2026, 9, 10, 5, 6, 7, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	service := NewService(pool, NewArgon2idPasswords(), secret, "setup-token-012345678901234567890", time.Hour, clock)
+	if _, err := service.Setup(context.Background(), "setup-token-012345678901234567890", "admin@example.test", "correct horse battery staple", "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+	policy := RatePolicy{AccountMaxFailures: 3, NetworkMaxFailures: 2, Window: 2 * time.Hour, Block: 3 * time.Hour}
+	if err := service.ConfigureRatePolicy(policy); err != nil {
+		t.Fatal(err)
+	}
+	const network = "192.0.2.99"
+	if _, err := service.Login(context.Background(), "admin@example.test", "incorrect horse battery staple", network); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("first login error=%v", err)
+	}
+	if _, err := service.Login(context.Background(), "admin@example.test", "incorrect horse battery staple", network); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("second login error=%v", err)
+	}
+	var blockedUntil time.Time
+	hash := rateLimitSubjectHash(secret, "login", "network", network)
+	if err := pool.QueryRow(context.Background(), `select blocked_until from pgbase_meta.admin_rate_limits where subject_hash=$1`, hash).Scan(&blockedUntil); err != nil {
+		t.Fatal(err)
+	}
+	if !blockedUntil.Equal(clock.now.Add(policy.Block)) {
+		t.Fatalf("login block=%s want %s", blockedUntil, clock.now.Add(policy.Block))
+	}
+	if _, err := service.Login(context.Background(), "admin@example.test", "incorrect horse battery staple", network); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("login policy did not block subsequent request: %v", err)
+	}
+}
