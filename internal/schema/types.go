@@ -43,6 +43,7 @@ type FieldInput struct {
 	Hidden      bool            `json:"hidden,omitempty"`
 	Presentable bool            `json:"presentable,omitempty"`
 	Help        string          `json:"help,omitempty"`
+	System      *bool           `json:"system,omitempty"`
 }
 
 // FieldOptions contains value constraints enforced on record writes. Required
@@ -72,7 +73,25 @@ type FieldOptions struct {
 	ConvertURLs bool     `json:"convertURLs,omitempty"`
 	OnCreate    bool     `json:"onCreate,omitempty"`
 	OnUpdate    bool     `json:"onUpdate,omitempty"`
+	// Protected defaults to true for file fields when omitted. Explicit false
+	// opts a file field into public delivery policy.
+	Protected *bool `json:"protected,omitempty"`
 }
+
+type CollectionType string
+
+const (
+	CollectionTypeBase CollectionType = "base"
+	CollectionTypeAuth CollectionType = "auth"
+	CollectionTypeView CollectionType = "view"
+)
+
+type ValidationMode string
+
+const (
+	ValidationModePostgres   ValidationMode = "postgres"
+	ValidationModePocketBase ValidationMode = "pocketbase"
+)
 
 type IndexInput struct {
 	Name   string   `json:"name"`
@@ -81,10 +100,14 @@ type IndexInput struct {
 }
 
 type CreateCollectionInput struct {
-	Name    string       `json:"name"`
-	Fields  []FieldInput `json:"fields"`
-	Indexes []IndexInput `json:"indexes,omitempty"`
-	View    *ViewInput   `json:"view,omitempty"`
+	Name              string         `json:"name"`
+	CompatibilityName string         `json:"compatibilityName,omitempty"`
+	Type              CollectionType `json:"type,omitempty"`
+	System            bool           `json:"system,omitempty"`
+	ValidationMode    ValidationMode `json:"validationMode,omitempty"`
+	Fields            []FieldInput   `json:"fields"`
+	Indexes           []IndexInput   `json:"indexes,omitempty"`
+	View              *ViewInput     `json:"view,omitempty"`
 }
 
 type ViewInput struct {
@@ -103,10 +126,14 @@ type ViewFilter struct {
 }
 
 type UpdateCollectionInput struct {
-	Name    string        `json:"name"`
-	Fields  []FieldInput  `json:"fields"`
-	Indexes *[]IndexInput `json:"indexes,omitempty"`
-	View    *ViewInput    `json:"view,omitempty"`
+	Name              string          `json:"name"`
+	CompatibilityName *string         `json:"compatibilityName,omitempty"`
+	Type              *CollectionType `json:"type,omitempty"`
+	System            *bool           `json:"system,omitempty"`
+	ValidationMode    *ValidationMode `json:"validationMode,omitempty"`
+	Fields            []FieldInput    `json:"fields"`
+	Indexes           *[]IndexInput   `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
 }
 
 type changeKind uint8
@@ -203,6 +230,7 @@ func cloneFieldOptions(source FieldOptions) FieldOptions {
 	result.Max = clonePointer(source.Max)
 	result.MaxFileSize = clonePointer(source.MaxFileSize)
 	result.MaxSize = clonePointer(source.MaxSize)
+	result.Protected = clonePointer(source.Protected)
 	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
 	result.DeniedDomains = append([]string(nil), source.DeniedDomains...)
 	result.AllowedValues = append([]string(nil), source.AllowedValues...)
@@ -257,17 +285,22 @@ type Field struct {
 	Hidden      bool            `json:"hidden,omitempty"`
 	Presentable bool            `json:"presentable,omitempty"`
 	Help        string          `json:"help,omitempty"`
+	System      bool            `json:"system,omitempty"`
 	Ordinal     int             `json:"ordinal"`
 }
 
 type Collection struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	TableName string    `json:"tableName"`
-	Fields    []Field   `json:"fields"`
-	Indexes   []Index   `json:"indexes,omitempty"`
-	View      *ViewSpec `json:"view,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID                uuid.UUID      `json:"id"`
+	Name              string         `json:"name"`
+	CompatibilityName string         `json:"compatibilityName,omitempty"`
+	Type              CollectionType `json:"type"`
+	System            bool           `json:"system,omitempty"`
+	ValidationMode    ValidationMode `json:"validationMode"`
+	TableName         string         `json:"tableName"`
+	Fields            []Field        `json:"fields"`
+	Indexes           []Index        `json:"indexes,omitempty"`
+	View              *ViewSpec      `json:"view,omitempty"`
+	CreatedAt         time.Time      `json:"createdAt"`
 }
 
 type ViewSpec struct {
@@ -310,15 +343,20 @@ type PlannedField struct {
 	Hidden      bool             `json:"hidden,omitempty"`
 	Presentable bool             `json:"presentable,omitempty"`
 	Help        string           `json:"help,omitempty"`
+	System      bool             `json:"system,omitempty"`
 	Ordinal     int
 }
 
 type PlannedCollection struct {
-	Name      string
-	TableName string
-	Fields    []PlannedField
-	Indexes   []PlannedIndex
-	View      *PlannedView `json:"view,omitempty"`
+	Name              string
+	CompatibilityName string
+	Type              CollectionType
+	System            bool
+	ValidationMode    ValidationMode
+	TableName         string
+	Fields            []PlannedField
+	Indexes           []PlannedIndex
+	View              *PlannedView `json:"view,omitempty"`
 }
 type PlannedView struct {
 	SourceCollectionID uuid.UUID   `json:"sourceCollectionId"`

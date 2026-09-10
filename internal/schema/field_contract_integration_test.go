@@ -201,10 +201,11 @@ func TestMultipleRelationRenameSupportsCollectionDelete(t *testing.T) {
 	ctx := context.Background()
 	pool, service, admin := newSchemaServiceTest(t)
 	applyFreshPlan(t, service, CreateCollectionInput{Name: "delete_relation_targets"}, admin)
-	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "delete_relation_sources", Fields: []FieldInput{{Name: "members", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple}}}}, admin)
+	maximum := 8
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "delete_relation_sources", Fields: []FieldInput{{Name: "members", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple, MaxSelect: &maximum}}}}, admin)
 	id := created.Fields[0].ID
 	physical := created.Fields[0].Relation.Storage.Name
-	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: created.Name, Fields: []FieldInput{{ID: &id, Name: "reviewers", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple}}}}), admin)
+	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: created.Name, Fields: []FieldInput{{ID: &id, Name: "reviewers", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple, MaxSelect: &maximum}}}}), admin)
 	applyChange(t, service, NewDeleteChange(created.Name), admin)
 	var exists bool
 	if err := pool.QueryRow(ctx, `select to_regclass($1) is not null`, "pgbase_relation."+physical).Scan(&exists); err != nil || exists {

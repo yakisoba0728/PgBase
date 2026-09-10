@@ -136,6 +136,9 @@ var userMigrationSourcesSQL string
 //go:embed 000041_sql_console.sql
 var sqlConsoleSQL string
 
+//go:embed 000042_schema_compatibility.sql
+var schemaCompatibilitySQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -223,6 +226,7 @@ var migrations = []Migration{
 	{Version: 39, Name: "admin_mfa_network_policy", SQL: adminMFANetworkPolicySQL, SHA256: sha256.Sum256([]byte(adminMFANetworkPolicySQL))},
 	{Version: 40, Name: "user_migration_sources", SQL: userMigrationSourcesSQL, SHA256: sha256.Sum256([]byte(userMigrationSourcesSQL))},
 	{Version: 41, Name: "sql_console", SQL: sqlConsoleSQL, SHA256: sha256.Sum256([]byte(sqlConsoleSQL))},
+	{Version: 42, Name: "schema_compatibility", SQL: schemaCompatibilitySQL, SHA256: sha256.Sum256([]byte(schemaCompatibilitySQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

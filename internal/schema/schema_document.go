@@ -26,13 +26,17 @@ type SchemaDocument struct {
 }
 
 type SchemaDocumentCollection struct {
-	Name       string          `json:"name"`
-	Fields     []FieldInput    `json:"fields,omitempty"`
-	Indexes    []IndexInput    `json:"indexes,omitempty"`
-	View       *ViewInput      `json:"view,omitempty"`
-	DependsOn  []string        `json:"dependsOn,omitempty"`
-	UserAccess bool            `json:"userAccess"`
-	Rules      json.RawMessage `json:"rules"`
+	Name              string          `json:"name"`
+	CompatibilityName string          `json:"compatibilityName,omitempty"`
+	Type              CollectionType  `json:"type,omitempty"`
+	System            bool            `json:"system,omitempty"`
+	ValidationMode    ValidationMode  `json:"validationMode,omitempty"`
+	Fields            []FieldInput    `json:"fields,omitempty"`
+	Indexes           []IndexInput    `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
+	DependsOn         []string        `json:"dependsOn,omitempty"`
+	UserAccess        bool            `json:"userAccess"`
+	Rules             json.RawMessage `json:"rules"`
 }
 
 type SchemaImportPlan struct {
@@ -92,9 +96,10 @@ func (s *Service) ExportSchema(ctx context.Context) (SchemaDocument, error) {
 }
 
 func exportDocumentCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, c Collection) (SchemaDocumentCollection, error) {
-	item := SchemaDocumentCollection{Name: c.Name, Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)}
+	item := SchemaDocumentCollection{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)}
 	for _, field := range c.Fields {
-		input := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
+		system := field.System
+		input := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: &system, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
 		if field.Relation != nil {
 			target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
 			if !ok {
@@ -315,7 +320,7 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 				scalars = append(scalars, field)
 			}
 		}
-		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, Fields: scalars}))
+		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: item.Type, System: item.System, ValidationMode: item.ValidationMode, Fields: scalars}))
 		created[item.Name] = true
 	}
 	for _, item := range base {
@@ -331,7 +336,8 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 		if exists && sameImportedBase(current, fields, indexes, catalog) {
 			continue
 		}
-		changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}))
+		typeValue, system, mode, compatibility := item.Type, item.System, item.ValidationMode, item.CompatibilityName
+		changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, CompatibilityName: &compatibility, Type: &typeValue, System: &system, ValidationMode: &mode, Fields: fields, Indexes: &indexes}))
 	}
 	for _, item := range views {
 		if current, exists := catalog.Collections[item.Name]; exists {
@@ -346,7 +352,7 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 			}
 			changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, View: item.View}))
 		} else {
-			changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, View: item.View}))
+			changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: CollectionTypeView, System: item.System, ValidationMode: item.ValidationMode, View: item.View}))
 		}
 	}
 	return changes, nil
@@ -486,7 +492,8 @@ func importedFields(catalog Catalog, current Collection, fields []FieldInput) ([
 			continue
 		}
 		id := field.ID
-		input := FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
+		system := field.System
+		input := FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: &system, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
 		if field.Relation != nil {
 			target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
 			if !ok {

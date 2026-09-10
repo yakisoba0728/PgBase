@@ -361,6 +361,7 @@ func relationValidationError(details []ValidationDetail) error {
 func cloneFieldInput(field FieldInput) FieldInput {
 	field.Default = append(json.RawMessage(nil), field.Default...)
 	field.ID = clonePointer(field.ID)
+	field.System = clonePointer(field.System)
 	if field.Options != nil {
 		cloned := cloneFieldOptions(*field.Options)
 		field.Options = &cloned

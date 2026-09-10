@@ -1,13 +1,44 @@
 package schema
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+var compatibilityCollectionName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+func normalizeCreateCollectionMetadata(input *CreateCollectionInput) error {
+	if input.Type == "" {
+		if input.View != nil {
+			input.Type = CollectionTypeView
+		} else {
+			input.Type = CollectionTypeBase
+		}
+	}
+	if input.ValidationMode == "" {
+		input.ValidationMode = ValidationModePostgres
+	}
+	if input.CompatibilityName != "" && (len(input.CompatibilityName) > 255 || !compatibilityCollectionName.MatchString(input.CompatibilityName)) {
+		return validation("compatibilityName", "invalid_name")
+	}
+	if input.Type != CollectionTypeBase && input.Type != CollectionTypeAuth && input.Type != CollectionTypeView {
+		return validation("type", "invalid")
+	}
+	if input.ValidationMode != ValidationModePostgres && input.ValidationMode != ValidationModePocketBase {
+		return validation("validationMode", "invalid")
+	}
+	if (input.View != nil) != (input.Type == CollectionTypeView) {
+		return validation("type", "view_mismatch")
+	}
+	return nil
+}
 
 const (
 	createCollectionOperation = "collection_create"
@@ -76,6 +107,9 @@ func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Pla
 }
 
 func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (Plan, error) {
+	if err := normalizeCreateCollectionMetadata(&input); err != nil {
+		return Plan{}, err
+	}
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -111,7 +145,7 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 	if err != nil {
 		return Plan{}, err
 	}
-	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, Indexes: indexes}
+	definition := PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: input.Type, System: input.System, ValidationMode: input.ValidationMode, TableName: input.Name, Fields: fields, Indexes: indexes}
 	return Plan{
 		Operation:   createCollectionOperation,
 		BaseVersion: catalog.Version,
@@ -137,6 +171,29 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 	if input.Name != current.Name || current.TableName != current.Name {
 		return Plan{}, ErrConflict
+	}
+	if input.Type != nil && *input.Type != current.Type {
+		return Plan{}, validation("type", "immutable")
+	}
+	if input.System != nil && *input.System != current.System {
+		return Plan{}, validation("system", "immutable")
+	}
+	compatibilityName := current.CompatibilityName
+	if input.CompatibilityName != nil {
+		compatibilityName = *input.CompatibilityName
+	}
+	if compatibilityName != "" && (len(compatibilityName) > 255 || !compatibilityCollectionName.MatchString(compatibilityName)) {
+		return Plan{}, validation("compatibilityName", "invalid_name")
+	}
+	validationMode := current.ValidationMode
+	if validationMode == "" {
+		validationMode = ValidationModePostgres
+	}
+	if input.ValidationMode != nil {
+		validationMode = *input.ValidationMode
+	}
+	if validationMode != ValidationModePostgres && validationMode != ValidationModePocketBase {
+		return Plan{}, validation("validationMode", "invalid")
 	}
 	if len(input.Fields) > maximumCollectionFields {
 		return Plan{}, validation("fields", "too_many_fields")
@@ -192,11 +249,6 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			if _, duplicate := desiredIDs[previous.ID]; duplicate {
 				return Plan{}, validation(namePath, "duplicate_id")
 			}
-		} else if !exists {
-			_, occupied := currentColumns[field.Name]
-			if occupied {
-				return Plan{}, validation(namePath, "physical_name_exists")
-			}
 		}
 		carriedDefault := json.RawMessage(nil)
 		if exists {
@@ -209,10 +261,28 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if err != nil {
 			return Plan{}, err
 		}
+		if !exists {
+			if _, occupied := currentColumns[planned.ColumnName]; occupied {
+				planned.ColumnName = reusablePhysicalColumn(current.Name, field.Name, currentColumns)
+				if planned.Relation != nil {
+					planned.Relation.Storage.Name = planned.ColumnName
+					if planned.Relation.Cardinality == RelationMultiple {
+						planned.Relation.Storage.Name = NewRelationPhysicalNames(current.TableName, planned.ColumnName).MultiTable
+					}
+				}
+			}
+			currentColumns[planned.ColumnName] = planned
+		}
 		if len(carriedDefault) != 0 {
 			planned.Default = append(json.RawMessage(nil), carriedDefault...)
 		}
 		if exists {
+			if previous.System && (field.System == nil || !*field.System || field.Name != previous.Name) {
+				return Plan{}, validation(namePath, "system_field_immutable")
+			}
+			if !previous.System && field.System != nil && *field.System {
+				return Plan{}, validation(namePath, "system_immutable")
+			}
 			planned.ID = previous.ID
 			planned.ColumnName = previous.ColumnName
 			if previous.ID != uuid.Nil {
@@ -239,6 +309,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		if _, kept := desiredNames[field.Name]; kept {
 			continue
+		}
+		if field.System {
+			return Plan{}, validation("fields", "system_field_immutable")
 		}
 		if field.Type == TypeRelation && field.Relation != nil {
 			statements = append(statements, dropRelationFieldStatements(current, field)...)
@@ -321,9 +394,19 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired, Indexes: indexes},
+		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, TableName: current.TableName, Fields: desired, Indexes: indexes},
 		Statements:  statements,
 	}, nil
+}
+
+func reusablePhysicalColumn(collection, logical string, occupied map[string]PlannedField) string {
+	for salt := 0; ; salt++ {
+		digest := sha256.Sum256([]byte(fmt.Sprintf("pgbase:reused-column:v1:%s:%s:%d", collection, logical, salt)))
+		candidate := "pgb_" + hex.EncodeToString(digest[:])[:20]
+		if _, exists := occupied[candidate]; !exists {
+			return candidate
+		}
+	}
 }
 
 // Dependent indexes are dropped with the table.
@@ -485,6 +568,7 @@ func planInputField(
 		Ordinal:    ordinal,
 		Options:    clonedInputOptions(normalized.Options),
 		Hidden:     normalized.Hidden, Presentable: normalized.Presentable, Help: normalized.Help,
+		System: normalized.System != nil && *normalized.System,
 	}
 	if normalized.Type == TypeEditor {
 		planned.Default = json.RawMessage(`""`)

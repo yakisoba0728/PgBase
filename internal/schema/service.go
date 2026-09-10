@@ -608,7 +608,7 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		fields = append(fields, Field{
 			ID: fieldID, Name: planned.Name, ColumnName: columnName, Type: planned.Type,
 			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
-			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Hidden: planned.Hidden, Presentable: planned.Presentable, Help: planned.Help, Ordinal: planned.Ordinal,
+			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Hidden: planned.Hidden, Presentable: planned.Presentable, Help: planned.Help, System: planned.System, Ordinal: planned.Ordinal,
 		})
 	}
 	return fields, nil

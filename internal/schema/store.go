@@ -49,7 +49,7 @@ func (s *Store) schemaVersion(ctx context.Context, lockClause string) (int64, er
 }
 
 func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error) {
-	rows, err := s.db.Query(ctx, `select id, name, table_name, created_at
+	rows, err := s.db.Query(ctx, `select id, name, table_name, compatibility_name, collection_type, system, validation_mode, created_at
 		from pgbase_meta.collections order by name`)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read collections: %w", err)
@@ -58,9 +58,13 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	collectionNames := make(map[uuid.UUID]string)
 	for rows.Next() {
 		var collection Collection
-		if err := rows.Scan(&collection.ID, &collection.Name, &collection.TableName, &collection.CreatedAt); err != nil {
+		var compatibilityName *string
+		if err := rows.Scan(&collection.ID, &collection.Name, &collection.TableName, &compatibilityName, &collection.Type, &collection.System, &collection.ValidationMode, &collection.CreatedAt); err != nil {
 			rows.Close()
 			return Catalog{}, fmt.Errorf("scan collection: %w", err)
+		}
+		if compatibilityName != nil {
+			collection.CompatibilityName = *compatibilityName
 		}
 		collection.CreatedAt = collection.CreatedAt.UTC()
 		collection.Fields = []Field{}
@@ -146,10 +150,11 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		fieldIndex     int
 	}
 	fieldLocations := make(map[uuid.UUID]fieldLocation)
-	var hasFieldOptions, hasFieldPresentation bool
+	var hasFieldOptions, hasFieldPresentation, hasFieldSystem bool
 	if err := s.db.QueryRow(ctx, `select
 		exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='fields' and column_name='options_json'),
-		exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='fields' and column_name='hidden')`).Scan(&hasFieldOptions, &hasFieldPresentation); err != nil {
+		exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='fields' and column_name='hidden'),
+		exists(select 1 from information_schema.columns where table_schema='pgbase_meta' and table_name='fields' and column_name='system')`).Scan(&hasFieldOptions, &hasFieldPresentation, &hasFieldSystem); err != nil {
 		return Catalog{}, fmt.Errorf("inspect field metadata capabilities: %w", err)
 	}
 	optionsExpression := "'{}'::jsonb"
@@ -160,8 +165,12 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 	if hasFieldPresentation {
 		presentationExpression = "hidden, presentable, help"
 	}
+	systemExpression := "false"
+	if hasFieldSystem {
+		systemExpression = "system"
+	}
 	fieldRows, err := s.db.Query(ctx, `select id, collection_id, name, column_name, field_type,
-		required, is_unique, is_indexed, has_default, default_json, ordinal, `+optionsExpression+`, `+presentationExpression+`
+		required, is_unique, is_indexed, has_default, default_json, ordinal, `+optionsExpression+`, `+presentationExpression+`, `+systemExpression+`
 		from pgbase_meta.fields order by collection_id, ordinal`)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("read collection fields: %w", err)
@@ -174,7 +183,7 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 		var optionsJSON []byte
 		if err := fieldRows.Scan(
 			&field.ID, &collectionID, &field.Name, &field.ColumnName, &field.Type,
-			&field.Required, &field.Unique, &field.Indexed, &hasDefault, &defaultJSON, &field.Ordinal, &optionsJSON, &field.Hidden, &field.Presentable, &field.Help,
+			&field.Required, &field.Unique, &field.Indexed, &hasDefault, &defaultJSON, &field.Ordinal, &optionsJSON, &field.Hidden, &field.Presentable, &field.Help, &field.System,
 		); err != nil {
 			fieldRows.Close()
 			return Catalog{}, fmt.Errorf("scan collection field: %w", err)
@@ -330,9 +339,9 @@ func (s *Store) ReadCatalog(ctx context.Context, version int64) (Catalog, error)
 
 func (s *Store) InsertCollection(ctx context.Context, collection Collection, definition PlannedCollection, createdAt time.Time) error {
 	if _, err := s.db.Exec(ctx, `insert into pgbase_meta.collections
-		(id, name, table_name, status, created_at, updated_at)
-		values ($1, $2, $3, 'active', $4, $4)`,
-		collection.ID, collection.Name, collection.TableName, createdAt); err != nil {
+		(id, name, table_name, compatibility_name, collection_type, system, validation_mode, status, created_at, updated_at)
+		values ($1, $2, $3, nullif($4,''), $5, $6, $7, 'active', $8, $8)`,
+		collection.ID, collection.Name, collection.TableName, collection.CompatibilityName, collection.Type, collection.System, collection.ValidationMode, createdAt); err != nil {
 		return fmt.Errorf("insert collection metadata: %w", err)
 	}
 	if err := s.insertFieldMetadata(ctx, collection, definition, createdAt); err != nil {
@@ -371,9 +380,9 @@ func nullableUUIDs(values []uuid.UUID) any {
 
 func (s *Store) UpdateCollection(ctx context.Context, collection Collection, definition PlannedCollection, updatedAt time.Time) error {
 	if _, err := s.db.Exec(ctx, `update pgbase_meta.collections
-		set updated_at = $2
+		set compatibility_name=nullif($2,''), validation_mode=$3, updated_at = $4
 		where id = $1`,
-		collection.ID, updatedAt); err != nil {
+		collection.ID, collection.CompatibilityName, collection.ValidationMode, updatedAt); err != nil {
 		return fmt.Errorf("update collection metadata: %w", err)
 	}
 	if collection.IsSQLView() {
@@ -542,12 +551,12 @@ func (s *Store) insertFieldMetadata(ctx context.Context, collection Collection, 
 		}
 		if _, err := s.db.Exec(ctx, `insert into pgbase_meta.fields
 			(id, collection_id, name, column_name, field_type, required, is_unique, is_indexed,
-			 has_default, default_json, ordinal, created_at, options_json, hidden, presentable, help)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16)
-			on conflict(id) do update set name=excluded.name,column_name=excluded.column_name,field_type=excluded.field_type,required=excluded.required,is_unique=excluded.is_unique,is_indexed=excluded.is_indexed,has_default=excluded.has_default,default_json=excluded.default_json,ordinal=excluded.ordinal,options_json=excluded.options_json,hidden=excluded.hidden,presentable=excluded.presentable,help=excluded.help`,
+			 has_default, default_json, ordinal, created_at, options_json, hidden, presentable, help, system)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17)
+			on conflict(id) do update set name=excluded.name,column_name=excluded.column_name,field_type=excluded.field_type,required=excluded.required,is_unique=excluded.is_unique,is_indexed=excluded.is_indexed,has_default=excluded.has_default,default_json=excluded.default_json,ordinal=excluded.ordinal,options_json=excluded.options_json,hidden=excluded.hidden,presentable=excluded.presentable,help=excluded.help,system=excluded.system`,
 			field.ID, collection.ID, field.Name, field.ColumnName, field.Type,
 			field.Required, field.Unique, field.Indexed, len(plannedField.Default) != 0,
-			defaultJSON, field.Ordinal, createdAt, string(optionsJSON), plannedField.Hidden, plannedField.Presentable, plannedField.Help); err != nil {
+			defaultJSON, field.Ordinal, createdAt, string(optionsJSON), plannedField.Hidden, plannedField.Presentable, plannedField.Help, plannedField.System); err != nil {
 			return fmt.Errorf("insert field metadata: %w", err)
 		}
 	}
