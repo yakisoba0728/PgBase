@@ -112,12 +112,16 @@ func (c *Controller) Get() Settings {
 func (c *Controller) Reload(ctx context.Context) error {
 	var raw []byte
 	var v Settings
-	if err := c.pool.QueryRow(ctx, `select document,revision from pgbase_meta.runtime_settings where singleton`).Scan(&raw, &v.Revision); err != nil {
+	var revision int64
+	if err := c.pool.QueryRow(ctx, `select document,revision from pgbase_meta.runtime_settings where singleton`).Scan(&raw, &revision); err != nil {
 		return err
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("decode runtime settings: %w", err)
 	}
+	// The database revision is the concurrency authority.  A document copied
+	// from an older process must never overwrite it during JSON decoding.
+	v.Revision = revision
 	if err := validate(v); err != nil {
 		return err
 	}
