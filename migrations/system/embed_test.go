@@ -62,11 +62,12 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		48: "a8ce4d47642feadb70d9c1dfa5466b3448b37ba506535d2a09dd7c9d52c88c3f",
 		50: "93d1a641462382d75d055774b87b8b76baa4c7cd61dc70228f0e770356fcabb1",
 		51: "5d41df638207edc2389c023b12e63b701e69ff0cb7e87f3ad2ebe0c794af640c",
+		52: "9c0f87e8deb1c0649a064599946a95c635572f04bca6a5a2d3a0d07d8ba71ae5",
 		54: "9bb87253d2b6f398b5b5d8d2269baf35504c71d7a138d178b062f38345a18d6d",
 		56: "8aecc4be385dfb2b639e6cb8ea71728812ffb40ab16afec5418688390ec82757",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 49 || migrations[len(migrations)-1].Version != 56 ||
+	if len(migrations) != 50 || migrations[len(migrations)-1].Version != 56 ||
 		migrations[len(migrations)-1].Name != "admin_email_otps" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||

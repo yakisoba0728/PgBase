@@ -298,6 +298,149 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/auth-collections/{id}/records": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/admin/auth-collections/{id}/records/{record}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
     "/api/admin/auth-collections/{id}/smtp": {
       "put": {
         "parameters": [
@@ -2325,6 +2468,116 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/v1/auth/{authCollection}/aux/{kind}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/{authCollection}/aux/{kind}/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/{authCollection}/login": {
       "post": {
         "parameters": [
@@ -2481,6 +2734,123 @@
           {
             "in": "path",
             "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ],
+        "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/v1/auth/{authCollection}/records": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/{authCollection}/records/{record}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authCollection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record",
             "required": true,
             "schema": {
               "type": "string"
