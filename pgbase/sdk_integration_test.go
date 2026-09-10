@@ -4,6 +4,7 @@ package pgbase
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -31,6 +32,7 @@ func TestSDKPublicRecordHTTPConformance(t *testing.T) {
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/admin/collections/apply", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
 	enable := publicUsersRequest(t, app, "PUT", "/api/admin/collections/notes/user-access", map[string]any{"enabled": true}, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, enable, 200)
+	dartOwner := registerPublicUser(t, app, "sdk-dart-page@example.test", publicUserOnePass)
 	repo := filepath.Clean("..")
 	build := exec.Command("npm", "--prefix", filepath.Join(repo, "sdk/typescript"), "run", "build")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -51,6 +53,10 @@ const escaped = client.filter("title = {:title}", {title: attack});
 if (escaped.includes(' || title != "from sdk"')) throw new Error("filter literal was interpolated as filter syntax");
 const noMatch = await records.list({filter: escaped, compat:"pocketbase"});
 if (noMatch.items.length !== 0) throw new Error("filter-looking input widened the record query");
+const numbered = await records.getList(1, 30, {filter: client.filter("title = {:title}", {title:"from sdk"}), sort:"@rowid"});
+if (numbered.page !== 1 || numbered.perPage !== 30 || numbered.totalItems !== 1 || numbered.totalPages !== 1 || numbered.items.length !== 1 || numbered.items[0].id !== created.id) throw new Error("PocketBase numbered page did not bind the intended record");
+const skipped = await records.getList(1, 30, {filter: client.filter("title = {:title}", {title:"from sdk"}), skipTotal:true});
+if (skipped.totalItems !== -1 || skipped.totalPages !== -1 || skipped.items.length !== 1) throw new Error("PocketBase skipTotal envelope mismatch");
 const read = await fetch(process.argv[1] + "/api/v1/user/collections/notes/records/" + created.id, {headers:{Authorization:"Bearer " + s.token}});
 const etag = read.headers.get("etag"); if (!etag) throw new Error("read returned no etag");
 await records.update(created.id, {title:"updated"}, etag);
@@ -75,5 +81,11 @@ if (revoked.status !== 401) throw new Error("realm logout did not revoke session
 	command.Dir = repo
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("SDK HTTP conformance: %v\n%s", err, output)
+	}
+	dart := exec.CommandContext(ctx, "dart", "run", "tool/pocketbase_http_conformance.dart")
+	dart.Dir = filepath.Join(repo, "sdk/dart")
+	dart.Env = append(os.Environ(), "PGBASE_SDK_URL="+app.server.URL, "PGBASE_SDK_TOKEN="+dartOwner.Token)
+	if output, err := dart.CombinedOutput(); err != nil {
+		t.Fatalf("Dart SDK HTTP conformance: %v\n%s", err, output)
 	}
 }
