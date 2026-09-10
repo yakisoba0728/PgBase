@@ -98,6 +98,66 @@ func (r *Runner) History(ctx context.Context) ([]HistoryEntry, error) {
 	return entries, nil
 }
 
+// CleanupHistory removes only source-absent applied history rows. It is an
+// explicit operator recovery action for intentionally retired migration source;
+// it never adopts source, executes callbacks, or alters the schema-version
+// ledger. DryRun returns the exact ordered rows that a real cleanup would
+// remove. The regular HistorySync adoption semantics remain unchanged.
+func (r *Runner) CleanupHistory(ctx context.Context, dryRun bool) (HistoryCleanup, error) {
+	if r == nil || r.pool == nil {
+		return HistoryCleanup{}, errors.New("user migration pool is nil")
+	}
+	result := HistoryCleanup{DryRun: dryRun}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return HistoryCleanup{}, fmt.Errorf("begin user migration cleanup: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := func() error {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1),pg_advisory_xact_lock($2)`, userMigrationLock, schemaWriterLock); err != nil {
+			return fmt.Errorf("acquire user migration locks: %w", err)
+		}
+		applied, err := r.applied(ctx, tx)
+		if err != nil {
+			return err
+		}
+		known := make(map[string]struct{}, len(r.migrations))
+		for _, migration := range r.migrations {
+			known[migration.ID] = struct{}{}
+		}
+		ids := make([]string, 0)
+		for id := range applied {
+			if _, ok := known[id]; !ok {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		result.Entries = make([]HistoryEntry, 0, len(ids))
+		for _, id := range ids {
+			stored := applied[id]
+			result.Entries = append(result.Entries, HistoryEntry{ID: id, State: HistoryOnly, AppliedRevision: append([]byte(nil), stored.revision...), AppliedAt: stored.appliedAt, ExecutionMS: stored.executionMS})
+		}
+		if dryRun || len(ids) == 0 {
+			return nil
+		}
+		for _, id := range ids {
+			if _, err := tx.Exec(ctx, `delete from pgbase_meta.user_migrations where id=$1`, id); err != nil {
+				return fmt.Errorf("delete retired user migration %s: %w", id, err)
+			}
+		}
+		return nil
+	}(); err != nil {
+		return HistoryCleanup{}, err
+	}
+	if dryRun {
+		return result, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return HistoryCleanup{}, fmt.Errorf("commit user migration cleanup: %w", err)
+	}
+	return result, nil
+}
+
 // HistorySync adopts one already-present generated schema migration only after
 // proving that the database is at that migration's exact target snapshot.
 func (r *Runner) HistorySync(ctx context.Context, id string) (Entry, error) {

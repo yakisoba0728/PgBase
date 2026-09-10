@@ -263,6 +263,54 @@ func TestUserMigrationRejectsManagedControlStateChanges(t *testing.T) {
 	}
 }
 
+func TestCleanupHistoryPreviewsDeletesOnlyRetiredSourceAndRollsBackFailures(t *testing.T) {
+	pool := userMigrationPool(t)
+	ctx := context.Background()
+	revision := sha256.Sum256([]byte("retired-source"))
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.user_migrations(id,revision,applied_at,execution_ms) values($1,$2,clock_timestamp(),7)`, "20260910120000_retired", revision[:]); err != nil {
+		t.Fatal(err)
+	}
+	var schemaVersion int64
+	if err := pool.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&schemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	runner, err := New(pool, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := runner.CleanupHistory(ctx, true)
+	if err != nil || len(preview.Entries) != 1 || preview.Entries[0].ID != "20260910120000_retired" || !preview.DryRun {
+		t.Fatalf("preview=%+v err=%v", preview, err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_migrations`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("dry-run ledger=%d err=%v", count, err)
+	}
+	if _, err := pool.Exec(ctx, `create function pgbase_meta.reject_retired_history_cleanup() returns trigger language plpgsql as $$ begin raise exception 'fixture rollback'; end $$; create trigger reject_retired_history_cleanup before delete on pgbase_meta.user_migrations for each row execute function pgbase_meta.reject_retired_history_cleanup()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.CleanupHistory(ctx, false); err == nil {
+		t.Fatal("cleanup succeeded despite failing delete trigger")
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_migrations`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("failed cleanup ledger=%d err=%v", count, err)
+	}
+	if _, err := pool.Exec(ctx, `drop trigger reject_retired_history_cleanup on pgbase_meta.user_migrations; drop function pgbase_meta.reject_retired_history_cleanup()`); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := runner.CleanupHistory(ctx, false)
+	if err != nil || cleanup.DryRun || len(cleanup.Entries) != 1 {
+		t.Fatalf("cleanup=%+v err=%v", cleanup, err)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_migrations`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("cleanup ledger=%d err=%v", count, err)
+	}
+	var afterVersion int64
+	if err := pool.QueryRow(ctx, `select version from pgbase_meta.schema_state where singleton`).Scan(&afterVersion); err != nil || afterVersion != schemaVersion {
+		t.Fatalf("schema version=%d want=%d err=%v", afterVersion, schemaVersion, err)
+	}
+}
+
 func userMigrationPool(t *testing.T) *database.Pool {
 	t.Helper()
 	ctx := context.Background()

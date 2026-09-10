@@ -31,6 +31,7 @@ type UserMigration struct {
 type UserMigrationEntry = usermigrate.Entry
 type UserMigrationResult = usermigrate.Result
 type UserMigrationHistoryEntry = usermigrate.HistoryEntry
+type UserMigrationHistoryCleanup = usermigrate.HistoryCleanup
 type UserMigrationHistoryState = usermigrate.HistoryState
 type UserMigrationSourceStatus = usermigrate.SourceStatus
 
@@ -137,6 +138,15 @@ func (r *UserMigrationRunner) HistorySync(ctx context.Context, id string) (UserM
 		return UserMigrationEntry{}, errors.New("user migration runner is nil")
 	}
 	return r.runner.HistorySync(ctx, id)
+}
+
+// CleanupHistory explicitly removes applied history whose source is absent.
+// It preserves schema and checksum invariants; use dryRun to preview first.
+func (r *UserMigrationRunner) CleanupHistory(ctx context.Context, dryRun bool) (UserMigrationHistoryCleanup, error) {
+	if r == nil || r.runner == nil {
+		return UserMigrationHistoryCleanup{}, errors.New("user migration runner is nil")
+	}
+	return r.runner.CleanupHistory(ctx, dryRun)
 }
 
 // UserMigrationSnapshot returns the canonical source-generation snapshot for

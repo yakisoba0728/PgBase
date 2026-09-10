@@ -355,10 +355,10 @@ type structuralLimit struct {
 // adapters, nullable auth schema, SDK-facing contracts, and administration UI.
 // These values contain no spare allowance or additional exclusions.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 92940, "measured 232-feature closure after restoring catalog-aware rule compilation"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 93143, "measured TLS, managed-backup alert, and migration-history cleanup closure"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6902, "measured administration UI closure"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 90, "measured compatibility contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1500, "measured compatibility API"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1505, "measured TLS and migration-history compatibility API"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 62, "measured compatibility services"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 179, "measured compatibility UI state"},
