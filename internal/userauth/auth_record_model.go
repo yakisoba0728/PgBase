@@ -14,12 +14,28 @@ import (
 
 var authFieldName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
+func AuthSystemFields() []schema.FieldInput {
+	yes := true
+	return []schema.FieldInput{
+		{Name: "id", Type: schema.TypeUUID, Required: true, System: &yes}, {Name: "email", Type: schema.TypeText, Required: true, System: &yes}, {Name: "emailVisibility", Type: schema.TypeBoolean, System: &yes}, {Name: "verified", Type: schema.TypeBoolean, System: &yes}, {Name: "password", Type: schema.TypePassword, Required: true, Hidden: true, System: &yes}, {Name: "tokenKey", Type: schema.TypeText, Required: true, Hidden: true, System: &yes}, {Name: "created", Type: schema.TypeAutoDate, Required: true, System: &yes}, {Name: "updated", Type: schema.TypeAutoDate, Required: true, System: &yes},
+	}
+}
+
 func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) ([]schema.FieldInput, map[string]string, bool) {
 	if fields == nil {
 		for name, kind := range legacy {
 			fields = append(fields, schema.FieldInput{Name: name, Type: schema.FieldType(kind)})
 		}
 	}
+	custom := fields[:0]
+	systemNames := map[string]bool{"id": true, "email": true, "emailVisibility": true, "verified": true, "password": true, "tokenKey": true, "created": true, "updated": true}
+	for _, field := range fields {
+		if field.System != nil && *field.System && systemNames[field.Name] {
+			continue
+		}
+		custom = append(custom, field)
+	}
+	fields = custom
 	if len(fields) > 64 {
 		return nil, nil, false
 	}

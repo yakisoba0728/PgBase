@@ -191,6 +191,7 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 }
 
 func authCollectionResponse(v userauth.AuthCollection) any {
+	fields := append(userauth.AuthSystemFields(), v.Fields...)
 	return struct {
 		ID                  string                       `json:"id"`
 		Name                string                       `json:"name"`
@@ -199,7 +200,7 @@ func authCollectionResponse(v userauth.AuthCollection) any {
 		ProfileSchema       map[string]string            `json:"profileSchema"`
 		Fields              []schema.FieldInput          `json:"fields"`
 		Rules               userauth.AuthCollectionRules `json:"rules"`
-	}{v.ID.String(), v.Name, "auth", v.RegistrationEnabled, v.ProfileSchema, v.Fields, v.Rules}
+	}{v.ID.String(), v.Name, "auth", v.RegistrationEnabled, v.ProfileSchema, fields, v.Rules}
 }
 func (e authCollectionEndpoints) adminList(w http.ResponseWriter, r *http.Request) {
 	projection, err := authProjection(r)
