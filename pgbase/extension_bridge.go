@@ -38,6 +38,7 @@ type extensionBridge struct {
 	compatibility *extensionCompatibility
 	appControl    *extensionAppControl
 	authMail      authMailService
+	authAPI       authAPIService
 	requestLog    *observability.RequestLog
 }
 
@@ -50,10 +51,18 @@ type authMailService interface {
 	AdminSendAuthAlert(context.Context, uuid.UUID) error
 }
 
+type authAPIService interface {
+	ResolveAuthCollection(context.Context, string) (userauth.AuthCollection, error)
+	GetVisibleAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
+	GetAuthorizedAuthRecord(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
+	IssueAuthResponseSession(context.Context, uuid.UUID, uuid.UUID, string) (userauth.Session, error)
+}
+
 type extensionHost struct {
 	bridge           *extensionBridge
 	principal        identity.Subject
 	requestID        string
+	origin           string
 	valid            bool
 	hookEvent        string
 	authorityContext context.Context
@@ -145,6 +154,8 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callAppControl(operationContext, "app-control.collectionSaveNoValidate", input)
 	}
 	switch method {
+	case "apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords":
+		return host.callAuthAPI(operationContext, method, input)
 	case "authMail.send":
 		return host.callAuthMail(operationContext, input)
 	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.record.findByIds", "app.record.findAll", "app.record.findFirstByData", "app.record.count", "app.record.canAccess", "app.record.expand", "app.record.expandMany", "app.model.save", "app.model.delete":

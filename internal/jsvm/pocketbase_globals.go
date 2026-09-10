@@ -62,6 +62,15 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 	if err := host.Set("authMail", authMail); err != nil {
 		return err
 	}
+	apis := vm.NewObject()
+	for _, item := range []struct{ name, capability string }{{"recordAuthResponse", "app-control"}, {"enrichRecord", "records"}, {"enrichRecords", "records"}} {
+		if err := apis.Set(item.name, r.hostFunction(vm, state, item.capability, "apis."+item.name)); err != nil {
+			return err
+		}
+	}
+	if err := host.Set("apis", apis); err != nil {
+		return err
+	}
 	if err := vm.Set("__pgbaseCompatHost", host); err != nil {
 		return err
 	}
@@ -376,6 +385,9 @@ const routeResponse=(response)=>response&&typeof response==="object"?response:{s
 const staticRoot=(root)=>typeof root==="string"?root:(root&&typeof root.root==="string"?root.root:"");
 const bodyLimit=(limit,next)=>{if(!Number.isSafeInteger(limit)||limit<1)throw new ApiError(400,"invalid body limit");const wrap=(handler)=>{if(typeof handler!=="function")throw new ApiError(500,"body limit handler is required");const wrapped=(e)=>handler(e);wrapped.pgbaseBodyLimit=limit;return wrapped};return next===undefined?wrap:wrap(next)};
 globalThis.$apis={static:(root,indexFallback=false)=>(e)=>({status:200,headers:{},transport:{static:{root:staticRoot(root),path:(e&&e.pathValues&&(e.pathValues.path||e.pathValues.$))||"",indexFallback:!!indexFallback}}}),requireGuestOnly:middleware((e)=>!principal(e),403),requireAuth:(...collections)=>middleware((e)=>{const p=principal(e);return !!p&&(!collections.length||collections.includes(p.collection||p.kind))},401),requireSuperuserAuth:middleware((e)=>{const p=principal(e);return !!p&&(p.kind==="admin"||p.superuser===true)},401),requireSuperuserOrOwnerAuth:(ownerIdPathParam="id")=>middleware((e)=>{const p=principal(e),owner=e&&e.pathValues&&e.pathValues[ownerIdPathParam];return !!p&&(p.kind==="admin"||p.superuser===true||p.id===owner)},403),skipSuccessActivityLog:(next)=>{next.pgbaseSkipSuccessActivityLog=true;return next},gzip:(next)=>(e)=>{const response=routeResponse(next(e));response.transport=Object.assign({},response.transport,{gzip:true});return response},bodyLimit,recordAuthResponse:(e,record,method,meta)=>{e.response={record,authMethod:method,meta};return e.response},enrichRecord:(record)=>record,enrichRecords:(records)=>records};
+const recordRef=(record,expand="")=>{const s=record&&STATE.get(record);return {collection:s?s.collection:(record&&record.collectionName||record&&record.collection||""),recordId:s?s.id:String(record&&record.id||""),expand}};
+const mergeRecord=(record,value)=>{const data=value&&value.data||value||{};if(record&&STATE.get(record)){const s=STATE.get(record);s.data={...data};s.id=String(data.id||s.id||"");return record}return data};
+Object.assign(globalThis.$apis,{recordAuthResponse:(e,record,method,meta)=>H.apis.recordAuthResponse({...recordRef(record),authMethod:method,meta:meta||null}),enrichRecord:(e,record,...expands)=>mergeRecord(record,H.apis.enrichRecord(recordRef(record,expands.join(",")))),enrichRecords:(e,records,...expands)=>{const values=H.apis.enrichRecords((records||[]).map(r=>recordRef(r,expands.join(","))));return (records||[]).map((r,i)=>mergeRecord(r,values[i]))}});
 const recordInput=(record)=>{if(record&&STATE.get(record)){const value=record.export();return {collection:value.collection,id:value.id,input:value.data}};return {collection:record.collection||record.collectionName,id:record.id,input:record.input||record.data||record}};
 const appStore=Object.freeze({get:(key)=>H["app-control"].storeGet({key}),set:(key,value)=>H["app-control"].storeSet({key,value}),delete:(key)=>H["app-control"].storeDelete({key})});
 const appCron=Object.freeze({list:()=>H["app-control"].cronList({}),configure:(id,schedule,timezone="UTC",enabled=true)=>H["app-control"].cronConfigure({id,schedule,timezone,enabled}),run:(id)=>H["app-control"].cronRun({id})});

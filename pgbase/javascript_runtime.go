@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -234,10 +235,12 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 		http.Error(w, "extension request is invalid", http.StatusBadRequest)
 		return
 	}
-	host := namespacedHost(runtime.bridge.forRouteRequest(r.Context(), body), descriptor.Handler.Module)
-	if _, ok := host.(jsvm.InputPreparer); !ok {
-		panic("debug no preparer")
+	routeHost := runtime.bridge.forRouteRequest(r.Context(), body)
+	routeHost.origin = r.RemoteAddr
+	if address, _, splitErr := net.SplitHostPort(r.RemoteAddr); splitErr == nil {
+		routeHost.origin = address
 	}
+	host := namespacedHost(routeHost, descriptor.Handler.Module)
 	output, err := runtime.engine.Invoke(r.Context(), jsvm.Invocation{
 		Handler: descriptor.Handler, Capabilities: descriptor.Capabilities, Input: input, Host: host,
 		OnSkipSuccessActivityLog: func() { api.SkipSuccessActivityLog(r.Context()) },
