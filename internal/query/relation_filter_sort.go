@@ -434,14 +434,21 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
-	if comparison.operator == "~" && (field.Type != schema.TypeText && field.Type != schema.TypeEditor || comparison.value.kind != filterLiteralString) || (field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=") {
+	if (comparison.operator == "~" || comparison.operator == "!~") && (field.Type != schema.TypeText && field.Type != schema.TypeEditor || comparison.value.kind != filterLiteralString) || (field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=") {
 		return "", validation("filter", "type_mismatch")
 	}
 	if comparison.modifier != "" {
-		if comparison.modifier != "lower" || field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+		if field.Type != schema.TypeText && field.Type != schema.TypeEditor {
 			return "", validation("filter", "unsupported_modifier")
 		}
-		column = "lower(" + column + ")"
+		switch comparison.modifier {
+		case "lower":
+			column = "lower(" + column + ")"
+		case "length":
+			column = "char_length(" + column + ")"
+		default:
+			return "", validation("filter", "unsupported_modifier")
+		}
 	}
 	if comparison.value.kind == filterLiteralNull {
 		switch comparison.operator {
@@ -453,7 +460,11 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 			return "", validation("filter", "type_mismatch")
 		}
 	}
-	value, err := decodeFilterValue(field, comparison.value)
+	valueField := field
+	if comparison.modifier == "length" {
+		valueField.Type = schema.TypeInteger
+	}
+	value, err := decodeFilterValue(valueField, comparison.value)
 	if err != nil {
 		return "", err
 	}
@@ -461,8 +472,16 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 		value = !value.(bool)
 		return "(" + column + " = " + builder.placeholder(value) + ")", nil
 	}
-	if comparison.operator == "~" {
-		return "(strpos(" + column + ", " + builder.placeholder(value) + ") > 0)", nil
+	if comparison.operator == "~" || comparison.operator == "!~" {
+		placeholder := builder.placeholder(value)
+		if comparison.literalLeft {
+			column, placeholder = placeholder, column
+		}
+		comparisonSQL := "strpos(" + column + ", " + placeholder + ") > 0"
+		if comparison.operator == "!~" {
+			comparisonSQL = "NOT (" + comparisonSQL + ")"
+		}
+		return "(" + comparisonSQL + ")", nil
 	}
 	return "(" + column + " " + comparison.operator + " " + builder.placeholder(value) + ")", nil
 }

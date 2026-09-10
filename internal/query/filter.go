@@ -20,10 +20,11 @@ const (
 type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
-	field    string
-	modifier string
-	operator string
-	value    filterLiteral
+	field       string
+	modifier    string
+	operator    string
+	value       filterLiteral
+	literalLeft bool
 }
 
 type filterAnd struct{ children []filterNode }
@@ -59,10 +60,6 @@ type filterParser struct {
 	nodes int
 }
 
-// parseFilter parses the supported filter grammar: comparisons combined with
-// "&&" and "||", grouped with parentheses. Comparisons must pair a field name
-// with a literal; literal-only predicates such as "1=1" are rejected. All
-// errors are reported as stable validation details without echoing input.
 func parseFilter(input string) (filterNode, error) {
 	if len(input) > maximumFilterBytes {
 		return nil, validation("filter", "filter_too_complex")
@@ -154,12 +151,11 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 }
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
-	// Comparisons pair exactly one field operand with one literal operand.
 	switch {
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
-	case left.field == "" && right.field != "" && operator != "~":
-		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal}, nil
+	case left.field == "" && right.field != "":
+		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal, literalLeft: operator == "~" || operator == "!~"}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
 	}
@@ -234,7 +230,7 @@ func (p *filterParser) consumeKeyword(keyword string) bool {
 }
 
 func (p *filterParser) consumeOperator() (string, bool) {
-	for _, operator := range []string{"!=", ">=", "<=", "=", ">", "<", "~"} {
+	for _, operator := range []string{"!=", "!~", ">=", "<=", "=", ">", "<", "~"} {
 		if strings.HasPrefix(p.input[p.pos:], operator) {
 			p.pos += len(operator)
 			return operator, true
@@ -323,8 +319,6 @@ func isWordByte(current byte) bool {
 	return current == '_' || (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9')
 }
 
-// parseSort parses "-created_at,name" into ordered sort keys. At most
-// maximumSortKeys keys are accepted and duplicates are rejected.
 func parseSort(input string) ([]SortKey, error) {
 	if input == "" {
 		return nil, nil
@@ -368,15 +362,6 @@ func validSortFieldName(field string) bool {
 	return true
 }
 
-// effectiveSortKeys normalizes requested keys and appends the "id" tiebreaker
-// so keyset pagination has a stable total order.
-// An appended tiebreaker follows the direction of the key it breaks ties for.
-// A mixed order such as "created_at DESC, id ASC" matches neither scan
-// direction of the (created_at, id) page index, so it costs a full sort of the
-// table. Aligning it here rather than in one compiler keeps every sort entry
-// point — scalar pages, relation-aware pages, root pages and expansion — on the
-// same tie order, which the cursor encodes and later pages have to reproduce.
-// A tiebreaker the caller wrote out itself is left exactly as requested.
 func effectiveSortKeys(requested []SortKey) []SortKey {
 	if len(requested) == 0 {
 		return []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}

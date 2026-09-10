@@ -448,7 +448,6 @@ func TestContainsFilterRejectsUnsupportedShapes(t *testing.T) {
 		{name: "number field", expr: `large_count ~ '1'`, field: "filter", code: "type_mismatch"},
 		{name: "number literal", expr: `title ~ 1`, field: "filter", code: "type_mismatch"},
 		{name: "null literal", expr: `title ~ null`, field: "filter", code: "type_mismatch"},
-		{name: "reversed operands", expr: `'x' ~ title`, field: "filter", code: "invalid_filter"},
 	}
 	for _, test := range tests {
 		test := test
