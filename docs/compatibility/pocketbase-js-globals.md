@@ -1,33 +1,39 @@
 # PocketBase JavaScript global compatibility (v0.40.3)
 
-This inventory is derived from the pinned `plugins/jsvm/binds.go`, `plugins/jsvm/internal/types/types.go`, and `core/app.go`. “Functional equivalent” means the call performs the corresponding operation through PgBase authorization and capability boundaries. “Permission denial” means the implementation exists but requires the named manifest capability and operator configuration. “Missing” remains a compatibility gap.
+PgBase derives this compatibility surface from the pinned PocketBase `plugins/jsvm/binds.go`, `plugins/jsvm/internal/types/types.go`, and `core/app.go`. The compatibility runtime exposes real JavaScript objects backed by PgBase services. Host calls remain bounded by the script manifest, operator configuration, the current principal, and PostgreSQL authorization.
 
-| Global | Methods | Status |
-|---|---|---|
-| `$dbx` | `exp`, `hashExp`, `not`, `and`, `or`, `in`, `notIn`, `like`, `orLike`, `notLike`, `orNotLike`, `exists`, `notExists`, `between`, `notBetween` | Functional expression values; raw expressions are never executed as an authority bypass. |
-| `$security` | `md5`, `sha256`, `sha512`, `hs256`, `hs512`, `equal`, `randomString`, `randomStringByRegex`, `randomStringWithAlphabet`, `pseudorandomString`, `pseudorandomStringWithAlphabet`, `parseUnverifiedJWT`, `parseJWT`, `createJWT`, `encrypt`, `decrypt` | Functional, in-VM. Regex generation accepts the bounded `[alphabet]{N}` form. |
-| `$filepath` | `base`, `clean`, `dir`, `ext`, `fromSlash`, `glob`, `isAbs`, `join`, `match`, `rel`, `split`, `splitList`, `toSlash` | Functional using Go filepath semantics. `walk`, `walkDir` missing. |
-| `$http` | `send` | Functional; permission denial unless `http` capability and exact operator `HTTPAllowedOrigins`; 30 second and 1 MiB bounds, redirects rechecked. |
-| `$os` | `args`, `getenv`, `exec`, `cmd`, `exit`, `stat`, `readFile`, `writeFile`, `readDir`, `tempDir`, `truncate`, `getwd`, `mkdir`, `mkdirAll`, `rename`, `remove`, `removeAll`, `openRoot`, `openInRoot` | Functional equivalents for configured args/env, allowlisted commands, process-exit callback, and rooted file operations; permission denial unless `os`. `dirFS` is a rooted descriptor. Process exit is denied when no operator callback exists. |
-| `$filesystem` | `local`, `fileFromPath`, `fileFromBytes`, `fileFromURL` | Functional equivalents; permission denial unless `filesystem`, rooted storage, and (for URL) allowed HTTP origin. `s3` and `fileFromMultipart` missing because runtime values cannot carry PocketBase Go multipart/S3 objects. PgBase additions `list/copy/read/write/delete` use module-isolated `ExtensionObjects`. |
-| `$apis` | `requireGuestOnly`, `requireAuth`, `requireSuperuserAuth`, `requireSuperuserOrOwnerAuth`, `skipSuccessActivityLog`, `bodyLimit`, `recordAuthResponse`, `enrichRecord`, `enrichRecords` | Functional request/response DTO equivalents. `static` and `gzip` missing pending router response adapters. |
-| `$mails` | `sendRecordPasswordReset`, `sendRecordVerification`, `sendRecordChangeEmail`, `sendRecordOTP`, `sendRecordAuthAlert` | Missing: PgBase mail capability exposes explicit `mail.send`; it does not expose server-owned auth template/token material to scripts. |
-| API errors | `ApiError`, `BadRequestError`, `ForbiddenError`, `UnauthorizedError`, `NotFoundError`, `TooManyRequestsError`, `InternalServerError` | Functional typed JS errors. |
+## Global namespaces
 
-## `$app` inventory
+| Global | Compatibility behavior |
+|---|---|
+| `$dbx` | Typed, buildable expressions with variadic operands and `match()` support. Host adapters accept only validated expression ASTs and bind values as parameters; raw expressions do not create an authority bypass. |
+| `$security` | Hash, HMAC, bounded random/regexp generation, JWT, and encryption helpers execute in the VM. Invalid or unbounded regexp inputs fail. |
+| `$filepath`, `$os` | Pure path helpers execute in the VM. Glob, walk, file operations, commands, environment access, and process control require their manifest capability and operator allowlist/root. |
+| `$http` | Performs bounded requests only to operator-approved origins with redirect revalidation. |
+| `$filesystem` | `local` and `s3` return working PocketBase-shaped System, reader, writer, and attributes objects. Streams support seek, `writeTo`, `readFrom`, close, abort, and cancellation. Serve and thumbnails use invocation-bound handles and rooted/capability-checked native adapters. File descriptors from bytes, paths, URLs, and multipart bodies are validated before use. |
+| `$apis` | Authentication middleware, static serving, gzip, body limits, auth responses, and record enrichment use the normal route admission and response pipeline. |
+| `$mails` | All five auth mail helpers call server-side signing/template services. Scripts pass record identifiers and never receive token, link, password, or signing material. |
+| API errors and constructors | PocketBase error types plus Record, Collection, FieldsList/field types, request/event/message, command, middleware, timezone, form-data, and SQL-expression constructors are callable. Mutable model state is held behind branded methods and is revalidated by native adapters. |
 
-Functional equivalents: `Logger`, `IsBootstrapped`, `IsTransactional`, `DB`, `FindRecordById`, `FindRecordsByFilter`, `FindFirstRecordByFilter`, `Save`, `Delete`, `NewMailClient`, `NewFilesystem`. These route through `records`, `database`, `log`, `mail`, and `filesystem` capabilities and preserve PgBase authorization/rules.
+Permission denial is an implemented result: operations with side effects require both the declared manifest capability and the corresponding operator policy. `$app` schema/control operations additionally require an authenticated administrator principal. Scripts cannot increase their own capability ceiling.
 
-Missing lifecycle/process methods: `UnsafeWithoutHooks`, `TxInfo`, `Bootstrap`, `ResetBootstrapState`, `DataDir`, `EncryptionEnv`, `IsDev`, `Settings`, `Store`, `Cron`, `SubscriptionsBroker`, `NewBackupsFilesystem`, `ReloadSettings`, `CreateBackup`, `RestoreBackup`, `Restart`, `RunSystemMigrations`, `RunAppMigrations`, `RunAllMigrations`.
+## `$app`
 
-Missing SQLite/database-introspection methods: `ConcurrentDB`, `NonconcurrentDB`, `AuxDB`, `AuxConcurrentDB`, `AuxNonconcurrentDB`, `HasTable`, `AuxHasTable`, `TableColumns`, `TableInfo`, `TableIndexes`, `DeleteTable`, `DeleteView`, `SaveView`, `CreateViewFields`, `DryRunView`, `FindRecordByViewFile`, `Vacuum`, `AuxVacuum`, `ModelQuery`, `AuxModelQuery`, all `AuxSave*`/`AuxDelete*`, `SaveNoValidate*`, `Validate*`, `RunInTransaction`, `AuxRunInTransaction`. PgBase deliberately does not introduce SQLite as a second authority.
+The pinned `core.App` inventory contains 192 public methods. Every method has an exact lower-camel JavaScript entrypoint and a wrapper-to-host-to-native path. The row-by-row evidence is in [PocketBase `$app` method appendix](pocketbase-app-methods.md).
 
-Missing logs/collections/auth-internal methods: `LogQuery`, `FindLogById`, `LogsStats`, `DeleteOldLogs`; `CollectionQuery`, `FindAllCollections`, `ReloadCachedCollections`, `FindCollectionByNameOrId`, `FindCachedCollectionByNameOrId`, `FindCollectionReferences`, `FindCachedCollectionReferences`, `IsCollectionNameUnique`, `TruncateCollection`, `ImportCollections`, `ImportCollectionsByMarshaledJSON`, `SyncRecordTableSchema`; every `ExternalAuth`, `MFA`, `OTP`, and `AuthOrigin` finder/deleter; `RecordQuery`, `FindRecordsByIds`, `FindAllRecords`, `FindFirstRecordByData`, `CountRecords`, `FindAuthRecordByToken`, `FindAuthRecordByEmail`, `CanAccessRecord`, `ExpandRecord`, `ExpandRecords`.
+PgBase uses PostgreSQL as the single database authority. `AuxDB` variants therefore share PostgreSQL while preserving the advertised transaction callback boundary. A transaction callback receives an invocation-scoped token; nested record/model mutations use the same `pgx.Tx`, and commit, rollback, cancellation, and cross-invocation reuse are checked by the host.
 
-All `$app.On*` hook methods are represented by PgBase manifest hook descriptors. `routerAdd`, `routerUse`, `cronAdd`, `cronRemove`, and the `on*` globals are functional during the declared bootstrap module: registrations must match operator-declared manifest slots, receive deterministic handler IDs, replay closures in every fresh VM, and freeze before handler invocation. Invocation-time mutation fails with `registration_closed`. `cronRemove` cannot remove an operator-declared job.
+Model operations accept PgBase's allowlisted Record, Collection, and Model descriptors. `SaveNoValidate` may skip opted-in user hooks, but it does not skip access checks, schema validation required for storage safety, or identity/file invariants.
 
-`$app.subscriptionsBroker().publish` shares the live HTTP SSE registry. PgBase revalidates each subscriber's session and current collection policy at publish time. Record envelopes are delivered only when that subscriber can currently read the referenced record; arbitrary payloads on a collection topic require explicit public list and view rules (administrators remain eligible). Missing, renamed, or deleted collections fail closed. This is PgBase's PostgreSQL authorization mapping for PocketBase's lower-level broker surface.
+Catalog and auth auxiliary methods expose their exact PocketBase names. Collection queries and external-auth expressions accept validated `$dbx` ASTs. External-auth bulk deletion is atomic and retains the last-login-method guard. Auth-record token lookup validates signature, expiry, token type, active record, and collection association; returned records omit credential and token material.
 
-`$app.bootstrap()` and `$app.resetBootstrapState()` submit the corresponding operation to the operator-configured `ProcessAppControl` callback and return its nonempty host receipt. The callback owns the real supervisor/resource transition; PgBase does not report success when it is absent or fails, and never closes the running request's database or HTTP resources inline.
+All `On*` methods register during bootstrap against operator-declared hook slots. Registrations use deterministic handler IDs, closures are rebuilt for each VM, and the registry freezes before invocation. Each exact name maps to a native phase, including OTP request/auth, record enrichment, collection requests, settings requests, model phases, backup, realtime, file, and mail hooks.
 
-Core branded DTO constructors are available for `Record`, `Collection`, common field types, `MailerMessage`, `RequestInfo`, `RequestEvent`, API errors, and SQL expressions. Record and collection state is mutable only through validated methods and exports canonical fields; brands and private state are not forgeable from script code. Remaining specialized PocketBase event/model constructors and Go hook tags are missing. Go pointers and SQLite builders are not exposed as fake objects.
+`$app.txInfo()`, `$app.newMailClient()`, and `$app.newFilesystem()` are exact aliases over their native compatibility facades. Bootstrap/reset and process control call operator-provided lifecycle callbacks and fail when the callback or permission is absent.
+
+## Approved compatibility mappings
+
+- Aux database methods use the same PostgreSQL authority rather than introducing SQLite.
+- Raw Go pointers, database pools, secrets, and unrestricted SQL are not exposed to JavaScript.
+- Process exit/restart and command execution require explicit operator callbacks or allowlists.
+- Filesystem and HTTP access remain rooted, origin-bound, size-limited, and capability-gated.
