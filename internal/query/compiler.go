@@ -89,9 +89,6 @@ func CompileUpdateWithSidecar(collection schema.Collection, id uuid.UUID, input 
 }
 
 func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage, sidecar bool) (Statement, error) {
-	if len(input) == 0 && !sidecar {
-		return Statement{}, validation("", "empty_patch")
-	}
 	decoded, err := decodeInput(collection, input)
 	if err != nil {
 		return Statement{}, err

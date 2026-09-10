@@ -131,11 +131,20 @@ func (s *Service) batchOperation(ctx context.Context, batch BatchRequest, operat
 		request := *operation.Upsert
 		request.Principal, request.RequestID = batch.Principal, batch.RequestID
 		tx, _ := ctx.Value(batchTransactionKey{}).(pgx.Tx)
-		var exists bool
-		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_revisions r join pgbase_meta.collections c on c.id=r.collection_id where c.name=$1 and r.record_id=$2)`, request.Collection, request.ID).Scan(&exists); err != nil {
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
 			return MutationResult{}, err
 		}
-		if exists {
+		collection, exists := catalog.Collections[request.Collection]
+		if !exists {
+			return s.Update(ctx, request)
+		}
+		if err := tx.QueryRow(ctx, `select exists(select 1 from `+pgx.Identifier{"app", collection.TableName}.Sanitize()+` where id=$1)`, request.ID).Scan(&exists); err != nil {
+			return MutationResult{}, err
+		}
+		// Preserve conditional PUT semantics for an absent row. Creating here
+		// would discard If-Match and could resurrect a concurrently deleted row.
+		if exists || request.IfMatch.Present {
 			return s.Update(ctx, request)
 		}
 		return s.Create(ctx, CreateRequest{Principal: batch.Principal, RequestID: batch.RequestID, Collection: request.Collection, ID: request.ID, Input: request.Input})

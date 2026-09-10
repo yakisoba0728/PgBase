@@ -123,16 +123,18 @@ func TestCompileUpdateUsesOrdinalAssignmentsAndReturnsRecord(t *testing.T) {
 	}
 }
 
-func TestCompileUpdateRejectsEmptyAndUnknownFieldsBeforeConstructingSQL(t *testing.T) {
+func TestCompileUpdateAcceptsEmptyPatchAndRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
 	collection := compilerCollection()
 	id := uuid.New()
 	statement, err := CompileUpdate(collection, id, map[string]json.RawMessage{})
-	if statement.SQL != "" || statement.Args != nil {
-		t.Fatalf("empty patch statement = %#v, want zero statement", statement)
+	if err != nil {
+		t.Fatalf("CompileUpdate(empty): %v", err)
 	}
-	assertValidationDetail(t, err, "", "empty_patch")
+	if !strings.Contains(statement.SQL, `SET "updated_at" = statement_timestamp()`) || len(statement.Args) != 1 || statement.Args[0] != id {
+		t.Fatalf("empty patch statement = %#v", statement)
+	}
 
 	malicious := `title" = $1; DROP TABLE app.physical_records; --`
 	statement, err = CompileUpdate(collection, id, map[string]json.RawMessage{malicious: json.RawMessage(`"x"`)})
