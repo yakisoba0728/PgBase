@@ -58,3 +58,28 @@ func TestPocketBaseRecordIDComparisonDoesNotBecomeNativeOwnerRule(t *testing.T) 
 		t.Fatal("native ownership metadata was misrendered as a PocketBase record-id rule")
 	}
 }
+
+func TestPocketBaseAuthFieldLiteralUsesRequestContext(t *testing.T) {
+	rule, err := ParsePocketBaseAccessRule("@request.auth.email = 'manager@example.test'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := pbResolverStubForQuery{}
+	sql, args, err := accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{
+		Resolver: resolver,
+		Request:  &accessrule.RequestContext{Auth: map[string]any{"email": "manager@example.test"}},
+	})
+	if err != nil || len(args) != 2 || !strings.Contains(sql, "$1") || !strings.Contains(sql, "$2") {
+		t.Fatalf("sql=%s args=%v err=%v", sql, args, err)
+	}
+}
+
+type pbResolverStubForQuery struct{}
+
+func (pbResolverStubForQuery) Resolve(string) (accessrule.PBOperand, error) {
+	return accessrule.PBOperand{}, accessrule.ErrInvalid
+}
+
+func (pbResolverStubForQuery) ResolveCollection(string, string) (accessrule.PBOperand, error) {
+	return accessrule.PBOperand{}, accessrule.ErrInvalid
+}

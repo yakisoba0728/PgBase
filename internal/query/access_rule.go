@@ -146,6 +146,9 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 		}
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
+	if strings.HasPrefix(field, pocketBaseAuthPrefix) {
+		field = pocketBaseRequestPrefix + "auth_" + strings.TrimPrefix(field, pocketBaseAuthPrefix)
+	}
 	var literal any
 	switch value.value.kind {
 	case filterLiteralString:
