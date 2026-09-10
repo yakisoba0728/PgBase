@@ -50,7 +50,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	}
 	result := values[:0]
 	for _, value := range values {
-		if EvaluateAuthRecordRule(rules.List, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
+		if s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 			result = append(result, visibleAuthRecord(value, fields))
 		}
 	}
@@ -65,7 +65,7 @@ func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, pri
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	if !EvaluateAuthRecordRule(rules.View, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
+	if !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
 	return visibleAuthRecord(value, fields), nil
@@ -75,22 +75,27 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	current, err := s.GetAuthRecord(ctx, collectionID, target)
-	if err != nil {
-		return AuthRecord{}, err
-	}
 	request := authRecordMutationValues(in)
-	var principalEmail string
-	if principal != uuid.Nil {
-		_ = s.pool.QueryRow(ctx, `select email from pgbase_meta.users where id=$1 and auth_collection_id=$2`, principal, collectionID).Scan(&principalEmail)
-	}
-	if !EvaluateAuthRecordRule(rules.Update, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, AuthEmail: principalEmail, Current: current, Request: request}) {
-		return AuthRecord{}, ErrInvalidCredentials
-	}
-	if hasPrivilegedAuthMutation(in) && !s.authorizeManagedAuthRecord(ctx, collectionID, principal, current, fields, rules.Manage, request) {
-		return AuthRecord{}, ErrInvalidCredentials
-	}
-	updated, err := s.UpdateAuthRecord(ctx, collectionID, target, in)
+	updated, err := s.updateAuthRecord(ctx, collectionID, target, in, func(tx pgx.Tx, current AuthRecord) error {
+		context := AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current, Request: request}
+		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rules.Update, context)
+		if err != nil {
+			return fmt.Errorf("evaluate update rule: %w", err)
+		}
+		if !allowed {
+			return ErrInvalidCredentials
+		}
+		if hasPrivilegedAuthMutation(in) {
+			allowed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, principal, current, fields, rules.Manage, request)
+			if err != nil {
+				return fmt.Errorf("evaluate manage rule: %w", err)
+			}
+			if !allowed {
+				return ErrInvalidCredentials
+			}
+		}
+		return nil
+	})
 	return visibleAuthRecord(updated, fields), err
 }
 
@@ -109,7 +114,7 @@ func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord
 	return record
 }
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
-	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	_, rules, err := s.authRecordRules(ctx, collectionID)
 	if err != nil {
 		return err
 	}
@@ -117,7 +122,7 @@ func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	if err != nil {
 		return err
 	}
-	if !EvaluateAuthRecordRule(rules.Delete, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
+	if !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.Delete, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
 		return ErrInvalidCredentials
 	}
 	return s.DeleteAuthRecord(ctx, collectionID, target)
@@ -249,6 +254,10 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 }
 
 func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
+	return s.updateAuthRecord(ctx, collectionID, id, in, nil)
+}
+
+func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UUID, in UpdateAuthRecordInput, authorize func(pgx.Tx, AuthRecord) error) (AuthRecord, error) {
 	if collectionID == uuid.Nil || id == uuid.Nil {
 		return AuthRecord{}, ErrValidation
 	}
@@ -281,7 +290,8 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var rawExisting []byte
-		if err := tx.QueryRow(ctx, `select coalesce(p.attributes,'{}') from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&rawExisting); errors.Is(err, pgx.ErrNoRows) {
+		var current AuthRecord
+		if err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.Verified, &current.Active, &rawExisting, &current.CreatedAt, &current.UpdatedAt); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
@@ -289,6 +299,12 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		merged := map[string]any{}
 		if json.Unmarshal(rawExisting, &merged) != nil {
 			return errors.New("invalid stored auth profile")
+		}
+		current.Fields = merged
+		if authorize != nil {
+			if err := authorize(tx, current); err != nil {
+				return err
+			}
 		}
 		changes, ok := prepareAuthPasswordFields(fields, in.Fields, false)
 		if !ok {

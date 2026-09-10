@@ -362,6 +362,11 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 }
 
 func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User, now time.Time) (Session, error) {
+	if allowed, err := s.authorizeSessionTx(ctx, db, user); err != nil {
+		return Session{}, fmt.Errorf("authorize session: %w", err)
+	} else if !allowed {
+		return Session{}, fmt.Errorf("auth rule denied: %w", ErrInvalidCredentials)
+	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return Session{}, fmt.Errorf("generate user session token: %w", err)

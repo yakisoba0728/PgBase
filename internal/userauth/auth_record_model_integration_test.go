@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -109,30 +111,101 @@ func TestAuthCollectionCreateRuleControlsPublicRegistration(t *testing.T) {
 	}
 }
 
+func TestAuthRuleEvaluatesJSONArraysAndAuthRelationsBeforeEverySession(t *testing.T) {
+	pool := newUserAuthPool(t)
+	service := NewService(pool, adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	managersID := uuid.New()
+	managersName := "rule_managers_" + managersID.String()[:8]
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: managersID, Name: managersName}); err != nil {
+		t.Fatal(err)
+	}
+	boss, err := service.CreateAuthRecord(ctx, managersID, CreateAuthRecordInput{Email: "boss@example.test", Password: "correct horse battery staple", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	membersID := uuid.New()
+	relation := schema.RelationInput{TargetCollection: managersName, Cardinality: schema.RelationMultiple, OnDelete: schema.RelationRestrict}
+	fields := []schema.FieldInput{
+		{Name: "settings", Type: schema.TypeJSONB},
+		{Name: "tags", Type: schema.TypeJSONB},
+		{Name: "managers", Type: schema.TypeRelation, Relation: &relation},
+	}
+	rules := AuthCollectionRules{Create: "true", Auth: `settings.level = 'gold' && tags ?= 'blue' && managers.email ?= 'boss@example.test' && @collection.` + managersName + `.email ?= 'boss@example.test'`}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: membersID, Name: "rule_members_" + membersID.String()[:8], RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+		t.Fatalf("create JSON/relation rule: %v", err)
+	}
+	member, err := service.CreateAuthRecord(ctx, membersID, CreateAuthRecordInput{
+		Email: "member@example.test", Password: "correct horse battery staple", Active: true,
+		Fields: map[string]any{"settings": map[string]any{"level": "gold"}, "tags": []any{"blue", "green"}, "managers": []any{boss.ID.String()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, membersID, rules.Auth, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: member.ID}, AuthEmail: member.Email, Current: member})
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.New("matching composite auth rule evaluated false")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		allowed, err := service.authorizeSessionTx(ctx, tx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email})
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.New("shared session policy evaluated false")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var passwordHash string
+	if err := pool.QueryRow(ctx, `select password_hash from pgbase_meta.users where id=$1`, member.ID).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now()); err != nil {
+		t.Fatalf("shared issue path rejected matching rule: %v", err)
+	}
+	if _, err := service.UpdateAuthRecord(ctx, membersID, member.ID, UpdateAuthRecordInput{Fields: map[string]any{"settings": map[string]any{"level": "silver"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now()); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("shared session policy allowed nonmatching record: %v", err)
+	}
+}
+
 func TestManagedAuthRecordMutationUsesDistinctActorAndRevokesTargetCredentials(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()
 	collectionID := uuid.New()
 	hidden := schema.FieldInput{Name: "internal_note", Type: schema.TypeText, Hidden: true}
+	managerFlag := schema.FieldInput{Name: "can_manage", Type: schema.TypeBoolean}
 	rules := AuthCollectionRules{
 		Create: "true", Update: "true", Auth: "true",
-		Manage: `@request.auth.email = 'manager@example.test' && id != @request.auth.id && @request.body.password:isset = true`,
+		Manage: `@request.auth.email = 'manager@example.test' && @request.auth.can_manage = true && id != @request.auth.id && @request.body.password:isset = true`,
 	}
 	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{
 		ID: collectionID, Name: "managed_" + collectionID.String()[:8], RegistrationEnabled: true,
-		Fields: []schema.FieldInput{hidden}, Rules: rules,
+		Fields: []schema.FieldInput{hidden, managerFlag}, Rules: rules,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	manager, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{
-		Email: "manager@example.test", Password: "correct horse battery staple", Active: true,
+		Email: "manager@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"can_manage": true},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	target, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{
 		Email: "target@example.test", Password: "correct horse battery staple", Active: true,
-		Fields: map[string]any{"internal_note": "never return this"},
+		Fields: map[string]any{"internal_note": "never return this", "can_manage": false},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +248,7 @@ func TestManagedAuthRecordMutationUsesDistinctActorAndRevokesTargetCredentials(t
 		t.Fatalf("cross-realm manager accepted: %v", err)
 	}
 	rules.Manage = "false"
-	if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{hidden}, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{hidden, managerFlag}, Rules: rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, manager.ID, target.ID, UpdateAuthRecordInput{Active: &active}); !errors.Is(err, ErrInvalidCredentials) {

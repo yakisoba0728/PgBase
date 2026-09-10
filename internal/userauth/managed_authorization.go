@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -13,17 +15,21 @@ import (
 // target record while exposing the distinct requesting identity as
 // @request.auth. Empty manage rules never grant manager privileges.
 func (s *Service) authorizeManagedAuthRecord(ctx context.Context, collectionID, actorID uuid.UUID, target AuthRecord, fields []schema.FieldInput, rule string, request map[string]any) bool {
+	allowed := false
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var err error
+		allowed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, actorID, target, fields, rule, request)
+		return err
+	})
+	return err == nil && allowed
+}
+
+func (s *Service) authorizeManagedAuthRecordTx(ctx context.Context, tx database.DBTX, collectionID, actorID uuid.UUID, target AuthRecord, fields []schema.FieldInput, rule string, request map[string]any) (bool, error) {
 	if actorID == uuid.Nil || target.ID == uuid.Nil || strings.TrimSpace(rule) == "" {
-		return false
+		return false, nil
 	}
-	var actorEmail string
-	err := s.pool.QueryRow(ctx, `select email from pgbase_meta.users where id=$1 and auth_collection_id=$2 and active`, actorID, collectionID).Scan(&actorEmail)
-	if err != nil {
-		return false
-	}
-	return EvaluateAuthRecordRule(rule, fields, AuthRuleContext{
+	return EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rule, AuthRuleContext{
 		Principal: identity.Subject{Kind: identity.User, ID: actorID},
-		AuthEmail: actorEmail,
 		Current:   target,
 		Request:   request,
 	})
