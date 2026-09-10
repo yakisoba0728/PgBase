@@ -371,6 +371,20 @@ func TestPlanUpdateDropsRemovedFieldsAndKeepsOrderChangesMetadataOnly(t *testing
 	}
 }
 
+func TestPlanUpdateDropsRenamedScalarByPhysicalColumn(t *testing.T) {
+	fieldID := uuid.MustParse("019551d0-e9c0-7000-8000-0000000000ad")
+	current := Collection{Name: "posts", TableName: "posts", Fields: []Field{{
+		ID: fieldID, Name: "headline", ColumnName: "title", Type: TypeText,
+	}}}
+	plan, err := planUpdateAt(7, current, UpdateCollectionInput{Name: "posts", Fields: []FieldInput{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plan.Statements, []string{`ALTER TABLE "app"."posts" DROP COLUMN "title"`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("drop statements = %#v, want %#v", got, want)
+	}
+}
+
 func TestPlanUpdateCreatesIndexesForAddedFields(t *testing.T) {
 	base := Collection{Name: "pages", TableName: "pages", Fields: []Field{{Name: "body", ColumnName: "body", Type: TypeText, Ordinal: 0}}}
 	plan, err := planUpdateAt(4, base, UpdateCollectionInput{

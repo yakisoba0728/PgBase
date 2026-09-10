@@ -247,7 +247,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if field.Type == TypeFile {
 			continue
 		}
-		statements = append(statements, "ALTER TABLE "+table+" DROP COLUMN "+pgx.Identifier{field.Name}.Sanitize())
+		statements = append(statements, "ALTER TABLE "+table+" DROP COLUMN "+pgx.Identifier{field.ColumnName}.Sanitize())
 	}
 	for ordinal, field := range desired {
 		previous, exists := currentFields[field.Name]
@@ -355,7 +355,13 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 		if field.Type != TypeRelation || field.Relation == nil || field.Relation.Storage.Kind != RelationStorageEdgeTableV1 {
 			continue
 		}
-		statements = append(statements, dropMultiRelationStatements(current.TableName, field.Name)...)
+		// ColumnName is the persisted physical identity across logical renames.
+		// Storage.Name identifies the edge table produced from that identity; the
+		// remaining owned object names are derived from the same physical name.
+		if NewRelationPhysicalNames(current.TableName, field.ColumnName).MultiTable != field.Relation.Storage.Name {
+			return Plan{}, ErrConflict
+		}
+		statements = append(statements, dropMultiRelationStatements(current.TableName, field.ColumnName)...)
 	}
 	statements = append(statements, "DROP TABLE "+pgx.Identifier{"app", current.TableName}.Sanitize())
 	return Plan{
