@@ -15,6 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
+	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -140,6 +141,9 @@ func (s *Service) readGetInTx(
 	} else {
 		usage := &expansionUsage{limits: s.expandLimits}
 		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+		if request.PocketBaseCompatibility {
+			plan, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
+		}
 		if err != nil {
 			return err
 		}
@@ -181,6 +185,9 @@ func (s *Service) readGetInTx(
 	etag, err := recordartifact.ETag(collection.ID, request.ID, digest, root, validator, present)
 	if err != nil {
 		return err
+	}
+	if request.PocketBaseCompatibility {
+		response = responseprojection.PocketBaseRecord(response, collection.ID.String(), collection.Name)
 	}
 	result.record = Record{Data: projection.apply(response), ETag: etag, Version: version}
 	return nil
@@ -250,6 +257,9 @@ func (s *Service) readListInTx(
 	if request.Expand != "" {
 		usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
 		expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+		if request.PocketBaseCompatibility {
+			expansion, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
+		}
 		if err != nil {
 			return listResult{}, false, err
 		}
@@ -332,6 +342,11 @@ func (s *Service) readListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
+		if request.PocketBaseCompatibility {
+			for index, item := range root.page.Items {
+				root.page.Items[index] = responseprojection.PocketBaseRecord(item, collection.ID.String(), collection.Name)
+			}
+		}
 		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
 	}
 
@@ -359,6 +374,9 @@ func (s *Service) readListInTx(
 		items[index], err = expanded[index].Flatten()
 		if err != nil {
 			return listResult{}, relationOperation, err
+		}
+		if request.PocketBaseCompatibility {
+			items[index] = responseprojection.PocketBaseRecord(items[index], collection.ID.String(), collection.Name)
 		}
 	}
 	return listResult{

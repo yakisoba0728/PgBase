@@ -20,19 +20,8 @@ import (
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 var integerStringInput = regexp.MustCompile(`^-?[0-9]+$`)
 
-// nonFiniteNumericLiterals holds every value PostgreSQL's numeric output can
-// produce that this API cannot represent as a decimal string.
 var nonFiniteNumericLiterals = map[string]bool{"NaN": true, "Infinity": true, "-Infinity": true}
 
-// maximumUnindexedTextBytes restates the request body limit at the codec layer
-// so a single text value stays bounded even where that limit is bypassed.
-// Indexed and unique text keeps the much smaller schema.MaximumTextBytes,
-// because PostgreSQL btree entries have a page-dependent limit below 2704
-// bytes and deterministic headroom beats letting data-dependent compression
-// decide whether a request becomes an opaque database failure. Neither bound
-// is a whole-record invariant: patching several unindexed text fields in turn
-// can still grow one record past the list page budget, and that invariant
-// belongs to the write service which sees the merged record.
 const maximumUnindexedTextBytes = 1 << 20
 
 func decodeInput(collection schema.Collection, input map[string]json.RawMessage) (map[string]any, error) {

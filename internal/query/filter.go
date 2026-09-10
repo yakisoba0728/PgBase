@@ -50,8 +50,6 @@ type filterLiteral struct {
 	bool bool
 }
 
-// SortKey is one ordered column of a list query. The logical field name is
-// resolved against the catalog before compilation.
 type SortKey = cursor.SortKey
 
 type filterParser struct {
@@ -373,8 +371,6 @@ func effectiveSortKeys(requested []SortKey) []SortKey {
 	return keys
 }
 
-// filterField resolves a logical field name to its physical column and type.
-// System columns are addressable with their fixed types.
 func filterField(collection schema.Collection, name string) (schema.Field, bool) {
 	switch name {
 	case systemFieldID:

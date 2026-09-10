@@ -45,24 +45,26 @@ type MutationResult struct {
 }
 
 type ListRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-	Expand     string
-	Fields     string
+	Principal               Principal
+	RequestID               string
+	Collection              string
+	Cursor                  string
+	Limit                   int
+	Filter                  string
+	Sort                    string
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
 }
 
 type GetRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	ID         uuid.UUID
-	Expand     string
-	Fields     string
+	Principal               Principal
+	RequestID               string
+	Collection              string
+	ID                      uuid.UUID
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
 }
 
 type CreateRequest struct {

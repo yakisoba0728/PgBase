@@ -11,22 +11,24 @@ import (
 type Principal = identity.Subject
 
 type GetRequest struct {
-	Principal  Principal
-	Collection string
-	ID         uuid.UUID
-	Expand     string
-	Fields     string
+	Principal               Principal
+	Collection              string
+	ID                      uuid.UUID
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
 }
 
 type ListRequest struct {
-	Principal  Principal
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-	Expand     string
-	Fields     string
+	Principal               Principal
+	Collection              string
+	Cursor                  string
+	Limit                   int
+	Filter                  string
+	Sort                    string
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,

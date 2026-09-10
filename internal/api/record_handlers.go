@@ -40,7 +40,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields") {
+	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields", "compat") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -81,6 +81,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	page, err := e.service.List(r.Context(), recordops.ListRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
 		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand, Fields: event.Fields,
+		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
 	})
 	finish(err)
 	if err != nil {
@@ -96,7 +97,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "expand", "fields") {
+	if duplicateSingleton(values, "expand", "fields", "compat") {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -122,6 +123,7 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 	record, err := e.service.Get(r.Context(), recordops.GetRequest{
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), ID: id,
 		Expand: event.Expand, Fields: event.Fields,
+		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
 	})
 	finish(err)
 	if err != nil {

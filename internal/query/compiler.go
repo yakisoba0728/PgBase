@@ -82,8 +82,6 @@ func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 	return compileUpdate(collection, id, input, false)
 }
 
-// CompileUpdateWithSidecar permits an otherwise empty patch whose sidecar
-// participant will mutate transaction-bound metadata before commit.
 func CompileUpdateWithSidecar(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
 	return compileUpdate(collection, id, input, true)
 }
@@ -192,10 +190,6 @@ func (b *statementBuilder) placeholder(value any) string {
 	return fmt.Sprintf("$%d", len(b.args))
 }
 
-// rootOrderTerm maps one logical sort key to the ordering term for the root
-// table's own column. Every page compiler shares it, so a sort cannot get one
-// null placement when a request touches a relation and another when it does
-// not -- a cursor issued by either path anchors against the same ordering.
 func rootOrderTerm(key SortKey, field schema.Field, allowViewScan ...bool) (orderTerm, error) {
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return orderTerm{}, validation("sort", "unsupported_type")
@@ -213,12 +207,6 @@ func rootOrderTerm(key SortKey, field schema.Field, allowViewScan ...bool) (orde
 	return term, nil
 }
 
-// notNullColumn reports whether the physical column can never hold NULL. The
-// planner declares every system column "not null" and a user column follows its
-// Required flag, so a descending page over such a column can be ordered with
-// PostgreSQL's btree default NULLS FIRST — matching the index without moving a
-// single row. Nullable columns keep NULLS LAST, which is the placement the
-// relation kernel and the documented API contract also use.
 func notNullColumn(field schema.Field) bool {
 	switch field.Name {
 	case systemFieldID, systemFieldCreatedAt:
@@ -354,9 +342,6 @@ func decodeFilterValue(field schema.Field, literal filterLiteral) (any, error) {
 	}
 }
 
-// decodeCursorValue decodes a signed cursor position against the sort column's
-// declared type. Values that no longer decode — for example after a schema
-// change — invalidate the whole cursor.
 func decodeCursorValue(field schema.Field, raw json.RawMessage) (any, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, nil
