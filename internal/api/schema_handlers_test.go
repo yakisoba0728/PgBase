@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -53,6 +54,43 @@ func TestCatalogCompatibilityPaginationKeepsNativeEnvelope(t *testing.T) {
 		} else if body.TotalItems != 2 || len(body.Items) != test.count || test.count > 0 && body.Items[0].Name != "beta" {
 			t.Fatalf("compatibility=%+v", body)
 		}
+	}
+}
+
+func TestCatalogPocketBaseCompatibilityFiltersAndSortsMetadata(t *testing.T) {
+	created := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{
+		"alpha": {ID: uuid.MustParse("00000000-0000-0000-0000-000000000002"), Name: "Alpha records", Type: schema.CollectionTypeAuth, System: true, CreatedAt: created, Fields: []schema.Field{{Name: "one"}}},
+		"beta":  {ID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), Name: "Beta records", Type: schema.CollectionTypeBase, CreatedAt: created, Fields: []schema.Field{{Name: "one"}, {Name: "two"}}},
+		"gamma": {ID: uuid.MustParse("00000000-0000-0000-0000-000000000003"), Name: "Gamma", Type: schema.CollectionTypeBase, CreatedAt: created.Add(time.Hour)},
+	}}
+	endpoint := schemaEndpoints{service: &fakeSchemaService{catalog: catalog}}
+	request := func(rawQuery string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		endpoint.catalog(response, httptest.NewRequest(http.MethodGet, "/api/admin/collections?compat=pocketbase&"+rawQuery, nil))
+		return response
+	}
+	filtered := request("filter=" + url.QueryEscape(`type = 'auth' && system = true`))
+	if filtered.Code != http.StatusOK || !strings.Contains(filtered.Body.String(), `"name":"Alpha records"`) || strings.Contains(filtered.Body.String(), `"name":"Beta records"`) {
+		t.Fatalf("filtered status=%d body=%s", filtered.Code, filtered.Body.String())
+	}
+	lowerWildcard := request("filter=" + url.QueryEscape(`name:lower ~ 'beta*' || fieldCount >= 2`))
+	if lowerWildcard.Code != http.StatusOK || !strings.Contains(lowerWildcard.Body.String(), `"name":"Beta records"`) || strings.Contains(lowerWildcard.Body.String(), `"name":"Alpha records"`) {
+		t.Fatalf("wildcard status=%d body=%s", lowerWildcard.Code, lowerWildcard.Body.String())
+	}
+	invalid := request("filter=" + url.QueryEscape(`fields.name = 'one'`))
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid status=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	first := request("sort=type,name&perPage=1&page=1")
+	second := request("sort=type,name&perPage=1&page=2")
+	if first.Code != http.StatusOK || second.Code != http.StatusOK || !strings.Contains(first.Body.String(), `"name":"Alpha records"`) || !strings.Contains(second.Body.String(), `"name":"Beta records"`) {
+		t.Fatalf("multi-sort pages first=%s second=%s", first.Body.String(), second.Body.String())
+	}
+	firstTie := request("sort=created&perPage=1&page=1")
+	secondTie := request("sort=created&perPage=1&page=2")
+	if !strings.Contains(firstTie.Body.String(), `"id":"00000000-0000-0000-0000-000000000001"`) || !strings.Contains(secondTie.Body.String(), `"id":"00000000-0000-0000-0000-000000000002"`) {
+		t.Fatalf("stable ties first=%s second=%s", firstTie.Body.String(), secondTie.Body.String())
 	}
 }
 

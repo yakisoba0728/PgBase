@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -361,32 +362,57 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		}
 		perPage = value
 	}
-	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("filter")))
-	items := make([]collectionResponse, 0, len(catalog.Collections))
+	fields := catalogScalarFields()
+	filterText := strings.TrimSpace(r.URL.Query().Get("filter"))
+	var predicate query.ScalarPredicate
+	if filterText != "" {
+		predicate, err = query.CompileScalarPredicate(filterText, fields)
+		if err != nil {
+			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
+			return
+		}
+	}
+	items := make([]schema.Collection, 0, len(catalog.Collections))
 	for _, collection := range catalog.Collections {
-		if filter != "" && !strings.Contains(strings.ToLower(collection.Name+" "+collection.CompatibilityName+" "+string(collection.Type)), filter) {
+		if filterText != "" && !predicate.Evaluate(catalogScalarValues(collection)) {
 			continue
 		}
-		items = append(items, collectionDTO(collection))
+		items = append(items, collection)
 	}
-	sortField, descending := r.URL.Query().Get("sort"), false
-	if strings.HasPrefix(sortField, "-") {
-		descending = true
-		sortField = strings.TrimPrefix(sortField, "-")
-	}
-	if sortField == "" {
-		sortField = "name"
-	}
-	if sortField != "name" && sortField != "created" {
+	sorts, parseErr := query.ParseSort(r.URL.Query().Get("sort"))
+	if parseErr != nil {
 		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if descending {
-			i, j = j, i
+	if len(sorts) == 0 {
+		sorts = []query.SortKey{{Field: "name"}}
+	}
+	for _, term := range sorts {
+		if _, ok := fields[term.Field]; !ok {
+			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
+			return
 		}
-		if sortField == "created" && !items[i].CreatedAt.Equal(items[j].CreatedAt) {
-			return items[i].CreatedAt.Before(items[j].CreatedAt)
+	}
+	tieDescending := sorts[len(sorts)-1].Desc
+	sort.Slice(items, func(i, j int) bool {
+		left, right := catalogScalarValues(items[i]), catalogScalarValues(items[j])
+		for _, term := range sorts {
+			comparison := compareCatalogScalar(fields[term.Field], left[term.Field], right[term.Field])
+			if comparison == 0 {
+				continue
+			}
+			if term.Desc {
+				return comparison > 0
+			}
+			return comparison < 0
+		}
+		if items[i].ID != items[j].ID {
+			return items[i].ID.String() < items[j].ID.String()
+		}
+		// Test fixtures and imported legacy rows can omit IDs. Preserve the
+		// historical deterministic name order until they are assigned one.
+		if tieDescending {
+			return items[i].Name > items[j].Name
 		}
 		return items[i].Name < items[j].Name
 	})
@@ -400,7 +426,64 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		end = total
 	}
 	totalPages := (total + perPage - 1) / perPage
-	writeJSON(w, http.StatusOK, map[string]any{"page": page, "perPage": perPage, "totalItems": total, "totalPages": totalPages, "items": items[start:end]})
+	responses := make([]collectionResponse, 0, end-start)
+	for _, item := range items[start:end] {
+		responses = append(responses, collectionDTO(item))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"page": page, "perPage": perPage, "totalItems": total, "totalPages": totalPages, "items": responses})
+}
+
+func catalogScalarFields() map[string]query.ScalarKind {
+	return map[string]query.ScalarKind{
+		"id": query.ScalarString, "name": query.ScalarString, "compatibilityName": query.ScalarString,
+		"type": query.ScalarString, "system": query.ScalarBool, "validationMode": query.ScalarString,
+		"tableName": query.ScalarString, "created": query.ScalarTime, "fieldCount": query.ScalarNumber, "indexCount": query.ScalarNumber,
+	}
+}
+
+func catalogScalarValues(collection schema.Collection) map[string]query.ScalarValue {
+	return map[string]query.ScalarValue{
+		"id": {String: collection.ID.String()}, "name": {String: collection.Name}, "compatibilityName": {String: collection.CompatibilityName},
+		"type": {String: string(collection.Type)}, "system": {Bool: collection.System}, "validationMode": {String: string(collection.ValidationMode)},
+		"tableName": {String: collection.TableName}, "created": {Time: collection.CreatedAt.UTC()}, "fieldCount": {Number: float64(len(collection.Fields))}, "indexCount": {Number: float64(len(collection.Indexes))},
+	}
+}
+
+func compareCatalogScalar(kind query.ScalarKind, left, right query.ScalarValue) int {
+	switch kind {
+	case query.ScalarBool:
+		if left.Bool == right.Bool {
+			return 0
+		}
+		if !left.Bool {
+			return -1
+		}
+		return 1
+	case query.ScalarNumber:
+		if left.Number < right.Number {
+			return -1
+		}
+		if left.Number > right.Number {
+			return 1
+		}
+		return 0
+	case query.ScalarTime:
+		if left.Time.Before(right.Time) {
+			return -1
+		}
+		if left.Time.After(right.Time) {
+			return 1
+		}
+		return 0
+	default:
+		if left.String < right.String {
+			return -1
+		}
+		if left.String > right.String {
+			return 1
+		}
+		return 0
+	}
 }
 
 func (e schemaEndpoints) collection(w http.ResponseWriter, r *http.Request) {
