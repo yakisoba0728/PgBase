@@ -19,11 +19,25 @@ import (
 func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/x","access":"administrator","handler":{"module":"r.js","export":"run"},"capabilities":["app-control"]}]}`), 0600)
-	os.WriteFile(filepath.Join(dir, "r.js"), []byte(`exports.run=(q)=>{try{let c=$app.findCollectionByNameOrId(q.collection),all=$app.findAllCollections("auth"),a=$app.findAuthAuxiliary(q.realm,q.recordId,"externalAuths");if(q.deleteId)$app.deleteAuthAuxiliary(q.realm,q.recordId,"externalAuths",q.deleteId);return {name:c.name,count:all.length,unique:$app.isCollectionNameUnique(q.collection),aux:a.length}}catch(e){return {error:String(e.code||""),message:String(e.message||"")}}}`), 0600)
+	os.WriteFile(filepath.Join(dir, "r.js"), []byte(`exports.run=(q)=>{try{let c=$app.findCollectionByNameOrId(q.collection),all=$app.findAllCollections("auth"),a=$app.findAuthAuxiliary(q.realm,q.recordId,"externalAuths");if(q.deleteId)$app.deleteAuthAuxiliary(q.realm,q.recordId,"externalAuths",q.deleteId);return {name:c.name,count:all.length,unique:$app.isCollectionNameUnique(q.collection),refs:q.ref?$app.findCollectionReferences(q.ref):[],cachedRefs:q.ref?$app.findCachedCollectionReferences(q.ref):[],aux:a.length}}catch(e){return {error:String(e.code||""),message:String(e.message||"")}}}`), 0600)
 	fixture := newPublicUsersAppOptions(t, true, func(o *Options) {
 		o.JavaScript = &JavaScriptOptions{Directory: dir, Capabilities: map[string]bool{"app-control": true}}
 	})
 	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	applyRelation := func(name string, fields []map[string]any) {
+		change := map[string]any{"operation": "create", "name": name, "fields": fields}
+		plan := publicUsersRequest(t, fixture, http.MethodPost, "/api/admin/collections/plan", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+		assertPublicUsersStatus(t, plan, 200)
+		var p struct {
+			BaseVersion int64  `json:"baseVersion"`
+			Checksum    string `json:"checksum"`
+		}
+		decodePublicUsersJSON(t, plan, &p)
+		change["baseVersion"], change["checksum"] = p.BaseVersion, p.Checksum
+		assertPublicUsersStatus(t, publicUsersRequest(t, fixture, http.MethodPost, "/api/admin/collections/apply", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
+	}
+	applyRelation("relation_target", []map[string]any{{"name": "title", "type": "text", "help": "preserved"}})
+	applyRelation("relation_source", []map[string]any{{"name": "target", "type": "relation", "relation": map[string]any{"targetCollection": "relation_target", "cardinality": "single", "minSelect": 0, "maxSelect": 1, "onDelete": "restrict"}}})
 	realm := uuid.New()
 	assertPublicUsersStatus(t, publicUsersRequest(t, fixture, http.MethodPost, "/api/admin/auth-collections", map[string]any{"id": realm, "name": "aux_customers", "registrationEnabled": true, "profileSchema": map[string]string{}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
 	registered := publicUsersRequest(t, fixture, http.MethodPost, "/api/v1/auth/aux_customers/register", map[string]any{"email": "aux@example.test", "password": publicUserOnePass}, "", nil, nil)
@@ -51,7 +65,7 @@ func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 	t.Cleanup(func() { runtime.Close(t.Context()) })
 	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, requestID: "catalog-aux", valid: true}
 	invoke := func(deleteID string) (map[string]any, error) {
-		in, _ := json.Marshal(map[string]string{"collection": "aux_customers", "realm": realm.String(), "recordId": session.User.ID.String(), "deleteId": deleteID})
+		in, _ := json.Marshal(map[string]string{"collection": "aux_customers", "realm": realm.String(), "recordId": session.User.ID.String(), "deleteId": deleteID, "ref": "relation_target"})
 		out, e := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control"}, Input: in, Host: host})
 		var v map[string]any
 		if e == nil {
@@ -63,7 +77,7 @@ func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 		return v, e
 	}
 	v, e := invoke("")
-	if e != nil || v["name"] != "aux_customers" || v["aux"].(float64) != 2 || v["unique"] != false {
+	if e != nil || v["name"] != "aux_customers" || v["aux"].(float64) != 2 || v["unique"] != false || len(v["refs"].([]any)) != 1 || len(v["cachedRefs"].([]any)) != 1 {
 		t.Fatalf("catalog/aux=%v err=%v cause=%v", v, e, errors.Unwrap(e))
 	}
 	if _, e = invoke(first.String()); e != nil {
