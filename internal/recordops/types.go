@@ -102,6 +102,16 @@ type DeleteRequest struct {
 	RuleContext *accessrule.RequestContext
 }
 
+// ValidateRequest validates a proposed record without writing it. An empty ID
+// applies create semantics; a non-empty ID applies patch semantics.
+type ValidateRequest struct {
+	Principal  Principal
+	RequestID  string
+	Collection string
+	ID         uuid.UUID
+	Input      map[string]json.RawMessage
+}
+
 // BatchRequest is an atomic, ordered group of record mutations. Batch is
 // intentionally limited at the API boundary to 50 operations and one MiB of
 // decoded JSON; callers should not use it for bulk import workloads.

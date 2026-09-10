@@ -151,3 +151,37 @@ func (*appQueryCompatibilityHost) Call(_ context.Context, method string, _ json.
 	}
 	return nil, errors.New("unexpected method")
 }
+
+func TestPocketBaseModelFamilyDispatchesTypedHosts(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/models","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["records"]}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{const r=new Record("items",{title:"ok"});const q=$app.modelQuery(r).where("title='ok'").orderBy("-created").limit(2).all();return {model:new Model({table:"items"}).table,valid:$app.validate(r).valid,items:q.items.length}}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	host := &modelCompatibilityHost{}
+	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"records"}, Host: host})
+	if err != nil || string(output) != `{"items":1,"model":"items","valid":true}` {
+		t.Fatalf("output=%s err=%v calls=%v", output, err, host.calls)
+	}
+}
+
+type modelCompatibilityHost struct{ calls []string }
+
+func (h *modelCompatibilityHost) Call(_ context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
+	h.calls = append(h.calls, method)
+	switch method {
+	case "app.model.query":
+		return json.RawMessage(`{"items":[{"id":"one"}]}`), nil
+	case "app.model.validate":
+		return json.RawMessage(`{"valid":true}`), nil
+	default:
+		return nil, errors.New("unexpected method")
+	}
+}

@@ -66,6 +66,30 @@ func NewService(
 	}
 }
 
+// Validate checks the typed payload accepted by Create/Update without writing.
+func (s *Service) Validate(ctx context.Context, request ValidateRequest) error {
+	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
+		return err
+	}
+	catalog, err := s.schemas.Catalog(ctx)
+	if err != nil {
+		return err
+	}
+	collection, ok := catalog.Collections[request.Collection]
+	if !ok || collection.IsView() {
+		return recordaccess.ErrUnsupported
+	}
+	if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
+		return err
+	}
+	if request.ID == uuid.Nil {
+		_, err = query.CompileInsert(collection, request.Input, uuid.New())
+	} else {
+		_, err = query.CompileUpdate(collection, request.ID, request.Input)
+	}
+	return err
+}
+
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
 	defer hooks.after(ctx, &err)

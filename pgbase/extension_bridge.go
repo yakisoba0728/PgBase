@@ -159,12 +159,18 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 			return host.bridge.compatibility.call(operationContext, mapped, input)
 		}
 	}
+	if method == "hooks-bypass.modelSaveNoValidate" {
+		if host.principal.Kind != identity.Administrator {
+			return nil, extensionError("hooks_bypass_denied", errors.New("record validation bypass requires administrator authority"))
+		}
+		return host.callAppRecords(operationContext, "app.model.save", input)
+	}
 	switch method {
 	case "apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords":
 		return host.callAuthAPI(operationContext, method, input)
 	case "authMail.send":
 		return host.callAuthMail(operationContext, input)
-	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.record.findByIds", "app.record.findAll", "app.record.findFirstByData", "app.record.count", "app.record.canAccess", "app.record.expand", "app.record.expandMany", "app.model.save", "app.model.delete":
+	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.record.findByIds", "app.record.findAll", "app.record.findFirstByData", "app.record.count", "app.record.canAccess", "app.record.expand", "app.record.expandMany", "app.model.query", "app.model.save", "app.model.delete", "app.model.validate":
 		return host.callAppRecords(operationContext, method, input)
 	case "app.log.query", "app.log.find", "app.log.stats", "app.log.deleteOld":
 		return host.callAppQueries(operationContext, method, input)
@@ -333,7 +339,7 @@ func (host *extensionHost) callAppRecords(ctx context.Context, method string, ra
 		return host.callAppRecordQuery(ctx, method, request)
 	}
 	switch method {
-	case "app.record.query", "app.record.findByFilter", "app.record.findFirstByFilter":
+	case "app.record.query", "app.record.findByFilter", "app.record.findFirstByFilter", "app.model.query":
 		var request extensionRecordRequest
 		if err := decodeExtensionInput(raw, &request); err != nil {
 			return nil, extensionError("invalid_record_request", err)
@@ -357,6 +363,21 @@ func (host *extensionHost) callAppRecords(ctx context.Context, method string, ra
 		return host.callRecords(ctx, "records.update", encoded)
 	case "app.model.delete":
 		return host.callRecords(ctx, "records.delete", raw)
+	case "app.model.validate":
+		var request extensionRecordRequest
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		var id uuid.UUID
+		if request.ID != "" {
+			var err error
+			id, err = requiredUUID(request.ID)
+			if err != nil {
+				return nil, extensionError("invalid_record_request", err)
+			}
+		}
+		err := host.bridge.records.Validate(ctx, recordops.ValidateRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, ID: id, Input: request.Input})
+		return marshalExtensionResult(map[string]bool{"valid": err == nil}, err)
 	}
 	return nil, extensionError("unsupported_operation", nil)
 }
