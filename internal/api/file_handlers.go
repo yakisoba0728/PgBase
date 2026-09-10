@@ -262,10 +262,16 @@ type fileResponse struct {
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
 	Thumbnail   bool   `json:"thumbnail"`
+	Protected   bool   `json:"protected"`
+	PublicURL   string `json:"publicUrl,omitempty"`
 }
 
 func publicFile(file filestore.File) fileResponse {
-	return fileResponse{ID: file.ID.String(), Field: file.Field, Filename: file.Filename, ContentType: file.ContentType, Size: file.Size, Thumbnail: file.ThumbnailKey != ""}
+	result := fileResponse{ID: file.ID.String(), Field: file.Field, Filename: file.Filename, ContentType: file.ContentType, Size: file.Size, Thumbnail: file.ThumbnailKey != "", Protected: !file.Public}
+	if file.Public {
+		result.PublicURL = "/api/files/" + file.ID.String()
+	}
+	return result
 }
 
 func writeFileError(w http.ResponseWriter, r *http.Request, err error) {

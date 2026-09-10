@@ -158,6 +158,21 @@ func TestPublicFileFieldHTTPRevokesOnProtectedToggle(t *testing.T) {
 	}
 	decodePublicUsersJSON(t, upload, &file)
 	url := "/api/files/" + file.ID
+	checkVisibility := func(protected bool) {
+		listed := publicUsersRequest(t, app, "GET", "/api/admin/collections/public_files/records/"+record.ID+"/files/attachment", nil, "", cookie, nil)
+		assertPublicUsersStatus(t, listed, 200)
+		var body struct {
+			Items []struct {
+				Protected bool   `json:"protected"`
+				PublicURL string `json:"publicUrl"`
+			} `json:"items"`
+		}
+		decodePublicUsersJSON(t, listed, &body)
+		if len(body.Items) != 1 || body.Items[0].Protected != protected || protected && body.Items[0].PublicURL != "" || !protected && body.Items[0].PublicURL != url {
+			t.Fatalf("visibility=%+v", body)
+		}
+	}
+	checkVisibility(false)
 	open := publicUsersRequest(t, app, http.MethodGet, url, nil, "", nil, nil)
 	assertPublicUsersStatus(t, open, http.StatusOK)
 	if open.Header().Get("Cache-Control") != "no-store" || open.Body.String() != "open" {
@@ -170,6 +185,7 @@ func TestPublicFileFieldHTTPRevokesOnProtectedToggle(t *testing.T) {
 	update["baseVersion"], update["checksum"] = planned.BaseVersion, planned.Checksum
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/apply", update, "", cookie, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodGet, url, nil, "", nil, nil), http.StatusNotFound)
+	checkVisibility(true)
 }
 
 func TestHiddenFileFieldRevokesExistingUserTokens(t *testing.T) {

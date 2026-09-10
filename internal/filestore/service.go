@@ -186,6 +186,9 @@ type File struct {
 	ThumbnailKey string
 	CreatedAt    time.Time
 	ReadyAt      time.Time
+	// Public is a current list-time policy observation. Downloads always
+	// reauthorize; this flag is never persisted as authority.
+	Public bool
 }
 
 type FileEvent struct {
@@ -524,6 +527,10 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 		if err := s.authorizeField(ctx, tx, principal, collectionID, recordID, field, OperationRead); err != nil {
 			return err
 		}
+		policy, err := s.policy(ctx, tx, collectionID, field)
+		if err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE collection_id=$1 AND record_id=$2 AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
 		if err != nil {
@@ -535,6 +542,7 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 			if err := scanFile(rows, &file); err != nil {
 				return err
 			}
+			file.Public = !*policy.Protected && !policy.Hidden
 			files = append(files, file)
 		}
 		return rows.Err()

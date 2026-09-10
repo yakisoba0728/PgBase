@@ -143,6 +143,21 @@ export type AuthMethods = {
     otpEnabled: boolean;
     mfaEnabled: boolean;
     oauthProviders: string[];
+    oauth2: {
+        enabled: boolean;
+        providers: Array<{
+            name: string;
+            startEndpoint: string;
+        }>;
+    };
+};
+export type OAuthStart = {
+    authorizationUrl: string;
+    expiresAt: string;
+    state: string;
+    codeVerifier: string;
+    codeChallenge: string;
+    codeChallengeMethod: string;
 };
 export declare class PgBaseError extends Error {
     readonly status: number;
@@ -300,20 +315,14 @@ export declare class AuthRealm {
     completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{
-        authorizationUrl: string;
-        expiresAt: string;
-    }>;
+    oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
     /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
     oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{
         authorizationUrl: string;
         expiresAt: string;
     }>;
     oauthWithBrowser(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, signal?: AbortSignal): Promise<UserSession>;
-    oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{
-        authorizationUrl: string;
-        expiresAt: string;
-    }>;
+    oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
     oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession>;
 }
