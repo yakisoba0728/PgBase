@@ -174,7 +174,7 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 	if policy.OTPMaxAttempts == 0 {
 		policy.OTPMaxAttempts = 5
 	}
-	if collectionID == uuid.Nil || policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128 || policy.MaximumPasswordBytes < policy.MinimumPasswordBytes || policy.MaximumPasswordBytes > 4096 || len(policy.PasswordPattern) > 512 || (policy.PasswordPattern != "" && !validPasswordPattern(policy.PasswordPattern)) || !validIdentityFields(policy.IdentityFields) || policy.MFADurationSeconds < 60 || policy.MFADurationSeconds > 86400 || len(policy.MFARule) > 1024 || policy.OTPDurationSeconds < 60 || policy.OTPDurationSeconds > 900 || policy.OTPMaxAttempts < 1 || policy.OTPMaxAttempts > 10 {
+	if collectionID == uuid.Nil || policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128 || policy.MaximumPasswordBytes < policy.MinimumPasswordBytes || policy.MaximumPasswordBytes > 4096 || len(policy.PasswordPattern) > 512 || (policy.PasswordPattern != "" && !validPasswordPattern(policy.PasswordPattern)) || !validIdentityFields(policy.IdentityFields) || policy.MFADurationSeconds < 60 || policy.MFADurationSeconds > 86400 || len(policy.MFARule) > 1024 || !validMFARule(policy.MFARule) || policy.OTPDurationSeconds < 60 || policy.OTPDurationSeconds > 900 || policy.OTPMaxAttempts < 1 || policy.OTPMaxAttempts > 10 {
 		return AuthPolicy{}, ErrValidation
 	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {

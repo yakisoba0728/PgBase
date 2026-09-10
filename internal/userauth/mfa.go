@@ -11,6 +11,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +22,72 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+// MFARule is deliberately small and deterministic: an empty rule applies MFA
+// whenever an active factor exists; otherwise a declared profile field (or the
+// built-in `verified`) must equal the supplied JSON scalar.  Unsupported
+// expressions are rejected at configuration time rather than silently stored.
+type mfaRule struct {
+	Field  string          `json:"field"`
+	Equals json.RawMessage `json:"equals"`
+}
+
+func validMFARule(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	var r mfaRule
+	if json.Unmarshal([]byte(raw), &r) != nil || (r.Field != "verified" && !authCollectionName.MatchString(r.Field)) || len(r.Equals) == 0 {
+		return false
+	}
+	var scalar any
+	if json.Unmarshal(r.Equals, &scalar) != nil {
+		return false
+	}
+	switch scalar.(type) {
+	case string, bool, float64, nil:
+		return true
+	}
+	return false
+}
+func (s *Service) mfaRequiredTx(ctx context.Context, tx pgx.Tx, user User) (bool, error) {
+	var policy AuthPolicy
+	if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, user.AuthCollectionID).Scan(&policy.PasswordEnabled, &policy.MinimumPasswordBytes, &policy.MaximumPasswordBytes, &policy.PasswordPattern, &policy.IdentityFields, &policy.MFAEnabled, &policy.MFADurationSeconds, &policy.MFARule, &policy.OTPEnabled, &policy.OTPDurationSeconds, &policy.OTPMaxAttempts); err != nil {
+		return false, err
+	}
+	if !policy.MFAEnabled {
+		return false, nil
+	}
+	var active bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, user.ID).Scan(&active); err != nil {
+		return false, err
+	}
+	if !active {
+		return false, nil
+	}
+	if policy.MFARule == "" {
+		return true, nil
+	}
+	var rule mfaRule
+	_ = json.Unmarshal([]byte(policy.MFARule), &rule)
+	var got json.RawMessage
+	if rule.Field == "verified" {
+		got = []byte("false")
+		if user.Verified {
+			got = []byte("true")
+		}
+	} else {
+		var profile []byte
+		err := tx.QueryRow(ctx, `select attributes from pgbase_meta.user_auth_profiles where user_id=$1`, user.ID).Scan(&profile)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+		var values map[string]json.RawMessage
+		_ = json.Unmarshal(profile, &values)
+		got = values[rule.Field]
+	}
+	return string(got) == string(rule.Equals), nil
+}
 
 const (
 	totpStep          = 30 * time.Second

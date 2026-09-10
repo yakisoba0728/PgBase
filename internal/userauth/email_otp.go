@@ -131,9 +131,9 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 		if _, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where id=$1`, id); err != nil {
 			return err
 		}
-		var active bool
-		if err = tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, user.ID).Scan(&active); err != nil {
-			return err
+		active, requiredErr := s.mfaRequiredTx(ctx, tx, user)
+		if requiredErr != nil {
+			return requiredErr
 		}
 		if active {
 			challenge, e := s.insertMFAChallenge(ctx, tx, user.ID, now)

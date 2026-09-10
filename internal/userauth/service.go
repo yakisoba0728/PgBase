@@ -313,8 +313,8 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 			opErr = ErrInvalidCredentials
 			return nil
 		}
-		var mfaActive bool
-		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, current.ID).Scan(&mfaActive); err != nil {
+		mfaActive, err := s.mfaRequiredTx(ctx, tx, current)
+		if err != nil {
 			return err
 		}
 		if mfaActive {

@@ -373,8 +373,8 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 		if _, err := tx.Exec(ctx, `update pgbase_meta.user_oauth_states set consumed_at=CURRENT_TIMESTAMP where id=$1`, stateID); err != nil {
 			return err
 		}
-		var active bool
-		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, user.ID).Scan(&active); err != nil {
+		active, err := s.mfaRequiredTx(ctx, tx, user)
+		if err != nil {
 			return err
 		}
 		if active {
