@@ -411,6 +411,55 @@ func TestCompileListFlipsReversedLiteralComparisons(t *testing.T) {
 	}
 }
 
+func TestCompileListContainsBindsLiteralSubstring(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	needle := `%_'); DROP TABLE app.physical_records; --`
+	statement, err := CompileList(collection, ListQuery{Filter: mustParseFilter(t, "title ~ '"+strings.ReplaceAll(needle, "'", "''")+"'")})
+	if err != nil {
+		t.Fatalf("CompileList() error = %v", err)
+	}
+	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
+		`WHERE (strpos("title", $1) > 0) ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $2`
+	if statement.SQL != wantSQL {
+		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
+	}
+	if !reflect.DeepEqual(statement.Args, []any{needle, 51}) {
+		t.Fatalf("Args = %#v", statement.Args)
+	}
+	if strings.Contains(statement.SQL, needle) {
+		t.Fatalf("SQL contains filter literal: %q", statement.SQL)
+	}
+}
+
+func TestContainsFilterRejectsUnsupportedShapes(t *testing.T) {
+	t.Parallel()
+
+	collection := compilerCollection()
+	tests := []struct {
+		name  string
+		expr  string
+		field string
+		code  string
+	}{
+		{name: "number field", expr: `large_count ~ '1'`, field: "filter", code: "type_mismatch"},
+		{name: "number literal", expr: `title ~ 1`, field: "filter", code: "type_mismatch"},
+		{name: "null literal", expr: `title ~ null`, field: "filter", code: "type_mismatch"},
+		{name: "reversed operands", expr: `'x' ~ title`, field: "filter", code: "invalid_filter"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			node, err := parseFilter(test.expr)
+			if err == nil {
+				_, err = CompileList(collection, ListQuery{Filter: node})
+			}
+			assertValidationDetail(t, err, test.field, test.code)
+		})
+	}
+}
+
 func TestParseSortRejectsOverflowAndDuplicates(t *testing.T) {
 	t.Parallel()
 

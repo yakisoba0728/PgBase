@@ -1,4 +1,4 @@
-import type { BatchOperation, Query, Records } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, Query, Records } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -8,7 +8,12 @@ const operations: BatchOperation<Note>[] = [
 ];
 
 declare const records: Records<Note>;
+declare const realm: AuthRealm;
+declare const methods: AuthMethods;
 void records.list(query);
 void records.get("note-1", { fields: "id,title" });
 void records.get("note-1", new AbortController().signal);
+void realm.methods();
+void realm.refresh();
+void methods.oauthProviders;
 void operations;

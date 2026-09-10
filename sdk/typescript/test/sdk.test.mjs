@@ -26,6 +26,18 @@ const server = createServer(async (request, response) => {
     response.statusCode = 201; response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ token: "realm-token", user: { id: "realm", email: "realm@example.test", verified: true, authCollection: "members", createdAt: "" }, expiresAt: "" })); return;
   }
+  if (request.url === "/api/v1/auth/members/methods") {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"] })); return;
+  }
+  if (request.url === "/api/v1/auth/members/refresh") {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ token: "rotated-token", user: { id: "realm", email: "realm@example.test", createdAt: "" }, expiresAt: "2026-01-02T00:00:00Z" })); return;
+  }
+  if (request.url === "/api/v1/auth/invalid/refresh") {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ token: "must-not-save" })); return;
+  }
   if (request.url === "/api/v1/auth/members/profile") {
 	response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ attributes: request.method === "PATCH" ? JSON.parse(body) : { nickname: "realm" } })); return;
   }
@@ -125,6 +137,16 @@ try {
   assert.equal(client.auth.token, "first-token");
 
   const realm = client.realm("members");
+	assert.deepEqual(await realm.methods(), { passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"] });
+	assert.equal(requests.at(-1).path, "/api/v1/auth/members/methods");
+	client.auth.save("refresh-source-token");
+	const refreshed = await realm.refresh();
+	assert.equal(refreshed.token, "rotated-token");
+	assert.equal(client.auth.token, "rotated-token");
+	assert.equal(requests.at(-1).headers.authorization, "Bearer refresh-source-token");
+	client.auth.save("still-valid-locally");
+	await assert.rejects(() => client.realm("invalid").refresh(), (error) => error instanceof PgBaseError && error.code === "invalid_session_response");
+	assert.equal(client.auth.token, "still-valid-locally", "invalid refresh responses do not overwrite stored tokens");
 	assert.equal((await client.requestOTP("first@example.test")).otpId, "otp-id");
 	await client.completeOTP("otp-id", "123456");
 	assert.equal(client.auth.token, "otp-token");

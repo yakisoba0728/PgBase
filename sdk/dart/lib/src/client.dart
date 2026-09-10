@@ -427,6 +427,29 @@ final class AuthRealm {
     cancellation: cancellation,
     mfa: true,
   );
+  /// Returns the sign-in methods enabled for this auth collection.
+  Future<AuthMethods> methods({CancellationToken? cancellation}) async =>
+      _decodeAuthMethods(
+        await client.request(
+          'GET',
+          '$_path/methods',
+          cancellation: cancellation,
+        ),
+      );
+
+  /// Rotates the current bearer token after validating its replacement session.
+  Future<UserSession> refresh({CancellationToken? cancellation}) async {
+    final generation = client.auth.generation;
+    final session = _decodeRefreshSession(
+      await client.request(
+        'POST',
+        '$_path/refresh',
+        cancellation: cancellation,
+      ),
+    );
+    if (generation == client.auth.generation) await client.auth.save(session.token!);
+    return session;
+  }
   Future<UserSession> session({CancellationToken? cancellation}) async =>
       _decodeSession(
         await client.request(
@@ -546,6 +569,38 @@ UserSession _decodeSession(JsonValue value) {
     impersonatingAdministratorId:
         (value['impersonatingAdministratorId'] as JsonString?)?.value,
   );
+}
+
+AuthMethods _decodeAuthMethods(JsonValue value) {
+  if (value is! JsonObject ||
+      value['passwordEnabled'] is! JsonBool ||
+      value['otpEnabled'] is! JsonBool ||
+      value['mfaEnabled'] is! JsonBool ||
+      value['oauthProviders'] is! JsonArray) {
+    throw const PgBaseProtocolError('invalid_auth_methods_response');
+  }
+  final providers = (value['oauthProviders']! as JsonArray).values;
+  if (!providers.every((provider) => provider is JsonString)) {
+    throw const PgBaseProtocolError('invalid_auth_methods_response');
+  }
+  return AuthMethods(
+    passwordEnabled: (value['passwordEnabled']! as JsonBool).value,
+    otpEnabled: (value['otpEnabled']! as JsonBool).value,
+    mfaEnabled: (value['mfaEnabled']! as JsonBool).value,
+    oauthProviders: providers
+        .cast<JsonString>()
+        .map((item) => item.value)
+        .toList(growable: false),
+  );
+}
+
+/// Refresh responses must include a usable replacement token before storage.
+UserSession _decodeRefreshSession(JsonValue value) {
+  final session = _decodeSession(value);
+  if (session.token == null || session.token!.isEmpty) {
+    throw const PgBaseProtocolError('invalid_session_response');
+  }
+  return session;
 }
 
 PgBaseError pgBaseError(PgBaseResponse response) {

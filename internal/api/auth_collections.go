@@ -20,6 +20,8 @@ type AuthCollections interface {
 	RegisterInCollection(context.Context, uuid.UUID, string, string, string) (userauth.Session, error)
 	LoginInCollection(context.Context, uuid.UUID, string, string, string) (userauth.Session, error)
 	AuthenticateForCollection(context.Context, uuid.UUID, string) (userauth.Principal, error)
+	PublicAuthMethods(context.Context, uuid.UUID) (userauth.PublicAuthMethods, error)
+	RefreshSessionForCollection(context.Context, uuid.UUID, string) (userauth.Session, error)
 	Logout(context.Context, string) error
 	RequestPasswordResetInCollection(context.Context, uuid.UUID, string, string) error
 	BeginOAuthInCollection(context.Context, uuid.UUID, string, string, string) (userauth.OAuthAuthorization, error)
@@ -42,6 +44,7 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "POST", pattern: "/api/admin/auth-collections", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminCreate)},
 		{method: "PATCH", pattern: "/api/admin/auth-collections/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminUpdate)},
 		{method: "DELETE", pattern: "/api/admin/auth-collections/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminDelete)},
+		{method: "GET", pattern: "/api/v1/auth/{authCollection}/methods", access: accessPublic, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.methods)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/register", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.credentials(true)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/login", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.credentials(false)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/request-password-reset", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.reset)},
@@ -49,10 +52,25 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/otp/request", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.otpRequest)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/otp/complete", access: accessPublic, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.otpComplete)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/session", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.session)},
+		{method: "POST", pattern: "/api/v1/auth/{authCollection}/refresh", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.refresh)},
 		{method: "POST", pattern: "/api/v1/auth/{authCollection}/logout", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.logout)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.profile)},
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.profile)},
 	}
+}
+
+func (e authCollectionEndpoints) methods(w http.ResponseWriter, r *http.Request) {
+	collection, err := e.resolve(r)
+	if err != nil {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
+	methods, err := e.dependencies.AuthCollections.PublicAuthMethods(r.Context(), collection.ID)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, methods)
 }
 
 func (e authCollectionEndpoints) otpRequest(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +299,20 @@ func (e authCollectionEndpoints) session(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, userSessionFromPrincipal(current.principal))
 }
+func (e authCollectionEndpoints) refresh(w http.ResponseWriter, r *http.Request) {
+	current, err := e.current(r)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	refreshed, err := e.dependencies.AuthCollections.RefreshSessionForCollection(r.Context(), current.principal.User.AuthCollectionID, current.token)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, userSessionFromResult(refreshed))
+}
+
 func (e authCollectionEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 	current, err := e.current(r)
 	if err != nil {

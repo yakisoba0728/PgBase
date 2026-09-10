@@ -430,12 +430,11 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 func geoPointExpression(column, property string) string {
 	return "((" + column + "->>'" + property + "')::numeric)"
 }
-
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
-	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
+	if comparison.operator == "~" && (field.Type != schema.TypeText && field.Type != schema.TypeEditor || comparison.value.kind != filterLiteralString) || (field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=") {
 		return "", validation("filter", "type_mismatch")
 	}
 	if comparison.modifier != "" {
@@ -461,6 +460,9 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 	if field.Type == schema.TypeBoolean && comparison.operator == "!=" {
 		value = !value.(bool)
 		return "(" + column + " = " + builder.placeholder(value) + ")", nil
+	}
+	if comparison.operator == "~" {
+		return "(strpos(" + column + ", " + builder.placeholder(value) + ") > 0)", nil
 	}
 	return "(" + column + " " + comparison.operator + " " + builder.placeholder(value) + ")", nil
 }

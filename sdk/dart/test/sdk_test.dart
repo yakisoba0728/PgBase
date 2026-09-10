@@ -44,6 +44,22 @@ void main() {
         httpClient: client,
       );
       await pgbase.login('person@example.test', 'password');
+      final members = pgbase.realm('members');
+      final methods = await members.methods();
+      expect(methods.passwordEnabled, isTrue);
+      expect(methods.otpEnabled, isTrue);
+      expect(methods.oauthProviders, ['github']);
+      expect(client.requests[1].path, '/api/v1/auth/members/methods');
+      final refreshed = await members.refresh();
+      expect(refreshed.token, 'rotated-token');
+      expect(pgbase.auth.token, 'rotated-token');
+      expect(client.requests[2].headers['authorization'], 'Bearer user-token');
+      await pgbase.auth.save('still-valid-locally');
+      await expectLater(
+        pgbase.realm('invalid').refresh(),
+        throwsA(isA<PgBaseProtocolError>()),
+      );
+      expect(pgbase.auth.token, 'still-valid-locally');
       final created = await pgbase
           .records('notes')
           .createWithEtag(
@@ -67,11 +83,11 @@ void main() {
           }),
         ),
       ]);
-      expect(pgbase.auth.token, 'user-token');
+      expect(pgbase.auth.token, 'still-valid-locally');
       expect(created.etag, '"pgb1.created"');
-      expect(client.requests[1].headers['authorization'], 'Bearer user-token');
-      expect(client.requests[1].headers['idempotency-key'], 'create-note-0001');
-      expect(client.requests[2].headers['if-match'], '"pgb1.created"');
+      expect(client.requests[4].headers['authorization'], 'Bearer still-valid-locally');
+      expect(client.requests[4].headers['idempotency-key'], 'create-note-0001');
+      expect(client.requests[5].headers['if-match'], '"pgb1.created"');
       expect(batch['results'], isA<JsonArray>());
       expect(
         () => pgbase.records('notes').create(JsonObject({}), 'short'),
@@ -507,6 +523,25 @@ final class _ScriptedClient extends http.BaseClient {
         },
         'expiresAt': '2026-01-02T00:00:00Z',
       });
+    if (path == '/api/v1/auth/members/methods')
+      return _json(200, {
+        'passwordEnabled': true,
+        'otpEnabled': true,
+        'mfaEnabled': false,
+        'oauthProviders': ['github'],
+      });
+    if (path == '/api/v1/auth/members/refresh')
+      return _json(200, {
+        'token': 'rotated-token',
+        'user': {
+          'id': '01900000-0000-7000-8000-000000000001',
+          'email': 'person@example.test',
+          'createdAt': '2026-01-01T00:00:00Z',
+        },
+        'expiresAt': '2026-01-02T00:00:00Z',
+      });
+    if (path == '/api/v1/auth/invalid/refresh')
+      return _json(200, {'token': 'must-not-save'});
     if (path == '/api/admin/auth/login')
       return _json(200, {
         'csrfToken': 'csrf-token',

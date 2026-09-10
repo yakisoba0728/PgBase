@@ -309,6 +309,16 @@ export class AuthRealm {
     }
     register(email, password, signal) { return this.authenticate("register", email, password, signal); }
     login(email, password, signal) { return this.authenticate("login", email, password, signal); }
+    /** Returns the sign-in methods enabled for this auth collection. */
+    methods(signal) { return this.client._request(this.path("methods"), {}, signal); }
+    /** Rotates the current bearer token after validating its replacement session. */
+    async refresh(signal) {
+        const generation = this.client.auth.generation;
+        const session = refreshSession(await this.client._request(this.path("refresh"), { method: "POST" }, signal));
+        if (generation === this.client.auth.generation)
+            this.client.auth.save(session.token);
+        return session;
+    }
     session(signal) { return this.client._request(this.path("session"), {}, signal); }
     async logout(signal) { try {
         await this.client._request(this.path("logout"), { method: "POST" }, signal);
@@ -353,6 +363,27 @@ export class AuthRealm {
             throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
         return this.oauthComplete(provider, state, code, signal);
     }
+}
+/** Refresh responses always contain a replacement token, unlike session reads. */
+function refreshSession(value) {
+    if (!value || typeof value !== "object")
+        throw new PgBaseError(0, "invalid_session_response");
+    const session = value;
+    const user = session.user;
+    if (typeof session.token !== "string" || session.token.length === 0 || typeof session.expiresAt !== "string" || !user || typeof user !== "object") {
+        throw new PgBaseError(0, "invalid_session_response");
+    }
+    const details = user;
+    if (typeof details.id !== "string" || typeof details.email !== "string" || typeof details.createdAt !== "string") {
+        throw new PgBaseError(0, "invalid_session_response");
+    }
+    if (details.verified !== undefined && typeof details.verified !== "boolean")
+        throw new PgBaseError(0, "invalid_session_response");
+    if (details.authCollection !== undefined && typeof details.authCollection !== "string")
+        throw new PgBaseError(0, "invalid_session_response");
+    if (details.authCollectionId !== undefined && typeof details.authCollectionId !== "string")
+        throw new PgBaseError(0, "invalid_session_response");
+    return { token: session.token, expiresAt: session.expiresAt, user: details };
 }
 export class OAuthCallbackError extends Error {
     code;

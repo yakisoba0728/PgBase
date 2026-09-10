@@ -148,14 +148,14 @@ func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
 	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodGet,
-		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+
+		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title ~ 'x' && rank >= 2)`)+
 			"&sort="+url.QueryEscape("-rank,created_at")+"&expand="+url.QueryEscape("owner,reviewers"), "", true)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if records.listRequest.Filter != `(title = 'x' && rank >= 2)` || records.listRequest.Sort != "-rank,created_at" ||
+	if records.listRequest.Filter != `(title ~ 'x' && rank >= 2)` || records.listRequest.Sort != "-rank,created_at" ||
 		records.listRequest.Expand != "owner,reviewers" {
 		t.Fatalf("forwarded params filter=%q sort=%q expand=%q",
 			records.listRequest.Filter, records.listRequest.Sort, records.listRequest.Expand)

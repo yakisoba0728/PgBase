@@ -46,6 +46,33 @@ func TestLowerModifierCompilesAtRootAndRelationTerminal(t *testing.T) {
 	}
 }
 
+func TestContainsCompilesAtRootAndRelationTerminal(t *testing.T) {
+	root := schema.Collection{ID: uuid.New(), Name: "posts", TableName: "posts", Fields: []schema.Field{
+		{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText},
+	}}
+	parsed, err := parseFilter("title:lower ~ 'hello'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement, err := CompileList(root, ListQuery{Filter: parsed})
+	if err != nil || !strings.Contains(statement.SQL, `strpos(lower("title"), $1) > 0`) {
+		t.Fatalf("root SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
+	}
+	catalog, relationRoot := relationFilterSortCatalog()
+	parsed, err = parseFilter("owner.name ~ 'da'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := compileRelationListPlan(catalog, relationRoot, parsed, []SortKey{{Field: "id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement, err = plan.pageStatementWithPolicy(nil, 10, nil, ruleBinding{})
+	if err != nil || !strings.Contains(statement.SQL, "strpos(") || len(statement.Args) != 2 {
+		t.Fatalf("relation SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
+	}
+}
+
 func TestLowerModifierBindsCursorFingerprint(t *testing.T) {
 	field := schema.Field{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText}
 	plain := &plannedRelationFilter{comparison: &plannedRelationComparison{rootField: &field, input: filterComparison{field: "title", operator: "=", value: filterLiteral{kind: filterLiteralString, text: "hello"}}}}

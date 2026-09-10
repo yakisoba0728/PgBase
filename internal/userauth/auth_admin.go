@@ -13,6 +13,16 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
+// PublicAuthMethods is the non-sensitive authentication capability discovery
+// contract for one auth collection. It intentionally exposes provider names only;
+// provider endpoints, client IDs, and secrets remain administrator-only settings.
+type PublicAuthMethods struct {
+	PasswordEnabled bool     `json:"passwordEnabled"`
+	OTPEnabled      bool     `json:"otpEnabled"`
+	MFAEnabled      bool     `json:"mfaEnabled"`
+	OAuthProviders  []string `json:"oauthProviders"`
+}
+
 type AuthPolicy struct {
 	PasswordEnabled      bool `json:"passwordEnabled"`
 	MinimumPasswordBytes int  `json:"minimumPasswordBytes"`

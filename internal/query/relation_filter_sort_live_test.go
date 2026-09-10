@@ -86,6 +86,26 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	}
 }
 
+func TestListContainsFilterMatchesLiteralTextAtRootAndRelationTerminal(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.New()}
+
+	root, err := records.ListExpanded(ctx, ListRequest{
+		Principal: principal, Collection: "relation_query_posts", Limit: 20, Filter: `title ~ 'bob'`, Sort: "title",
+	})
+	if err != nil || !reflect.DeepEqual(expandedRootIDs(root.Items), []string{fixture.postBob.String()}) {
+		t.Fatalf("root contains items=%v err=%v", expandedRootIDs(root.Items), err)
+	}
+	relation, err := records.ListExpanded(ctx, ListRequest{
+		Principal: principal, Collection: "relation_query_posts", Limit: 20, Filter: `owner.name ~ 'Ad'`, Sort: "title",
+	})
+	if err != nil || !reflect.DeepEqual(expandedRootIDs(relation.Items), []string{fixture.postAda.String()}) {
+		t.Fatalf("relation contains items=%v err=%v", expandedRootIDs(relation.Items), err)
+	}
+}
+
 func TestListRelationAwareKeepsScalarListCursorExactlyCompatible(t *testing.T) {
 	_, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()

@@ -51,6 +51,13 @@ export type BatchHTTPResult<T extends RecordData = RecordData> = { status: numbe
 export type BatchFilePart = { blob: Blob; filename: string };
 export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean };
 export type MFAChallenge = { challengeToken: string; expiresAt: string };
+/** Enabled sign-in methods for one explicit public auth collection. */
+export type AuthMethods = {
+  passwordEnabled: boolean;
+  otpEnabled: boolean;
+  mfaEnabled: boolean;
+  oauthProviders: string[];
+};
 
 export class PgBaseError extends Error {
   constructor(
@@ -390,6 +397,15 @@ export class AuthRealm {
   }
   register(email: string, password: string, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("register", email, password, signal); }
   login(email: string, password: string, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("login", email, password, signal); }
+  /** Returns the sign-in methods enabled for this auth collection. */
+  methods(signal?: AbortSignal): Promise<AuthMethods> { return this.client._request(this.path("methods"), {}, signal); }
+  /** Rotates the current bearer token after validating its replacement session. */
+  async refresh(signal?: AbortSignal): Promise<UserSession> {
+    const generation = this.client.auth.generation;
+    const session = refreshSession(await this.client._request<unknown>(this.path("refresh"), { method: "POST" }, signal));
+    if (generation === this.client.auth.generation) this.client.auth.save(session.token);
+    return session;
+  }
   session(signal?: AbortSignal): Promise<UserSession> { return this.client._request(this.path("session"), {}, signal); }
   async logout(signal?: AbortSignal): Promise<void> { try { await this.client._request<void>(this.path("logout"), { method: "POST" }, signal); } finally { this.client.auth.clear(); } }
   requestPasswordReset(email: string, signal?: AbortSignal): Promise<void> { return this.client._request(this.path("request-password-reset"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
@@ -412,6 +428,24 @@ export class AuthRealm {
     if (!state || !code) throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
     return this.oauthComplete(provider, state, code, signal);
   }
+}
+
+/** Refresh responses always contain a replacement token, unlike session reads. */
+function refreshSession(value: unknown): UserSession & { token: string } {
+  if (!value || typeof value !== "object") throw new PgBaseError(0, "invalid_session_response");
+  const session = value as Record<string, unknown>;
+  const user = session.user;
+  if (typeof session.token !== "string" || session.token.length === 0 || typeof session.expiresAt !== "string" || !user || typeof user !== "object") {
+    throw new PgBaseError(0, "invalid_session_response");
+  }
+  const details = user as Record<string, unknown>;
+  if (typeof details.id !== "string" || typeof details.email !== "string" || typeof details.createdAt !== "string") {
+    throw new PgBaseError(0, "invalid_session_response");
+  }
+  if (details.verified !== undefined && typeof details.verified !== "boolean") throw new PgBaseError(0, "invalid_session_response");
+  if (details.authCollection !== undefined && typeof details.authCollection !== "string") throw new PgBaseError(0, "invalid_session_response");
+  if (details.authCollectionId !== undefined && typeof details.authCollectionId !== "string") throw new PgBaseError(0, "invalid_session_response");
+  return { token: session.token, expiresAt: session.expiresAt, user: details as User };
 }
 
 export class OAuthCallbackError extends Error {

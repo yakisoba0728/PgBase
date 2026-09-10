@@ -155,12 +155,10 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
 	// Comparisons pair exactly one field operand with one literal operand.
-	// A literal on the left ("5 < count") flips the ordering operator so the
-	// compiled SQL keeps the caller's direction.
 	switch {
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
-	case left.field == "" && right.field != "":
+	case left.field == "" && right.field != "" && operator != "~":
 		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
@@ -236,7 +234,7 @@ func (p *filterParser) consumeKeyword(keyword string) bool {
 }
 
 func (p *filterParser) consumeOperator() (string, bool) {
-	for _, operator := range []string{"!=", ">=", "<=", "=", ">", "<"} {
+	for _, operator := range []string{"!=", ">=", "<=", "=", ">", "<", "~"} {
 		if strings.HasPrefix(p.input[p.pos:], operator) {
 			p.pos += len(operator)
 			return operator, true

@@ -70,6 +70,21 @@ final class UserSession {
   final String? impersonatingAdministratorId;
 }
 
+/// Enabled sign-in methods for one explicit public auth collection.
+final class AuthMethods {
+  const AuthMethods({
+    required this.passwordEnabled,
+    required this.otpEnabled,
+    required this.mfaEnabled,
+    required this.oauthProviders,
+  });
+
+  final bool passwordEnabled;
+  final bool otpEnabled;
+  final bool mfaEnabled;
+  final List<String> oauthProviders;
+}
+
 final class RecordEvent {
   const RecordEvent({
     required this.eventId,

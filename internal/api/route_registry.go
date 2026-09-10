@@ -85,11 +85,12 @@ var (
 	errRouteCardinality   = errors.New("route registry exceeds the HTTP metric series budget")
 )
 
-// The metric series budget the operational telemetry design was sized for. A
+// The metric series budget the operational telemetry design was sized for. The
+// collection auth discovery and refresh endpoints each add one bounded series. A
 // method-agnostic route costs a series for every method the internet sends, so
 // those are budgeted separately and much more tightly.
 const (
-	maximumRegisteredRoutes     = 150
+	maximumRegisteredRoutes     = 152
 	maximumMethodAgnosticRoutes = 3
 )
 

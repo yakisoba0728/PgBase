@@ -115,6 +115,13 @@ export type MFAChallenge = {
     challengeToken: string;
     expiresAt: string;
 };
+/** Enabled sign-in methods for one explicit public auth collection. */
+export type AuthMethods = {
+    passwordEnabled: boolean;
+    otpEnabled: boolean;
+    mfaEnabled: boolean;
+    oauthProviders: string[];
+};
 export declare class PgBaseError extends Error {
     readonly status: number;
     readonly code: string;
@@ -212,6 +219,10 @@ export declare class AuthRealm {
     private authenticate;
     register(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
     login(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
+    /** Returns the sign-in methods enabled for this auth collection. */
+    methods(signal?: AbortSignal): Promise<AuthMethods>;
+    /** Rotates the current bearer token after validating its replacement session. */
+    refresh(signal?: AbortSignal): Promise<UserSession>;
     session(signal?: AbortSignal): Promise<UserSession>;
     logout(signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
