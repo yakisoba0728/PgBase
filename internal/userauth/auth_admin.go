@@ -440,7 +440,6 @@ func (s *Service) AdminRequestEmailOTP(ctx context.Context, collectionID, id uui
 	}
 	return s.RequestEmailOTPInCollection(ctx, collectionID, u.Email, "admin-local")
 }
-
 func (s *Service) authPolicy(ctx context.Context, collectionID uuid.UUID) (AuthPolicy, error) {
 	var p AuthPolicy
 	err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MaximumPasswordBytes, &p.PasswordPattern, &p.IdentityFields, &p.MFAEnabled, &p.MFADurationSeconds, &p.MFARule, &p.OTPEnabled, &p.OTPDurationSeconds, &p.OTPMaxAttempts)

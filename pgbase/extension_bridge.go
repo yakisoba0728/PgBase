@@ -39,10 +39,11 @@ type extensionBridge struct {
 }
 
 type authMailService interface {
+	GetAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
 	AdminRequestVerification(context.Context, uuid.UUID) error
 	AdminRequestEmailChange(context.Context, uuid.UUID, string) error
-	AdminRequestEmailOTP(context.Context, uuid.UUID, uuid.UUID) (userauth.EmailOTPRequest, error)
+	RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error)
 	AdminSendAuthAlert(context.Context, uuid.UUID) error
 }
 
@@ -182,17 +183,24 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 	if err != nil || host.bridge.compatibility == nil || !host.bridge.compatibility.authMailCollections[realm] {
 		return nil, extensionError("permission_denied", errors.New("auth mail collection is not operator-authorized"))
 	}
+	record, err := host.bridge.authMail.GetAuthRecord(ctx, realm, id)
+	if err != nil {
+		return nil, mapExtensionError(err)
+	}
 	switch r.Kind {
+	case "changeEmail":
+		if strings.TrimSpace(r.NewEmail) == "" || r.OTPID != "" {
+			return nil, extensionError("invalid_auth_mail_request", errors.New("change email requires newEmail only"))
+		}
+		err = host.bridge.authMail.AdminRequestEmailChange(ctx, id, r.NewEmail)
 	case "passwordReset":
 		err = host.bridge.authMail.AdminRequestPasswordReset(ctx, id)
 	case "verification":
 		err = host.bridge.authMail.AdminRequestVerification(ctx, id)
-	case "changeEmail":
-		err = host.bridge.authMail.AdminRequestEmailChange(ctx, id, r.NewEmail)
 	case "authAlert":
 		err = host.bridge.authMail.AdminSendAuthAlert(ctx, id)
 	case "otp":
-		_, err = host.bridge.authMail.AdminRequestEmailOTP(ctx, realm, id)
+		_, err = host.bridge.authMail.RequestEmailOTPInCollection(ctx, realm, record.Email, "admin-local")
 	default:
 		return nil, extensionError("invalid_auth_mail_request", nil)
 	}
