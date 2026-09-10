@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/x","access":"administrator","handler":{"module":"r.js","export":"run"},"capabilities":["app-control"]}]}`), 0600)
-	os.WriteFile(filepath.Join(dir, "r.js"), []byte(`exports.run=(q)=>{try{let c=$app.findCollectionByNameOrId(q.collection),a=$app.findAuthAuxiliary(q.realm,q.recordId,"externalAuths");if(q.deleteId)$app.deleteAuthAuxiliary(q.realm,q.recordId,"externalAuths",q.deleteId);return {name:c.name,count:1,unique:$app.isCollectionNameUnique(q.collection),aux:a.length}}catch(e){return {error:String(e.code||""),message:String(e.message||"")}}}`), 0600)
+	os.WriteFile(filepath.Join(dir, "r.js"), []byte(`exports.run=(q)=>{try{let c=$app.findCollectionByNameOrId(q.collection),all=$app.findAllCollections("auth"),a=$app.findAuthAuxiliary(q.realm,q.recordId,"externalAuths");if(q.deleteId)$app.deleteAuthAuxiliary(q.realm,q.recordId,"externalAuths",q.deleteId);return {name:c.name,count:all.length,unique:$app.isCollectionNameUnique(q.collection),aux:a.length}}catch(e){return {error:String(e.code||""),message:String(e.message||"")}}}`), 0600)
 	fixture := newPublicUsersAppOptions(t, true, func(o *Options) {
 		o.JavaScript = &JavaScriptOptions{Directory: dir, Capabilities: map[string]bool{"app-control": true}}
 	})
@@ -29,6 +30,12 @@ func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 	assertPublicUsersStatus(t, registered, 201)
 	var session publicUserSession
 	decodePublicUsersJSON(t, registered, &session)
+	if _, e := fixture.app.extensions.authMail.(*userauth.Service).SetAuthPolicy(t.Context(), realm, userauth.AuthPolicy{PasswordEnabled: false, MinimumPasswordBytes: 12, MaximumPasswordBytes: 128, MFADurationSeconds: 60, OTPDurationSeconds: 60, OTPMaxAttempts: 3}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := fixture.app.pool.Exec(t.Context(), `update pgbase_meta.users set password_enabled=false where id=$1`, session.User.ID); e != nil {
+		t.Fatal(e)
+	}
 	first, second := uuid.New(), uuid.New()
 	if _, e := fixture.app.pool.Exec(context.Background(), `insert into pgbase_meta.user_oauth_identities(id,auth_collection_id,provider,subject,user_id,created_at) values($1,$2,'one','one',$3,now()),($4,$2,'two','two',$3,now())`, first, realm, session.User.ID, second); e != nil {
 		t.Fatal(e)
@@ -50,6 +57,9 @@ func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 		if e == nil {
 			e = json.Unmarshal(out, &v)
 		}
+		if e == nil && v["error"] != nil && v["error"] != "" {
+			e = errors.New(v["error"].(string))
+		}
 		return v, e
 	}
 	v, e := invoke("")
@@ -63,9 +73,12 @@ func TestJavaScriptAppCatalogAndAuthAuxUseAdministratorPGFacade(t *testing.T) {
 	if e = fixture.app.pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.user_oauth_identities where user_id=$1`, session.User.ID).Scan(&n); e != nil || n != 1 {
 		t.Fatalf("delete n=%d err=%v", n, e)
 	}
-	// The adapter reaches the native deletion path; password authentication remains an active sign-in method in this fixture.
-	if _, e = invoke(second.String()); e != nil {
-		t.Fatal(e)
+	// With password and OTP disabled, the final external identity is protected by the native guard.
+	if _, e = invoke(second.String()); e == nil {
+		t.Fatal("last identity deletion accepted")
+	}
+	if e = fixture.app.pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.user_oauth_identities where id=$1`, second).Scan(&n); e != nil || n != 1 {
+		t.Fatalf("last identity was removed n=%d err=%v", n, e)
 	}
 	wrong := &extensionHost{bridge: fixture.app.extensions, principal: host.principal, requestID: "wrong", valid: true}
 	bad, _ := json.Marshal(map[string]string{"collection": "aux_customers", "recordId": session.User.ID.String(), "kind": "externalAuths"})

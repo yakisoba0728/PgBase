@@ -11,6 +11,23 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
+type catalogCollectionDTO struct {
+	ID     uuid.UUID `json:"id"`
+	Name   string    `json:"name"`
+	Type   string    `json:"type"`
+	Fields []string  `json:"fields,omitempty"`
+}
+
+func catalogDTO(c interface{}) catalogCollectionDTO {
+	switch v := c.(type) {
+	case userauth.AuthCollection:
+		return catalogCollectionDTO{ID: v.ID, Name: v.Name, Type: "auth"}
+	default:
+		_ = v
+	}
+	return catalogCollectionDTO{}
+}
+
 type adminAuthAuxService interface {
 	AdminListAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string) ([]userauth.AuthAuxiliaryRecord, error)
 	AdminDeleteAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string, uuid.UUID) error
@@ -52,10 +69,25 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 		if err := decodeExtensionInput(raw, &q); err != nil {
 			return nil, err
 		}
-		out := make([]any, 0)
+		out := make([]map[string]any, 0)
 		for _, c := range host.bridge.appControl.app.schemaCache.Load().Collections {
 			if q.Type == "" || string(c.Type) == q.Type {
-				out = append(out, c)
+				fields := make([]string, 0, len(c.Fields))
+				for _, f := range c.Fields {
+					fields = append(fields, f.Name)
+				}
+				out = append(out, map[string]any{"id": c.ID, "name": c.Name, "type": c.Type, "fields": fields})
+			}
+		}
+		if q.Type == "" || q.Type == "auth" {
+			if service, ok := host.bridge.authMail.(interface {
+				ListAuthCollections(context.Context) ([]userauth.AuthCollection, error)
+			}); ok {
+				if values, e := service.ListAuthCollections(ctx); e == nil {
+					for _, c := range values {
+						out = append(out, map[string]any{"id": c.ID, "name": c.Name, "type": "auth"})
+					}
+				}
 			}
 		}
 		return json.Marshal(map[string]any{"items": out})
