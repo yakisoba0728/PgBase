@@ -764,7 +764,7 @@ func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Sto
 		if indexErr != nil {
 			return indexErr
 		}
-		collection = Collection{ID: current.ID, Name: current.Name, TableName: current.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
+		collection = Collection{ID: current.ID, Name: current.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, TableName: current.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
 	default:
 		return ErrConflict
 	}

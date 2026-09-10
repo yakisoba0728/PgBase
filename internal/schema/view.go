@@ -110,6 +110,7 @@ func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollecti
 	if err != nil {
 		return Plan{}, err
 	}
+	created.Definition.CompatibilityName, created.Definition.Type, created.Definition.System, created.Definition.ValidationMode = current.CompatibilityName, current.Type, current.System, current.ValidationMode
 	if slices.Contains(created.Definition.View.Dependencies, current.ID) {
 		return Plan{}, validation("view.sql", "self_reference")
 	}
