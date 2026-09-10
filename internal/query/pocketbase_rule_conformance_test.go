@@ -17,8 +17,14 @@ func TestPocketBaseTimeMacroUTCPrecision(t *testing.T) {
 	now := time.Date(2023, 2, 3, 4, 5, 6, 0, time.FixedZone("east", 9*60*60))
 	tests := map[string]time.Time{
 		"@now":        time.Date(2023, 2, 2, 19, 5, 6, 0, time.UTC),
+		"@yesterday":  time.Date(2023, 2, 1, 19, 5, 6, 0, time.UTC),
+		"@tomorrow":   time.Date(2023, 2, 3, 19, 5, 6, 0, time.UTC),
 		"@todayStart": time.Date(2023, 2, 2, 0, 0, 0, 0, time.UTC),
-		"@todayEnd":   time.Date(2023, 2, 2, 23, 59, 59, 999*time.Millisecond, time.UTC),
+		"@todayEnd":   time.Date(2023, 2, 2, 23, 59, 59, 999_000_000, time.UTC),
+		"@monthStart": time.Date(2023, 2, 1, 0, 0, 0, 0, time.UTC),
+		"@monthEnd":   time.Date(2023, 2, 28, 23, 59, 59, 999_000_000, time.UTC),
+		"@yearStart":  time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+		"@yearEnd":    time.Date(2023, 12, 31, 23, 59, 59, 999_000_000, time.UTC),
 	}
 	for macro, want := range tests {
 		got, ok := filterTimeMacro(macro, now)
