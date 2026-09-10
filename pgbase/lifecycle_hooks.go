@@ -70,7 +70,12 @@ type CollectionEvent = schema.CollectionMutationEvent
 
 type schemaLifecycleHooks struct{ registry *HookRegistry }
 
+type skipJavaScriptSchemaHooksKey struct{}
+
 func (h schemaLifecycleHooks) BeginCollectionMutation(ctx context.Context, event *schema.CollectionMutationEvent) (func(error), error) {
+	if skip, _ := ctx.Value(skipJavaScriptSchemaHooksKey{}).(bool); skip {
+		return func(error) {}, nil
+	}
 	kind := HookCollectionCreate
 	switch event.Operation {
 	case "update":

@@ -130,6 +130,12 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		strings.HasPrefix(host.hookEvent, "file.") && (method == "files.upload" || method == "files.delete") {
 		return nil, extensionError("js_reentrant_operation", errors.New("hook cannot reenter its mutating operation family"))
 	}
+	if strings.HasPrefix(method, "app-control.") {
+		return host.callAppControl(operationContext, method, input)
+	}
+	if method == "hooks-bypass.collectionSaveNoValidate" {
+		return host.callAppControl(operationContext, "app-control.collectionSaveNoValidate", input)
+	}
 	switch method {
 	case "authMail.send":
 		return host.callAuthMail(operationContext, input)
@@ -170,7 +176,7 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.bridge.compatibility.call(operationContext, method, input)
 	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close", "filesystem.beginWrite", "filesystem.writeChunk", "filesystem.commit", "filesystem.abort", "filesystem.fileFromMultipart", "filesystem.commitMultipart":
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
-	case "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo", "app-control.cronList", "app-control.cronConfigure", "app-control.cronRun", "app-control.backupList", "app-control.backupRead", "app-control.backupDelete", "app-control.brokerClients", "app-control.brokerPublish":
+	case "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo", "app-control.cronList", "app-control.cronConfigure", "app-control.cronRun", "app-control.backupList", "app-control.backupRead", "app-control.backupDelete", "app-control.brokerClients", "app-control.brokerPublish", "app-control.schemaExport", "app-control.schemaPreview", "app-control.schemaApply", "app-control.collectionSave", "app-control.collectionValidate", "app-control.collectionDelete", "app-control.collectionSync", "app-control.collectionTruncate", "app-control.databaseTables", "app-control.databaseColumns", "app-control.databaseIndexes", "app-control.databaseTransaction":
 		return host.callAppControl(operationContext, method, input)
 	case "hooks-bypass.begin":
 		if host.principal.Kind != identity.Administrator || host.bypassHooks {
@@ -184,6 +190,8 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		}
 		host.bypassHooks = false
 		return json.RawMessage(`{"active":false}`), nil
+	case "hooks-bypass.collectionSaveNoValidate":
+		return host.callAppControl(operationContext, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}

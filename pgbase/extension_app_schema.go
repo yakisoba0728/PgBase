@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -76,7 +78,7 @@ func (control *extensionAppControl) applySchema(ctx context.Context, service *sc
 		return nil, extensionError("invalid_schema_operation", err)
 	}
 	if request.IdempotencyKey == "" {
-		sum := sha256.Sum256([]byte(requestID + "\x00" + request.Checksum))
+		sum := sha256.Sum256([]byte(requestID + "\x00" + operationID.String()))
 		request.IdempotencyKey = "js-" + hex.EncodeToString(sum[:])
 	}
 	result, err := service.ApplySchemaImport(ctx, schema.SchemaImportIntent{Document: request.Document, BaseVersion: request.BaseVersion, Checksum: request.Checksum, Actor: actor, OperationID: operationID, IdempotencyKey: request.IdempotencyKey, ValidateRules: validateExtensionCollectionRules})
@@ -98,6 +100,9 @@ func validateExtensionCollectionRules(collection schema.Collection, raw json.Raw
 }
 
 func (control *extensionAppControl) mutateCollection(ctx context.Context, service *schema.Service, method string, raw json.RawMessage, actor uuid.UUID, requestID string) (json.RawMessage, error) {
+	if method == "app-control.collectionSaveNoValidate" {
+		ctx = context.WithValue(ctx, skipJavaScriptSchemaHooksKey{}, true)
+	}
 	var request struct {
 		Collection schema.SchemaDocumentCollection `json:"collection"`
 	}
@@ -154,7 +159,7 @@ func (control *extensionAppControl) truncateCollection(ctx context.Context, serv
 	if collection.System {
 		return nil, extensionError("collection_system", errors.New("system collection cannot be truncated"))
 	}
-	tag, err := control.app.pool.Exec(ctx, "truncate table "+pgx.Identifier{collection.TableName}.Sanitize())
+	tag, err := control.app.pool.Exec(ctx, "truncate table "+qualifiedAppIdentifier(collection.TableName))
 	if err != nil {
 		return nil, extensionError("collection_truncate_failed", err)
 	}
@@ -167,8 +172,14 @@ func (control *extensionAppControl) introspectDatabase(ctx context.Context, serv
 		return nil, err
 	}
 	if method == "app-control.databaseTables" {
+		names := make([]string, 0, len(catalog.Collections))
+		for name := range catalog.Collections {
+			names = append(names, name)
+		}
+		sort.Strings(names)
 		items := make([]map[string]any, 0, len(catalog.Collections))
-		for name, c := range catalog.Collections {
+		for _, name := range names {
+			c := catalog.Collections[name]
 			items = append(items, map[string]any{"name": name, "table": c.TableName, "type": c.Type})
 		}
 		return json.Marshal(items)
@@ -183,8 +194,9 @@ func (control *extensionAppControl) introspectDatabase(ctx context.Context, serv
 	if !ok {
 		return nil, extensionError("collection_not_found", schema.ErrCollectionNotFound)
 	}
+	schemaName, tableName := appTableParts(collection.TableName)
 	if method == "app-control.databaseColumns" {
-		rows, err := control.app.pool.Query(ctx, `select column_name,data_type,is_nullable,column_default from information_schema.columns where table_schema=current_schema() and table_name=$1 order by ordinal_position`, collection.TableName)
+		rows, err := control.app.pool.Query(ctx, `select column_name,data_type,is_nullable,column_default from information_schema.columns where table_schema=$1 and table_name=$2 order by ordinal_position`, schemaName, tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -203,7 +215,7 @@ func (control *extensionAppControl) introspectDatabase(ctx context.Context, serv
 		}
 		return json.Marshal(items)
 	}
-	rows, err := control.app.pool.Query(ctx, `select indexname,indexdef from pg_indexes where schemaname=current_schema() and tablename=$1 order by indexname`, collection.TableName)
+	rows, err := control.app.pool.Query(ctx, `select indexname,indexdef from pg_indexes where schemaname=$1 and tablename=$2 order by indexname`, schemaName, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -227,4 +239,17 @@ func marshalAppControl(value any, err error) (json.RawMessage, error) {
 		return nil, extensionError("app_schema_failed", err)
 	}
 	return json.Marshal(value)
+}
+
+func qualifiedAppIdentifier(name string) string {
+	schemaName, tableName := appTableParts(name)
+	return pgx.Identifier{schemaName, tableName}.Sanitize()
+}
+
+func appTableParts(name string) (string, string) {
+	parts := strings.SplitN(name, ".", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "app", name
 }

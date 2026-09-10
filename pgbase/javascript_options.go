@@ -126,6 +126,9 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	if capabilities["hooks-bypass"] && !options.PocketBaseCompatibility.AllowHookBypass {
 		return JavaScriptOptions{}, errors.New("JavaScript hooks-bypass capability requires PocketBaseCompatibility.AllowHookBypass")
 	}
+	if capabilities["hooks-bypass"] && !capabilities["app-control"] {
+		return JavaScriptOptions{}, errors.New("JavaScript.Capabilities: hooks-bypass requires app-control")
+	}
 	compatibility, err := options.PocketBaseCompatibility.normalized()
 	if err != nil {
 		return JavaScriptOptions{}, fmt.Errorf("JavaScript.PocketBaseCompatibility: %w", err)
@@ -298,6 +301,9 @@ func validateRequestedCapabilities(requested []string, enabled map[string]bool, 
 		if !enabled[capability] {
 			return fmt.Errorf("JavaScript %s requests disabled capability %q", owner, capability)
 		}
+	}
+	if seen["hooks-bypass"] && !seen["app-control"] {
+		return fmt.Errorf("JavaScript %s requests hooks-bypass without app-control", owner)
 	}
 	return nil
 }
