@@ -7,7 +7,9 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 )
 
-const pocketBaseAuthID = "__pgbase_pb_auth_id"
+const pocketBaseAuthPrefix = "__pgbase_pb_auth_"
+const pocketBaseAuthID = pocketBaseAuthPrefix + "id"
+const pocketBaseRequestPrefix = "__pgbase_request_"
 
 // ParsePocketBaseAccessRule reuses the bounded record-filter grammar and
 // projects its dependency-free result into the persisted access-rule AST.
@@ -54,11 +56,31 @@ func normalizePocketBaseRuleReferences(input string) (string, bool) {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(input[i:], "@request.auth.id"):
-			out.WriteString(pocketBaseAuthID)
-			i += len("@request.auth.id")
+		case strings.HasPrefix(input[i:], "@request.auth."):
+			i += len("@request.auth.")
+			start := i
+			for i < len(input) && (isWordByte(input[i]) || input[i] == '.') {
+				i++
+			}
+			if i == start {
+				return "", false
+			}
+			out.WriteString(pocketBaseAuthPrefix + input[start:i])
 		case strings.HasPrefix(input[i:], "@request.body."):
+			out.WriteString(pocketBaseRequestPrefix + "body_")
 			i += len("@request.body.")
+		case strings.HasPrefix(input[i:], "@request.query."):
+			out.WriteString(pocketBaseRequestPrefix + "query_")
+			i += len("@request.query.")
+		case strings.HasPrefix(input[i:], "@request.headers."):
+			out.WriteString(pocketBaseRequestPrefix + "header_")
+			i += len("@request.headers.")
+		case strings.HasPrefix(input[i:], "@request.context."):
+			out.WriteString(pocketBaseRequestPrefix + "context_")
+			i += len("@request.context.")
+		case strings.HasPrefix(input[i:], "@request.method"):
+			out.WriteString(pocketBaseRequestPrefix + "method")
+			i += len("@request.method")
 		default:
 			out.WriteByte(input[i])
 			i++
@@ -104,11 +126,11 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	field := joinRuleField(value.field, value.modifier)
 	if value.otherField != "" {
 		other := joinRuleField(value.otherField, value.otherModifier)
-		if field == pocketBaseAuthID {
+		if strings.HasPrefix(field, pocketBaseAuthPrefix) {
 			field, other, op = other, field, flipRuleOp(op)
 		}
-		if other == pocketBaseAuthID {
-			return accessrule.Rule{Op: op, Field: field, Auth: "id"}, nil
+		if strings.HasPrefix(other, pocketBaseAuthPrefix) {
+			return accessrule.Rule{Op: op, Field: field, Auth: strings.TrimPrefix(other, pocketBaseAuthPrefix)}, nil
 		}
 		return accessrule.Rule{Op: op, Field: field, OtherField: other}, nil
 	}
