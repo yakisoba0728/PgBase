@@ -15,17 +15,27 @@ import (
 
 type authCollectionMethodStub struct {
 	AuthCollections
-	collection userauth.AuthCollection
-	methods    userauth.PublicAuthMethods
-	methodsErr error
-	refreshed  userauth.Session
-	refreshErr error
-	refreshID  uuid.UUID
-	refreshTok string
-	profile    map[string]any
-	updated    userauth.UpdateAuthRecordInput
-	updateID   uuid.UUID
-	actorID    uuid.UUID
+	collection     userauth.AuthCollection
+	methods        userauth.PublicAuthMethods
+	methodsErr     error
+	refreshed      userauth.Session
+	refreshErr     error
+	refreshID      uuid.UUID
+	refreshTok     string
+	profile        map[string]any
+	updated        userauth.UpdateAuthRecordInput
+	updateID       uuid.UUID
+	actorID        uuid.UUID
+	resolvedPublic string
+	resolvedID     uuid.UUID
+}
+
+func (s *authCollectionMethodStub) ResolveAuthRecordID(_ context.Context, _ uuid.UUID, public string) (uuid.UUID, error) {
+	s.resolvedPublic = public
+	if s.resolvedID == uuid.Nil {
+		return uuid.Parse(public)
+	}
+	return s.resolvedID, nil
 }
 
 func (s *authCollectionMethodStub) GetAuthCollection(context.Context, string) (userauth.AuthCollection, error) {
@@ -43,7 +53,14 @@ func (s *authCollectionMethodStub) GetProfile(context.Context, uuid.UUID) (map[s
 }
 func (s *authCollectionMethodStub) UpdateAuthorizedAuthRecord(_ context.Context, collectionID, actorID, targetID uuid.UUID, in userauth.UpdateAuthRecordInput) (userauth.AuthRecord, error) {
 	s.updateID, s.actorID, s.updated = targetID, actorID, in
-	return userauth.AuthRecord{ID: targetID, AuthCollectionID: collectionID, Verified: in.Verified != nil && *in.Verified}, nil
+	record := userauth.AuthRecord{ID: targetID, PublicID: s.resolvedPublic, AuthCollectionID: collectionID, Verified: in.Verified != nil && *in.Verified}
+	if in.Email != nil {
+		record.Email = *in.Email
+	}
+	if in.EmailVisibility != nil {
+		record.EmailVisibility = *in.EmailVisibility
+	}
+	return record, nil
 }
 
 func TestCollectionAuthMethodsExposeOnlyPublicCapabilities(t *testing.T) {
@@ -126,6 +143,31 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	}
 	if service.actorID != actor.ID || service.updateID != target || service.updated.Email == nil || *service.updated.Email != "managed@example.test" || service.updated.EmailVisibility == nil || !*service.updated.EmailVisibility || service.updated.Password == nil || service.updated.Verified == nil || service.updated.Active == nil || service.updated.Fields["name"] != "Managed" {
 		t.Fatalf("managed update forwarding actor=%s target=%s input=%#v", service.actorID, service.updateID, service.updated)
+	}
+}
+
+func TestAuthorizedRecordUpdatePreservesTextIDAndEmailVisibilityOnWire(t *testing.T) {
+	collection := userauth.AuthCollection{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b1"), Name: "members"}
+	actor := userauth.User{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b2"), AuthCollectionID: collection.ID}
+	target := uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b3")
+	service := &authCollectionMethodStub{collection: collection, resolvedID: target}
+	r := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/members/records/CaseSensitive01", bytes.NewBufferString(`{"email":"visible@example.test","emailVisibility":true}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.SetPathValue("authCollection", collection.Name)
+	r.SetPathValue("record", "CaseSensitive01")
+	r = r.WithContext(context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: userauth.Principal{User: actor}}))
+	w := httptest.NewRecorder()
+	authCollectionEndpoints{dependencies: Dependencies{AuthCollections: service}}.authorizedRecordUpdate(w, r)
+	if w.Code != http.StatusOK || service.resolvedPublic != "CaseSensitive01" || service.updateID != target {
+		t.Fatalf("status=%d public=%q target=%s body=%s", w.Code, service.resolvedPublic, service.updateID, w.Body.String())
+	}
+	// The stub returns the exact public projection a real userauth service adds
+	// after its internal UUID authorization and email visibility decision.
+	if service.updated.EmailVisibility == nil || !*service.updated.EmailVisibility {
+		t.Fatalf("visibility input=%#v", service.updated)
+	}
+	if !containsJSONValue(t, w.Body.Bytes(), "id", "CaseSensitive01") || !containsJSONValue(t, w.Body.Bytes(), "email", "visible@example.test") {
+		t.Fatalf("text identity visibility response=%s", w.Body.String())
 	}
 }
 
