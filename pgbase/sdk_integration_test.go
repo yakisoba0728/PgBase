@@ -20,18 +20,23 @@ func TestSDKPublicRecordHTTPConformance(t *testing.T) {
 	}
 	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir()} })
 	adminCookie, csrf := setupPublicUsersAdministrator(t, app)
-	change := map[string]any{"operation": "create", "name": "notes", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file"}}}
-	plan := publicUsersRequest(t, app, "POST", "/api/admin/collections/plan", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
-	assertPublicUsersStatus(t, plan, 200)
-	var planned struct {
-		BaseVersion int64
-		Checksum    string
+	applyCollection := func(change map[string]any) {
+		t.Helper()
+		plan := publicUsersRequest(t, app, "POST", "/api/admin/collections/plan", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
+		assertPublicUsersStatus(t, plan, 200)
+		var planned struct { BaseVersion int64; Checksum string }
+		decodePublicUsersJSON(t, plan, &planned)
+		change["baseVersion"], change["checksum"] = planned.BaseVersion, planned.Checksum
+		assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/admin/collections/apply", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
+		assertPublicUsersStatus(t, publicUsersRequest(t, app, "PUT", "/api/admin/collections/"+change["name"].(string)+"/user-access", map[string]any{"enabled": true}, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 200)
 	}
-	decodePublicUsersJSON(t, plan, &planned)
-	change["baseVersion"], change["checksum"] = planned.BaseVersion, planned.Checksum
-	assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/admin/collections/apply", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
-	enable := publicUsersRequest(t, app, "PUT", "/api/admin/collections/notes/user-access", map[string]any{"enabled": true}, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
-	assertPublicUsersStatus(t, enable, 200)
+	applyCollection(map[string]any{"operation": "create", "name": "modifier_tags", "fields": []map[string]any{{"name": "name", "type": "text"}}})
+	applyCollection(map[string]any{"operation": "create", "name": "notes", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file"}}})
+	applyCollection(map[string]any{"operation": "create", "name": "modifier_notes", "fields": []map[string]any{
+		{"name": "title", "type": "text"}, {"name": "count", "type": "integer"},
+		{"name": "roles", "type": "jsonb", "options": map[string]any{"allowedValues": []string{"a", "b", "c", "d"}, "maxSelect": 4}},
+		{"name": "tags", "type": "relation", "relation": map[string]any{"targetCollection": "modifier_tags", "cardinality": "multiple", "minSelect": 0, "maxSelect": 4, "onDelete": "restrict"}},
+	}})
 	dartOwner := registerPublicUser(t, app, "sdk-dart-page@example.test", publicUserOnePass)
 	repo := filepath.Clean("..")
 	build := exec.Command("npm", "--prefix", filepath.Join(repo, "sdk/typescript"), "run", "build")
@@ -43,9 +48,31 @@ const client = new PgBaseClient(process.argv[1]);
 const s = await client.register("sdk-real@example.test", "sdk-real-password-0123456789");
 if (!s.token) throw new Error("registration returned no token");
 const records = client.records("notes");
+const modifierRecords = client.records("modifier_notes");
+const tags = client.records("modifier_tags");
+const firstTag = await tags.create({name:"first"}, "sdk-real-tag-first-0001");
+const secondTag = await tags.create({name:"second"}, "sdk-real-tag-second-0001");
+const thirdTag = await tags.create({name:"third"}, "sdk-real-tag-third-0001");
 const created = await records.create({title:"from sdk"}, "sdk-real-record-create-0001");
 if (!created.id) throw new Error("create returned no id");
-const page = await records.list(); if (page.items.length !== 1) throw new Error("owned list mismatch");
+const modifierCreated = await modifierRecords.create({title:"modifier", count:10, roles:["b","d"], tags:[firstTag.id,secondTag.id]}, "sdk-real-modifier-create-0001");
+let modifierRead = await fetch(process.argv[1] + "/api/v1/user/collections/modifier_notes/records/" + modifierCreated.id, {headers:{Authorization:"Bearer " + s.token}});
+let modifierETag = modifierRead.headers.get("etag"); if (!modifierETag) throw new Error("modifier read did not return ETag");
+let modified = await modifierRecords.update(modifierCreated.id, {"count+": 5}, modifierETag);
+if (modified.count !== 15) throw new Error("numeric append modifier did not increment");
+modifierRead = await fetch(process.argv[1] + "/api/v1/user/collections/modifier_notes/records/" + modifierCreated.id, {headers:{Authorization:"Bearer " + s.token}});
+modifierETag = modifierRead.headers.get("etag"); if (!modifierETag) throw new Error("modifier decrement read did not return ETag");
+modified = await modifierRecords.update(modifierCreated.id, {"count-": 3}, modifierETag);
+if (modified.count !== 12) throw new Error("numeric remove modifier did not decrement");
+modifierRead = await fetch(process.argv[1] + "/api/v1/user/collections/modifier_notes/records/" + modifierCreated.id, {headers:{Authorization:"Bearer " + s.token}});
+modifierETag = modifierRead.headers.get("etag"); if (!modifierETag) throw new Error("mixed modifier read did not return ETag");
+modified = await modifierRecords.update(modifierCreated.id, {count:100,"count-":50,"+roles":["a","b"],"roles+":["c","a"],"roles-":"b","+tags":[thirdTag.id],"tags-":[secondTag.id]}, modifierETag);
+if (modified.count !== 50 || JSON.stringify(modified.roles) !== JSON.stringify(["a","d","c"]) || JSON.stringify(modified.tags) !== JSON.stringify([thirdTag.id,firstTag.id])) throw new Error("mixed select/relation modifier final values mismatch");
+modifierRead = await fetch(process.argv[1] + "/api/v1/user/collections/modifier_notes/records/" + modifierCreated.id, {headers:{Authorization:"Bearer " + s.token}});
+modifierETag = modifierRead.headers.get("etag"); if (!modifierETag) throw new Error("rollback modifier read did not return ETag");
+let rejected = false; try { await modifierRecords.update(modifierCreated.id, {"count+":20,"tags+":["not-a-uuid"]}, modifierETag); } catch { rejected = true; }
+if (!rejected) throw new Error("invalid modifier unexpectedly succeeded");
+const afterRejected = await modifierRecords.get(modifierCreated.id); if (afterRejected.count !== 50 || JSON.stringify(afterRejected.tags) !== JSON.stringify([thirdTag.id,firstTag.id])) throw new Error("invalid modifier did not roll back atomically");
 const bound = await records.list({filter: client.filter("title = {:title}", {title:"from sdk"}), compat:"pocketbase"});
 if (bound.items.length !== 1 || bound.items[0].id !== created.id) throw new Error("safe filter did not bind the intended record");
 const attack = 'from sdk" || title != "from sdk';
