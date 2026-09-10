@@ -24,6 +24,8 @@ type AuthAdministration interface {
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
 	ListOAuthIdentities(context.Context, uuid.UUID) ([]userauth.OAuthIdentitySummary, error)
 	UnlinkOAuthIdentity(context.Context, uuid.UUID, string) error
+	ListTokenPolicies(context.Context, uuid.UUID) ([]userauth.TokenPolicy, error)
+	PutTokenPolicy(context.Context, uuid.UUID, userauth.TokenPolicy) (userauth.TokenPolicy, error)
 }
 
 type authAdministrationEndpoints struct{ service AuthAdministration }
@@ -53,7 +55,41 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		write(http.MethodPost, "/api/admin/users/{id}/send-password-reset", e.sendReset),
 		read("/api/admin/users/{id}/oauth-identities", e.userOAuthIdentities),
 		write(http.MethodDelete, "/api/admin/users/{id}/oauth-identities/{provider}", e.userOAuthIdentity),
+		read("/api/admin/auth-collections/{id}/token-policies", e.tokenPolicies),
+		write(http.MethodPut, "/api/admin/auth-collections/{id}/token-policies/{purpose}", e.tokenPolicy),
 	}
+}
+func (e authAdministrationEndpoints) tokenPolicies(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		var v []userauth.TokenPolicy
+		v, err = e.service.ListTokenPolicies(r.Context(), id)
+		if err == nil {
+			writeJSON(w, http.StatusOK, struct {
+				Items []userauth.TokenPolicy `json:"items"`
+			}{v})
+			return
+		}
+	}
+	writeAuthAdministrationError(w, r, err)
+}
+func (e authAdministrationEndpoints) tokenPolicy(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	var in struct {
+		TTLSeconds int    `json:"ttlSeconds"`
+		KeyVersion string `json:"keyVersion"`
+		Key        string `json:"key"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	v, err := e.service.PutTokenPolicy(r.Context(), id, userauth.TokenPolicy{Purpose: r.PathValue("purpose"), TTLSeconds: in.TTLSeconds, KeyVersion: in.KeyVersion, Key: in.Key})
+	if err != nil {
+		writeAuthAdministrationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 func (e authAdministrationEndpoints) userOAuthIdentities(w http.ResponseWriter, r *http.Request) {
 	id, err := collectionID(r)

@@ -20,6 +20,27 @@ type TokenPolicy struct {
 	Key           string `json:"-"`
 }
 
+func (s *Service) ListTokenPolicies(ctx context.Context, realm uuid.UUID) ([]TokenPolicy, error) {
+	if realm == uuid.Nil {
+		return nil, ErrValidation
+	}
+	rows, e := s.pool.Query(ctx, `select purpose,ttl_seconds,key_version from pgbase_meta.auth_token_policies where auth_collection_id=$1 order by purpose`, realm)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []TokenPolicy{}
+	for rows.Next() {
+		var p TokenPolicy
+		if e := rows.Scan(&p.Purpose, &p.TTLSeconds, &p.KeyVersion); e != nil {
+			return nil, e
+		}
+		p.KeyConfigured = true
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (s *Service) PutTokenPolicy(ctx context.Context, realm uuid.UUID, p TokenPolicy) (TokenPolicy, error) {
 	if realm == uuid.Nil || (p.Purpose != "verify" && p.Purpose != "password_reset" && p.Purpose != "email_change") || p.TTLSeconds < 60 || p.TTLSeconds > 86400 || len(p.Key) > 4096 {
 		return p, ErrValidation
