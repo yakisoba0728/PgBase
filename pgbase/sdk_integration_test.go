@@ -116,3 +116,55 @@ if (revoked.status !== 401) throw new Error("realm logout did not revoke session
 		t.Fatalf("Dart SDK HTTP conformance: %v\n%s", err, output)
 	}
 }
+
+// TestSDKRelationFileNativeListRegression exercises a public SDK list over a
+// source collection that carries both a file and a multiple relation. Creating
+// the record succeeds; its immediate native list must also succeed.
+func TestSDKRelationFileNativeListRegression(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Fatalf("node is required for SDK conformance: %v", err)
+	}
+	app := newPublicUsersAppOptions(t, true, func(options *Options) { options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir()} })
+	adminCookie, csrf := setupPublicUsersAdministrator(t, app)
+	applyCollection := func(change map[string]any) {
+		t.Helper()
+		plan := publicUsersRequest(t, app, "POST", "/api/admin/collections/plan", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
+		assertPublicUsersStatus(t, plan, 200)
+		var planned struct {
+			BaseVersion int64
+			Checksum    string
+		}
+		decodePublicUsersJSON(t, plan, &planned)
+		change["baseVersion"], change["checksum"] = planned.BaseVersion, planned.Checksum
+		assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/admin/collections/apply", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
+		assertPublicUsersStatus(t, publicUsersRequest(t, app, "PUT", "/api/admin/collections/"+change["name"].(string)+"/user-access", map[string]any{"enabled": true}, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 200)
+	}
+	applyCollection(map[string]any{"operation": "create", "name": "relation_file_tags", "fields": []map[string]any{{"name": "name", "type": "text"}}})
+	applyCollection(map[string]any{"operation": "create", "name": "relation_file_notes", "fields": []map[string]any{
+		{"name": "attachment", "type": "file"},
+		{"name": "tags", "type": "relation", "relation": map[string]any{"targetCollection": "relation_file_tags", "cardinality": "multiple", "minSelect": 0, "maxSelect": 4, "onDelete": "restrict"}},
+	}})
+	repo := filepath.Clean("..")
+	build := exec.Command("npm", "--prefix", filepath.Join(repo, "sdk/typescript"), "run", "build")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build SDK: %v\n%s", err, output)
+	}
+	script := `import { PgBaseClient } from "./sdk/typescript/dist/index.js";
+const client = new PgBaseClient(process.argv[1]);
+const session = await client.register("sdk-relation-file@example.test", "sdk-relation-file-password-0123456789");
+const tags = client.records("relation_file_tags");
+const records = client.records("relation_file_notes");
+const first = await tags.create({name:"first"}, "sdk-relation-file-tag-first-0001");
+const second = await tags.create({name:"second"}, "sdk-relation-file-tag-second-0001");
+const created = await records.create({tags:[first.id,second.id]}, "sdk-relation-file-record-create-0001");
+const page = await records.list();
+if (page.items.length !== 1 || page.items[0].id !== created.id) throw new Error("relation-plus-file native list did not return the created record");
+await client.realm("users").logout();`
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "node", "--input-type=module", "--eval", script, app.server.URL)
+	command.Dir = repo
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("relation-plus-file native list: %v\n%s", err, output)
+	}
+}
