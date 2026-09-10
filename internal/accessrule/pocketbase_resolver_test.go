@@ -55,3 +55,28 @@ func TestCompilePocketBaseCastsRequestBooleanParameters(t *testing.T) {
 		t.Fatalf("sql=%s args=%v err=%v", sql, args, err)
 	}
 }
+
+func TestCompilePocketBaseFunctionsAndModifiers(t *testing.T) {
+	resolver := pbResolverStub{
+		"place.lon":  {SQL: `r."lon"`, Kind: PBNumber, Cardinality: PBScalar},
+		"place.lat":  {SQL: `r."lat"`, Kind: PBNumber, Cardinality: PBScalar},
+		"created_at": {SQL: `r."created_at"`, Kind: PBTime, Cardinality: PBScalar},
+	}
+	geo := Rule{Op: "lt", Field: "__pgbase_function", Function: &PBFunction{Name: "geoDistance", Args: []PBFuncArg{{Field: "place.lon"}, {Field: "place.lat"}, {Value: json.RawMessage(`127`)}, {Value: json.RawMessage(`37`)}}}, Value: json.RawMessage(`10`)}
+	if sql, _, err := CompilePocketBase(geo, PBCompileContext{Resolver: resolver}); err != nil || !strings.Contains(sql, "acos") {
+		t.Fatalf("sql=%s err=%v", sql, err)
+	}
+	formatted := Rule{Op: "eq", Field: "__pgbase_function", Function: &PBFunction{Name: "strftime", Args: []PBFuncArg{{Value: json.RawMessage(`"%Y-%m"`)}, {Field: "created_at"}, {Value: json.RawMessage(`"start of month"`)}, {Value: json.RawMessage(`"+1 day"`)}}}, Value: json.RawMessage(`"2026-10"`)}
+	if sql, _, err := CompilePocketBase(formatted, PBCompileContext{Resolver: resolver}); err != nil || !strings.Contains(sql, "date_trunc") || !strings.Contains(sql, "::interval") {
+		t.Fatalf("sql=%s err=%v", sql, err)
+	}
+}
+
+func TestCompilePocketBaseUsesExecutionTimeUTCMetricMacro(t *testing.T) {
+	rule := Rule{Op: "lte", Field: "created_at", Macro: "@todayEnd", Value: json.RawMessage(`"ignored parse snapshot"`)}
+	resolver := pbResolverStub{"created_at": {SQL: `r."created_at"`, Kind: PBTime, Cardinality: PBScalar}}
+	sql, args, err := CompilePocketBase(rule, PBCompileContext{Resolver: resolver})
+	if err != nil || len(args) != 0 || !strings.Contains(sql, "CURRENT_TIMESTAMP") || !strings.Contains(sql, "1 millisecond") {
+		t.Fatalf("sql=%s args=%v err=%v", sql, args, err)
+	}
+}

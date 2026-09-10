@@ -68,9 +68,10 @@ const (
 )
 
 type filterLiteral struct {
-	kind filterLiteralKind
-	text string
-	bool bool
+	kind  filterLiteralKind
+	text  string
+	bool  bool
+	macro string
 }
 
 type SortKey = cursor.SortKey
@@ -324,6 +325,38 @@ func (p *filterParser) consumeWord() (string, bool) {
 	return p.input[start:p.pos], true
 }
 
+func filterTimeMacro(name string, now time.Time) (filterLiteral, bool) {
+	now = now.UTC()
+	date := func(v time.Time) filterLiteral {
+		return filterLiteral{kind: filterLiteralString, text: v.Format(time.RFC3339Nano), macro: name}
+	}
+	switch name {
+	case "@now":
+		return date(now), true
+	case "@yesterday":
+		return date(now.AddDate(0, 0, -1)), true
+	case "@tomorrow":
+		return date(now.AddDate(0, 0, 1)), true
+	case "@todayStart":
+		return date(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)), true
+	case "@todayEnd":
+		return date(time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, time.UTC)), true
+	case "@monthStart":
+		return date(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)), true
+	case "@monthEnd":
+		return date(time.Date(now.Year(), now.Month()+1, 0, 23, 59, 59, 999999999, time.UTC)), true
+	case "@yearStart":
+		return date(time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)), true
+	case "@yearEnd":
+		return date(time.Date(now.Year(), 12, 31, 23, 59, 59, 999999999, time.UTC)), true
+	}
+	numbers := map[string]int{"@second": now.Second(), "@minute": now.Minute(), "@hour": now.Hour(), "@day": now.Day(), "@month": int(now.Month()), "@weekday": int(now.Weekday()), "@year": now.Year()}
+	value, ok := numbers[name]
+	if !ok {
+		return filterLiteral{}, false
+	}
+	return filterLiteral{kind: filterLiteralNumber, text: strconv.Itoa(value), macro: name}, true
+}
 func (p *filterParser) skipSpaces() {
 	for p.pos < len(p.input) && (p.input[p.pos] == ' ' || p.input[p.pos] == '\t' || p.input[p.pos] == '\n' || p.input[p.pos] == '\r') {
 		p.pos++

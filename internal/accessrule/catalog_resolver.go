@@ -30,6 +30,13 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 	}
 	current, alias := r.root, r.rootAlias
 	var from, predicate string
+	modifier := ""
+	if strings.Contains(segments[len(segments)-1], ":") {
+		segments[len(segments)-1], modifier, _ = strings.Cut(segments[len(segments)-1], ":")
+		if modifier != "lower" && modifier != "length" && modifier != "each" {
+			return PBOperand{}, ErrInvalid
+		}
+	}
 	for index, segment := range segments {
 		field, reverse, target, ok := r.resolveField(current, segment)
 		if !ok {
@@ -47,17 +54,22 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 						return PBOperand{}, ErrInvalid
 					}
 				}
-				column = "(" + column + "#>>'{" + strings.Join(segments[index+1:], ",") + "}')"
-				return r.multi(column, PBText, from, predicate), nil
+				path := strings.Join(segments[index+1:], ",")
+				if modifier == "each" {
+					column = "(" + column + "#>'{" + path + "}')"
+					return r.modifiedOperand(column, schema.Field{Type: schema.TypeJSONB}, from, predicate, modifier), nil
+				}
+				column = "(" + column + "#>>'{" + path + "}')"
+				return r.applyModifier(r.multi(column, PBText, from, predicate), modifier), nil
 			}
 			if field.Type == schema.TypeGeoPoint && index+1 == len(segments)-1 && (segments[index+1] == "lat" || segments[index+1] == "lon") {
 				column = "NULLIF(" + column + "->>'" + segments[index+1] + "','')::numeric"
-				return r.multi(column, PBNumber, from, predicate), nil
+				return r.applyModifier(r.multi(column, PBNumber, from, predicate), modifier), nil
 			}
 			if !last {
 				return PBOperand{}, ErrInvalid
 			}
-			return r.operand(column, field, from, predicate), nil
+			return r.modifiedOperand(column, field, from, predicate, modifier), nil
 		}
 		if field.Relation == nil {
 			return PBOperand{}, ErrInvalid
@@ -90,10 +102,61 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 		}
 		current, alias = target, nextAlias
 		if last {
-			return r.multi(alias+`."id"`, PBUUID, from, predicate), nil
+			value := r.multi(alias+`."id"`, PBUUID, from, predicate)
+			if modifier == "each" {
+				return value, nil
+			}
+			return r.applyModifier(value, modifier), nil
 		}
 	}
 	return PBOperand{}, ErrInvalid
+}
+
+func (r *catalogResolver) modifiedOperand(sql string, field schema.Field, from, predicate, modifier string) PBOperand {
+	if modifier == "each" && field.Type == schema.TypeJSONB {
+		alias := pgx.Identifier{"pb_each"}.Sanitize()
+		join := "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + sql + ")='array' THEN " + sql + " ELSE jsonb_build_array(" + sql + ") END) " + alias + "(value)"
+		if from != "" {
+			join = from + " CROSS JOIN LATERAL " + join
+		}
+		return r.multi(alias+".value", PBText, join, predicate)
+	}
+	return r.applyModifier(r.operand(sql, field, from, predicate), modifier)
+}
+
+func (r *catalogResolver) applyModifier(value PBOperand, modifier string) PBOperand {
+	if modifier == "" || modifier == "each" && value.Cardinality == PBMany {
+		return value
+	}
+	apply := func(sql string) (string, PBKind, bool) {
+		switch modifier {
+		case "lower":
+			if value.Kind != PBText {
+				return "", 0, false
+			}
+			return "lower(" + sql + ")", PBText, true
+		case "length":
+			if value.Kind == PBText {
+				return "char_length(" + sql + ")", PBNumber, true
+			}
+		}
+		return "", 0, false
+	}
+	if value.Cardinality == PBScalar {
+		sql, kind, ok := apply(value.SQL)
+		if !ok {
+			return PBOperand{}
+		}
+		return PBOperand{SQL: sql, Kind: kind, Cardinality: PBScalar}
+	}
+	if value.Multi == nil {
+		return PBOperand{}
+	}
+	sql, kind, ok := apply(value.Multi.ValueSQL)
+	if !ok {
+		return PBOperand{}
+	}
+	return PBOperand{Kind: kind, Cardinality: PBMany, Multi: &PBMulti{From: value.Multi.From, Predicate: value.Multi.Predicate, ValueSQL: sql}}
 }
 
 func (r *catalogResolver) ResolveCollection(name, path string) (PBOperand, error) {

@@ -74,6 +74,22 @@ func TestPocketBaseAuthFieldLiteralUsesRequestContext(t *testing.T) {
 	}
 }
 
+func TestPocketBaseAccessRulePreservesFunctions(t *testing.T) {
+	for _, source := range []string{"geoDistance(place.lon, place.lat, 127, 37) < 10", "strftime('%Y-%m', created_at, 'start of month', '+1 day') = '2026-10'"} {
+		rule, err := ParsePocketBaseAccessRule(source)
+		if err != nil || rule.Function == nil || rule.Function.Name == "" {
+			t.Fatalf("source=%s rule=%#v err=%v", source, rule, err)
+		}
+	}
+}
+
+func TestPocketBaseAccessRulePreservesExecutionTimeMacro(t *testing.T) {
+	rule, err := ParsePocketBaseAccessRule("created_at <= @todayEnd")
+	if err != nil || rule.Macro != "@todayEnd" {
+		t.Fatalf("rule=%#v err=%v", rule, err)
+	}
+}
+
 type pbResolverStubForQuery struct{}
 
 func (pbResolverStubForQuery) Resolve(string) (accessrule.PBOperand, error) {

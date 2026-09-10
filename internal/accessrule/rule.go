@@ -28,6 +28,19 @@ type Rule struct {
 	Value      json.RawMessage `json:"value,omitempty"`
 	Auth       string          `json:"auth,omitempty"`
 	PocketBase *string         `json:"pocketbase,omitempty"`
+	Function   *PBFunction     `json:"function,omitempty"`
+	Macro      string          `json:"macro,omitempty"`
+}
+
+type PBFunction struct {
+	Name string      `json:"name"`
+	Args []PBFuncArg `json:"args"`
+}
+
+type PBFuncArg struct {
+	Field string          `json:"field,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
+	Macro string          `json:"macro,omitempty"`
 }
 
 type Rules struct {
@@ -127,7 +140,7 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 	}
 	switch rule.Op {
 	case "allow", "deny", "owner", "authenticated", "unauthenticated":
-		if len(rule.Args) > 0 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" {
+		if len(rule.Args) > 0 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" || rule.Function != nil || rule.Macro != "" {
 			return "", ErrInvalid
 		}
 		switch rule.Op {
@@ -152,7 +165,7 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			return "EXISTS (SELECT 1 FROM pgbase_meta.record_owners acl_owner WHERE acl_owner.collection_id=" + c.parameter(c.collection.ID) + " AND acl_owner.record_id=" + c.alias + `."id" AND acl_owner.user_id=` + c.parameter(c.principal.ID) + ")", nil
 		}
 	case "all", "any":
-		if len(rule.Args) < 1 || len(rule.Args) > 16 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" {
+		if len(rule.Args) < 1 || len(rule.Args) > 16 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" || rule.Function != nil || rule.Macro != "" {
 			return "", ErrInvalid
 		}
 		parts := make([]string, 0, len(rule.Args))
@@ -168,7 +181,10 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			operator = " OR "
 		}
 		return "(" + strings.Join(parts, operator) + ")", nil
-	case "eq", "ne", "lt", "lte", "gt", "gte":
+	case "eq", "ne", "lt", "lte", "gt", "gte", "contains", "not_contains", "any_eq", "any_ne", "any_lt", "any_lte", "any_gt", "any_gte", "any_contains", "any_not_contains":
+		if rule.Function != nil || rule.Macro != "" {
+			return "", ErrInvalid
+		}
 		rhsCount := 0
 		if len(rule.Value) > 0 {
 			rhsCount++

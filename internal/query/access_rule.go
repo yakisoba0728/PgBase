@@ -124,6 +124,15 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
 	field := joinRuleField(value.field, value.modifier)
+	var function *accessrule.PBFunction
+	if value.function != nil {
+		converted, err := accessRuleFunction(value.function)
+		if err != nil {
+			return accessrule.Rule{}, err
+		}
+		function = converted
+		field = "__pgbase_function"
+	}
 	if value.otherField != "" {
 		other := joinRuleField(value.otherField, value.otherModifier)
 		if strings.HasPrefix(field, pocketBaseAuthPrefix) {
@@ -166,7 +175,36 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	if err != nil {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
-	return accessrule.Rule{Op: op, Field: field, Value: raw}, nil
+	return accessrule.Rule{Op: op, Field: field, Value: raw, Function: function, Macro: value.value.macro}, nil
+}
+
+func accessRuleFunction(function *filterFunction) (*accessrule.PBFunction, error) {
+	result := &accessrule.PBFunction{Name: function.name, Args: make([]accessrule.PBFuncArg, len(function.args))}
+	for i, arg := range function.args {
+		if arg.function != nil || arg.modifier != "" {
+			return nil, accessrule.ErrInvalid
+		}
+		if arg.field != "" {
+			result.Args[i].Field = arg.field
+			continue
+		}
+		var value any
+		switch arg.literal.kind {
+		case filterLiteralString:
+			value = arg.literal.text
+		case filterLiteralNumber:
+			value = json.Number(arg.literal.text)
+		default:
+			return nil, accessrule.ErrInvalid
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, accessrule.ErrInvalid
+		}
+		result.Args[i].Value = raw
+		result.Args[i].Macro = arg.literal.macro
+	}
+	return result, nil
 }
 
 func joinRuleField(field, modifier string) string {

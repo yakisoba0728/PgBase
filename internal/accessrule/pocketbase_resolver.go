@@ -2,6 +2,7 @@ package accessrule
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -137,7 +138,13 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 	if !ok || rule.Field == "" {
 		return "", ErrInvalid
 	}
-	left, err := c.resolve(rule.Field)
+	var left PBOperand
+	var err error
+	if rule.Function != nil {
+		left, err = c.function(*rule.Function)
+	} else {
+		left, err = c.resolve(rule.Field)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -145,12 +152,17 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 		return "", ErrInvalid
 	}
 	rightSQL := ""
+	var rightMulti *PBMulti
 	if rule.OtherField != "" {
 		right, err := c.resolve(rule.OtherField)
-		if err != nil || right.Kind != left.Kind || right.Cardinality != PBScalar {
+		if err != nil || right.Kind != left.Kind {
 			return "", ErrInvalid
 		}
-		rightSQL = right.SQL
+		if right.Cardinality == PBMany {
+			rightMulti = right.Multi
+		} else {
+			rightSQL = right.SQL
+		}
 	} else if rule.Auth != "" {
 		var value any
 		var ok bool
@@ -163,6 +175,12 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 			return "", ErrInvalid
 		}
 		rightSQL = c.typedParameter(left.Kind, value)
+	} else if rule.Macro != "" {
+		macro, kind, ok := pbMacroSQL(rule.Macro)
+		if !ok || kind != left.Kind {
+			return "", ErrInvalid
+		}
+		rightSQL = macro
 	} else {
 		value, err := pbTypedValue(left.Kind, rule.Value)
 		if err != nil {
@@ -188,6 +206,30 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 		}
 		return "COALESCE(" + valueSQL + " " + op + " " + rhs + ",false)"
 	}
+	if rightMulti != nil {
+		if left.Cardinality != PBMany || left.Multi == nil || rightMulti.From == "" || rightMulti.ValueSQL == "" {
+			return "", ErrInvalid
+		}
+		match := func(leftSQL, rightSQL string) string {
+			rhs := rightSQL
+			if base == "contains" || base == "not_contains" {
+				rhs = "('%' || " + rightSQL + " || '%')"
+			}
+			return "COALESCE(" + leftSQL + " " + op + " " + rhs + ",false)"
+		}
+		leftWhere, rightWhere := left.Multi.Predicate, rightMulti.Predicate
+		if leftWhere != "" {
+			leftWhere = "(" + leftWhere + ") AND "
+		}
+		if rightWhere != "" {
+			rightWhere = "(" + rightWhere + ") AND "
+		}
+		rightExists := "EXISTS (SELECT 1 FROM " + rightMulti.From + " WHERE " + rightWhere + match(left.Multi.ValueSQL, rightMulti.ValueSQL) + ")"
+		if anyMatch {
+			return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + leftWhere + rightExists + ")", nil
+		}
+		return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + leftWhere + "NOT (" + rightExists + "))", nil
+	}
 	if left.Cardinality == PBScalar {
 		if left.SQL == "" {
 			return "", ErrInvalid
@@ -206,6 +248,173 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + match + ")", nil
 	}
 	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + match + "))", nil
+}
+
+var pbRelativeTimeModifier = regexp.MustCompile(`^([+-]?\d+)\s+(seconds?|minutes?|hours?|days?|months?|years?)$`)
+
+func (c *pbCompiler) function(function PBFunction) (PBOperand, error) {
+	arg := func(index int, kind PBKind) (PBOperand, error) {
+		if index >= len(function.Args) {
+			return PBOperand{}, ErrInvalid
+		}
+		value := function.Args[index]
+		if value.Macro != "" {
+			sql, resolvedKind, ok := pbMacroSQL(value.Macro)
+			if !ok || kind != 0 && kind != resolvedKind {
+				return PBOperand{}, ErrInvalid
+			}
+			return PBOperand{SQL: sql, Kind: resolvedKind, Cardinality: PBScalar}, nil
+		}
+		if value.Field != "" && len(value.Value) == 0 {
+			resolved, err := c.resolve(value.Field)
+			if err != nil || (kind != 0 && resolved.Kind != kind) {
+				return PBOperand{}, ErrInvalid
+			}
+			return resolved, nil
+		}
+		if value.Field != "" || len(value.Value) == 0 {
+			return PBOperand{}, ErrInvalid
+		}
+		if kind == 0 {
+			kind = PBText
+		}
+		typed, err := pbTypedValue(kind, value.Value)
+		if err != nil {
+			return PBOperand{}, err
+		}
+		return PBOperand{SQL: c.typedParameter(kind, typed), Kind: kind, Cardinality: PBScalar}, nil
+	}
+	combine := func(values []PBOperand, expression func([]string) string, kind PBKind) (PBOperand, error) {
+		parts := make([]string, len(values))
+		var multi *PBMulti
+		for i, value := range values {
+			if value.Cardinality == PBMany {
+				if value.Multi == nil || (multi != nil && (multi.From != value.Multi.From || multi.Predicate != value.Multi.Predicate)) {
+					return PBOperand{}, ErrInvalid
+				}
+				multi = value.Multi
+				parts[i] = value.Multi.ValueSQL
+			} else {
+				parts[i] = value.SQL
+			}
+		}
+		sql := expression(parts)
+		if sql == "" {
+			return PBOperand{}, ErrInvalid
+		}
+		if multi == nil {
+			return PBOperand{SQL: sql, Kind: kind, Cardinality: PBScalar}, nil
+		}
+		return PBOperand{Kind: kind, Cardinality: PBMany, Multi: &PBMulti{From: multi.From, Predicate: multi.Predicate, ValueSQL: sql}}, nil
+	}
+	switch function.Name {
+	case "geoDistance":
+		if len(function.Args) != 4 {
+			return PBOperand{}, ErrInvalid
+		}
+		values := make([]PBOperand, 4)
+		for i := range values {
+			var err error
+			values[i], err = arg(i, PBNumber)
+			if err != nil {
+				return PBOperand{}, err
+			}
+		}
+		return combine(values, func(v []string) string {
+			return "(6371 * acos(LEAST(1,GREATEST(-1,cos(radians(" + v[1] + "))*cos(radians(" + v[3] + "))*cos(radians(" + v[2] + ")-radians(" + v[0] + "))+sin(radians(" + v[1] + "))*sin(radians(" + v[3] + "))))))"
+		}, PBNumber)
+	case "strftime":
+		if len(function.Args) < 1 || len(function.Args) > 10 {
+			return PBOperand{}, ErrInvalid
+		}
+		var rawFormat string
+		if function.Args[0].Field != "" || json.Unmarshal(function.Args[0].Value, &rawFormat) != nil {
+			return PBOperand{}, ErrInvalid
+		}
+		formatSQL := c.parameter(pbTimeFormat(rawFormat))
+		value := PBOperand{SQL: "CURRENT_TIMESTAMP", Kind: PBTime, Cardinality: PBScalar}
+		if len(function.Args) > 1 {
+			var err error
+			value, err = arg(1, PBTime)
+			if err != nil {
+				return PBOperand{}, err
+			}
+		}
+		modifierSQL := []string{}
+		for i := 2; i < len(function.Args); i++ {
+			var raw string
+			if json.Unmarshal(function.Args[i].Value, &raw) != nil {
+				return PBOperand{}, ErrInvalid
+			}
+			modifierSQL = append(modifierSQL, raw)
+		}
+		return combine([]PBOperand{value}, func(v []string) string {
+			timeSQL, ok := pbApplyTimeModifiers(v[0], modifierSQL, c)
+			if !ok {
+				return ""
+			}
+			return "to_char(" + timeSQL + "," + formatSQL + ")"
+		}, PBText)
+	}
+	return PBOperand{}, ErrInvalid
+}
+
+func pbMacroSQL(name string) (string, PBKind, bool) {
+	now := "CURRENT_TIMESTAMP"
+	switch name {
+	case "@now":
+		return now, PBTime, true
+	case "@yesterday":
+		return "(" + now + "-interval '1 day')", PBTime, true
+	case "@tomorrow":
+		return "(" + now + "+interval '1 day')", PBTime, true
+	case "@todayStart":
+		return "date_trunc('day'," + now + ")", PBTime, true
+	case "@todayEnd":
+		return "(date_trunc('day'," + now + ")+interval '1 day'-interval '1 millisecond')", PBTime, true
+	case "@monthStart":
+		return "date_trunc('month'," + now + ")", PBTime, true
+	case "@monthEnd":
+		return "(date_trunc('month'," + now + ")+interval '1 month'-interval '1 millisecond')", PBTime, true
+	case "@yearStart":
+		return "date_trunc('year'," + now + ")", PBTime, true
+	case "@yearEnd":
+		return "(date_trunc('year'," + now + ")+interval '1 year'-interval '1 millisecond')", PBTime, true
+	}
+	part := map[string]string{"@second": "second", "@minute": "minute", "@hour": "hour", "@day": "day", "@month": "month", "@weekday": "dow", "@year": "year"}[name]
+	if part == "" {
+		return "", 0, false
+	}
+	return "extract(" + part + " from " + now + ")", PBNumber, true
+}
+
+func pbTimeFormat(format string) string {
+	return strings.NewReplacer("%Y", "YYYY", "%m", "MM", "%d", "DD", "%H", "HH24", "%M", "MI", "%S", "SS", "%w", "D", "%j", "DDD", "%s", "SSSS").Replace(format)
+}
+
+func pbApplyTimeModifiers(value string, modifiers []string, c *pbCompiler) (string, bool) {
+	result := value
+	for _, modifier := range modifiers {
+		switch modifier {
+		case "start of day":
+			result = "date_trunc('day'," + result + ")"
+		case "start of month":
+			result = "date_trunc('month'," + result + ")"
+		case "start of year":
+			result = "date_trunc('year'," + result + ")"
+		case "utc":
+			result = "(" + result + " AT TIME ZONE 'UTC')"
+		case "localtime":
+			result = "(" + result + " AT TIME ZONE current_setting('TIMEZONE'))"
+		default:
+			match := pbRelativeTimeModifier.FindStringSubmatch(modifier)
+			if match == nil {
+				return "", false
+			}
+			result = "(" + result + "+(" + c.parameter(match[1]+" "+match[2]) + ")::interval)"
+		}
+	}
+	return result, true
 }
 
 func (c *pbCompiler) resolve(path string) (PBOperand, error) {
@@ -254,14 +463,39 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 	}
 	lookup := func(prefix string, values map[string][]string) (PBOperand, error) {
 		key := strings.TrimPrefix(path, prefix)
+		modifier := ""
+		if strings.Contains(key, ":") {
+			key, modifier, _ = strings.Cut(key, ":")
+		}
 		if key == "" {
 			return PBOperand{}, ErrInvalid
 		}
 		items := values[key]
+		if modifier == "isset" {
+			_, present := values[key]
+			return PBOperand{SQL: c.typedParameter(PBBool, present), Kind: PBBool, Cardinality: PBScalar}, nil
+		}
+		if modifier == "each" {
+			parameter := c.typedParameter(PBJSON, items)
+			return PBOperand{Kind: PBText, Cardinality: PBMany, Multi: &PBMulti{From: "jsonb_array_elements_text(" + parameter + ") pb_request_values(value)", ValueSQL: "pb_request_values.value"}}, nil
+		}
 		if len(items) == 0 {
 			return text(""), nil
 		}
-		return text(items[0]), nil
+		result := text(items[0])
+		switch modifier {
+		case "":
+			return result, nil
+		case "lower":
+			result.SQL = "lower(" + result.SQL + ")"
+			return result, nil
+		case "length":
+			result.SQL = "char_length(" + result.SQL + ")"
+			result.Kind = PBNumber
+			return result, nil
+		default:
+			return PBOperand{}, ErrInvalid
+		}
 	}
 	if strings.HasPrefix(path, "__pgbase_request_query_") {
 		return lookup("__pgbase_request_query_", r.Query)
@@ -293,11 +527,38 @@ func (c *pbCompiler) resolveRequest(path string) (PBOperand, error) {
 		if !ok {
 			return PBOperand{SQL: c.typedParameter(field.Kind, nil), Kind: field.Kind, Cardinality: PBScalar}, nil
 		}
+		if modifier == "each" {
+			var array any
+			if json.Unmarshal(raw, &array) != nil {
+				return PBOperand{}, ErrInvalid
+			}
+			parameter := c.typedParameter(PBJSON, array)
+			return PBOperand{Kind: PBText, Cardinality: PBMany, Multi: &PBMulti{From: "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + parameter + ")='array' THEN " + parameter + " ELSE jsonb_build_array(" + parameter + ") END) pb_request_each(value)", ValueSQL: "pb_request_each.value"}}, nil
+		}
 		value, err := pbTypedValue(field.Kind, raw)
 		if err != nil {
 			return PBOperand{}, err
 		}
-		return PBOperand{SQL: c.typedParameter(field.Kind, value), Kind: field.Kind, Cardinality: PBScalar}, nil
+		operand := PBOperand{SQL: c.typedParameter(field.Kind, value), Kind: field.Kind, Cardinality: PBScalar}
+		switch modifier {
+		case "":
+			return operand, nil
+		case "lower":
+			if field.Kind != PBText {
+				return PBOperand{}, ErrInvalid
+			}
+			operand.SQL = "lower(" + operand.SQL + ")"
+			return operand, nil
+		case "length":
+			if field.Kind != PBText {
+				return PBOperand{}, ErrInvalid
+			}
+			operand.SQL = "char_length(" + operand.SQL + ")"
+			operand.Kind = PBNumber
+			return operand, nil
+		default:
+			return PBOperand{}, ErrInvalid
+		}
 	}
 	return PBOperand{}, ErrInvalid
 }
