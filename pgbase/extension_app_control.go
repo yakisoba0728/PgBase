@@ -21,6 +21,7 @@ type extensionAppControl struct {
 	encryptEnv string
 	dev        bool
 	restart    func(context.Context) error
+	lifecycle  func(context.Context, string) (string, error)
 	mu         sync.RWMutex
 	store      map[string]json.RawMessage
 }
@@ -32,6 +33,7 @@ func newExtensionAppControl(app *App, options *JavaScriptOptions) *extensionAppC
 		control.encryptEnv = options.PocketBaseCompatibility.EncryptionEnvironment
 		control.dev = options.PocketBaseCompatibility.Development
 		control.restart = options.PocketBaseCompatibility.ProcessRestart
+		control.lifecycle = options.PocketBaseCompatibility.ProcessAppControl
 	}
 	return control
 }
@@ -45,6 +47,19 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 		return nil, extensionError("app_control_unavailable", errors.New("application control is unavailable"))
 	}
 	switch method {
+	case "app-control.bootstrap", "app-control.resetBootstrapState":
+		if control.lifecycle == nil {
+			return nil, extensionError("lifecycle_unavailable", errors.New("operator application lifecycle callback is unavailable"))
+		}
+		action := strings.TrimPrefix(method, "app-control.")
+		receipt, err := control.lifecycle(ctx, action)
+		if err != nil {
+			return nil, extensionError("lifecycle_failed", err)
+		}
+		if strings.TrimSpace(receipt) == "" {
+			return nil, extensionError("lifecycle_failed", errors.New("operator lifecycle receipt is empty"))
+		}
+		return json.Marshal(map[string]any{"accepted": true, "action": action, "receipt": receipt})
 	case "app-control.isBootstrapped":
 		status, err := migrate.New(control.app.pool, control.app.options.Logger).Status(ctx)
 		if err != nil {

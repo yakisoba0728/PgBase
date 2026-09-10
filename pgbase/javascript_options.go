@@ -56,7 +56,11 @@ type PocketBaseCompatibilityOptions struct {
 	ProcessExit func(int) error
 	// ProcessRestart delegates a restart request to the operator's managed host.
 	// A nil callback makes $app.restart fail closed.
-	ProcessRestart        func(context.Context) error
+	ProcessRestart func(context.Context) error
+	// ProcessAppControl queues lifecycle actions with the operator-managed host
+	// and returns its durable receipt. JavaScript never tears down live database
+	// and HTTP resources from inside an invocation.
+	ProcessAppControl     func(context.Context, string) (string, error)
 	DataDirectory         string
 	EncryptionEnvironment string
 	Development           bool

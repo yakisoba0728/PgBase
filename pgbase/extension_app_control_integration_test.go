@@ -17,6 +17,11 @@ func TestExtensionAppControlUsesCurrentAppStateAndAdministratorAuthority(t *test
 	control := fixture.app.extensions.appControl
 	var restarted atomic.Int32
 	control.restart = func(context.Context) error { restarted.Add(1); return nil }
+	var lifecycle atomic.Int32
+	control.lifecycle = func(_ context.Context, action string) (string, error) {
+		lifecycle.Add(1)
+		return "receipt-" + action, nil
+	}
 	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, valid: true}
 	call := func(method, input string) json.RawMessage {
 		t.Helper()
@@ -41,8 +46,14 @@ func TestExtensionAppControlUsesCurrentAppStateAndAdministratorAuthority(t *test
 	}
 	call("app-control.reloadSettings", `{}`)
 	call("app-control.runSystemMigrations", `{}`)
+	if got := string(call("app-control.bootstrap", `{}`)); got != `{"accepted":true,"action":"bootstrap","receipt":"receipt-bootstrap"}` {
+		t.Fatalf("bootstrap=%s", got)
+	}
+	if got := string(call("app-control.resetBootstrapState", `{}`)); got != `{"accepted":true,"action":"resetBootstrapState","receipt":"receipt-resetBootstrapState"}` {
+		t.Fatalf("reset=%s", got)
+	}
 	call("app-control.restart", `{}`)
-	if restarted.Load() != 1 {
+	if restarted.Load() != 1 || lifecycle.Load() != 2 {
 		t.Fatalf("restart callbacks=%d", restarted.Load())
 	}
 	denied := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.User, ID: uuid.New()}, valid: true}
