@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
@@ -165,18 +166,24 @@ func (e authCollectionEndpoints) auxiliaryGet(w http.ResponseWriter, r *http.Req
 
 func (e authCollectionEndpoints) authorizedRecordContext(r *http.Request) (userauth.AuthCollection, userauth.Principal, uuid.UUID, error) {
 	current, err := e.current(r)
-	if err != nil {
-		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, err
-	}
 	collection, err := e.resolve(r)
-	if err != nil || current.principal.User.AuthCollectionID != collection.ID {
+	if err != nil {
+		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, userauth.ErrInvalidCredentials
+	}
+	principal := userauth.Principal{}
+	if current.principal.User.ID != uuid.Nil {
+		if current.principal.User.AuthCollectionID != collection.ID {
+			return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, userauth.ErrInvalidCredentials
+		}
+		principal = current.principal
+	} else if subject, ok := r.Context().Value(publicRecordPrincipalKey{}).(identity.Subject); !ok || subject.Kind != identity.Anonymous {
 		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, userauth.ErrInvalidCredentials
 	}
 	target := uuid.Nil
 	if raw := r.PathValue("record"); raw != "" {
 		target, err = uuid.Parse(raw)
 	}
-	return collection, current.principal, target, err
+	return collection, principal, target, err
 }
 func (e authCollectionEndpoints) authorizedRecordList(w http.ResponseWriter, r *http.Request) {
 	collection, principal, _, err := e.authorizedRecordContext(r)

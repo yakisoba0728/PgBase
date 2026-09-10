@@ -397,6 +397,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	if newlyCreated && identity.AvatarURL != "" {
 		_ = s.importOAuthAvatar(ctx, issued.User.ID, identity.AvatarURL, identity.AvatarAllowInsecureLoopback)
 	}
+	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
 }
 

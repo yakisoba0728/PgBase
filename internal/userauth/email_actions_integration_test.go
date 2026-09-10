@@ -59,6 +59,43 @@ func newEmailActionService(t *testing.T) (*Service, *capturedSender) {
 	return service, sender
 }
 
+func TestAuthAlertSendsOncePerNewOriginAndNeverFailsAuthentication(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "origin-alert@example.test", "correct horse battery staple", "198.51.100.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatal("origin alert sent without configured template")
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "New login", Body: "{{alert}}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.1"); err != nil {
+		t.Fatal(err)
+	}
+	const attempts = 2
+	var group sync.WaitGroup
+	for range attempts {
+		group.Go(func() {
+			if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.2"); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	group.Wait()
+	sender.mu.Lock()
+	if len(sender.messages) != 1 || sender.messages[0].Purpose != "auth_alert" {
+		t.Fatalf("concurrent origin alerts = %#v", sender.messages)
+	}
+	sender.err = errors.New("mail unavailable")
+	sender.mu.Unlock()
+	if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.3"); err != nil {
+		t.Fatalf("mail outage failed authentication: %v", err)
+	}
+}
+
 func TestVerificationTokenIsHashedPurposeBoundAndSingleUse(t *testing.T) {
 	service, sender := newEmailActionService(t)
 	ctx := context.Background()

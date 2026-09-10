@@ -285,6 +285,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 		}
 		return Session{}, ErrInvalidCredentials
 	}
+	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
 }
 

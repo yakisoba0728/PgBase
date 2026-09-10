@@ -180,6 +180,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	if operationErr != nil {
 		return Session{}, operationErr
 	}
+	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
 }
 

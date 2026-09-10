@@ -82,18 +82,6 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 	return result, compatibility, true
 }
 
-func validAuthRules(r AuthCollectionRules) bool {
-	for _, v := range []string{r.List, r.View, r.Create, r.Update, r.Delete, r.Auth, r.Manage} {
-		if len(v) > 2048 {
-			return false
-		}
-		if v != "" && v != "true" && v != "false" && v != "@request.auth.id = id" && v != "@request.auth.id != ''" {
-			return false
-		}
-	}
-	return true
-}
-
 func ruleAllowsSelf(rule string, authenticated, target uuid.UUID) bool {
 	switch strings.TrimSpace(rule) {
 	case "true":

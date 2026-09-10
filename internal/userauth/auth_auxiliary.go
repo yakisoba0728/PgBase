@@ -21,6 +21,25 @@ type AuthAuxiliaryRecord struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 }
 
+type authOriginContextKey struct{}
+
+func WithAuthOrigin(ctx context.Context, address string) context.Context {
+	if validateClientAddress(address) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, authOriginContextKey{}, address)
+}
+
+func (s *Service) recordIssuedAuthOrigin(ctx context.Context, session Session, now time.Time) {
+	address, _ := ctx.Value(authOriginContextKey{}).(string)
+	if address == "" {
+		return
+	}
+	if added, _ := s.recordAuthOrigin(ctx, session.User.ID, address, now); added {
+		s.sendAuthAlert(ctx, session.User, "New sign-in origin: "+address)
+	}
+}
+
 func (s *Service) recordAuthOrigin(ctx context.Context, userID uuid.UUID, address string, now time.Time) (bool, error) {
 	hash := s.subjectHash("auth-origin", "network", address)
 	var added bool

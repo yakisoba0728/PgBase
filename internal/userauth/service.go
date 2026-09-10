@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	authidentity "github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 const (
@@ -79,7 +80,8 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if !registrationEnabled {
 		return Session{}, ErrInvalidCredentials
 	}
-	if !ruleAllowsOperation(createRule, uuid.Nil, uuid.Nil) {
+	fields, _, contractErr := s.authRecordContract(ctx, collectionID)
+	if contractErr != nil || !EvaluateAuthRecordRule(createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
 		return Session{}, ErrInvalidCredentials
 	}
 	if collectionID == DefaultCollectionID && !s.defaultRegistration {
@@ -193,7 +195,9 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if err := s.pool.QueryRow(ctx, `select auth_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&authRule); err != nil {
 		return Session{}, err
 	}
-	if !ruleAllowsOperation(authRule, user.ID, user.ID) {
+	fields, _, contractErr := s.authRecordContract(ctx, collectionID)
+	current, recordErr := s.GetAuthRecord(ctx, collectionID, user.ID)
+	if contractErr != nil || recordErr != nil || !EvaluateAuthRecordRule(authRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.User, ID: user.ID}, AuthEmail: user.Email, Current: current}) {
 		return Session{}, ErrInvalidCredentials
 	}
 	issued, err := s.issueCheckedSession(ctx, user, hash, now)

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -39,55 +40,100 @@ type UpdateAuthRecordInput struct {
 }
 
 func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
-	var rule string
-	if err := s.pool.QueryRow(ctx, `select list_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	if err != nil {
 		return nil, err
 	}
-	if !ruleAllowsOperation(rule, principal, principal) {
-		return nil, ErrInvalidCredentials
+	values, err := s.ListAuthRecords(ctx, collectionID, limit)
+	if err != nil {
+		return nil, err
 	}
-	if rule == "@request.auth.id = id" {
-		v, err := s.GetAuthRecord(ctx, collectionID, principal)
-		if err != nil {
-			return nil, err
+	result := values[:0]
+	for _, value := range values {
+		if EvaluateAuthRecordRule(rules.List, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
+			result = append(result, visibleAuthRecord(value, fields))
 		}
-		return []AuthRecord{v}, nil
 	}
-	return s.ListAuthRecords(ctx, collectionID, limit)
+	return result, nil
 }
 func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) (AuthRecord, error) {
-	var rule string
-	if err := s.pool.QueryRow(ctx, `select view_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	if err != nil {
 		return AuthRecord{}, err
 	}
-	if !ruleAllowsOperation(rule, principal, target) {
+	value, err := s.GetAuthRecord(ctx, collectionID, target)
+	if err != nil {
+		return AuthRecord{}, err
+	}
+	if !EvaluateAuthRecordRule(rules.View, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
-	return s.GetAuthRecord(ctx, collectionID, target)
+	return visibleAuthRecord(value, fields), nil
 }
 func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
-	var rule string
-	if err := s.pool.QueryRow(ctx, `select update_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	if err != nil {
 		return AuthRecord{}, err
 	}
-	if !ruleAllowsOperation(rule, principal, target) {
+	current, err := s.GetAuthRecord(ctx, collectionID, target)
+	if err != nil {
+		return AuthRecord{}, err
+	}
+	if !EvaluateAuthRecordRule(rules.Update, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current, Request: in.Fields}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
 	in.Email = nil
 	in.Password = nil
 	in.Verified = nil
 	in.Active = nil
-	return s.UpdateAuthRecord(ctx, collectionID, target, in)
+	updated, err := s.UpdateAuthRecord(ctx, collectionID, target, in)
+	return visibleAuthRecord(updated, fields), err
+}
+
+func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord {
+	visible := make(map[string]any, len(record.Fields))
+	hidden := map[string]bool{}
+	for _, field := range fields {
+		hidden[field.Name] = field.Hidden
+	}
+	for name, value := range record.Fields {
+		if !hidden[name] {
+			visible[name] = value
+		}
+	}
+	record.Fields = visible
+	return record
 }
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
-	var rule string
-	if err := s.pool.QueryRow(ctx, `select delete_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&rule); err != nil {
+	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	if err != nil {
 		return err
 	}
-	if !ruleAllowsOperation(rule, principal, target) {
+	current, err := s.GetAuthRecord(ctx, collectionID, target)
+	if err != nil {
+		return err
+	}
+	if !EvaluateAuthRecordRule(rules.Delete, fields, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
 		return ErrInvalidCredentials
 	}
 	return s.DeleteAuthRecord(ctx, collectionID, target)
+}
+
+func (s *Service) authRecordRules(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
+	var raw []byte
+	var rules AuthCollectionRules
+	err := s.pool.QueryRow(ctx, `select fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &rules.List, &rules.View, &rules.Create, &rules.Update, &rules.Delete, &rules.Auth, &rules.Manage)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, rules, ErrNotFound
+	}
+	if err != nil {
+		return nil, rules, err
+	}
+	var fields []schema.FieldInput
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil, rules, errors.New("invalid stored auth fields")
+	}
+	return fields, rules, nil
 }
 
 func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, limit int) ([]AuthRecord, error) {

@@ -81,6 +81,10 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/records/{record}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.authorizedRecordGet)},
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/records/{record}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.authorizedRecordUpdate)},
 		{method: "DELETE", pattern: "/api/v1/auth/{authCollection}/records/{record}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.authorizedRecordDelete)},
+		{method: "GET", pattern: "/api/v1/public/auth/{authCollection}/records", access: accessAnonymous, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.authorizedRecordList)},
+		{method: "GET", pattern: "/api/v1/public/auth/{authCollection}/records/{record}", access: accessAnonymous, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.authorizedRecordGet)},
+		{method: "PATCH", pattern: "/api/v1/public/auth/{authCollection}/records/{record}", access: accessAnonymous, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.authorizedRecordUpdate)},
+		{method: "DELETE", pattern: "/api/v1/public/auth/{authCollection}/records/{record}", access: accessAnonymous, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.authorizedRecordDelete)},
 	}
 }
 
@@ -143,7 +147,8 @@ func (e authCollectionEndpoints) otpComplete(w http.ResponseWriter, r *http.Requ
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
 	}
-	value, err := e.dependencies.AuthCollections.CompleteEmailOTPInCollection(r.Context(), collection.ID, in.OTPID, in.Code)
+	address, _ := clientAddress(r, e.dependencies.trustedProxies())
+	value, err := e.dependencies.AuthCollections.CompleteEmailOTPInCollection(userauth.WithAuthOrigin(r.Context(), address), collection.ID, in.OTPID, in.Code)
 	if err != nil {
 		writeUserAuthError(w, r, err)
 		return

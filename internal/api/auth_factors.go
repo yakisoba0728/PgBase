@@ -148,10 +148,12 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			err = service.DisableTOTP(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Code)
 		case "mfa/complete", "oauth/complete":
 			var value userauth.Session
+			address, _ := clientAddress(r, e.dependencies.trustedProxies())
+			originContext := userauth.WithAuthOrigin(r.Context(), address)
 			if action == "mfa/complete" {
-				value, err = service.CompleteMFA(r.Context(), input.ChallengeToken, input.Code)
+				value, err = service.CompleteMFA(originContext, input.ChallengeToken, input.Code)
 			} else {
-				value, err = service.CompleteOAuth(r.Context(), input.Provider, input.State, input.Code)
+				value, err = service.CompleteOAuth(originContext, input.Provider, input.State, input.Code)
 			}
 			result = userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt}
 		case "otp/request":

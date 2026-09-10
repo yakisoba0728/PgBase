@@ -57,7 +57,7 @@ func (s *Service) ConfigureDefaultRegistration(enabled bool) { s.defaultRegistra
 
 func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthCollectionInput) (AuthCollection, error) {
 	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
-	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !ok || !validAuthRules(input.Rules) {
+	if input.ID == uuid.Nil || !authCollectionName.MatchString(input.Name) || !ok || !ValidateAuthRecordRules(input.Rules, fields) {
 		return AuthCollection{}, ErrValidation
 	}
 	profileRaw, _ := json.Marshal(legacy)
@@ -91,7 +91,7 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 
 func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input UpdateAuthCollectionInput) (AuthCollection, error) {
 	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
-	if id == uuid.Nil || !ok || !validAuthRules(input.Rules) {
+	if id == uuid.Nil || !ok || !ValidateAuthRecordRules(input.Rules, fields) {
 		return AuthCollection{}, ErrValidation
 	}
 	profileRaw, _ := json.Marshal(legacy)

@@ -75,16 +75,16 @@ func validateScalarNode(node filterNode, fields map[string]ScalarKind) error {
 			}
 		}
 	case filterComparison:
-		kind, ok := fields[value.field]
-		if !ok || strings.Contains(value.field, ".") {
+		kind, ok := scalarFieldKind(fields, value.field, value.modifier)
+		if !ok {
 			return validation("filter", "unknown_field")
 		}
-		if value.modifier != "" && !(value.modifier == "lower" && kind == ScalarString) {
+		if value.modifier != "" && value.modifier != "isset" && value.modifier != "changed" && !(value.modifier == "lower" && kind == ScalarString) {
 			return validation("filter", "invalid_filter")
 		}
 		if value.otherField != "" {
-			other, ok := fields[value.otherField]
-			if !ok || strings.Contains(value.otherField, ".") || other != kind || (value.otherModifier != "" && !(value.otherModifier == "lower" && kind == ScalarString)) {
+			other, ok := scalarFieldKind(fields, value.otherField, value.otherModifier)
+			if !ok || other != kind || (value.otherModifier != "" && value.otherModifier != "isset" && value.otherModifier != "changed" && !(value.otherModifier == "lower" && kind == ScalarString)) {
 				return validation("filter", "unknown_field")
 			}
 			if (value.operator == "~" || value.operator == "!~") && kind != ScalarString {
@@ -108,6 +108,15 @@ func validateScalarNode(node filterNode, fields map[string]ScalarKind) error {
 		return validation("filter", "invalid_filter")
 	}
 	return nil
+}
+
+func scalarFieldKind(fields map[string]ScalarKind, field, modifier string) (ScalarKind, bool) {
+	if modifier == "isset" || modifier == "changed" {
+		kind, ok := fields[field+":"+modifier]
+		return kind, ok && kind == ScalarBool
+	}
+	kind, ok := fields[field]
+	return kind, ok
 }
 
 func scalarLiteralMatches(kind ScalarKind, value filterLiteral) bool {
@@ -150,10 +159,18 @@ func evaluateScalarNode(node filterNode, fields map[string]ScalarKind, values ma
 		}
 		return false
 	case filterComparison:
-		if value.otherField != "" {
-			return evaluateScalarFields(value, fields[value.field], values[value.field], values[value.otherField])
+		field := value.field
+		if value.modifier == "isset" || value.modifier == "changed" {
+			field += ":" + value.modifier
 		}
-		return evaluateScalarComparison(value, fields[value.field], values[value.field])
+		otherField := value.otherField
+		if value.otherModifier == "isset" || value.otherModifier == "changed" {
+			otherField += ":" + value.otherModifier
+		}
+		if value.otherField != "" {
+			return evaluateScalarFields(value, fields[field], values[field], values[otherField])
+		}
+		return evaluateScalarComparison(value, fields[field], values[field])
 	default:
 		return false
 	}
