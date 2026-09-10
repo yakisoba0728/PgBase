@@ -10,8 +10,22 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
-func validateAuthRelationTargets(ctx context.Context, tx pgx.Tx, attributes map[string]any, fields []schema.FieldInput) error {
+func validateAuthRelationTargets(ctx context.Context, tx pgx.Tx, owner uuid.UUID, attributes map[string]any, fields []schema.FieldInput) error {
 	for _, field := range fields {
+		if field.Type == schema.TypeFile {
+			values, _ := attributes[field.Name].([]any)
+			for _, raw := range values {
+				id := uuid.MustParse(raw.(string))
+				var exists bool
+				if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_files where id=$1 and auth_user_id=$2 and status='ready' and field_name=$3)`, id, owner, field.Name).Scan(&exists); err != nil {
+					return err
+				}
+				if !exists {
+					return ErrValidation
+				}
+			}
+			continue
+		}
 		if field.Type != schema.TypeRelation {
 			continue
 		}
@@ -30,9 +44,12 @@ func validateAuthRelationTargets(ctx context.Context, tx pgx.Tx, attributes map[
 	return nil
 }
 
-func validateAuthRelationDefinitions(ctx context.Context, tx pgx.Tx, fields []schema.FieldInput) error {
+func validateAuthRelationDefinitions(ctx context.Context, tx pgx.Tx, sourceName string, fields []schema.FieldInput) error {
 	for _, field := range fields {
 		if field.Type != schema.TypeRelation {
+			continue
+		}
+		if field.Relation.TargetCollection == sourceName {
 			continue
 		}
 		var exists bool

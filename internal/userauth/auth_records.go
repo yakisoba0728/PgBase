@@ -38,6 +38,11 @@ type UpdateAuthRecordInput struct {
 	Fields           map[string]any
 }
 
+func (s *Service) ListAuthorizedAuthRecords(ctx context.Context,collectionID,principal uuid.UUID,limit int)([]AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select list_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return nil,err};if !ruleAllowsOperation(rule,principal,principal){return nil,ErrInvalidCredentials};if rule=="@request.auth.id = id"{v,err:=s.GetAuthRecord(ctx,collectionID,principal);if err!=nil{return nil,err};return []AuthRecord{v},nil};return s.ListAuthRecords(ctx,collectionID,limit)}
+func (s *Service) GetAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID)(AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select view_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return AuthRecord{},err};if !ruleAllowsOperation(rule,principal,target){return AuthRecord{},ErrInvalidCredentials};return s.GetAuthRecord(ctx,collectionID,target)}
+func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID,in UpdateAuthRecordInput)(AuthRecord,error){var rule string;if err:=s.pool.QueryRow(ctx,`select update_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return AuthRecord{},err};if !ruleAllowsOperation(rule,principal,target){return AuthRecord{},ErrInvalidCredentials};in.Email=nil;in.Password=nil;in.Verified=nil;in.Active=nil;return s.UpdateAuthRecord(ctx,collectionID,target,in)}
+func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context,collectionID,principal,target uuid.UUID)error{var rule string;if err:=s.pool.QueryRow(ctx,`select delete_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&rule);err!=nil{return err};if !ruleAllowsOperation(rule,principal,target){return ErrInvalidCredentials};return s.DeleteAuthRecord(ctx,collectionID,target)}
+
 func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, limit int) ([]AuthRecord, error) {
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
 		return nil, ErrValidation
@@ -93,6 +98,10 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	if !validateTypedProfile(in.Fields, fields) {
 		return AuthRecord{}, ErrValidation
 	}
+	policy, err := s.authPolicy(ctx, collectionID)
+	if err != nil || !passwordMatchesPolicy(in.Password, policy) {
+		return AuthRecord{}, ErrValidation
+	}
 	hash, err := s.passwords.Hash(in.Password)
 	if err != nil {
 		return AuthRecord{}, err
@@ -101,7 +110,10 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	id := uuid.New()
 	var out AuthRecord
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := validateAuthRelationTargets(ctx, tx, in.Fields, fields); err != nil {
+		if err := validateAuthRelationTargets(ctx, tx, id, in.Fields, fields); err != nil {
+			return err
+		}
+		if err := validateAuthIdentityUnique(ctx, tx, collectionID, id, in.Fields, policy.IdentityFields); err != nil {
 			return err
 		}
 		var now time.Time
@@ -132,8 +144,9 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	if in.Fields != nil && !validateTypedProfile(in.Fields, fields) {
-		return AuthRecord{}, ErrValidation
+	policy, err := s.authPolicy(ctx, collectionID)
+	if err != nil {
+		return AuthRecord{}, err
 	}
 	var email *string
 	if in.Email != nil {
@@ -145,7 +158,7 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	}
 	var hash *string
 	if in.Password != nil {
-		if validatePassword(*in.Password) != nil {
+		if validatePassword(*in.Password) != nil || !passwordMatchesPolicy(*in.Password, policy) {
 			return AuthRecord{}, ErrValidation
 		}
 		v, e := s.passwords.Hash(*in.Password)
@@ -155,8 +168,31 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		hash = &v
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var rawExisting []byte
+		if err := tx.QueryRow(ctx, `select coalesce(p.attributes,'{}') from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&rawExisting); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		merged := map[string]any{}
+		if json.Unmarshal(rawExisting, &merged) != nil {
+			return errors.New("invalid stored auth profile")
+		}
+		for k, v := range in.Fields {
+			if v == nil {
+				delete(merged, k)
+			} else {
+				merged[k] = v
+			}
+		}
+		if !validateTypedProfile(merged, fields) {
+			return ErrValidation
+		}
 		if in.Fields != nil {
-			if err := validateAuthRelationTargets(ctx, tx, in.Fields, fields); err != nil {
+			if err := validateAuthRelationTargets(ctx, tx, id, merged, fields); err != nil {
+				return err
+			}
+			if err := validateAuthIdentityUnique(ctx, tx, collectionID, id, merged, policy.IdentityFields); err != nil {
 				return err
 			}
 		}
@@ -168,8 +204,11 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 			return ErrNotFound
 		}
 		if in.Fields != nil {
-			raw, _ := json.Marshal(in.Fields)
+			raw, _ := json.Marshal(merged)
 			_, e = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,current_timestamp) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, id, raw)
+		}
+		if e == nil && (hash != nil || email != nil || in.Active != nil && !*in.Active) {
+			_, e = tx.Exec(ctx, `delete from pgbase_meta.user_sessions where user_id=$1`, id)
 		}
 		return e
 	})
@@ -180,6 +219,27 @@ func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		return AuthRecord{}, err
 	}
 	return s.GetAuthRecord(ctx, collectionID, id)
+}
+
+func validateAuthIdentityUnique(ctx context.Context, tx pgx.Tx, collectionID, userID uuid.UUID, attributes map[string]any, identityFields []string) error {
+	for _, field := range identityFields {
+		if field == "email" {
+			continue
+		}
+		value, ok := attributes[field].(string)
+		if !ok || value == "" {
+			continue
+		}
+		if _,err:=tx.Exec(ctx,`select pg_advisory_xact_lock(hashtext($1))`,collectionID.String()+":"+field+":"+value);err!=nil{return err}
+		var duplicate bool
+		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 and u.id<>$2 and p.attributes->>$3=$4)`, collectionID, userID, field, value).Scan(&duplicate); err != nil {
+			return err
+		}
+		if duplicate {
+			return ErrConflict
+		}
+	}
+	return nil
 }
 
 func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UUID) error {

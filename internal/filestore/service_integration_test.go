@@ -410,3 +410,54 @@ func (s *leaseBlockingStore) Put(ctx context.Context, key string, body io.Reader
 	}
 	return s.ObjectStore.Put(ctx, key, body)
 }
+
+func TestAuthRecordFileUsesSharedStorageWithExplicitOwnership(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	collection, user := uuid.New(), uuid.New()
+	fields := `[{"name":"avatar","type":"file","required":false,"unique":false,"indexed":false,"options":{"maxFileSize":32,"maxSelect":1,"mimeTypes":["text/plain"],"protected":true}}]`
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,created_at,updated_at) values($1,'file_members',true,'{}',$2,now(),now())`, collection, fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,'auth-file@example.test','fixture',true,now(),now())`, user, collection); err != nil {
+		t.Fatal(err)
+	}
+	objects, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(pool, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return ErrDenied
+	}, Options{MaximumBytes: 64, MaximumImagePixels: 1000, ThumbnailDimension: 32, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{9}, 32), TokenTTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("avatar")
+	sum := sha256.Sum256(body)
+	principal := identity.Subject{Kind: identity.User, ID: user}
+	file, err := service.Upload(ctx, principal, Upload{CollectionID: collection, RecordID: user, Field: "avatar", Filename: "avatar.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: sum, Body: bytes.NewReader(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseCollection, authCollection *uuid.UUID
+	if err := pool.QueryRow(ctx, `select collection_id,auth_collection_id from pgbase_meta.record_files where id=$1`, file.ID).Scan(&baseCollection, &authCollection); err != nil || baseCollection != nil || authCollection == nil || *authCollection != collection {
+		t.Fatalf("ownership base=%v auth=%v err=%v", baseCollection, authCollection, err)
+	}
+	items, err := service.List(ctx, principal, collection, user, "avatar")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("list=%#v err=%v", items, err)
+	}
+	if _, _, err := service.Open(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, file.ID, Original, ""); !errors.Is(err, ErrDenied) {
+		t.Fatalf("foreign open=%v", err)
+	}
+	if err := service.Delete(ctx, principal, file.ID); err != nil {
+		t.Fatal(err)
+	}
+}

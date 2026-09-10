@@ -140,3 +140,75 @@ func (e authCollectionEndpoints) auxiliaryDelete(w http.ResponseWriter, r *http.
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (e authCollectionEndpoints) authorizedRecordContext(r *http.Request) (userauth.AuthCollection, userauth.Principal, uuid.UUID, error) {
+	current, err := e.current(r)
+	if err != nil {
+		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, err
+	}
+	collection, err := e.resolve(r)
+	if err != nil || current.principal.User.AuthCollectionID != collection.ID {
+		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, userauth.ErrInvalidCredentials
+	}
+	target := uuid.Nil
+	if raw := r.PathValue("record"); raw != "" {
+		target, err = uuid.Parse(raw)
+	}
+	return collection, current.principal, target, err
+}
+func (e authCollectionEndpoints) authorizedRecordList(w http.ResponseWriter, r *http.Request) {
+	collection, principal, _, err := e.authorizedRecordContext(r)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	items, err := e.dependencies.AuthCollections.ListAuthorizedAuthRecords(r.Context(), collection.ID, principal.User.ID, 50)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Items []userauth.AuthRecord `json:"items"`
+	}{items})
+}
+func (e authCollectionEndpoints) authorizedRecordGet(w http.ResponseWriter, r *http.Request) {
+	collection, principal, target, err := e.authorizedRecordContext(r)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	value, err := e.dependencies.AuthCollections.GetAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+func (e authCollectionEndpoints) authorizedRecordUpdate(w http.ResponseWriter, r *http.Request) {
+	collection, principal, target, err := e.authorizedRecordContext(r)
+	var in struct {
+		Fields map[string]any `json:"fields"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeUserAuthError(w, r, userauth.ErrValidation)
+		return
+	}
+	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Fields: in.Fields})
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+func (e authCollectionEndpoints) authorizedRecordDelete(w http.ResponseWriter, r *http.Request) {
+	collection, principal, target, err := e.authorizedRecordContext(r)
+	if err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	if err := e.dependencies.AuthCollections.DeleteAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target); err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

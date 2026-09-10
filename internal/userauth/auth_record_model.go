@@ -49,6 +49,10 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 			if field.Relation.OnDelete != schema.RelationRestrict && field.Relation.OnDelete != schema.RelationCascade && field.Relation.OnDelete != schema.RelationSetNull {
 				return nil, nil, false
 			}
+		case schema.TypeFile:
+			if field.Options == nil {
+				return nil, nil, false
+			}
 		default:
 			return nil, nil, false
 		}
@@ -213,6 +217,28 @@ func validAuthFieldValue(field schema.FieldInput, value any) bool {
 		}
 		v, ok := value.(string)
 		return ok && uuid.Validate(v) == nil
+	case schema.TypeFile:
+		values, ok := value.([]any)
+		if !ok {
+			return false
+		}
+		min, max := 0, 1
+		if field.Options != nil && field.Options.MinSelect != nil {
+			min = *field.Options.MinSelect
+		}
+		if field.Options != nil && field.Options.MaxSelect != nil {
+			max = *field.Options.MaxSelect
+		}
+		if len(values) < min || len(values) > max {
+			return false
+		}
+		for _, raw := range values {
+			v, ok := raw.(string)
+			if !ok || uuid.Validate(v) != nil {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}

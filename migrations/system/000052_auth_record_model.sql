@@ -27,3 +27,20 @@ alter table pgbase_meta.user_oauth_identities add column id uuid not null defaul
 alter table pgbase_meta.user_oauth_identities add constraint user_oauth_identities_id_key unique(id);
 alter table pgbase_meta.user_totp_factors add column id uuid not null default gen_random_uuid();
 alter table pgbase_meta.user_totp_factors add constraint user_totp_factors_id_key unique(id);
+
+alter table pgbase_meta.users add constraint users_auth_collection_id_id_key unique(auth_collection_id,id);
+alter table pgbase_meta.record_files drop constraint record_files_collection_id_record_id_fkey;
+alter table pgbase_meta.record_files alter column collection_id drop not null;
+alter table pgbase_meta.record_files alter column record_id drop not null;
+alter table pgbase_meta.record_files
+  add column auth_collection_id uuid references pgbase_meta.auth_collections(id) on delete cascade,
+  add column auth_user_id uuid,
+  add constraint record_files_auth_user_fk foreign key(auth_collection_id,auth_user_id)
+    references pgbase_meta.users(auth_collection_id,id) on delete cascade,
+  add constraint record_files_owner_kind_check check (
+    (collection_id is not null and record_id is not null and auth_collection_id is null and auth_user_id is null)
+    or (collection_id is null and record_id is null and auth_collection_id is not null and auth_user_id is not null)
+  ),
+  add constraint record_files_base_record_fk foreign key(collection_id,record_id)
+    references pgbase_meta.record_revisions(collection_id,record_id) on delete cascade;
+create index record_files_auth_record_idx on pgbase_meta.record_files(auth_collection_id,auth_user_id,field_name,created_at,id) where status='ready';

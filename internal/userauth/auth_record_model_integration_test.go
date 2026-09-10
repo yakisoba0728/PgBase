@@ -45,8 +45,32 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 	if _, err := service.LoginInCollection(ctx, id, record.Email, "correct horse battery staple", "198.51.100.9"); err != nil {
 		t.Fatal(err)
 	}
+	session, err := service.LoginInCollection(ctx, id, record.Email, "correct horse battery staple", "198.51.100.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateAuthorizedAuthRecord(ctx, id, record.ID, record.ID, UpdateAuthRecordInput{Fields: map[string]any{"display_name": "Ada Lovelace"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateForCollection(ctx, id, session.RawToken); err != nil {
+		t.Fatalf("field patch revoked session: %v", err)
+	}
+	newPassword := "another correct horse battery staple"
+	if _, err := service.UpdateAuthRecord(ctx, id, record.ID, UpdateAuthRecordInput{Password: &newPassword}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateForCollection(ctx, id, session.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("credential update retained session: %v", err)
+	}
+	rules.View = "false"
+	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GetAuthorizedAuthRecord(ctx, id, record.ID, record.ID); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("viewRule refusal=%v", err)
+	}
 	origins, err := service.ListAuthAuxiliary(ctx, id, record.ID, "authOrigins")
-	if err != nil || len(origins) != 1 || origins[0].FirstSeenAt == nil {
+	if err != nil || len(origins) < 1 || origins[0].FirstSeenAt == nil {
 		t.Fatalf("origins=%#v err=%v", origins, err)
 	}
 	if err := service.DeleteAuthAuxiliary(ctx, id, record.ID, "authOrigins", origins[0].ID); err != nil {

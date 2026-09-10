@@ -208,7 +208,7 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subj
 			}
 			if tag.RowsAffected() == 0 {
 				var existing File
-				if err := scanFile(tx.QueryRow(ctx, `select id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, file.ID), &existing); err != nil {
+				if err := scanFile(tx.QueryRow(ctx, `select id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, file.ID), &existing); err != nil {
 					return nil, err
 				}
 				if existing.ObjectKey != file.ObjectKey || existing.CollectionID != file.CollectionID || existing.RecordID != file.RecordID || existing.Field != file.Field {

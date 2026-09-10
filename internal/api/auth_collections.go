@@ -38,6 +38,10 @@ type AuthCollections interface {
 	DeleteAuthRecord(context.Context, uuid.UUID, uuid.UUID) error
 	ListAuthAuxiliary(context.Context, uuid.UUID, uuid.UUID, string) ([]userauth.AuthAuxiliaryRecord, error)
 	DeleteAuthAuxiliary(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error
+	ListAuthorizedAuthRecords(context.Context,uuid.UUID,uuid.UUID,int)([]userauth.AuthRecord,error)
+	GetAuthorizedAuthRecord(context.Context,uuid.UUID,uuid.UUID,uuid.UUID)(userauth.AuthRecord,error)
+	UpdateAuthorizedAuthRecord(context.Context,uuid.UUID,uuid.UUID,uuid.UUID,userauth.UpdateAuthRecordInput)(userauth.AuthRecord,error)
+	DeleteAuthorizedAuthRecord(context.Context,uuid.UUID,uuid.UUID,uuid.UUID)error
 }
 
 type authCollectionEndpoints struct{ dependencies Dependencies }
@@ -72,6 +76,10 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.profile)},
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/aux/{kind}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.auxiliaryList)},
 		{method: "DELETE", pattern: "/api/v1/auth/{authCollection}/aux/{kind}/{id}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.auxiliaryDelete)},
+		{method:"GET",pattern:"/api/v1/auth/{authCollection}/records",access:accessUserSession,response:atomicJSON(maximumCatalogResponseBytes),deadline:deadlineDefault,handler:http.HandlerFunc(e.authorizedRecordList)},
+		{method:"GET",pattern:"/api/v1/auth/{authCollection}/records/{record}",access:accessUserSession,response:atomicJSON(maximumAdminResponseBytes),deadline:deadlineDefault,handler:http.HandlerFunc(e.authorizedRecordGet)},
+		{method:"PATCH",pattern:"/api/v1/auth/{authCollection}/records/{record}",access:accessUserSession,response:atomicJSON(maximumAdminResponseBytes),deadline:deadlineDefault,maximumRequestBytes:maximumCredentialRequestBytes,handler:http.HandlerFunc(e.authorizedRecordUpdate)},
+		{method:"DELETE",pattern:"/api/v1/auth/{authCollection}/records/{record}",access:accessUserSession,response:atomicJSON(maximumAdminResponseBytes),deadline:deadlineDefault,handler:http.HandlerFunc(e.authorizedRecordDelete)},
 	}
 }
 

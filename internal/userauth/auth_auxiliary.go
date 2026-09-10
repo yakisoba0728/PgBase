@@ -30,6 +30,9 @@ func (s *Service) ListAuthAuxiliary(ctx context.Context, collectionID, userID uu
 	if collectionID == uuid.Nil || userID == uuid.Nil {
 		return nil, ErrValidation
 	}
+	var manageRule string
+	if err:=s.pool.QueryRow(ctx,`select manage_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&manageRule);err!=nil{return nil,err}
+	if !ruleAllowsOperation(manageRule,userID,userID){return nil,ErrInvalidCredentials}
 	var query string
 	switch kind {
 	case "externalAuths":
@@ -63,6 +66,9 @@ func (s *Service) DeleteAuthAuxiliary(ctx context.Context, collectionID, userID 
 	if collectionID == uuid.Nil || userID == uuid.Nil || id == uuid.Nil {
 		return ErrValidation
 	}
+	var manageRule string
+	if err:=s.pool.QueryRow(ctx,`select manage_rule from pgbase_meta.auth_collections where id=$1`,collectionID).Scan(&manageRule);err!=nil{return err}
+	if !ruleAllowsOperation(manageRule,userID,userID){return ErrInvalidCredentials}
 	var tag pgconn.CommandTag
 	var err error
 	switch kind {
