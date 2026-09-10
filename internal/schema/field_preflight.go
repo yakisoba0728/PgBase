@@ -36,7 +36,7 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 		if field.Type == TypePassword {
 			continue
 		}
-		if field.Type != TypeText && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && !(field.Type == TypeJSONB && len(field.Options.AllowedValues) > 0) {
+		if field.Type != TypeText && field.Type != TypeEditor && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && !(field.Type == TypeJSONB && len(field.Options.AllowedValues) > 0) {
 			continue
 		}
 		rows, err := tx.Query(ctx, "select "+pgx.Identifier{prior.ColumnName}.Sanitize()+"::text from "+pgx.Identifier{"app", before.TableName}.Sanitize()+" where "+pgx.Identifier{prior.ColumnName}.Sanitize()+" is not null")
@@ -52,6 +52,8 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 			}
 			if field.Type == TypeText {
 				valid = fieldvalue.ValidateText(value, fieldValueOptions(field.Options)) == ""
+			} else if field.Type == TypeEditor {
+				valid = int64(len(value)) <= editorMaximumSize(&field.Options)
 			} else if field.Type == TypeJSONB {
 				var values []string
 				valid = json.Unmarshal([]byte(value), &values) == nil && values != nil && fieldvalue.ValidateSelection(values, fieldValueOptions(field.Options)) == ""

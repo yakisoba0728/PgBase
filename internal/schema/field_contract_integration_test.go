@@ -61,6 +61,26 @@ func TestTightenedFieldOptionsRejectExistingInvalidRows(t *testing.T) {
 	}
 }
 
+func TestTightenedEditorMaximumSizeRejectsExistingRows(t *testing.T) {
+	ctx := context.Background()
+	pool, service, admin := newSchemaServiceTest(t)
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "editor_option_items", Fields: []FieldInput{{Name: "body", Type: TypeEditor}}}, admin)
+	if _, err := pool.Exec(ctx, `insert into app.editor_option_items(id,created_at,updated_at,body) values(gen_random_uuid(),now(),now(),'four')`); err != nil {
+		t.Fatal(err)
+	}
+	id := created.Fields[0].ID
+	maximum := int64(3)
+	change := NewUpdateChange(UpdateCollectionInput{Name: "editor_option_items", Fields: []FieldInput{{ID: &id, Name: "body", Type: TypeEditor, Options: &FieldOptions{MaxSize: &maximum}}}})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(ctx, LegacyApply(change, plan, admin))
+	if !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("apply error=%v", err)
+	}
+}
+
 func TestDeniedDomainPreflightRejectsExistingRowsForApplyAndImport(t *testing.T) {
 	for _, mode := range []string{"apply", "import"} {
 		t.Run(mode, func(t *testing.T) {
