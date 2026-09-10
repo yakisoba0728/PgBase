@@ -24,14 +24,15 @@ import (
 )
 
 type extensionBridge struct {
-	records   *recordops.Service
-	files     *filestore.Service
-	mailer    mailer.Sender
-	logger    *slog.Logger
-	hooks     *HookRegistry
-	templates *TemplateRegistry
-	database  *TrustedDatabase
-	objects   *ExtensionObjects
+	records       *recordops.Service
+	files         *filestore.Service
+	mailer        mailer.Sender
+	logger        *slog.Logger
+	hooks         *HookRegistry
+	templates     *TemplateRegistry
+	database      *TrustedDatabase
+	objects       *ExtensionObjects
+	compatibility *extensionCompatibility
 }
 
 type extensionHost struct {
@@ -111,8 +112,15 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return json.Marshal(map[string]string{"output": output})
 	case "database.transaction":
 		return host.callDatabase(operationContext, input)
-	case "objects.read", "objects.write", "objects.delete":
+	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy":
 		return host.callObjects(operationContext, method, input)
+	case "http.send", "os.args", "os.getenv", "os.exit", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
+		if host.bridge.compatibility == nil {
+			return nil, extensionError("compatibility_unavailable", errors.New("PocketBase compatibility adapter unavailable"))
+		}
+		return host.bridge.compatibility.call(operationContext, method, input)
+	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy":
+		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}

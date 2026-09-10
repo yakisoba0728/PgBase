@@ -80,6 +80,8 @@ declare module "pgbase" {
       write(input: { key: string; data: string }): { written: true; size: ExactNumber }
       read(input: { key: string }): { data: string; size: ExactNumber }
       delete(input: { key: string }): { deleted: true }
+      list(input: { prefix?: string; cursor?: string; limit?: number }): { objects: Array<{ key:string; size:ExactNumber; updatedAt:string }>; nextCursor?: string }
+      copy(input: { sourceKey: string; destinationKey: string }): { copied: true; size: ExactNumber }
     }
     files: {
       list(input: { collection: string; recordId: string; field: string }): FileResult
@@ -105,6 +107,14 @@ declare module "pgbase" {
       warn(input: { message: string; fields?: Record<string, string> }): { logged: true }
       error(input: { message: string; fields?: Record<string, string> }): { logged: true }
     }
+  }
+  global {
+    const $security: { md5(value:string):string; sha256(value:string):string; sha512(value:string):string; hs256(value:string,key:string):string; hs512(value:string,key:string):string; equal(a:string,b:string):boolean; randomString(length:number):string; randomStringWithAlphabet(length:number,alphabet:string):string; createJWT(payload:Record<string,JSONValue>,key:string,seconds?:number):string; parseJWT(token:string,key:string):Record<string,JSONValue>; encrypt(value:string,key:string):string; decrypt(value:string,key:string):string }
+    const $http: { send(request:{url:string;method?:string;headers?:Record<string,string>;body?:string}):{statusCode:number;headers:Record<string,string>;body:string} }
+    const $os: { readonly args:string[]; getenv(name:string):string; exit(code?:number):{requested:true}; readFile(path:string):string; writeFile(path:string,data:string,mode?:number):void; cmd(name:string,...args:string[]):{output:string;success:boolean;error:string} }
+    const $filesystem: { fileFromPath(path:string):JSONValue; fileFromBytes(bytes:string|number[],name:string):JSONValue; fileFromURL(url:string,timeout?:number):JSONValue; list(prefix?:string,cursor?:string,limit?:number):JSONValue; copy(sourceKey:string,destinationKey:string):JSONValue; read(key:string):JSONValue; write(key:string,data:string):JSONValue; delete(key:string):JSONValue }
+    const $filepath: { base(path:string):string; clean(path:string):string; dir(path:string):string; ext(path:string):string; join(...parts:string[]):string; rel(base:string,target:string):string; isAbs(path:string):boolean }
+    const $app: { findRecordsByFilter(collection:string,filter:string,sort?:string,limit?:number):RecordPage; findFirstRecordByFilter(collection:string,filter:string):Record<string,JSONValue>|undefined; findRecordById(collection:string,id:string):RecordResult; save(record:Record<string,JSONValue>):RecordResult; delete(record:Record<string,JSONValue>):RecordResult }
   }
   export = pgbase
 }

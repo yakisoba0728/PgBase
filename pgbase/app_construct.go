@@ -304,6 +304,9 @@ func newWithCatalogPreflight(
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
 	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, logger: normalized.Logger, hooks: normalized.Hooks, templates: normalized.Templates}
+	if normalized.JavaScript != nil {
+		extensions.compatibility = newExtensionCompatibility(normalized.JavaScript.PocketBaseCompatibility)
+	}
 	if objectStore != nil {
 		extensions.objects = &ExtensionObjects{store: objectStore, pool: pool, maximumBytes: normalized.Files.MaximumBytes, hooks: normalized.Hooks}
 	}

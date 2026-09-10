@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -33,6 +37,21 @@ type JavaScriptOptions struct {
 	// OnInit installs trusted application bindings in every fresh VM. It runs
 	// during validation and each invocation and must not retain the VM.
 	OnInit func(*goja.Runtime) error
+	// PocketBaseCompatibility configures the bounded host adapters used by the
+	// PocketBase-compatible globals. Effects still require the matching
+	// manifest capability (http, os, or filesystem).
+	PocketBaseCompatibility PocketBaseCompatibilityOptions
+}
+
+type PocketBaseCompatibilityOptions struct {
+	FilesystemRoot     string
+	HTTPAllowedOrigins []string
+	Commands           map[string]string
+	Environment        map[string]string
+	Arguments          []string
+	// ProcessExit is an operator-provided process lifecycle request. Leaving it
+	// nil makes $os.exit fail closed. Tests and supervisors can inject it.
+	ProcessExit func(int) error
 }
 
 type JavaScriptHandler struct {
@@ -86,13 +105,18 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log", "template", "database", "objects":
+		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
 		capabilities[name] = enabled
 	}
 	options.Capabilities = capabilities
+	compatibility, err := options.PocketBaseCompatibility.normalized()
+	if err != nil {
+		return JavaScriptOptions{}, fmt.Errorf("JavaScript.PocketBaseCompatibility: %w", err)
+	}
+	options.PocketBaseCompatibility = compatibility
 	subjects := make(map[string]uuid.UUID, len(options.JobServiceSubjects))
 	for name, id := range options.JobServiceSubjects {
 		if name == "" || id == uuid.Nil {
@@ -113,6 +137,41 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	options.MaximumHostCalls = limits.MaximumHostCalls
 	options.MaximumInputBytes = limits.MaximumInputBytes
 	options.MaximumOutputBytes = limits.MaximumOutputBytes
+	return options, nil
+}
+
+func (options PocketBaseCompatibilityOptions) normalized() (PocketBaseCompatibilityOptions, error) {
+	if options.FilesystemRoot != "" {
+		root, err := filepath.Abs(options.FilesystemRoot)
+		if err != nil {
+			return options, err
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			return options, errors.New("FilesystemRoot must be an existing directory")
+		}
+		root, err = filepath.EvalSymlinks(root)
+		if err != nil {
+			return options, err
+		}
+		options.FilesystemRoot = root
+	}
+	options.HTTPAllowedOrigins = slices.Clone(options.HTTPAllowedOrigins)
+	for i, origin := range options.HTTPAllowedOrigins {
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
+			return options, fmt.Errorf("invalid HTTPAllowedOrigins entry %q", origin)
+		}
+		options.HTTPAllowedOrigins[i] = u.Scheme + "://" + u.Host
+	}
+	options.Commands = maps.Clone(options.Commands)
+	options.Environment = maps.Clone(options.Environment)
+	options.Arguments = slices.Clone(options.Arguments)
+	for name, command := range options.Commands {
+		if name == "" || !filepath.IsAbs(command) {
+			return options, errors.New("Commands requires names mapped to absolute paths")
+		}
+	}
 	return options, nil
 }
 

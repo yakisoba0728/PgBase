@@ -339,6 +339,9 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	r.states.Store(vm, state)
 	defer r.states.Delete(vm)
 	requireModule := r.registry.Enable(vm)
+	if err := r.installPocketBaseGlobals(vm, state); err != nil {
+		return nil, &Error{Code: CodeExecutionFailed, cause: err}
+	}
 
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
@@ -424,6 +427,9 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 		vm.SetParserOptions(parser.WithDisableSourceMaps)
 		r.states.Store(vm, state)
 		requireModule := r.registry.Enable(vm)
+		if err := r.installPocketBaseGlobals(vm, state); err != nil {
+			return fmt.Errorf("initialize PocketBase compatibility globals: %w", err)
+		}
 		canonical, _ := r.bundle.canonicalModule(ref.Module)
 		exports, err := requireModule.Require(virtualRoot + "/" + canonical)
 		r.states.Delete(vm)
@@ -485,7 +491,7 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 		"log":       {"debug", "info", "warn", "error"},
 		"template":  {"render"},
 		"database":  {"transaction"},
-		"objects":   {"read", "write", "delete"},
+		"objects":   {"read", "write", "delete", "list", "copy"},
 	} {
 		object := vm.NewObject()
 		for _, method := range methods {
