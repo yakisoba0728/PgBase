@@ -12,6 +12,7 @@ import (
 
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
 type Dependencies struct {
@@ -61,6 +62,7 @@ type Dependencies struct {
 	// construction fails rather than silently running an apply unbounded.
 	SchemaApplyTimeout time.Duration
 	SQLConsole         *SQLConsoleHandlers
+	RuntimeSettings    *runtimesettings.Controller
 }
 
 // declareRoutes is the single authoritative description of the HTTP surface.
@@ -71,6 +73,9 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
 	schemas := schemaEndpoints{service: dependencies.Schema}
 	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
+	if dependencies.RuntimeSettings != nil {
+		records.settings = dependencies.RuntimeSettings
+	}
 	logout := http.HandlerFunc(admin.logout)
 	login := http.HandlerFunc(admin.login)
 
@@ -128,6 +133,9 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.update)},
 		{method: "DELETE", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
+	}
+	if dependencies.RuntimeSettings != nil {
+		routes = append(routes, runtimeSettingsRoutes(dependencies.RuntimeSettings)...)
 	}
 	routes = append(routes, storageAdministrationRoutes(dependencies)...)
 	routes = append(routes, storageMigrationRoutes(dependencies.StorageMigrations)...)

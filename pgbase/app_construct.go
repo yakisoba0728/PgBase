@@ -14,6 +14,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
@@ -222,6 +223,10 @@ func newWithCatalogPreflight(
 	}
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
 	requestLog := newRequestLog(pool, normalized)
+	runtimeSettings, err := runtimesettings.New(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("initialize runtime settings: %w", err)
+	}
 	defer func() {
 		if !keepPool {
 			ctx, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
@@ -232,6 +237,7 @@ func newWithCatalogPreflight(
 	dependencies, extensionMailer, err := withUserServices(api.Dependencies{
 		Realtime:           realtimeService,
 		RequestLog:         requestLog,
+		RuntimeSettings:    runtimeSettings,
 		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
 		Readiness:          readiness,
 		Logger:             normalized.Logger,

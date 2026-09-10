@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
 const maximumBatchRequestBytes = maximumRecordRequestBytes
@@ -27,6 +29,9 @@ const maximumMultipartBatchRequestBytes = (100 << 20) + maximumBatchRequestBytes
 
 type batchRecordService interface {
 	Batch(context.Context, recordops.BatchRequest) ([]recordops.MutationResult, error)
+}
+type batchSettings interface {
+	Get() runtimesettings.Settings
 }
 
 type batchInput struct {
@@ -66,6 +71,22 @@ type batchOperationInput struct {
 // batch is shared by administrator and public-user routes. The router applies
 // each route's normal principal middleware before entering this handler.
 func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
+	if e.settings != nil {
+		settings := e.settings.Get().Batch
+		if !settings.Enabled {
+			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "batch_disabled", Message: "Batch requests are disabled"})
+			return
+		}
+		if settings.TimeoutMS > 0 {
+			var cancel context.CancelFunc
+			r = r.WithContext(func() context.Context {
+				ctx, c := context.WithTimeout(r.Context(), time.Duration(settings.TimeoutMS)*time.Millisecond)
+				cancel = c
+				return ctx
+			}())
+			defer cancel()
+		}
+	}
 	service, ok := e.service.(batchRecordService)
 	if !ok || service == nil {
 		writeRecordError(w, r, errors.New("batch record service is unavailable"))
@@ -73,6 +94,9 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	limit := int64(maximumBatchRequestBytes)
+	if e.settings != nil {
+		limit = e.settings.Get().Batch.MaxBodyBytes
+	}
 	if media == "multipart/form-data" {
 		limit = maximumMultipartBatchRequestBytes
 	}
@@ -86,7 +110,11 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input, staged, err := e.decodeBatch(r, principal)
-	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > 50 {
+	maximumRequests := 50
+	if e.settings != nil {
+		maximumRequests = e.settings.Get().Batch.MaxRequests
+	}
+	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
 		}

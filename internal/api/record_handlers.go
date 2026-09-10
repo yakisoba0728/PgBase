@@ -28,9 +28,10 @@ type RecordService interface {
 }
 
 type recordEndpoints struct {
-	service RecordService
-	files   FileService
-	hooks   *lifecycle.Registry
+	service  RecordService
+	files    FileService
+	hooks    *lifecycle.Registry
+	settings batchSettings
 }
 
 func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
