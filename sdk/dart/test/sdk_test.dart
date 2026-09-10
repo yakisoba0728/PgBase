@@ -261,6 +261,22 @@ void main() {
     expect(storage.value, isNull);
   });
 
+  test('auth store retains its record across an SSR cookie round trip', () async {
+    final source = AuthStore();
+    await source.save(
+      'server-token',
+      record: const User(
+        id: '01900000-0000-7000-8000-000000000001',
+        email: 'person@example.test',
+        createdAt: '2026-01-01T00:00:00Z',
+      ),
+    );
+    final restored = AuthStore();
+    await restored.loadFromCookie(source.exportToCookie());
+    expect(restored.isValid, isTrue);
+    expect(restored.record?.email, 'person@example.test');
+  });
+
   test('a delayed restore cannot replace a newer clear', () async {
     final storage = _DelayedAuthStorage()..value = 'stale-token';
     final auth = AuthStore(storage: storage);
