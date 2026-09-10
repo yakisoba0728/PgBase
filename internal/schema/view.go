@@ -274,10 +274,10 @@ func viewReferencesCollection(view Collection, collectionID uuid.UUID) bool {
 	return view.View != nil && (view.View.SourceCollectionID == collectionID || slices.Contains(view.View.Dependencies, collectionID))
 }
 
-func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField) error {
+func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField, allowSQLViewRename bool) error {
 	for _, candidate := range catalog.Collections {
 		if candidate.IsSQLView() && slices.Contains(candidate.View.Dependencies, sourceID) {
-			if !sameSQLViewSourceFields(current, desired) {
+			if !allowSQLViewRename || !sameSQLViewSourceFields(current, desired) {
 				return validation("fields", "field_used_by_view")
 			}
 			continue

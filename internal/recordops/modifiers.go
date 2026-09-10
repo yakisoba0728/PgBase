@@ -96,7 +96,12 @@ func validateModifierInput(collection schema.Collection, input map[string]json.R
 	// the actual stored value and are validated after the row is locked.
 	determined := make(map[string]json.RawMessage, len(directFields))
 	for name := range directFields {
-		determined[name] = resolved[name]
+		for _, field := range collection.Fields {
+			if field.Name == name && field.Relation == nil {
+				determined[name] = resolved[name]
+				break
+			}
+		}
 	}
 	if len(determined) == 0 {
 		return nil

@@ -225,6 +225,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	if validationMode != ValidationModePostgres && validationMode != ValidationModePocketBase {
 		return Plan{}, validation("validationMode", "invalid")
 	}
+	allowSQLViewRename := input.CollectionID != nil && input.Name != current.Name && input.Fields == nil && input.Indexes == nil
 	if input.Fields == nil && input.CollectionID != nil {
 		var err error
 		input.Fields, err = updateFieldsFromCatalog(catalog, current)
@@ -340,7 +341,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		desired = append(desired, planned)
 	}
-	if err := validateViewSourceUpdate(catalog, current.ID, currentFields, desired); err != nil {
+	if err := validateViewSourceUpdate(catalog, current.ID, currentFields, desired, allowSQLViewRename); err != nil {
 		return Plan{}, err
 	}
 
