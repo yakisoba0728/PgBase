@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, err
 	}
 	policy, err := s.authPolicy(ctx, collectionID)
-	if err != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+	if err != nil || !passwordMatchesPolicy(password, policy) {
 		return Session{}, ErrValidation
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
@@ -109,7 +110,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, err
 	}
 	policy, policyErr := s.authPolicy(ctx, collectionID)
-	if policyErr != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+	if policyErr != nil || !passwordMatchesPolicy(password, policy) {
 		return Session{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.credentialSlots)
@@ -117,9 +118,11 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, err
 	}
 	defer release()
-	normalized, emailErr := normalizeEmail(email)
-	if emailErr != nil {
-		normalized = ""
+	identity := strings.TrimSpace(email)
+	normalized, emailErr := normalizeEmail(identity)
+	if len(policy.IdentityFields) != 1 || policy.IdentityFields[0] != "email" {
+		emailErr = nil
+		normalized = identity
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
 		return Session{}, err
@@ -149,8 +152,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	var user User
 	var hash string
 	lookupErr := error(ErrInvalidCredentials)
-	if emailErr == nil && passwordErr == nil {
-		user, hash, lookupErr = userByEmailDB(ctx, s.pool, collectionID, normalized, false)
+	if emailErr == nil && passwordErr == nil && normalized != "" {
+		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, normalized)
 		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
 			return Session{}, lookupErr
 		}
@@ -179,7 +182,50 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
 	}
+	if err == nil {
+		s.sendAuthAlert(ctx, issued.User, "A password sign-in occurred on your account.")
+	}
 	return issued, err
+}
+
+// userByIdentityDB permits email plus declared text profile fields.  Field names
+// are read from validated policy rather than interpolated into SQL, keeping the
+// JSON lookup parameterized and preventing profile-field SQL injection.
+func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity string) (User, string, error) {
+	for _, field := range fields {
+		if field == "email" {
+			u, hash, err := userByEmailDB(ctx, db, collectionID, identity, false)
+			if err == nil {
+				return u, hash, nil
+			}
+			if !errors.Is(err, ErrInvalidCredentials) {
+				return User{}, "", err
+			}
+			continue
+		}
+		var u User
+		var hash string
+		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,u.password_hash from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.Verified, &u.CreatedAt, &hash)
+		if err == nil {
+			u.CreatedAt = u.CreatedAt.UTC()
+			return u, hash, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return User{}, "", fmt.Errorf("read user identity: %w", err)
+		}
+	}
+	return User{}, "", ErrInvalidCredentials
+}
+
+func passwordMatchesPolicy(password string, policy AuthPolicy) bool {
+	if !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes || len(password) > policy.MaximumPasswordBytes {
+		return false
+	}
+	if policy.PasswordPattern == "" {
+		return true
+	}
+	re, err := regexp.Compile(policy.PasswordPattern)
+	return err == nil && re.MatchString(password)
 }
 
 func (s *Service) AuthenticateForCollection(ctx context.Context, collectionID uuid.UUID, rawToken string) (Principal, error) {

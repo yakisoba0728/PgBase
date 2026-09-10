@@ -40,6 +40,7 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 	}
 	e := authCollectionEndpoints{dependencies}
 	return []route{
+		{method: "GET", pattern: "/api/admin/auth-collections/meta/oauth2-providers", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.oauthProviderCatalog)},
 		{method: "GET", pattern: "/api/admin/auth-collections", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.adminList)},
 		{method: "POST", pattern: "/api/admin/auth-collections", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminCreate)},
 		{method: "PATCH", pattern: "/api/admin/auth-collections/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.adminUpdate)},
@@ -57,6 +58,12 @@ func authCollectionRoutes(dependencies Dependencies) []route {
 		{method: "GET", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.profile)},
 		{method: "PATCH", pattern: "/api/v1/auth/{authCollection}/profile", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.profile)},
 	}
+}
+
+func (e authCollectionEndpoints) oauthProviderCatalog(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, struct {
+		Items []userauth.OAuthProviderCatalog `json:"items"`
+	}{Items: userauth.OAuthProviderCatalogs()})
 }
 
 func (e authCollectionEndpoints) methods(w http.ResponseWriter, r *http.Request) {

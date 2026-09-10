@@ -75,24 +75,46 @@ func (e authAdministrationEndpoints) get(w http.ResponseWriter, r *http.Request)
 func (e authAdministrationEndpoints) policy(w http.ResponseWriter, r *http.Request) {
 	id, err := collectionID(r)
 	var in struct {
-		PasswordEnabled      *bool `json:"passwordEnabled"`
-		MinimumPasswordBytes *int  `json:"minimumPasswordBytes"`
-		MFAEnabled           *bool `json:"mfaEnabled"`
-		OTPEnabled           *bool `json:"otpEnabled"`
-		OTPDurationSeconds   *int  `json:"otpDurationSeconds"`
-		OTPMaxAttempts       *int  `json:"otpMaxAttempts"`
+		PasswordEnabled      *bool     `json:"passwordEnabled"`
+		MinimumPasswordBytes *int      `json:"minimumPasswordBytes"`
+		MaximumPasswordBytes *int      `json:"maximumPasswordBytes"`
+		PasswordPattern      *string   `json:"passwordPattern"`
+		IdentityFields       *[]string `json:"identityFields"`
+		MFAEnabled           *bool     `json:"mfaEnabled"`
+		MFADurationSeconds   *int      `json:"mfaDurationSeconds"`
+		MFARule              *string   `json:"mfaRule"`
+		OTPEnabled           *bool     `json:"otpEnabled"`
+		OTPDurationSeconds   *int      `json:"otpDurationSeconds"`
+		OTPMaxAttempts       *int      `json:"otpMaxAttempts"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil || in.PasswordEnabled == nil || in.MinimumPasswordBytes == nil || in.MFAEnabled == nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
 	policy := userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled}
+	current, getErr := e.service.GetAuthAdministration(r.Context(), id)
+	if getErr != nil {
+		writeAuthAdministrationError(w, r, getErr)
+		return
+	}
+	policy.MaximumPasswordBytes, policy.PasswordPattern, policy.IdentityFields = current.Policy.MaximumPasswordBytes, current.Policy.PasswordPattern, current.Policy.IdentityFields
+	policy.MFADurationSeconds, policy.MFARule = current.Policy.MFADurationSeconds, current.Policy.MFARule
+	if in.MaximumPasswordBytes != nil {
+		policy.MaximumPasswordBytes = *in.MaximumPasswordBytes
+	}
+	if in.PasswordPattern != nil {
+		policy.PasswordPattern = *in.PasswordPattern
+	}
+	if in.IdentityFields != nil {
+		policy.IdentityFields = *in.IdentityFields
+	}
+	if in.MFADurationSeconds != nil {
+		policy.MFADurationSeconds = *in.MFADurationSeconds
+	}
+	if in.MFARule != nil {
+		policy.MFARule = *in.MFARule
+	}
 	if in.OTPEnabled == nil || in.OTPDurationSeconds == nil || in.OTPMaxAttempts == nil {
-		current, getErr := e.service.GetAuthAdministration(r.Context(), id)
-		if getErr != nil {
-			writeAuthAdministrationError(w, r, getErr)
-			return
-		}
 		policy.OTPEnabled = current.Policy.OTPEnabled
 		policy.OTPDurationSeconds = current.Policy.OTPDurationSeconds
 		policy.OTPMaxAttempts = current.Policy.OTPMaxAttempts

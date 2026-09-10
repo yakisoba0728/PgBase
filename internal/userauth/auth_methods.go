@@ -29,7 +29,7 @@ func (s *Service) PublicAuthMethods(ctx context.Context, collectionID uuid.UUID)
 		return PublicAuthMethods{}, err
 	}
 	defer rows.Close()
-	out := PublicAuthMethods{PasswordEnabled: policy.PasswordEnabled, OTPEnabled: policy.OTPEnabled, MFAEnabled: policy.MFAEnabled, OAuthProviders: []string{}}
+	out := PublicAuthMethods{PasswordEnabled: policy.PasswordEnabled, IdentityFields: append([]string(nil), policy.IdentityFields...), OTPEnabled: policy.OTPEnabled, MFAEnabled: policy.MFAEnabled, OAuthProviders: []string{}}
 	for rows.Next() {
 		var provider string
 		if err := rows.Scan(&provider); err != nil {

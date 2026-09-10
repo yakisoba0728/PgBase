@@ -21,6 +21,7 @@ type AuthFactors interface {
 	BeginOAuthWithProviderRedirect(context.Context, string, string, string, string) (userauth.OAuthAuthorization, error)
 	BeginOAuthLink(context.Context, uuid.UUID, string, string, string) (userauth.OAuthAuthorization, error)
 	BeginOAuthLinkWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error)
+	UnlinkOAuthIdentity(context.Context, uuid.UUID, string) error
 	CompleteOAuth(context.Context, string, string, string) (userauth.Session, error)
 	AcceptOAuthCallback(context.Context, string, string, string, string, string) (string, error)
 	RequestEmailOTP(context.Context, string, string) (userauth.EmailOTPRequest, error)
@@ -45,8 +46,23 @@ func (e userEndpoints) factorRoutes() []route {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/auth/" + action.name, access: action.access, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: e.factorAction(action.name)})
 	}
 	routes = append(routes, route{method: http.MethodGet, pattern: "/api/v1/auth/avatar", access: accessUserSession, response: passthrough(), deadline: deadlineDefault, handler: http.HandlerFunc(e.oauthAvatar)})
+	routes = append(routes, route{method: http.MethodDelete, pattern: "/api/v1/auth/oauth/providers/{provider}", access: accessUserSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.oauthUnlink)})
 	routes = append(routes, route{method: http.MethodPost, pattern: "/api/v1/auth/oauth/apple/callback", access: accessPublic, response: passthrough(), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.appleOAuthCallback)})
 	return routes
+}
+
+func (e userEndpoints) oauthUnlink(w http.ResponseWriter, r *http.Request) {
+	current, _ := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
+	if current.principal.Impersonated {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
+	if err := e.dependencies.AuthFactors.UnlinkOAuthIdentity(r.Context(), current.principal.User.ID, r.PathValue("provider")); err != nil {
+		writeUserAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (e userEndpoints) appleOAuthCallback(w http.ResponseWriter, r *http.Request) {

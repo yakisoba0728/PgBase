@@ -51,6 +51,20 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/auth-collections/meta/oauth2-providers": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
     "/api/admin/auth-collections/{id}": {
       "delete": {
         "parameters": [
@@ -1840,6 +1854,30 @@
           }
         ],
         "x-pgbase-maximum-request-bytes": 16384
+      }
+    },
+    "/api/v1/auth/oauth/providers/{provider}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "userBearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/oauth/start": {

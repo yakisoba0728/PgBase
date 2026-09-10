@@ -110,6 +110,38 @@ func (s *Service) BeginOAuthLink(ctx context.Context, userID uuid.UUID, currentP
 	return s.beginOAuth(ctx, user.AuthCollectionID, provider, redirectURI, redirectURI, user.ID, hash)
 }
 
+// UnlinkOAuthIdentity removes one linked provider while preserving at least one
+// independent sign-in method.  The check and delete share a row lock so two
+// concurrent unlink requests cannot strand an account.
+func (s *Service) UnlinkOAuthIdentity(ctx context.Context, userID uuid.UUID, provider string) error {
+	if userID == uuid.Nil || !validProviderName(provider) {
+		return ErrValidation
+	}
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var passwordEnabled bool
+		if err := tx.QueryRow(ctx, `select password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where user_id=$1 for update`, userID).Scan(&count); err != nil {
+			return err
+		}
+		if !passwordEnabled && count <= 1 {
+			return ErrValidation
+		}
+		tag, err := tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where user_id=$1 and provider=$2`, userID, provider)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
 func (s *Service) BeginOAuthLinkWithProviderRedirect(ctx context.Context, userID uuid.UUID, currentPassword, provider, returnURI, providerRedirectURI string) (OAuthAuthorization, error) {
 	user, hash, err := s.verifyUserPassword(ctx, userID, currentPassword, "oauth-link")
 	if err != nil {

@@ -139,6 +139,9 @@ var sqlConsoleSQL string
 //go:embed 000042_schema_compatibility.sql
 var schemaCompatibilitySQL string
 
+//go:embed 000043_auth_pb_compat.sql
+var authPBCompatSQL string
+
 //go:embed 000045_runtime_settings.sql
 var runtimeSettingsSQL string
 
@@ -230,6 +233,7 @@ var migrations = []Migration{
 	{Version: 40, Name: "user_migration_sources", SQL: userMigrationSourcesSQL, SHA256: sha256.Sum256([]byte(userMigrationSourcesSQL))},
 	{Version: 41, Name: "sql_console", SQL: sqlConsoleSQL, SHA256: sha256.Sum256([]byte(sqlConsoleSQL))},
 	{Version: 42, Name: "schema_compatibility", SQL: schemaCompatibilitySQL, SHA256: sha256.Sum256([]byte(schemaCompatibilitySQL))},
+	{Version: 43, Name: "auth_pb_compat", SQL: authPBCompatSQL, SHA256: sha256.Sum256([]byte(authPBCompatSQL))},
 	{Version: 45, Name: "runtime_settings", SQL: runtimeSettingsSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsSQL))},
 }
 

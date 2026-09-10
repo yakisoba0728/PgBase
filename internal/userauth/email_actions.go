@@ -145,7 +145,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 	var collectionID uuid.UUID
 	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose='password_reset' and a.consumed_at is null`, s.actionTokenHash("password_reset", rawToken)).Scan(&collectionID); err == nil {
 		policy, policyErr := s.authPolicy(ctx, collectionID)
-		if policyErr != nil || !policy.PasswordEnabled || len(newPassword) < policy.MinimumPasswordBytes {
+		if policyErr != nil || !passwordMatchesPolicy(newPassword, policy) {
 			return ErrValidation
 		}
 	}
@@ -347,6 +347,30 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 		return errors.New("send user email action")
 	}
 	return nil
+}
+
+// sendAuthAlert is deliberately best-effort: a mail transport outage must not
+// turn a successfully verified credential into a failed login. Administrators
+// opt in by storing the auth_alert template for the collection.
+func (s *Service) sendAuthAlert(ctx context.Context, user User, alert string) {
+	var subject, body, htmlBody string
+	err := s.pool.QueryRow(ctx, `select subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose='auth_alert'`, user.AuthCollectionID).Scan(&subject, &body, &htmlBody)
+	if err != nil {
+		return
+	}
+	body = strings.ReplaceAll(body, "{{alert}}", alert)
+	if htmlBody != "" {
+		var wrapErr error
+		htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(htmlBody, "{{alert}}", alert))
+		if wrapErr != nil {
+			return
+		}
+	}
+	sender, err := s.smtpSender(ctx, user.AuthCollectionID)
+	if err != nil {
+		return
+	}
+	_ = sender.Send(ctx, mailer.Message{Purpose: "auth_alert", To: user.Email, Subject: subject, Text: body, HTML: htmlBody})
 }
 
 func (s *Service) actionTokenHash(purpose, raw string) []byte {
