@@ -21,6 +21,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 type extensionBridge struct {
@@ -34,6 +35,15 @@ type extensionBridge struct {
 	objects       *ExtensionObjects
 	compatibility *extensionCompatibility
 	appControl    *extensionAppControl
+	authMail      authMailService
+}
+
+type authMailService interface {
+	AdminRequestPasswordReset(context.Context, uuid.UUID) error
+	AdminRequestVerification(context.Context, uuid.UUID) error
+	AdminRequestEmailChange(context.Context, uuid.UUID, string) error
+	RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error)
+	AdminSendAuthAlert(context.Context, uuid.UUID) error
 }
 
 type extensionHost struct {
@@ -107,6 +117,8 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return nil, extensionError("js_reentrant_operation", errors.New("hook cannot reenter its mutating operation family"))
 	}
 	switch method {
+	case "authMail.send":
+		return host.callAuthMail(operationContext, input)
 	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.model.save", "app.model.delete":
 		return host.callAppRecords(operationContext, method, input)
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
@@ -147,6 +159,44 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}
+}
+func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if host.bridge.authMail == nil {
+		return nil, extensionError("auth_mail_unavailable", nil)
+	}
+	var r struct {
+		Kind       string `json:"kind"`
+		Collection string `json:"collection"`
+		RecordID   string `json:"recordId"`
+		NewEmail   string `json:"newEmail"`
+		OTPID      string `json:"otpId"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, extensionError("invalid_auth_mail_request", err)
+	}
+	id, err := requiredUUID(r.RecordID)
+	if err != nil {
+		return nil, extensionError("invalid_auth_mail_request", err)
+	}
+	switch r.Kind {
+	case "passwordReset":
+		err = host.bridge.authMail.AdminRequestPasswordReset(ctx, id)
+	case "verification":
+		err = host.bridge.authMail.AdminRequestVerification(ctx, id)
+	case "changeEmail":
+		err = host.bridge.authMail.AdminRequestEmailChange(ctx, id, r.NewEmail)
+	case "authAlert":
+		err = host.bridge.authMail.AdminSendAuthAlert(ctx, id)
+	case "otp":
+		realm, e := requiredUUID(r.Collection)
+		if e != nil {
+			return nil, extensionError("invalid_auth_mail_request", e)
+		}
+		_, err = host.bridge.authMail.RequestEmailOTPInCollection(ctx, realm, r.OTPID, "admin-local")
+	default:
+		return nil, extensionError("invalid_auth_mail_request", nil)
+	}
+	return marshalExtensionResult(map[string]bool{"sent": true}, err)
 }
 
 // callAppRecords is the PocketBase-shaped adapter.  It is intentionally only

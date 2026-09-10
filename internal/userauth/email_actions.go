@@ -229,6 +229,37 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	return s.sendAction(ctx, user.ID, normalized, "Confirm your email change", "email-change", raw)
 }
 
+// AdminRequestEmailChange is the explicitly privileged counterpart used by
+// operator-configured hosts. It never exposes the generated action token.
+func (s *Service) AdminRequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	normalized, err := normalizeEmail(newEmail)
+	if err != nil {
+		return err
+	}
+	user, hash, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash)
+	if err != nil {
+		return err
+	}
+	return s.sendAction(ctx, user.ID, normalized, "Confirm your email change", "email-change", raw)
+}
+
+// AdminSendAuthAlert retains server template and SMTP ownership.
+func (s *Service) AdminSendAuthAlert(ctx context.Context, userID uuid.UUID) error {
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	s.sendAuthAlert(ctx, managed.User, "Administrator requested security alert")
+	return nil
+}
+
 func (s *Service) ConfirmEmailChange(ctx context.Context, rawToken string) error {
 	return s.consumeEmailAction(ctx, "email_change", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
 		if action.payloadEmail == nil {
