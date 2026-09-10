@@ -270,6 +270,10 @@ export interface SchemaPort {
 	importStatus?(operationId: string, signal?: AbortSignal): Promise<SchemaImportResult>;
 	/** Validates a prospective SQL view without storing it and returns its bounded sample. */
 	sampleView?(query: string, signal?: AbortSignal): Promise<{ fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] }>;
+	/** Returns server-owned starting documents for the three supported collection kinds. */
+	scaffolds?(signal?: AbortSignal): Promise<{ base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection }>;
+	/** Removes every record from one base collection after an exact typed confirmation. */
+	truncate?(collection: string, confirmation: string, signal?: AbortSignal): Promise<{ name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number }>;
 }
 export interface SchemaDocumentCollection { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
 export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] }
@@ -293,6 +297,7 @@ export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProvid
 export interface AuthCollectionsPort {
   listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
   getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; previewTemplate(id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
+	generateAppleClientSecret?(value: { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number }, signal?: AbortSignal): Promise<{ secret: string }>;
 }
 export interface ServiceTokenScope { collectionId: string; action: "read" | "create" | "update" | "delete" }
 export interface ServiceToken { id: string; name: string; active: boolean; expiresAt: string; revokedAt?: string; createdAt: string; scopes: ServiceTokenScope[] }

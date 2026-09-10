@@ -14,6 +14,7 @@ import {
   type PlannedField,
   type RelationCardinality,
   type RelationDeleteAction,
+	 type SchemaDocumentCollection,
   type ViewDefinition,
 } from "../backend/ports";
 import { fieldOptionsInput, draftFieldOptions, type DraftFieldOptions } from "./field-options";
@@ -45,7 +46,7 @@ export type DraftEdit =
   | { set: "type"; value: FieldType }
   | { set: "cardinality"; value: RelationCardinality } | { set: "onDelete"; value: RelationDeleteAction };
 
-export type DesignerMode = { kind: "create" } | { kind: "edit"; collection: string };
+export type DesignerMode = { kind: "create" } | { kind: "edit" | "duplicate"; collection: string } | { kind: "scaffold"; scaffold: "base" | "auth" | "view" };
 
 class DraftError extends Error {}
 
@@ -191,6 +192,11 @@ function draftFields(definition: CollectionDefinition, catalog: CollectionCatalo
     }));
 }
 
+function scaffoldFields(fields: FieldInput[] | undefined): DraftField[] {
+	if (fields === undefined || fields.length === 0) return [newField()];
+	return fields.map((field) => ({ options: draftFieldOptions(field.options), name: field.name, type: field.type, required: field.required, unique: field.unique, indexed: field.indexed, hidden: field.hidden, presentable: field.presentable, help: field.help, hasDefault: field.default !== undefined && !["editor", "geoPoint", "autodate", "password"].includes(field.type), defaultText: defaultTextFor(field.type, field.default), relation: field.relation === undefined ? undefined : { targetCollection: field.relation.targetCollection, cardinality: field.relation.cardinality, minSelect: String(field.relation.minSelect), maxSelect: String(field.relation.maxSelect), onDelete: field.relation.onDelete } }));
+}
+
 function withType(field: DraftField, type: FieldType): DraftField {
   if (type !== "relation") {
     const fixed = ["file", "editor", "geoPoint", "autodate", "password"].includes(type);
@@ -287,6 +293,7 @@ const draftSignature = (name: string, fields: DraftField[], indexes?: CompoundIn
 interface State {
   identity: string; create: boolean; phase: "loading" | "missing" | "unavailable" | "ready";
   name: string; tableName: string; definition: CollectionDefinition | null; catalog: CollectionCatalog | null;
+	duplicateSource?: string; scaffold?: "base" | "auth" | "view";
   targetsLoading: boolean; targetsFailed: boolean; fields: DraftField[];
   indexes?: CompoundIndex[];
   view?: ViewDefinition;
@@ -328,12 +335,14 @@ function forgetPending(administratorId: string | null, route: string, operationI
     return true; } catch { return false; }
 }
 function initial(mode: DesignerMode, identity: string): State {
-  const create = mode.kind === "create";
+  const create = mode.kind !== "edit";
   const name = create ? "" : mode.collection;
   const fields = create ? [newField()] : [];
   return {
-    identity, create, phase: create ? "ready" : "loading", name, tableName: "",
+    identity, create, phase: mode.kind === "create" ? "ready" : "loading", name, tableName: "",
     definition: null, catalog: null, targetsLoading: false, targetsFailed: false, fields, indexes: create ? [] : undefined,
+		...(mode.kind === "duplicate" ? { duplicateSource: mode.collection } : {}),
+		...(mode.kind === "scaffold" ? { scaffold: mode.scaffold } : {}),
     plan: null, confirmed: false, pending: false, error: null,
     deletePlan: null, deleteConfirmText: "", deletePending: false, deleteError: null,
     pristine: draftSignature(name, fields, create ? [] : undefined), undecided: null, terminal: false,
@@ -342,9 +351,14 @@ function initial(mode: DesignerMode, identity: string): State {
 
 const redrafted = (fields: DraftField[]): Partial<State> => ({ fields, plan: null, confirmed: false });
 
-function loadedState(current: State, catalog: CollectionCatalog): Partial<State> {
+function loadedState(current: State, catalog: CollectionCatalog, scaffolds?: { base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection }): Partial<State> {
   const base = { catalog, targetsLoading: false, targetsFailed: false };
-  if (current.create) return base;
+  if (current.create) {
+		const source = current.duplicateSource === undefined ? undefined : catalog.get(current.duplicateSource), template = current.scaffold === undefined ? undefined : scaffolds?.[current.scaffold];
+		if (current.duplicateSource !== undefined && source === undefined) return { ...base, phase: "missing" }; if (current.scaffold !== undefined && template === undefined) return { ...base, phase: "unavailable" }; if (source === undefined && template === undefined) return base;
+		const fields = source === undefined ? scaffoldFields(template!.fields) : draftFields(source, catalog), indexes = (source?.indexes ?? template?.indexes ?? []).map((index) => ({ name: index.name, fields: [...index.fields], unique: index.unique })), view = source === undefined ? template!.view : source.view !== undefined && "sql" in source.view ? { sql: source.view.sql } as ViewDefinition : undefined, name = source === undefined ? "" : `${source.name}_copy`;
+		return { ...base, phase: "ready", name, fields, indexes, view, pristine: draftSignature(name, fields, indexes, view) };
+	}
   const definition = catalog.get(current.name);
   if (definition === undefined) return { ...base, phase: "missing" };
 	const fields = draftFields(definition, catalog);
@@ -434,7 +448,10 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const { schema } = useBackend();
   const session = useSession().state;
   const administratorId = session.kind === "authenticated" ? session.administrator.id : null;
-  const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" } : { kind: "collection-edit", collection: mode.collection });
+  const identity = adminRouteIdentity(mode.kind === "create" ? { kind: "collection-create" }
+	: mode.kind === "duplicate" ? { kind: "collection-duplicate", collection: mode.collection }
+	: mode.kind === "scaffold" ? { kind: "collection-scaffold", scaffold: mode.scaffold }
+	: { kind: "collection-edit", collection: mode.collection });
   const active = useRouteGuard(identity);
   const [state, update] = useResourceState(identity, (current) => initial(mode, current));
   // Retries reuse one identity per approved plan; a fresh preview does not.
@@ -459,20 +476,20 @@ export function useCollectionDesigner(mode: DesignerMode, navigate: (route: Admi
   const savedDraft = useUnsavedDraft(identity, unsaved);
 
   const wantsCatalog = state.catalog === null && !state.targetsFailed && state.phase !== "missing" && state.phase !== "unavailable" &&
-    (!state.create || state.view !== undefined || state.fields.some((field) => field.type === "relation"));
+    (!state.create || state.duplicateSource !== undefined || state.scaffold !== undefined || state.view !== undefined || state.fields.some((field) => field.type === "relation"));
 
   useEffect(() => {
     if (!wantsCatalog) return;
     const controller = new AbortController();
     update(identity, { targetsLoading: true });
-    void schema.catalog(controller.signal)
-      .then((catalog) => { if (!controller.signal.aborted) update(identity, (current) => loadedState(current, catalog)); })
+    void Promise.all([schema.catalog(controller.signal), state.scaffold === undefined ? Promise.resolve(undefined) : schema.scaffolds?.(controller.signal)])
+      .then(([catalog, scaffolds]) => { if (!controller.signal.aborted) update(identity, (current) => loadedState(current, catalog, scaffolds)); })
       .catch(() => {
         if (controller.signal.aborted) return;
         update(identity, (current) => current.create ? { targetsLoading: false, targetsFailed: true } : { phase: "unavailable" });
       });
     return () => controller.abort();
-  }, [identity, schema, update, wantsCatalog]);
+  }, [identity, schema, state.scaffold, update, wantsCatalog]);
 
   useEffect(() => {
     if (undecided === null || recovery?.status === "committed" || recovery?.status === "failed") return;

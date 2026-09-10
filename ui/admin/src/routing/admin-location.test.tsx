@@ -17,6 +17,11 @@ import { draftLedger } from "./unsaved-draft";
 const routes: AdminRoute[] = [
   { kind: "collections" },
   { kind: "collection-create" },
+  { kind: "collection-duplicate", collection: "posts" },
+  { kind: "collection-scaffold", scaffold: "base" },
+  { kind: "collection-scaffold", scaffold: "auth" },
+  { kind: "collection-scaffold", scaffold: "view" },
+  { kind: "extension", id: "reports", path: "/admin/ext/reports" },
   { kind: "operations" },
 	{ kind: "sql-console" },
   { kind: "system" },
@@ -35,6 +40,9 @@ describe("admin routes", () => {
 
   it.each([
     ["/admin/collections/new", { kind: "collection-create" }],
+    ["/admin/collections/new/base", { kind: "collection-scaffold", scaffold: "base" }],
+    ["/admin/collections/posts/duplicate", { kind: "collection-duplicate", collection: "posts" }],
+    ["/admin/ext/reports", { kind: "extension", id: "reports", path: "/admin/ext/reports" }],
     ["/admin/schema-operations", { kind: "operations" }],
 		["/admin/sql", { kind: "sql-console" }],
     ["/admin/system", { kind: "system" }],

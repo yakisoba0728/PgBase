@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 export type AdminRoute =
   | { kind: "collections" }
   | { kind: "collection-create" }
+  | { kind: "collection-duplicate"; collection: string }
+  | { kind: "collection-scaffold"; scaffold: "base" | "auth" | "view" }
   | { kind: "collection-edit"; collection: string }
   | { kind: "records"; collection: string }
   | { kind: "record"; collection: string; id?: string }
@@ -15,7 +17,8 @@ export type AdminRoute =
   | { kind: "users" }
   | { kind: "auth-collections" }
   | { kind: "service-tokens" }
-  | { kind: "schema-transfer" };
+  | { kind: "schema-transfer" }
+  | { kind: "extension"; id: string; path: string };
 
 
 type SessionScreen = "setup" | "login" | "shell";
@@ -40,6 +43,7 @@ const collectionsPath = "/admin/collections";
 const operationsPath = "/admin/schema-operations";
 const authPaths = { setup: "/admin/setup", login: "/admin/login" } as const;
 const editPattern = /^\/admin\/collections\/([^/]+)\/edit$/;
+const duplicatePattern = /^\/admin\/collections\/([^/]+)\/duplicate$/;
 const recordPattern = /^\/admin\/collections\/([^/]+)\/records(?:\/([^/]+))?$/;
 
 // A segment the browser cannot decode names no resource, so the route falls
@@ -50,6 +54,9 @@ function segment(value: string): string | null {
 
 export function parseAdminRoute(path: string): AdminRoute {
   if (path === `${collectionsPath}/new`) return { kind: "collection-create" };
+	if (path === `${collectionsPath}/new/base`) return { kind: "collection-scaffold", scaffold: "base" };
+	if (path === `${collectionsPath}/new/auth`) return { kind: "collection-scaffold", scaffold: "auth" };
+	if (path === `${collectionsPath}/new/view`) return { kind: "collection-scaffold", scaffold: "view" };
   if (path === "/admin/storage/backups") return { kind: "backup-storage" };
   if (path === "/admin/storage") return { kind: "storage" };
   if (path === operationsPath) return { kind: "operations" };
@@ -60,11 +67,18 @@ export function parseAdminRoute(path: string): AdminRoute {
   if (path === "/admin/auth-collections") return { kind: "auth-collections" };
 	if (path === "/admin/service-tokens") return { kind: "service-tokens" };
 	if (path === "/admin/schema-transfer") return { kind: "schema-transfer" };
+	const extension = /^\/admin\/ext\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(path);
+	if (extension) return { kind: "extension", id: extension[1], path };
   const edit = editPattern.exec(path);
   if (edit) {
     const collection = segment(edit[1]);
     if (collection !== null) return { kind: "collection-edit", collection };
   }
+	const duplicate = duplicatePattern.exec(path);
+	if (duplicate) {
+		const collection = segment(duplicate[1]);
+		if (collection !== null) return { kind: "collection-duplicate", collection };
+	}
   const record = recordPattern.exec(path);
   if (record) {
     const collection = segment(record[1]);
@@ -81,6 +95,7 @@ export function parseAdminRoute(path: string): AdminRoute {
 export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "collections") return collectionsPath;
   if (route.kind === "collection-create") return `${collectionsPath}/new`;
+	if (route.kind === "collection-scaffold") return `${collectionsPath}/new/${route.scaffold}`;
   if (route.kind === "backup-storage") return "/admin/storage/backups";
   if (route.kind === "storage") return "/admin/storage";
   if (route.kind === "operations") return operationsPath;
@@ -91,7 +106,9 @@ export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "auth-collections") return "/admin/auth-collections";
   if (route.kind === "service-tokens") return "/admin/service-tokens";
   if (route.kind === "schema-transfer") return "/admin/schema-transfer";
+  if (route.kind === "extension") return route.path;
   const base = `${collectionsPath}/${encodeURIComponent(route.collection)}`;
+	if (route.kind === "collection-duplicate") return `${base}/duplicate`;
   if (route.kind === "collection-edit") return `${base}/edit`;
   if (route.kind === "records") return `${base}/records`;
   return `${base}/records/${route.id === undefined ? "new" : encodeURIComponent(route.id)}`;
@@ -101,8 +118,10 @@ export function adminRoutePath(route: AdminRoute): string {
 // name or record id may contain every other character: a record literally named
 // `new` must never answer to the identity of the create route.
 export function adminRouteIdentity(route: AdminRoute): string {
-  if (route.kind === "collection-edit" || route.kind === "records") return `${route.kind}\0${route.collection}`;
+  if (route.kind === "collection-edit" || route.kind === "collection-duplicate" || route.kind === "records") return `${route.kind}\0${route.collection}`;
   if (route.kind === "record") return `record\0${route.collection}\0${route.id === undefined ? "" : `id:${route.id}`}`;
+	if (route.kind === "collection-scaffold") return `collection-scaffold\0${route.scaffold}`;
+  if (route.kind === "extension") return `extension\0${route.id}\0${route.path}`;
   return route.kind;
 }
 

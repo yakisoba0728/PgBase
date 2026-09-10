@@ -46,7 +46,7 @@ import {
   type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthMailPreview, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
-	type SchemaDocument, type SchemaImportPlan, type SchemaImportResult,
+	type SchemaDocument, type SchemaDocumentCollection, type SchemaImportPlan, type SchemaImportResult,
 } from "./ports";
 
 interface Wire {
@@ -282,6 +282,8 @@ class HTTPBackend implements AdminBackend {
 			catch (caught) { if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body")) return (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult; throw caught; }
 		},
 		sampleView: async (query: string, signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/view/sample", method: "POST", body: { query }, csrf: true, signal })).data as { fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] },
+		scaffolds: async (signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/scaffolds", signal })).data as { base: SchemaDocumentCollection; auth: SchemaDocumentCollection; view: SchemaDocumentCollection },
+		truncate: async (collection: string, confirmation: string, signal?: AbortSignal) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/truncate`, method: "POST", body: { name: confirmation }, csrf: true, signal })).data as { name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number },
 		importStatus: async (operationId: string, signal?: AbortSignal) => (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(operationId)}`, signal })).data as SchemaImportResult,
   };
 
@@ -508,6 +510,7 @@ class HTTPBackend implements AdminBackend {
     previewTemplate: async (id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}/preview`, method: "POST", body: { ...templateInput(value), actionUrl: value.actionUrl }, csrf: true, signal })).data as AuthMailPreview,
     putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: smtpInput(value), csrf: true, signal })).data as AuthSMTPSettings,
     testSMTP: async (id: string, recipient: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp/test`, method: "POST", body: { recipient }, csrf: true, signal }); },
+		generateAppleClientSecret: async (value: { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number }, signal?: AbortSignal): Promise<{ secret: string }> => (await this.#schemaCall({ path: "/api/admin/settings/apple/generate-client-secret", method: "POST", body: value, csrf: true, signal })).data as { secret: string },
   };
   readonly serviceTokens = {
     listServiceTokens: async (signal?: AbortSignal): Promise<ServiceToken[]> =>

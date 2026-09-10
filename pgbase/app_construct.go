@@ -207,7 +207,11 @@ func newWithCatalogPreflight(
 			_ = sqlConsoleService.Close(shutdown)
 		}
 	}()
-	adminHandler, err := adminui.Handler()
+	uiExtensions := make([]adminui.UIExtension, 0, len(normalized.UIExtensions))
+	for _, extension := range normalized.UIExtensions {
+		uiExtensions = append(uiExtensions, adminui.UIExtension{Name: extension.Name, FS: extension.FS})
+	}
+	adminHandler, err := adminui.Handler(uiExtensions)
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}

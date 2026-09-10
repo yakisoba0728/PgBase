@@ -28,7 +28,7 @@ function ApplyRecovery({ navigate, recovery }: { navigate(route: AdminRoute): vo
 export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode; navigate(route: AdminRoute): void }) {
   const { schema } = useBackend();
   const designer = useCollectionDesigner(mode, navigate);
-  const heading = designer.create ? "Create collection" : "Edit collection";
+  const heading = mode.kind === "duplicate" ? "Duplicate collection" : mode.kind === "scaffold" ? `Create ${mode.scaffold} scaffold` : designer.create ? "Create collection" : "Edit collection";
 
   if (designer.phase === "missing") return <section><h2>{heading}</h2><p role="alert">Collection not found.</p></section>;
   if (designer.phase === "unavailable") return <section><h2>{heading}</h2><p role="alert">Unable to load collection.</p></section>;
@@ -37,7 +37,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
   return <section>
     <h2>{heading}</h2>
     {designer.create
-      ? <p>Preview the server-generated schema plan before applying it.</p>
+      ? <p>{mode.kind === "duplicate" ? "The duplicate starts with the source schema and creates a separate empty collection." : "Preview the server-generated schema plan before applying it."}</p>
       : <p>{designer.name} · physical table {designer.tableName}</p>}
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}

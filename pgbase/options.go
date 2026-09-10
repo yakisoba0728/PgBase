@@ -42,6 +42,10 @@ const (
 type Options struct {
 	// CustomRoutes installs up to 64 application handlers with explicit access.
 	CustomRoutes []CustomRoute
+	// UIExtensions installs trusted, operator-owned administrator UI assets and
+	// optional main.js contributions at startup. Browser and JavaScript
+	// extensions cannot register themselves through this option.
+	UIExtensions []UIExtension
 	// JavaScript enables trusted local scripts after validating an immutable
 	// source manifest. A nil value keeps the runtime entirely disabled.
 	JavaScript *JavaScriptOptions
@@ -173,6 +177,7 @@ func (o Options) Normalized() (Options, error) {
 	}
 	o.MutationHooks = append([]MutationHook(nil), o.MutationHooks...)
 	o.CustomRoutes = append([]CustomRoute(nil), o.CustomRoutes...)
+	o.UIExtensions = append([]UIExtension(nil), o.UIExtensions...)
 	o.OAuthProviders = append([]OAuthProviderOptions(nil), o.OAuthProviders...)
 	for i := range o.OAuthProviders {
 		o.OAuthProviders[i].Scopes = append([]string(nil), o.OAuthProviders[i].Scopes...)
@@ -187,6 +192,9 @@ func (o Options) Normalized() (Options, error) {
 
 func validateOptions(o Options) error {
 	if err := api.ValidateCustomRoutes(o.CustomRoutes); err != nil {
+		return err
+	}
+	if err := validateUIExtensions(o.UIExtensions); err != nil {
 		return err
 	}
 	if err := validateScheduledJobs(o.Jobs); err != nil {

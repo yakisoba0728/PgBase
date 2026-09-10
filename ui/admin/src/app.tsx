@@ -22,6 +22,8 @@ import { ServiceTokensPage } from "./pages/service-tokens-page";
 import { SchemaTransferPage } from "./pages/schema-transfer-page";
 import { SQLConsolePage } from "./pages/sql-console-page";
 import { SettingsPage } from "./pages/settings-page";
+import { useAdminExtensionScreens, extensionScreen } from "./extensions/admin-extensions";
+import { ExtensionScreen } from "./extensions/extension-screen";
 
 type Navigate = (route: AdminRoute) => void;
 
@@ -29,6 +31,8 @@ type Navigate = (route: AdminRoute) => void;
 // state before the next one renders instead of each page unwinding it.
 function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?: SQLConsolePort) {
   if (route.kind === "collection-create") return <CollectionDesignerPage key={key} mode={{ kind: "create" }} navigate={navigate} />;
+  if (route.kind === "collection-duplicate") return <CollectionDesignerPage key={key} mode={{ kind: "duplicate", collection: route.collection }} navigate={navigate} />;
+  if (route.kind === "collection-scaffold") return <CollectionDesignerPage key={key} mode={{ kind: "scaffold", scaffold: route.scaffold }} navigate={navigate} />;
   if (route.kind === "backup-storage") return <BackupStoragePage key={key} />;
   if (route.kind === "storage") return <StorageSettingsPage key={key} />;
   if (route.kind === "operations") return <SchemaOperationsPage key={key} />;
@@ -39,6 +43,10 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   if (route.kind === "auth-collections") return <AuthCollectionsPage key={key} />;
   if (route.kind === "service-tokens") return <ServiceTokensPage key={key} />;
   if (route.kind === "schema-transfer") return <SchemaTransferPage key={key} />;
+	if (route.kind === "extension") {
+		const screen = extensionScreen(route.id, route.path);
+		return screen === undefined ? <section><h2>Extension screen unavailable</h2><p role="alert">This extension is not available. Reload the administrator workspace.</p></section> : <ExtensionScreen key={key} screen={screen} />;
+	}
   if (route.kind === "collection-edit") return <CollectionDesignerPage key={key} mode={{ kind: "edit", collection: route.collection }} navigate={navigate} />;
   if (route.kind === "records") return <RecordsPage collectionName={route.collection} key={key} navigate={navigate} />;
   if (route.kind === "record") return <RecordEditPage collectionName={route.collection} id={route.id} key={key} navigate={navigate} />;
@@ -52,6 +60,7 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
   const logoutInFlight = useRef(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+	const extensionScreens = useAdminExtensionScreens();
 	useEffect(() => {
 		if (!settings) return;
 		const controller = new AbortController();
@@ -93,7 +102,7 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
     </header>
     <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
       {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{extensionScreens.map((screen) => <AdminLink className="text-button" key={screen.id} navigate={navigate} route={{ kind: "extension", id: screen.id, path: screen.path }}>{screen.label}</AdminLink>)}{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
       <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined)}</UnsavedDrafts>
     </fieldset>
   </main>;
