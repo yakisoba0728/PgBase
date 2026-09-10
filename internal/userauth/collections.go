@@ -218,13 +218,47 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		if json.Unmarshal(rawSchema, &schema) != nil || !validateProfile(attributes, schema) {
 			return ErrValidation
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw)
+		var collectionID uuid.UUID
+		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1 for share`, userID).Scan(&collectionID); err != nil {
+			return err
+		}
+		policy, err := authPolicyTx(ctx, tx, collectionID)
+		if err != nil {
+			return err
+		}
+		for _, field := range policy.IdentityFields {
+			if field == "email" {
+				continue
+			}
+			value, present := attributes[field]
+			text, ok := value.(string)
+			if !present || !ok || text == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext($1))`, collectionID.String()+":"+field+":"+text); err != nil {
+				return err
+			}
+			var duplicate bool
+			if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 and u.id<>$2 and p.attributes ->> $3=$4)`, collectionID, userID, field, text).Scan(&duplicate); err != nil {
+				return err
+			}
+			if duplicate {
+				return ErrConflict
+			}
+		}
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return attributes, nil
+}
+
+func authPolicyTx(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID) (AuthPolicy, error) {
+	var p AuthPolicy
+	err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MaximumPasswordBytes, &p.PasswordPattern, &p.IdentityFields, &p.MFAEnabled, &p.MFADurationSeconds, &p.MFARule, &p.OTPEnabled, &p.OTPDurationSeconds, &p.OTPMaxAttempts)
+	return p, err
 }
 
 func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]any, error) {

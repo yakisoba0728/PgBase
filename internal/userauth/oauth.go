@@ -125,7 +125,7 @@ func (s *Service) UnlinkOAuthIdentity(ctx context.Context, userID uuid.UUID, pro
 			return err
 		}
 		var count int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where user_id=$1 for update`, userID).Scan(&count); err != nil {
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where user_id=$1`, userID).Scan(&count); err != nil {
 			return err
 		}
 		if !passwordEnabled && count <= 1 {

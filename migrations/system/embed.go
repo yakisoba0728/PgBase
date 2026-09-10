@@ -145,6 +145,9 @@ var authPBCompatSQL string
 //go:embed 000045_runtime_settings.sql
 var runtimeSettingsSQL string
 
+//go:embed 000048_auth_oidc_compat.sql
+var authOIDCCompatSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -235,6 +238,7 @@ var migrations = []Migration{
 	{Version: 42, Name: "schema_compatibility", SQL: schemaCompatibilitySQL, SHA256: sha256.Sum256([]byte(schemaCompatibilitySQL))},
 	{Version: 43, Name: "auth_pb_compat", SQL: authPBCompatSQL, SHA256: sha256.Sum256([]byte(authPBCompatSQL))},
 	{Version: 45, Name: "runtime_settings", SQL: runtimeSettingsSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsSQL))},
+	{Version: 48, Name: "auth_oidc_compat", SQL: authOIDCCompatSQL, SHA256: sha256.Sum256([]byte(authOIDCCompatSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

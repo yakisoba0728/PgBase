@@ -149,6 +149,8 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		AuthorizationURL      string   `json:"authorizationUrl"`
 		TokenURL              string   `json:"tokenUrl"`
 		UserInfoURL           string   `json:"userInfoUrl"`
+		Issuer                string   `json:"issuer"`
+		JWKSURL               string   `json:"jwksUrl"`
 		ClientID              string   `json:"clientId"`
 		ClientSecret          string   `json:"clientSecret"`
 		Scopes                []string `json:"scopes"`
@@ -163,7 +165,7 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, Issuer: in.Issuer, JWKSURL: in.JWKSURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return

@@ -44,6 +44,8 @@ type OAuthProviderConfig struct {
 	AuthorizationURL      string   `json:"authorizationUrl"`
 	TokenURL              string   `json:"tokenUrl"`
 	UserInfoURL           string   `json:"userInfoUrl"`
+	Issuer                string   `json:"issuer"`
+	JWKSURL               string   `json:"jwksUrl"`
 	ClientID              string   `json:"clientId"`
 	Enabled               bool     `json:"enabled"`
 	SecretConfigured      bool     `json:"secretConfigured"`
@@ -109,7 +111,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	} else if err != nil {
 		return out, err
 	}
-	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 order by name limit 32`, collectionID)
+	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 order by name limit 32`, collectionID)
 	if err != nil {
 		return out, err
 	}
@@ -117,7 +119,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	for rows.Next() {
 		var p OAuthProviderConfig
 		var scopes, redirects []byte
-		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AvatarField, &p.AllowInsecureLoopback); err != nil {
+		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.Issuer, &p.JWKSURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AvatarField, &p.AllowInsecureLoopback); err != nil {
 			return out, err
 		}
 		if json.Unmarshal(scopes, &p.Scopes) != nil || json.Unmarshal(redirects, &p.RedirectURIs) != nil {
@@ -182,6 +184,18 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 		} else if err != nil {
 			return err
 		}
+		for _, field := range policy.IdentityFields {
+			if field == "email" {
+				continue
+			}
+			var duplicate bool
+			if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 and coalesce(p.attributes ->> $2,'')<>'' group by p.attributes ->> $2 having count(*)>1)`, collectionID, field).Scan(&duplicate); err != nil {
+				return err
+			}
+			if duplicate {
+				return ErrConflict
+			}
+		}
 		identityFields, _ := json.Marshal(policy.IdentityFields)
 		tag, err := tx.Exec(ctx, `update pgbase_meta.auth_collection_policies set password_enabled=$2,minimum_password_bytes=$3,maximum_password_bytes=$4,password_pattern=$5,identity_fields=$6,mfa_enabled=$7,mfa_duration_seconds=$8,mfa_rule=$9,otp_enabled=$10,otp_duration_seconds=$11,otp_max_attempts=$12,updated_at=CURRENT_TIMESTAMP where auth_collection_id=$1`, collectionID, policy.PasswordEnabled, policy.MinimumPasswordBytes, policy.MaximumPasswordBytes, policy.PasswordPattern, identityFields, policy.MFAEnabled, policy.MFADurationSeconds, policy.MFARule, policy.OTPEnabled, policy.OTPDurationSeconds, policy.OTPMaxAttempts)
 		if err != nil {
@@ -245,7 +259,7 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 	if p.RedirectURIs == nil {
 		p.RedirectURIs = []string{}
 	}
-	provider, err := NewHTTPOAuthProvider(HTTPOAuthConfig{ProviderName: p.Name, AuthorizationURL: p.AuthorizationURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, SubjectField: p.SubjectField, EmailField: p.EmailField, EmailVerifiedField: p.EmailVerifiedField, AvatarField: p.AvatarField, AllowInsecureLoopback: p.AllowInsecureLoopback})
+	provider, err := NewHTTPOAuthProvider(HTTPOAuthConfig{ProviderName: p.Name, AuthorizationURL: p.AuthorizationURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, Issuer: p.Issuer, JWKSURL: p.JWKSURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, SubjectField: p.SubjectField, EmailField: p.EmailField, EmailVerifiedField: p.EmailVerifiedField, AvatarField: p.AvatarField, AllowInsecureLoopback: p.AllowInsecureLoopback})
 	if err != nil {
 		return p, err
 	}
@@ -266,9 +280,9 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if encrypted == nil {
-			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured)
+			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured)
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback)
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback)
 		p.SecretConfigured = true
 		return err
 	})
@@ -444,7 +458,7 @@ func (s *Service) configuredOAuthProvider(ctx context.Context, collectionID uuid
 	var c HTTPOAuthConfig
 	c.ProviderName = name
 	var encrypted, scopesRaw, redirectsRaw []byte
-	err := s.pool.QueryRow(ctx, `select authorization_url,token_url,user_info_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2 and enabled`, collectionID, name).Scan(&c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AvatarField, &c.AllowInsecureLoopback)
+	err := s.pool.QueryRow(ctx, `select authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2 and enabled`, collectionID, name).Scan(&c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.Issuer, &c.JWKSURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AvatarField, &c.AllowInsecureLoopback)
 	if errors.Is(err, pgx.ErrNoRows) {
 		p, ok := s.oauthProviders[name]
 		if !ok {

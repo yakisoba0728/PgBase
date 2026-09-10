@@ -182,9 +182,6 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
 	}
-	if err == nil {
-		s.sendAuthAlert(ctx, issued.User, "A password sign-in occurred on your account.")
-	}
 	return issued, err
 }
 
