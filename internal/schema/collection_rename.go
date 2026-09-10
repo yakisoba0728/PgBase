@@ -58,6 +58,46 @@ func collectionForUpdate(catalog Catalog, input UpdateCollectionInput) (Collecti
 	return Collection{}, false
 }
 
+func validateCollectionUpdateTarget(catalog Catalog, current Collection, input UpdateCollectionInput) error {
+	if input.CollectionID == nil && current.Name != input.Name {
+		return ErrConflict
+	}
+	if input.CollectionID != nil && *input.CollectionID != current.ID {
+		return ErrConflict
+	}
+	if err := validateInputName("name", input.Name); err != nil {
+		return err
+	}
+	if existing, exists := catalog.Collections[input.Name]; exists && existing.ID != current.ID {
+		return validation("name", "duplicate_name")
+	}
+	return nil
+}
+
+func finalizeCollectionRename(current Collection, target string, fields []PlannedField, indexes []PlannedIndex, statements []string) ([]PlannedField, []string, error) {
+	comparisonIndexes := current.Indexes
+	if target != current.Name {
+		comparisonIndexes = catalogIndexesForCollection(current.Indexes, target)
+	}
+	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, comparisonIndexes, indexes, fields)...)
+	if target == current.Name {
+		return fields, statements, nil
+	}
+	if len(statements) != 0 {
+		return nil, nil, validation("name", "rename_requires_unchanged_definition")
+	}
+	renameStatements, fields, err := renameCollectionStatements(current, target, fields, indexes)
+	if err != nil {
+		return nil, nil, err
+	}
+	for index := range fields {
+		if fields[index].Relation != nil && fields[index].Relation.TargetCollectionID != nil && *fields[index].Relation.TargetCollectionID == current.ID {
+			fields[index].Relation.TargetCollection = target
+		}
+	}
+	return fields, append(statements, renameStatements...), nil
+}
+
 func renameCollectionStatements(current Collection, target string, fields []PlannedField, indexes []PlannedIndex) ([]string, []PlannedField, error) {
 	if current.Name == target {
 		return nil, fields, nil

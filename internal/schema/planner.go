@@ -157,17 +157,8 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 // Field renames are not supported: a name that disappears is a drop and a name
 // that appears is an add.
 func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
-	if input.CollectionID == nil && current.Name != input.Name {
-		return Plan{}, ErrConflict
-	}
-	if input.CollectionID != nil && *input.CollectionID != current.ID {
-		return Plan{}, ErrConflict
-	}
-	if err := validateInputName("name", input.Name); err != nil {
+	if err := validateCollectionUpdateTarget(catalog, current, input); err != nil {
 		return Plan{}, err
-	}
-	if existing, exists := catalog.Collections[input.Name]; exists && existing.ID != current.ID {
-		return Plan{}, validation("name", "duplicate_name")
 	}
 	if current.IsView() {
 		if plan, handled, err := planViewRename(catalog, current, input); handled {
@@ -421,27 +412,11 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			return Plan{}, err
 		}
 	}
-	comparisonIndexes := current.Indexes
-	if input.Name != current.Name {
-		comparisonIndexes = catalogIndexesForCollection(current.Indexes, input.Name)
+	renamedFields, renameStatements, err := finalizeCollectionRename(current, input.Name, desired, indexes, statements)
+	if err != nil {
+		return Plan{}, err
 	}
-	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, comparisonIndexes, indexes, desired)...)
-	if input.Name != current.Name {
-		if len(statements) != 0 {
-			return Plan{}, validation("name", "rename_requires_unchanged_definition")
-		}
-		renameStatements, renamedFields, err := renameCollectionStatements(current, input.Name, desired, indexes)
-		if err != nil {
-			return Plan{}, err
-		}
-		desired = renamedFields
-		statements = append(statements, renameStatements...)
-		for index := range desired {
-			if desired[index].Relation != nil && desired[index].Relation.TargetCollectionID != nil && *desired[index].Relation.TargetCollectionID == current.ID {
-				desired[index].Relation.TargetCollection = input.Name
-			}
-		}
-	}
+	desired, statements = renamedFields, renameStatements
 
 	return Plan{
 		Operation:   updateCollectionOperation,
