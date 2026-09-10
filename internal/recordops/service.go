@@ -156,6 +156,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return transactionalMembership(err)
 		}
 		if len(keyHash) > 0 {
+			if err := lockCollectionMutation(ctx, tx, collection.ID); err != nil {
+				return err
+			}
 			replayed, found, err := findIdempotentCreate(ctx, tx, request.Principal, collection.ID, keyHash, requestHash[:])
 			if err != nil {
 				return err
@@ -190,6 +193,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		mutationInput, err = s.resolveRelationIdentities(ctx, tx, catalog, collection, mutationInput)
 		if err != nil {
 			return err
+		}
+		if len(keyHash) == 0 {
+			if err := lockCollectionMutation(ctx, tx, collection.ID); err != nil {
+				return err
+			}
 		}
 		if err := createFence.Reserve(ctx); err != nil {
 			return transactionalMembership(err)

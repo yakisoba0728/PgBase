@@ -58,7 +58,7 @@ func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result
 			if collection.System || collection.IsView() {
 				return recordaccess.ErrUnsupported
 			}
-			if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", collection.ID.String()); err != nil {
+			if err = lockCollectionMutation(ctx, tx, collection.ID); err != nil {
 				return err
 			}
 			ids, err := truncateRecordIDs(ctx, tx, collection)
