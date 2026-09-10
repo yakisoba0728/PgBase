@@ -31,6 +31,10 @@ func catalogDTO(c interface{}) catalogCollectionDTO {
 type adminAuthAuxService interface {
 	AdminListAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string) ([]userauth.AuthAuxiliaryRecord, error)
 	AdminDeleteAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string, uuid.UUID) error
+	AdminQueryAuthAuxiliary(context.Context, identity.Subject, userauth.AuthAuxiliaryQuery) ([]userauth.AuthAuxiliaryRecord, error)
+	AdminDeleteAuthAuxiliaryScope(context.Context, identity.Subject, userauth.AuthAuxiliaryQuery, bool) error
+	AdminFindAuthRecordByToken(context.Context, identity.Subject, string, []string) (userauth.AuthRecord, error)
+	AdminFindAuthRecordByEmail(context.Context, identity.Subject, uuid.UUID, string) (userauth.AuthRecord, error)
 }
 
 func (host *extensionHost) requireAppAdministrator() error {
@@ -185,6 +189,142 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 		}
 		e = s.AdminDeleteAuthAuxiliary(ctx, host.principal, realm, record, q.Kind, id)
 		return marshalExtensionResult(map[string]bool{"deleted": true}, e)
+	case "app.authAux.query":
+		var q struct {
+			Kind, Collection, RecordID, ID, Provider, Fingerprint string
+			Expr                                                  json.RawMessage
+		}
+		if err := decodeExtensionInput(raw, &q); err != nil {
+			return nil, err
+		}
+		if len(q.Expr) > 0 && string(q.Expr) != "null" {
+			var expr struct {
+				Op   string            `json:"op"`
+				Args []json.RawMessage `json:"args"`
+			}
+			if json.Unmarshal(q.Expr, &expr) != nil || expr.Op != "hashExp" || len(expr.Args) != 1 {
+				return nil, extensionError("invalid_auth_aux_expression", errors.New("only parameterized hashExp is supported"))
+			}
+			var values map[string]json.RawMessage
+			if json.Unmarshal(expr.Args[0], &values) != nil || len(values) == 0 || len(values) > 4 {
+				return nil, extensionError("invalid_auth_aux_expression", nil)
+			}
+			for key, value := range values {
+				var text string
+				if json.Unmarshal(value, &text) != nil {
+					return nil, extensionError("invalid_auth_aux_expression", nil)
+				}
+				switch key {
+				case "id":
+					q.ID = text
+				case "provider":
+					q.Provider = text
+				case "recordId", "userId":
+					q.RecordID = text
+				case "collection", "collectionId":
+					q.Collection = text
+				default:
+					return nil, extensionError("invalid_auth_aux_expression", errors.New("unsupported expression field"))
+				}
+			}
+		}
+		request := userauth.AuthAuxiliaryQuery{Kind: q.Kind, Provider: q.Provider, Fingerprint: q.Fingerprint}
+		var e error
+		if q.Collection != "" {
+			request.CollectionID, e = host.resolveAuthMailCollection(ctx, q.Collection)
+			if e != nil {
+				return nil, extensionError("invalid_auth_aux", e)
+			}
+		}
+		if q.RecordID != "" {
+			request.UserID, e = uuid.Parse(q.RecordID)
+			if e != nil {
+				return nil, extensionError("invalid_auth_aux", e)
+			}
+		}
+		if q.ID != "" {
+			request.ID, e = uuid.Parse(q.ID)
+			if e != nil {
+				return nil, extensionError("invalid_auth_aux", e)
+			}
+		}
+		s, ok := host.bridge.authMail.(adminAuthAuxService)
+		if !ok {
+			return nil, extensionError("auth_aux_unavailable", nil)
+		}
+		out, e := s.AdminQueryAuthAuxiliary(ctx, host.principal, request)
+		return marshalExtensionResult(map[string]any{"items": out}, e)
+	case "app.authAux.deleteScope":
+		var q struct {
+			Kind, Collection, RecordID string
+			Expired                    bool
+		}
+		if err := decodeExtensionInput(raw, &q); err != nil {
+			return nil, err
+		}
+		request := userauth.AuthAuxiliaryQuery{Kind: q.Kind}
+		var e error
+		if q.Collection != "" {
+			request.CollectionID, e = host.resolveAuthMailCollection(ctx, q.Collection)
+			if e != nil {
+				return nil, extensionError("invalid_auth_aux", e)
+			}
+		}
+		if q.RecordID != "" {
+			request.UserID, e = uuid.Parse(q.RecordID)
+			if e != nil {
+				return nil, extensionError("invalid_auth_aux", e)
+			}
+		}
+		s, ok := host.bridge.authMail.(adminAuthAuxService)
+		if !ok {
+			return nil, extensionError("auth_aux_unavailable", nil)
+		}
+		e = s.AdminDeleteAuthAuxiliaryScope(ctx, host.principal, request, q.Expired)
+		return marshalExtensionResult(map[string]bool{"deleted": true}, e)
+	case "app.authRecord.token":
+		var q struct {
+			Token      string
+			ValidTypes []string
+		}
+		if err := decodeExtensionInput(raw, &q); err != nil {
+			return nil, err
+		}
+		s, ok := host.bridge.authMail.(adminAuthAuxService)
+		if !ok {
+			return nil, extensionError("auth_aux_unavailable", nil)
+		}
+		out, e := s.AdminFindAuthRecordByToken(ctx, host.principal, q.Token, q.ValidTypes)
+		allowFile := len(q.ValidTypes) == 0
+		for _, kind := range q.ValidTypes {
+			if kind == "file" {
+				allowFile = true
+			}
+		}
+		if e != nil && allowFile && host.bridge.files != nil {
+			if subject, fileErr := host.bridge.files.ResolveDownloadToken(ctx, q.Token); fileErr == nil {
+				var realm uuid.UUID
+				if host.bridge.appControl.app.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1 and active`, subject.ID).Scan(&realm) == nil {
+					out, e = host.bridge.authMail.GetAuthRecord(ctx, realm, subject.ID)
+				}
+			}
+		}
+		return marshalExtensionResult(out, e)
+	case "app.authRecord.email":
+		var q struct{ Collection, Email string }
+		if err := decodeExtensionInput(raw, &q); err != nil {
+			return nil, err
+		}
+		realm, e := host.resolveAuthMailCollection(ctx, q.Collection)
+		if e != nil {
+			return nil, extensionError("invalid_auth_record", e)
+		}
+		s, ok := host.bridge.authMail.(adminAuthAuxService)
+		if !ok {
+			return nil, extensionError("auth_aux_unavailable", nil)
+		}
+		out, e := s.AdminFindAuthRecordByEmail(ctx, host.principal, realm, q.Email)
+		return marshalExtensionResult(out, e)
 	}
 	return nil, extensionError("unsupported_operation", nil)
 }

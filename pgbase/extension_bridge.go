@@ -208,7 +208,7 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callAppRecords(operationContext, method, input)
 	case "app.log.query", "app.log.find", "app.log.stats", "app.log.deleteOld":
 		return host.callAppQueries(operationContext, method, input)
-	case "app.collection.get", "app.collection.cachedGet", "app.collection.list", "app.collection.nameUnique", "app.collection.references", "app.authAux.list", "app.authAux.delete":
+	case "app.collection.get", "app.collection.cachedGet", "app.collection.list", "app.collection.nameUnique", "app.collection.references", "app.authAux.list", "app.authAux.delete", "app.authAux.query", "app.authAux.deleteScope", "app.authRecord.token", "app.authRecord.email":
 		return host.callAppCatalogAuthAux(operationContext, method, input)
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
 		return host.callRecords(operationContext, method, input)
