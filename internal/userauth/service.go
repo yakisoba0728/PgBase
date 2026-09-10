@@ -220,7 +220,7 @@ func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.U
 		}
 		var u User
 		var hash string
-		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,u.password_hash from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.Verified, &u.CreatedAt, &hash)
+		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,u.password_hash from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
 		if err == nil {
 			u.CreatedAt = u.CreatedAt.UTC()
 			return u, hash, nil
@@ -268,7 +268,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	defer release()
 	var p Principal
-	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
+	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.EmailVisibility, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalidCredentials
 	}
@@ -406,13 +406,13 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 }
 
 func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, email string, lock bool) (User, string, error) {
-	q := `select id,auth_collection_id,email,verified,created_at,password_hash from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
+	q := `select id,auth_collection_id,email,email_visibility,verified,created_at,password_hash from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
 	if lock {
 		q += " for update"
 	}
 	var u User
 	var hash string
-	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.Verified, &u.CreatedAt, &hash)
+	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrInvalidCredentials
 	}

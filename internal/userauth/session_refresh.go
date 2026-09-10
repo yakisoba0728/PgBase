@@ -70,12 +70,12 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		}
 		var sessionID uuid.UUID
 		var user User
-		err = tx.QueryRow(ctx, `select sessions.id,users.id,users.auth_collection_id,users.email,users.verified,users.created_at
+		err = tx.QueryRow(ctx, `select sessions.id,users.id,users.auth_collection_id,users.email,users.email_visibility,users.verified,users.created_at
 			from pgbase_meta.user_sessions as sessions join pgbase_meta.users as users on users.id=sessions.user_id
 			where sessions.token_hash=$1 and sessions.revoked_at is null and sessions.expires_at>CURRENT_TIMESTAMP
 			and sessions.session_kind='user' and users.active and users.auth_collection_id=$2
 			for update of sessions,users`, oldHash, collectionID).
-			Scan(&sessionID, &user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+			Scan(&sessionID, &user.ID, &user.AuthCollectionID, &user.Email, &user.EmailVisibility, &user.Verified, &user.CreatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalidCredentials
 		}

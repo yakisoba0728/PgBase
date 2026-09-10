@@ -84,6 +84,7 @@ type User struct {
 	PublicID         string
 	AuthCollectionID uuid.UUID
 	Email            string
+	EmailVisibility  bool
 	Verified         bool
 	CreatedAt        time.Time
 }

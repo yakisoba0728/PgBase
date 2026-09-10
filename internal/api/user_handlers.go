@@ -122,10 +122,11 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 }
 
 type userResponse struct {
-	Verified  bool      `json:"verified"`
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	CreatedAt time.Time `json:"createdAt"`
+	Verified        bool      `json:"verified"`
+	ID              string    `json:"id"`
+	Email           string    `json:"email"`
+	EmailVisibility bool      `json:"emailVisibility"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 func publicUser(user userauth.User) userResponse {
@@ -133,7 +134,7 @@ func publicUser(user userauth.User) userResponse {
 	if id == "" {
 		id = user.ID.String()
 	}
-	return userResponse{ID: id, Email: user.Email, Verified: user.Verified, CreatedAt: user.CreatedAt}
+	return userResponse{ID: id, Email: user.Email, EmailVisibility: user.EmailVisibility, Verified: user.Verified, CreatedAt: user.CreatedAt}
 }
 
 type userSessionResponse struct {
