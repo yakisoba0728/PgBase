@@ -20,7 +20,7 @@ func TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation(t *testing.T
 ]}`
 	sources := map[string]string{
 		"pgbase.scripts.json": manifest,
-		"database.js":         `const pg=require("pgbase");exports.run=function(){let rolled=false;try{pg.database.transaction({statements:[{sql:"insert into app.extension_sql(value) values($1)",args:["rolled back"]},{sql:"select * from app.missing_extension_table",query:true}]})}catch(e){rolled=true}const out=pg.database.transaction({statements:[{sql:"select count(*)::text as count from app.extension_sql",query:true}]});return {status:200,json:{rolled,count:out.results[0].items[0].count}}}`,
+		"database.js":         `const pg=require("pgbase");exports.run=function(){let rolled=false;try{pg.database.transaction({statements:[{sql:"insert into app.extension_sql(value) values($1)",args:["rolled back"]},{sql:"select * from app.missing_extension_table",query:true}]})}catch(e){rolled=true}const out=pg.database.transaction({statements:[{sql:"select count(*)::text as count from app.extension_sql",query:true},{sql:"select $1::numeric::text as number",args:[pg.exact("9007199254740993")],query:true}]});return {status:200,json:{rolled,count:out.results[0].items[0].count,number:out.results[1].items[0].number}}}`,
 		"a.js":                `const pg=require("pgbase");exports.run=function(){pg.objects.write({key:"shared",data:"cGVyc2lzdGVk"});return {status:200,json:pg.objects.read({key:"shared"})}}`,
 		"b.js":                `const pg=require("pgbase");exports.run=function(){try{return {status:200,json:pg.objects.read({key:"shared"})}}catch(e){return {status:404,json:{code:e.code}}}}`,
 	}
@@ -54,7 +54,7 @@ func TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation(t *testing.T
 		return body
 	}
 	database := call("/extensions/database")
-	if database["status"] != 200 || database["rolled"] != true || database["count"] != "0" {
+	if database["status"] != 200 || database["rolled"] != true || database["count"] != "0" || database["number"] != "9007199254740993" {
 		t.Fatalf("database=%#v", database)
 	}
 	object := call("/extensions/object-a")

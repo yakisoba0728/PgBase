@@ -41,6 +41,9 @@ func (host *extensionHost) callDatabase(ctx context.Context, raw json.RawMessage
 				if err := decoder.Decode(&value); err != nil {
 					return err
 				}
+				if number, ok := value.(json.Number); ok {
+					value = number.String()
+				}
 				arguments[i] = value
 			}
 			if !statement.Query {
