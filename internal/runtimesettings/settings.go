@@ -82,6 +82,7 @@ func validate(v Settings) error {
 type Controller struct {
 	pool      *database.Pool
 	mu        sync.RWMutex
+	notifyMu  sync.Mutex
 	value     Settings
 	listeners []func(Settings)
 }
@@ -134,6 +135,11 @@ func (c *Controller) Reload(ctx context.Context) error {
 	return nil
 }
 func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, error) {
+	// Serialize local commits through listener publication. Without this, two
+	// successful PATCHes can commit in order but complete their asynchronous
+	// runtime reconfiguration callbacks in reverse order.
+	c.notifyMu.Lock()
+	defer c.notifyMu.Unlock()
 	current := c.Get()
 	if candidate.Revision != current.Revision {
 		return Settings{}, ErrConflict
