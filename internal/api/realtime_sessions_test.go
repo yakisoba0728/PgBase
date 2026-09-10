@@ -1,21 +1,165 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 )
 
 type sessionRealtimeStub struct{ head int64 }
 
 func (s *sessionRealtimeStub) Read(context.Context, uuid.UUID, string, *int64) ([]realtime.Event, int64, error) {
 	return nil, s.head, nil
+}
+
+type applicationTopicRealtimeStub struct {
+	mu    sync.Mutex
+	reads int
+	err   error
+}
+
+func (s *applicationTopicRealtimeStub) Read(context.Context, uuid.UUID, string, *int64) ([]realtime.Event, int64, error) {
+	return nil, 0, s.err
+}
+
+func (s *applicationTopicRealtimeStub) ReadFor(context.Context, realtime.ReadRequest) ([]realtime.Event, int64, error) {
+	s.mu.Lock()
+	s.reads++
+	s.mu.Unlock()
+	return nil, 0, s.err
+}
+
+func (s *applicationTopicRealtimeStub) readCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reads
+}
+
+func TestRealtimeApplicationTopicDeliversOverHTTPExactly(t *testing.T) {
+	stream := &applicationTopicRealtimeStub{}
+	broker := NewApplicationRealtimeBroker()
+	hub := newRealtimeHub(Dependencies{Realtime: stream, ApplicationRealtimeBroker: broker})
+	server := httptest.NewServer(http.HandlerFunc(hub.serve))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/realtime", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("connect status=%d", response.StatusCode)
+	}
+	reader := bufio.NewReader(response.Body)
+	connect := readRealtimeSSEFrame(t, reader)
+	if connect.event != "PB_CONNECT" {
+		t.Fatalf("connect event=%+v", connect)
+	}
+	var connected struct {
+		ClientID string `json:"clientId"`
+	}
+	if err := json.Unmarshal([]byte(connect.data), &connected); err != nil || connected.ClientID == "" {
+		t.Fatalf("connect data=%q err=%v", connect.data, err)
+	}
+
+	body := bytes.NewBufferString(`{"clientId":"` + connected.ClientID + `","subscriptions":["@app/notice"]}`)
+	subscribe, err := http.NewRequest(http.MethodPost, server.URL+"/api/realtime", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscribe.Header.Set("Content-Type", "application/json")
+	subscribed, err := http.DefaultClient.Do(subscribe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscribed.Body.Close()
+	if subscribed.StatusCode != http.StatusNoContent {
+		t.Fatalf("subscribe status=%d", subscribed.StatusCode)
+	}
+	if calls := stream.readCount(); calls != 0 {
+		t.Fatalf("custom subscription queried collection reader %d times", calls)
+	}
+
+	if delivered := broker.Publish(t.Context(), "@app/notice", json.RawMessage(`{"value":[1,true]}`)); delivered != 1 {
+		t.Fatalf("delivered=%d", delivered)
+	}
+	message := readRealtimeSSEFrame(t, reader)
+	if message.event != "@app/notice" || message.data != `{"value":[1,true]}` {
+		t.Fatalf("application message=%+v", message)
+	}
+	if delivered := broker.Publish(t.Context(), "@app/notice/", json.RawMessage(`true`)); delivered != 0 {
+		t.Fatalf("different exact topic delivered=%d", delivered)
+	}
+}
+
+func TestRealtimeApplicationNamespaceCannotBypassCollectionAuthorization(t *testing.T) {
+	stream := &applicationTopicRealtimeStub{err: recordaccess.ErrDenied}
+	hub := newRealtimeHub(Dependencies{Realtime: stream, ApplicationRealtimeBroker: NewApplicationRealtimeBroker()})
+	client := &realtimeClient{id: "client", address: "192.0.2.1", principal: identity.Subject{Kind: identity.Anonymous}}
+	hub.clients[client.id] = client
+
+	denied := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/realtime", bytes.NewBufferString(`{"clientId":"client","subscriptions":["removed_notes"]}`))
+	req.RemoteAddr = "192.0.2.1:9999"
+	req.Header.Set("Content-Type", "application/json")
+	hub.replace(denied, req)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("removed collection subscription status=%d", denied.Code)
+	}
+
+	custom := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/realtime", bytes.NewBufferString(`{"clientId":"client","subscriptions":["@app/removed_notes"]}`))
+	req.RemoteAddr = "192.0.2.1:9999"
+	req.Header.Set("Content-Type", "application/json")
+	hub.replace(custom, req)
+	if custom.Code != http.StatusNoContent || stream.readCount() != 1 {
+		t.Fatalf("namespaced custom status=%d collection reads=%d", custom.Code, stream.readCount())
+	}
+}
+
+type realtimeSSEFrame struct{ event, data string }
+
+func readRealtimeSSEFrame(t *testing.T, reader *bufio.Reader) realtimeSSEFrame {
+	t.Helper()
+	frame := realtimeSSEFrame{}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			t.Fatal(err)
+		}
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			return frame
+		}
+		if value, ok := strings.CutPrefix(line, "event: "); ok {
+			frame.event = value
+		}
+		if value, ok := strings.CutPrefix(line, "data: "); ok {
+			frame.data = value
+		}
+		if err == io.EOF {
+			t.Fatal("truncated realtime SSE frame")
+		}
+	}
 }
 
 func (s *sessionRealtimeStub) ReadFor(context.Context, realtime.ReadRequest) ([]realtime.Event, int64, error) {

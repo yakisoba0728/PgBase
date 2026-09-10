@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 )
+
+const maximumApplicationRealtimePayload = 64 << 10
 
 type ApplicationRealtimeMessage struct {
 	Topic string
@@ -75,6 +78,13 @@ func (b *ApplicationRealtimeBroker) Clients() []string {
 }
 
 func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, data json.RawMessage) int {
+	// The broker is intentionally an internal/operator capability.  Its public
+	// HTTP counterpart only calls it from an extension granted app-control.
+	// Keep this lower-level boundary bounded too because Go extensions can call
+	// it directly.
+	if !validBrokerTopic(topic) || len(data) == 0 || len(data) > maximumApplicationRealtimePayload || !json.Valid(data) {
+		return 0
+	}
 	b.mu.RLock()
 	authorize := b.authorize
 	targets := make(map[string]*applicationRealtimeClient, len(b.clients))
@@ -97,4 +107,32 @@ func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, d
 		}
 	}
 	return delivered
+}
+
+func validBrokerTopic(topic string) bool {
+	if topic == "" || len(topic) > 256 {
+		return false
+	}
+	for _, value := range topic {
+		if value <= 0x20 || value == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// @ is a reserved realtime application namespace.  Collection subscriptions
+// never begin with it, so an application message cannot turn a removed,
+// renamed, or access-denied collection name into an unguarded custom topic.
+// The rest of the topic is exact: no wildcard or path normalization is used.
+func validApplicationRealtimeTopic(topic string) bool {
+	if len(topic) < 2 || len(topic) > 256 || topic[0] != '@' {
+		return false
+	}
+	for _, value := range topic {
+		if value <= 0x20 || value == 0x7f || strings.ContainsRune("?#*", value) {
+			return false
+		}
+	}
+	return true
 }

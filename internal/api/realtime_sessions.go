@@ -26,11 +26,13 @@ type realtimeSubscription struct {
 	raw, collection, filter, expand, fields string
 	recordID                                uuid.UUID
 	cursor                                  *int64
+	application                             bool
 }
 type realtimeClient struct {
 	mu                 sync.RWMutex
 	deliveryMu         sync.Mutex
 	id, address, token string
+	admittedUser       uuid.UUID // guarded by realtimeHub.mu
 	principal          identity.Subject
 	subscriptions      []realtimeSubscription
 	resume             *int64
@@ -38,11 +40,12 @@ type realtimeClient struct {
 type realtimeHub struct {
 	mu           sync.RWMutex
 	clients      map[string]*realtimeClient
+	userClients  map[uuid.UUID]int
 	dependencies Dependencies
 }
 
 func newRealtimeHub(dependencies Dependencies) *realtimeHub {
-	hub := &realtimeHub{clients: map[string]*realtimeClient{}, dependencies: dependencies}
+	hub := &realtimeHub{clients: map[string]*realtimeClient{}, userClients: map[uuid.UUID]int{}, dependencies: dependencies}
 	if dependencies.ApplicationRealtimeBroker != nil {
 		dependencies.ApplicationRealtimeBroker.setAuthorizer(hub.authorizeApplicationMessage)
 	}
@@ -63,6 +66,12 @@ func (h *realtimeHub) authorizeApplicationMessage(ctx context.Context, clientID 
 	client.mu.RLock()
 	principal := client.principal
 	client.mu.RUnlock()
+	// Application topics have no collection counterpart.  Authentication is
+	// still checked immediately before each write, while topic authorization is
+	// the explicit app-control capability needed to call Publish.
+	if validApplicationRealtimeTopic(message.Topic) {
+		return true
+	}
 	var envelope struct {
 		ID     string `json:"id"`
 		Record *struct {
@@ -176,14 +185,29 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { finish(nil) }()
 	h.mu.Lock()
-	if len(h.clients) >= 128 {
+	userAtLimit := client.principal.Kind == identity.User && h.userClients[client.principal.ID] >= 4
+	if len(h.clients) >= 128 || userAtLimit {
 		h.mu.Unlock()
 		writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 		return
 	}
 	h.clients[client.id] = client
+	if client.principal.Kind == identity.User {
+		h.userClients[client.principal.ID]++
+		client.admittedUser = client.principal.ID
+	}
 	h.mu.Unlock()
-	defer func() { h.mu.Lock(); delete(h.clients, client.id); h.mu.Unlock() }()
+	defer func() {
+		h.mu.Lock()
+		delete(h.clients, client.id)
+		if client.admittedUser != uuid.Nil {
+			h.userClients[client.admittedUser]--
+			if h.userClients[client.admittedUser] == 0 {
+				delete(h.userClients, client.admittedUser)
+			}
+		}
+		h.mu.Unlock()
+	}()
 	var applicationMessages <-chan ApplicationRealtimeMessage
 	if h.dependencies.ApplicationRealtimeBroker != nil {
 		applicationMessages = h.dependencies.ApplicationRealtimeBroker.connect(client.id)
@@ -383,6 +407,11 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	}
 	client.mu.RUnlock()
 	for index := range subscriptions {
+		if subscriptions[index].application {
+			// Custom application topics are exact broker names.  They have no
+			// durable cursor, collection lookup, or collection-policy fallback.
+			continue
+		}
 		// Always validate against the current schema and policy before replacing
 		// client state, even when a reconnect cursor is already available.
 		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, RecordID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
@@ -407,6 +436,19 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 			subscriptions[index].cursor = &value
 		} else {
 			subscriptions[index].cursor = &head
+		}
+	}
+	if principal.Kind == identity.User {
+		h.mu.Lock()
+		atLimit := client.admittedUser == uuid.Nil && h.userClients[principal.ID] >= 4
+		if client.admittedUser == uuid.Nil && !atLimit {
+			h.userClients[principal.ID]++
+			client.admittedUser = principal.ID
+		}
+		h.mu.Unlock()
+		if atLimit {
+			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
+			return
 		}
 	}
 	client.mu.Lock()
@@ -467,6 +509,9 @@ func (h *realtimeHub) revalidate(ctx context.Context, client *realtimeClient) bo
 func parseRealtimeSubscription(raw string) (realtimeSubscription, error) {
 	if raw == "" || len(raw) > 2500 {
 		return realtimeSubscription{}, errors.New("invalid topic")
+	}
+	if validApplicationRealtimeTopic(raw) {
+		return realtimeSubscription{raw: raw, application: true}, nil
 	}
 	parts := strings.SplitN(raw, "?", 2)
 	topic := strings.TrimSuffix(parts[0], "/*")

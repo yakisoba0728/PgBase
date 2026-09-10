@@ -162,3 +162,44 @@ func TestJavaScriptApplicationBrokerDeliversThroughRealtimeHTTP(t *testing.T) {
 		t.Fatalf("connected clients after close=%v", got)
 	}
 }
+
+func TestJavaScriptApplicationBrokerDeliversArbitraryTopicThroughRealtimeHTTP(t *testing.T) {
+	fixture := newPublicUsersApp(t, true)
+	events, cancel := openMultiplexStream(t, fixture, "", nil)
+	defer cancel()
+	connected := nextStreamEvent(t, events, "PB_CONNECT")
+	var connection struct {
+		ClientID string `json:"clientId"`
+	}
+	if err := json.Unmarshal([]byte(connected.data), &connection); err != nil || connection.ClientID == "" {
+		t.Fatalf("connect=%s err=%v", connected.data, err)
+	}
+	const topic = "@app/extension-notice"
+	replaceMultiplexSubscriptions(t, fixture, connection.ClientID, "", nil, "", []string{topic})
+
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/publish","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "route.js"), []byte(`exports.run=()=> $app.subscriptionsBroker().publish("@app/extension-notice", ["ready",true,3])`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(context.Background())
+	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, requestID: "broker-custom-publish", valid: true}
+	output, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control"}, Input: json.RawMessage(`{}`), Host: host})
+	if err != nil || string(output) != `{"delivered":1}` {
+		t.Fatalf("publish=%s err=%v", output, err)
+	}
+	message := nextStreamEvent(t, events, topic)
+	if message.data != `["ready",true,3]` {
+		t.Fatalf("arbitrary custom payload=%s", message.data)
+	}
+}
