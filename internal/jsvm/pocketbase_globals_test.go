@@ -102,7 +102,7 @@ func TestPocketBaseFilepathGlobRequiresFilesystemCapability(t *testing.T) {
 func TestPocketBaseAppControlUsesOnlyCapabilityHost(t *testing.T) {
 	directory := t.TempDir()
 	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/control","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`)
-	writeFile(t, directory, "route.js", `exports.run=()=>{const store=$app.store();store.set("shared",{count:1});return {bootstrap:$app.bootstrap(),reset:$app.resetBootstrapState(),bootstrapped:$app.isBootstrapped(),value:store.get("shared"),deleted:store.delete("shared"),tx:$app.transactionInfo()}}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{const store=$app.store();store.set("shared",{count:1});return {bootstrap:$app.bootstrap(),reset:$app.resetBootstrapState(),bootstrapped:$app.isBootstrapped(),value:store.get("shared"),deleted:store.delete("shared"),tx:$app.txInfo(),mail:typeof $app.newMailClient().send,filesystem:typeof $app.newFilesystem().local}}`)
 	bundle, err := jsvm.LoadBundle(directory)
 	if err != nil {
 		t.Fatal(err)

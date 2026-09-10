@@ -211,3 +211,12 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 	}
 	return buffer.Bytes(), nil
 }
+
+// RenderThumbnail applies the bounded variant pipeline to an object without
+// publishing it as a record-file variant. The caller owns the destination.
+func (s *Service) RenderThumbnail(ctx context.Context, objectKey, contentType, size string) ([]byte, error) {
+	if s == nil || objectKey == "" || !validVariant(Variant(size)) {
+		return nil, ErrInvalid
+	}
+	return s.renderVariant(ctx, File{ObjectKey: objectKey, ContentType: contentType}, size)
+}

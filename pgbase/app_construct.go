@@ -265,6 +265,7 @@ func newWithCatalogPreflight(
 		ApplicationRealtimeBroker: applicationRealtimeBroker,
 		RequestLog:                requestLog,
 		RuntimeSettings:           runtimeSettings,
+		SettingsLifecycle:         settingsLifecycleHooks{normalized.Hooks},
 		RecordRules:               recordaccess.NewRuleService(pool, schemaService),
 		Readiness:                 readiness,
 		Logger:                    normalized.Logger,

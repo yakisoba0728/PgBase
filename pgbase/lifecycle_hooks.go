@@ -63,6 +63,8 @@ const (
 	HookAuthImpersonate          = "auth.impersonate"
 	HookAuthAlert                = "auth.alert"
 	HookSettingsReload           = "settings.reload"
+	HookSettingsList             = "settings.list"
+	HookSettingsUpdate           = "settings.update"
 	HookObjectWrite              = "object.write"
 	HookObjectDelete             = "object.delete"
 )

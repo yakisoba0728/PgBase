@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,28 +9,67 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
+type SettingsLifecycleEvent struct {
+	Operation string `json:"operation"`
+}
+
+type SettingsLifecycle interface {
+	BeginSettingsList(context.Context, *SettingsLifecycleEvent) (func(error), error)
+	BeginSettingsUpdate(context.Context, *SettingsLifecycleEvent) (func(error), error)
+}
+
+func beginSettingsLifecycle(hooks SettingsLifecycle, ctx context.Context, operation string) (func(error), error) {
+	if hooks == nil {
+		return func(error) {}, nil
+	}
+	event := &SettingsLifecycleEvent{Operation: operation}
+	if operation == "list" {
+		return hooks.BeginSettingsList(ctx, event)
+	}
+	return hooks.BeginSettingsUpdate(ctx, event)
+}
+
 // runtimeSettingsRoutes exposes one complete, revisioned operational document.
 // PATCH merges supplied sections into one candidate, validates the complete
 // result, and atomically persists it under the supplied revision precondition.
-func runtimeSettingsRoutes(settings *runtimesettings.Controller) []route {
-	get := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, settings.Get()) })
+func runtimeSettingsRoutes(settings *runtimesettings.Controller, hooks SettingsLifecycle) []route {
+	get := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		finish, err := beginSettingsLifecycle(hooks, r.Context(), "list")
+		if err != nil {
+			finish(err)
+			writeAPIError(w, r, APIError{Status: 500, Code: "settings_hook_failed", Message: "Settings request failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, settings.Get())
+		finish(nil)
+	})
 	patch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		finish, hookErr := beginSettingsLifecycle(hooks, r.Context(), "update")
+		if hookErr != nil {
+			finish(hookErr)
+			writeAPIError(w, r, APIError{Status: 500, Code: "settings_hook_failed", Message: "Settings request failed"})
+			return
+		}
 		var patch map[string]json.RawMessage
 		if decodeStrictJSON(r, &patch) != nil {
+			finish(runtimesettings.ErrInvalid)
 			writeRuntimeSettingsError(w, r, runtimesettings.ErrInvalid)
 			return
 		}
 		input, err := mergeRuntimeSettings(settings.Get(), patch)
 		if err != nil {
+			finish(err)
 			writeRuntimeSettingsError(w, r, runtimesettings.ErrInvalid)
 			return
 		}
 		value, err := settings.Update(r.Context(), input)
 		if err != nil {
+			finish(err)
 			writeRuntimeSettingsError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, value)
+		finish(nil)
 	})
 	reload := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := settings.Reload(r.Context()); err != nil {

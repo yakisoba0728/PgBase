@@ -66,6 +66,7 @@ type Dependencies struct {
 	SchemaApplyTimeout time.Duration
 	SQLConsole         *SQLConsoleHandlers
 	RuntimeSettings    *runtimesettings.Controller
+	SettingsLifecycle  SettingsLifecycle
 	APIRateLimits      *apiratelimit.Service
 }
 
@@ -159,7 +160,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
 	}
 	if dependencies.RuntimeSettings != nil {
-		routes = append(routes, runtimeSettingsRoutes(dependencies.RuntimeSettings)...)
+		routes = append(routes, runtimeSettingsRoutes(dependencies.RuntimeSettings, dependencies.SettingsLifecycle)...)
 	}
 	if dependencies.Backups != nil {
 		routes = append(routes, setupBackupRoutes(dependencies)...)

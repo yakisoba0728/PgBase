@@ -434,4 +434,5 @@ const modelDelete=(value)=>value instanceof Collection?H["app-control"].collecti
 const modelSaveNoValidate=(value)=>value instanceof Collection?H["hooks-bypass"].collectionSaveNoValidate(collectionEnvelope(value)):H["hooks-bypass"].modelSaveNoValidate(recordInput(value));
 Object.assign(globalThis.$app,{modelQuery,auxModelQuery:modelQuery,save:modelSave,saveWithContext:(_ctx,v)=>modelSave(v),auxSave:modelSave,auxSaveWithContext:(_ctx,v)=>modelSave(v),saveNoValidate:modelSaveNoValidate,saveNoValidateWithContext:(_ctx,v)=>modelSaveNoValidate(v),auxSaveNoValidate:modelSaveNoValidate,auxSaveNoValidateWithContext:(_ctx,v)=>modelSaveNoValidate(v),delete:modelDelete,deleteWithContext:(_ctx,v)=>modelDelete(v),auxDelete:modelDelete,auxDeleteWithContext:(_ctx,v)=>modelDelete(v),validate:modelValidate,validateWithContext:(_ctx,v)=>modelValidate(v)});
 Object.assign(globalThis.$app,{bootstrap:()=>H["app-control"].bootstrap({}),resetBootstrapState:()=>H["app-control"].resetBootstrapState({})});
+Object.assign(globalThis.$app,{txInfo:()=>$app.transactionInfo(),newMailClient:()=>$app.mailer(),newFilesystem:()=>$app.filesystem()});
 })();`

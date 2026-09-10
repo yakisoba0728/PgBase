@@ -38,7 +38,7 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 	case *api.RecordRequestEvent, *api.BatchRequestEvent, *api.SchemaImportRequestEvent,
 		*schema.CollectionMutationEvent, *filestore.FileEvent, *filestore.FileAccessEvent,
 		*ApplicationEvent, *AuthEvent, *StorageSettingsEvent, *backup.LifecycleEvent,
-		*api.RealtimeLifecycleEvent, *SettingsReloadEvent, *ModelMutationEvent, recordops.Mutation, *recordops.Mutation:
+		*api.RealtimeLifecycleEvent, *api.SettingsLifecycleEvent, *SettingsReloadEvent, *ModelMutationEvent, recordops.Mutation, *recordops.Mutation:
 		value = data
 	default:
 		return nil, fmt.Errorf("JavaScript hook %s has unsupported data type %T", event.Kind, event.Data)

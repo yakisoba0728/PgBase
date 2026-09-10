@@ -313,6 +313,9 @@ func validateRequestedCapabilities(requested []string, enabled map[string]bool, 
 }
 
 func knownJavaScriptHook(kind string) bool {
+	if kind == HookSettingsList || kind == HookSettingsUpdate {
+		return true
+	}
 	if strings.HasPrefix(kind, "model.") || strings.HasPrefix(kind, "record.model.") || strings.HasPrefix(kind, "collection.model.") {
 		parts := strings.Split(kind, ".")
 		phase := strings.Join(parts[1:], ".")
