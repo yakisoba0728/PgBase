@@ -45,6 +45,9 @@ type extensionHost struct {
 	fileMu           sync.Mutex
 	fileHandles      map[uuid.UUID]extensionFileHandle
 	fileBytesRead    int64
+	objectMu         sync.Mutex
+	objectHandles    map[uuid.UUID]io.ReadCloser
+	objectBytesRead  int64
 	namespace        string
 }
 
@@ -112,14 +115,14 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return json.Marshal(map[string]string{"output": output})
 	case "database.transaction":
 		return host.callDatabase(operationContext, input)
-	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy":
+	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy", "objects.open", "objects.readChunk", "objects.close":
 		return host.callObjects(operationContext, method, input)
-	case "http.send", "os.args", "os.getenv", "os.exit", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
+	case "http.send", "os.args", "os.getenv", "os.exit", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromMultipart", "filesystem.fileFromURL":
 		if host.bridge.compatibility == nil {
 			return nil, extensionError("compatibility_unavailable", errors.New("PocketBase compatibility adapter unavailable"))
 		}
 		return host.bridge.compatibility.call(operationContext, method, input)
-	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy":
+	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close":
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))

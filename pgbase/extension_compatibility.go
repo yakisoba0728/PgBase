@@ -221,7 +221,6 @@ func (c *extensionCompatibility) glob(raw json.RawMessage) (json.RawMessage, err
 	}
 	return json.Marshal(out)
 }
-
 func (c *extensionCompatibility) walk(raw json.RawMessage) (json.RawMessage, error) {
 	var request struct {
 		Path string `json:"path"`

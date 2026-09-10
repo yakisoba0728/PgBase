@@ -150,6 +150,7 @@ func (host *extensionHost) Close() error {
 	host.fileMu.Lock()
 	defer host.fileMu.Unlock()
 	var result error
+	result = errors.Join(result, host.closeObjectHandles())
 	for id, handle := range host.fileHandles {
 		if handle.reader != nil {
 			result = errors.Join(result, handle.reader.Close())

@@ -251,33 +251,11 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 	if host.bridge.objects == nil || host.namespace == "" {
 		return nil, extensionError("objects_unavailable", errors.New("extension object storage unavailable"))
 	}
-	var request struct{ Key, Data string }
-	if err := decodeExtensionInput(raw, &request); err != nil {
-		return nil, err
-	}
 	switch method {
-	case "objects.write":
-		data, err := base64.StdEncoding.DecodeString(request.Data)
-		if err != nil {
-			return nil, extensionError("invalid_object_request", err)
-		}
-		err = host.bridge.objects.Write(ctx, host.namespace, request.Key, data)
-		if err != nil {
-			return nil, extensionError("object_write_failed", err)
-		}
-		return json.Marshal(map[string]any{"written": true, "size": len(data)})
-	case "objects.read":
-		data, err := host.bridge.objects.Read(ctx, host.namespace, request.Key)
-		if err != nil {
-			return nil, extensionError("object_read_failed", err)
-		}
-		return json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(data), "size": len(data)})
-	case "objects.delete":
-		err := host.bridge.objects.Delete(ctx, host.namespace, request.Key)
-		if err != nil {
-			return nil, extensionError("object_delete_failed", err)
-		}
-		return json.Marshal(map[string]bool{"deleted": true})
+	case "objects.readChunk":
+		return host.readObjectChunk(raw)
+	case "objects.close":
+		return host.closeObjectHandle(raw)
 	case "objects.list":
 		var list struct {
 			Prefix, Cursor string
@@ -304,6 +282,37 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 			return nil, extensionError("object_copy_failed", err)
 		}
 		return json.Marshal(map[string]any{"copied": true, "size": size})
+	}
+	var request struct{ Key, Data string }
+	if err := decodeExtensionInput(raw, &request); err != nil {
+		return nil, err
+	}
+	switch method {
+	case "objects.open":
+		return host.openObjectHandle(ctx, request.Key)
+	case "objects.write":
+		data, err := base64.StdEncoding.DecodeString(request.Data)
+		if err != nil {
+			return nil, extensionError("invalid_object_request", err)
+		}
+		err = host.bridge.objects.Write(ctx, host.namespace, request.Key, data)
+		if err != nil {
+			return nil, extensionError("object_write_failed", err)
+		}
+		return json.Marshal(map[string]any{"written": true, "size": len(data)})
+	case "objects.read":
+		data, err := host.bridge.objects.Read(ctx, host.namespace, request.Key)
+		if err != nil {
+			return nil, extensionError("object_read_failed", err)
+		}
+		return json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(data), "size": len(data)})
+	case "objects.delete":
+		err := host.bridge.objects.Delete(ctx, host.namespace, request.Key)
+		if err != nil {
+			return nil, extensionError("object_delete_failed", err)
+		}
+		return json.Marshal(map[string]bool{"deleted": true})
+
 	}
 	return nil, extensionError("unsupported_operation", errors.New("unsupported object operation"))
 }
