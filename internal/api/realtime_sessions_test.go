@@ -18,6 +18,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 type sessionRealtimeStub struct{ head int64 }
@@ -153,6 +154,19 @@ func TestApplicationRealtimeTopicPreservesRawUTF8AndPrefix(t *testing.T) {
 	}
 	if _, err := ApplicationRealtimeTopic(strings.Repeat("a", maximumApplicationRealtimeTopicBytes+1)); err == nil {
 		t.Fatal("oversized application topic accepted")
+	}
+}
+
+func TestApplicationTopicRechecksRevokedUserBeforeBrokerDelivery(t *testing.T) {
+	id := uuid.New()
+	auth := &realtimeAuthStub{principal: userauth.Principal{User: userauth.User{ID: id}}, err: userauth.ErrInvalidCredentials}
+	broker := NewApplicationRealtimeBroker()
+	hub := newRealtimeHub(Dependencies{Realtime: &applicationTopicRealtimeStub{}, UserAuth: auth, ApplicationRealtimeBroker: broker})
+	hub.clients["client"] = &realtimeClient{id: "client", token: "revoked", principal: identity.Subject{Kind: identity.User, ID: id}}
+	broker.connect("client")
+	broker.subscribe("client", []string{"@app/Y3VzdG9tLXRvcGlj"})
+	if delivered := broker.Publish(t.Context(), "@app/Y3VzdG9tLXRvcGlj", json.RawMessage(`true`)); delivered != 0 {
+		t.Fatalf("revoked user received custom topic: delivered=%d", delivered)
 	}
 }
 
