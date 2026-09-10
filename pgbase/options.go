@@ -84,6 +84,9 @@ type Options struct {
 	PublicURL         *url.URL
 	SetupToken        string
 	TokenSecret       []byte
+	// RuntimeSettingsEncryptionKey encrypts the persisted operational settings.
+	// When omitted, TokenSecret is used as its key source.
+	RuntimeSettingsEncryptionKey []byte
 	// MetricsToken enables the protected Prometheus-compatible GET /metrics
 	// endpoint when non-empty. It is copied during normalization so callers
 	// cannot change the live credential after constructing an App.
@@ -163,6 +166,7 @@ func (o Options) Normalized() (Options, error) {
 	o.OAuthRedirects = append([]string(nil), o.OAuthRedirects...)
 	o.Jobs = append([]ScheduledJob(nil), o.Jobs...)
 	o.TokenSecret = append([]byte(nil), o.TokenSecret...)
+	o.RuntimeSettingsEncryptionKey = append([]byte(nil), o.RuntimeSettingsEncryptionKey...)
 	o.MetricsToken = append([]byte(nil), o.MetricsToken...)
 	return o, nil
 }
@@ -193,6 +197,9 @@ func validateOptions(o Options) error {
 	}
 	if len(o.TokenSecret) < 32 {
 		return fmt.Errorf("TokenSecret: must contain at least 32 bytes")
+	}
+	if len(o.RuntimeSettingsEncryptionKey) != 0 && len(o.RuntimeSettingsEncryptionKey) < 32 {
+		return fmt.Errorf("RuntimeSettingsEncryptionKey: must contain at least 32 bytes")
 	}
 	if len(o.MetricsToken) != 0 {
 		if len(o.MetricsToken) < 32 || len(o.MetricsToken) > 256 {

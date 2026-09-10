@@ -60,10 +60,11 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		43: "d7fb1735466f7cfa7463ad95d7c312bc704350115eab8fe8ad5f0a78e784e6b0",
 		45: "43dddfefca04b239547c579dda39c8ddd348fdbd5ec85f3018cc9805c42141c7",
 		48: "a8ce4d47642feadb70d9c1dfa5466b3448b37ba506535d2a09dd7c9d52c88c3f",
+		54: "9bb87253d2b6f398b5b5d8d2269baf35504c71d7a138d178b062f38345a18d6d",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 45 || migrations[len(migrations)-1].Version != 48 ||
-		migrations[len(migrations)-1].Name != "auth_oidc_compat" || migrations[7].Version != 8 ||
+	if len(migrations) != 46 || migrations[len(migrations)-1].Version != 54 ||
+		migrations[len(migrations)-1].Name != "runtime_settings_encryption" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

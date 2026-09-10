@@ -223,7 +223,11 @@ func newWithCatalogPreflight(
 	}
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
 	requestLog := newRequestLog(pool, normalized)
-	runtimeSettings, err := runtimesettings.New(ctx, pool)
+	runtimeSettingsKey := normalized.RuntimeSettingsEncryptionKey
+	if len(runtimeSettingsKey) == 0 {
+		runtimeSettingsKey = normalized.TokenSecret
+	}
+	runtimeSettings, err := runtimesettings.New(ctx, pool, runtimeSettingsKey)
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}

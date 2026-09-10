@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -34,6 +35,22 @@ func TestLoadEnvReadsPublicStaticSettings(t *testing.T) {
 	}
 	if options.PublicDir != "/srv/pgbase/public" || !options.PublicSPAFallback {
 		t.Fatalf("public options=%#v", options)
+	}
+}
+
+func TestLoadEnvReadsRuntimeSettingsEncryptionKey(t *testing.T) {
+	key := bytes.Repeat([]byte("k"), 32)
+	env := map[string]string{
+		"PGBASE_DATABASE_URL":                    "postgres://postgres:postgres@localhost/pgbase",
+		"PGBASE_TOKEN_SECRET":                    base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(key),
+	}
+	options, err := LoadEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(options.RuntimeSettingsEncryptionKey, key) {
+		t.Fatalf("RuntimeSettingsEncryptionKey = %q", options.RuntimeSettingsEncryptionKey)
 	}
 }
 

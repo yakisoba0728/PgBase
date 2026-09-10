@@ -4,6 +4,10 @@ package runtimesettings
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,23 +85,30 @@ func validate(v Settings) error {
 
 type Controller struct {
 	pool      *database.Pool
+	key       [32]byte
 	mu        sync.RWMutex
 	notifyMu  sync.Mutex
 	value     Settings
 	listeners []func(Settings)
 }
 
-func New(ctx context.Context, pool *database.Pool) (*Controller, error) {
-	if pool == nil {
+const encryptionDomain = "pgbase-runtime-settings-v1"
+
+func New(ctx context.Context, pool *database.Pool, encryptionKey []byte) (*Controller, error) {
+	if pool == nil || len(encryptionKey) < 32 {
 		return nil, ErrInvalid
 	}
-	c := &Controller{pool: pool}
+	c := &Controller{pool: pool, key: deriveKey(encryptionKey)}
 	v := Default()
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = pool.Exec(ctx, `insert into pgbase_meta.runtime_settings(singleton,document) values(true,$1) on conflict(singleton) do nothing`, raw); err != nil {
+	ciphertext, err := c.encrypt(raw)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = pool.Exec(ctx, `insert into pgbase_meta.runtime_settings(singleton,document_ciphertext) values(true,$1) on conflict(singleton) do nothing`, ciphertext); err != nil {
 		return nil, err
 	}
 	if err = c.Reload(ctx); err != nil {
@@ -114,11 +125,32 @@ func (c *Controller) Get() Settings {
 func (c *Controller) Reload(ctx context.Context) error {
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
-	var raw []byte
+	var ciphertext, legacy []byte
 	var v Settings
 	var revision int64
-	if err := c.pool.QueryRow(ctx, `select document,revision from pgbase_meta.runtime_settings where singleton`).Scan(&raw, &revision); err != nil {
+	if err := c.pool.QueryRow(ctx, `select document_ciphertext,document,revision from pgbase_meta.runtime_settings where singleton`).Scan(&ciphertext, &legacy, &revision); err != nil {
 		return err
+	}
+	if len(ciphertext) == 0 {
+		if len(legacy) == 0 {
+			return ErrInvalid
+		}
+		ciphertext, err := c.encrypt(legacy)
+		if err != nil {
+			return err
+		}
+		if _, err := c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null`, ciphertext); err != nil {
+			return err
+		}
+		// A concurrent process may have completed the one-time conversion with a
+		// different ciphertext. Read the authoritative encrypted row below.
+		if err := c.pool.QueryRow(ctx, `select document_ciphertext,revision from pgbase_meta.runtime_settings where singleton`).Scan(&ciphertext, &revision); err != nil {
+			return err
+		}
+	}
+	raw, err := c.decrypt(ciphertext)
+	if err != nil {
+		return fmt.Errorf("decrypt runtime settings: %w", err)
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("decode runtime settings: %w", err)
@@ -160,8 +192,12 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	if err != nil {
 		return Settings{}, err
 	}
+	ciphertext, err := c.encrypt(raw)
+	if err != nil {
+		return Settings{}, err
+	}
 	var next int64
-	err = c.pool.QueryRow(ctx, `update pgbase_meta.runtime_settings set document=$1,revision=revision+1,updated_at=now() where singleton and revision=$2 returning revision`, raw, current.Revision).Scan(&next)
+	err = c.pool.QueryRow(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null,revision=revision+1,updated_at=now() where singleton and revision=$2 returning revision`, ciphertext, current.Revision).Scan(&next)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Settings{}, ErrConflict
@@ -179,6 +215,78 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 		listener(clone(candidate))
 	}
 	return candidate, nil
+}
+
+// RotateKey re-encrypts the durable document without changing its revision or
+// republishing it. Callers must distribute the replacement key to every
+// process before any old-key process reloads the row.
+func (c *Controller) RotateKey(ctx context.Context, encryptionKey []byte) error {
+	if len(encryptionKey) < 32 {
+		return ErrInvalid
+	}
+	c.notifyMu.Lock()
+	defer c.notifyMu.Unlock()
+	nextKey := deriveKey(encryptionKey)
+	oldKey := c.key
+	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var ciphertext []byte
+		if err := tx.QueryRow(ctx, `select document_ciphertext from pgbase_meta.runtime_settings where singleton for update`).Scan(&ciphertext); err != nil {
+			return err
+		}
+		raw, err := c.decrypt(ciphertext)
+		if err != nil {
+			return fmt.Errorf("decrypt runtime settings for rotation: %w", err)
+		}
+		c.key = nextKey
+		reencrypted, err := c.encrypt(raw)
+		c.key = oldKey
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton`, reencrypted); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err == nil {
+		c.key = nextKey
+	}
+	return err
+}
+
+func deriveKey(secret []byte) [32]byte {
+	return sha256.Sum256(append(append([]byte(nil), secret...), []byte("\x00"+encryptionDomain)...))
+}
+
+func (c *Controller) encrypt(plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(c.key[:])
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return aead.Seal(nonce, nonce, plaintext, []byte(encryptionDomain)), nil
+}
+
+func (c *Controller) decrypt(ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(c.key[:])
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(ciphertext) < aead.NonceSize() {
+		return nil, ErrInvalid
+	}
+	return aead.Open(nil, ciphertext[:aead.NonceSize()], ciphertext[aead.NonceSize():], []byte(encryptionDomain))
 }
 
 func clone(v Settings) Settings {

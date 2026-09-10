@@ -32,6 +32,16 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	}
 
 	opts := pgbase.Options{DatabaseURL: databaseURL, TokenSecret: tokenSecret}
+	if encoded, ok := value(lookup, "PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY"); ok && encoded != "" {
+		key, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY: decode base64: %w", err)
+		}
+		if len(key) < 32 {
+			return pgbase.Options{}, fmt.Errorf("PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY: must decode to at least 32 bytes")
+		}
+		opts.RuntimeSettingsEncryptionKey = key
+	}
 	if err := loadBackups(lookup, &opts.Backups); err != nil {
 		return pgbase.Options{}, err
 	}
