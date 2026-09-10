@@ -118,7 +118,10 @@ func extensionVisibleAuthRecord(record userauth.AuthRecord, showEmail bool) map[
 	}
 	result["id"], result["collectionId"], result["emailVisibility"], result["verified"], result["active"] = record.ID, record.AuthCollectionID, record.EmailVisibility, record.Verified, record.Active
 	result["created"], result["updated"] = record.CreatedAt.UTC().Format(time.RFC3339Nano), record.UpdatedAt.UTC().Format(time.RFC3339Nano)
-	if showEmail || record.EmailVisibility {
+	// AuthRecord has already passed service-side email visibility projection.
+	// This includes owners and principals authorized by the collection's manage
+	// rule, while keeping the extension's own map free of a withheld email.
+	if showEmail || record.Email != "" {
 		result["email"] = record.Email
 	}
 	return result

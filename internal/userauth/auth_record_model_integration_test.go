@@ -256,6 +256,75 @@ func TestManagedAuthRecordMutationUsesDistinctActorAndRevokesTargetCredentials(t
 	}
 }
 
+func TestPrivateAuthEmailRequiresActiveSameRealmManager(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	collectionID := uuid.New()
+	managerFlag := schema.FieldInput{Name: "can_manage", Type: schema.TypeBoolean}
+	rules := AuthCollectionRules{List: "true", View: "true", Create: "true", Auth: "true", Manage: "@request.auth.can_manage = true && id != @request.auth.id"}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: collectionID, Name: "email_managed_" + collectionID.String()[:8], RegistrationEnabled: true, Fields: []schema.FieldInput{managerFlag}, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{Email: "email-manager@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"can_manage": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{Email: "email-target@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"can_manage": false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateAuthEmail := func(actor uuid.UUID, want string) {
+		t.Helper()
+		record, err := service.GetAuthorizedAuthRecord(ctx, collectionID, actor, target.ID)
+		if err != nil || record.Email != want {
+			t.Fatalf("actor=%s email=%q want=%q err=%v", actor, record.Email, want, err)
+		}
+	}
+	assertPrivateAuthEmail(manager.ID, target.Email)
+
+	active := false
+	if _, err := service.UpdateAuthRecord(ctx, collectionID, manager.ID, UpdateAuthRecordInput{Active: &active}); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateAuthEmail(manager.ID, "")
+
+	otherCollectionID := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: otherCollectionID, Name: "email_other_" + otherCollectionID.String()[:8], RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	outsider, err := service.CreateAuthRecord(ctx, otherCollectionID, CreateAuthRecordInput{Email: "email-outsider@example.test", Password: "correct horse battery staple", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateAuthEmail(outsider.ID, "")
+
+	active = true
+	if _, err := service.UpdateAuthRecord(ctx, collectionID, manager.ID, UpdateAuthRecordInput{Active: &active}); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		rule string
+		null bool
+	}{
+		{name: "false", rule: "false"},
+		{name: "empty", rule: ""},
+		{name: "null", null: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			updatedRules := rules
+			updatedRules.Manage = test.rule
+			if test.null {
+				updatedRules.nulls = map[string]bool{"manage": true}
+			}
+			if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{managerFlag}, Rules: updatedRules}); err != nil {
+				t.Fatal(err)
+			}
+			assertPrivateAuthEmail(manager.ID, "")
+		})
+	}
+}
+
 func TestAuthRecordRelationValidatesTargetAndAppliesSetNull(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()

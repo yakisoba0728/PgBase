@@ -54,7 +54,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	result := values[:0]
 	for _, value := range values {
 		if !rules.IsNull("list") && s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
-			result = append(result, visibleAuthRecordForPrincipal(value, fields, principal))
+			result = append(result, s.visibleAuthRecordForPrincipal(ctx, value, fields, principal, rules))
 		}
 	}
 	return result, nil
@@ -71,7 +71,7 @@ func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, pri
 	if rules.IsNull("view") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
-	return visibleAuthRecordForPrincipal(value, fields, principal), nil
+	return s.visibleAuthRecordForPrincipal(ctx, value, fields, principal, rules), nil
 }
 func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
 	fields, rules, err := s.authRecordRules(ctx, collectionID)
@@ -102,7 +102,10 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 		}
 		return nil
 	})
-	return visibleAuthRecordForPrincipal(updated, fields, principal), err
+	if err != nil {
+		return AuthRecord{}, err
+	}
+	return s.visibleAuthRecordForPrincipal(ctx, updated, fields, principal, rules), nil
 }
 
 func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord {
@@ -121,11 +124,16 @@ func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord
 }
 
 // visibleAuthRecordForPrincipal removes an email only after the record has
-// passed its collection rule. Owners retain their own email, while every other
-// authenticated or anonymous principal needs the explicit visibility opt-in.
-func visibleAuthRecordForPrincipal(record AuthRecord, fields []schema.FieldInput, principal uuid.UUID) AuthRecord {
+// passed its collection rule. Owners retain their own email. A principal that
+// satisfies the persisted manage rule for this target also retains it, matching
+// PocketBase's record projection after list or view authorization succeeds.
+func (s *Service) visibleAuthRecordForPrincipal(ctx context.Context, record AuthRecord, fields []schema.FieldInput, principal uuid.UUID, rules AuthCollectionRules) AuthRecord {
 	record = visibleAuthRecord(record, fields)
-	if principal != record.ID && !record.EmailVisibility {
+	if record.EmailVisibility || principal == record.ID {
+		return record
+	}
+	managed := !rules.IsNull("manage") && s.authorizeManagedAuthRecord(ctx, record.AuthCollectionID, principal, record, fields, rules.Manage, nil)
+	if !managed {
 		record.Email = ""
 	}
 	return record
