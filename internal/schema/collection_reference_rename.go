@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,9 @@ func (s *Store) renameCollectionReferences(ctx context.Context, collectionID uui
 			return err
 		}
 		var document any
-		if json.Unmarshal(raw, &document) != nil {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		if decoder.Decode(&document) != nil {
 			rows.Close()
 			return ErrCatalogInvalid
 		}
@@ -59,11 +62,45 @@ func (s *Store) renameCollectionReferences(ctx context.Context, collectionID uui
 	}
 	oldPrefix := "@collection." + oldName + "."
 	newPrefix := "@collection." + newName + "."
-	if _, err = s.db.Exec(ctx, `update pgbase_meta.auth_collections set
-		list_rule=replace(list_rule,$1,$2),view_rule=replace(view_rule,$1,$2),create_rule=replace(create_rule,$1,$2),
-		update_rule=replace(update_rule,$1,$2),delete_rule=replace(delete_rule,$1,$2),auth_rule=replace(auth_rule,$1,$2),manage_rule=replace(manage_rule,$1,$2),updated_at=clock_timestamp()
-		where coalesce(list_rule,'') like '%'||$1||'%' or coalesce(view_rule,'') like '%'||$1||'%' or coalesce(create_rule,'') like '%'||$1||'%' or coalesce(update_rule,'') like '%'||$1||'%' or coalesce(delete_rule,'') like '%'||$1||'%' or coalesce(auth_rule,'') like '%'||$1||'%' or coalesce(manage_rule,'') like '%'||$1||'%'`, oldPrefix, newPrefix); err != nil {
-		return fmt.Errorf("rename auth collection rule references: %w", err)
+	authRows, err := s.db.Query(ctx, `select id,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule from pgbase_meta.auth_collections for update`)
+	if err != nil {
+		return fmt.Errorf("read auth collection rule references: %w", err)
+	}
+	type changedAuthRules struct {
+		id     uuid.UUID
+		values [7]*string
+	}
+	authChanges := []changedAuthRules{}
+	for authRows.Next() {
+		var value changedAuthRules
+		if err = authRows.Scan(&value.id, &value.values[0], &value.values[1], &value.values[2], &value.values[3], &value.values[4], &value.values[5], &value.values[6]); err != nil {
+			authRows.Close()
+			return err
+		}
+		rowChanged := false
+		for i, source := range value.values {
+			if source == nil {
+				continue
+			}
+			replaced := replaceRuleSource(*source, oldPrefix, newPrefix)
+			if replaced != *source {
+				value.values[i] = &replaced
+				rowChanged = true
+			}
+		}
+		if rowChanged {
+			authChanges = append(authChanges, value)
+		}
+	}
+	if err = authRows.Err(); err != nil {
+		authRows.Close()
+		return err
+	}
+	authRows.Close()
+	for _, value := range authChanges {
+		if _, err = s.db.Exec(ctx, `update pgbase_meta.auth_collections set list_rule=$2,view_rule=$3,create_rule=$4,update_rule=$5,delete_rule=$6,auth_rule=$7,manage_rule=$8,updated_at=clock_timestamp() where id=$1`, value.id, value.values[0], value.values[1], value.values[2], value.values[3], value.values[4], value.values[5], value.values[6]); err != nil {
+			return fmt.Errorf("rename auth collection rule references: %w", err)
+		}
 	}
 	return nil
 }
@@ -81,7 +118,12 @@ func renameRuleCollectionReferences(value any, oldName, newName string) bool {
 					continue
 				}
 				if text, ok := child.(string); ok && (childKey == "field" || childKey == "otherField" || childKey == "pocketbase") {
-					replaced := strings.ReplaceAll(text, oldPrefix, newPrefix)
+					replaced := text
+					if childKey == "pocketbase" {
+						replaced = replaceRuleSource(text, oldPrefix, newPrefix)
+					} else {
+						replaced = strings.ReplaceAll(text, oldPrefix, newPrefix)
+					}
 					if replaced != text {
 						typed[childKey] = replaced
 						changed = true
@@ -98,4 +140,40 @@ func renameRuleCollectionReferences(value any, oldName, newName string) bool {
 	}
 	visit(value, "")
 	return changed
+}
+
+func replaceRuleSource(source, oldPrefix, newPrefix string) string {
+	var result strings.Builder
+	result.Grow(len(source))
+	quote := byte(0)
+	escaped := false
+	for index := 0; index < len(source); {
+		character := source[index]
+		if quote != 0 {
+			result.WriteByte(character)
+			index++
+			if escaped {
+				escaped = false
+			} else if character == '\\' {
+				escaped = true
+			} else if character == quote {
+				quote = 0
+			}
+			continue
+		}
+		if character == '\'' || character == '"' {
+			quote = character
+			result.WriteByte(character)
+			index++
+			continue
+		}
+		if strings.HasPrefix(source[index:], oldPrefix) {
+			result.WriteString(newPrefix)
+			index += len(oldPrefix)
+			continue
+		}
+		result.WriteByte(character)
+		index++
+	}
+	return result.String()
 }

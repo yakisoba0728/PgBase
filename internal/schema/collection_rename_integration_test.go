@@ -23,7 +23,7 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb) on conflict(collection_id) do update set rules=excluded.rules`, created.ID, rules); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(context.Background(), `update pgbase_meta.auth_collections set list_rule='@collection.rename_source.title = ''visible''' where name='users'`); err != nil {
+	if _, err := pool.Exec(context.Background(), `update pgbase_meta.auth_collections set list_rule='@collection.rename_source.title = ''@collection.rename_source.literal''' where name='users'`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +76,7 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `select list_rule from pgbase_meta.auth_collections where name='users'`).Scan(&authRule); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(storedRules, []byte(`"field": "@collection.rename_target.title"`)) || !bytes.Contains(storedRules, []byte(`"value": "@collection.rename_source.title"`)) || !strings.Contains(authRule, "@collection.rename_target.title") {
+	if !bytes.Contains(storedRules, []byte(`"field": "@collection.rename_target.title"`)) || !bytes.Contains(storedRules, []byte(`"value": "@collection.rename_source.title"`)) || !strings.Contains(authRule, "@collection.rename_target.title") || !strings.Contains(authRule, "'@collection.rename_source.literal'") {
 		t.Fatalf("renamed rules collection=%s auth=%q", storedRules, authRule)
 	}
 	if err := PreflightCatalog(context.Background(), pool, &Cache{}); err != nil {
