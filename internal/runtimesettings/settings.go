@@ -112,6 +112,8 @@ func (c *Controller) Get() Settings {
 	return clone(v)
 }
 func (c *Controller) Reload(ctx context.Context) error {
+	c.notifyMu.Lock()
+	defer c.notifyMu.Unlock()
 	var raw []byte
 	var v Settings
 	var revision int64
@@ -128,10 +130,16 @@ func (c *Controller) Reload(ctx context.Context) error {
 		return err
 	}
 	c.mu.Lock()
-	if v.Revision >= c.value.Revision {
-		c.value = clone(v)
+	if v.Revision < c.value.Revision {
+		c.mu.Unlock()
+		return nil
 	}
+	c.value = clone(v)
+	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
+	for _, listener := range listeners {
+		listener(clone(v))
+	}
 	return nil
 }
 func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, error) {
@@ -168,7 +176,7 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
 	for _, listener := range listeners {
-		listener(candidate)
+		listener(clone(candidate))
 	}
 	return candidate, nil
 }

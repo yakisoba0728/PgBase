@@ -9,8 +9,8 @@ import (
 )
 
 // runtimeSettingsRoutes exposes one complete, revisioned operational document.
-// PATCH deliberately accepts the whole candidate: validation is atomic and a
-// caller can never persist one half of a mutually dependent configuration.
+// PATCH merges supplied sections into one candidate, validates the complete
+// result, and atomically persists it under the supplied revision precondition.
 func runtimeSettingsRoutes(settings *runtimesettings.Controller) []route {
 	get := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, settings.Get()) })
 	patch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

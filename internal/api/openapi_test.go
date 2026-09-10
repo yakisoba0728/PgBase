@@ -15,6 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
@@ -31,7 +32,8 @@ func allOptionalRouteDependencies() Dependencies {
 	return completeDependencies(Dependencies{
 		BackupStorageAdministration: &struct{ BackupStorageAdministration }{}, StorageAdministration: &struct{ StorageAdministration }{}, StorageMigrations: &struct{ StorageMigrationAdministration }{}, Schema: (*schema.Service)(nil), Backups: &struct{ ManagedBackups }{}, AdminUI: http.NotFoundHandler(),
 		AuthAdministration: (*userauth.Service)(nil), Jobs: (*jobs.Service)(nil), RequestLog: &observability.RequestLog{},
-		UserAuth: (*userauth.Service)(nil), EmailActions: (*userauth.Service)(nil), AuthFactors: (*userauth.Service)(nil), AuthCollections: (*userauth.Service)(nil),
+		RuntimeSettings: &runtimesettings.Controller{},
+		UserAuth:        (*userauth.Service)(nil), EmailActions: (*userauth.Service)(nil), AuthFactors: (*userauth.Service)(nil), AuthCollections: (*userauth.Service)(nil),
 		RecordAccess: &struct{ RecordAccess }{}, RecordRules: (*recordaccess.RuleService)(nil), ServiceTokens: (*serviceauth.Service)(nil), Files: (*filestore.Service)(nil), Realtime: (*realtime.Service)(nil),
 		MaximumFileUploadBytes: 100 << 20, MetricsExposition: http.NotFoundHandler(),
 		SQLConsole: sqlConsole,

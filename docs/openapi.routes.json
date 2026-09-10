@@ -559,6 +559,46 @@
         "x-pgbase-csrf-required": true
       }
     },
+    "/api/admin/collections/view/sample": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 5256
+      }
+    },
+    "/api/admin/collections/{collection}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
     "/api/admin/collections/{collection}/records/{id}/files/{field}": {
       "get": {
         "parameters": [
@@ -1198,6 +1238,48 @@
             "adminCookie": []
           }
         ]
+      }
+    },
+    "/api/admin/settings": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/settings/reload": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "x-pgbase-csrf-required": true
       }
     },
     "/api/admin/setup": {

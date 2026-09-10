@@ -335,6 +335,7 @@ func newWithCatalogPreflight(
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
+	bindRuntimeSettingsLifecycle(app, runtimeSettings)
 	if jobService != nil {
 		app.jobWorker = jobService
 	}

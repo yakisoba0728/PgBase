@@ -57,11 +57,13 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		40: "ffecb2cff732be1c1922fa893d61ba3f0ad77c1d8c8d1e2159ece97c967d64ee",
 		41: "628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699",
 		42: "8ab7ffccff22509e2b3186eca18420b5428b827ec9279a36eac7920f91a2fd92",
+		43: "d7fb1735466f7cfa7463ad95d7c312bc704350115eab8fe8ad5f0a78e784e6b0",
 		45: "43dddfefca04b239547c579dda39c8ddd348fdbd5ec85f3018cc9805c42141c7",
+		48: "a8ce4d47642feadb70d9c1dfa5466b3448b37ba506535d2a09dd7c9d52c88c3f",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 43 || migrations[len(migrations)-1].Version != 45 ||
-		migrations[len(migrations)-1].Name != "runtime_settings" || migrations[7].Version != 8 ||
+	if len(migrations) != 45 || migrations[len(migrations)-1].Version != 48 ||
+		migrations[len(migrations)-1].Name != "auth_oidc_compat" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||
