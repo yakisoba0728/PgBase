@@ -433,6 +433,31 @@ export class AuthRealm {
         await options.open(started.authorizationUrl);
         return started;
     }
+    async oauthWithBrowser(provider, redirectUri, adapter, signal) {
+        try {
+            const started = await this.oauthStart(provider, redirectUri, signal);
+            const expectedState = new URL(started.authorizationUrl).searchParams.get("state");
+            if (!expectedState)
+                throw new OAuthCallbackError("invalid_start", "The OAuth start URL is missing state.");
+            await adapter.open(started.authorizationUrl);
+            const callback = await callbackWithAbort(adapter, signal);
+            if (callback.origin !== new URL(redirectUri).origin)
+                throw new OAuthCallbackError("invalid_callback_origin", "The OAuth callback origin does not match the redirect URL.");
+            const providerError = callback.searchParams.get("error");
+            if (providerError)
+                throw new OAuthCallbackError(providerError, callback.searchParams.get("error_description") ?? undefined);
+            const state = callback.searchParams.get("state");
+            const code = callback.searchParams.get("code");
+            if (!state || !code)
+                throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
+            if (state !== expectedState)
+                throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
+            return await this.oauthComplete(provider, state, code, signal);
+        }
+        finally {
+            adapter.close?.();
+        }
+    }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
     async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
         this.client.auth.save(session.token, session.user); return session; }
@@ -468,6 +493,14 @@ function refreshSession(value) {
     if (details.authCollectionId !== undefined && typeof details.authCollectionId !== "string")
         throw new PgBaseError(0, "invalid_session_response");
     return { token: session.token, expiresAt: session.expiresAt, user: details };
+}
+function callbackWithAbort(adapter, signal) {
+    const callback = adapter.waitForCallback(signal).then((value) => typeof value === "string" ? new URL(value) : value);
+    if (!signal)
+        return callback;
+    if (signal.aborted)
+        return Promise.reject(new DOMException("aborted", "AbortError"));
+    return Promise.race([callback, new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }))]);
 }
 export class OAuthCallbackError extends Error {
     code;

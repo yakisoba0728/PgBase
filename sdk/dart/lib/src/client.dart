@@ -13,6 +13,17 @@ import 'types.dart';
 
 typedef OAuthUrlLauncher = FutureOr<void> Function(Uri url);
 
+final class OAuthBrowserAdapter {
+  const OAuthBrowserAdapter({
+    required this.open,
+    required this.waitForCallback,
+    this.close,
+  });
+  final OAuthUrlLauncher open;
+  final Future<Uri> Function(CancellationToken? cancellation) waitForCallback;
+  final void Function()? close;
+}
+
 final class PgBaseClient {
   PgBaseClient(Uri baseUri, {http.Client? httpClient, AuthStore? auth})
     : transport = PgBaseTransport(baseUri, client: httpClient),
@@ -258,6 +269,38 @@ final class PgBaseClient {
     }
     await open(Uri.parse(authorizationUrl.value));
     return started;
+  }
+
+  /// Runs OAuth start, launch, callback validation, and completion in one
+  /// cancellable operation. The adapter owns platform popup/deep-link I/O.
+  Future<UserSession> oauthWithBrowser(
+    String provider,
+    String redirectUri,
+    OAuthBrowserAdapter adapter, {
+    CancellationToken? cancellation,
+  }) async {
+    try {
+      final started = await oauthStart(provider, redirectUri, cancellation: cancellation);
+      final authorizationUrl = started['authorizationUrl'];
+      if (authorizationUrl is! JsonString) throw const OAuthCallbackError('invalid_start');
+      final expectedState = Uri.parse(authorizationUrl.value).queryParameters['state'];
+      if (expectedState == null || expectedState.isEmpty) throw const OAuthCallbackError('invalid_start');
+      await adapter.open(Uri.parse(authorizationUrl.value));
+      final callback = await adapter.waitForCallback(cancellation);
+      final redirect = Uri.parse(redirectUri);
+      if (callback.scheme != redirect.scheme || callback.authority != redirect.authority) {
+        throw const OAuthCallbackError('invalid_callback_origin');
+      }
+      final error = callback.queryParameters['error'];
+      if (error != null) throw OAuthCallbackError(error, callback.queryParameters['error_description']);
+      final state = callback.queryParameters['state'];
+      final code = callback.queryParameters['code'];
+      if (state == null || state.isEmpty || code == null || code.isEmpty) throw const OAuthCallbackError('invalid_callback');
+      if (state != expectedState) throw const OAuthCallbackError('invalid_state');
+      return await oauthComplete(provider, state, code, cancellation: cancellation);
+    } finally {
+      adapter.close?.call();
+    }
   }
 
   Future<JsonObject> oauthLink(
@@ -637,6 +680,18 @@ final class AuthRealm {
     provider,
     redirectUri,
     open,
+    cancellation: cancellation,
+  );
+
+  Future<UserSession> oauthWithBrowser(
+    String provider,
+    String redirectUri,
+    OAuthBrowserAdapter adapter, {
+    CancellationToken? cancellation,
+  }) => client.oauthWithBrowser(
+    provider,
+    redirectUri,
+    adapter,
     cancellation: cancellation,
   );
 

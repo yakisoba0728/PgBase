@@ -301,7 +301,31 @@ void main() {
       'app://callback',
       (url) { opened = url; },
     );
-    expect(opened, Uri.parse('https://provider.test/authorize'));
+    expect(opened, Uri.parse('https://provider.test/authorize?state=expected-state'));
+  });
+
+  test('OAuth browser flow validates callback state and always closes its adapter', () async {
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: _OAuthClient());
+    var closed = 0;
+    final session = await client.realm('members').oauthWithBrowser(
+      'github',
+      'app://callback',
+      OAuthBrowserAdapter(
+        open: (_) {},
+        waitForCallback: (_) async => Uri.parse('app://callback?state=expected-state&code=code'),
+        close: () => closed++,
+      ),
+    );
+    expect(session.token, 'oauth-token');
+    expect(closed, 1);
+    await expectLater(
+      client.realm('members').oauthWithBrowser(
+        'github', 'app://callback',
+        OAuthBrowserAdapter(open: (_) {}, waitForCallback: (_) async => Uri.parse('app://callback?state=wrong&code=code'), close: () => closed++),
+      ),
+      throwsA(isA<OAuthCallbackError>()),
+    );
+    expect(closed, 2);
   });
 
   test('a delayed restore cannot replace a newer clear', () async {
@@ -733,11 +757,13 @@ final class _OAuthClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     await request.finalize().drain<void>();
-    if (!request.url.path.endsWith('/oauth/start')) throw StateError('unexpected request');
-    return _jsonResponse(200, {
-      'authorizationUrl': 'https://provider.test/authorize',
-      'expiresAt': '2026-01-02T00:00:00Z',
-    });
+    if (request.url.path.endsWith('/oauth/start')) {
+      return _jsonResponse(200, {'authorizationUrl': 'https://provider.test/authorize?state=expected-state', 'expiresAt': '2026-01-02T00:00:00Z'});
+    }
+    if (request.url.path.endsWith('/oauth/complete')) {
+      return _jsonResponse(200, {'token': 'oauth-token', 'user': {'id': 'oauth', 'email': 'oauth@example.test', 'createdAt': '2026-01-01T00:00:00Z'}, 'expiresAt': '2026-01-02T00:00:00Z'});
+    }
+    throw StateError('unexpected request');
   }
 }
 

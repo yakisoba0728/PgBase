@@ -65,6 +65,10 @@ export type RequestOptions = {
 export type OAuthLaunchOptions = {
     open(url: string): void | Promise<void>;
 };
+export type OAuthBrowserAdapter = OAuthLaunchOptions & {
+    waitForCallback(signal?: AbortSignal): Promise<string | URL>;
+    close?(): void;
+};
 export type BatchOperation<T extends RecordData = RecordData> = {
     operation: "create";
     collection: string;
@@ -280,6 +284,7 @@ export declare class AuthRealm {
         authorizationUrl: string;
         expiresAt: string;
     }>;
+    oauthWithBrowser(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, signal?: AbortSignal): Promise<UserSession>;
     oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{
         authorizationUrl: string;
         expiresAt: string;
