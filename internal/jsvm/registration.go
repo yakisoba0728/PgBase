@@ -256,6 +256,39 @@ func hookGlobalName(event string) string {
 func hookGlobalNames(event string) []string {
 	aliases := map[string]string{"mail.send": "onMailerSend", "mail.otp": "onMailerRecordOTPSend", "mail.verification": "onMailerRecordVerificationSend", "mail.password_reset": "onMailerRecordPasswordResetSend", "mail.email_change": "onMailerRecordEmailChangeSend", "record.list": "onRecordsListRequest", "record.view": "onRecordViewRequest", "record.create": "onRecordCreateRequest", "record.update": "onRecordUpdateRequest", "record.delete": "onRecordDeleteRequest", "record.batch": "onBatchRequest", "file.download": "onFileDownloadRequest", "file.token": "onFileTokenRequest", "settings.reload": "onSettingsReload", "app.boot": "onBootstrap", "app.serve": "onServe", "app.terminate": "onTerminate"}
 	base := hookGlobalName(event)
+	if event == "auth.password" {
+		return []string{"onRecordAuthRequest", "onRecordAuthWithPasswordRequest", base}
+	}
+	if event == "auth.oauth.begin" {
+		return []string{"onRecordAuthWithOAuth2Request", base}
+	}
+	if event == "auth.otp.request" {
+		return []string{"onRecordRequestOTPRequest", base}
+	}
+	if event == "auth.otp.complete" {
+		return []string{"onRecordAuthWithOTPRequest", base}
+	}
+	if event == "auth.password_reset.request" {
+		return []string{"onRecordRequestPasswordResetRequest", base}
+	}
+	if event == "auth.password_reset.confirm" {
+		return []string{"onRecordConfirmPasswordResetRequest", base}
+	}
+	if event == "auth.verification.request" {
+		return []string{"onRecordRequestVerificationRequest", base}
+	}
+	if event == "auth.verification.confirm" {
+		return []string{"onRecordConfirmVerificationRequest", base}
+	}
+	if event == "auth.email_change.request" {
+		return []string{"onRecordRequestEmailChangeRequest", base}
+	}
+	if event == "auth.email_change.confirm" {
+		return []string{"onRecordConfirmEmailChangeRequest", base}
+	}
+	if event == "auth.alert" {
+		return []string{"onMailerRecordAuthAlertSend", base}
+	}
 	if alias := aliases[event]; alias != "" && alias != base {
 		return []string{alias, base}
 	}
