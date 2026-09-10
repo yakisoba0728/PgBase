@@ -4,6 +4,7 @@ export type User = {
     email: string;
     createdAt: string;
     verified?: boolean;
+    emailVisibility?: boolean;
     authCollectionId?: string;
     authCollection?: string;
 };
@@ -19,10 +20,31 @@ export type GeoPoint = {
     lat: number;
 };
 export type RecordData = Record<string, unknown>;
+/** Values accepted by [PgBaseClient.filter] placeholder substitution. */
+export type FilterParams = Record<string, unknown>;
 export type RecordPage<T extends RecordData> = {
     items: T[];
     nextCursor?: string;
 };
+/** Options for the PocketBase offset-pagination compatibility endpoint. */
+export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields"> & {
+    skipTotal?: boolean;
+};
+/** PocketBase's page-number list envelope. A skipped count is represented by -1. */
+export type PocketBasePage<T extends RecordData> = {
+    page: number;
+    perPage: number;
+    totalItems: number;
+    totalPages: number;
+    items: T[];
+};
+/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
+export type RecordModifiers = {
+    [key: `${string}+`]: unknown;
+    [key: `+${string}`]: unknown;
+    [key: `${string}-`]: unknown;
+};
+export type RecordMutation<T extends RecordData> = Omit<T, "id"> & RecordModifiers;
 export type RecordResult<T extends RecordData> = {
     record: T;
     etag?: string;
@@ -59,11 +81,18 @@ export type EventOptions = {
     maxReconnects?: number;
     reconnectDelayMs?: number;
 };
+/** A collection record event, retained for existing PocketBase subscriptions. */
 export type RealtimeEvent<T extends RecordData = RecordData> = {
     action: "create" | "update" | "delete";
     record: T;
     topic: string;
 };
+/** An application topic event. Its payload is arbitrary valid JSON. */
+export type RealtimeCustomEvent = {
+    topic: string;
+    data: unknown;
+};
+export type RealtimeSubscriptionEvent<T extends RecordData = RecordData> = RealtimeEvent<T> | RealtimeCustomEvent;
 export type RequestOptions = {
     signal?: AbortSignal;
     requestKey?: string;
@@ -240,6 +269,16 @@ export declare class PgBaseClient {
     requestEmailChange(currentPassword: string, newEmail: string, signal?: AbortSignal): Promise<void>;
     confirmEmailChange(token: string, signal?: AbortSignal): Promise<void>;
     records<T extends RecordData = RecordData>(collection: string): Records<T>;
+    /**
+     * Constructs a PocketBase filter expression without interpolating values.
+     *
+     * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+     * arrays, and objects are emitted as quoted filter literals; scalar boolean,
+     * number, and null values retain their filter-literal form.  A placeholder
+     * without a matching parameter is deliberately left unchanged, matching the
+     * PocketBase SDK and making an incomplete expression visible to the server.
+     */
+    filter(expression: string, params?: FilterParams): string;
     batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{
         results: BatchResult<T>[];
     }>;
@@ -287,8 +326,14 @@ export declare class RealtimeService {
     private ready?;
     private resolveReady?;
     constructor(client: PgBaseClient);
-    subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>>;
-    unsubscribe(topic?: string, listener?: (event: RealtimeEvent) => void): Promise<void>;
+    subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
+    subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void): Promise<() => Promise<void>>;
+    /**
+     * Subscribes to an application-owned topic without exposing its reserved
+     * realtime wire name. The callback receives the original UTF-8 topic.
+     */
+    subscribeApplication(topic: string, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
+    unsubscribe(topic?: string, listener?: (event: any) => void): Promise<void>;
     private ensureRunning;
     private sync;
     private run;
@@ -335,14 +380,19 @@ export declare class Records<T extends RecordData> {
     private readonly collection;
     constructor(client: PgBaseClient, collection: string);
     list(query?: Query, signal?: AbortSignal): Promise<RecordPage<T>>;
+    /**
+     * Lists a numbered PocketBase-compatible page. This is intentionally
+     * separate from [list], whose cursor contract remains native PgBase.
+     */
+    getList(page?: number, perPage?: number, options?: PocketBaseListOptions, signal?: AbortSignal): Promise<PocketBasePage<T>>;
     get(id: string, signal?: AbortSignal): Promise<T>;
     get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
     getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
     getWithETag(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordResult<T>>;
-    create(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    createWithETag(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
-    update(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    updateWithETag(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
+    createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
+    updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
     remove(id: string, etag: string, signal?: AbortSignal): Promise<void>;
     events(options?: EventOptions): AsyncGenerator<RecordEvent>;
     private path;

@@ -1,9 +1,43 @@
 export * from "./admin.js";
-export type User = { id: string; email: string; createdAt: string; verified?: boolean; authCollectionId?: string; authCollection?: string };
+export type User = { id: string; email: string; createdAt: string; verified?: boolean; emailVisibility?: boolean; authCollectionId?: string; authCollection?: string };
 export type UserSession = { token?: string; user: User; expiresAt: string; impersonated?: boolean; impersonatingAdministratorId?: string };
 export type GeoPoint = { lon: number; lat: number };
 export type RecordData = Record<string, unknown>;
+/** Values accepted by [PgBaseClient.filter] placeholder substitution. */
+export type FilterParams = Record<string, unknown>;
+
+function filterLiteral(value: unknown): string {
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+      // This intentionally preserves PocketBase's `NaN` and `Infinity`
+      // spelling. The server decides whether a particular field accepts it.
+      return String(value);
+    case "string":
+      return JSON.stringify(value);
+    case "undefined":
+      return "null";
+    default:
+      if (value === null) return "null";
+      if (value instanceof Date) return JSON.stringify(value.toISOString().replace("T", " "));
+      const serialized = JSON.stringify(value);
+      // PocketBase deliberately encodes aggregate JSON as one quoted filter
+      // string rather than treating it as filter syntax.
+      if (serialized?.startsWith("[") || serialized?.startsWith("{")) return JSON.stringify(serialized);
+      // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are
+      // undefined. Returning that value lets String.replace retain the
+      // upstream SDK's observable `undefined` replacement behavior.
+      return serialized as unknown as string;
+  }
+}
 export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string };
+/** Options for the PocketBase offset-pagination compatibility endpoint. */
+export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields"> & { skipTotal?: boolean };
+/** PocketBase's page-number list envelope. A skipped count is represented by -1. */
+export type PocketBasePage<T extends RecordData> = { page: number; perPage: number; totalItems: number; totalPages: number; items: T[] };
+/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
+export type RecordModifiers = { [key: `${string}+`]: unknown; [key: `+${string}`]: unknown; [key: `${string}-`]: unknown };
+export type RecordMutation<T extends RecordData> = Omit<T, "id"> & RecordModifiers;
 export type RecordResult<T extends RecordData> = { record: T; etag?: string };
 export type Query = {
   filter?: string;
@@ -37,7 +71,11 @@ export type EventOptions = {
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
+/** A collection record event, retained for existing PocketBase subscriptions. */
 export type RealtimeEvent<T extends RecordData = RecordData> = { action: "create" | "update" | "delete"; record: T; topic: string };
+/** An application topic event. Its payload is arbitrary valid JSON. */
+export type RealtimeCustomEvent = { topic: string; data: unknown };
+export type RealtimeSubscriptionEvent<T extends RecordData = RecordData> = RealtimeEvent<T> | RealtimeCustomEvent;
 export type RequestOptions = { signal?: AbortSignal; requestKey?: string };
 /** Opens the provider URL using a browser popup, redirect, or mobile launcher. */
 export type OAuthLaunchOptions = { open(url: string): void | Promise<void> };
@@ -311,6 +349,22 @@ export class PgBaseClient {
     return new Records<T>(this, collection);
   }
 
+  /**
+   * Constructs a PocketBase filter expression without interpolating values.
+   *
+   * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+   * arrays, and objects are emitted as quoted filter literals; scalar boolean,
+   * number, and null values retain their filter-literal form.  A placeholder
+   * without a matching parameter is deliberately left unchanged, matching the
+   * PocketBase SDK and making an incomplete expression visible to the server.
+   */
+  filter(expression: string, params?: FilterParams): string {
+    if (!params || Object.keys(params).length === 0) return expression;
+    return expression.replace(/\{:([\w.-]+)\}/g, (placeholder, key: string) =>
+      Object.prototype.hasOwnProperty.call(params, key) ? filterLiteral(params[key]) : placeholder,
+    );
+  }
+
   batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{ results: BatchResult<T>[] }> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
@@ -458,7 +512,7 @@ export class PgBaseClient {
 
 /** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
 export class RealtimeService {
-  private readonly listeners = new Map<string, Set<(event: RealtimeEvent) => void>>();
+  private readonly listeners = new Map<string, Set<(event: any) => void>>();
   private controller?: AbortController;
   private clientId?: string;
   private lastEventId?: string;
@@ -468,8 +522,10 @@ export class RealtimeService {
 
   constructor(private readonly client: PgBaseClient) {}
 
-  async subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>> {
-    if (!topic) throw new PgBaseError(0, "invalid_realtime_topic");
+  async subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
+  async subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void): Promise<() => Promise<void>>;
+  async subscribe(topic: string, listener: (event: any) => void): Promise<() => Promise<void>> {
+    if (!validRealtimeTopic(topic)) throw new PgBaseError(0, "invalid_realtime_topic");
     if (this.controller?.signal.aborted && this.running) await this.running;
     let set = this.listeners.get(topic);
     if (!set) { set = new Set(); this.listeners.set(topic, set); }
@@ -480,7 +536,16 @@ export class RealtimeService {
     return async () => this.unsubscribe(topic, listener);
   }
 
-  async unsubscribe(topic?: string, listener?: (event: RealtimeEvent) => void): Promise<void> {
+  /**
+   * Subscribes to an application-owned topic without exposing its reserved
+   * realtime wire name. The callback receives the original UTF-8 topic.
+   */
+  async subscribeApplication(topic: string, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>> {
+    const wireTopic = applicationWireTopic(topic);
+    return this.subscribe(wireTopic, (event) => listener({ topic, data: event.data }));
+  }
+
+  async unsubscribe(topic?: string, listener?: (event: any) => void): Promise<void> {
     if (topic === undefined) this.listeners.clear();
     else if (listener === undefined) this.listeners.delete(topic);
     else { const set = this.listeners.get(topic); set?.delete(listener); if (set?.size === 0) this.listeners.delete(topic); }
@@ -501,18 +566,47 @@ export class RealtimeService {
       try {
         const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
         for await (const message of parseEventStream(response.body!, controller.signal)) {
-          const data = JSON.parse(message.data) as Record<string, unknown>;
-          if (message.event === "PB_CONNECT") { this.clientId = String(data.clientId ?? ""); if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect"); await this.sync(); this.resolveReady?.(); continue; }
+          const data = JSON.parse(message.data) as unknown;
+          if (message.event === "PB_CONNECT") {
+            this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
+            if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect");
+            await this.sync(); this.resolveReady?.(); continue;
+          }
           if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
           const topic = message.event;
           if (!topic) continue;
-          const event: RealtimeEvent = { topic, action: data.action as RealtimeEvent["action"], record: data.record as RecordData };
-          if (!event.record || !["create", "update", "delete"].includes(event.action)) continue;
+          const event = topic.startsWith("@")
+            ? { topic: topic as `@${string}`, data }
+            : recordRealtimeEvent(topic, data);
+          if (!event) continue;
           for (const listener of this.listeners.get(topic) ?? []) listener(event);
         }
       } catch (error) { if (controller.signal.aborted) return; await waitForReconnect(250, controller.signal); }
     }
   }
+}
+
+function validRealtimeTopic(topic: string): boolean {
+  if (!topic) return false;
+  if (!topic.startsWith("@")) return true;
+  return new TextEncoder().encode(topic).length >= 2 &&
+    new TextEncoder().encode(topic).length <= 256 &&
+    !/[\s\x00-\x1f\x7f?#*]/.test(topic);
+}
+
+function applicationWireTopic(topic: string): `@app/${string}` {
+  const bytes = new TextEncoder().encode(topic);
+  if (bytes.length === 0 || bytes.length > 188) throw new PgBaseError(0, "invalid_realtime_topic");
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `@app/${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
+}
+
+function recordRealtimeEvent(topic: string, data: unknown): RealtimeEvent | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  const value = data as Record<string, unknown>;
+  if (!value.record || !["create", "update", "delete"].includes(value.action as string)) return undefined;
+  return { topic, action: value.action as RealtimeEvent["action"], record: value.record as RecordData };
 }
 
 export class AuthRealm {
@@ -646,6 +740,16 @@ export class Records<T extends RecordData> {
     return this.client._request(`${this.path()}${suffix}`, {}, signal);
   }
 
+  /**
+   * Lists a numbered PocketBase-compatible page. This is intentionally
+   * separate from [list], whose cursor contract remains native PgBase.
+   */
+  getList(page = 1, perPage = 30, options: PocketBaseListOptions = {}, signal?: AbortSignal): Promise<PocketBasePage<T>> {
+    const parameters = new URLSearchParams({ compat: "pocketbase", page: String(page), perPage: String(perPage) });
+    for (const [key, value] of Object.entries(options)) if (value !== undefined) parameters.set(key, String(value));
+    return this.client._request(`${this.path()}?${parameters}`, {}, signal);
+  }
+
   get(id: string, signal?: AbortSignal): Promise<T>;
   get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
   async get(id: string, optionsOrSignal?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
@@ -660,11 +764,11 @@ export class Records<T extends RecordData> {
     return this.recordResponse(this.path(id, options), {}, requestSignal);
   }
 
-  async create(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+  async create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
     return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
   }
 
-  createWithETag(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+  createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     return this.recordResponse(this.path(undefined, query), {
       method: "POST",
@@ -673,11 +777,11 @@ export class Records<T extends RecordData> {
     }, requestSignal);
   }
 
-  async update(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+  async update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
     return (await this.updateWithETag(id, data, etag, options, signal)).record;
   }
 
-  updateWithETag(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+  updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     return this.recordResponse(this.path(id, query), {
       method: "PATCH",

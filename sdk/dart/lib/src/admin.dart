@@ -126,6 +126,44 @@ final class PgBaseAdminClient {
 
   Future<JsonObject> catalog({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/collections', cancellation: cancellation);
+  /// Generates a short-lived Apple OAuth client secret; it is never retained.
+  Future<JsonObject> generateAppleClientSecret({
+    required String clientId,
+    required String teamId,
+    required String keyId,
+    required String privateKey,
+    required int duration,
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/settings/apple/generate-client-secret',
+    body: JsonObject({
+      'clientId': JsonString(clientId),
+      'teamId': JsonString(teamId),
+      'keyId': JsonString(keyId),
+      'privateKey': JsonString(privateKey),
+      'duration': JsonNumber('$duration'),
+    }),
+    cancellation: cancellation,
+  );
+  /// Returns server-authored base, auth, and view collection creation templates.
+  Future<JsonObject> collectionScaffolds({CancellationToken? cancellation}) =>
+      _object(
+        'GET',
+        '/api/admin/collections/scaffolds',
+        cancellation: cancellation,
+      );
+
+  /// Removes every record in [name] through the administrator lifecycle.
+  Future<JsonObject> truncateCollection(
+    String name, {
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/collections/${Uri.encodeComponent(name)}/truncate',
+    body: JsonObject({'name': JsonString(name)}),
+    cancellation: cancellation,
+  );
 
   /// Freezes one preview's exact apply body and recovery identities.
   Future<ApprovedSchemaPlan> schemaPlan(

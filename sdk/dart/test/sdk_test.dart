@@ -6,6 +6,64 @@ import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('filter placeholder values are deterministic and never parsed twice', () {
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'));
+    expect(
+      pgbase.filter('title = {:title} || summary = {:title}', {
+        'title': 'quoted "value"\\next\nline',
+      }),
+      'title = "quoted \\"value\\"\\\\next\\nline" || summary = "quoted \\"value\\"\\\\next\\nline"',
+    );
+    expect(
+      pgbase.filter('created >= {:when}', {
+        'when': DateTime.utc(2026, 1, 2, 3, 4, 5),
+      }),
+      'created >= "2026-01-02 03:04:05.000Z"',
+    );
+    expect(
+      pgbase.filter('flags = {:value}', {
+        'value': [true, 'two'],
+      }),
+      'flags = "[true,\\"two\\"]"',
+    );
+    expect(
+      pgbase.filter('meta = {:value}', {
+        'value': {'flag': true},
+      }),
+      'meta = "{\\"flag\\":true}"',
+    );
+    expect(pgbase.filter('unset = {:value}', {'value': null}), 'unset = null');
+    expect(pgbase.filter('number = {:value}', {'value': double.nan}), 'number = NaN');
+    expect(pgbase.filter('number = {:value}', {'value': double.infinity}), 'number = Infinity');
+    expect(
+      pgbase.filter('known = {:known} && missing = {:missing}', {'known': false}),
+      'known = false && missing = {:missing}',
+    );
+    expect(
+      pgbase.filter('value = {:text}', {'text': '{:text} || title != "safe"'}),
+      'value = "{:text} || title != \\"safe\\""',
+    );
+  });
+
+  test('application realtime topics preserve the raw name and payload', () async {
+    final client = _ApplicationTopicClient();
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
+    final received = Completer<RealtimeCustomEvent>();
+    final stop = await pgbase.realtime.subscribeApplication(
+      'custom-topic',
+      received.complete,
+    );
+    final event = await received.future;
+    expect(event.topic, 'custom-topic');
+    expect(((event.data as JsonObject)['ok'] as JsonBool).value, isTrue);
+    expect(client.subscriptions, ['@app/Y3VzdG9tLXRvcGlj']);
+    await stop();
+    expect(
+      () => pgbase.realtime.subscribeApplication('', (_) {}),
+      throwsA(isA<PgBaseProtocolError>()),
+    );
+  });
+
   group('exact JSON', () {
     test(
       'retains arbitrary JSON number spelling and rejects duplicate keys',
@@ -171,6 +229,30 @@ void main() {
       }
     },
   );
+
+  test('PocketBase numbered list sends its explicit compatibility contract', () async {
+    final client = _ProjectionClient();
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
+    final page = await pgbase.records('notes').getList(
+      2,
+      25,
+      const PocketBaseListOptions(
+        filter: 'title = "paged"',
+        sort: '@random',
+        skipTotal: true,
+      ),
+    );
+    expect(page.page, 2);
+    expect(page.perPage, 25);
+    expect(page.totalItems, -1);
+    expect(page.totalPages, -1);
+    expect((page.items.single['title'] as JsonString).value, 'paged');
+    final url = client.urls.single;
+    expect(url.queryParameters['compat'], 'pocketbase');
+    expect(url.queryParameters['page'], '2');
+    expect(url.queryParameters['perPage'], '25');
+    expect(url.queryParameters['skipTotal'], 'true');
+  });
 
   test('admin client keeps CSRF apart from bearer authentication', () async {
     final client = _ScriptedClient();
@@ -573,6 +655,20 @@ final class _ProjectionClient extends http.BaseClient {
     await request.finalize().drain<void>();
     urls.add(request.url);
     final isList = request.url.path.endsWith('/records');
+    if (isList && request.url.queryParameters['compat'] == 'pocketbase') {
+      return _jsonResponse(200, {
+        'page': 2,
+        'perPage': 25,
+        'totalItems': -1,
+        'totalPages': -1,
+        'items': [
+          {
+            'id': '01900000-0000-7000-8000-000000000001',
+            'title': 'paged',
+          },
+        ],
+      });
+    }
     return _jsonResponse(
       200,
       isList
@@ -589,6 +685,34 @@ final class _ProjectionClient extends http.BaseClient {
               'title': 'viewed',
             },
     );
+  }
+}
+
+final class _ApplicationTopicClient extends http.BaseClient {
+  final List<String> subscriptions = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    if (request.method == 'GET' && request.url.path == '/api/realtime') {
+      return http.StreamedResponse(
+        http.ByteStream.fromBytes(
+          utf8.encode(
+            'event: PB_CONNECT\ndata: {"clientId":"application-test"}\n\n'
+            'event: @app/Y3VzdG9tLXRvcGlj\ndata: {"ok":true}\n\n',
+          ),
+        ),
+        200,
+        headers: const {'content-type': 'text/event-stream'},
+      );
+    }
+    if (request.method == 'POST' && request.url.path == '/api/realtime') {
+      final value = decodeExactJson(body) as JsonObject;
+      final values = value['subscriptions'] as JsonArray;
+      subscriptions.addAll(values.values.cast<JsonString>().map((value) => value.value));
+      return _jsonResponse(204, null);
+    }
+    throw StateError('unexpected application realtime request ${request.url}');
   }
 }
 

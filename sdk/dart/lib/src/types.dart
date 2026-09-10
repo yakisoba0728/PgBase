@@ -44,6 +44,7 @@ final class User {
     required this.email,
     required this.createdAt,
     this.verified,
+    this.emailVisibility,
     this.authCollection,
     this.authCollectionId,
   });
@@ -52,6 +53,7 @@ final class User {
   final String email;
   final String createdAt;
   final bool? verified;
+  final bool? emailVisibility;
   final String? authCollection;
   final String? authCollectionId;
 }
@@ -143,4 +145,49 @@ final class Query {
     if (cursor != null) 'cursor': cursor!,
     if (limit != null) 'limit': '$limit',
   };
+}
+
+/// Options for PocketBase's page-number list compatibility endpoint.
+final class PocketBaseListOptions {
+  const PocketBaseListOptions({
+    this.filter,
+    this.sort,
+    this.expand,
+    this.fields,
+    this.skipTotal,
+  });
+
+  final String? filter;
+  final String? sort;
+  final String? expand;
+  final String? fields;
+  final bool? skipTotal;
+
+  Map<String, String> toParameters(int page, int perPage) => {
+    'compat': 'pocketbase',
+    'page': '$page',
+    'perPage': '$perPage',
+    if (filter != null) 'filter': filter!,
+    if (sort != null) 'sort': sort!,
+    if (expand != null) 'expand': expand!,
+    if (fields != null) 'fields': fields!,
+    if (skipTotal != null) 'skipTotal': '$skipTotal',
+  };
+}
+
+/// PocketBase's offset-pagination response. A skipped count is `-1`.
+final class PocketBaseRecordPage<T> {
+  const PocketBaseRecordPage({
+    required this.page,
+    required this.perPage,
+    required this.totalItems,
+    required this.totalPages,
+    required this.items,
+  });
+
+  final int page;
+  final int perPage;
+  final int totalItems;
+  final int totalPages;
+  final List<T> items;
 }

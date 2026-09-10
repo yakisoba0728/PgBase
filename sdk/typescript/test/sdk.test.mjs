@@ -18,6 +18,17 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify({ token: "first-token", user: { id: "first", email: "first@example.test", createdAt: "2026-01-01T00:00:00Z" }, expiresAt: "2026-01-02T00:00:00Z" }));
     return;
   }
+  if (request.url === "/api/realtime" && request.method === "GET") {
+    response.setHeader("content-type", "text/event-stream");
+    response.write('event: PB_CONNECT\ndata: {"clientId":"application-test"}\n\n');
+    setTimeout(() => response.write('event: @app/Y3VzdG9tLXRvcGlj\ndata: {"ok":true,"nested":[1,2]}\n\n'), 5);
+    return;
+  }
+  if (request.url === "/api/realtime" && request.method === "POST") {
+    response.statusCode = 204;
+    response.end();
+    return;
+  }
   if (request.url === "/api/v1/auth/members/login") {
     response.statusCode = 401; response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ error: { code: "mfa_required", details: { challengeToken: ["realm-challenge"], expiresAt: ["2026-01-02T00:00:00Z"] } } })); return;
@@ -95,6 +106,10 @@ const server = createServer(async (request, response) => {
   }
   if (request.url?.startsWith("/api/v1/user/collections/notes/records") && request.method === "GET") {
     response.setHeader("content-type", "application/json");
+    if (new URL(request.url, "http://test").searchParams.get("compat") === "pocketbase") {
+      response.end(JSON.stringify({ page: 2, perPage: 25, totalItems: -1, totalPages: -1, items: [{ id: "note-pb", title: "paged" }] }));
+      return;
+    }
     const cursor = new URL(request.url, "http://test").searchParams.get("cursor");
     response.end(JSON.stringify(cursor === "next" ? { items: [{ id: "note-2", title: "second" }] } : { items: [{ id: "note-1", title: "private" }], nextCursor: "next" }));
     return;
@@ -132,6 +147,23 @@ const { port } = server.address();
 const client = new PgBaseClient(`http://127.0.0.1:${port}`);
 
 try {
+  const repeated = client.filter('title = {:title} || summary = {:title}', { title: 'quoted "value"\\next\nline' });
+  assert.equal(repeated, 'title = "quoted \\"value\\"\\\\next\\nline" || summary = "quoted \\"value\\"\\\\next\\nline"');
+  assert.equal(client.filter('created >= {:when}', { when: new Date('2026-01-02T03:04:05.000Z') }), 'created >= "2026-01-02 03:04:05.000Z"');
+  assert.equal(client.filter('flags = {:value}', { value: [true, 'two'] }), 'flags = "[true,\\"two\\"]"');
+  assert.equal(client.filter('meta = {:value}', { value: { flag: true } }), 'meta = "{\\"flag\\":true}"');
+  assert.equal(client.filter('unset = {:value}', { value: undefined }), 'unset = null');
+  assert.equal(client.filter('number = {:value}', { value: Number.NaN }), 'number = NaN');
+  assert.equal(client.filter('number = {:value}', { value: Infinity }), 'number = Infinity');
+  assert.equal(client.filter('known = {:known} && missing = {:missing}', { known: false }), 'known = false && missing = {:missing}');
+  assert.equal(client.filter('value = {:text}', { text: '{:text} || title != "safe"' }), 'value = "{:text} || title != \\"safe\\""', 'substitution is a single pass');
+  const applicationEvent = new Promise((resolve) => {
+    client.realtime.subscribeApplication("custom-topic", async (event) => resolve(event));
+  });
+  assert.deepEqual(await applicationEvent, { topic: "custom-topic", data: { ok: true, nested: [1, 2] } });
+  await client.realtime.unsubscribe();
+  await assert.rejects(() => client.realtime.subscribeApplication("", () => {}), (error) => error instanceof PgBaseError && error.code === "invalid_realtime_topic");
+
   const session = await client.login("first@example.test", "correct horse battery staple");
   assert.equal(session.user.id, "first");
   assert.equal(client.auth.token, "first-token");
@@ -239,6 +271,11 @@ try {
   assert.match(listRequest.path, /expand=author/);
   assert.match(listRequest.path, /fields=id%2Ctitle/);
   assert.match(listRequest.path, /cursor=current/);
+
+  const pocketBasePage = await client.records("notes").getList(2, 25, { filter: client.filter('title = {:title}', { title: "paged" }), sort: "@random", skipTotal: true });
+  assert.deepEqual(pocketBasePage, { page: 2, perPage: 25, totalItems: -1, totalPages: -1, items: [{ id: "note-pb", title: "paged" }] });
+  assert.match(requests.at(-1).path, /compat=pocketbase&page=2&perPage=25/);
+  assert.match(requests.at(-1).path, /skipTotal=true/);
 
   const projected = await client.records("notes").get("note-1", { fields: "id,title", expand: "author" });
   assert.equal(projected.id, "note-1");

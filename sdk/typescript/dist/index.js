@@ -1,4 +1,31 @@
 export * from "./admin.js";
+function filterLiteral(value) {
+    switch (typeof value) {
+        case "boolean":
+        case "number":
+            // This intentionally preserves PocketBase's `NaN` and `Infinity`
+            // spelling. The server decides whether a particular field accepts it.
+            return String(value);
+        case "string":
+            return JSON.stringify(value);
+        case "undefined":
+            return "null";
+        default:
+            if (value === null)
+                return "null";
+            if (value instanceof Date)
+                return JSON.stringify(value.toISOString().replace("T", " "));
+            const serialized = JSON.stringify(value);
+            // PocketBase deliberately encodes aggregate JSON as one quoted filter
+            // string rather than treating it as filter syntax.
+            if (serialized?.startsWith("[") || serialized?.startsWith("{"))
+                return JSON.stringify(serialized);
+            // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are
+            // undefined. Returning that value lets String.replace retain the
+            // upstream SDK's observable `undefined` replacement behavior.
+            return serialized;
+    }
+}
 export class PgBaseError extends Error {
     status;
     code;
@@ -221,6 +248,20 @@ export class PgBaseClient {
     records(collection) {
         return new Records(this, collection);
     }
+    /**
+     * Constructs a PocketBase filter expression without interpolating values.
+     *
+     * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+     * arrays, and objects are emitted as quoted filter literals; scalar boolean,
+     * number, and null values retain their filter-literal form.  A placeholder
+     * without a matching parameter is deliberately left unchanged, matching the
+     * PocketBase SDK and making an incomplete expression visible to the server.
+     */
+    filter(expression, params) {
+        if (!params || Object.keys(params).length === 0)
+            return expression;
+        return expression.replace(/\{:([\w.-]+)\}/g, (placeholder, key) => Object.prototype.hasOwnProperty.call(params, key) ? filterLiteral(params[key]) : placeholder);
+    }
     batch(operations, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
@@ -368,7 +409,7 @@ export class RealtimeService {
         this.client = client;
     }
     async subscribe(topic, listener) {
-        if (!topic)
+        if (!validRealtimeTopic(topic))
             throw new PgBaseError(0, "invalid_realtime_topic");
         if (this.controller?.signal.aborted && this.running)
             await this.running;
@@ -384,6 +425,14 @@ export class RealtimeService {
         else
             await this.ready;
         return async () => this.unsubscribe(topic, listener);
+    }
+    /**
+     * Subscribes to an application-owned topic without exposing its reserved
+     * realtime wire name. The callback receives the original UTF-8 topic.
+     */
+    async subscribeApplication(topic, listener) {
+        const wireTopic = applicationWireTopic(topic);
+        return this.subscribe(wireTopic, (event) => listener({ topic, data: event.data }));
     }
     async unsubscribe(topic, listener) {
         if (topic === undefined)
@@ -421,7 +470,7 @@ export class RealtimeService {
                 for await (const message of parseEventStream(response.body, controller.signal)) {
                     const data = JSON.parse(message.data);
                     if (message.event === "PB_CONNECT") {
-                        this.clientId = String(data.clientId ?? "");
+                        this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
                         if (!this.clientId)
                             throw new PgBaseError(0, "invalid_realtime_connect");
                         await this.sync();
@@ -433,8 +482,10 @@ export class RealtimeService {
                     const topic = message.event;
                     if (!topic)
                         continue;
-                    const event = { topic, action: data.action, record: data.record };
-                    if (!event.record || !["create", "update", "delete"].includes(event.action))
+                    const event = topic.startsWith("@")
+                        ? { topic: topic, data }
+                        : recordRealtimeEvent(topic, data);
+                    if (!event)
                         continue;
                     for (const listener of this.listeners.get(topic) ?? [])
                         listener(event);
@@ -447,6 +498,32 @@ export class RealtimeService {
             }
         }
     }
+}
+function validRealtimeTopic(topic) {
+    if (!topic)
+        return false;
+    if (!topic.startsWith("@"))
+        return true;
+    return new TextEncoder().encode(topic).length >= 2 &&
+        new TextEncoder().encode(topic).length <= 256 &&
+        !/[\s\x00-\x1f\x7f?#*]/.test(topic);
+}
+function applicationWireTopic(topic) {
+    const bytes = new TextEncoder().encode(topic);
+    if (bytes.length === 0 || bytes.length > 188)
+        throw new PgBaseError(0, "invalid_realtime_topic");
+    let binary = "";
+    for (const byte of bytes)
+        binary += String.fromCharCode(byte);
+    return `@app/${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
+}
+function recordRealtimeEvent(topic, data) {
+    if (typeof data !== "object" || data === null)
+        return undefined;
+    const value = data;
+    if (!value.record || !["create", "update", "delete"].includes(value.action))
+        return undefined;
+    return { topic, action: value.action, record: value.record };
 }
 export class AuthRealm {
     client;
@@ -628,6 +705,17 @@ export class Records {
         }
         const suffix = parameters.size ? `?${parameters}` : "";
         return this.client._request(`${this.path()}${suffix}`, {}, signal);
+    }
+    /**
+     * Lists a numbered PocketBase-compatible page. This is intentionally
+     * separate from [list], whose cursor contract remains native PgBase.
+     */
+    getList(page = 1, perPage = 30, options = {}, signal) {
+        const parameters = new URLSearchParams({ compat: "pocketbase", page: String(page), perPage: String(perPage) });
+        for (const [key, value] of Object.entries(options))
+            if (value !== undefined)
+                parameters.set(key, String(value));
+        return this.client._request(`${this.path()}?${parameters}`, {}, signal);
     }
     async get(id, optionsOrSignal, signal) {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);

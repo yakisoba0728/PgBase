@@ -35,6 +35,49 @@ final class Records {
     );
   }
 
+  /// Reads a numbered PocketBase-compatible page. Native [list] remains
+  /// cursor-based so callers must opt into this offset-pagination contract.
+  Future<PocketBaseRecordPage<JsonObject>> getList([
+    int page = 1,
+    int perPage = 30,
+    PocketBaseListOptions options = const PocketBaseListOptions(),
+    CancellationToken? cancellation,
+  ]) async {
+    final result = await _client.request(
+      'GET',
+      _base,
+      query: options.toParameters(page, perPage),
+      cancellation: cancellation,
+    );
+    if (result is! JsonObject || result['items'] is! JsonArray) {
+      throw const PgBaseProtocolError('invalid_pocketbase_record_page');
+    }
+    final items = result['items']! as JsonArray;
+    final resultPage = result['page'];
+    final resultPerPage = result['perPage'];
+    final totalItems = result['totalItems'];
+    final totalPages = result['totalPages'];
+    if (items.values.any((item) => item is! JsonObject) ||
+        resultPage is! JsonNumber ||
+        resultPerPage is! JsonNumber ||
+        totalItems is! JsonNumber ||
+        totalPages is! JsonNumber) {
+      throw const PgBaseProtocolError('invalid_pocketbase_record_page');
+    }
+    int integer(JsonNumber value) {
+      final parsed = int.tryParse(value.source);
+      if (parsed == null) throw const PgBaseProtocolError('invalid_pocketbase_record_page');
+      return parsed;
+    }
+    return PocketBaseRecordPage(
+      page: integer(resultPage),
+      perPage: integer(resultPerPage),
+      totalItems: integer(totalItems),
+      totalPages: integer(totalPages),
+      items: items.values.cast<JsonObject>(),
+    );
+  }
+
   Future<JsonObject> get(
     String id, {
     String? fields,

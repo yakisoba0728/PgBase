@@ -1,4 +1,4 @@
-import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, OAuthLaunchOptions, Query, RealtimeEvent, Records, RecordWriteOptions } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, OAuthLaunchOptions, PocketBaseListOptions, PocketBasePage, Query, RecordModifiers, RealtimeEvent, Records, RecordWriteOptions } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -11,6 +11,12 @@ declare const records: Records<Note>;
 declare const realm: AuthRealm;
 declare const methods: AuthMethods;
 void records.list(query);
+const pocketBaseOptions: PocketBaseListOptions = { sort: "@random", skipTotal: true };
+void records.getList(2, 25, pocketBaseOptions);
+declare const pocketBasePage: PocketBasePage<Note>;
+void pocketBasePage.totalItems;
+const modifiers: RecordModifiers = { "score+": 1, "+tags": ["urgent"], "tags-": ["old"] };
+void records.update("note-1", modifiers, '"pgb1.current"');
 void records.get("note-1", { fields: "id,title" });
 void records.get("note-1", new AbortController().signal);
 const writeOptions: RecordWriteOptions = { fields: "id,title" };

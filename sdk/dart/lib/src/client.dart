@@ -63,6 +63,39 @@ final class PgBaseClient {
   Files files(String collection, String recordId) =>
       Files(this, collection, recordId);
 
+  /// Constructs a PocketBase filter expression with safe placeholder values.
+  ///
+  /// Placeholders use `{:name}`. Strings, dates, lists, and maps are quoted
+  /// filter literals, while bool, num, and null remain literal values. A
+  /// placeholder absent from [params] is left unchanged, matching PocketBase's
+  /// SDK and allowing the server to reject an incomplete expression.
+  String filter(String expression, [Map<String, dynamic> params = const {}]) {
+    if (params.isEmpty) return expression;
+
+    String stringify(dynamic value) {
+      if (value == null || value is num || value is bool) {
+        return value.toString();
+      }
+      if (value is DateTime) {
+        return jsonEncode(
+          value.toUtc().toIso8601String().replaceFirst('T', ' '),
+        );
+      }
+      if (value is String) return jsonEncode(value);
+
+      final serialized = jsonEncode(value);
+      if (serialized.startsWith('[') || serialized.startsWith('{')) {
+        return jsonEncode(serialized);
+      }
+      return serialized;
+    }
+
+    return expression.replaceAllMapped(RegExp(r'\{:([\w.-]+)\}'), (match) {
+      final key = match.group(1)!;
+      return params.containsKey(key) ? stringify(params[key]) : match.group(0)!;
+    });
+  }
+
   /// Submits the compact operation form accepted by PgBase's batch endpoint.
   Future<JsonObject> batch(
     List<BatchOperation> operations, {
@@ -838,6 +871,7 @@ UserSession _decodeSession(JsonValue value) {
       email: string('email', user),
       createdAt: string('createdAt', user),
       verified: verified is JsonBool ? verified.value : null,
+      emailVisibility: (user['emailVisibility'] as JsonBool?)?.value,
       authCollection: (user['authCollection'] as JsonString?)?.value,
       authCollectionId: (user['authCollectionId'] as JsonString?)?.value,
     ),

@@ -83,6 +83,7 @@ final class AuthStore {
         'email': record.email,
         'createdAt': record.createdAt,
         if (record.verified != null) 'verified': record.verified,
+        if (record.emailVisibility != null) 'emailVisibility': record.emailVisibility,
         if (record.authCollection != null) 'authCollection': record.authCollection,
         if (record.authCollectionId != null) 'authCollectionId': record.authCollectionId,
       },
@@ -103,7 +104,7 @@ final class AuthStore {
       final rawRecord = value['record'];
       if (rawRecord != null) {
         if (rawRecord is! Map || rawRecord['id'] is! String || rawRecord['email'] is! String || rawRecord['createdAt'] is! String) throw const FormatException();
-        record = User(id: rawRecord['id'] as String, email: rawRecord['email'] as String, createdAt: rawRecord['createdAt'] as String, verified: rawRecord['verified'] as bool?, authCollection: rawRecord['authCollection'] as String?, authCollectionId: rawRecord['authCollectionId'] as String?);
+        record = User(id: rawRecord['id'] as String, email: rawRecord['email'] as String, createdAt: rawRecord['createdAt'] as String, verified: rawRecord['verified'] as bool?, emailVisibility: rawRecord['emailVisibility'] as bool?, authCollection: rawRecord['authCollection'] as String?, authCollectionId: rawRecord['authCollectionId'] as String?);
       }
       _replace(value['token'] as String?, record: record);
     } catch (_) { _replace(null); }
