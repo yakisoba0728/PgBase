@@ -104,7 +104,7 @@ func (hook *javaScriptLifecycleHook) invoke(ctx context.Context, event *HookEven
 		return javaScriptHookResult{}, err
 	}
 	output, err := hook.runtime.engine.Invoke(ctx, jsvm.Invocation{Handler: handler, Capabilities: hook.descriptor.Capabilities,
-		Input: input, Host: hook.runtime.bridge.forHook(ctx, event.Kind)})
+		Input: input, Host: namespacedHost(hook.runtime.bridge.forHook(ctx, event.Kind), handler.Module)})
 	if err != nil {
 		return javaScriptHookResult{}, err
 	}

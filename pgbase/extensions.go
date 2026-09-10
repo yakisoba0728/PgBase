@@ -22,6 +22,8 @@ type ExtensionContext struct {
 	Mail      ExtensionMail
 	Files     ExtensionFiles
 	Templates *TemplateRegistry
+	Database  *TrustedDatabase
+	Objects   *ExtensionObjects
 }
 
 // ExtensionsForRequest derives authority from PgBase's request middleware.
@@ -35,7 +37,7 @@ func (a *App) ExtensionsForRequest(ctx context.Context) (*ExtensionContext, erro
 		return nil, errors.New("extension request context is not admitted")
 	}
 	host := &extensionHost{bridge: a.extensions, principal: principal, requestID: requestID, valid: true, authorityContext: ctx}
-	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}, Templates: a.extensions.templates}, nil
+	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}, Templates: a.extensions.templates, Database: a.extensions.database, Objects: a.extensions.objects}, nil
 }
 
 type ExtensionListOptions struct {

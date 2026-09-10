@@ -484,6 +484,8 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 		"migration": {"query", "exec", "applySnapshot"},
 		"log":       {"debug", "info", "warn", "error"},
 		"template":  {"render"},
+		"database":  {"transaction"},
+		"objects":   {"read", "write", "delete"},
 	} {
 		object := vm.NewObject()
 		for _, method := range methods {

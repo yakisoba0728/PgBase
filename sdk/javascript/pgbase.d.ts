@@ -62,6 +62,7 @@ declare module "pgbase" {
   export interface HookResult { patch?: { [name: string]: JSONValue }; state?: JSONValue }
   export interface JobRun { jobId: string; name: string; fenceGeneration: ExactNumber; runKey: string; scheduledAt: string; occurrenceKey: string }
   export interface MigrationStatement { sql: string; args?: JSONValue[] }
+  export interface DatabaseStatement extends MigrationStatement { query?: boolean }
   const pgbase: {
     exact(value: string | number): ExactNumber
     records: {
@@ -74,6 +75,12 @@ declare module "pgbase" {
     }
     mail: { send(input: { to: string; subject: string; text: string; html?: string; attachments?: Array<{ filename: string; contentType?: string; dataBase64: string }> }): { sent: true } }
 		template: { render(input: { name: string; data: JSONValue }): { output: string } }
+    database: { transaction(input: { statements: DatabaseStatement[] }): { results: Array<{ rowsAffected?: ExactNumber; items?: Array<Record<string, JSONValue>> }> } }
+    objects: {
+      write(input: { key: string; data: string }): { written: true; size: ExactNumber }
+      read(input: { key: string }): { data: string; size: ExactNumber }
+      delete(input: { key: string }): { deleted: true }
+    }
     files: {
       list(input: { collection: string; recordId: string; field: string }): FileResult
       /** Fails with file_stream_active until an open handle is closed. */

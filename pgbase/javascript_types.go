@@ -68,6 +68,7 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
   export interface HookResult { patch?: { [name: string]: JSONValue }; state?: JSONValue }
   export interface JobRun { jobId: string; name: string; fenceGeneration: ExactNumber; runKey: string; scheduledAt: string; occurrenceKey: string }
   export interface MigrationStatement { sql: string; args?: JSONValue[] }
+  export interface DatabaseStatement extends MigrationStatement { query?: boolean }
   const pgbase: {
     exact(value: string | number): ExactNumber
     records: {
@@ -79,6 +80,12 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
       batch(input: { operations: BatchOperation[] }): { results: RecordResult[] }
     }
     mail: { send(input: { to: string; subject: string; text: string; html?: string }): { sent: true } }
+    database: { transaction(input: { statements: DatabaseStatement[] }): { results: Array<{ rowsAffected?: ExactNumber; items?: Array<Record<string, JSONValue>> }> } }
+    objects: {
+      write(input: { key: string; data: string }): { written: true; size: ExactNumber }
+      read(input: { key: string }): { data: string; size: ExactNumber }
+      delete(input: { key: string }): { deleted: true }
+    }
     files: {
       list(input: { collection: string; recordId: string; field: string }): FileResult
       /** Fails with file_stream_active until an open handle is closed. */

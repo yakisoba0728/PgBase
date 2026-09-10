@@ -129,7 +129,7 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 		http.Error(w, "extension request is invalid", http.StatusBadRequest)
 		return
 	}
-	host := runtime.bridge.forRequest(r.Context())
+	host := namespacedHost(runtime.bridge.forRequest(r.Context()), descriptor.Handler.Module)
 	output, err := runtime.engine.Invoke(r.Context(), jsvm.Invocation{
 		Handler: descriptor.Handler, Capabilities: descriptor.Capabilities, Input: input, Host: host,
 	})

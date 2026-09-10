@@ -30,6 +30,8 @@ type extensionBridge struct {
 	logger    *slog.Logger
 	hooks     *HookRegistry
 	templates *TemplateRegistry
+	database  *TrustedDatabase
+	objects   *ExtensionObjects
 }
 
 type extensionHost struct {
@@ -42,11 +44,19 @@ type extensionHost struct {
 	fileMu           sync.Mutex
 	fileHandles      map[uuid.UUID]extensionFileHandle
 	fileBytesRead    int64
+	namespace        string
 }
 
 func (bridge *extensionBridge) forRequest(ctx context.Context) jsvm.Host {
 	principal, requestID, ok := api.ExtensionRequestContext(ctx)
 	return &extensionHost{bridge: bridge, principal: principal, requestID: requestID, valid: ok, authorityContext: ctx}
+}
+
+func namespacedHost(host jsvm.Host, namespace string) jsvm.Host {
+	if value, ok := host.(*extensionHost); ok {
+		value.namespace = namespace
+	}
+	return host
 }
 
 func (bridge *extensionBridge) forSubject(principal identity.Subject, requestID string) jsvm.Host {
@@ -99,6 +109,10 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 			return nil, extensionError("template_render_failed", err)
 		}
 		return json.Marshal(map[string]string{"output": output})
+	case "database.transaction":
+		return host.callDatabase(operationContext, input)
+	case "objects.read", "objects.write", "objects.delete":
+		return host.callObjects(operationContext, method, input)
 	default:
 		return nil, extensionError("unsupported_operation", errors.New("unsupported extension operation"))
 	}

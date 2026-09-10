@@ -49,7 +49,8 @@ type Options struct {
 	// least-privileged database roles. A nil value keeps its routes disabled.
 	SQLConsole *SQLConsoleOptions
 	// EnableTrustedDatabaseAccess exposes the application PostgreSQL connection
-	// to trusted in-process Go extensions. It never enables JavaScript SQL.
+	// to trusted extensions. JavaScript additionally requires the database
+	// capability in both the application allowlist and each manifest handler.
 	EnableTrustedDatabaseAccess bool
 	// Templates is an optional precompiled registry shared by Go and JavaScript extensions.
 	Templates *TemplateRegistry
@@ -141,6 +142,9 @@ func (o Options) Normalized() (Options, error) {
 			return Options{}, err
 		}
 		o.JavaScript = &javascript
+		if javascript.Capabilities["database"] && !o.EnableTrustedDatabaseAccess {
+			return Options{}, fmt.Errorf("JavaScript database capability requires EnableTrustedDatabaseAccess")
+		}
 	}
 	if o.SQLConsole != nil {
 		sqlConsole, err := o.SQLConsole.normalized(o.AllowInsecureDatabase)
@@ -187,6 +191,9 @@ func validateOptions(o Options) error {
 	if o.JavaScript != nil {
 		if o.JavaScript.Capabilities["files"] && o.Files.Driver == "" {
 			return fmt.Errorf("JavaScript.Capabilities: files requires Files.Driver")
+		}
+		if o.JavaScript.Capabilities["objects"] && o.Files.Driver == "" {
+			return fmt.Errorf("JavaScript.Capabilities: objects requires Files.Driver")
 		}
 		if o.JavaScript.Capabilities["mail"] && o.SMTP.Address == "" {
 			return fmt.Errorf("JavaScript.Capabilities: mail requires SMTP configuration")

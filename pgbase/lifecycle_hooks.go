@@ -62,6 +62,8 @@ const (
 	HookAuthImpersonate          = "auth.impersonate"
 	HookAuthAlert                = "auth.alert"
 	HookSettingsReload           = "settings.reload"
+	HookObjectWrite              = "object.write"
+	HookObjectDelete             = "object.delete"
 )
 
 type CollectionEvent = schema.CollectionMutationEvent

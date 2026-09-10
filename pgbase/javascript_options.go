@@ -86,7 +86,7 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log", "template":
+		case "records", "mail", "files", "log", "template", "database", "objects":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
@@ -223,6 +223,7 @@ func knownJavaScriptHook(kind string) bool {
 		HookAuthImpersonate, HookRealtimeConnect, HookRealtimeSubscribe, HookRealtimeMessage,
 		HookStorageSettingsList, HookStorageSettingsUpdate, HookStorageSettingsTest,
 		HookBackupCreate, HookBackupRestore, HookBackupDelete,
+		HookObjectWrite, HookObjectDelete,
 		HookAuthAlert, HookSettingsReload, HookModelValidate, HookModelExecute, HookModelSuccess, HookModelError,
 	}, kind)
 }

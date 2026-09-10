@@ -294,12 +294,18 @@ func newWithCatalogPreflight(
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
 		dependencies.LifecycleHooks = normalized.Hooks
 	}
-	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
+	dependencies, fileService, objectStore, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
 	if err != nil {
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
 	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, logger: normalized.Logger, hooks: normalized.Hooks, templates: normalized.Templates}
+	if objectStore != nil {
+		extensions.objects = &ExtensionObjects{store: objectStore, maximumBytes: normalized.Files.MaximumBytes, hooks: normalized.Hooks}
+	}
+	if normalized.EnableTrustedDatabaseAccess {
+		extensions.database = &TrustedDatabase{pool: pool}
+	}
 	if javascript != nil {
 		javascript.bridge = extensions
 	}
