@@ -93,14 +93,22 @@ while IFS=$'\t' read -r phase commit version; do
 		echo "release artifact build metadata is invalid: $phase" >&2
 		exit 1
 	fi
-	ldflags="-s -w -X github.com/yakisoba0728/PgBase/pgbase.Version=$version"
+	# Historical phase sources retain their own module declaration. Reading it
+	# from the archived source keeps -X linked variables valid after a module
+	# rename in the current checkout.
+	module_path="$(awk '$1 == "module" { print $2; exit }' "$source_directory/go.mod")"
+	if [[ ! "$module_path" =~ ^github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+		echo "release artifact source module path is invalid: $phase" >&2
+		exit 1
+	fi
+	ldflags="-s -w -X $module_path/pgbase.Version=$version"
 	has_buildinfo=false
 	if [[ -f "$source_directory/internal/buildinfo/buildinfo.go" ]]; then
 		has_buildinfo=true
-		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.Commit=$commit"
-		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.BuiltAt=$built_at"
-		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMin=$schema_version"
-		ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMax=$schema_version"
+		ldflags+=" -X $module_path/internal/buildinfo.Commit=$commit"
+		ldflags+=" -X $module_path/internal/buildinfo.BuiltAt=$built_at"
+		ldflags+=" -X $module_path/internal/buildinfo.SchemaMin=$schema_version"
+		ldflags+=" -X $module_path/internal/buildinfo.SchemaMax=$schema_version"
 	fi
 	artifact="$output_directory/pgbase-$rollout-$phase_name"
 	(
