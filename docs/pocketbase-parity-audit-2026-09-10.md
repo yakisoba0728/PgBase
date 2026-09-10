@@ -108,7 +108,7 @@ PocketBase는 SQLite data directory, persisted singleton settings, in-memory top
 
 이번에 새로 실행한 읽기 중심 검증은 `go test ./internal/api ./internal/query ./internal/recordops ./internal/userauth ./internal/schema ./internal/filestore`이며 모두 통과했다. PostgreSQL이 필요한 integration test는 이 명령에 포함되지 않는다.
 
-후속 배치에서 `go test ./internal/api ./internal/query ./internal/recordops ./internal/schema`도 통과했다. R3/D3의 새 live integration tests는 compile까지 확인했지만 `PGBASE_TEST_ADMIN_URL`가 없어 실행 전 중단됐다.
+후속 배치에서 `go test ./internal/api ./internal/query ./internal/recordops ./internal/schema` 및 같은 네 package의 `go test -race`도 통과했다. R3/D3의 새 live integration tests는 compile까지 확인했지만 `PGBASE_TEST_ADMIN_URL`가 없어 실행 전 중단됐다.
 
 ## 관련 기존 감사와의 관계
 
