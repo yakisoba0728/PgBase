@@ -76,6 +76,7 @@ type Migration struct {
 
 type Manifest struct {
 	Format     string      `json:"format"`
+	Bootstrap  string      `json:"bootstrap,omitempty"`
 	Routes     []Route     `json:"routes,omitempty"`
 	Hooks      []Hook      `json:"hooks,omitempty"`
 	Jobs       []Job       `json:"jobs,omitempty"`
@@ -285,6 +286,11 @@ func readRegularFile(filename string, maximum int64) (contents []byte, err error
 }
 
 func (b *Bundle) validateReferences() error {
+	if b.manifest.Bootstrap != "" {
+		if _, err := b.canonicalModule(b.manifest.Bootstrap); err != nil {
+			return fmt.Errorf("JavaScript bootstrap module: %w", err)
+		}
+	}
 	refs := make([]HandlerRef, 0, len(b.manifest.Routes)+len(b.manifest.Jobs)+len(b.manifest.Hooks)*2)
 	for _, route := range b.manifest.Routes {
 		refs = append(refs, route.Handler)

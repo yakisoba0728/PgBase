@@ -92,6 +92,7 @@ type JavaScriptMigration struct {
 
 type JavaScriptManifest struct {
 	Digest     string
+	Bootstrap  string
 	Routes     []JavaScriptRoute
 	Hooks      []JavaScriptHook
 	Jobs       []JavaScriptJob
@@ -289,7 +290,7 @@ func knownJavaScriptHook(kind string) bool {
 
 func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
 	manifest := bundle.Manifest()
-	result := JavaScriptManifest{Digest: bundle.Digest()}
+	result := JavaScriptManifest{Digest: bundle.Digest(), Bootstrap: manifest.Bootstrap}
 	for _, route := range manifest.Routes {
 		result.Routes = append(result.Routes, JavaScriptRoute{Method: route.Method, Pattern: route.Pattern, Access: route.Access,
 			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...)})

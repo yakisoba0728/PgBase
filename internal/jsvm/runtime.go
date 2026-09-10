@@ -176,6 +176,10 @@ func NewRuntimeWithInitializer(bundle *Bundle, limits Limits, initializer func(*
 		require.WithPathResolver(resolveModulePath),
 	)
 	runtime.registry.RegisterNativeModule("pgbase", runtime.loadNativeModule)
+	if err := runtime.collectBootstrap(); err != nil {
+		cancel()
+		return nil, err
+	}
 	validationContext, validationCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer validationCancel()
 	if err := runtime.validateHandlers(validationContext); err != nil {
@@ -358,12 +362,21 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		<-watcherDone
 	}()
 
-	exports, err := requireModule.Require(virtualRoot + "/" + moduleName)
-	if err != nil {
-		return nil, classifyExecutionError(ctx, err)
+	var handler goja.Callable
+	var ok bool
+	if strings.HasPrefix(ref.Export, registeredExportPrefix) {
+		registered, replayErr := r.replayRegistrations(vm, requireModule)
+		if replayErr != nil {
+			return nil, classifyExecutionError(ctx, replayErr)
+		}
+		handler, ok = registered.handlers[ref.Export]
+	} else {
+		exports, requireErr := requireModule.Require(virtualRoot + "/" + moduleName)
+		if requireErr != nil {
+			return nil, classifyExecutionError(ctx, requireErr)
+		}
+		handler, ok = goja.AssertFunction(exports.ToObject(vm).Get(ref.Export))
 	}
-	object := exports.ToObject(vm)
-	handler, ok := goja.AssertFunction(object.Get(ref.Export))
 	if !ok {
 		return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("export %q is not a function", ref.Export)}
 	}
@@ -431,6 +444,17 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 			return fmt.Errorf("initialize PocketBase compatibility globals: %w", err)
 		}
 		canonical, _ := r.bundle.canonicalModule(ref.Module)
+		if strings.HasPrefix(ref.Export, registeredExportPrefix) {
+			registered, err := r.replayRegistrations(vm, requireModule)
+			r.states.Delete(vm)
+			if err != nil {
+				return fmt.Errorf("compile registered JavaScript handler %s: %w", ref.Export, err)
+			}
+			if registered.handlers[ref.Export] == nil {
+				return fmt.Errorf("registered JavaScript handler %s is missing", ref.Export)
+			}
+			continue
+		}
 		exports, err := requireModule.Require(virtualRoot + "/" + canonical)
 		r.states.Delete(vm)
 		if err != nil {

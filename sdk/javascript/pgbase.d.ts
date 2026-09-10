@@ -109,6 +109,17 @@ declare module "pgbase" {
     }
   }
   global {
+    function routerAdd(method:string,path:string,handler:(event:RequestEvent)=>JSONValue,...middlewares:Array<(next:Function)=>Function>):void
+    function routerUse(...middlewares:Array<(next:Function)=>Function>):void
+    function cronAdd(name:string,schedule:string,handler:(run:JobRun)=>void):void
+    function cronRemove(name:string):void
+    class Record { constructor(collection:string|Collection,data?:{[key:string]:JSONValue}); id:string; readonly collectionName:string; get(name:string):JSONValue; set(name:string,value:JSONValue):this; unset(name:string):this; load(value:{[key:string]:JSONValue}):this; original():{[key:string]:JSONValue}; export():{[key:string]:JSONValue} }
+    class Collection { constructor(value:string|{[key:string]:JSONValue}); name:string; readonly fields:Field[]; export():{[key:string]:JSONValue} }
+    class Field { constructor(value?:{[key:string]:JSONValue}); export():{[key:string]:JSONValue} }
+    class TextField extends Field {} class NumberField extends Field {} class BoolField extends Field {} class EmailField extends Field {} class URLField extends Field {} class DateField extends Field {} class SelectField extends Field {} class JSONField extends Field {} class FileField extends Field {} class RelationField extends Field {} class AutodateField extends Field {}
+    class MailerMessage { constructor(value?:{[key:string]:JSONValue}); export():{[key:string]:JSONValue} }
+    class RequestInfo { constructor(value?:{[key:string]:JSONValue}); export():{[key:string]:JSONValue} }
+    class RequestEvent { constructor(value?:{[key:string]:JSONValue}); export():{[key:string]:JSONValue} }
     const $security: { md5(value:string):string; sha256(value:string):string; sha512(value:string):string; hs256(value:string,key:string):string; hs512(value:string,key:string):string; equal(a:string,b:string):boolean; randomString(length:number):string; randomStringWithAlphabet(length:number,alphabet:string):string; createJWT(payload:Record<string,JSONValue>,key:string,seconds?:number):string; parseJWT(token:string,key:string):Record<string,JSONValue>; encrypt(value:string,key:string):string; decrypt(value:string,key:string):string }
     const $http: { send(request:{url:string;method?:string;headers?:Record<string,string>;body?:string}):{statusCode:number;headers:Record<string,string>;body:string} }
     const $os: { readonly args:string[]; getenv(name:string):string; exit(code?:number):{requested:true}; readFile(path:string):string; writeFile(path:string,data:string,mode?:number):void; cmd(name:string,...args:string[]):{output:string;success:boolean;error:string} }
