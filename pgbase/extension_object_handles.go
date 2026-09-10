@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/google/uuid"
 )
@@ -102,5 +103,130 @@ func (h *extensionHost) closeObjectHandles() error {
 		out = errors.Join(out, r.Close())
 		delete(h.objectHandles, id)
 	}
+	for id, w := range h.objectWriters {
+		out = errors.Join(out, w.file.Close(), os.Remove(w.path))
+		delete(h.objectWriters, id)
+	}
 	return out
+}
+
+type extensionObjectWriter struct {
+	key, path string
+	file      *os.File
+	size      int64
+}
+
+func (h *extensionHost) beginObjectWrite(raw json.RawMessage) (json.RawMessage, error) {
+	var q struct {
+		Key string `json:"key"`
+	}
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	if _, e := extensionObjectKey(h.namespace, q.Key); e != nil {
+		return nil, e
+	}
+	f, e := os.CreateTemp("", "pgbase-extension-writer-*")
+	if e != nil {
+		return nil, e
+	}
+	id := uuid.New()
+	h.objectMu.Lock()
+	defer h.objectMu.Unlock()
+	if len(h.objectHandles) > 0 || len(h.objectWriters) > 0 {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return nil, errors.New("close active object stream first")
+	}
+	if h.objectWriters == nil {
+		h.objectWriters = map[uuid.UUID]extensionObjectWriter{}
+	}
+	h.objectWriters[id] = extensionObjectWriter{key: q.Key, path: f.Name(), file: f}
+	return json.Marshal(map[string]string{"handle": id.String()})
+}
+func (h *extensionHost) writeObjectChunk(raw json.RawMessage) (json.RawMessage, error) {
+	var q struct{ Handle, Data string }
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	id, e := uuid.Parse(q.Handle)
+	if e != nil {
+		return nil, e
+	}
+	b, e := base64.StdEncoding.DecodeString(q.Data)
+	if e != nil {
+		return nil, e
+	}
+	if len(b) > maximumExtensionObjectChunk {
+		return nil, errors.New("object chunk too large")
+	}
+	h.objectMu.Lock()
+	defer h.objectMu.Unlock()
+	w, ok := h.objectWriters[id]
+	if !ok {
+		return nil, errors.New("object writer is closed")
+	}
+	if w.size+int64(len(b)) > maximumExtensionObjectBytes {
+		return nil, errors.New("object stream limit reached")
+	}
+	n, e := w.file.Write(b)
+	w.size += int64(n)
+	h.objectWriters[id] = w
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(map[string]any{"written": n, "size": w.size})
+}
+func (h *extensionHost) commitObjectWrite(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var q struct{ Handle string }
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	id, e := uuid.Parse(q.Handle)
+	if e != nil {
+		return nil, e
+	}
+	h.objectMu.Lock()
+	w, ok := h.objectWriters[id]
+	if ok {
+		delete(h.objectWriters, id)
+	}
+	h.objectMu.Unlock()
+	if !ok {
+		return nil, errors.New("object writer is closed")
+	}
+	defer os.Remove(w.path)
+	if e := w.file.Close(); e != nil {
+		return nil, e
+	}
+	f, e := os.Open(w.path)
+	if e != nil {
+		return nil, e
+	}
+	defer f.Close()
+	n, e := h.bridge.objects.WriteStream(ctx, h.namespace, w.key, f)
+	if e != nil {
+		return nil, e
+	}
+	return json.Marshal(map[string]any{"written": true, "size": n})
+}
+func (h *extensionHost) abortObjectWrite(raw json.RawMessage) (json.RawMessage, error) {
+	var q struct{ Handle string }
+	if e := json.Unmarshal(raw, &q); e != nil {
+		return nil, e
+	}
+	id, e := uuid.Parse(q.Handle)
+	if e != nil {
+		return nil, e
+	}
+	h.objectMu.Lock()
+	w, ok := h.objectWriters[id]
+	if ok {
+		delete(h.objectWriters, id)
+	}
+	h.objectMu.Unlock()
+	if !ok {
+		return nil, errors.New("object writer is closed")
+	}
+	return json.RawMessage(`{"aborted":true}`), errors.Join(w.file.Close(), os.Remove(w.path))
 }

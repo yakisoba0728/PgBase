@@ -256,6 +256,14 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		return host.readObjectChunk(raw)
 	case "objects.close":
 		return host.closeObjectHandle(raw)
+	case "objects.beginWrite":
+		return host.beginObjectWrite(raw)
+	case "objects.writeChunk":
+		return host.writeObjectChunk(raw)
+	case "objects.commit":
+		return host.commitObjectWrite(ctx, raw)
+	case "objects.abort":
+		return host.abortObjectWrite(raw)
 	case "objects.list":
 		var list struct {
 			Prefix, Cursor string
