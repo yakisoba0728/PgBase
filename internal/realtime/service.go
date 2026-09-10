@@ -54,8 +54,8 @@ type Event struct {
 	RecordID   uuid.UUID      `json:"recordId"`
 	Operation  string         `json:"operation"`
 	Version    int64          `json:"version"`
-	Action     string         `json:"action"`
-	Record     map[string]any `json:"record"`
+	Action     string         `json:"action,omitempty"`
+	Record     map[string]any `json:"record,omitempty"`
 }
 
 type ReadRequest struct {
@@ -184,7 +184,12 @@ func (s *Service) publish(ctx context.Context, item claim) error {
 // starts at the current head. An expired cursor fails explicitly: silently
 // dropping events would leave clients with an incorrect local replica.
 func (s *Service) Read(ctx context.Context, userID uuid.UUID, collection string, after *int64) ([]Event, int64, error) {
-	return s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.User, ID: userID}, Collection: collection, After: after})
+	events, cursor, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.User, ID: userID}, Collection: collection, After: after})
+	for index := range events {
+		events[index].Action = ""
+		events[index].Record = nil
+	}
+	return events, cursor, err
 }
 
 func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, int64, error) {
