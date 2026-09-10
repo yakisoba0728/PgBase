@@ -45,6 +45,33 @@ func TestPocketBaseFilesystemConstructorsReachObjectStorage(t *testing.T) {
 	}
 }
 
+func TestPocketBaseLocalFilesystemSystemMethods(t *testing.T) {
+	directory, root := t.TempDir(), t.TempDir()
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/system","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{try{const fs=$filesystem.local(".");const f=$filesystem.fileFromBytes([97,108,112,104,97],"alpha.txt");fs.uploadFile(f,"alpha.txt");const a=fs.attributes("alpha.txt");fs.copy("alpha.txt","copy.txt");const exists=fs.exists("copy.txt");fs.delete("copy.txt");return {status:200,json:{size:a.size,exists,deleted:!fs.exists("copy.txt")}}}catch(e){return {status:200,json:{error:JSON.stringify(e)}}}}`)
+	fixture := newPublicUsersAppOptions(t, false, func(options *Options) {
+		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024}
+		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true}, PocketBaseCompatibility: PocketBaseCompatibilityOptions{FilesystemRoot: root}}
+	})
+	response := publicUsersRequest(t, fixture, http.MethodPost, "/system", map[string]any{}, "", nil, nil)
+	if response.Code != http.StatusOK || response.Body.String() != `{"deleted":true,"exists":true,"size":5}` {
+		t.Fatalf("local system response=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestPocketBaseS3FilesystemSystemMethods(t *testing.T) {
+	endpoint := testS3Endpoint(t)
+	directory := t.TempDir()
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/system","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{const fs=$filesystem.s3("pgbase-test","us-east-1","configured", "", "",true);fs.deletePrefix("system/");const f=$filesystem.fileFromBytes([98,101,116,97],"beta.txt");fs.uploadFile(f,"system/beta.txt");const a=fs.attributes("system/beta.txt");fs.copy("system/beta.txt","system/copy.txt");const exists=fs.exists("system/copy.txt");fs.deletePrefix("system/");return {status:200,json:{size:a.size,exists,empty:fs.isEmptyDir("system/")}}}`)
+	fixture := newPublicUsersAppOptions(t, false, func(options *Options) {
+		options.Files = FileOptions{Driver: "s3", S3Bucket: "pgbase-test", S3Region: "us-east-1", S3Endpoint: endpoint, S3AccessKey: "pgbase-test-access", S3SecretKey: "pgbase-test-secret-0123456789", S3UsePathStyle: true, S3AllowInsecureLoopback: true, MaximumBytes: 1024}
+		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true}}
+	})
+	response := publicUsersRequest(t, fixture, http.MethodPost, "/system", map[string]any{}, "", nil, nil)
+	if response.Code != http.StatusOK || response.Body.String() != `{"empty":true,"exists":true,"size":4}` {
+		t.Fatalf("s3 system response=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestPocketBaseStaticIndexFallbackUsesPublicWrapper(t *testing.T) {
 	directory := t.TempDir()
 	root := filepath.Join(directory, "public")

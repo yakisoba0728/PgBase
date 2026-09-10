@@ -153,6 +153,12 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	if method == "hooks-bypass.collectionSaveNoValidate" {
 		return host.callAppControl(operationContext, "app-control.collectionSaveNoValidate", input)
 	}
+	if strings.HasPrefix(method, "filesystem.local") && method != "filesystem.local" && method != "filesystem.localWrite" && method != "filesystem.localCopy" {
+		mapped := map[string]string{"filesystem.localStat": "os.stat", "filesystem.localRead": "os.readFile", "filesystem.localReadDir": "os.readDir", "filesystem.localWalk": "os.walk", "filesystem.localRemove": "os.remove", "filesystem.localRemoveAll": "os.removeAll"}[method]
+		if mapped != "" {
+			return host.bridge.compatibility.call(operationContext, mapped, input)
+		}
+	}
 	switch method {
 	case "apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords":
 		return host.callAuthAPI(operationContext, method, input)
@@ -190,12 +196,12 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callDatabase(operationContext, input)
 	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy", "objects.open", "objects.readChunk", "objects.close", "objects.beginWrite", "objects.writeChunk", "objects.commit", "objects.abort", "objects.fileFromMultipart", "objects.commitMultipart":
 		return host.callObjects(operationContext, method, input)
-	case "http.send", "os.args", "os.getenv", "os.exit", "os.tempDir", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
+	case "http.send", "os.args", "os.getenv", "os.exit", "os.tempDir", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.localWrite", "filesystem.localCopy", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
 		if host.bridge.compatibility == nil {
 			return nil, extensionError("compatibility_unavailable", errors.New("PocketBase compatibility adapter unavailable"))
 		}
 		return host.bridge.compatibility.call(operationContext, method, input)
-	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close", "filesystem.beginWrite", "filesystem.writeChunk", "filesystem.commit", "filesystem.abort", "filesystem.fileFromMultipart", "filesystem.commitMultipart":
+	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close", "filesystem.beginWrite", "filesystem.writeChunk", "filesystem.commit", "filesystem.abort", "filesystem.fileFromMultipart", "filesystem.commitMultipart", "filesystem.attributes", "filesystem.exists", "filesystem.deletePrefix":
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
 	case "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo", "app-control.cronList", "app-control.cronConfigure", "app-control.cronRun", "app-control.backupList", "app-control.backupRead", "app-control.backupDelete", "app-control.brokerClients", "app-control.brokerPublish", "app-control.schemaExport", "app-control.schemaPreview", "app-control.schemaApply", "app-control.collectionSave", "app-control.collectionValidate", "app-control.collectionDelete", "app-control.collectionSync", "app-control.collectionTruncate", "app-control.databaseTables", "app-control.databaseColumns", "app-control.databaseIndexes", "app-control.databaseTransaction":
 		return host.callAppControl(operationContext, method, input)

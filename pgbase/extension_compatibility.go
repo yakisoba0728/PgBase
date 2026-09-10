@@ -95,6 +95,50 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return json.Marshal(map[string]string{"root": path})
+	case "filesystem.localWrite":
+		var request struct{ Path, Data string }
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		data, err := base64.StdEncoding.DecodeString(request.Data)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > compatibilityMaximumBytes {
+			return nil, errors.New("file exceeds compatibility limit")
+		}
+		path, err := c.safePath(request.Path, true)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"written": true, "size": len(data)})
+	case "filesystem.localCopy":
+		var request struct{ Source, Destination string }
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		source, err := c.safePath(request.Source, false)
+		if err != nil {
+			return nil, err
+		}
+		destination, err := c.safePath(request.Destination, true)
+		if err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > compatibilityMaximumBytes {
+			return nil, errors.New("file exceeds compatibility limit")
+		}
+		if err := os.WriteFile(destination, data, 0600); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"copied": true, "size": len(data)})
 	case "filesystem.fileFromPath":
 		var request struct {
 			Path string `json:"path"`

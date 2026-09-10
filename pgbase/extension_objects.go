@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
@@ -40,6 +41,23 @@ type ExtensionObjectInfo struct {
 type ExtensionObjectPage struct {
 	Objects    []ExtensionObjectInfo
 	NextCursor string
+}
+
+func (o *ExtensionObjects) Attributes(ctx context.Context, namespace, key string) (ExtensionObjectInfo, error) {
+	physical, err := extensionObjectKey(namespace, key)
+	if err != nil {
+		return ExtensionObjectInfo{}, err
+	}
+	if o == nil || o.pool == nil {
+		return ExtensionObjectInfo{}, errors.New("extension object storage unavailable")
+	}
+	parts := strings.Split(physical, "/")
+	var info ExtensionObjectInfo
+	err = o.pool.QueryRow(ctx, `select logical_key,size_bytes,updated_at from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3`, parts[1], parts[2], physical).Scan(&info.Key, &info.Size, &info.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ExtensionObjectInfo{}, filestore.ErrNotFound
+	}
+	return info, err
 }
 
 func extensionObjectKey(namespace, key string) (string, error) {
@@ -252,6 +270,55 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		return nil, extensionError("objects_unavailable", errors.New("extension object storage unavailable"))
 	}
 	switch method {
+	case "objects.attributes", "objects.exists":
+		var request struct {
+			Key string `json:"key"`
+		}
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		info, err := host.bridge.objects.Attributes(ctx, host.namespace, request.Key)
+		if method == "objects.exists" {
+			if errors.Is(err, filestore.ErrNotFound) {
+				return json.RawMessage(`false`), nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return json.RawMessage(`true`), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"key": info.Key, "size": info.Size, "modTime": info.UpdatedAt, "contentType": "application/octet-stream"})
+	case "objects.deletePrefix":
+		var request struct {
+			Prefix string `json:"prefix"`
+		}
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		keys := []string{}
+		cursor := ""
+		for {
+			page, err := host.bridge.objects.List(ctx, host.namespace, request.Prefix, cursor, 100)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range page.Objects {
+				keys = append(keys, item.Key)
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		for _, key := range keys {
+			if err := host.bridge.objects.Delete(ctx, host.namespace, key); err != nil {
+				return nil, err
+			}
+		}
+		return json.Marshal(map[string]any{"deleted": len(keys)})
 	case "objects.readChunk":
 		return host.readObjectChunk(raw)
 	case "objects.close":
