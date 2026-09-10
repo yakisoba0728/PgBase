@@ -86,7 +86,8 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 	text := string(workflow)
 	for _, marker := range []string{
 		"name: Go unit",
-		"scripts/test-go-unit.sh -race -count=1",
+		"PGBASE_FULL_UNIT_RACE",
+		"scripts/test-go-unit.sh \"${test_arguments[@]}\"",
 		"name: PostgreSQL integration / ${{ matrix.postgres.version }}",
 		"fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch')",
 		`{"version":"16.13"`,

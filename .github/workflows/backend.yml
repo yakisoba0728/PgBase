@@ -76,6 +76,11 @@ jobs:
     name: Go unit
     runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    env:
+      # The same tiering as PostgreSQL integration: fast PR feedback still
+      # exercises every unit test, while main, release-gate and manual runs
+      # retain race detection over the complete package graph.
+      PGBASE_FULL_UNIT_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,9 +111,14 @@ jobs:
       - name: Vet unit build
         run: go vet ./...
 
-      - name: Test unit suite with race detector and skip policy
+      - name: Test unit suite with skip policy
         shell: bash
-        run: scripts/test-go-unit.sh -race -count=1
+        run: |
+          test_arguments=(-count=1)
+          if [[ "$PGBASE_FULL_UNIT_RACE" == "true" ]]; then
+            test_arguments=(-race "${test_arguments[@]}")
+          fi
+          scripts/test-go-unit.sh "${test_arguments[@]}"
 
       - name: Install the pinned private attestation verifier
         if: inputs.source_commit == ''
