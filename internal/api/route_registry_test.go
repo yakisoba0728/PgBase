@@ -114,6 +114,8 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"GET /api/admin/schema-operations":                     accessAdminSameOriginRead,
 		"GET /api/admin/schema-operations/{id}":                accessAdminSameOriginRead,
 		"GET /api/admin/collections":                           accessAdminSameOriginRead,
+		"GET /api/admin/collections/{collection}":              accessAdminSameOriginRead,
+		"POST /api/admin/collections/view/sample":              accessAdminSession,
 		"GET /api/admin/jobs":                                  accessAdminSameOriginRead,
 		"GET /api/admin/system":                                accessAdminSameOriginRead,
 		"GET /api/admin/system/health":                         accessAdminSameOriginRead,
@@ -179,6 +181,12 @@ func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 	}
 	for _, declared := range declaredTestRoutes(t) {
 		key := declared.muxPattern()
+		if key == "POST /api/admin/collections/view/sample" {
+			if declared.maximumRequestBytes != 5256 {
+				t.Fatalf("view sample cap=%d", declared.maximumRequestBytes)
+			}
+			continue
+		}
 		if want[key] {
 			if declared.maximumRequestBytes != maximumCredentialRequestBytes {
 				t.Fatalf("route %q request cap = %d, want %d", key, declared.maximumRequestBytes, maximumCredentialRequestBytes)

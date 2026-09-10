@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,44 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+func TestCatalogCompatibilityPaginationKeepsNativeEnvelope(t *testing.T) {
+	catalog := schema.Catalog{Version: 5, Collections: map[string]schema.Collection{
+		"alpha": {Name: "alpha"}, "beta": {Name: "beta"},
+	}}
+	endpoint := schemaEndpoints{service: &fakeSchemaService{catalog: catalog}}
+	for _, test := range []struct {
+		query  string
+		native bool
+		count  int
+	}{
+		{"", true, 2},
+		{"?compat=pocketbase&sort=-created&perPage=1", false, 1},
+		{"?compat=pocketbase&page=" + strconv.Itoa(int(^uint(0)>>1)), false, 0},
+	} {
+		response := httptest.NewRecorder()
+		endpoint.catalog(response, httptest.NewRequest("GET", "/api/admin/collections"+test.query, nil))
+		if response.Code != 200 {
+			t.Fatalf("query=%s status=%d", test.query, response.Code)
+		}
+		var body struct {
+			Version     int
+			Collections map[string]collectionResponse
+			Items       []collectionResponse
+			TotalItems  int
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if test.native {
+			if body.Version != 5 || len(body.Collections) != test.count {
+				t.Fatalf("native=%+v", body)
+			}
+		} else if body.TotalItems != 2 || len(body.Items) != test.count || test.count > 0 && body.Items[0].Name != "beta" {
+			t.Fatalf("compatibility=%+v", body)
+		}
+	}
+}
 
 func TestSchemaPlanRouteReturnsNormalizedPreviewThroughMutationBoundary(t *testing.T) {
 	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}

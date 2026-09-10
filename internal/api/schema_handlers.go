@@ -116,9 +116,9 @@ type collectionResponse struct {
 	ID                uuid.UUID             `json:"id"`
 	Name              string                `json:"name"`
 	CompatibilityName string                `json:"compatibilityName,omitempty"`
-	Type              schema.CollectionType `json:"type"`
+	Type              schema.CollectionType `json:"type,omitempty"`
 	System            bool                  `json:"system,omitempty"`
-	ValidationMode    schema.ValidationMode `json:"validationMode"`
+	ValidationMode    schema.ValidationMode `json:"validationMode,omitempty"`
 	TableName         string                `json:"tableName"`
 	Fields            []fieldResponse       `json:"fields"`
 	Indexes           []schema.Index        `json:"indexes,omitempty"`
@@ -336,6 +336,14 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
+	if r.URL.Query().Get("compat") != "pocketbase" {
+		collections := make(map[string]collectionResponse, len(catalog.Collections))
+		for name, collection := range catalog.Collections {
+			collections[name] = collectionDTO(collection)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "collections": collections})
+		return
+	}
 	page, perPage := 1, 30
 	if raw := r.URL.Query().Get("page"); raw != "" {
 		value, parseErr := strconv.Atoi(raw)
@@ -374,19 +382,18 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sort.Slice(items, func(i, j int) bool {
-		less := items[i].Name < items[j].Name
-		if sortField == "created" {
-			less = items[i].CreatedAt.Before(items[j].CreatedAt)
-		}
 		if descending {
-			return !less
+			i, j = j, i
 		}
-		return less
+		if sortField == "created" && !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].Name < items[j].Name
 	})
 	total := len(items)
-	start := (page - 1) * perPage
-	if start > total {
-		start = total
+	start := total
+	if page-1 <= total/perPage {
+		start = (page - 1) * perPage
 	}
 	end := start + perPage
 	if end > total {
