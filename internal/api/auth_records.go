@@ -141,6 +141,28 @@ func (e authCollectionEndpoints) auxiliaryDelete(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (e authCollectionEndpoints) auxiliaryGet(w http.ResponseWriter, r *http.Request) {
+	current, err := e.current(r)
+	collection, resolveErr := e.resolve(r)
+	id, idErr := uuid.Parse(r.PathValue("id"))
+	if err != nil || resolveErr != nil || idErr != nil || current.principal.User.AuthCollectionID != collection.ID {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
+	items, err := e.dependencies.AuthCollections.ListAuthAuxiliary(r.Context(), collection.ID, current.principal.User.ID, r.PathValue("kind"))
+	if err != nil {
+		writeAuthCollectionError(w, r, err)
+		return
+	}
+	for _, item := range items {
+		if item.ID == id {
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+	writeAuthCollectionError(w, r, userauth.ErrNotFound)
+}
+
 func (e authCollectionEndpoints) authorizedRecordContext(r *http.Request) (userauth.AuthCollection, userauth.Principal, uuid.UUID, error) {
 	current, err := e.current(r)
 	if err != nil {
