@@ -2,11 +2,11 @@
 
 PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) `5684ee24f1e88f71a2ede73d20cf547fbd509e16`이다.
 
-기준선 `a7b8ac0`; 현재 코드 기준 `c0e5b0da1876`. `done`은 구현 commit과 회귀 테스트 파일이 표에 기록된 경우다. 이번 최종 ledger에는 `pending_verification` 행이 없다.
+기준선 `a7b8ac0`; 현재 코드 기준 `c0e5b0da1876`. `done`은 구현 commit과 회귀 테스트 파일이 표에 기록된 경우다. 67개 행은 `done`이며 SCH-02는 `pending_verification`이다: authRule/manageRule 전 경로가 아직 완결되지 않았다.
 
 | ID | 기능 | 상태 | 구현 commit | 테스트 근거 | 남은 PB wire/native PostgreSQL 차이 |
 | --- | --- | --- | --- | --- | --- |
-| SCH-02 | auth collection data model | done | post-a7b8ac0:51ec51d,16e6eca,7a77e69,e970a2b,4b41d09 | internal/userauth/auth_record_model_integration_test.go | PB collection JSON and PgBase realm route/storage remain different. |
+| SCH-02 | auth collection data model | pending_verification | post-a7b8ac0:4b41d09 | internal/userauth/auth_rules_test.go | OAuth·OTP·MFA·refresh authRule 및 delegated manageRule이 남아 있다. |
 | SCH-03 | catalog list and single lookup | done | post-a7b8ac0:f36d11a,de20469,b35eeb5 | internal/api/schema_handlers_test.go | PB의 전체 collection wire와 native catalog의 UUID/DDL receipt는 같지 않다. |
 | SCH-04 | name, system and type invariants | done | post-a7b8ac0:619d460,62b9620,993f70b,c8bb322 | internal/schema/compatibility_integration_test.go | native PostgreSQL table identity와 PB collection id/이름 범위는 별도이며 compat mode에서만 PB 제약을 강제한다. |
 | SCH-10 | common field metadata and system protection | done | post-a7b8ac0:619d460,62b9620 | internal/schema/compatibility_integration_test.go | PgBase는 physical ColumnName을 별도로 보존한다. |
@@ -77,4 +77,4 @@ PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/po
 
 ## 최종 통합 결과
 
-모든 68개 원래 부분 구현 행이 `done`이며, 아래 표의 차이는 기능 미완료가 아니라 명시된 wire·저장소·API 설계 차이다.
+원래 부분 구현 68개 중 67개는 `done`이고 SCH-02는 `pending_verification`이다. 아래 차이는 기능 미완료 또는 명시된 wire·저장소·API 설계 차이를 구분해 기록한다.

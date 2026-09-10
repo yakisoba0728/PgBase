@@ -8,13 +8,74 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 
 | 상태 | 행 수 | 기준선 대비 |
 | --- | ---: | --- |
-| 구현 | 197 | 원래 부분 행 중 구현 근거가 확인된 항목을 반영 |
-| 부분 | 0 | 남은 부분 구현 행 없음 |
-| 미구현 | 35 | 새 구현 근거가 없는 원래 행을 유지 |
+| 구현 | 199 | 원래 부분 68개와 원래 미구현 행 중 새 코드 근거가 확인된 항목을 반영 |
+| 부분 | 8 | 수용 조건의 범위가 확인된 현재 구현과 다르거나 일부 auth/rule 경로가 빠진 항목 |
+| 미구현 | 25 | 현재 코드에서 사용자 기능 경로를 확인하지 못한 항목 |
+
+
+
+> **상태 교정:** 이전 문서의 `197 구현 / 0 부분 / 35 미구현` 집계는 source audit 뒤 수정했다. SCH-02는 authRule/manageRule 전체 경로가 끝나지 않아 부분으로 되돌렸고, 원래 미구현 행 중 QRY-09·AUTH-25·OPS-18은 구현, AUTH-15·RULE-03·RULE-05·RULE-06·FIL-13·EXT-14·OPS-07은 부분으로 재분류했다.
+
+## 분야별 현재 집계
+
+| 분야 | 구현 | 부분 | 미구현 | 합계 |
+| --- | ---: | ---: | ---: | ---: |
+| schema | 18 | 1 | 5 | 24 |
+| fields | 15 | 0 | 1 | 16 |
+| records | 12 | 0 | 2 | 14 |
+| query | 14 | 0 | 7 | 21 |
+| auth | 30 | 1 | 2 | 33 |
+| rules | 4 | 3 | 0 | 7 |
+| mail | 5 | 0 | 0 | 5 |
+| files | 12 | 1 | 0 | 13 |
+| realtime | 6 | 0 | 1 | 7 |
+| extensions | 16 | 1 | 1 | 18 |
+| migrations | 7 | 0 | 1 | 8 |
+| sdk | 11 | 0 | 1 | 12 |
+| ui | 30 | 0 | 2 | 32 |
+| operations | 19 | 1 | 2 | 22 |
+
+## 남은 기능 공백 및 부분 구현
+
+| ID | 현재 상태 | 기능 | 남은 이유·필요 작업 |
+| --- | --- | --- | --- |
+| SCH-02 | 부분 | auth collection data model | 원래 수용 조건의 authRule/manageRule 전 경로는 아직 충족하지 않는다. RULE-05는 password login에만 적용되고 OAuth·OTP·MFA·refresh가 빠져 있으며, RULE-06은 delegated 다른 record 관리까지 포괄하지 않는다. |
+| SCH-05 | 미구현 | collection rename lifecycle | stable collection id 기반 table/index/view/rule/relation 참조 rename 계획과 충돌·rollback 회귀 검증이 필요하다. |
+| SCH-07 | 미구현 | truncate collection records | 인가된 truncate 명령, record/file/relation hook와 원자성, view 거절, 실패 rollback을 구현해야 한다. |
+| SCH-08 | 미구현 | schema scaffolds | 세 collection 종류의 기본 문서를 생성하는 meta service/API와 안정된 snapshot 테스트가 필요하다. |
+| SCH-15 | 미구현 | expression, partial and raw SQL indexes | 안전한 PostgreSQL index AST, expression allowlist, partial predicate, collation/order, export/import 및 dependency 검증이 필요하다. |
+| SCH-24 | 미구현 | import deleteMissing | 명시적 deleteMissing flag, dependency-safe 삭제 순서, system/realm 제외 정책, preview diff와 rollback 테스트가 필요하다. |
+| FLD-04 | 미구현 | custom text primary key | PB 문자열 record id를 그대로 저장·조회·relation 참조할 수 있는 identity abstraction 또는 명시적 변환 계층이 필요하다. |
+| REC-13 | 미구현 | 숫자 증가·감소 modifier | 원자적인 상대 증감 연산과 PB modifier 키 파싱이 없다. |
+| REC-14 | 미구현 | select·relation·file prepend/append/remove modifier | 다중 relation/select/file의 증분 변경을 PB 요청 한 번으로 표현할 수 없다. |
+| QRY-04 | 미구현 | any-match 비교 연산자 | 다중 relation/select/JSON 값의 PB any-match filter를 표현할 수 없다. |
+| QRY-08 | 미구현 | JSON 객체 속성·배열 index filter | 임의 JSON 객체 속성과 배열 index를 공개 filter에서 조회할 수 없다. PostgreSQL jsonb path 추출과 literal 타입 비교 규칙이 필요하다. |
+| QRY-11 | 미구현 | geoDistance·strftime 함수 | 거리 계산과 시간 포맷 기반 PB filter를 이식할 수 없다. |
+| QRY-12 | 미구현 | 시간 macro와 특수 identifier | 상대 시간 및 PB rule/resolver 표현식을 그대로 실행할 수 없다. |
+| QRY-15 | 미구현 | @random·@rowid 특수 sort | PB의 무작위 정렬 요청을 표현할 수 없다. @rowid는 SQLite 특화 내부 의미라 PostgreSQL 대체 의미를 별도 결정해야 한다. |
+| QRY-16 | 미구현 | page 번호 기반 임의 페이지 이동 | PB SDK의 page/perPage 요청과 직접 페이지 점프를 처리할 호환 endpoint 또는 offset adapter가 없다. |
+| QRY-17 | 미구현 | totalItems·totalPages와 skipTotal | 전체 건수 UI와 PB pagination envelope를 만들 수 없고 skipTotal 요청도 인식하지 않는다. |
+| AUTH-15 | 부분 | OAuth unlink | 마지막 sign-in identity guard는 auxiliary DELETE 경로에서 우회될 수 있어 PB 수준의 identity-safe unlink 보장이 완결되지 않았다. |
+| AUTH-28 | 미구현 | Apple client-secret helper | settings helper/API와 key input handling이 필요하다. |
+| AUTH-32 | 미구현 | 인증 레코드 emailVisibility 공개 제어 | auth record 공개 조회와 이메일 공개 여부를 분리하는 대응 계약이 필요. |
+| RULE-03 | 부분 | PocketBase filter syntax/variables | 전체 PB filter syntax·variables·relation resolver를 구현하지 않았고 지원 scalar subset만 평가한다. |
+| RULE-05 | 부분 | authRule | OAuth·OTP·MFA·session refresh의 authRule 적용 증거가 없어 모든 auth method에 대한 PB authRule 수용 조건은 미완료다. |
+| RULE-06 | 부분 | manageRule | delegated 다른 auth record 관리 전체에는 적용되지 않으며 UpdateAuthorizedAuthRecord는 rules.Update 중심이고 credential fields를 정리한다. |
+| FIL-13 | 부분 | extension용 generic filesystem facade | PB System facade의 prefix list/copy와 streaming reader/writer는 없다. |
+| RT-03 | 미구현 | arbitrary subscription topics | api/realtime.go·internal/realtime·SDK에서 arbitrary topic publish/subscribe를 찾지 못했다. |
+| EXT-04 | 미구현 | 프로그래밍 방식 UIExtension 등록 | 관리자 화면에 extension 자산과 main.js를 주입하는 제품 기능이 없다. |
+| EXT-14 | 부분 | $app/$dbx/$security/$os/$http/$filesystem/$apis globals | $app/$dbx/$security/$os/$http/$filesystem/$apis globals 및 process/outbound HTTP/filesystem constructor는 없다. |
+| MIG-06 | 미구현 | source에서 제거된 migration 이력 정리 | PB history-sync는 사라진 source 이력을 삭제하지만 PgBase의 같은 이름 명령은 pending 이력을 채택한다. source 없는 이력을 정리하는 대응 내장 동작은 없다. |
+| SDK-09 | 미구현 | 안전한 filter placeholder helper | 사용자가 동적 filter를 직접 안전하게 조립해야 하므로 공식 SDK 코드를 그대로 이식할 수 없다. |
+| UI-05 | 미구현 | admin UI extension 등록·화면 | extension UI 기여 불가 |
+| UI-07 | 미구현 | duplicate/truncate/scaffold | PB clone/truncate/template control 없음 |
+| OPS-07 | 부분 | PB-style configurable global API rate rules | endpoint label 기반 전역 API rate rule과 일반 API middleware는 없다. |
+| OPS-09 | 미구현 | built-in HTTPS/ACME serve | pgbase, internal/cli, cmd에서 ListenAndServeTLS/ACME equivalent를 찾지 못했다. |
+| OPS-20 | 미구현 | 자동 백업 실패 관리자 메일 알림 | 기본 superuser 수신자 선택과 자동 backup-failure system alert mail 경로가 없으며 기본 동작은 error log/job state다. |
 
 ## 기능 충족도와 wire 차이
 
-197개 `구현`은 각 행의 좁은 사용자 기능·수용 조건이 호출 가능하고 회귀/통합 근거가 있다는 뜻이다. 이것은 PocketBase SDK·HTTP wire·저장소·ORM을 무수정으로 교체할 수 있다는 뜻이 아니다. 각 행의 `PB wire / native PostgreSQL 차이` 열에서 그 차이를 확인한다. 35개 `미구현`은 새 근거가 없는 기준선 행이다.
+199개 `구현`은 각 행의 좁은 사용자 기능·수용 조건이 호출 가능하고 회귀/통합 근거가 있다는 뜻이다. 이것은 PocketBase SDK·HTTP wire·저장소·ORM을 무수정으로 교체할 수 있다는 뜻이 아니다. 각 행의 `PB wire / native PostgreSQL 차이` 열에서 그 차이를 확인한다. 25개 `미구현`은 새 근거가 없는 기준선 행이다.
 
 ## 상세 비교표
 
@@ -23,7 +84,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
 | SCH-01 · base collection CRUD | 구현 → **구현** / 차이 | plan/apply가 일반 컬렉션의 생성·수정·삭제를 PostgreSQL DDL과 버전 영수증으로 처리한다. | PB collection JSON/직접 PATCH 대신 preview-checksum-apply 프로토콜이다. PB wire adapter의 CRUD 변환과 오류 매핑이 필요하다. | 테스트 존재; `internal/schema/service_integration_test.go:1`; `schema` |
-| SCH-02 · auth collection data model | 부분 → **구현** / 차이 | typed auth record/profile/relation/file adapters and compatibility metadata expose auth collection shape; five record rule/authRule/manageRule validation is enforced on login/register and completion origins. 코드 경로: `internal/userauth/auth_record_model.go; internal/userauth/collections.go; internal/userauth/auth_rules.go; internal/api/auth_collections.go`. | PB collection JSON and PgBase realm route/storage remain different. | 통합/단위 테스트 존재; `internal/userauth/auth_record_model_integration_test.go`; `post-a7b8ac0:51ec51d,16e6eca,7a77e69,e970a2b,4b41d09` |
+| SCH-02 · auth collection data model | 부분 → **부분** / 차이 | typed auth record/profile/relation/file adapter와 compatibility metadata를 제공하고 typed collection rule을 password registration/login 및 일부 completion origin에 적용한다. | 원래 수용 조건의 authRule/manageRule 전 경로는 아직 충족하지 않는다. RULE-05는 password login에만 적용되고 OAuth·OTP·MFA·refresh가 빠져 있으며, RULE-06은 delegated 다른 record 관리까지 포괄하지 않는다. | 통합/단위 테스트 존재; `internal/userauth/auth_rules_test.go`; `post-a7b8ac0:4b41d09` |
 | SCH-03 · catalog list and single lookup | 부분 → **구현** / 차이 | `?compat=pocketbase`에서 목록 envelope, filter/sort/page와 id 또는 이름 단건 조회를 실제 route로 제공한다. 기본 route는 기존 native catalog 응답을 유지한다. 코드 경로: `internal/api/schema_handlers.go`. | PB의 전체 collection wire와 native catalog의 UUID/DDL receipt는 같지 않다. | 통합/단위 테스트 존재; `internal/api/schema_handlers_test.go`; `post-a7b8ac0:f36d11a,de20469,b35eeb5` |
 | SCH-04 · name, system and type invariants | 부분 → **구현** / 차이 | PB compatibility metadata로 name/system/type을 저장·검증하고 import·alternate apply에도 보존한다. 코드 경로: `internal/schema/schema_document.go; internal/schema/store.go; internal/schema/catalog.go`. | native PostgreSQL table identity와 PB collection id/이름 범위는 별도이며 compat mode에서만 PB 제약을 강제한다. | 통합/단위 테스트 존재; `internal/schema/compatibility_integration_test.go`; `post-a7b8ac0:619d460,62b9620,993f70b,c8bb322` |
 | SCH-05 · collection rename lifecycle | 미구현 → **미구현** / 비호환 | update에서 input.Name 또는 TableName이 현재 이름과 다르면 conflict로 거절한다. | stable collection id 기반 table/index/view/rule/relation 참조 rename 계획과 충돌·rollback 회귀 검증이 필요하다. | 소스; `검색: planUpdate의 name/table mismatch는 ErrConflict이며 rename 실행 경로 없음`; `schema` |
@@ -147,7 +208,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
 | QRY-07 · 정방향 relation filter | 구현 → **구현** / 차이 | 정방향 relation 경로를 EXISTS join으로 컴파일하며 깊이 3, join 8의 예산을 적용한다. | 일반 능력은 구현됐다. 허용 깊이·join 예산과 오류 형식이 PB와 다르다. | 실행; `[Pg relation filter tests](internal/query/relation_filter_sort_test.go:18)`; `query` |
-| QRY-09 · 역방향 relation filter | 미구현 → **미구현** / 비호환 | _via_는 expand 계획에서만 해석하며 filter/sort relation resolver는 정방향 schema field만 걷는다. | back relation 조건을 공개 filter로 표현할 수 없다. | 검색; `없음(음성 검색; pgSource 참조)`; `query` |
+| QRY-09 · 역방향 relation filter | 미구현 → **구현** / 비호환 | 공개 filter compiler가 역방향 relation path를 계획하고 relation-aware SQL predicate로 평가한다. | PB filter URL/wire와 PgBase typed PostgreSQL relation plan은 다르다. | 통합/단위 테스트 존재; `internal/query/relation_filter_sort_live_test.go`; `post-a7b8ac0:84f279e,14da805` |
 | QRY-14 · relation sort | 부분 → **구현** / 차이 | forward/multi/reverse `_via_` relation sort와 stable id tie cursor를 relation SQL plan에 구현한다. 코드 경로: `internal/query/relation_filter_sort.go; internal/query/order.go`. | 100,000 root-row safety cap은 PB와 다른 운영 한도다. | 통합/단위 테스트 존재; `internal/query/relation_filter_sort_test.go`; `post-a7b8ac0:84f279e,9946193` |
 
 ### sort
@@ -222,7 +283,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | AUTH-12 · provider catalog/config | 구현 → **구현** / 차이 | realm HTTP OAuth provider rows | PB catalog/option JSON/PKCE switch는 동일하지 않다. | 소스/테스트 존재; `internal/userauth/oauth_http_test.go:1`; `auth` |
 | AUTH-13 · realm routing | 구현 → **구현** / 차이 | state binds auth_collection_id | PB one-call auth-with-oauth2와 start/complete wire가 다르다. | 실행/테스트 존재; `pgbase/auth_factors_integration_test.go:1`; `auth` |
 | AUTH-14 · signup and link | 구현 → **구현** / 차이 | registration switch/password-bound link | PB email fallback/createData behavior가 다르다. | 실행/테스트 존재; `internal/userauth/oauth_profiles_test.go:1`; `auth` |
-| AUTH-15 · OAuth unlink | 미구현 → **미구현** / 비호환 | user OAuth identity unlink 없음 | identity-specific unlink API/UI가 필요하다. | 검색/dispatch 확인: rg unlink/Delete OAuth/user_oauth_identities와 factor routes 검사; `없음`; `auth` |
+| AUTH-15 · OAuth unlink | 미구현 → **부분** / 비호환 | administrator route/UI가 OAuth identity 목록과 provider unlink를 제공한다. | 마지막 sign-in identity guard는 auxiliary DELETE 경로에서 우회될 수 있어 PB 수준의 identity-safe unlink 보장이 완결되지 않았다. | 통합/단위 테스트 존재; `internal/userauth/auth_admin_integration_test.go`; `post-a7b8ac0:c46f9fd,da96c1b` |
 | AUTH-16 · profile mapping/avatar | 구현 → **구현** / 차이 | provider fields/avatar import | PB named mappedFields/auth-record assignment와 다르다. | 실행/테스트 존재; `internal/userauth/oauth_avatar_test.go:1`; `auth` |
 | AUTH-27 · OAuth provider inventory helper | 부분 → **구현** / 차이 | auth methods/provider inventory helper를 callable route/descriptors로 제공한다. 코드 경로: `internal/userauth/auth_methods.go; internal/api/auth_collections.go`. | PB helper response의 모든 provider-specific option은 보장하지 않는다. | 통합/단위 테스트 존재; `internal/userauth/auth_methods_integration_test.go`; `post-a7b8ac0:b107b04` |
 | AUTH-28 · Apple client-secret helper | 미구현 → **미구현** / 비호환 | 없음 | settings helper/API와 key input handling이 필요하다. | 검색/dispatch 확인: generate-client-secret/Apple secret generator 전역 검색 0건; OAuth routes는 callback만 있음; `없음`; `auth` |
@@ -259,13 +320,13 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
-| AUTH-25 · new-device auth alert/auth origins | 미구현 → **미구현** / 비호환 | 없음 | origin persistence, fingerprint, alert template/delivery API가 필요하다. | 검색/dispatch 확인: AuthAlert/auth_origin/fingerprint login 0건; mail purpose routes 검사; `없음`; `auth` |
+| AUTH-25 · new-device auth alert/auth origins | 미구현 → **구현** / 비호환 | 새 origin을 저장하고 configured auth alert template으로 new-device/origin mail을 보낸다. | origin fingerprint·alert payload와 PB wire/template identifiers는 다르다. | 통합 테스트 존재; `internal/userauth/email_actions_integration_test.go`; `post-a7b8ac0:6df249a,4b41d09` |
 
 ### auxiliary-records
 
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
-| AUTH-29 · PB auth auxiliary system record handling | 부분 → **구현** / 차이 | auxiliary auth system records와 OAuth identities를 typed views/management routes로 투영한다. 코드 경로: `internal/userauth/auth_auxiliary.go; internal/api/auth_records.go; internal/api/auth_admin.go`. | PB system collection ids/rules와 PgBase realm auxiliary storage는 다르다. | 통합/단위 테스트 존재; `internal/userauth/auth_record_model_integration_test.go`; `post-a7b8ac0:51ec51d,5feb0f2,c46f9fd` |
+| AUTH-29 · PB auth auxiliary system record handling | 부분 → **구현** / 차이 | auxiliary auth system records와 OAuth identities를 typed views/management routes로 투영한다. 코드 경로: `internal/userauth/auth_auxiliary.go; internal/api/auth_records.go; internal/api/auth_admin.go`. | PB system collection ids/rules와 PgBase realm auxiliary storage는 다르다. OAuth unlink의 마지막 identity guard 공백은 AUTH-15에 별도로 남긴다. | 통합/단위 테스트 존재; `internal/userauth/auth_record_model_integration_test.go`; `post-a7b8ac0:51ec51d,5feb0f2,c46f9fd` |
 
 ### auth
 
@@ -285,7 +346,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | --- | --- | --- | --- | --- |
 | RULE-01 · five CRUD actions | 구현 → **구현** / 차이 | same five JSON AST rules | serialization/meaning이 다르다. | 실행/테스트 존재; `pgbase/record_rules_integration_test.go:1`; `auth` |
 | RULE-02 · owner/authenticated/comparison | 구현 → **구현** / 차이 | owner/authenticated/all/any/comparison AST | op/depth/type/auth value가 제한된다. | 소스/테스트 존재; `internal/accessrule/rule_test.go:1`; `auth` |
-| RULE-03 · PocketBase filter syntax/variables | 미구현 → **미구현** / 비호환 | PB DSL parser 없음 | parser/resolver/relation join/adapter가 필요하다. | 검색/dispatch 확인: @request/@collection/FilterData/RecordFieldResolver 0건; JSON Rules만 Parse; `internal/accessrule/rule_test.go:1`; `auth` |
+| RULE-03 · PocketBase filter syntax/variables | 미구현 → **부분** / 비호환 | PocketBase scalar expression의 비교, AND/OR, lower/length, field comparison, auth/request modifiers 일부를 typed AST로 compile한다. | 전체 PB filter syntax·variables·relation resolver를 구현하지 않았고 지원 scalar subset만 평가한다. | 통합/단위 테스트 존재; `internal/recordaccess/pocketbase_rule_integration_test.go`; `post-a7b8ac0:14da805` |
 | RULE-04 · rule null/empty semantics | 부분 → **구현** / 차이 | PB scalar parser가 null/empty literals, relation sort and nullable comparisons를 compile하고 global/auth record rule activation에 적용한다. 코드 경로: `internal/accessrule/pocketbase.go; internal/api/rules.go; internal/userauth/auth_rules.go`. | rule storage and native ownership defaults are PgBase-specific. | 통합/단위 테스트 존재; `internal/accessrule/pocketbase_test.go`; `post-a7b8ac0:14da805,4b41d09` |
 | RULE-07 · rule administration/preview | 구현 → **구현** / 비호환 | admin JSON AST preview | 저장·preview workflow 자체는 있다. PB filter string을 붙여넣거나 @request/@collection/relation join을 preview하는 workflow는 없다. | 실행/테스트 존재; `internal/api/record_handlers_test.go:1`; `auth` |
 
@@ -293,8 +354,8 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 
 | ID·기능 | 기준선 상태 → 현재 | 현재 구현 동작·코드 경로 | PB wire / native PostgreSQL 차이 | 실제 근거 |
 | --- | --- | --- | --- | --- |
-| RULE-05 · authRule | 미구현 → **미구현** / 비호환 | realm authRule 없음 | realm authRule store/evaluation을 모든 auth method에 적용해야 한다. | 검색/dispatch 확인: AuthRule/authRule 0건; LoginInCollection은 policy/password/active 검사; `없음`; `auth` |
-| RULE-06 · manageRule | 미구현 → **미구현** / 비호환 | user delegation rule 없음 | auth-record CRUD와 managed record filter evaluation이 필요하다. | 검색/dispatch 확인: ManageRule/manageRule 0건; user management는 accessAdminSession; `없음`; `auth` |
+| RULE-05 · authRule | 미구현 → **부분** / 비호환 | authRule은 password registration/login 경로에서 typed collection rule로 평가한다. | OAuth·OTP·MFA·session refresh의 authRule 적용 증거가 없어 모든 auth method에 대한 PB authRule 수용 조건은 미완료다. | 통합/단위 테스트 존재; `internal/userauth/auth_record_model_integration_test.go`; `post-a7b8ac0:4b41d09` |
+| RULE-06 · manageRule | 미구현 → **부분** / 비호환 | manageRule은 현재 user의 auxiliary 관리와 제한된 authorized auth-record update에 적용한다. | delegated 다른 auth record 관리 전체에는 적용되지 않으며 UpdateAuthorizedAuthRecord는 rules.Update 중심이고 credential fields를 정리한다. | 통합/단위 테스트 존재; `internal/userauth/auth_rules_test.go`; `post-a7b8ac0:4b41d09` |
 
 ### mail
 
@@ -322,7 +383,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | FIL-10 · thumbnail cache/concurrent generation | 구현 → **구현** / 차이 | DB variant receipt와 advisory lock으로 rendition 생성을 직렬화한다. | PB wait/fallback/cache behavior를 그대로 재현하지 않는다. | 테스트 존재; `internal/filestore/variants_integration_test.go:61`; `operations` |
 | FIL-11 · 로컬 object store | 구현 → **구현** / 차이 | 검증된 key의 local ObjectStore와 file metadata lifecycle을 제공한다. | 저장 경로와 blob facade API가 다르다. | 테스트 존재; `internal/filestore/local_test.go:1`; `operations` |
 | FIL-12 · S3 backend와 runtime 설정 | 구현 → **구현** / 차이 | S3 backend와 암호화된 설정, revisioned live switching을 제공한다. | PB settings JSON/환경 변수와 다르다. | 테스트 존재; `internal/filestore/storage_settings_integration_test.go:21`; `operations` |
-| FIL-13 · extension용 generic filesystem facade | 미구현 → **미구현** / 비호환 | attachment FileService만 확인되었다. | internal/filestore·pgbase에서 PB System Copy/List/NewWriter 동등 공개 facade를 찾지 못했다. | 검색; `없음`; `operations` |
+| FIL-13 · extension용 generic filesystem facade | 미구현 → **부분** / 비호환 | Go/JS extension이 namespace 격리 logical object read/write/delete를 제공한다. | PB System facade의 prefix list/copy와 streaming reader/writer는 없다. | 통합 테스트 존재; `pgbase/javascript_database_objects_integration_test.go`; `post-a7b8ac0:d5dc521,2c7cb80` |
 
 ### realtime
 
@@ -363,7 +424,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | --- | --- | --- | --- | --- |
 | EXT-12 · 스크립트 발견·등록 모델과 TypeScript 입력 | 부분 → **구현** / 차이 | TypeScript scripts are bundled/discovered with manifest/CommonJS registration and shared templates. 코드 경로: `internal/jsvm/bundle.go; pgbase/javascript_runtime.go; pgbase/templates.go`. | PB global .pb.ts execution model remains incompatible. | 통합/단위 테스트 존재; `internal/jsvm/runtime_test.go`; `post-a7b8ac0:5efaf64` |
 | EXT-13 · CommonJS 로컬 module 지원 | 구현 → **구현** / 차이 | bundle 내부 정적 상대 require를 해석하고 native require("pgbase")를 등록하며 migration dependency closure를 고정한다. | PgBase는 immutable bundle 안의 정적 module graph만 허용해 임의 node package/동적 경로 로딩과 호환되지 않는다. | 테스트 존재: module path, 동적 require 거부, dependency closure와 handler export 검증이 있다.; `internal/jsvm/bundle_test.go:127`; `extensions` |
-| EXT-14 · $app/$dbx/$security/$os/$http/$filesystem/$apis globals | 미구현 → **미구현** / 비호환 | 해당 globals가 없고 require("pgbase")의 제한된 capability method만 있다. | 임의 SQL·프로세스·외부 HTTP·crypto·filesystem을 쓰는 PB hook는 동작하지 않는다. | 검색: '$app|$dbx|$security|$os|$http|$filesystem|$apis'를 pgbase/internal/cmd/sdk에서 찾은 결과 0건; native module 등록은 pgbase 하나다.; `internal/jsvm/runtime_test.go:239`; `extensions` |
+| EXT-14 · $app/$dbx/$security/$os/$http/$filesystem/$apis globals | 미구현 → **부분** / 비호환 | `require("pgbase")`에 trusted database transaction과 namespaced logical objects가 있다. | $app/$dbx/$security/$os/$http/$filesystem/$apis globals 및 process/outbound HTTP/filesystem constructor는 없다. | 통합 테스트 존재; `pgbase/javascript_database_objects_integration_test.go`; `post-a7b8ac0:d5dc521` |
 | EXT-15 · JS route·hook 등록 | 구현 → **구현** / 차이 | manifest routes와 before/after hook exports를 검증해 고정 CustomRoute/HookRegistry에 설치한다. | 동적 routerUse middleware와 임의 onXxx 호출은 없고 manifest가 허용한 event/priority 조합만 쓴다. | 테스트 존재: JS route exact-number 왕복, hook patch/state, 지원 이벤트 검증이 있다.; `pgbase/javascript_hooks_test.go:16`; `extensions` |
 | EXT-16 · JS scheduled job/cron | 구현 → **구현** / 차이 | manifest job에 name/schedule/timezone/handler/capability를 선언하고 operator가 provision한 service subject로 durable scheduled job을 실행한다. | 실행 중 cronAdd/Remove가 없으며 등록, identity, 실행 지속성 의미가 다르다. | 테스트 존재: job 등록 검증과 fenced durable 실행 통합 검사가 있다.; `pgbase/javascript_jobs_integration_test.go:16`; `extensions` |
 | EXT-17 · namespaced record·mail·file·log capability | 구현 → **구현** / 차이 | require("pgbase")가 records, mail, files, log namespace를 노출하고 route/hook/job마다 capability allowlist를 검사한다. | 사용자 기능은 대응하지만 PB API 이름과 권한 모델이 다르고 임의 app helper는 노출되지 않는다. | 테스트 존재: Go/JS record 권한 일치, file stream handle 제한, mail/log 호출을 실제 서비스로 검사한다.; `pgbase/javascript_file_mail_integration_test.go:22`; `extensions` |
@@ -511,7 +572,7 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | OPS-02 · 통합 runtime settings GET/PATCH/reload | 부분 → **구현** / 차이 | runtime settings GET/PATCH/reload persist, publish lifecycle events, and update live services. 코드 경로: `internal/runtimesettings/settings.go; internal/api/runtime_settings.go; pgbase/runtime_settings_hooks.go`. | PB single settings document/reload wire differs. | 통합/단위 테스트 존재; `internal/runtimesettings/settings_integration_test.go`; `post-a7b8ac0:53eb6a1,e0c331c,e1d25ce,8ac0451` |
 | OPS-05 · request logs list/detail/stats/truncate | 구현 → **구현** / 차이 | request route/status/duration retained log의 search/detail/statistics/truncate를 제공한다. | PB log model/UI and route가 다르다. | 테스트 존재; `internal/api/operations_console_test.go:137`; `operations` |
 | OPS-06 · login/OTP rate limits | 구현 → **구현** / 차이 | admin auth가 account/network durable buckets를 advisory-lock으로 제한한다. | PB label/rule configuration surface와 전역 endpoint coverage가 다르다. | 테스트 존재; `internal/adminauth/service_integration_test.go:262`; `operations` |
-| OPS-07 · PB-style configurable global API rate rules | 미구현 → **미구현** / 비호환 | 인증 및 realtime admission 외 일반 API label-rate-rule config를 확인하지 못했다. | internal/api, pgbase.Options에서 PB Settings.RateLimits 동등 설정/미들웨어를 찾지 못했다. | 검색; `internal/api/middleware_test.go:1`; `operations` |
+| OPS-07 · PB-style configurable global API rate rules | 미구현 → **부분** / 비호환 | runtime settings로 administrator/user authentication rate policy를 구성하고 live services에 적용한다. | endpoint label 기반 전역 API rate rule과 일반 API middleware는 없다. | 단위/통합 테스트 존재; `internal/runtimesettings/settings_test.go`; `post-a7b8ac0:53eb6a1,8ac0451` |
 | OPS-08 · trusted proxy/real client IP | 구현 → **구현** / 차이 | 명시 prefix가 trusted일 때만 X-Forwarded-For를 해석하고 IPv6 /64 rate key를 만든다. | PB trustedProxy/settings field wire와 다르다. | 테스트 존재; `internal/api/client_address_test.go:1`; `operations` |
 | OPS-09 · built-in HTTPS/ACME serve | 미구현 → **미구현** / 비호환 | 내장 HTTP server만 확인되었고 TLS listener/ACME config를 찾지 못했다. | pgbase, internal/cli, cmd에서 ListenAndServeTLS/ACME equivalent를 찾지 못했다. | 검색; `pgbase/app_integration_test.go:106`; `operations` |
 | OPS-10 · backup CRUD/transfer queue | 구현 → **구현** / 차이 | managed backup list/create/upload/open/delete/restore/job interface와 console routes를 제공한다. | PB ZIP/pb_data artifact와 route payload가 다르다. | 테스트 존재; `internal/backup/backup_integration_test.go:1`; `operations` |
@@ -521,9 +582,9 @@ PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbas
 | OPS-15 · self-update | 구현 → **구현** / 차이 | signed manifest selection, verified download, journal/recovery, OS replacement를 구현한다. | PB plugin install/channel UI와 다르며 Windows/실제 channel은 이번에 실행하지 않았다. | 테스트 존재; `internal/selfupdate/selfupdate_test.go:1`; `operations` |
 | OPS-16 · panic 복구 후 request-log 기록 | 부분 → **구현** / 차이 | panic recovery records request-log data before responding 500. 코드 경로: `internal/api/router.go`. | log schema/statistics differ from PB. | 통합/단위 테스트 존재; `internal/api/telemetry_test.go`; `post-a7b8ac0:e1ac79b` |
 | OPS-17 · persisted settings encryption key environment | 부분 → **구현** / 차이 | persisted runtime settings encryption accepts startup environment key and supports rotation/CAS. 코드 경로: `internal/config/env.go; internal/runtimesettings/settings.go; pgbase/runtime_settings_encryption.go`. | PB `--encryptionEnv` CLI spelling/document format differs. | 통합/단위 테스트 존재; `internal/config/env_test.go`; `post-a7b8ac0:2780aa3,9fc262d` |
-| OPS-18 · 내장 자동 백업 스케줄 | 미구현 → **미구현** / 비호환 | 수동 managed backup과 일반 사용자 job은 있으나 내장 backup schedule 연결 없음 | BackupOptions·manager·jobs 등록에 자동 백업 스케줄이 없다. 일반 cron에 사용자가 직접 코드를 쓰는 것은 내장 완료로 세지 않음. | 소스·검색; `없음`; `root-additions` |
+| OPS-18 · 내장 자동 백업 스케줄 | 미구현 → **구현** / 비호환 | serve 구성에서 `pgbase.managed-backup` durable job을 등록하고 runtime Backups Schedule/Timezone/Enabled 및 retention 변경을 반영한다. | job name·settings document·scheduler storage가 PB와 다르다. | 단위/통합 테스트 존재; `internal/runtimesettings/settings_test.go`; `post-a7b8ac0:c0e5b0d` |
 | OPS-19 · 백업 보관 개수 제한 | 구현 → **구현** / 차이 | local/S3 저장소 retention 및 오래된 항목 삭제 | PB 자동 생성 백업만의 retention과 적용 범위가 다르다. | 소스·테스트 존재; `internal/backup/archive_test.go:99`; `root-additions` |
-| OPS-20 · 자동 백업 실패 관리자 메일 알림 | 미구현 → **미구현** / 비호환 | 오류 로그와 job 상태; 기본 관리자 알림 메일 연결 없음 | backup LogError와 mailer 사이의 기본 알림 경로·수신자 정책 필요. | 소스·검색; `없음`; `root-additions` |
+| OPS-20 · 자동 백업 실패 관리자 메일 알림 | 미구현 → **미구현** / 비호환 | backup lifecycle hook과 extension mail capability는 조합할 수 있다. | 기본 superuser 수신자 선택과 자동 backup-failure system alert mail 경로가 없으며 기본 동작은 error log/job state다. | 테스트 존재; `pgbase/javascript_hooks_test.go`; `post-a7b8ac0:c0e5b0d` |
 | OPS-21 · HTTP health 확인 | 구현 → **구현** / 차이 | /health/live와 /health/ready; system/schema health 별도 | endpoint/JSON과 진단 범위가 다르다. | 소스·테스트 존재; `internal/api/health_test.go:12`; `root-additions` |
 | OPS-22 · 관리자 CLI create/update/upsert/delete | 구현 → **구현** / 차이 | admin create/reset-password/update/upsert/delete | PB 명령명·식별·출력은 다르나 계정 관리 목적 대응. | 소스·테스트 존재; `internal/cli/admin_integration_test.go:127`; `root-additions` |
 | OPS-23 · 관리자 CLI OTP·IP 정책 | 부분 → **구현** / 차이 | administrator CLI email OTP/recovery and IP/profile policy are provided. 코드 경로: `internal/cli/run.go; internal/adminauth/email_otp.go; internal/api/admin_profile.go`. | PB CLI flags/output differ. | 통합/단위 테스트 존재; `internal/cli/admin_integration_test.go`; `post-a7b8ac0:794e48c,8ac0451` |

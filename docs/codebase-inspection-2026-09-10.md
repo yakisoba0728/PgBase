@@ -8,9 +8,9 @@ PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/po
 
 | 상태 | 원래 | 현재 | 판단 기준 |
 | --- | ---: | ---: | --- |
-| 구현 | 129 | 197 | route/service가 실제 호출 가능하고 관련 회귀 테스트 파일이 있다. |
-| 부분 | 68 | 0 | 남은 부분 구현 행 없음. |
-| 미구현 | 35 | 35 | 새 구현 근거가 없는 원래 행을 유지했다. |
+| 구현 | 129 | 199 | route/service가 실제 호출 가능하고 관련 회귀 테스트 파일이 있다. |
+| 부분 | 68 | 8 | SCH-02와 7개 원래 미구현 행은 수용 조건의 일부만 충족한다. |
+| 미구현 | 35 | 25 | 새 구현 근거가 없는 원래 행을 유지했다. |
 
 ## 구현 범위에서 확인한 주요 경계
 
@@ -21,6 +21,6 @@ PocketBase 대조 원본은 [공식 v0.40.3 pinned commit](https://github.com/po
 
 ## 기능 충족도와 native 차이
 
-197개 구현 행은 원래 수용 조건의 사용자 기능이 호출 가능하고 검증됐다는 뜻이다. PocketBase wire/ORM과 동일하다는 뜻은 아니다. 특히 EXT-06은 automatic PB Model ORM이 아니라 callback-owned transaction의 opt-in `RunModelMutation` wrapper이며, SDK-05는 host popup/deeplink I/O를 adapter에 맡기는 orchestration이다. 각 차이는 상세표에 남겼다.
+199개 구현 행은 원래 수용 조건의 사용자 기능이 호출 가능하고 검증됐다는 뜻이다. PocketBase wire/ORM과 동일하다는 뜻은 아니다. 특히 EXT-06은 automatic PB Model ORM이 아니라 callback-owned transaction의 opt-in `RunModelMutation` wrapper이며, SDK-05는 host popup/deeplink I/O를 adapter에 맡기는 orchestration이다. 각 차이는 상세표에 남겼다.
 
-전체 Go unit/vet/PG17.9+MinIO integration, TypeScript, Dart, UI build/Vitest, fresh browser profile/settings·backup/restore·S3 scenarios는 final logs에서 통과했다. 상세표의 native wire·ORM 차이는 기능 미완료가 아니라 명시된 설계 차이다.
+전체 Go unit/vet/PG17.9+MinIO integration, TypeScript, Dart, UI build/Vitest, fresh browser profile/settings·backup/restore·S3 scenarios는 final logs에서 통과했다. 단, 이 성공은 authRule/manageRule 전 경로와 unlink guard 같은 행별 수용 조건을 자동으로 완결하지 않는다. source audit로 이전 197/0/35 집계를 199/8/25로 교정했다.
