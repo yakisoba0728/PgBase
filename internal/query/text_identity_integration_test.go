@@ -50,6 +50,12 @@ func TestPocketBaseListUsesExactTextIdentityForFiltersAndSorts(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(recordIDs(ordered.Items), []string{ids["Alpha"].String(), ids["Zulu"].String()}) {
 		t.Fatalf("external id order = %v, err=%v", recordIDs(ordered.Items), err)
 	}
+	rowIDOrdered, err := ListPocketBase(ctx, records, PocketBaseListRequest{ListRequest: ListRequest{
+		Principal: principal, Collection: "query_text_identities", Sort: "@rowid",
+	}, Page: 1, PerPage: 10})
+	if err != nil || len(rowIDOrdered.Items) != 2 {
+		t.Fatalf("internal rowid order items=%v, err=%v", recordIDs(rowIDOrdered.Items), err)
+	}
 }
 
 func TestPocketBaseRelationIdentityFilterAndSortUseTargetAliases(t *testing.T) {

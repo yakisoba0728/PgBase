@@ -178,6 +178,15 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID, Desc: key.Desc}, expression: recordIdentityExpression(root.AccessCollectionID(), qualified(root.TableName, systemFieldID)), cursorField: field, indexHint: orderIndexRoot, identityCollectionID: root.AccessCollectionID()})
 			continue
 		}
+		if key.Field == internalRowIDSort {
+			field, _ := filterField(root, systemFieldID)
+			term, err := rootOrderTerm(SortKey{Field: systemFieldID, Desc: key.Desc}, field, root.IsSQLView())
+			if err != nil {
+				return orderSpec{}, err
+			}
+			terms = append(terms, term)
+			continue
+		}
 		field, ok := filterField(root, key.Field)
 		inline, isRoot := rootSortField(field)
 		if ok && isRoot && !strings.Contains(key.Field, ".") {

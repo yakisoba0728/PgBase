@@ -129,7 +129,7 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// compatibility operands while preserving List's cursor contract.
 	// FLD-04 adds exact durable text-identity predicates and PocketBase-facing
 	// external-id ordering while retaining UUID cursor and @rowid authority.
-	if runtimeLines > 7517 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7517", runtimeLines)
+	if runtimeLines > 7526 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7526", runtimeLines)
 	}
 }
