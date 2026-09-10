@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -270,6 +271,55 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		return nil, extensionError("objects_unavailable", errors.New("extension object storage unavailable"))
 	}
 	switch method {
+	case "objects.serve":
+		var request struct{ Key, Name string }
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		if request.Name == "" || len(request.Name) > 255 {
+			return nil, extensionError("invalid_object_request", errors.New("invalid serve name"))
+		}
+		if _, err := host.bridge.objects.Attributes(ctx, host.namespace, request.Key); err != nil {
+			return nil, extensionError("object_serve_failed", err)
+		}
+		host.objectMu.Lock()
+		defer host.objectMu.Unlock()
+		if host.servedObject != nil {
+			return nil, extensionError("object_serve_failed", errors.New("response already selected"))
+		}
+		host.servedObject = &extensionServedObject{key: request.Key, name: request.Name}
+		return json.RawMessage(`{"served":true}`), nil
+	case "objects.createThumb":
+		var request struct{ OriginalKey, ThumbKey, ThumbSize string }
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		if host.bridge.files == nil {
+			return nil, extensionError("thumbnail_unavailable", errors.New("file thumbnail service unavailable"))
+		}
+		reader, err := host.bridge.objects.Open(ctx, host.namespace, request.OriginalKey)
+		if err != nil {
+			return nil, extensionError("thumbnail_failed", err)
+		}
+		probe := make([]byte, 512)
+		n, readErr := io.ReadFull(reader, probe)
+		_ = reader.Close()
+		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+			return nil, extensionError("thumbnail_failed", readErr)
+		}
+		contentType := strings.TrimSpace(strings.Split(http.DetectContentType(probe[:n]), ";")[0])
+		physical, err := extensionObjectKey(host.namespace, request.OriginalKey)
+		if err != nil {
+			return nil, extensionError("thumbnail_failed", err)
+		}
+		data, err := host.bridge.files.RenderThumbnail(ctx, physical, contentType, request.ThumbSize)
+		if err != nil {
+			return nil, extensionError("thumbnail_failed", err)
+		}
+		if err := host.bridge.objects.Write(ctx, host.namespace, request.ThumbKey, data); err != nil {
+			return nil, extensionError("thumbnail_failed", err)
+		}
+		return json.Marshal(map[string]any{"created": true, "size": len(data)})
 	case "objects.attributes", "objects.exists":
 		var request struct {
 			Key string `json:"key"`
