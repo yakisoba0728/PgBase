@@ -118,7 +118,6 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"GET /api/admin/schema-operations/{id}":                accessAdminSameOriginRead,
 		"GET /api/admin/collections":                           accessAdminSameOriginRead,
 		"GET /api/admin/collections/{collection}":              accessAdminSameOriginRead,
-		"POST /api/admin/collections/view/sample":              accessAdminSession,
 		"GET /api/admin/jobs":                                  accessAdminSameOriginRead,
 		"GET /api/admin/system":                                accessAdminSameOriginRead,
 		"GET /api/admin/system/health":                         accessAdminSameOriginRead,
