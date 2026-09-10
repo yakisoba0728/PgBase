@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -209,33 +210,53 @@ func compileExtensionDBX(raw json.RawMessage) (string, error) {
 	}
 	switch node.Op {
 	case "exp":
-		if len(node.Args) != 2 {
-			return "", errors.New("invalid dbx exp")
-		}
-		var expression string
-		var params map[string]json.RawMessage
-		if json.Unmarshal(node.Args[0], &expression) != nil || json.Unmarshal(node.Args[1], &params) != nil {
-			return "", errors.New("invalid dbx exp")
-		}
-		if len(params) > 64 {
-			return "", errors.New("too many dbx params")
-		}
-		for name, value := range params {
-			if !extensionDBXField.MatchString(name) {
-				return "", errors.New("invalid dbx param")
-			}
-			expression = strings.ReplaceAll(expression, "{:"+name+"}", pocketBaseFilterLiteral(value))
-		}
-		if strings.Contains(expression, "{:") {
-			return "", errors.New("missing dbx param")
-		}
-		return expression, nil
+		return "", errors.New("raw dbx expressions require trusted database access")
 	case "and":
 		return compound(" && ")
 	case "or":
 		return compound(" || ")
 	case "not":
-		return "", errors.New("generic dbx not is unsupported; use a typed negative operator")
+		if len(node.Args) != 1 {
+			return "", errors.New("invalid not")
+		}
+		negated, err := negateExtensionDBX(node.Args[0])
+		if err != nil {
+			return "", err
+		}
+		return compileExtensionDBX(negated)
+	case "exists", "notExists":
+		if len(node.Args) != 1 {
+			return "", errors.New("invalid exists")
+		}
+		var field string
+		if json.Unmarshal(node.Args[0], &field) != nil || !extensionDBXField.MatchString(field) {
+			return "", errors.New("invalid exists field")
+		}
+		if node.Op == "exists" {
+			return field + " != null", nil
+		}
+		return field + " = null", nil
+	case "hashExp":
+		if len(node.Args) != 1 {
+			return "", errors.New("invalid hash expression")
+		}
+		var values map[string]json.RawMessage
+		if json.Unmarshal(node.Args[0], &values) != nil || len(values) == 0 || len(values) > 64 {
+			return "", errors.New("invalid hash expression")
+		}
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			if !extensionDBXField.MatchString(key) {
+				return "", errors.New("invalid hash field")
+			}
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, len(keys))
+		for i, key := range keys {
+			parts[i] = key + " = " + pocketBaseFilterLiteral(values[key])
+		}
+		return "(" + strings.Join(parts, " && ") + ")", nil
 	case "in", "notIn", "like", "notLike", "orLike", "orNotLike", "between", "notBetween":
 		var field string
 		if json.Unmarshal(node.Args[0], &field) != nil || !extensionDBXField.MatchString(field) {
@@ -274,12 +295,35 @@ func compileExtensionDBX(raw json.RawMessage) (string, error) {
 			if len(node.Args) != 2 {
 				return "", errors.New("invalid like")
 			}
-			op := " ~ "
-			if strings.Contains(node.Op, "not") || strings.Contains(node.Op, "Not") {
-				op = " !~ "
-			}
+			op := map[string]string{"like": " ~ ", "notLike": " !~ ", "orLike": " ?~ ", "orNotLike": " ?!~ "}[node.Op]
 			return field + op + pocketBaseFilterLiteral(node.Args[1]), nil
 		}
 	}
 	return "", errors.New("unsupported dbx expression")
+}
+
+func negateExtensionDBX(raw json.RawMessage) (json.RawMessage, error) {
+	var node extensionDBXNode
+	if json.Unmarshal(raw, &node) != nil {
+		return nil, errors.New("invalid negated expression")
+	}
+	swap := map[string]string{"and": "or", "or": "and", "in": "notIn", "notIn": "in", "like": "notLike", "notLike": "like", "orLike": "orNotLike", "orNotLike": "orLike", "exists": "notExists", "notExists": "exists", "between": "notBetween", "notBetween": "between"}
+	if node.Op == "not" && len(node.Args) == 1 {
+		return node.Args[0], nil
+	}
+	replacement, ok := swap[node.Op]
+	if !ok {
+		return nil, errors.New("unsupported negated expression")
+	}
+	node.Op = replacement
+	if replacement == "and" || replacement == "or" {
+		for i, arg := range node.Args {
+			value, err := negateExtensionDBX(arg)
+			if err != nil {
+				return nil, err
+			}
+			node.Args[i] = value
+		}
+	}
+	return json.Marshal(node)
 }
