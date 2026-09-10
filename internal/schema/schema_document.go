@@ -364,7 +364,7 @@ func sameImportedBase(current Collection, fields []FieldInput, indexes []IndexIn
 	}
 	for i, old := range current.Fields {
 		input := fields[i]
-		if input.ID == nil || *input.ID != old.ID || input.Name != old.Name || input.Type != old.Type || input.Required != old.Required || input.Unique != old.Unique || input.Indexed != old.Indexed || input.Hidden != old.Hidden || input.Presentable != old.Presentable || input.Help != old.Help || !reflect.DeepEqual(input.Options, cloneFieldOptionsPointer(old.Options)) || string(input.Default) != string(old.Default) {
+		if input.ID == nil || *input.ID != old.ID || input.Name != old.Name || input.Type != old.Type || input.Required != old.Required || input.Unique != old.Unique || input.Indexed != old.Indexed || input.Hidden != old.Hidden || input.Presentable != old.Presentable || input.Help != old.Help || input.System == nil || *input.System != old.System || !reflect.DeepEqual(input.Options, cloneFieldOptionsPointer(old.Options)) || string(input.Default) != string(old.Default) {
 			return false
 		}
 		if (input.Relation == nil) != (old.Relation == nil) {

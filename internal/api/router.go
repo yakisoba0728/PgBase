@@ -13,6 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 type Dependencies struct {
@@ -123,6 +124,10 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationStatus)},
 		{method: "GET", pattern: "/api/admin/collections", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
+		{method: "GET", pattern: "/api/admin/collections/{collection}", access: accessAdminSameOriginRead,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.collection)},
+		{method: "POST", pattern: "/api/admin/collections/view/sample", access: accessAdminSession,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, maximumRequestBytes: schema.MaximumViewSampleQueryBytes + 256, handler: http.HandlerFunc(schemas.sampleView)},
 		{method: "GET", pattern: "/api/admin/system", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: systemStatus(dependencies.System)},
 		// Cookie-authenticated reads reject a presented foreign Origin even when

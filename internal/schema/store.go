@@ -389,6 +389,14 @@ func (s *Store) UpdateCollection(ctx context.Context, collection Collection, def
 		if _, err := s.db.Exec(ctx, `update pgbase_meta.collection_views set sql=$2,dependencies=$3 where collection_id=$1`, collection.ID, collection.View.SQL, collection.View.Dependencies); err != nil {
 			return fmt.Errorf("update SQL view metadata: %w", err)
 		}
+	} else if collection.View != nil {
+		encoded, encodeErr := encodeViewFilter(collection.View.Filter)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, err := s.db.Exec(ctx, `update pgbase_meta.collection_views set source_collection_id=$2,projection=$3,filter_json=$4::jsonb,sql=null,dependencies=null where collection_id=$1`, collection.ID, collection.View.SourceCollectionID, collection.View.Projection, encoded); err != nil {
+			return fmt.Errorf("update declarative view metadata: %w", err)
+		}
 	}
 	var hasCompoundIndexes bool
 	if err := s.db.QueryRow(ctx, `select to_regclass('pgbase_meta.compound_indexes') is not null`).Scan(&hasCompoundIndexes); err != nil {

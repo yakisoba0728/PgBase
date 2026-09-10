@@ -116,6 +116,7 @@ func projectCatalog(catalog Catalog, change Change, plan Plan) (Catalog, error) 
 			}
 		}
 		current.Fields = fields
+		current.CompatibilityName, current.Type, current.System, current.ValidationMode = plan.Definition.CompatibilityName, plan.Definition.Type, plan.Definition.System, plan.Definition.ValidationMode
 		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
 		if err != nil {
 			return Catalog{}, err

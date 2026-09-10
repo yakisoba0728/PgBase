@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -291,6 +292,9 @@ func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection)
 		if collection.Name == definition.Name || collection.TableName == definition.TableName {
 			return ErrConflict
 		}
+		if definition.CompatibilityName != "" && (strings.EqualFold(collection.Name, definition.CompatibilityName) || strings.EqualFold(collection.CompatibilityName, definition.CompatibilityName)) {
+			return validation("compatibilityName", "duplicate_name")
+		}
 	}
 	return nil
 }
@@ -309,12 +313,26 @@ func sameCatalogContent(left, right Catalog) bool {
 
 func validateCatalogIntegrity(catalog Catalog) error {
 	collectionIDs := make(map[uuid.UUID]bool, len(catalog.Collections))
+	compatibilityNames := map[string]bool{}
 	for key, collection := range catalog.Collections {
 		if key != collection.Name || collection.Name != collection.TableName || collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
 		}
 		if err := validateName("", collection.Name); err != nil {
 			return ErrConflict
+		}
+		if collection.Type != "" && collection.Type != CollectionTypeBase && collection.Type != CollectionTypeAuth && collection.Type != CollectionTypeView {
+			return ErrConflict
+		}
+		if collection.ValidationMode != "" && collection.ValidationMode != ValidationModePostgres && collection.ValidationMode != ValidationModePocketBase {
+			return ErrConflict
+		}
+		if collection.CompatibilityName != "" {
+			normalized := strings.ToLower(collection.CompatibilityName)
+			if !compatibilityCollectionName.MatchString(collection.CompatibilityName) || compatibilityNames[normalized] {
+				return ErrConflict
+			}
+			compatibilityNames[normalized] = true
 		}
 		collectionIDs[collection.ID] = true
 	}

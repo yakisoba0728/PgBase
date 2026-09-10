@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +46,7 @@ type plannedFieldResponse struct {
 	Hidden      bool                     `json:"hidden"`
 	Presentable bool                     `json:"presentable"`
 	Help        string                   `json:"help,omitempty"`
+	System      bool                     `json:"system,omitempty"`
 }
 
 type relationStorageResponse struct {
@@ -63,11 +66,15 @@ type plannedRelationResponse struct {
 }
 
 type plannedCollectionResponse struct {
-	Name      string                 `json:"name"`
-	TableName string                 `json:"tableName"`
-	Fields    []plannedFieldResponse `json:"fields"`
-	Indexes   []schema.PlannedIndex  `json:"indexes,omitempty"`
-	View      *schema.PlannedView    `json:"view,omitempty"`
+	Name              string                 `json:"name"`
+	CompatibilityName string                 `json:"compatibilityName,omitempty"`
+	Type              schema.CollectionType  `json:"type"`
+	System            bool                   `json:"system,omitempty"`
+	ValidationMode    schema.ValidationMode  `json:"validationMode"`
+	TableName         string                 `json:"tableName"`
+	Fields            []plannedFieldResponse `json:"fields"`
+	Indexes           []schema.PlannedIndex  `json:"indexes,omitempty"`
+	View              *schema.PlannedView    `json:"view,omitempty"`
 }
 
 type schemaPlanResponse struct {
@@ -92,6 +99,7 @@ type fieldResponse struct {
 	Hidden      bool                `json:"hidden"`
 	Presentable bool                `json:"presentable"`
 	Help        string              `json:"help,omitempty"`
+	System      bool                `json:"system,omitempty"`
 }
 
 type relationResponse struct {
@@ -105,13 +113,17 @@ type relationResponse struct {
 }
 
 type collectionResponse struct {
-	ID        uuid.UUID        `json:"id"`
-	Name      string           `json:"name"`
-	TableName string           `json:"tableName"`
-	Fields    []fieldResponse  `json:"fields"`
-	Indexes   []schema.Index   `json:"indexes,omitempty"`
-	View      *schema.ViewSpec `json:"view,omitempty"`
-	CreatedAt time.Time        `json:"createdAt"`
+	ID                uuid.UUID             `json:"id"`
+	Name              string                `json:"name"`
+	CompatibilityName string                `json:"compatibilityName,omitempty"`
+	Type              schema.CollectionType `json:"type"`
+	System            bool                  `json:"system,omitempty"`
+	ValidationMode    schema.ValidationMode `json:"validationMode"`
+	TableName         string                `json:"tableName"`
+	Fields            []fieldResponse       `json:"fields"`
+	Indexes           []schema.Index        `json:"indexes,omitempty"`
+	View              *schema.ViewSpec      `json:"view,omitempty"`
+	CreatedAt         time.Time             `json:"createdAt"`
 }
 
 type collectionDeleteResponse struct {
@@ -120,8 +132,12 @@ type collectionDeleteResponse struct {
 }
 
 type collectionChangeRequest struct {
-	Operation string `json:"operation"`
-	Name      string `json:"name"`
+	Operation         string                 `json:"operation"`
+	Name              string                 `json:"name"`
+	CompatibilityName *string                `json:"compatibilityName,omitempty"`
+	Type              *schema.CollectionType `json:"type,omitempty"`
+	System            *bool                  `json:"system,omitempty"`
+	ValidationMode    *schema.ValidationMode `json:"validationMode,omitempty"`
 	// Fields is a pointer so an update can distinguish an omitted key (which
 	// would otherwise silently drop every column) from an explicit empty list.
 	Fields      *[]schema.FieldInput `json:"fields"`
@@ -230,18 +246,31 @@ func (c collectionChangeRequest) change() (schema.Change, bool) {
 		if c.Indexes != nil {
 			indexes = *c.Indexes
 		}
-		return schema.NewCreateChange(schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: c.View}), true
+		input := schema.CreateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: indexes, View: c.View}
+		if c.CompatibilityName != nil {
+			input.CompatibilityName = *c.CompatibilityName
+		}
+		if c.Type != nil {
+			input.Type = *c.Type
+		}
+		if c.System != nil {
+			input.System = *c.System
+		}
+		if c.ValidationMode != nil {
+			input.ValidationMode = *c.ValidationMode
+		}
+		return schema.NewCreateChange(input), true
 	case "update":
 		if c.View != nil {
 			if c.Fields != nil || c.Indexes != nil {
 				return schema.Change{}, false
 			}
-			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, View: c.View}), true
+			return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, View: c.View}), true
 		}
 		if c.Fields == nil {
 			return schema.Change{}, false
 		}
-		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
+		return schema.NewUpdateChange(schema.UpdateCollectionInput{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Fields: c.fieldInputs(), Indexes: c.Indexes}), true
 	case "delete":
 		return schema.NewDeleteChange(c.Name), true
 	default:
@@ -307,7 +336,107 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, catalog)
+	page, perPage := 1, 30
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		value, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || value < 1 {
+			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
+			return
+		}
+		page = value
+	}
+	if raw := r.URL.Query().Get("perPage"); raw != "" {
+		value, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || value < 1 || value > 200 {
+			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
+			return
+		}
+		perPage = value
+	}
+	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("filter")))
+	items := make([]collectionResponse, 0, len(catalog.Collections))
+	for _, collection := range catalog.Collections {
+		if filter != "" && !strings.Contains(strings.ToLower(collection.Name+" "+collection.CompatibilityName+" "+string(collection.Type)), filter) {
+			continue
+		}
+		items = append(items, collectionDTO(collection))
+	}
+	sortField, descending := r.URL.Query().Get("sort"), false
+	if strings.HasPrefix(sortField, "-") {
+		descending = true
+		sortField = strings.TrimPrefix(sortField, "-")
+	}
+	if sortField == "" {
+		sortField = "name"
+	}
+	if sortField != "name" && sortField != "created" {
+		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	sort.Slice(items, func(i, j int) bool {
+		less := items[i].Name < items[j].Name
+		if sortField == "created" {
+			less = items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		if descending {
+			return !less
+		}
+		return less
+	})
+	total := len(items)
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+	totalPages := (total + perPage - 1) / perPage
+	writeJSON(w, http.StatusOK, map[string]any{"page": page, "perPage": perPage, "totalItems": total, "totalPages": totalPages, "items": items[start:end]})
+}
+
+func (e schemaEndpoints) collection(w http.ResponseWriter, r *http.Request) {
+	if e.service == nil {
+		writeSchemaError(w, r, errors.New("schema service is unavailable"))
+		return
+	}
+	catalog, err := e.service.Catalog(r.Context())
+	if err != nil {
+		writeSchemaError(w, r, err)
+		return
+	}
+	key := strings.ToLower(r.PathValue("collection"))
+	for _, collection := range catalog.Collections {
+		if strings.ToLower(collection.Name) == key || strings.ToLower(collection.CompatibilityName) == key || strings.ToLower(collection.ID.String()) == key {
+			writeJSON(w, http.StatusOK, collectionDTO(collection))
+			return
+		}
+	}
+	writeSchemaError(w, r, schema.ErrCollectionNotFound)
+}
+
+func (e schemaEndpoints) sampleView(w http.ResponseWriter, r *http.Request) {
+	service, ok := e.service.(interface {
+		SampleView(context.Context, string) (schema.ViewSample, error)
+	})
+	if !ok {
+		writeSchemaError(w, r, errors.New("schema service is unavailable"))
+		return
+	}
+	var request struct {
+		Query string `json:"query"`
+	}
+	if err := decodeStrictJSON(r, &request); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	result, err := service.SampleView(r.Context(), request.Query)
+	if err != nil {
+		writeSchemaError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollectionResponse {
@@ -317,10 +446,10 @@ func plannedCollectionDTO(collection schema.PlannedCollection) plannedCollection
 			ID: field.ID, Options: field.Options,
 			Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique,
 			Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...),
-			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help,
+			Relation: plannedRelationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: field.System,
 		})
 	}
-	return plannedCollectionResponse{Name: collection.Name, TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
+	return plannedCollectionResponse{Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, TableName: collection.TableName, Fields: fields, Indexes: append([]schema.PlannedIndex(nil), collection.Indexes...), View: collection.View}
 }
 
 func collectionDTO(collection schema.Collection) collectionResponse {
@@ -331,11 +460,11 @@ func collectionDTO(collection schema.Collection) collectionResponse {
 			ID:      field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: field.Type,
 			Required: field.Required, Unique: field.Unique, Indexed: field.Indexed,
 			Default:  append(json.RawMessage(nil), field.Default...),
-			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help,
+			Relation: relationDTO(field.Relation), Ordinal: field.Ordinal, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: field.System,
 		})
 	}
 	return collectionResponse{
-		ID: collection.ID, Name: collection.Name, TableName: collection.TableName,
+		ID: collection.ID, Name: collection.Name, CompatibilityName: collection.CompatibilityName, Type: collection.Type, System: collection.System, ValidationMode: collection.ValidationMode, TableName: collection.TableName,
 		Fields: fields, Indexes: append([]schema.Index(nil), collection.Indexes...), View: collection.View, CreatedAt: collection.CreatedAt.UTC(),
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,7 +22,8 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 	}
 	for _, field := range after.Fields {
 		prior, exists := old[field.ID]
-		if !exists || reflect.DeepEqual(prior.Options, field.Options) && (field.Type != TypeFile || prior.Required == field.Required) {
+		modeTightened := before.ValidationMode != ValidationModePocketBase && after.ValidationMode == ValidationModePocketBase && field.Required
+		if !exists || !modeTightened && reflect.DeepEqual(prior.Options, field.Options) && (field.Type != TypeFile || prior.Required == field.Required) {
 			continue
 		}
 		if field.Type == TypeFile {
@@ -36,7 +38,7 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 		if field.Type == TypePassword {
 			continue
 		}
-		if field.Type != TypeText && field.Type != TypeEditor && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && !(field.Type == TypeJSONB && len(field.Options.AllowedValues) > 0) {
+		if field.Type != TypeBoolean && field.Type != TypeText && field.Type != TypeEditor && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && field.Type != TypeTimestampTZ && field.Type != TypeJSONB {
 			continue
 		}
 		rows, err := tx.Query(ctx, "select "+pgx.Identifier{prior.ColumnName}.Sanitize()+"::text from "+pgx.Identifier{"app", before.TableName}.Sanitize()+" where "+pgx.Identifier{prior.ColumnName}.Sanitize()+" is not null")
@@ -50,11 +52,32 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 				valid = false
 				break
 			}
-			if field.Type == TypeText {
+			if modeTightened && pocketBaseBlankStored(field.Type, value) {
+				valid = false
+			} else if field.Type == TypeText {
 				valid = fieldvalue.ValidateText(value, fieldValueOptions(field.Options)) == ""
 			} else if field.Type == TypeEditor {
 				valid = int64(len(value)) <= editorMaximumSize(&field.Options)
+			} else if field.Type == TypeTimestampTZ {
+				parsed, err := time.Parse(time.RFC3339Nano, value)
+				valid = err == nil
+				if valid && field.Options.Min != nil {
+					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Min)
+					valid = e == nil && !parsed.Before(bound)
+				}
+				if valid && field.Options.Max != nil {
+					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Max)
+					valid = e == nil && !parsed.After(bound)
+				}
 			} else if field.Type == TypeJSONB {
+				if field.Options.MaxSize != nil && int64(len(value)) > *field.Options.MaxSize {
+					valid = false
+					continue
+				}
+				if len(field.Options.AllowedValues) == 0 {
+					valid = true
+					continue
+				}
 				var values []string
 				valid = json.Unmarshal([]byte(value), &values) == nil && values != nil && fieldvalue.ValidateSelection(values, fieldValueOptions(field.Options)) == ""
 			} else {
@@ -74,6 +97,21 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 		}
 	}
 	return nil
+}
+
+func pocketBaseBlankStored(kind FieldType, value string) bool {
+	switch kind {
+	case TypeBoolean:
+		return value == "false"
+	case TypeInteger, TypeBigInt, TypeNumeric:
+		return strings.Trim(strings.ReplaceAll(strings.TrimPrefix(value, "-"), ".", ""), "0") == ""
+	case TypeText, TypeEditor:
+		return value == ""
+	case TypeJSONB:
+		trimmed := strings.TrimSpace(value)
+		return trimmed == "null" || trimmed == `""` || trimmed == "[]" || trimmed == "{}"
+	}
+	return false
 }
 
 func validateExistingFiles(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, oldName string, field Field) error {

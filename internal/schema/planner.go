@@ -161,6 +161,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if current.IsSQLView() && input.View != nil && input.View.SQL != "" {
 			return planSQLViewUpdate(catalog, current, input)
 		}
+		if !current.IsSQLView() && input.View != nil && input.View.SQL == "" {
+			return planDeclarativeViewUpdate(catalog, current, input)
+		}
 		return Plan{}, validation("name", "view_read_only")
 	}
 	if input.View != nil {
@@ -421,6 +424,7 @@ func reusablePhysicalColumn(collection, logical string, occupied map[string]Plan
 
 // Dependent indexes are dropped with the table.
 func planDelete(catalog Catalog, current Collection) (Plan, error) {
+	if current.System { return Plan{}, validation("system", "immutable") }
 	if current.Name == "" || current.TableName != current.Name {
 		return Plan{}, ErrConflict
 	}

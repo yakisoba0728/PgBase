@@ -124,6 +124,40 @@ func TestDecodeInputAcceptsJSONNullForRequiredJSONBField(t *testing.T) {
 	assertJSONEqual(t, got["metadata"], `null`)
 }
 
+func TestPocketBaseModeRejectsRequiredZeroAndBlankValues(t *testing.T) {
+	collection := schema.Collection{ValidationMode: schema.ValidationModePocketBase, Fields: []schema.Field{
+		{Name: "enabled", Type: schema.TypeBoolean, Required: true},
+		{Name: "count", Type: schema.TypeInteger, Required: true},
+		{Name: "title", Type: schema.TypeText, Required: true},
+		{Name: "metadata", Type: schema.TypeJSONB, Required: true},
+	}}
+	for name, raw := range map[string]string{"enabled": "false", "count": "0", "title": `""`, "metadata": "{}"} {
+		if _, err := decodeInput(collection, map[string]json.RawMessage{name: json.RawMessage(raw)}); err == nil {
+			t.Fatalf("%s accepted PB blank %s", name, raw)
+		}
+	}
+	collection.ValidationMode = schema.ValidationModePostgres
+	if _, err := decodeInput(collection, map[string]json.RawMessage{"enabled": json.RawMessage("false"), "count": json.RawMessage("0"), "title": json.RawMessage(`""`), "metadata": json.RawMessage("{}")}); err != nil {
+		t.Fatalf("postgres zero values: %v", err)
+	}
+}
+
+func TestTimestampBoundsAndJSONMaximumSize(t *testing.T) {
+	minimum, maximum := "2026-01-01T00:00:00Z", "2026-12-31T23:59:59Z"
+	date := schema.Field{Name: "when", Type: schema.TypeTimestampTZ, Options: schema.FieldOptions{Min: &minimum, Max: &maximum}}
+	if _, err := decodeFieldValue(date, json.RawMessage(`"2025-12-31T23:59:59Z"`)); err == nil {
+		t.Fatal("accepted date below minimum")
+	}
+	if _, err := decodeFieldValue(date, json.RawMessage(`"2026-06-01T00:00:00+09:00"`)); err != nil {
+		t.Fatalf("date in range: %v", err)
+	}
+	limit := int64(2)
+	field := schema.Field{Name: "data", Type: schema.TypeJSONB, Options: schema.FieldOptions{MaxSize: &limit}}
+	if _, err := decodeFieldValue(field, json.RawMessage(`{"a":1}`)); err == nil {
+		t.Fatal("accepted oversized JSON")
+	}
+}
+
 func TestDecodeInputRejectsUnknownFieldsAndTypeMismatches(t *testing.T) {
 	t.Parallel()
 

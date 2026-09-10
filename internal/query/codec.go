@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,7 +46,7 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 		if field.Type == schema.TypeFile {
 			return nil, validation(name, "file_field_read_only")
 		}
-		value, err := decodeFieldValue(field, raw)
+		value, err := decodeFieldValueMode(field, raw, collection.ValidationMode)
 		if err != nil {
 			return nil, err
 		}
@@ -55,6 +56,10 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 }
 
 func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
+	return decodeFieldValueMode(field, raw, schema.ValidationModePostgres)
+}
+
+func decodeFieldValueMode(field schema.Field, raw json.RawMessage, mode schema.ValidationMode) (any, error) {
 	invalid := func() (any, error) { return nil, validation(field.Name, "type_mismatch") }
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		switch field.Type {
@@ -79,7 +84,11 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !bytes.Equal(raw, []byte("true")) && !bytes.Equal(raw, []byte("false")) {
 			return invalid()
 		}
-		return bytes.Equal(raw, []byte("true")), nil
+		value := bytes.Equal(raw, []byte("true"))
+		if mode == schema.ValidationModePocketBase && field.Required && !value {
+			return nil, validation(field.Name, "required")
+		}
+		return value, nil
 	case schema.TypeInteger:
 		value, err := strconv.ParseInt(string(raw), 10, 32)
 		if err != nil {
@@ -87,6 +96,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		}
 		if code := fieldvalue.ValidateNumeric(strconv.FormatInt(value, 10), codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && value == 0 {
+			return nil, validation(field.Name, "required")
 		}
 		return int32(value), nil
 	case schema.TypeBigInt:
@@ -101,6 +113,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
 		}
+		if mode == schema.ValidationModePocketBase && field.Required && parsed == 0 {
+			return nil, validation(field.Name, "required")
+		}
 		return parsed, nil
 	case schema.TypeNumeric:
 		value, ok := jsonString(raw)
@@ -113,6 +128,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		}
 		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && numericInputIsZero(value) {
+			return nil, validation(field.Name, "required")
 		}
 		return numeric, nil
 	case schema.TypeText, schema.TypeEditor:
@@ -131,6 +149,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 			return nil, validation(field.Name, "value_too_long")
 		}
 		if field.Type == schema.TypeEditor && field.Required && value == "" {
+			return nil, validation(field.Name, "required")
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && value == "" {
 			return nil, validation(field.Name, "required")
 		}
 		if field.Type != schema.TypeEditor {
@@ -154,6 +175,18 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if err != nil || !hasRFC3339Offset(value) {
 			return invalid()
 		}
+		if field.Options.Min != nil {
+			bound, e := time.Parse(time.RFC3339Nano, *field.Options.Min)
+			if e != nil || parsed.Before(bound) {
+				return nil, validation(field.Name, "min")
+			}
+		}
+		if field.Options.Max != nil {
+			bound, e := time.Parse(time.RFC3339Nano, *field.Options.Max)
+			if e != nil || parsed.After(bound) {
+				return nil, validation(field.Name, "max")
+			}
+		}
 		return parsed.UTC(), nil
 	case schema.TypeUUID:
 		value, ok := jsonString(raw)
@@ -173,6 +206,12 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !validJSON(raw) {
 			return invalid()
 		}
+		if field.Options.MaxSize != nil && int64(len(raw)) > *field.Options.MaxSize {
+			return nil, validation(field.Name, "value_too_long")
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && jsonBlank(raw) {
+			return nil, validation(field.Name, "required")
+		}
 		if len(field.Options.AllowedValues) > 0 {
 			var values []string
 			if json.Unmarshal(raw, &values) != nil || values == nil {
@@ -186,6 +225,17 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 	default:
 		return nil, validation(field.Name, "unsupported_type")
 	}
+}
+
+func numericInputIsZero(value string) bool {
+	value = strings.TrimPrefix(value, "-")
+	value = strings.ReplaceAll(value, ".", "")
+	return strings.Trim(value, "0") == ""
+}
+
+func jsonBlank(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte(`""`)) || bytes.Equal(trimmed, []byte("[]")) || bytes.Equal(trimmed, []byte("{}"))
 }
 
 func codecOptions(field schema.Field) fieldvalue.Options {

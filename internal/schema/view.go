@@ -127,6 +127,28 @@ func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollecti
 	return created, nil
 }
 
+func planDeclarativeViewUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if input.View == nil || input.View.SQL != "" || input.Name != current.Name || len(input.Fields) != 0 || input.Indexes != nil {
+		return Plan{}, validation("view", "invalid_shape")
+	}
+	created, err := planViewCreate(catalog, CreateCollectionInput{Name: current.Name, CompatibilityName: current.CompatibilityName, Type: CollectionTypeView, System: current.System, ValidationMode: current.ValidationMode, View: input.View})
+	if err != nil {
+		return Plan{}, err
+	}
+	prior := map[string]Field{}
+	for _, field := range current.Fields {
+		prior[field.Name] = field
+	}
+	for i := range created.Definition.Fields {
+		if field, ok := prior[created.Definition.Fields[i].Name]; ok && field.Type == created.Definition.Fields[i].Type {
+			created.Definition.Fields[i].ID = field.ID
+		}
+	}
+	created.Operation = updateCollectionOperation
+	created.Statements = append([]string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}, created.Statements...)
+	return created, nil
+}
+
 func compileStaticViewFilter(rule ViewFilter, collection Collection, alias string, depth int) (string, error) {
 	if depth > 8 {
 		return "", ErrConflict
