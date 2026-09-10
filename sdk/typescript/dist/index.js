@@ -116,15 +116,15 @@ export class PgBaseClient {
         this.auth = options.auth ?? new AuthStore();
         this.realtime = new RealtimeService(this);
     }
-    register(email, password, signal) {
-        return this.authenticate("/api/v1/auth/register", email, password, signal);
+    register(email, password, options, signal) {
+        return this.authenticate("/api/v1/auth/register", email, password, options, signal);
     }
     /** Binds authentication calls to an explicit auth realm without changing record APIs. */
     realm(name) {
         return new AuthRealm(this, name);
     }
-    login(email, password, signal) {
-        return this.authenticate("/api/v1/auth/login", email, password, signal).catch((error) => {
+    login(email, password, options, signal) {
+        return this.authenticate("/api/v1/auth/login", email, password, options, signal).catch((error) => {
             if (error instanceof PgBaseError && error.code === "mfa_required") {
                 const [challengeToken] = error.details.challengeToken ?? [];
                 const [expiresAt] = error.details.expiresAt ?? [];
@@ -134,8 +134,9 @@ export class PgBaseClient {
             throw error;
         });
     }
-    session(signal) {
-        return this.request("/api/v1/auth/session", {}, signal);
+    session(options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal);
     }
     async logout(signal) {
         try {
@@ -162,14 +163,16 @@ export class PgBaseClient {
             body: JSON.stringify({ email }),
         }, signal);
     }
-    requestOTP(email, signal) {
-        return this.request("/api/v1/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }, signal);
+    requestOTP(email, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(authFieldsPath("/api/v1/auth/otp/request", query), { method: "POST", body: JSON.stringify({ email }) }, requestSignal);
     }
-    async completeOTP(otpId, code, signal) {
+    async completeOTP(otpId, code, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
         try {
-            const session = await this.request("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
-            if (session.token && generation === this.auth.generation)
+            const session = await this.request(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal);
+            if (session.token && session.user && generation === this.auth.generation)
                 this.auth.save(session.token, session.user);
             return session;
         }
@@ -239,10 +242,11 @@ export class PgBaseClient {
     files(collection, recordID) {
         return new Files(this, collection, recordID);
     }
-    async completeMFA(challengeToken, code, signal) {
+    async completeMFA(challengeToken, code, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
-        const session = await this.request("/api/v1/auth/mfa/complete", { method: "POST", body: JSON.stringify({ challengeToken, code }) }, signal);
-        if (session.token && generation === this.auth.generation)
+        const session = await this.request(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal);
+        if (session.token && session.user && generation === this.auth.generation)
             this.auth.save(session.token, session.user);
         return session;
     }
@@ -302,12 +306,13 @@ export class PgBaseClient {
         }
         return response;
     }
-    async authenticate(path, email, password, signal) {
+    async authenticate(path, email, password, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
-        const session = await this.request(path, {
+        const session = await this.request(`${path}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, {
             method: "POST",
             body: JSON.stringify({ email, password }),
-        }, signal);
+        }, requestSignal);
         if (session.token && generation === this.auth.generation) {
             this.auth.save(session.token, session.user);
         }
@@ -451,10 +456,11 @@ export class AuthRealm {
         this.name = name;
     }
     path(action) { return `/api/v1/auth/${encodeURIComponent(this.name)}/${action}`; }
-    async authenticate(action, email, password, signal) {
+    async authenticate(action, email, password, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.client.auth.generation;
         try {
-            const session = await this.client._request(this.path(action), { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+            const session = await this.client._request(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password }) }, requestSignal);
             if (session.token && generation === this.client.auth.generation)
                 this.client.auth.save(session.token, session.user);
             return session;
@@ -469,8 +475,8 @@ export class AuthRealm {
             throw error;
         }
     }
-    register(email, password, signal) { return this.authenticate("register", email, password, signal); }
-    login(email, password, signal) { return this.authenticate("login", email, password, signal); }
+    register(email, password, options, signal) { return this.authenticate("register", email, password, options, signal); }
+    login(email, password, options, signal) { return this.authenticate("login", email, password, options, signal); }
     /** Returns the sign-in methods enabled for this auth collection. */
     methods(signal) { return this.client._request(this.path("methods"), {}, signal); }
     /** Rotates the current bearer token after validating its replacement session. */
@@ -749,6 +755,9 @@ function recordGetArguments(optionsOrSignal, signal) {
     if (optionsOrSignal && "aborted" in optionsOrSignal)
         return [undefined, optionsOrSignal];
     return [optionsOrSignal, signal];
+}
+function authFieldsPath(path, query) {
+    return query?.fields === undefined ? path : `${path}?fields=${encodeURIComponent(query.fields)}`;
 }
 function canonicalDeliveryCursor(value) {
     if (typeof value === "number" && !Number.isSafeInteger(value))

@@ -220,8 +220,9 @@ export class PgBaseClient {
     });
   }
 
-  session(signal?: AbortSignal): Promise<UserSession> {
-    return this.request("/api/v1/auth/session", {}, signal);
+  session(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
+    const [query, requestSignal] = recordGetArguments(options, signal);
+    return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal);
   }
 
   async logout(signal?: AbortSignal): Promise<void> {
@@ -254,13 +255,15 @@ export class PgBaseClient {
     }, signal);
   }
 
-  requestOTP(email: string, signal?: AbortSignal): Promise<{ otpId: string; expiresAt: string }> {
-    return this.request("/api/v1/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }, signal);
+  requestOTP(email: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<{ otpId: string; expiresAt: string }>> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    return this.request(authFieldsPath("/api/v1/auth/otp/request", query), { method: "POST", body: JSON.stringify({ email }) }, requestSignal);
   }
 
-  async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
+  async completeOTP(otpId: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const generation = this.auth.generation;
-    try { const session = await this.request<UserSession>("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.auth.generation) this.auth.save(session.token, session.user); return session; }
+    try { const session = await this.request<UserSession>(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal); if (session.token && session.user && generation === this.auth.generation) this.auth.save(session.token, session.user); return session; }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code,error.details,{challengeToken,expiresAt}); } throw error; }
   }
 
@@ -328,10 +331,11 @@ export class PgBaseClient {
     return new Files(this, collection, recordID);
   }
 
-  async completeMFA(challengeToken: string, code: string, signal?: AbortSignal): Promise<UserSession> {
+  async completeMFA(challengeToken: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const generation = this.auth.generation;
-    const session = await this.request<UserSession>("/api/v1/auth/mfa/complete", { method: "POST", body: JSON.stringify({ challengeToken, code }) }, signal);
-    if (session.token && generation === this.auth.generation) this.auth.save(session.token, session.user);
+    const session = await this.request<UserSession>(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal);
+    if (session.token && session.user && generation === this.auth.generation) this.auth.save(session.token, session.user);
     return session;
   }
 
@@ -782,6 +786,10 @@ function recordGetArguments(
 ): [RecordGetOptions | undefined, AbortSignal | undefined] {
   if (optionsOrSignal && "aborted" in optionsOrSignal) return [undefined, optionsOrSignal];
   return [optionsOrSignal as RecordGetOptions | undefined, signal];
+}
+
+function authFieldsPath(path: string, query?: Pick<Query, "fields">): string {
+  return query?.fields === undefined ? path : `${path}?fields=${encodeURIComponent(query.fields)}`;
 }
 
 function canonicalDeliveryCursor(value: string | number): string {

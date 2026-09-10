@@ -221,19 +221,19 @@ export declare class PgBaseClient {
         fetch?: typeof fetch;
         auth?: AuthStore;
     });
-    register(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
+    register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     /** Binds authentication calls to an explicit auth realm without changing record APIs. */
     realm(name: string): AuthRealm;
-    login(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
-    session(signal?: AbortSignal): Promise<UserSession>;
+    login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
+    session(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
     logout(signal?: AbortSignal): Promise<void>;
     changePassword(currentPassword: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
-    requestOTP(email: string, signal?: AbortSignal): Promise<{
+    requestOTP(email: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<{
         otpId: string;
         expiresAt: string;
-    }>;
-    completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
+    }>>;
+    completeOTP(otpId: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
     confirmPasswordReset(token: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestVerification(signal?: AbortSignal): Promise<void>;
     confirmVerification(token: string, signal?: AbortSignal): Promise<void>;
@@ -250,7 +250,7 @@ export declare class PgBaseClient {
         results: BatchHTTPResult<T>[];
     }>;
     files(collection: string, recordID: string): Files;
-    completeMFA(challengeToken: string, code: string, signal?: AbortSignal): Promise<UserSession>;
+    completeMFA(challengeToken: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
     beginTOTPEnrollment(currentPassword: string, signal?: AbortSignal): Promise<{
         secret: string;
         otpAuthUrl: string;
@@ -299,8 +299,8 @@ export declare class AuthRealm {
     constructor(client: PgBaseClient, name: string);
     private path;
     private authenticate;
-    register(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
-    login(email: string, password: string, signal?: AbortSignal): Promise<UserSession>;
+    register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
+    login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     /** Returns the sign-in methods enabled for this auth collection. */
     methods(signal?: AbortSignal): Promise<AuthMethods>;
     /** Rotates the current bearer token after validating its replacement session. */

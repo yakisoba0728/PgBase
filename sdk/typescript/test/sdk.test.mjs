@@ -13,7 +13,7 @@ const server = createServer(async (request, response) => {
   });
   requests.push({ method: request.method, path: request.url, headers: request.headers, body });
 
-  if (request.url === "/api/v1/auth/login") {
+  if (request.url?.startsWith("/api/v1/auth/login")) {
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ token: "first-token", user: { id: "first", email: "first@example.test", createdAt: "2026-01-01T00:00:00Z" }, expiresAt: "2026-01-02T00:00:00Z" }));
     return;
@@ -136,6 +136,8 @@ try {
   assert.equal(session.user.id, "first");
   assert.equal(client.auth.token, "first-token");
   assert.equal(client.auth.record?.id, "first");
+	await client.login("first@example.test", "correct horse battery staple", { fields: "token,user.id" });
+	assert.equal(requests.at(-1).path, "/api/v1/auth/login?fields=token%2Cuser.id");
   assert.equal(client.auth.isValid, true);
   const authCookie = client.auth.exportToCookie({ secure: true, sameSite: "Lax" });
   const restoredAuth = new AuthStore();
