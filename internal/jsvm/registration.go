@@ -259,14 +259,14 @@ func hookGlobalNames(event string) []string {
 	if event == "auth.password" {
 		return []string{"onRecordAuthRequest", "onRecordAuthWithPasswordRequest", base}
 	}
-	if event == "auth.oauth.begin" {
-		return []string{"onRecordAuthWithOAuth2Request", base}
+	if event == "auth.oauth.begin" || event == "auth.oauth.complete" {
+		return []string{"onRecordAuthRequest", "onRecordAuthWithOAuth2Request", base}
 	}
 	if event == "auth.otp.request" {
 		return []string{"onRecordRequestOTPRequest", base}
 	}
 	if event == "auth.otp.complete" {
-		return []string{"onRecordAuthWithOTPRequest", base}
+		return []string{"onRecordAuthRequest", "onRecordAuthWithOTPRequest", base}
 	}
 	if event == "auth.password_reset.request" {
 		return []string{"onRecordRequestPasswordResetRequest", base}
