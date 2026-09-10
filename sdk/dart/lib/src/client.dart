@@ -8,6 +8,7 @@ import 'errors.dart';
 import 'exact_json.dart';
 import 'files.dart';
 import 'records.dart';
+import 'realtime.dart';
 import 'transport.dart';
 import 'types.dart';
 
@@ -31,6 +32,7 @@ final class PgBaseClient {
 
   final PgBaseTransport transport;
   final AuthStore auth;
+  late final RealtimeService realtime = RealtimeService(this);
   final Map<String, CancellationToken> _requestControllers = {};
   bool _autoCancellation = true;
 

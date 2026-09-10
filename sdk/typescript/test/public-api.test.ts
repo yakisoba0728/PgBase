@@ -1,4 +1,4 @@
-import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, OAuthLaunchOptions, Query, Records, RecordWriteOptions } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, OAuthLaunchOptions, Query, RealtimeEvent, Records, RecordWriteOptions } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -27,3 +27,5 @@ void batchOptions;
 const launchOptions: OAuthLaunchOptions = { open: () => {} };
 void realm.oauthStartAndOpen("github", "https://app.test/callback", launchOptions);
 void records.events({ fields: "id,title" });
+declare const realtimeEvent: RealtimeEvent<Note>;
+void realtimeEvent.action;

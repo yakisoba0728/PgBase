@@ -105,6 +105,7 @@ export function browserTokenStorage(storage, key = "pgbase.user.token") {
 export class PgBaseClient {
     baseURL;
     auth;
+    realtime;
     fetcher;
     requestControllers = new Map();
     /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
@@ -113,6 +114,7 @@ export class PgBaseClient {
         this.baseURL = baseURL;
         this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
         this.auth = options.auth ?? new AuthStore();
+        this.realtime = new RealtimeService(this);
     }
     register(email, password, signal) {
         return this.authenticate("/api/v1/auth/register", email, password, signal);
@@ -345,6 +347,89 @@ export class PgBaseClient {
             signal?.addEventListener("abort", () => controller.abort(), { once: true });
         return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller)
                 this.requestControllers.delete(key); } };
+    }
+}
+/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
+export class RealtimeService {
+    client;
+    listeners = new Map();
+    controller;
+    clientId;
+    lastEventId;
+    running;
+    constructor(client) {
+        this.client = client;
+    }
+    async subscribe(topic, listener) {
+        if (!topic)
+            throw new PgBaseError(0, "invalid_realtime_topic");
+        let set = this.listeners.get(topic);
+        if (!set) {
+            set = new Set();
+            this.listeners.set(topic, set);
+        }
+        set.add(listener);
+        this.ensureRunning();
+        if (this.clientId)
+            await this.sync();
+        return async () => this.unsubscribe(topic, listener);
+    }
+    async unsubscribe(topic, listener) {
+        if (topic === undefined)
+            this.listeners.clear();
+        else if (listener === undefined)
+            this.listeners.delete(topic);
+        else {
+            const set = this.listeners.get(topic);
+            set?.delete(listener);
+            if (set?.size === 0)
+                this.listeners.delete(topic);
+        }
+        if (this.listeners.size === 0) {
+            this.controller?.abort();
+            this.controller = undefined;
+            this.clientId = undefined;
+            return;
+        }
+        if (this.clientId)
+            await this.sync();
+    }
+    ensureRunning() { if (!this.running)
+        this.running = this.run().finally(() => { this.running = undefined; }); }
+    async sync() { if (this.clientId)
+        await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+    async run() {
+        this.controller = new AbortController();
+        while (!this.controller.signal.aborted && this.listeners.size) {
+            try {
+                const response = await this.client._eventStream("/api/realtime", this.lastEventId, this.controller.signal);
+                for await (const message of parseEventStream(response.body, this.controller.signal)) {
+                    if (message.id)
+                        this.lastEventId = canonicalDeliveryCursor(message.id);
+                    const data = JSON.parse(message.data);
+                    if (message.event === "PB_CONNECT") {
+                        this.clientId = String(data.clientId ?? "");
+                        if (!this.clientId)
+                            throw new PgBaseError(0, "invalid_realtime_connect");
+                        await this.sync();
+                        continue;
+                    }
+                    const topic = message.event;
+                    if (!topic)
+                        continue;
+                    const event = { topic, action: data.action, record: data.record };
+                    if (!event.record || !["create", "update", "delete"].includes(event.action))
+                        continue;
+                    for (const listener of this.listeners.get(topic) ?? [])
+                        listener(event);
+                }
+            }
+            catch (error) {
+                if (this.controller.signal.aborted)
+                    return;
+                await waitForReconnect(250, this.controller.signal);
+            }
+        }
     }
 }
 export class AuthRealm {

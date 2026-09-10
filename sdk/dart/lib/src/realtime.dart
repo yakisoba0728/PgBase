@@ -10,6 +10,74 @@ import 'exact_json.dart';
 import 'transport.dart';
 import 'types.dart';
 
+final class RealtimeEvent {
+  const RealtimeEvent({required this.topic, required this.action, required this.record});
+  final String topic;
+  final String action;
+  final JsonObject record;
+}
+
+/// One SSE connection shared by PB-style topic subscriptions.
+final class RealtimeService {
+  RealtimeService(this._client);
+  final PgBaseClient _client;
+  final Map<String, Set<void Function(RealtimeEvent)>> _listeners = {};
+  CancellationToken? _stop;
+  String? _clientId;
+  String? _lastEventId;
+  Future<void>? _running;
+
+  Future<Future<void> Function()> subscribe(String topic, void Function(RealtimeEvent) listener) async {
+    if (topic.isEmpty) throw const PgBaseProtocolError('invalid_realtime_topic');
+    (_listeners[topic] ??= {}).add(listener);
+    _ensureRunning();
+    if (_clientId != null) await _sync();
+    return () => unsubscribe(topic, listener);
+  }
+
+  Future<void> unsubscribe([String? topic, void Function(RealtimeEvent)? listener]) async {
+    if (topic == null) {
+      _listeners.clear();
+    } else if (listener == null) {
+      _listeners.remove(topic);
+    } else {
+      final listeners = _listeners[topic];
+      listeners?.remove(listener);
+      if (listeners?.isEmpty ?? false) _listeners.remove(topic);
+    }
+    if (_listeners.isEmpty) { _stop?.cancel(); _clientId = null; return; }
+    if (_clientId != null) await _sync();
+  }
+
+  void _ensureRunning() => _running ??= _run().whenComplete(() => _running = null);
+  Future<void> _sync() async {
+    await _client.request('POST', '/api/realtime', body: JsonObject({'clientId': JsonString(_clientId!), 'subscriptions': JsonArray(_listeners.keys.map(JsonString.new).toList())}), cancellation: _stop);
+  }
+  Future<void> _run() async {
+    final stop = _stop = CancellationToken();
+    while (!stop.isCancelled && _listeners.isNotEmpty) {
+      try {
+        final response = await _client.transport.eventStream('/api/realtime', headers: {'accept': 'text/event-stream', ..._client.headersFor(null), if (_lastEventId != null) 'last-event-id': _lastEventId!}, cancellation: stop);
+        await for (final message in _messages(response.stream)) {
+          if (message.id != null) _lastEventId = message.id;
+          final data = decodeExactJson(utf8.encode(message.data));
+          if (data is! JsonObject) continue;
+          if (message.event == 'PB_CONNECT') {
+            final id = data['clientId'];
+            if (id is! JsonString) throw const PgBaseProtocolError('invalid_realtime_connect');
+            _clientId = id.value; await _sync(); continue;
+          }
+          final topic = message.event; final action = data['action']; final record = data['record'];
+          if (topic == null || action is! JsonString || record is! JsonObject) continue;
+          final event = RealtimeEvent(topic: topic, action: action.value, record: record);
+          final listeners = _listeners[topic];
+          if (listeners != null) for (final listener in List.of(listeners)) { listener(event); }
+        }
+      } on PgBaseCancellation { return; } catch (_) { if (stop.isCancelled) return; await Future<void>.delayed(const Duration(milliseconds: 250)); }
+    }
+  }
+}
+
 Stream<RecordEvent> recordEvents(
   PgBaseClient client,
   String collection, {

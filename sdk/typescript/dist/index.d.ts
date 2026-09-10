@@ -59,6 +59,11 @@ export type EventOptions = {
     maxReconnects?: number;
     reconnectDelayMs?: number;
 };
+export type RealtimeEvent<T extends RecordData = RecordData> = {
+    action: "create" | "update" | "delete";
+    record: T;
+    topic: string;
+};
 export type RequestOptions = {
     signal?: AbortSignal;
     requestKey?: string;
@@ -192,6 +197,7 @@ export declare function browserTokenStorage(storage: Storage, key?: string): Tok
 export declare class PgBaseClient {
     readonly baseURL: string;
     readonly auth: AuthStore;
+    readonly realtime: RealtimeService;
     private readonly fetcher;
     private readonly requestControllers;
     /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
@@ -254,6 +260,21 @@ export declare class PgBaseClient {
     private request;
     private fetchResponse;
     private keyedSignal;
+}
+/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
+export declare class RealtimeService {
+    private readonly client;
+    private readonly listeners;
+    private controller?;
+    private clientId?;
+    private lastEventId?;
+    private running?;
+    constructor(client: PgBaseClient);
+    subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>>;
+    unsubscribe(topic?: string, listener?: (event: RealtimeEvent) => void): Promise<void>;
+    private ensureRunning;
+    private sync;
+    private run;
 }
 export declare class AuthRealm {
     private readonly client;

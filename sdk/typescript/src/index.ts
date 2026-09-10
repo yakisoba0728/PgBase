@@ -37,6 +37,7 @@ export type EventOptions = {
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
+export type RealtimeEvent<T extends RecordData = RecordData> = { action: "create" | "update" | "delete"; record: T; topic: string };
 export type RequestOptions = { signal?: AbortSignal; requestKey?: string };
 /** Opens the provider URL using a browser popup, redirect, or mobile launcher. */
 export type OAuthLaunchOptions = { open(url: string): void | Promise<void> };
@@ -182,6 +183,7 @@ export function browserTokenStorage(storage: Storage, key = "pgbase.user.token")
 
 export class PgBaseClient {
   readonly auth: AuthStore;
+  readonly realtime: RealtimeService;
   private readonly fetcher: typeof fetch;
   private readonly requestControllers = new Map<string, AbortController>();
   /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
@@ -193,6 +195,7 @@ export class PgBaseClient {
   ) {
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.auth = options.auth ?? new AuthStore();
+    this.realtime = new RealtimeService(this);
   }
 
   register(email: string, password: string, signal?: AbortSignal): Promise<UserSession> {
@@ -442,6 +445,56 @@ export class PgBaseClient {
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener("abort", () => controller.abort(), { once: true });
     return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller) this.requestControllers.delete(key); } };
+  }
+}
+
+/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
+export class RealtimeService {
+  private readonly listeners = new Map<string, Set<(event: RealtimeEvent) => void>>();
+  private controller?: AbortController;
+  private clientId?: string;
+  private lastEventId?: string;
+  private running?: Promise<void>;
+
+  constructor(private readonly client: PgBaseClient) {}
+
+  async subscribe(topic: string, listener: (event: RealtimeEvent) => void): Promise<() => Promise<void>> {
+    if (!topic) throw new PgBaseError(0, "invalid_realtime_topic");
+    let set = this.listeners.get(topic);
+    if (!set) { set = new Set(); this.listeners.set(topic, set); }
+    set.add(listener);
+    this.ensureRunning();
+    if (this.clientId) await this.sync();
+    return async () => this.unsubscribe(topic, listener);
+  }
+
+  async unsubscribe(topic?: string, listener?: (event: RealtimeEvent) => void): Promise<void> {
+    if (topic === undefined) this.listeners.clear();
+    else if (listener === undefined) this.listeners.delete(topic);
+    else { const set = this.listeners.get(topic); set?.delete(listener); if (set?.size === 0) this.listeners.delete(topic); }
+    if (this.listeners.size === 0) { this.controller?.abort(); this.controller = undefined; this.clientId = undefined; return; }
+    if (this.clientId) await this.sync();
+  }
+
+  private ensureRunning(): void { if (!this.running) this.running = this.run().finally(() => { this.running = undefined; }); }
+  private async sync(): Promise<void> { if (this.clientId) await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+  private async run(): Promise<void> {
+    this.controller = new AbortController();
+    while (!this.controller.signal.aborted && this.listeners.size) {
+      try {
+        const response = await this.client._eventStream("/api/realtime", this.lastEventId, this.controller.signal);
+        for await (const message of parseEventStream(response.body!, this.controller.signal)) {
+          if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
+          const data = JSON.parse(message.data) as Record<string, unknown>;
+          if (message.event === "PB_CONNECT") { this.clientId = String(data.clientId ?? ""); if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect"); await this.sync(); continue; }
+          const topic = message.event;
+          if (!topic) continue;
+          const event: RealtimeEvent = { topic, action: data.action as RealtimeEvent["action"], record: data.record as RecordData };
+          if (!event.record || !["create", "update", "delete"].includes(event.action)) continue;
+          for (const listener of this.listeners.get(topic) ?? []) listener(event);
+        }
+      } catch (error) { if (this.controller.signal.aborted) return; await waitForReconnect(250, this.controller.signal); }
+    }
   }
 }
 
