@@ -15,7 +15,7 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 		Name:   "rename_source",
 		Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}, {Name: "score", Type: TypeBigInt}},
 		Indexes: []IndexInput{
-			{Name: "title_lower", Keys: []IndexKeyInput{{Expression: "lower(title)", Order: "desc"}}, Where: "title is not null"},
+			{Name: "title_lower", Keys: []IndexKeyInput{{Expression: "lower(title)", Collation: "C", Order: "desc"}}, Where: "title is not null"},
 			{Name: "score_raw", RawSQL: "CREATE INDEX score_raw ON rename_source ((abs(score))) WHERE score IS NOT NULL"},
 		},
 	}), admin).Collection
@@ -56,6 +56,17 @@ func TestCollectionRenameKeepsIdentityAndRenamesOwnedObjects(t *testing.T) {
 	}
 	if _, stale := catalog.Collections["rename_source"]; stale || catalog.Collections["rename_target"].ID != created.ID {
 		t.Fatalf("catalog after rename = %#v", catalog.Collections)
+	}
+	indexDefinitions := map[string]string{}
+	for _, index := range catalog.Collections["rename_target"].Indexes {
+		var definition string
+		if err := pool.QueryRow(context.Background(), `select pg_get_indexdef(to_regclass($1))`, "app."+index.IndexName).Scan(&definition); err != nil {
+			t.Fatal(err)
+		}
+		indexDefinitions[index.Name] = definition
+	}
+	if !strings.Contains(indexDefinitions["title_lower"], `lower(title) COLLATE "C" DESC`) || !strings.Contains(indexDefinitions["title_lower"], "WHERE (title IS NOT NULL)") || !strings.Contains(indexDefinitions["score_raw"], "abs(score)") {
+		t.Fatalf("physical advanced indexes = %#v", indexDefinitions)
 	}
 	var storedRules []byte
 	var authRule string
