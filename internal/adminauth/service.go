@@ -259,6 +259,34 @@ func (s *Service) AuthorizeSetup(ctx context.Context, token string) error {
 	return nil
 }
 
+// BeginSetupGuard serializes a pre-install destructive action with first-admin
+// creation. The caller holds the returned release through its admission work.
+func (s *Service) BeginSetupGuard(ctx context.Context, token string) (func(), error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if s.setupToken == "" || !constantTimeStringEqual(s.setupToken, token) {
+		return nil, ErrInvalidCredentials
+	}
+	conn, err := s.pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = conn.Exec(ctx, "select pg_advisory_lock($1)", setupAdvisoryLockKey); err != nil {
+		_ = conn.Close(context.Background())
+		return nil, err
+	}
+	count, err := NewStore(conn).AdministratorCount(ctx)
+	if err != nil || count != 0 {
+		_ = conn.Close(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return nil, ErrSetupUnavailable
+	}
+	return func() { _ = conn.Close(context.Background()) }, nil
+}
+
 func (s *Service) setupRequired(ctx context.Context) (bool, error) {
 	count, err := NewStore(s.pool).AdministratorCount(ctx)
 	if err != nil {
