@@ -163,6 +163,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	if input.CollectionID != nil && *input.CollectionID != current.ID {
 		return Plan{}, ErrConflict
 	}
+	if err := validateInputName("name", input.Name); err != nil {
+		return Plan{}, err
+	}
 	if existing, exists := catalog.Collections[input.Name]; exists && existing.ID != current.ID {
 		return Plan{}, validation("name", "duplicate_name")
 	}
@@ -180,9 +183,6 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	}
 	if input.View != nil {
 		return Plan{}, validation("view", "not_allowed")
-	}
-	if err := validateInputName("name", input.Name); err != nil {
-		return Plan{}, err
 	}
 	if current.TableName != current.Name {
 		return Plan{}, ErrConflict

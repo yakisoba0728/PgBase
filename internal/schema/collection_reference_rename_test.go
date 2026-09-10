@@ -1,6 +1,11 @@
 package schema
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestRenameRuleCollectionReferencesSkipsLiteralValues(t *testing.T) {
 	document := map[string]any{
@@ -20,5 +25,15 @@ func TestRenameRuleCollectionReferencesSkipsLiteralValues(t *testing.T) {
 	source := `@collection.old_name.enabled = true && title = '@collection.old_name.literal'`
 	if got := replaceRuleSource(source, "@collection.old_name.", "@collection.new_name."); got != `@collection.new_name.enabled = true && title = '@collection.old_name.literal'` {
 		t.Fatalf("renamed source = %q", got)
+	}
+}
+
+func TestViewRenameValidatesTheTargetName(t *testing.T) {
+	id := uuid.New()
+	view := Collection{ID: id, Name: "rename_view", TableName: "rename_view", Type: CollectionTypeView, View: &ViewSpec{SQL: "select 1"}}
+	_, err := CompilePlan(planTestCatalog(1, view), NewUpdateChange(UpdateCollectionInput{CollectionID: &id, Name: "Invalid name"}))
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("invalid view rename error = %#v", err)
 	}
 }
