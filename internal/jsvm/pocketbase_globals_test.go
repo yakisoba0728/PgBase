@@ -3,6 +3,7 @@ package jsvm_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -117,4 +118,36 @@ func TestPocketBaseAppControlUsesOnlyCapabilityHost(t *testing.T) {
 	if len(host.calls) != 5 {
 		t.Fatalf("app control calls=%v", host.calls)
 	}
+}
+
+func TestPocketBaseAppQueryHelpersHydrateRecords(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/query","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["records"]}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{const rows=$app.findRecordsByIds("items",["one"]);return {id:rows[0].id,title:rows[0].getString("title"),count:$app.countRecords("items","")}}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	host := &appQueryCompatibilityHost{}
+	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"records"}, Host: host})
+	if err != nil || string(output) != `{"count":1,"id":"one","title":"visible"}` {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+}
+
+type appQueryCompatibilityHost struct{}
+
+func (*appQueryCompatibilityHost) Call(_ context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
+	switch method {
+	case "app.record.findByIds":
+		return json.RawMessage(`{"items":[{"id":"one","title":"visible"}]}`), nil
+	case "app.record.count":
+		return json.RawMessage(`1`), nil
+	}
+	return nil, errors.New("unexpected method")
 }

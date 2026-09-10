@@ -21,6 +21,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
@@ -37,6 +38,7 @@ type extensionBridge struct {
 	compatibility *extensionCompatibility
 	appControl    *extensionAppControl
 	authMail      authMailService
+	requestLog    *observability.RequestLog
 }
 
 type authMailService interface {
@@ -122,8 +124,10 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	switch method {
 	case "authMail.send":
 		return host.callAuthMail(operationContext, input)
-	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.model.save", "app.model.delete":
+	case "app.record.query", "app.record.findByID", "app.record.findByFilter", "app.record.findFirstByFilter", "app.record.findByIds", "app.record.findAll", "app.record.findFirstByData", "app.record.count", "app.record.canAccess", "app.record.expand", "app.record.expandMany", "app.model.save", "app.model.delete":
 		return host.callAppRecords(operationContext, method, input)
+	case "app.log.query", "app.log.find", "app.log.stats", "app.log.deleteOld":
+		return host.callAppQueries(operationContext, method, input)
 	case "records.list", "records.get", "records.create", "records.update", "records.delete", "records.batch":
 		return host.callRecords(operationContext, method, input)
 	case "mail.send":
@@ -225,6 +229,30 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 // a mapper: recordops remains the sole place that evaluates collection rules,
 // validates fields, assigns IDs and owns transactions.
 func (host *extensionHost) callAppRecords(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
+	if method == "app.record.query" {
+		var request struct {
+			Collection string          `json:"collection"`
+			Filter     json.RawMessage `json:"filter"`
+			Sort       string          `json:"sort"`
+			Limit      int             `json:"limit"`
+		}
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		filter, err := compileExtensionDBX(request.Filter)
+		if err != nil {
+			return nil, extensionError("invalid_record_query", err)
+		}
+		encoded, _ := json.Marshal(extensionRecordRequest{Collection: request.Collection, Filter: filter, Sort: request.Sort, Limit: request.Limit})
+		return host.callRecords(ctx, "records.list", encoded)
+	}
+	if method == "app.record.findByIds" || method == "app.record.findAll" || method == "app.record.findFirstByData" || method == "app.record.count" || method == "app.record.canAccess" || method == "app.record.expand" || method == "app.record.expandMany" {
+		var request extensionAppQueryRequest
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, extensionError("invalid_record_request", err)
+		}
+		return host.callAppRecordQuery(ctx, method, request)
+	}
 	switch method {
 	case "app.record.query", "app.record.findByFilter", "app.record.findFirstByFilter":
 		var request extensionRecordRequest

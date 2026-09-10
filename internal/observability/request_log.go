@@ -353,6 +353,20 @@ func (l *RequestLog) SetRetention(ctx context.Context, retention time.Duration) 
 	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1)`, l.retentionSeconds.Load())
 	return err
 }
+
+func (l *RequestLog) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	if l == nil || l.pool == nil || before.IsZero() {
+		return 0, errors.New("request log deletion is unavailable")
+	}
+	if err := l.Flush(ctx); err != nil {
+		return 0, err
+	}
+	result, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < $1`, before.UTC())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 func (l *RequestLog) Flush(ctx context.Context) error {
 	if l == nil || l.flush == nil {
 		return nil
