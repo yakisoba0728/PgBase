@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -126,6 +127,9 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 	case "app-control.brokerClients", "app-control.brokerPublish":
 		return control.callBroker(method, raw)
 	default:
+		if strings.HasPrefix(method, "app-control.schema") || strings.HasPrefix(method, "app-control.collection") || strings.HasPrefix(method, "app-control.database") {
+			return control.callSchemaDatabase(ctx, method, raw, host.principal.ID, host.requestID)
+		}
 		return nil, extensionError("unsupported_app_control", errors.New("unsupported app control operation"))
 	}
 }
