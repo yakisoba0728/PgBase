@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -31,13 +32,14 @@ const (
 )
 
 type orderTerm struct {
-	key          SortKey
-	expression   string
-	cursorField  schema.Field
-	relationPath *plannedRelationPath
-	nulls        orderNullPlacement
-	indexHint    orderIndexHint
-	random       bool
+	key                  SortKey
+	expression           string
+	cursorField          schema.Field
+	relationPath         *plannedRelationPath
+	nulls                orderNullPlacement
+	indexHint            orderIndexHint
+	random               bool
+	identityCollectionID uuid.UUID
 }
 
 func (s orderSpec) random() bool {

@@ -27,8 +27,11 @@ func loadRelationIdentityTarget(ctx context.Context, db recordidentity.DB, name 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return target, ErrValidation
 	}
-	if err != nil || json.Unmarshal(raw, &target.policy) != nil {
+	if err != nil {
 		return target, err
+	}
+	if err := json.Unmarshal(raw, &target.policy); err != nil {
+		return target, ErrValidation
 	}
 	return target, nil
 }
@@ -103,7 +106,11 @@ func (s *Service) projectAuthRelationIdentities(ctx context.Context, db recordid
 				return ErrValidation
 			}
 			for i, raw := range values {
-				id, err := uuid.Parse(raw.(string))
+				text, ok := raw.(string)
+				if !ok {
+					return ErrValidation
+				}
+				id, err := uuid.Parse(text)
 				if err != nil {
 					return ErrValidation
 				}
@@ -114,7 +121,11 @@ func (s *Service) projectAuthRelationIdentities(ctx context.Context, db recordid
 			}
 			continue
 		}
-		id, err := uuid.Parse(attributes[field.Name].(string))
+		text, ok := attributes[field.Name].(string)
+		if !ok {
+			return ErrValidation
+		}
+		id, err := uuid.Parse(text)
 		if err != nil {
 			return ErrValidation
 		}

@@ -50,11 +50,26 @@ func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequ
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return PocketBasePage{}, err
 	}
-	return query.ListPocketBase(ctx, s.reader, query.PocketBaseListRequest{ListRequest: query.ListRequest{
+	page, err := query.ListPocketBase(ctx, s.reader, query.PocketBaseListRequest{ListRequest: query.ListRequest{
 		Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
 		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 		PocketBaseCompatibility: true, RuleContext: request.RuleContext,
 	}, Page: request.Page, PerPage: request.PerPage, SkipTotal: request.SkipTotal})
+	if err != nil {
+		return PocketBasePage{}, err
+	}
+	catalog, err := s.schemas.Catalog(ctx)
+	if err != nil {
+		return PocketBasePage{}, err
+	}
+	collection, ok := catalog.Collections[request.Collection]
+	if !ok {
+		return PocketBasePage{}, query.ErrCollectionNotFound
+	}
+	if err := s.identities.Project(ctx, s.pool, catalog, collection, page.Items...); err != nil {
+		return PocketBasePage{}, normalizeIdentityReadError(err)
+	}
+	return page, nil
 }
 
 func (s *Service) Count(ctx context.Context, request ListRequest) (int64, error) {

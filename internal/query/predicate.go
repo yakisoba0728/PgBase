@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -41,13 +42,22 @@ func compileAliasedFilter(collection schema.Collection, node filterNode, alias s
 		if field.Type == schema.TypeRelation {
 			return "", validation("filter", "relation_filter_unsupported")
 		}
+		field, identityCollectionID := textIdentityField(collection, field)
 		column := alias + "." + quoted(field.ColumnName)
+		if identityCollectionID != uuid.Nil {
+			column = recordIdentityExpression(identityCollectionID, alias+"."+quoted(systemFieldID))
+		}
 		if value.otherField != "" {
 			other, ok := filterField(collection, value.otherField)
 			if !ok {
 				return "", validation("filter", "unknown_field")
 			}
-			return compileFieldComparison(field, other, value, column, alias+"."+quoted(other.ColumnName))
+			other, otherIdentityCollectionID := textIdentityField(collection, other)
+			otherColumn := alias + "." + quoted(other.ColumnName)
+			if otherIdentityCollectionID != uuid.Nil {
+				otherColumn = recordIdentityExpression(otherIdentityCollectionID, alias+"."+quoted(systemFieldID))
+			}
+			return compileFieldComparison(field, other, value, column, otherColumn)
 		}
 		return compileQualifiedComparison(field, value, column, builder)
 	default:

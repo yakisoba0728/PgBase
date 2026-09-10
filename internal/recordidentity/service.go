@@ -87,6 +87,10 @@ func reserve(ctx context.Context, db DB, collectionID, internal uuid.UUID, exter
 	return err
 }
 
+func identityCollectionID(collection schema.Collection) uuid.UUID {
+	return collection.AccessCollectionID()
+}
+
 func (s *Service) Resolve(ctx context.Context, db DB, collection schema.Collection, public string) (uuid.UUID, error) {
 	if collection.RecordID.Kind != schema.RecordIDText {
 		id, err := uuid.Parse(public)
@@ -99,7 +103,7 @@ func (s *Service) Resolve(ctx context.Context, db DB, collection schema.Collecti
 		return uuid.Nil, ErrInvalid
 	}
 	var id uuid.UUID
-	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_id=$1 and external_id=$2`, collection.ID, public).Scan(&id)
+	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and external_id=$2`, identityCollectionID(collection), public).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrNotFound
 	}
@@ -129,8 +133,8 @@ func (s *Service) ResolveMany(ctx context.Context, db DB, collection schema.Coll
 	rows, err := db.Query(ctx, `select identity.internal_id
 		from unnest($2::text[]) with ordinality as input(external_id,ordinality)
 		left join pgbase_meta.record_identities identity
-		  on identity.collection_id=$1 and identity.external_id=input.external_id
-		order by input.ordinality`, collection.ID, public)
+		  on identity.collection_kind='base' and identity.collection_id=$1 and identity.external_id=input.external_id
+		order by input.ordinality`, identityCollectionID(collection), public)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +167,7 @@ func (s *Service) Public(ctx context.Context, db DB, collection schema.Collectio
 		return internal.String(), nil
 	}
 	var external string
-	err := db.QueryRow(ctx, `select external_id from pgbase_meta.record_identities where collection_id=$1 and internal_id=$2`, collection.ID, internal).Scan(&external)
+	err := db.QueryRow(ctx, `select external_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and internal_id=$2`, identityCollectionID(collection), internal).Scan(&external)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -174,7 +178,7 @@ func (s *Service) Forget(ctx context.Context, db DB, collection schema.Collectio
 	if collection.RecordID.Kind != schema.RecordIDText {
 		return nil
 	}
-	tag, err := db.Exec(ctx, `delete from pgbase_meta.record_identities where collection_id=$1 and internal_id=$2`, collection.ID, internal)
+	tag, err := db.Exec(ctx, `delete from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and internal_id=$2`, identityCollectionID(collection), internal)
 	if err != nil {
 		return err
 	}
@@ -189,7 +193,7 @@ func (s *Service) ForgetMany(ctx context.Context, db DB, collection schema.Colle
 	if collection.RecordID.Kind != schema.RecordIDText || len(internal) == 0 {
 		return nil
 	}
-	tag, err := db.Exec(ctx, `DELETE FROM pgbase_meta.record_identities WHERE collection_id=$1 AND internal_id=ANY($2::uuid[])`, collection.ID, internal)
+	tag, err := db.Exec(ctx, `DELETE FROM pgbase_meta.record_identities WHERE collection_kind='base' AND collection_id=$1 AND internal_id=ANY($2::uuid[])`, identityCollectionID(collection), internal)
 	if err != nil {
 		return err
 	}

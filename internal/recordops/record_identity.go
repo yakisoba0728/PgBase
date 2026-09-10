@@ -91,7 +91,7 @@ func cloneRecordData(source map[string]any) map[string]any {
 	return clone
 }
 
-func (s *Service) resolveRelationIdentities(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, input map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+func (s *Service) resolveRelationIdentities(ctx context.Context, tx recordidentity.DB, catalog schema.Catalog, collection schema.Collection, input map[string]json.RawMessage) (map[string]json.RawMessage, error) {
 	result := cloneRawInput(input)
 	collections := catalogCollectionsByID(catalog)
 	for _, field := range collection.Fields {

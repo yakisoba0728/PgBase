@@ -134,13 +134,27 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		type pendingEvent struct {
+			event    Event
+			snapshot []byte
+		}
+		pending := make([]pendingEvent, 0, batchSize)
 		for rows.Next() {
 			var event Event
 			var snapshot []byte
 			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot); err != nil {
+				rows.Close()
 				return err
 			}
+			pending = append(pending, pendingEvent{event: event, snapshot: snapshot})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, item := range pending {
+			event, snapshot := item.event, item.snapshot
 			event.Action = event.Operation
 			event.Record, err = publicSnapshot(collection, snapshot)
 			if err != nil {
@@ -159,7 +173,7 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		if len(events) < batchSize {
 			cursor = head
 		}
-		return rows.Err()
+		return nil
 	})
 	return events, cursor, err
 }

@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -45,6 +46,9 @@ func renderRelationSortJoins(
 				direction = " DESC"
 			}
 			value := qualified(targetAlias, path.terminal.ColumnName)
+			if path.identityCollectionID != uuid.Nil {
+				value = recordIdentityExpression(path.identityCollectionID, qualified(targetAlias, systemFieldID))
+			}
 			from := quotedTable(hop.target) + " AS " + quoted(targetAlias)
 			if hop.reverse && hop.field.Relation.Cardinality == schema.RelationSingle {
 				conditions = append(conditions, qualified(targetAlias, hop.field.ColumnName)+" = "+qualified(parentAlias, systemFieldID))
@@ -80,6 +84,9 @@ func renderRelationSortJoins(
 		parentAlias = targetAlias
 	}
 	expression := qualified(parentAlias, path.terminal.ColumnName)
+	if path.identityCollectionID != uuid.Nil {
+		expression = recordIdentityExpression(path.identityCollectionID, qualified(parentAlias, systemFieldID))
+	}
 	if path.geoProperty != "" {
 		expression = geoPointExpression(expression, path.geoProperty)
 	}

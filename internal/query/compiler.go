@@ -288,6 +288,11 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 			}
 		}
 	}
+	field, identityCollectionID := textIdentityField(collection, field)
+	column := quoted(field.ColumnName)
+	if identityCollectionID != uuid.Nil {
+		column = recordIdentityExpression(identityCollectionID, qualified(collection.TableName, systemFieldID))
+	}
 	if !ok {
 		return "", validation("filter", "unknown_field")
 	}
@@ -302,9 +307,14 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 		if !ok {
 			return "", validation("filter", "unknown_field")
 		}
-		return compileFieldComparison(field, other, comparison, quoted(field.ColumnName), quoted(other.ColumnName))
+		other, otherIdentityCollectionID := textIdentityField(collection, other)
+		otherColumn := quoted(other.ColumnName)
+		if otherIdentityCollectionID != uuid.Nil {
+			otherColumn = recordIdentityExpression(otherIdentityCollectionID, qualified(collection.TableName, systemFieldID))
+		}
+		return compileFieldComparison(field, other, comparison, column, otherColumn)
 	}
-	return compileQualifiedComparison(field, comparison, quoted(field.ColumnName), builder)
+	return compileQualifiedComparison(field, comparison, column, builder)
 }
 
 func compileFilterFunction(collection schema.Collection, fn *filterFunction, builder *statementBuilder) (string, schema.Field, error) {

@@ -17,9 +17,10 @@ ALTER TABLE pgbase_meta.auth_collections
 -- tables used by PgBase. The all-zero scope is reserved for PocketBase's
 -- cross-auth-collection ID uniqueness rule.
 CREATE TABLE pgbase_meta.record_identity_collections (
-    id uuid PRIMARY KEY,
+    id uuid NOT NULL,
     kind text NOT NULL CHECK (kind IN ('base', 'auth')),
     scope_id uuid NOT NULL,
+    PRIMARY KEY (kind, id),
     UNIQUE (id, kind, scope_id),
     CHECK ((kind = 'base' AND scope_id = id AND id <> '00000000-0000-0000-0000-000000000000')
         OR (kind = 'auth' AND scope_id = '00000000-0000-0000-0000-000000000000'))
@@ -37,7 +38,7 @@ CREATE TABLE pgbase_meta.record_identities (
     internal_id uuid NOT NULL,
     external_id text COLLATE "C" NOT NULL,
     created_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
-    PRIMARY KEY (collection_id, internal_id),
+    PRIMARY KEY (collection_kind, collection_id, internal_id),
     UNIQUE (scope_id, external_id),
     FOREIGN KEY (collection_id, collection_kind, scope_id)
         REFERENCES pgbase_meta.record_identity_collections(id, kind, scope_id)

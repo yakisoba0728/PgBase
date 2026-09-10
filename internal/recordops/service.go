@@ -334,9 +334,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err != nil {
 			return err
 		}
-		if err := validateModifierInput(collection, mutationSeed); err != nil {
-			return err
-		}
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
 		}

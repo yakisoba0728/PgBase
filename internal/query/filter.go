@@ -445,9 +445,9 @@ func parseSort(input string) ([]SortKey, error) {
 		if field == "@rowid" {
 			// PostgreSQL has no SQLite rowid. The compatibility adapter gives
 			// this token the documented durable internal-id ordering instead.
-			field = systemFieldID
+			field = internalRowIDSort
 		}
-		if field != "@random" && !validSortFieldName(field) {
+		if field != "@random" && field != internalRowIDSort && !validSortFieldName(field) {
 			return nil, validation("sort", "invalid_sort")
 		}
 		if _, duplicate := seen[field]; duplicate {
@@ -476,7 +476,7 @@ func effectiveSortKeys(requested []SortKey) []SortKey {
 		return []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}
 	}
 	keys := append([]SortKey(nil), requested...)
-	if keys[len(keys)-1].Field != systemFieldID {
+	if keys[len(keys)-1].Field != systemFieldID && keys[len(keys)-1].Field != internalRowIDSort {
 		keys = append(keys, SortKey{Field: systemFieldID, Desc: keys[len(keys)-1].Desc})
 	}
 	return keys
@@ -485,6 +485,8 @@ func effectiveSortKeys(requested []SortKey) []SortKey {
 func filterField(collection schema.Collection, name string) (schema.Field, bool) {
 	switch name {
 	case systemFieldID:
+		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}, true
+	case internalRowIDSort:
 		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}, true
 	case systemFieldCreatedAt:
 		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeTimestampTZ, Indexed: true}, true

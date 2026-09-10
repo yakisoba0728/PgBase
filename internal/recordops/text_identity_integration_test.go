@@ -56,6 +56,13 @@ func TestTextRecordIdentityCRUDReplayAndExactCase(t *testing.T) {
 	if err != nil || caseDistinct.Record.Data["id"] != "casesensitive01" {
 		t.Fatalf("case-distinct create=%#v err=%v", caseDistinct, err)
 	}
+	listed, err := records.ListPocketBase(ctx, PocketBaseListRequest{ListRequest: ListRequest{
+		Principal: principal, RequestID: "text-id-list", Collection: definition.Name,
+		Filter: `id = "CaseSensitive01"`, Sort: "id",
+	}, Page: 1, PerPage: 10})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0]["id"] != "CaseSensitive01" {
+		t.Fatalf("PocketBase text ID list=%#v err=%v", listed, err)
+	}
 
 	if _, err := records.Get(ctx, GetRequest{Principal: principal, RequestID: "text-id-no-fallback", Collection: definition.Name, ID: created.InternalID}); !errors.As(err, &operationError) || operationError.Code != CodeInvalidRecordID {
 		t.Fatalf("internal UUID fallback error=%v", err)

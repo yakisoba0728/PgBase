@@ -272,6 +272,9 @@ func (s *Service) readListInTx(
 		}
 	}
 	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
+	if request.PocketBaseCompatibility {
+		requestedSort = pocketBaseSortKeys(collection, requestedSort)
+	}
 	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
 	if err != nil {
 		if request.Cursor != "" && validationField(err, "sort") {

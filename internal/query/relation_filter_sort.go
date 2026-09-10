@@ -32,18 +32,21 @@ type plannedRelationFilter struct {
 }
 
 type plannedRelationComparison struct {
-	input          filterComparison
-	rootField      *schema.Field
-	otherRootField *schema.Field
-	path           *plannedRelationPath
+	input                         filterComparison
+	rootField                     *schema.Field
+	otherRootField                *schema.Field
+	path                          *plannedRelationPath
+	rootIdentityCollectionID      uuid.UUID
+	otherRootIdentityCollectionID uuid.UUID
 }
 
 type plannedRelationPath struct {
-	hops               []plannedRelationHop
-	terminal           schema.Field
-	terminalIsRelation bool
-	geoProperty        string
-	jsonPath           []string
+	hops                 []plannedRelationHop
+	terminal             schema.Field
+	terminalIsRelation   bool
+	geoProperty          string
+	jsonPath             []string
+	identityCollectionID uuid.UUID
 }
 
 type plannedRelationHop struct {
@@ -104,15 +107,16 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			if value.modifier != "" && field.Type != schema.TypeText && field.Type != schema.TypeEditor {
 				return nil, 0, validation("filter", "unsupported_modifier")
 			}
-			copy := field
-			planned := &plannedRelationComparison{input: value, rootField: &copy}
+			copy, identityCollectionID := textIdentityField(root, field)
+			planned := &plannedRelationComparison{input: value, rootField: &copy, rootIdentityCollectionID: identityCollectionID}
 			if value.otherField != "" {
 				other, found := filterField(root, value.otherField)
 				if !found || other.Type == schema.TypeRelation || strings.Contains(value.otherField, ".") {
 					return nil, 0, validation("filter", "unknown_field")
 				}
-				otherCopy := other
+				otherCopy, otherIdentityCollectionID := textIdentityField(root, other)
 				planned.otherRootField = &otherCopy
+				planned.otherRootIdentityCollectionID = otherIdentityCollectionID
 			}
 			return &plannedRelationFilter{comparison: planned}, 0, nil
 		}
@@ -167,6 +171,11 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 		if key.Field == "@random" {
 			field, _ := filterField(root, systemFieldID)
 			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID}, expression: "random()", cursorField: field, random: true})
+			continue
+		}
+		if key.Field == externalIDSort {
+			field := externalIdentityCursorField(root)
+			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID, Desc: key.Desc}, expression: recordIdentityExpression(root.AccessCollectionID(), qualified(root.TableName, systemFieldID)), cursorField: field, indexHint: orderIndexRoot, identityCollectionID: root.AccessCollectionID()})
 			continue
 		}
 		field, ok := filterField(root, key.Field)
@@ -270,7 +279,10 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 			if index != len(segments)-1 || len(path.hops) == 0 {
 				return plannedRelationPath{}, relationPathUnsupported(operation)
 			}
-			path.terminal = field
+			path.terminal, path.identityCollectionID = textIdentityField(current, field)
+			if operation == "sort" && path.identityCollectionID != uuid.Nil {
+				path.terminal = externalIdentityCursorField(current)
+			}
 			return path, nil
 		}
 		if field.Relation == nil {
@@ -290,6 +302,10 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 		current = target
 		if index == len(segments)-1 {
 			path.terminal = schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}
+			path.terminal, path.identityCollectionID = textIdentityField(current, path.terminal)
+			if operation == "sort" && path.identityCollectionID != uuid.Nil {
+				path.terminal = externalIdentityCursorField(current)
+			}
 			path.terminalIsRelation = true
 			return path, nil
 		}
@@ -412,6 +428,9 @@ func (s orderSpec) renderRelation(
 		}
 		if term.relationPath == nil {
 			term.expression = qualified(rootAlias, term.cursorField.ColumnName)
+			if term.identityCollectionID != uuid.Nil {
+				term.expression = recordIdentityExpression(term.identityCollectionID, qualified(rootAlias, systemFieldID))
+			}
 			continue
 		}
 		expression, pathJoins, err := renderRelationSortJoins(term.relationPath, renderer, rootAlias, prefix, term.key.Desc)
@@ -459,10 +478,18 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 			return compileQualifiedComparison(field, comparison.input, column, renderer.builder)
 		}
 		if comparison.rootField != nil {
-			if comparison.otherRootField != nil {
-				return compileFieldComparison(*comparison.rootField, *comparison.otherRootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), qualified(sourceAlias, comparison.otherRootField.ColumnName))
+			leftColumn := qualified(sourceAlias, comparison.rootField.ColumnName)
+			if comparison.rootIdentityCollectionID != uuid.Nil {
+				leftColumn = recordIdentityExpression(comparison.rootIdentityCollectionID, qualified(sourceAlias, systemFieldID))
 			}
-			return compileQualifiedComparison(*comparison.rootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), renderer.builder)
+			if comparison.otherRootField != nil {
+				rightColumn := qualified(sourceAlias, comparison.otherRootField.ColumnName)
+				if comparison.otherRootIdentityCollectionID != uuid.Nil {
+					rightColumn = recordIdentityExpression(comparison.otherRootIdentityCollectionID, qualified(sourceAlias, systemFieldID))
+				}
+				return compileFieldComparison(*comparison.rootField, *comparison.otherRootField, comparison.input, leftColumn, rightColumn)
+			}
+			return compileQualifiedComparison(*comparison.rootField, comparison.input, leftColumn, renderer.builder)
 		}
 		if comparison.path.geoProperty != "" && len(comparison.path.hops) == 0 {
 			column := geoPointExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.geoProperty)
@@ -482,6 +509,9 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 			}
 			mismatch, err := renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
 				column := qualified(alias, comparison.path.terminal.ColumnName)
+				if comparison.path.identityCollectionID != uuid.Nil {
+					column = recordIdentityExpression(comparison.path.identityCollectionID, qualified(alias, systemFieldID))
+				}
 				field := comparison.path.terminal
 				if comparison.path.geoProperty != "" {
 					column = geoPointExpression(column, comparison.path.geoProperty)
@@ -498,6 +528,9 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 		}
 		return renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
 			column := qualified(alias, comparison.path.terminal.ColumnName)
+			if comparison.path.identityCollectionID != uuid.Nil {
+				column = recordIdentityExpression(comparison.path.identityCollectionID, qualified(alias, systemFieldID))
+			}
 			if comparison.path.geoProperty != "" {
 				column = geoPointExpression(column, comparison.path.geoProperty)
 			}

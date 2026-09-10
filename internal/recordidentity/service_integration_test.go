@@ -1,3 +1,5 @@
+//go:build integration
+
 package recordidentity
 
 import (
@@ -120,6 +122,30 @@ func TestProjectionMapsRootAndRelationIdentities(t *testing.T) {
 	}
 	if record["id"] != "SourceIdentity1" || record["target"] != "TargetIdentity1" {
 		t.Fatalf("projected record = %#v", record)
+	}
+}
+
+func TestCollectionOwnershipKeyIncludesRealmKind(t *testing.T) {
+	ctx, pool, base := identityFixture(t, "identity_cross_kind")
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,record_id,created_at,updated_at) values($1,'identity_cross_kind_auth',$2::jsonb,now(),now())`, base.ID, `{"kind":"text","minLength":1,"maxLength":32,"pattern":"^[A-Za-z0-9]+$"}`); err != nil {
+		t.Fatalf("same UUID auth/base collection ownership: %v", err)
+	}
+	var owners int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.record_identity_collections where id=$1`, base.ID).Scan(&owners); err != nil || owners != 2 {
+		t.Fatalf("identity owners=%d err=%v", owners, err)
+	}
+	service, baseInternal, authInternal := New(nil), uuid.New(), uuid.New()
+	if _, err := service.Reserve(ctx, pool, base, baseInternal, stringPointer("SharedPublic01")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ReserveAuth(ctx, pool, base.ID, authInternal, base.RecordID, stringPointer("SharedPublic01")); err != nil {
+		t.Fatalf("separate base/auth scopes rejected same external ID: %v", err)
+	}
+	if got, err := service.Resolve(ctx, pool, base, "SharedPublic01"); err != nil || got != baseInternal {
+		t.Fatalf("base resolve=%s err=%v", got, err)
+	}
+	if got, err := service.ResolveAuth(ctx, pool, base.ID, base.RecordID, "SharedPublic01"); err != nil || got != authInternal {
+		t.Fatalf("auth resolve=%s err=%v", got, err)
 	}
 }
 

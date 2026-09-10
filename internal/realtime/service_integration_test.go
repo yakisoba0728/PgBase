@@ -3,6 +3,7 @@
 package realtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
@@ -34,6 +36,45 @@ func TestHeadOnlyReadValidatesSubscriptionOptions(t *testing.T) {
 		if !errors.As(err, &validation) {
 			t.Fatalf("head-only ReadFor(%+v) = %v, want validation error", request, err)
 		}
+	}
+}
+
+func TestReadForResolvesAndProjectsExactTextRecordIdentity(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := context.Background()
+	policy := `{"kind":"text","minLength":1,"maxLength":32,"pattern":"^[A-Za-z0-9]+$"}`
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.collections SET record_id=$2::jsonb WHERE id=$1`, collection, policy); err != nil {
+		t.Fatal(err)
+	}
+	eventID := seedEvent(t, s, user, collection)
+	var internal uuid.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT record_id FROM pgbase_meta.record_outbox WHERE event_id=$1`, eventID).Scan(&internal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) VALUES($1,'base',$1,$2,'ExactEvent01')`, collection, internal); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(ctx); err != nil {
+		t.Fatal(err)
+	}
+	zero := int64(0)
+	events, _, err := s.ReadFor(ctx, ReadRequest{
+		Principal:  identity.Subject{Kind: identity.Administrator, ID: uuid.New()},
+		Collection: "notes", PublicID: "ExactEvent01", After: &zero,
+	})
+	if err != nil || len(events) != 1 || events[0].PublicID != "ExactEvent01" || events[0].Record["id"] != "ExactEvent01" {
+		t.Fatalf("text identity events=%#v err=%v", events, err)
+	}
+	wire, err := json.Marshal(events[0])
+	if err != nil || !bytes.Contains(wire, []byte(`"recordId":"ExactEvent01"`)) || bytes.Contains(wire, []byte(internal.String())) {
+		t.Fatalf("event wire=%s err=%v", wire, err)
+	}
+	_, _, err = s.ReadFor(ctx, ReadRequest{
+		Principal:  identity.Subject{Kind: identity.Administrator, ID: uuid.New()},
+		Collection: "notes", PublicID: "exactevent01", After: &zero,
+	})
+	if !errors.Is(err, recordidentity.ErrNotFound) {
+		t.Fatalf("case-distinct subscription error=%v", err)
 	}
 }
 
