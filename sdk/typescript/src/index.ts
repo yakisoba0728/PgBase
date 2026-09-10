@@ -16,6 +16,8 @@ export type Query = {
 };
 /** Options accepted by a single-record read. */
 export type RecordGetOptions = Pick<Query, "expand" | "fields">;
+/** Options accepted by record mutations. */
+export type RecordWriteOptions = Pick<Query, "fields">;
 export type RecordEvent = {
   /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
   eventId: string;
@@ -32,6 +34,7 @@ export type EventOptions = {
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
+export type RequestOptions = { signal?: AbortSignal; requestKey?: string };
 export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "create"; collection: string; input: Omit<T, "id">; idempotencyKey?: string }
   | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
@@ -84,8 +87,12 @@ export interface TokenStorage {
   clear(): void;
 }
 
+/** A serialized PocketBase-compatible auth state for SSR hand-off. */
+export type AuthState = { token: string | null; record: RecordData | null };
+
 export class AuthStore {
   #token: string | null;
+  #record: RecordData | null = null;
   #generation = 0;
   #listeners = new Set<(generation: number) => void>();
 
@@ -96,13 +103,16 @@ export class AuthStore {
   get token(): string | null {
     return this.#token;
   }
+  get record(): RecordData | null { return this.#record; }
+  get isValid(): boolean { return this.#token !== null && this.#token.length > 0; }
 
   get generation(): number {
     return this.#generation;
   }
 
-  save(token: string): void {
+  save(token: string, record: RecordData | null = this.#record): void {
     this.#token = token;
+    this.#record = record;
     this.#generation += 1;
     this.storage?.set(token);
     this.notify();
@@ -110,9 +120,31 @@ export class AuthStore {
 
   clear(): void {
     this.#token = null;
+    this.#record = null;
     this.#generation += 1;
     this.storage?.clear();
     this.notify();
+  }
+
+  /** Encodes token and cached auth record for a server-rendered response cookie. */
+  exportToCookie(options: { key?: string; httpOnly?: boolean; secure?: boolean; sameSite?: "Lax" | "Strict" | "None"; path?: string } = {}): string {
+    const key = options.key ?? "pb_auth";
+    const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
+    return [`${key}=${payload}`, `Path=${options.path ?? "/"}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+  }
+
+  /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
+  loadFromCookie(cookie: string, key = "pb_auth"): void {
+    const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
+    if (!encoded) return;
+    try {
+      const value = JSON.parse(decodeURIComponent(encoded)) as Partial<AuthState>;
+      if ((value.token !== null && typeof value.token !== "string") || (value.record !== null && (typeof value.record !== "object" || Array.isArray(value.record)))) throw new Error("invalid auth cookie");
+      this.#token = value.token ?? null;
+      this.#record = (value.record ?? null) as RecordData | null;
+      this.#generation += 1;
+      this.notify();
+    } catch { this.clear(); }
   }
 
   _onChange(listener: (generation: number) => void): () => void {
@@ -143,6 +175,9 @@ export function browserTokenStorage(storage: Storage, key = "pgbase.user.token")
 export class PgBaseClient {
   readonly auth: AuthStore;
   private readonly fetcher: typeof fetch;
+  private readonly requestControllers = new Map<string, AbortController>();
+  /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+  autoCancellation = true;
 
   constructor(
     readonly baseURL: string,
@@ -212,7 +247,7 @@ export class PgBaseClient {
 
   async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
     const generation = this.auth.generation;
-    try { const session = await this.request<UserSession>("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.auth.generation) this.auth.save(session.token); return session; }
+    try { const session = await this.request<UserSession>("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.auth.generation) this.auth.save(session.token, session.user); return session; }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code,error.details,{challengeToken,expiresAt}); } throw error; }
   }
 
@@ -281,7 +316,7 @@ export class PgBaseClient {
   async completeMFA(challengeToken: string, code: string, signal?: AbortSignal): Promise<UserSession> {
     const generation = this.auth.generation;
     const session = await this.request<UserSession>("/api/v1/auth/mfa/complete", { method: "POST", body: JSON.stringify({ challengeToken, code }) }, signal);
-    if (session.token && generation === this.auth.generation) this.auth.save(session.token);
+    if (session.token && generation === this.auth.generation) this.auth.save(session.token, session.user);
     return session;
   }
 
@@ -308,6 +343,16 @@ export class PgBaseClient {
 
   _request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
     return this.request(path, init, signal);
+  }
+
+  /** Cancels an in-flight request started with this key. */
+  cancelRequest(requestKey: string): void { this.requestControllers.get(requestKey)?.abort(); }
+  /** Cancels every keyed in-flight request. */
+  cancelAllRequests(): void { for (const controller of this.requestControllers.values()) controller.abort(); this.requestControllers.clear(); }
+
+  /** Low-level request with PocketBase-style request-key auto-cancellation. */
+  send<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+    return this.request(path, init, this.keyedSignal(options.requestKey, options.signal));
   }
 
   async _response<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<{ body: T; etag?: string }> {
@@ -348,7 +393,7 @@ export class PgBaseClient {
       body: JSON.stringify({ email, password }),
     }, signal);
     if (session.token && generation === this.auth.generation) {
-      this.auth.save(session.token);
+      this.auth.save(session.token, session.user);
     }
     return session;
   }
@@ -376,6 +421,15 @@ export class PgBaseClient {
     }
 	return response;
   }
+
+  private keyedSignal(key?: string, signal?: AbortSignal): AbortSignal | undefined {
+    if (!key) return signal;
+    if (this.autoCancellation) this.cancelRequest(key);
+    const controller = new AbortController();
+    this.requestControllers.set(key, controller);
+    signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    return controller.signal;
+  }
 }
 
 export class AuthRealm {
@@ -385,7 +439,7 @@ export class AuthRealm {
     const generation = this.client.auth.generation;
     try {
       const session = await this.client._request<UserSession>(this.path(action), { method: "POST", body: JSON.stringify({ email, password }) }, signal);
-      if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token);
+      if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user);
       return session;
     } catch (error) {
       if (error instanceof PgBaseError && error.code === "mfa_required") {
@@ -403,7 +457,7 @@ export class AuthRealm {
   async refresh(signal?: AbortSignal): Promise<UserSession> {
     const generation = this.client.auth.generation;
     const session = refreshSession(await this.client._request<unknown>(this.path("refresh"), { method: "POST" }, signal));
-    if (generation === this.client.auth.generation) this.client.auth.save(session.token);
+    if (generation === this.client.auth.generation) this.client.auth.save(session.token, session.user);
     return session;
   }
   session(signal?: AbortSignal): Promise<UserSession> { return this.client._request(this.path("session"), {}, signal); }
@@ -412,14 +466,14 @@ export class AuthRealm {
   requestOTP(email: string, signal?: AbortSignal): Promise<{ otpId: string; expiresAt: string }> { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
   async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
     const generation = this.client.auth.generation;
-    try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token); return session; }
+    try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt }); } throw error; }
   }
   async profile<T extends RecordData = RecordData>(signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), {}, signal)).attributes; }
   async updateProfile<T extends RecordData = RecordData>(profile: T, signal?: AbortSignal): Promise<T> { return (await this.client._request<{ attributes: T }>(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-  async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token); return session; }
+  async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
   oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession> {
     const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
     const providerError = url.searchParams.get("error");
@@ -483,28 +537,30 @@ export class Records<T extends RecordData> {
     return this.recordResponse(this.path(id, options), {}, requestSignal);
   }
 
-  async create(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<T> {
-    return (await this.createWithETag(data, idempotencyKey, signal)).record;
+  async create(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
   }
 
-  createWithETag(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<RecordResult<T>> {
-    return this.recordResponse(this.path(), {
+  createWithETag(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    return this.recordResponse(this.path(undefined, query), {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(data),
-    }, signal);
+    }, requestSignal);
   }
 
-  async update(id: string, data: Partial<T>, etag: string, signal?: AbortSignal): Promise<T> {
-    return (await this.updateWithETag(id, data, etag, signal)).record;
+  async update(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    return (await this.updateWithETag(id, data, etag, options, signal)).record;
   }
 
-  updateWithETag(id: string, data: Partial<T>, etag: string, signal?: AbortSignal): Promise<RecordResult<T>> {
-    return this.recordResponse(this.path(id), {
+  updateWithETag(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+    const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
+    return this.recordResponse(this.path(id, query), {
       method: "PATCH",
       headers: { "If-Match": etag },
       body: JSON.stringify(data),
-    }, signal);
+    }, requestSignal);
   }
 
   remove(id: string, etag: string, signal?: AbortSignal): Promise<void> {
@@ -578,7 +634,11 @@ export class Records<T extends RecordData> {
 
   private path(id?: string, query?: RecordGetOptions): string {
     const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-    if (!id) return base;
+    if (!id) {
+      const parameters = new URLSearchParams();
+      if (query?.fields !== undefined) parameters.set("fields", query.fields);
+      return parameters.size ? `${base}?${parameters}` : base;
+    }
     const parameters = new URLSearchParams();
     if (query?.expand !== undefined) parameters.set("expand", query.expand);
     if (query?.fields !== undefined) parameters.set("fields", query.fields);

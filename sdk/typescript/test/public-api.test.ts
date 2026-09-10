@@ -1,4 +1,4 @@
-import type { AuthMethods, AuthRealm, BatchOperation, Query, Records } from "../src/index.js";
+import type { AuthMethods, AuthRealm, BatchOperation, Query, Records, RecordWriteOptions } from "../src/index.js";
 
 type Note = { id: string; title: string; body?: string };
 
@@ -13,6 +13,9 @@ declare const methods: AuthMethods;
 void records.list(query);
 void records.get("note-1", { fields: "id,title" });
 void records.get("note-1", new AbortController().signal);
+const writeOptions: RecordWriteOptions = { fields: "id,title" };
+void records.create({ title: "created" }, "create-note-0001", writeOptions);
+void records.update("note-1", { title: "updated" }, '"pgb1.current"', writeOptions);
 void realm.methods();
 void realm.refresh();
 void methods.oauthProviders;

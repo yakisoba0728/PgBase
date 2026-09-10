@@ -24,6 +24,7 @@ export class MFAChallengeError extends PgBaseError {
 export class AuthStore {
     storage;
     #token;
+    #record = null;
     #generation = 0;
     #listeners = new Set();
     constructor(storage) {
@@ -33,20 +34,48 @@ export class AuthStore {
     get token() {
         return this.#token;
     }
+    get record() { return this.#record; }
+    get isValid() { return this.#token !== null && this.#token.length > 0; }
     get generation() {
         return this.#generation;
     }
-    save(token) {
+    save(token, record = this.#record) {
         this.#token = token;
+        this.#record = record;
         this.#generation += 1;
         this.storage?.set(token);
         this.notify();
     }
     clear() {
         this.#token = null;
+        this.#record = null;
         this.#generation += 1;
         this.storage?.clear();
         this.notify();
+    }
+    /** Encodes token and cached auth record for a server-rendered response cookie. */
+    exportToCookie(options = {}) {
+        const key = options.key ?? "pb_auth";
+        const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
+        return [`${key}=${payload}`, `Path=${options.path ?? "/"}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+    }
+    /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
+    loadFromCookie(cookie, key = "pb_auth") {
+        const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
+        if (!encoded)
+            return;
+        try {
+            const value = JSON.parse(decodeURIComponent(encoded));
+            if ((value.token !== null && typeof value.token !== "string") || (value.record !== null && (typeof value.record !== "object" || Array.isArray(value.record))))
+                throw new Error("invalid auth cookie");
+            this.#token = value.token ?? null;
+            this.#record = (value.record ?? null);
+            this.#generation += 1;
+            this.notify();
+        }
+        catch {
+            this.clear();
+        }
     }
     _onChange(listener) {
         this.#listeners.add(listener);
@@ -74,6 +103,9 @@ export class PgBaseClient {
     baseURL;
     auth;
     fetcher;
+    requestControllers = new Map();
+    /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+    autoCancellation = true;
     constructor(baseURL, options = {}) {
         this.baseURL = baseURL;
         this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -133,7 +165,7 @@ export class PgBaseClient {
         try {
             const session = await this.request("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
             if (session.token && generation === this.auth.generation)
-                this.auth.save(session.token);
+                this.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -204,7 +236,7 @@ export class PgBaseClient {
         const generation = this.auth.generation;
         const session = await this.request("/api/v1/auth/mfa/complete", { method: "POST", body: JSON.stringify({ challengeToken, code }) }, signal);
         if (session.token && generation === this.auth.generation)
-            this.auth.save(session.token);
+            this.auth.save(session.token, session.user);
         return session;
     }
     beginTOTPEnrollment(currentPassword, signal) {
@@ -223,6 +255,15 @@ export class PgBaseClient {
     }
     _request(path, init, signal) {
         return this.request(path, init, signal);
+    }
+    /** Cancels an in-flight request started with this key. */
+    cancelRequest(requestKey) { this.requestControllers.get(requestKey)?.abort(); }
+    /** Cancels every keyed in-flight request. */
+    cancelAllRequests() { for (const controller of this.requestControllers.values())
+        controller.abort(); this.requestControllers.clear(); }
+    /** Low-level request with PocketBase-style request-key auto-cancellation. */
+    send(path, init = {}, options = {}) {
+        return this.request(path, init, this.keyedSignal(options.requestKey, options.signal));
     }
     async _response(path, init = {}, signal) {
         const response = await this.fetchResponse(path, init, signal);
@@ -255,7 +296,7 @@ export class PgBaseClient {
             body: JSON.stringify({ email, password }),
         }, signal);
         if (session.token && generation === this.auth.generation) {
-            this.auth.save(session.token);
+            this.auth.save(session.token, session.user);
         }
         return session;
     }
@@ -280,6 +321,16 @@ export class PgBaseClient {
         }
         return response;
     }
+    keyedSignal(key, signal) {
+        if (!key)
+            return signal;
+        if (this.autoCancellation)
+            this.cancelRequest(key);
+        const controller = new AbortController();
+        this.requestControllers.set(key, controller);
+        signal?.addEventListener("abort", () => controller.abort(), { once: true });
+        return controller.signal;
+    }
 }
 export class AuthRealm {
     client;
@@ -294,7 +345,7 @@ export class AuthRealm {
         try {
             const session = await this.client._request(this.path(action), { method: "POST", body: JSON.stringify({ email, password }) }, signal);
             if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token);
+                this.client.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -316,7 +367,7 @@ export class AuthRealm {
         const generation = this.client.auth.generation;
         const session = refreshSession(await this.client._request(this.path("refresh"), { method: "POST" }, signal));
         if (generation === this.client.auth.generation)
-            this.client.auth.save(session.token);
+            this.client.auth.save(session.token, session.user);
         return session;
     }
     session(signal) { return this.client._request(this.path("session"), {}, signal); }
@@ -333,7 +384,7 @@ export class AuthRealm {
         try {
             const session = await this.client._request(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
             if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token);
+                this.client.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -351,7 +402,7 @@ export class AuthRealm {
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
     async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
-        this.client.auth.save(session.token); return session; }
+        this.client.auth.save(session.token, session.user); return session; }
     oauthCompleteFromURL(provider, callbackURL, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
         const providerError = url.searchParams.get("error");
@@ -418,25 +469,27 @@ export class Records {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
         return this.recordResponse(this.path(id, options), {}, requestSignal);
     }
-    async create(data, idempotencyKey, signal) {
-        return (await this.createWithETag(data, idempotencyKey, signal)).record;
+    async create(data, idempotencyKey, options, signal) {
+        return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
     }
-    createWithETag(data, idempotencyKey, signal) {
-        return this.recordResponse(this.path(), {
+    createWithETag(data, idempotencyKey, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordResponse(this.path(undefined, query), {
             method: "POST",
             headers: { "Idempotency-Key": idempotencyKey },
             body: JSON.stringify(data),
-        }, signal);
+        }, requestSignal);
     }
-    async update(id, data, etag, signal) {
-        return (await this.updateWithETag(id, data, etag, signal)).record;
+    async update(id, data, etag, options, signal) {
+        return (await this.updateWithETag(id, data, etag, options, signal)).record;
     }
-    updateWithETag(id, data, etag, signal) {
-        return this.recordResponse(this.path(id), {
+    updateWithETag(id, data, etag, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordResponse(this.path(id, query), {
             method: "PATCH",
             headers: { "If-Match": etag },
             body: JSON.stringify(data),
-        }, signal);
+        }, requestSignal);
     }
     remove(id, etag, signal) {
         return this.client._request(this.path(id), {
@@ -507,8 +560,12 @@ export class Records {
     }
     path(id, query) {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-        if (!id)
-            return base;
+        if (!id) {
+            const parameters = new URLSearchParams();
+            if (query?.fields !== undefined)
+                parameters.set("fields", query.fields);
+            return parameters.size ? `${base}?${parameters}` : base;
+        }
         const parameters = new URLSearchParams();
         if (query?.expand !== undefined)
             parameters.set("expand", query.expand);

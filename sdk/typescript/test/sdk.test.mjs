@@ -135,6 +135,13 @@ try {
   const session = await client.login("first@example.test", "correct horse battery staple");
   assert.equal(session.user.id, "first");
   assert.equal(client.auth.token, "first-token");
+  assert.equal(client.auth.record?.id, "first");
+  assert.equal(client.auth.isValid, true);
+  const authCookie = client.auth.exportToCookie({ secure: true, sameSite: "Lax" });
+  const restoredAuth = new AuthStore();
+  restoredAuth.loadFromCookie(authCookie);
+  assert.equal(restoredAuth.token, "first-token");
+  assert.equal(restoredAuth.record?.email, "first@example.test");
 
   const realm = client.realm("members");
 	assert.deepEqual(await realm.methods(), { passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"] });

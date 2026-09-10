@@ -38,6 +38,8 @@ export type Query = {
 };
 /** Options accepted by a single-record read. */
 export type RecordGetOptions = Pick<Query, "expand" | "fields">;
+/** Options accepted by record mutations. */
+export type RecordWriteOptions = Pick<Query, "fields">;
 export type RecordEvent = {
     /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
     eventId: string;
@@ -53,6 +55,10 @@ export type EventOptions = {
     signal?: AbortSignal;
     maxReconnects?: number;
     reconnectDelayMs?: number;
+};
+export type RequestOptions = {
+    signal?: AbortSignal;
+    requestKey?: string;
 };
 export type BatchOperation<T extends RecordData = RecordData> = {
     operation: "create";
@@ -138,14 +144,31 @@ export interface TokenStorage {
     set(token: string): void;
     clear(): void;
 }
+/** A serialized PocketBase-compatible auth state for SSR hand-off. */
+export type AuthState = {
+    token: string | null;
+    record: RecordData | null;
+};
 export declare class AuthStore {
     #private;
     private readonly storage?;
     constructor(storage?: TokenStorage | undefined);
     get token(): string | null;
+    get record(): RecordData | null;
+    get isValid(): boolean;
     get generation(): number;
-    save(token: string): void;
+    save(token: string, record?: RecordData | null): void;
     clear(): void;
+    /** Encodes token and cached auth record for a server-rendered response cookie. */
+    exportToCookie(options?: {
+        key?: string;
+        httpOnly?: boolean;
+        secure?: boolean;
+        sameSite?: "Lax" | "Strict" | "None";
+        path?: string;
+    }): string;
+    /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
+    loadFromCookie(cookie: string, key?: string): void;
     _onChange(listener: (generation: number) => void): () => void;
     private notify;
 }
@@ -159,6 +182,9 @@ export declare class PgBaseClient {
     readonly baseURL: string;
     readonly auth: AuthStore;
     private readonly fetcher;
+    private readonly requestControllers;
+    /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+    autoCancellation: boolean;
     constructor(baseURL: string, options?: {
         fetch?: typeof fetch;
         auth?: AuthStore;
@@ -202,6 +228,12 @@ export declare class PgBaseClient {
     }>;
     iterate<T extends RecordData>(collection: string, query?: Query, signal?: AbortSignal): AsyncGenerator<T>;
     _request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T>;
+    /** Cancels an in-flight request started with this key. */
+    cancelRequest(requestKey: string): void;
+    /** Cancels every keyed in-flight request. */
+    cancelAllRequests(): void;
+    /** Low-level request with PocketBase-style request-key auto-cancellation. */
+    send<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
     _response<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<{
         body: T;
         etag?: string;
@@ -210,6 +242,7 @@ export declare class PgBaseClient {
     private authenticate;
     private request;
     private fetchResponse;
+    private keyedSignal;
 }
 export declare class AuthRealm {
     private readonly client;
@@ -257,10 +290,10 @@ export declare class Records<T extends RecordData> {
     get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
     getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
     getWithETag(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordResult<T>>;
-    create(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<T>;
-    createWithETag(data: Omit<T, "id">, idempotencyKey: string, signal?: AbortSignal): Promise<RecordResult<T>>;
-    update(id: string, data: Partial<T>, etag: string, signal?: AbortSignal): Promise<T>;
-    updateWithETag(id: string, data: Partial<T>, etag: string, signal?: AbortSignal): Promise<RecordResult<T>>;
+    create(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
+    createWithETag(data: Omit<T, "id">, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    update(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
+    updateWithETag(id: string, data: Partial<T>, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
     remove(id: string, etag: string, signal?: AbortSignal): Promise<void>;
     events(options?: EventOptions): AsyncGenerator<RecordEvent>;
     private path;

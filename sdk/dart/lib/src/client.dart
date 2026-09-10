@@ -237,6 +237,24 @@ final class PgBaseClient {
     'code': JsonString(code),
   }, cancellation);
 
+  /// Parses a browser redirect or mobile deep link then completes OAuth.
+  Future<UserSession> oauthCompleteFromUri(
+    String provider,
+    Uri callback, {
+    CancellationToken? cancellation,
+  }) {
+    final error = callback.queryParameters['error'];
+    if (error != null) {
+      throw OAuthCallbackError(error, callback.queryParameters['error_description']);
+    }
+    final state = callback.queryParameters['state'];
+    final code = callback.queryParameters['code'];
+    if (state == null || state.isEmpty || code == null || code.isEmpty) {
+      throw const OAuthCallbackError('invalid_callback', 'The OAuth callback is missing state or code.');
+    }
+    return oauthComplete(provider, state, code, cancellation: cancellation);
+  }
+
   Future<JsonValue> request(
     String method,
     String path, {
@@ -346,7 +364,7 @@ final class PgBaseClient {
         ),
       );
       if (session.token != null && generation == auth.generation)
-        await auth.save(session.token!);
+        await auth.save(session.token!, record: session.user);
       return session;
     } on PgBaseError catch (error) {
       if (mfa && error.code == 'mfa_required') {
@@ -447,7 +465,7 @@ final class AuthRealm {
         cancellation: cancellation,
       ),
     );
-    if (generation == client.auth.generation) await client.auth.save(session.token!);
+    if (generation == client.auth.generation) await client.auth.save(session.token!, record: session.user);
     return session;
   }
   Future<UserSession> session({CancellationToken? cancellation}) async =>
@@ -517,6 +535,12 @@ final class AuthRealm {
     }),
     cancellation,
   );
+
+  Future<UserSession> oauthCompleteFromUri(
+    String provider,
+    Uri callback, {
+    CancellationToken? cancellation,
+  }) => client.oauthCompleteFromUri(provider, callback, cancellation: cancellation);
 
   Future<JsonObject> profile({CancellationToken? cancellation}) async {
     final value = await client.request(

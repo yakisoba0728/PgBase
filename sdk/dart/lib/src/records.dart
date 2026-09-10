@@ -56,16 +56,19 @@ final class Records {
   Future<JsonObject> create(
     JsonObject input,
     String idempotencyKey, {
+    String? fields,
     CancellationToken? cancellation,
   }) async => (await createWithEtag(
     input,
     idempotencyKey,
+    fields: fields,
     cancellation: cancellation,
   )).record;
 
   Future<RecordResult<JsonObject>> createWithEtag(
     JsonObject input,
     String idempotencyKey, {
+    String? fields,
     CancellationToken? cancellation,
   }) {
     _idempotency(idempotencyKey);
@@ -73,6 +76,7 @@ final class Records {
       'POST',
       _base,
       body: input,
+      query: {if (fields != null) 'fields': fields},
       headers: {'idempotency-key': idempotencyKey},
       cancellation: cancellation,
     );
@@ -82,11 +86,13 @@ final class Records {
     String id,
     JsonObject input,
     String etag, {
+    String? fields,
     CancellationToken? cancellation,
   }) async => (await updateWithEtag(
     id,
     input,
     etag,
+    fields: fields,
     cancellation: cancellation,
   )).record;
 
@@ -94,6 +100,7 @@ final class Records {
     String id,
     JsonObject input,
     String etag, {
+    String? fields,
     CancellationToken? cancellation,
   }) {
     _strongEtag(etag);
@@ -101,6 +108,7 @@ final class Records {
       'PATCH',
       _path(id),
       body: input,
+      query: {if (fields != null) 'fields': fields},
       headers: {'if-match': etag},
       cancellation: cancellation,
     );
