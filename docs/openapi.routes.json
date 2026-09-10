@@ -1293,6 +1293,57 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/setup/backup-jobs/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/admin/setup/backups/upload": {
+      "post": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [],
+        "x-pgbase-maximum-request-bytes": 2147483648
+      }
+    },
+    "/api/admin/setup/backups/{id}/restore": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": []
+      }
+    },
     "/api/admin/sql/queries": {
       "get": {
         "responses": {
