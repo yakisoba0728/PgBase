@@ -74,3 +74,25 @@ func TestPocketBaseGlobalEffectsFailClosedWithoutCapability(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestPocketBaseFilepathGlobRequiresFilesystemCapability(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/glob","access":"public","handler":{"module":"route.js","export":"run"}}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=> $filepath.glob("*.txt")`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	host := &compatibilityHost{}
+	if _, err = runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Host: host}); err == nil {
+		t.Fatal("glob succeeded without filesystem capability")
+	}
+	if len(host.calls) != 0 {
+		t.Fatalf("host calls=%v", host.calls)
+	}
+}

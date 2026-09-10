@@ -13,8 +13,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	mathrand "math/rand/v2"
 	"path/filepath"
+	"regexp/syntax"
 	"strings"
 	"time"
 
@@ -53,8 +55,10 @@ func (r *Runtime) installPocketBaseGlobals(vm *goja.Runtime, state *callState) e
 	if err := installFilepath(vm); err != nil {
 		return err
 	}
-	if _, err := vm.RunString(pocketBaseCompatibilitySource); err != nil { return err }
-	return r.installPocketBaseFilesystemGlobals(vm,state)
+	if _, err := vm.RunString(pocketBaseCompatibilitySource); err != nil {
+		return err
+	}
+	return r.installPocketBaseFilesystemGlobals(vm, state)
 }
 
 func installSecurity(vm *goja.Runtime) error {
@@ -124,22 +128,102 @@ func pseudoRandomString(length int, alphabet string) string {
 	return string(out)
 }
 func randomBySimpleRegex(pattern string) (string, error) {
-	if len(pattern) > 128 {
+	if len(pattern) > 1024 {
 		return "", errors.New("regex is too large")
 	}
-	if !strings.HasPrefix(pattern, "[") {
-		return "", errors.New("unsupported random regex")
+	parsed, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return "", err
 	}
-	end := strings.Index(pattern, "]{")
-	if end < 2 || !strings.HasSuffix(pattern, "}") {
-		return "", errors.New("unsupported random regex")
+	var out strings.Builder
+	if err := writeRandomRegex(parsed, &out); err != nil {
+		return "", err
 	}
-	alphabet := pattern[1:end]
-	var length int
-	if _, err := fmt.Sscanf(pattern[end+2:len(pattern)-1], "%d", &length); err != nil {
-		return "", errors.New("unsupported random regex")
+	if out.Len() > 4096 {
+		return "", errors.New("generated string is too large")
 	}
-	return secureRandomString(length, alphabet)
+	return out.String(), nil
+}
+func writeRandomRegex(node *syntax.Regexp, out *strings.Builder) error {
+	if out.Len() > 4096 {
+		return errors.New("generated string is too large")
+	}
+	switch node.Op {
+	case syntax.OpEmptyMatch:
+	case syntax.OpLiteral:
+		out.WriteString(string(node.Rune))
+	case syntax.OpCapture:
+		return writeRandomRegex(node.Sub[0], out)
+	case syntax.OpCharClass:
+		if len(node.Rune)%2 != 0 {
+			return errors.New("invalid character class")
+		}
+		total := int64(0)
+		for i := 0; i < len(node.Rune); i += 2 {
+			total += int64(node.Rune[i+1] - node.Rune[i] + 1)
+		}
+		if total < 1 {
+			return errors.New("empty character class")
+		}
+		choice, err := rand.Int(rand.Reader, big.NewInt(total))
+		if err != nil {
+			return err
+		}
+		offset := choice.Int64()
+		for i := 0; i < len(node.Rune); i += 2 {
+			size := int64(node.Rune[i+1] - node.Rune[i] + 1)
+			if offset < size {
+				out.WriteRune(node.Rune[i] + rune(offset))
+				return nil
+			}
+			offset -= size
+		}
+	case syntax.OpAnyChar, syntax.OpAnyCharNotNL:
+		return writeRandomRegex(&syntax.Regexp{Op: syntax.OpCharClass, Rune: []rune{'0', '9', 'A', 'Z', 'a', 'z'}}, out)
+	case syntax.OpAlternate:
+		choice, err := rand.Int(rand.Reader, big.NewInt(int64(len(node.Sub))))
+		if err != nil {
+			return err
+		}
+		return writeRandomRegex(node.Sub[choice.Int64()], out)
+	case syntax.OpConcat:
+		for _, sub := range node.Sub {
+			if err := writeRandomRegex(sub, out); err != nil {
+				return err
+			}
+		}
+	case syntax.OpRepeat, syntax.OpQuest, syntax.OpPlus, syntax.OpStar:
+		min, max := node.Min, node.Max
+		if node.Op == syntax.OpQuest {
+			min, max = 0, 1
+		} else if node.Op == syntax.OpPlus {
+			min, max = 1, 6
+		} else if node.Op == syntax.OpStar {
+			min, max = 0, 6
+		}
+		if min > 64 {
+			return errors.New("regex repeat is too large")
+		}
+		if max < 0 || max > 64 {
+			max = 64
+		}
+		count := min
+		if max > min {
+			choice, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+			if err != nil {
+				return err
+			}
+			count += int(choice.Int64())
+		}
+		for range count {
+			if err := writeRandomRegex(node.Sub[0], out); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported pattern operator %d", node.Op)
+	}
+	return nil
 }
 func createJWT(payload map[string]any, key string, seconds int) (string, error) {
 	if len(key) < 1 || len(key) > 4096 || seconds < 0 {
