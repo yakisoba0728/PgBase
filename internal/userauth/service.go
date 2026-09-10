@@ -71,7 +71,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	}
 	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
-	var createRule string
+	var createRule *string
 	if err := s.pool.QueryRow(ctx, `select registration_enabled,create_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled, &createRule); errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrNotFound
 	} else if err != nil {
@@ -81,7 +81,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, ErrInvalidCredentials
 	}
 	fields, _, contractErr := s.authRecordContract(ctx, collectionID)
-	if contractErr != nil || !EvaluateAuthRecordRule(createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
+	if contractErr != nil || createRule == nil || !EvaluateAuthRecordRule(*createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
 		return Session{}, ErrInvalidCredentials
 	}
 	if collectionID == DefaultCollectionID && !s.defaultRegistration {

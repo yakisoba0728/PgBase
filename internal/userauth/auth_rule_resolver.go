@@ -159,7 +159,7 @@ func (s *Service) authorizeSessionTx(ctx context.Context, db database.DBTX, user
 	if collectionID == uuid.Nil {
 		collectionID = DefaultCollectionID
 	}
-	var rule string
+	var rule *string
 	var raw []byte
 	var current AuthRecord
 	err := db.QueryRow(ctx, `select c.auth_rule,u.id,u.auth_collection_id,u.email,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for share of u`, collectionID, user.ID).Scan(
@@ -171,7 +171,10 @@ func (s *Service) authorizeSessionTx(ctx context.Context, db database.DBTX, user
 	if json.Unmarshal(raw, &current.Fields) != nil {
 		return false, ErrValidation
 	}
-	return EvaluateAuthRecordRuleInTx(ctx, db, collectionID, rule, AuthRuleContext{
+	if rule == nil {
+		return false, nil
+	}
+	return EvaluateAuthRecordRuleInTx(ctx, db, collectionID, *rule, AuthRuleContext{
 		Principal: identity.Subject{Kind: identity.User, ID: current.ID}, AuthEmail: current.Email, Current: current,
 	})
 }

@@ -169,6 +169,9 @@ var apiRateLimitsSQL string
 //go:embed 000059_extension_object_inventory.sql
 var extensionObjectInventorySQL string
 
+//go:embed 000060_nullable_auth_rules.sql
+var nullableAuthRulesSQL string
+
 //go:embed 000052_auth_record_model.sql
 var authRecordModelSQL string
 
@@ -275,6 +278,7 @@ var migrations = []Migration{
 	{Version: 57, Name: "extension_objects", SQL: extensionObjectsSQL, SHA256: sha256.Sum256([]byte(extensionObjectsSQL))},
 	{Version: 58, Name: "api_rate_limits", SQL: apiRateLimitsSQL, SHA256: sha256.Sum256([]byte(apiRateLimitsSQL))},
 	{Version: 59, Name: "extension_object_inventory", SQL: extensionObjectInventorySQL, SHA256: sha256.Sum256([]byte(extensionObjectInventorySQL))},
+	{Version: 60, Name: "nullable_auth_rules", SQL: nullableAuthRulesSQL, SHA256: sha256.Sum256([]byte(nullableAuthRulesSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

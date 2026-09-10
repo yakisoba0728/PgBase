@@ -15,6 +15,9 @@ import (
 // target record while exposing the distinct requesting identity as
 // @request.auth. Empty manage rules never grant manager privileges.
 func (s *Service) authorizeManagedAuthRecord(ctx context.Context, collectionID, actorID uuid.UUID, target AuthRecord, fields []schema.FieldInput, rule string, request map[string]any) bool {
+	if strings.TrimSpace(rule) == "" {
+		return false
+	}
 	allowed := false
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var err error

@@ -50,7 +50,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	}
 	result := values[:0]
 	for _, value := range values {
-		if s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
+		if !rules.IsNull("list") && s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 			result = append(result, visibleAuthRecord(value, fields))
 		}
 	}
@@ -65,7 +65,7 @@ func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, pri
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	if !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
+	if rules.IsNull("view") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
 		return AuthRecord{}, ErrInvalidCredentials
 	}
 	return visibleAuthRecord(value, fields), nil
@@ -79,6 +79,9 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	updated, err := s.updateAuthRecord(ctx, collectionID, target, in, func(tx pgx.Tx, current AuthRecord) error {
 		context := AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current, Request: request}
 		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rules.Update, context)
+		if rules.IsNull("update") {
+			allowed = false
+		}
 		if err != nil {
 			return fmt.Errorf("evaluate update rule: %w", err)
 		}
@@ -122,7 +125,7 @@ func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	if err != nil {
 		return err
 	}
-	if !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.Delete, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
+	if rules.IsNull("delete") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.Delete, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
 		return ErrInvalidCredentials
 	}
 	return s.DeleteAuthRecord(ctx, collectionID, target)
@@ -131,13 +134,15 @@ func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, 
 func (s *Service) authRecordRules(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
 	var raw []byte
 	var rules AuthCollectionRules
-	err := s.pool.QueryRow(ctx, `select fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &rules.List, &rules.View, &rules.Create, &rules.Update, &rules.Delete, &rules.Auth, &rules.Manage)
+	var values [7]*string
+	err := s.pool.QueryRow(ctx, `select fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6])
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, rules, ErrNotFound
 	}
 	if err != nil {
 		return nil, rules, err
 	}
+	applyNullableAuthRules(&rules, values)
 	var fields []schema.FieldInput
 	if json.Unmarshal(raw, &fields) != nil {
 		return nil, rules, errors.New("invalid stored auth fields")
@@ -401,12 +406,18 @@ func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UU
 func (s *Service) authRecordContract(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
 	var raw []byte
 	var r AuthCollectionRules
-	err := s.pool.QueryRow(ctx, `select fields_json,create_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &r.Create)
+	var create *string
+	err := s.pool.QueryRow(ctx, `select fields_json,create_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &create)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, r, ErrNotFound
 	}
 	if err != nil {
 		return nil, r, err
+	}
+	if create == nil {
+		r.nulls = map[string]bool{"create": true}
+	} else {
+		r.Create = *create
 	}
 	var fields []schema.FieldInput
 	if json.Unmarshal(raw, &fields) != nil {

@@ -36,6 +36,99 @@ type AuthCollectionRules struct {
 	Delete string `json:"delete"`
 	Auth   string `json:"auth"`
 	Manage string `json:"manage"`
+	nulls  map[string]bool
+}
+
+var authRuleNames = []string{"list", "view", "create", "update", "delete", "auth", "manage"}
+
+func (r AuthCollectionRules) MarshalJSON() ([]byte, error) {
+	values := map[string]any{"list": r.List, "view": r.View, "create": r.Create, "update": r.Update, "delete": r.Delete, "auth": r.Auth, "manage": r.Manage}
+	for name := range r.nulls {
+		values[name] = nil
+	}
+	return json.Marshal(values)
+}
+func (r *AuthCollectionRules) UnmarshalJSON(raw []byte) error {
+	var values map[string]*json.RawMessage
+	if json.Unmarshal(raw, &values) != nil {
+		return ErrValidation
+	}
+	*r = AuthCollectionRules{nulls: map[string]bool{}}
+	for name, value := range values {
+		known := false
+		for _, candidate := range authRuleNames {
+			if name == candidate {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return ErrValidation
+		}
+		if value == nil || string(*value) == "null" {
+			r.nulls[name] = true
+			continue
+		}
+		var source string
+		if json.Unmarshal(*value, &source) != nil {
+			return ErrValidation
+		}
+		switch name {
+		case "list":
+			r.List = source
+		case "view":
+			r.View = source
+		case "create":
+			r.Create = source
+		case "update":
+			r.Update = source
+		case "delete":
+			r.Delete = source
+		case "auth":
+			r.Auth = source
+		case "manage":
+			r.Manage = source
+		}
+	}
+	return nil
+}
+func (r AuthCollectionRules) IsNull(name string) bool { return r.nulls != nil && r.nulls[name] }
+func (r AuthCollectionRules) databaseValues() []any {
+	values := []string{r.List, r.View, r.Create, r.Update, r.Delete, r.Auth, r.Manage}
+	out := make([]any, len(values))
+	for i, name := range authRuleNames {
+		if r.IsNull(name) {
+			out[i] = nil
+		} else {
+			out[i] = values[i]
+		}
+	}
+	return out
+}
+func applyNullableAuthRules(r *AuthCollectionRules, values [7]*string) {
+	r.nulls = map[string]bool{}
+	for i, name := range authRuleNames {
+		if values[i] == nil {
+			r.nulls[name] = true
+			continue
+		}
+		switch name {
+		case "list":
+			r.List = *values[i]
+		case "view":
+			r.View = *values[i]
+		case "create":
+			r.Create = *values[i]
+		case "update":
+			r.Update = *values[i]
+		case "delete":
+			r.Delete = *values[i]
+		case "auth":
+			r.Auth = *values[i]
+		case "manage":
+			r.Manage = *values[i]
+		}
+	}
 }
 
 type CreateAuthCollectionInput struct {
@@ -77,7 +170,8 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 		if count >= 100 {
 			return ErrConflict
 		}
-		row := tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning `+authCollectionColumns, input.ID, input.Name, input.RegistrationEnabled, profileRaw, fieldsRaw, input.Rules.List, input.Rules.View, input.Rules.Create, input.Rules.Update, input.Rules.Delete, input.Rules.Auth, input.Rules.Manage)
+		rv := input.Rules.databaseValues()
+		row := tx.QueryRow(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) returning `+authCollectionColumns, input.ID, input.Name, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])
 		return scanAuthCollection(row, &value)
 	})
 	if database.Classify(err) == database.KindConflict {
@@ -121,7 +215,8 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		if rows.Err() != nil {
 			return rows.Err()
 		}
-		row := tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,fields_json=$4,list_rule=$5,view_rule=$6,create_rule=$7,update_rule=$8,delete_rule=$9,auth_rule=$10,manage_rule=$11,updated_at=CURRENT_TIMESTAMP where id=$1 returning `+authCollectionColumns, id, input.RegistrationEnabled, profileRaw, fieldsRaw, input.Rules.List, input.Rules.View, input.Rules.Create, input.Rules.Update, input.Rules.Delete, input.Rules.Auth, input.Rules.Manage)
+		rv := input.Rules.databaseValues()
+		row := tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,fields_json=$4,list_rule=$5,view_rule=$6,create_rule=$7,update_rule=$8,delete_rule=$9,auth_rule=$10,manage_rule=$11,updated_at=CURRENT_TIMESTAMP where id=$1 returning `+authCollectionColumns, id, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])
 		return scanAuthCollection(row, &value)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -199,9 +294,11 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanAuthCollection(row rowScanner, value *AuthCollection) error {
 	var profileRaw, fieldsRaw []byte
-	if err := row.Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &profileRaw, &fieldsRaw, &value.Rules.List, &value.Rules.View, &value.Rules.Create, &value.Rules.Update, &value.Rules.Delete, &value.Rules.Auth, &value.Rules.Manage, &value.CreatedAt, &value.UpdatedAt); err != nil {
+	var rules [7]*string
+	if err := row.Scan(&value.ID, &value.Name, &value.RegistrationEnabled, &profileRaw, &fieldsRaw, &rules[0], &rules[1], &rules[2], &rules[3], &rules[4], &rules[5], &rules[6], &value.CreatedAt, &value.UpdatedAt); err != nil {
 		return err
 	}
+	applyNullableAuthRules(&value.Rules, rules)
 	if json.Unmarshal(profileRaw, &value.ProfileSchema) != nil || json.Unmarshal(fieldsRaw, &value.Fields) != nil {
 		return errors.New("invalid stored auth collection")
 	}
