@@ -231,6 +231,12 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
+	applyAdminRatePolicy := func(value runtimesettings.Settings) {
+		p := value.RateLimits.Admin
+		_ = authService.ConfigureRatePolicy(adminauth.RatePolicy{AccountMaxFailures: p.AccountMaxFailures, NetworkMaxFailures: p.NetworkMaxFailures, Window: time.Duration(p.WindowSeconds) * time.Second, Block: time.Duration(p.BlockSeconds) * time.Second})
+	}
+	applyAdminRatePolicy(runtimeSettings.Get())
+	runtimeSettings.Subscribe(applyAdminRatePolicy)
 	// Request diagnostics intentionally never retain IP addresses or auth
 	// material. The persisted privacy switches remain a truthful declaration of
 	// that fixed redaction boundary while retention is applied live.

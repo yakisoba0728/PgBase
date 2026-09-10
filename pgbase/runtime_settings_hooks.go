@@ -13,9 +13,9 @@ func bindRuntimeSettingsLifecycle(app *App, settings *runtimesettings.Controller
 	// Controller serializes publication and calls subscribers only after a
 	// successful commit or reload. The hook observes the effective snapshot.
 	settings.Subscribe(func(current runtimesettings.Settings) {
-		before := []any{previous.Batch, previous.Logs, previous.Proxy, previous.Backups, previous.Application}
-		after := []any{current.Batch, current.Logs, current.Proxy, current.Backups, current.Application}
-		names := []string{"batch", "logs", "proxy", "backups", "application"}
+		before := []any{previous.Batch, previous.Logs, previous.Proxy, previous.Backups, previous.Application, previous.RateLimits}
+		after := []any{current.Batch, current.Logs, current.Proxy, current.Backups, current.Application, current.RateLimits}
+		names := []string{"batch", "logs", "proxy", "backups", "application", "rateLimits"}
 		changed := make([]string, 0, len(names))
 		for i, name := range names {
 			if !reflect.DeepEqual(before[i], after[i]) {

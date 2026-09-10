@@ -49,7 +49,7 @@ func mergeRuntimeSettings(current runtimesettings.Settings, patch map[string]jso
 	if _, ok := patch["revision"]; !ok {
 		return runtimesettings.Settings{}, runtimesettings.ErrInvalid
 	}
-	allowed := map[string]bool{"revision": true, "batch": true, "logs": true, "proxy": true, "backups": true, "application": true}
+	allowed := map[string]bool{"revision": true, "batch": true, "logs": true, "proxy": true, "backups": true, "application": true, "rateLimits": true}
 	for key := range patch {
 		if !allowed[key] {
 			return runtimesettings.Settings{}, runtimesettings.ErrInvalid

@@ -68,6 +68,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if err := s.maybeCleanup(ctx); err != nil {
 		return Session{}, err
 	}
+	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
 	var createRule string
 	if err := s.pool.QueryRow(ctx, `select registration_enabled,create_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled, &createRule); errors.Is(err, pgx.ErrNoRows) {
@@ -85,7 +86,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, ErrInvalidCredentials
 	}
 	bucket := s.subjectHash("register", "network", clientAddress)
-	if err := s.consumeRateLimit(ctx, bucket, registerNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, bucket, ratePolicy.RegistrationNetworkMaxFailures, now, ratePolicy.Window, ratePolicy.Block); err != nil {
 		return Session{}, err
 	}
 	releaseHash, err := admit(s.passwordSlots)
@@ -144,6 +145,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if err := s.maybeCleanup(ctx); err != nil {
 		return Session{}, err
 	}
+	ratePolicy := s.currentRatePolicy()
 	accountSubject := collectionID.String() + "\x00" + normalized
 	if emailErr != nil {
 		// All malformed emails share one fixed-size bucket. Valid unknown emails
@@ -152,8 +154,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		accountSubject = collectionID.String() + "\x00<invalid>"
 	}
 	buckets := []rateLimitBucket{
-		{hash: s.subjectHash("login", "account", accountSubject), limit: loginAccountLimit},
-		{hash: s.subjectHash("login", "network", clientAddress), limit: loginNetworkLimit},
+		{hash: s.subjectHash("login", "account", accountSubject), limit: ratePolicy.AccountMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
+		{hash: s.subjectHash("login", "network", clientAddress), limit: ratePolicy.NetworkMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
 	}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return Session{}, err
@@ -408,16 +410,17 @@ func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID
 	return u, hash, nil
 }
 
-func (s *Service) consumeRateLimit(ctx context.Context, hash []byte, limit int, now time.Time) error {
+func (s *Service) consumeRateLimit(ctx context.Context, hash []byte, limit int, now time.Time, durations ...time.Duration) error {
 	if err := s.ensureNotBlocked(ctx, hash, now); err != nil {
 		return err
 	}
-	return s.recordFailure(ctx, hash, limit, now)
+	return s.recordFailure(ctx, hash, limit, now, durations...)
 }
 
 type rateLimitBucket struct {
-	hash  []byte
-	limit int
+	hash          []byte
+	limit         int
+	window, block time.Duration
 }
 
 func (s *Service) ensureBucketsNotBlocked(ctx context.Context, buckets []rateLimitBucket, now time.Time) error {
@@ -449,7 +452,7 @@ func (s *Service) recordFailures(ctx context.Context, buckets []rateLimitBucket,
 			}
 		}
 		for _, bucket := range buckets {
-			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now)
+			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now, bucket.window, bucket.block)
 			if err != nil {
 				return err
 			}
@@ -476,7 +479,16 @@ func (s *Service) ensureNotBlocked(ctx context.Context, hash []byte, now time.Ti
 	}
 	return nil
 }
-func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now time.Time) error {
+func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now time.Time, durations ...time.Duration) error {
+	window, block := 15*time.Minute, 15*time.Minute
+	if len(durations) == 2 {
+		if durations[0] > 0 {
+			window = durations[0]
+		}
+		if durations[1] > 0 {
+			block = durations[1]
+		}
+	}
 	var blocked bool
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var ok bool
@@ -487,7 +499,7 @@ func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now
 			return ErrRateLimited
 		}
 		var err error
-		blocked, err = recordFailureInTx(ctx, tx, hash, limit, now)
+		blocked, err = recordFailureInTx(ctx, tx, hash, limit, now, window, block)
 		return err
 	})
 	if err != nil {
@@ -499,9 +511,18 @@ func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now
 	return nil
 }
 
-func recordFailureInTx(ctx context.Context, tx pgx.Tx, hash []byte, limit int, now time.Time) (bool, error) {
+func recordFailureInTx(ctx context.Context, tx pgx.Tx, hash []byte, limit int, now time.Time, durations ...time.Duration) (bool, error) {
+	window, block := 15*time.Minute, 15*time.Minute
+	if len(durations) == 2 {
+		if durations[0] > 0 {
+			window = durations[0]
+		}
+		if durations[1] > 0 {
+			block = durations[1]
+		}
+	}
 	var blocked bool
-	err := tx.QueryRow(ctx, `insert into pgbase_meta.user_auth_rate_limits as r(subject_hash,window_started_at,failures,blocked_until,updated_at) values($1,$2,1,null,$2) on conflict(subject_hash) do update set window_started_at=case when r.window_started_at<=$2-interval '15 minutes' then $2 else r.window_started_at end,failures=case when r.window_started_at<=$2-interval '15 minutes' then 1 else r.failures+1 end,blocked_until=case when (case when r.window_started_at<=$2-interval '15 minutes' then 1 else r.failures+1 end)>=$3 then $2+interval '15 minutes' else r.blocked_until end,updated_at=$2 returning coalesce(blocked_until>$2,false)`, hash, now, limit).Scan(&blocked)
+	err := tx.QueryRow(ctx, `insert into pgbase_meta.user_auth_rate_limits as r(subject_hash,window_started_at,failures,blocked_until,updated_at) values($1,$2,1,null,$2) on conflict(subject_hash) do update set window_started_at=case when r.window_started_at<=$2-make_interval(secs=>$4) then $2 else r.window_started_at end,failures=case when r.window_started_at<=$2-make_interval(secs=>$4) then 1 else r.failures+1 end,blocked_until=case when (case when r.window_started_at<=$2-make_interval(secs=>$4) then 1 else r.failures+1 end)>=$3 then $2+make_interval(secs=>$5) else r.blocked_until end,updated_at=$2 returning coalesce(blocked_until>$2,false)`, hash, now, limit, int64(window.Seconds()), int64(block.Seconds())).Scan(&blocked)
 	return blocked, err
 }
 

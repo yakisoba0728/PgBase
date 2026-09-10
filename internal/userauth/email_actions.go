@@ -106,7 +106,7 @@ func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collecti
 		return err
 	}
 	account = collectionID.String() + "\x00" + account
-	buckets := []rateLimitBucket{{s.subjectHash("password-reset", "account", account), loginAccountLimit}, {s.subjectHash("password-reset", "network", clientAddress), loginNetworkLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("password-reset", "account", account), limit: loginAccountLimit}, {hash: s.subjectHash("password-reset", "network", clientAddress), limit: loginNetworkLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	if err != nil {
 		return err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("email-change", "account", userID.String()), loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("email-change", "account", userID.String()), limit: loginAccountLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return err
 	}

@@ -141,7 +141,7 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 	if err != nil {
 		return RecoveryCodes{}, err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("mfa-enroll", "account", userID.String()), mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa-enroll", "account", userID.String()), limit: mfaFailureLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return RecoveryCodes{}, err
 	}
@@ -228,7 +228,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 	if err != nil {
 		return Session{}, err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("mfa", "challenge", challengeToken), mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa", "challenge", challengeToken), limit: mfaFailureLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return Session{}, err
 	}
@@ -317,7 +317,7 @@ func (s *Service) verifyUserPassword(ctx context.Context, userID uuid.UUID, pass
 	if err != nil {
 		return ManagedUser{}, "", err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash(operation, "account", userID.String()), loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash(operation, "account", userID.String()), limit: loginAccountLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return ManagedUser{}, "", err
 	}

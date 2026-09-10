@@ -66,6 +66,9 @@ type RequestEntry struct {
 	Route      string    `json:"route"`
 	Status     int       `json:"status"`
 	DurationMS int64     `json:"durationMs"`
+	ClientIP   string    `json:"clientIP,omitempty"`
+	AuthKind   string    `json:"authKind,omitempty"`
+	AuthID     string    `json:"authID,omitempty"`
 }
 
 type RequestPage struct {
@@ -98,6 +101,10 @@ func NewRequestLog(pool *database.Pool, options RequestLogOptions) *RequestLog {
 }
 
 func (l *RequestLog) Record(method, route string, status int, elapsed time.Duration) {
+	l.RecordContext(method, route, status, elapsed, "", "", "")
+}
+
+func (l *RequestLog) RecordContext(method, route string, status int, elapsed time.Duration, clientIP, authKind, authID string) {
 	if l == nil {
 		return
 	}
@@ -107,7 +114,7 @@ func (l *RequestLog) Record(method, route string, status int, elapsed time.Durat
 	if len(route) > 256 {
 		route = "unmatched"
 	}
-	e := RequestEntry{At: time.Now().UTC(), Method: method, Route: route, Status: status, DurationMS: elapsed.Milliseconds()}
+	e := RequestEntry{At: time.Now().UTC(), Method: method, Route: route, Status: status, DurationMS: elapsed.Milliseconds(), ClientIP: clientIP, AuthKind: authKind, AuthID: authID}
 	l.mu.Lock()
 	l.sequence++
 	e.ID = l.sequence
@@ -173,7 +180,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 		limit = 50
 	}
 	method, route := strings.ToUpper(strings.TrimSpace(f.Method)), strings.TrimSpace(f.Route)
-	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1)
+	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1)
 	if err != nil {
 		return RequestPage{}, err
 	}
@@ -181,7 +188,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 	p := RequestPage{Items: make([]RequestEntry, 0, limit)}
 	for rows.Next() {
 		var e RequestEntry
-		if err := rows.Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS); err != nil {
+		if err := rows.Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID); err != nil {
 			return p, err
 		}
 		if len(p.Items) == limit {
@@ -260,7 +267,7 @@ func (l *RequestLog) Detail(ctx context.Context, id uint64) (RequestEntry, error
 		return e, nil
 	}
 	var e RequestEntry
-	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS)
+	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID)
 	if err != nil {
 		return RequestEntry{}, ErrRequestLogNotFound
 	}
@@ -450,16 +457,16 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 	if len(entries) == 0 {
 		return nil
 	}
-	values := make([]any, 0, len(entries)*5)
+	values := make([]any, 0, len(entries)*8)
 	var q strings.Builder
-	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms) VALUES `)
+	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms,client_ip,auth_kind,auth_id) VALUES `)
 	for i, e := range entries {
 		if i > 0 {
 			q.WriteByte(',')
 		}
-		b := i * 5
-		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d)", b+1, b+2, b+3, b+4, b+5)
-		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS)
+		b := i * 8
+		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d,nullif($%d,'')::inet,nullif($%d,''),nullif($%d,'')::uuid)", b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS, e.ClientIP, e.AuthKind, e.AuthID)
 	}
 	if _, err := l.pool.Exec(ctx, q.String(), values...); err != nil {
 		return err

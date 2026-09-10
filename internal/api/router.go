@@ -188,6 +188,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumBatchResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
+	routes = append(routes, adminProfileRoutes(dependencies)...)
 	routes = append(routes, schemaDocumentRoutes(dependencies)...)
 	routes = append(routes, authAdministrationRoutes(dependencies)...)
 	routes = append(routes, operationsConsoleRoutes(dependencies)...)
@@ -299,7 +300,7 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	// Keep recovery inside request logging.  A recovered panic is a completed
 	// HTTP request with a 500 response and must be visible in the same durable
 	// diagnostic trail as every other response.
-	handler = accessLogMiddleware(logger, handler, dependencies.RequestLog)
+	handler = accessLogMiddleware(logger, dependencies.RuntimeSettings, dependencies.trustedProxies, handler, dependencies.RequestLog)
 	handler = requestIDMiddleware(handler)
 	if metricsEnabled {
 		handler = dependencies.Metrics.WrapHTTP(mux, handler)

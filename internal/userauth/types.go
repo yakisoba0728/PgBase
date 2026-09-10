@@ -130,6 +130,20 @@ type Service struct {
 	oauthStateTTL       time.Duration
 	oauthRegistration   bool
 	defaultRegistration bool
+	ratePolicy          atomic.Pointer[RatePolicy]
+}
+
+type RatePolicy struct { AccountMaxFailures, NetworkMaxFailures, RegistrationNetworkMaxFailures int; Window, Block time.Duration }
+
+func (s *Service) ConfigureRatePolicy(policy RatePolicy) error {
+	if policy.AccountMaxFailures < 1 || policy.NetworkMaxFailures < 1 || policy.RegistrationNetworkMaxFailures < 1 || policy.Window <= 0 || policy.Block <= 0 { return ErrValidation }
+	s.ratePolicy.Store(&policy)
+	return nil
+}
+
+func (s *Service) currentRatePolicy() RatePolicy {
+	if policy := s.ratePolicy.Load(); policy != nil { return *policy }
+	return RatePolicy{AccountMaxFailures: loginAccountLimit, NetworkMaxFailures: loginNetworkLimit, RegistrationNetworkMaxFailures: registerNetworkLimit, Window: 15*time.Minute, Block: 15*time.Minute}
 }
 
 type OAuthIdentity struct {

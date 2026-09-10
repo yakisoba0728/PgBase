@@ -3,6 +3,7 @@ package adminauth
 
 import (
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -126,6 +127,7 @@ type Service struct {
 	resetTTL        time.Duration
 	emailOTPMailer  mailer.Sender
 	emailOTPTTL     time.Duration
+	ratePolicy      atomic.Pointer[RatePolicy]
 }
 
 // EmailOTP is an administrator one-time credential. Code is only returned to
@@ -134,6 +136,26 @@ type EmailOTP struct {
 	ID        string
 	Code      string
 	ExpiresAt time.Time
+}
+
+type RatePolicy struct {
+	AccountMaxFailures, NetworkMaxFailures int
+	Window, Block                          time.Duration
+}
+
+func (s *Service) ConfigureRatePolicy(policy RatePolicy) error {
+	if policy.AccountMaxFailures < 1 || policy.NetworkMaxFailures < 1 || policy.Window <= 0 || policy.Block <= 0 {
+		return ErrValidation
+	}
+	s.ratePolicy.Store(&policy)
+	return nil
+}
+
+func (s *Service) currentRatePolicy() RatePolicy {
+	if policy := s.ratePolicy.Load(); policy != nil {
+		return *policy
+	}
+	return RatePolicy{AccountMaxFailures: accountFailureLimit, NetworkMaxFailures: networkFailureLimit, Window: 15 * time.Minute, Block: 15 * time.Minute}
 }
 
 const passwordWorkConcurrency = 2

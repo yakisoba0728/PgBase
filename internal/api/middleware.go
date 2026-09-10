@@ -7,8 +7,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -19,6 +21,11 @@ const (
 )
 
 type requestIDKey struct{}
+type requestLogContextKey struct{}
+type requestLogContext struct {
+	clientIP, authKind, authID string
+	includeAuth                bool
+}
 
 func requestID(ctx context.Context) string {
 	if value, ok := ctx.Value(requestIDKey{}).(string); ok {
@@ -206,8 +213,19 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 	return w.ResponseWriter.Write(body)
 }
 
-func accessLogMiddleware(logger *slog.Logger, next http.Handler, logs ...*observability.RequestLog) http.Handler {
+func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controller, trustedProxies func() []netip.Prefix, next http.Handler, logs ...*observability.RequestLog) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configured := runtimesettings.Default().Logs
+		if settings != nil {
+			configured = settings.Get().Logs
+		}
+		metadata := &requestLogContext{includeAuth: configured.IncludeAuth}
+		if configured.IncludeIP {
+			if address, ok := clientIP(r, trustedProxies()); ok {
+				metadata.clientIP = address
+			}
+		}
+		r = r.WithContext(context.WithValue(r.Context(), requestLogContextKey{}, metadata))
 		started := time.Now()
 		response := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(response, r)
@@ -216,9 +234,25 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler, logs ...*observ
 			status = http.StatusOK
 		}
 		for _, log := range logs {
-			log.Record(r.Method, requestRoute(r), status, time.Since(started))
+			log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)
 		}
-		logger.Info("http request", "request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds())
+		attrs := []any{"request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds()}
+		if metadata.clientIP != "" {
+			attrs = append(attrs, "client_ip", metadata.clientIP)
+		}
+		if metadata.authID != "" {
+			attrs = append(attrs, "auth_kind", metadata.authKind, "auth_id", metadata.authID)
+		}
+		switch configured.Level {
+		case "debug":
+			logger.Debug("http request", attrs...)
+		case "warn":
+			logger.Warn("http request", attrs...)
+		case "error":
+			logger.Error("http request", attrs...)
+		default:
+			logger.Info("http request", attrs...)
+		}
 	})
 }
 

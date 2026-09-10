@@ -5,6 +5,7 @@ package adminauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -68,6 +69,38 @@ func TestStoreCreatesAdministratorAndPersistsSessionLifecycle(t *testing.T) {
 	}
 	if _, _, err := store.AuthenticateSession(ctx, tokenHash, now.Add(3*time.Minute)); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("authenticate revoked session error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)
+	admin := Administrator{ID: uuid.New(), Email: "old@example.com", Active: true, CreatedAt: now, UpdatedAt: now}
+	if _, err := NewStore(pool).CreateAdministrator(ctx, admin, "encoded-password-hash"); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, &fakeClock{now: now.Add(time.Minute)})
+	updated, err := service.UpdateAdministratorEmail(ctx, admin.ID, " New@Example.com ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Email != "new@example.com" || !updated.UpdatedAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("updated profile = %#v", updated)
+	}
+	prefixes, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, []string{"2001:db8::/64", "192.0.2.0/24", "192.0.2.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(prefixes) != "[192.0.2.0/24 2001:db8::/64]" {
+		t.Fatalf("prefixes = %v", prefixes)
+	}
+	stored, err := service.AdministratorIPPrefixes(ctx, admin.ID)
+	if err != nil || fmt.Sprint(stored) != fmt.Sprint(prefixes) {
+		t.Fatalf("stored prefixes = %v, err=%v", stored, err)
+	}
+	if _, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, []string{"0.0.0.0/0"}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("broad prefix error = %v", err)
 	}
 }
 

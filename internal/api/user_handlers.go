@@ -65,6 +65,9 @@ func userSessionMiddleware(auth UserAuth, next http.Handler) http.Handler {
 			writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
 			return
 		}
+		if metadata, ok := r.Context().Value(requestLogContextKey{}).(*requestLogContext); ok && metadata.includeAuth {
+			metadata.authKind, metadata.authID = "user", principal.User.ID.String()
+		}
 		ctx := context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: principal, token: parts[1]})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

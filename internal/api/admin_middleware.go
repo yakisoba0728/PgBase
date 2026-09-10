@@ -132,6 +132,9 @@ func authenticateAdminMiddleware(auth AdminAuth, publicURL *url.URL, trustedProx
 			Administrator: authenticated.Administrator, RawSession: cookie.Value,
 			ExpiresAt: authenticated.ExpiresAt, CSRFToken: authenticated.CSRFToken,
 		}
+		if metadata, ok := r.Context().Value(requestLogContextKey{}).(*requestLogContext); ok && metadata.includeAuth {
+			metadata.authKind, metadata.authID = "admin", authenticated.Administrator.ID.String()
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), adminPrincipalKey{}, principal)))
 	})
 }

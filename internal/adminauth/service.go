@@ -21,6 +21,66 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
+func (s *Service) Administrator(ctx context.Context, id uuid.UUID) (Administrator, error) {
+	if err := s.ready(); err != nil {
+		return Administrator{}, err
+	}
+	return NewStore(s.pool).AdministratorByID(ctx, id)
+}
+
+func (s *Service) UpdateAdministratorEmail(ctx context.Context, id uuid.UUID, email string) (Administrator, error) {
+	if err := s.ready(); err != nil {
+		return Administrator{}, err
+	}
+	return NewStore(s.pool).UpdateAdministratorEmail(ctx, id, email, s.clock.Now())
+}
+
+func (s *Service) AdministratorIPPrefixes(ctx context.Context, id uuid.UUID) ([]string, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	return NewStore(s.pool).IPPrefixes(ctx, id)
+}
+
+func (s *Service) ReplaceAdministratorIPPrefixes(ctx context.Context, id uuid.UUID, values []string) ([]string, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if len(values) > 64 {
+		return nil, ErrValidation
+	}
+	prefixes := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
+		if err != nil || prefix.Bits() == 0 || prefix != prefix.Masked() {
+			return nil, ErrValidation
+		}
+		value := prefix.String()
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		prefixes = append(prefixes, value)
+	}
+	sort.Slice(prefixes, func(i, j int) bool {
+		a, _ := netip.ParsePrefix(prefixes[i])
+		b, _ := netip.ParsePrefix(prefixes[j])
+		if a.Addr().BitLen() != b.Addr().BitLen() {
+			return a.Addr().BitLen() < b.Addr().BitLen()
+		}
+		if a.Bits() != b.Bits() {
+			return a.Bits() < b.Bits()
+		}
+		return a.Addr().Less(b.Addr())
+	})
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return NewStore(tx).ReplaceIPPrefixes(ctx, id, prefixes) })
+	if err != nil {
+		return nil, err
+	}
+	return prefixes, nil
+}
+
 const setupAdvisoryLockKey int64 = 0x7067626173650003
 
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ$AnRqzUvZayQh6Siwo8bh8R9TAt8al8dpPzH25DzI5Tk"
@@ -35,6 +95,8 @@ const (
 type rateLimitBucket struct {
 	hash           []byte
 	limit          int
+	window         time.Duration
+	block          time.Duration
 	clearOnSuccess bool
 }
 
@@ -432,24 +494,25 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 		normalizedEmail = strings.ToLower(strings.TrimSpace(email))
 	}
 	now := s.clock.Now()
+	policy := s.currentRatePolicy()
 	emailBucket := rateLimitBucket{
 		hash:           rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail),
 		clearOnSuccess: true,
 	}
 	networkBucket := rateLimitBucket{
 		hash:  rateLimitSubjectHash(s.tokenSecret, "login", "network", subject),
-		limit: networkFailureLimit,
+		limit: policy.NetworkMaxFailures, window: policy.Window, block: policy.Block,
 	}
 	if err := s.admitRateLimit(ctx, []rateLimitBucket{networkBucket}, now); err != nil {
 		return Session{}, err
 	}
 	traceLogin(ctx, loginStageNetworkAdmission)
-	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now)
+	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now, policy.Window)
 	if err != nil {
 		return Session{}, err
 	}
 	traceLogin(ctx, loginStageFailureSignalRead)
-	if err := waitLoginFailureDelay(ctx, failures); err != nil {
+	if err := waitLoginFailureDelay(ctx, failures, policy.AccountMaxFailures); err != nil {
 		return Session{}, err
 	}
 	candidate, valid, err := s.verifyLoginCandidate(ctx, normalizedEmail, normalizationErr, password)
@@ -457,7 +520,7 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 		return Session{}, err
 	}
 	if !valid {
-		if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+		if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
 			return Session{}, err
 		}
 		traceLogin(ctx, loginStageFailureRecorded)
@@ -524,7 +587,7 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 	}
 	if operationErr != nil {
 		if errors.Is(operationErr, ErrInvalidCredentials) {
-			if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+			if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
 				return Session{}, err
 			}
 			traceLogin(ctx, loginStageFailureRecorded)
@@ -652,7 +715,7 @@ func (s *Service) verifyLoginCandidate(
 	return candidate, credentialShapeValid && verificationErr == nil, nil
 }
 
-func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now time.Time) (int, error) {
+func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now time.Time, window time.Duration) (int, error) {
 	failures := 0
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
@@ -660,32 +723,36 @@ func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now t
 			return err
 		}
 		var err error
-		failures, err = store.RateLimitFailures(ctx, emailHash, now)
+		failures, err = store.RateLimitFailures(ctx, emailHash, now, window)
 		return err
 	})
 	return failures, err
 }
 
-func (s *Service) recordLoginFailure(ctx context.Context, emailHash []byte, now time.Time) error {
+func (s *Service) recordLoginFailure(ctx context.Context, emailHash []byte, now time.Time, window time.Duration) error {
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
 		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
 			return err
 		}
-		return store.RecordRateLimitSignal(ctx, emailHash, now)
+		return store.RecordRateLimitSignal(ctx, emailHash, now, window)
 	})
 }
 
-func waitLoginFailureDelay(ctx context.Context, failures int) error {
+func waitLoginFailureDelay(ctx context.Context, failures int, maximums ...int) error {
+	maximum := accountFailureLimit
+	if len(maximums) == 1 {
+		maximum = maximums[0]
+	}
 	var delay time.Duration
 	switch {
-	case failures >= 5:
+	case failures >= maximum:
 		delay = time.Second
 		traceLogin(ctx, loginStageDelay1S)
-	case failures == 4:
+	case failures > 0 && failures == maximum-1:
 		delay = 500 * time.Millisecond
 		traceLogin(ctx, loginStageDelay500MS)
-	case failures == 3:
+	case failures > 0 && failures == maximum-2:
 		delay = 250 * time.Millisecond
 		traceLogin(ctx, loginStageDelay250MS)
 	default:
@@ -755,7 +822,7 @@ func rateLimitBlocked(ctx context.Context, store *Store, buckets []rateLimitBuck
 
 func recordRateLimitAttempt(ctx context.Context, store *Store, buckets []rateLimitBucket, now time.Time) error {
 	for _, bucket := range buckets {
-		if _, err := store.RecordRateLimitFailure(ctx, bucket.hash, now, bucket.limit); err != nil {
+		if _, err := store.RecordRateLimitFailure(ctx, bucket.hash, now, bucket.limit, bucket.window, bucket.block); err != nil {
 			return err
 		}
 	}

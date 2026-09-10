@@ -17,6 +17,51 @@ type Store struct {
 
 func NewStore(db database.DBTX) *Store { return &Store{db: db} }
 
+func (s *Store) AdministratorByID(ctx context.Context, id uuid.UUID) (Administrator, error) {
+	var administrator Administrator
+	err := s.db.QueryRow(ctx, `select id,email,active,created_at,updated_at from pgbase_meta.admins where id=$1 and active`, id).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("read administrator: %w", err)
+	}
+	return administratorUTC(administrator), nil
+}
+
+func (s *Store) UpdateAdministratorEmail(ctx context.Context, id uuid.UUID, email string, now time.Time) (Administrator, error) {
+	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return Administrator{}, err
+	}
+	var administrator Administrator
+	err = s.db.QueryRow(ctx, `update pgbase_meta.admins set email=$2,updated_at=$3 where id=$1 and active returning id,email,active,created_at,updated_at`, id, normalized, now).Scan(
+		&administrator.ID, &administrator.Email, &administrator.Active, &administrator.CreatedAt, &administrator.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Administrator{}, ErrInvalidCredentials
+	}
+	if database.Classify(err) == database.KindConflict {
+		return Administrator{}, ErrConflict
+	}
+	if err != nil {
+		return Administrator{}, fmt.Errorf("update administrator email: %w", err)
+	}
+	return administratorUTC(administrator), nil
+}
+
+func (s *Store) ReplaceIPPrefixes(ctx context.Context, administratorID uuid.UUID, prefixes []string) error {
+	if _, err := s.db.Exec(ctx, `delete from pgbase_meta.admin_ip_allowlist where administrator_id=$1`, administratorID); err != nil {
+		return fmt.Errorf("replace administrator IP prefixes: %w", err)
+	}
+	for _, prefix := range prefixes {
+		if err := s.AddIPPrefix(ctx, administratorID, prefix); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) AdministratorCount(ctx context.Context) (int, error) {
 	var count int
 	if err := s.db.QueryRow(ctx, "select count(*) from pgbase_meta.admins").Scan(&count); err != nil {
@@ -352,15 +397,19 @@ func (s *Store) administratorByEmail(ctx context.Context, email string, forUpdat
 
 // RateLimitFailures returns the current-window signal without interpreting it
 // as a pre-verification account block.
-func (s *Store) RateLimitFailures(ctx context.Context, subjectHash []byte, now time.Time) (int, error) {
+func (s *Store) RateLimitFailures(ctx context.Context, subjectHash []byte, now time.Time, windows ...time.Duration) (int, error) {
+	window := 15 * time.Minute
+	if len(windows) == 1 {
+		window = windows[0]
+	}
 	var failures int
 	err := s.db.QueryRow(ctx, `
 		select case
-			when window_started_at > $2::timestamptz - interval '15 minutes' then failures
+			when window_started_at > $2::timestamptz - make_interval(secs=>$3) then failures
 			else 0
 		end
 		from pgbase_meta.admin_rate_limits
-		where subject_hash = $1`, subjectHash, now).Scan(&failures)
+		where subject_hash = $1`, subjectHash, now, int64(window.Seconds())).Scan(&failures)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -372,22 +421,26 @@ func (s *Store) RateLimitFailures(ctx context.Context, subjectHash []byte, now t
 
 // RecordRateLimitSignal records a post-verification failure. Email-scoped
 // history drives bounded delay and alerting only, never a hard rejection.
-func (s *Store) RecordRateLimitSignal(ctx context.Context, subjectHash []byte, now time.Time) error {
+func (s *Store) RecordRateLimitSignal(ctx context.Context, subjectHash []byte, now time.Time, windows ...time.Duration) error {
+	window := 15 * time.Minute
+	if len(windows) == 1 {
+		window = windows[0]
+	}
 	_, err := s.db.Exec(ctx, `
 		insert into pgbase_meta.admin_rate_limits as limits
 			(subject_hash, window_started_at, failures, blocked_until, updated_at)
 		values ($1, $2, 1, null, $2)
 		on conflict (subject_hash) do update set
 			window_started_at = case
-				when limits.window_started_at <= $2 - interval '15 minutes' then $2
+				when limits.window_started_at <= $2 - make_interval(secs=>$3) then $2
 				else limits.window_started_at
 			end,
 			failures = case
-				when limits.window_started_at <= $2 - interval '15 minutes' then 1
+				when limits.window_started_at <= $2 - make_interval(secs=>$3) then 1
 				else limits.failures + 1
 			end,
 			blocked_until = null,
-			updated_at = $2`, subjectHash, now)
+			updated_at = $2`, subjectHash, now, int64(window.Seconds()))
 	if err != nil {
 		return fmt.Errorf("record administrator rate-limit signal: %w", err)
 	}
@@ -488,8 +541,12 @@ func (s *Store) RateLimitBlocked(ctx context.Context, subjectHash []byte, now ti
 
 // RecordRateLimitFailure atomically adds a failure and starts a block when the
 // caller-supplied threshold is reached.
-func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, now time.Time, limit int) (bool, error) {
-	if limit <= 0 {
+func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, now time.Time, limit int, durations ...time.Duration) (bool, error) {
+	window, block := 15*time.Minute, 15*time.Minute
+	if len(durations) == 2 {
+		window, block = durations[0], durations[1]
+	}
+	if limit <= 0 || window <= 0 || block <= 0 {
 		return false, fmt.Errorf("record administrator rate-limit failure: invalid limit")
 	}
 	var blocked bool
@@ -499,20 +556,20 @@ func (s *Store) RecordRateLimitFailure(ctx context.Context, subjectHash []byte, 
 		values ($1, $2, 1, null, $2)
 		on conflict (subject_hash) do update set
 			window_started_at = case
-				when limits.window_started_at <= $2 - interval '15 minutes' then $2
+				when limits.window_started_at <= $2 - make_interval(secs=>$4) then $2
 				else limits.window_started_at
 			end,
 			failures = case
-				when limits.window_started_at <= $2 - interval '15 minutes' then 1
+				when limits.window_started_at <= $2 - make_interval(secs=>$4) then 1
 				else limits.failures + 1
 			end,
 			blocked_until = case
-				when (case when limits.window_started_at <= $2 - interval '15 minutes' then 1 else limits.failures + 1 end) >= $3
-				then greatest(coalesce(limits.blocked_until, '-infinity'::timestamptz), $2 + interval '15 minutes')
+				when (case when limits.window_started_at <= $2 - make_interval(secs=>$4) then 1 else limits.failures + 1 end) >= $3
+				then greatest(coalesce(limits.blocked_until, '-infinity'::timestamptz), $2 + make_interval(secs=>$5))
 				else null
 			end,
 			updated_at = $2
-		returning failures >= $3`, subjectHash, now, limit).Scan(&blocked)
+		returning failures >= $3`, subjectHash, now, limit, int64(window.Seconds()), int64(block.Seconds())).Scan(&blocked)
 	if err != nil {
 		return false, fmt.Errorf("record administrator rate-limit failure: %w", err)
 	}

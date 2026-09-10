@@ -48,12 +48,30 @@ type Application struct {
 	Accent   string `json:"accent"`
 	Branding string `json:"branding"`
 }
+type AuthRatePolicy struct {
+	AccountMaxFailures int `json:"accountMaxFailures"`
+	NetworkMaxFailures int `json:"networkMaxFailures"`
+	WindowSeconds      int `json:"windowSeconds"`
+	BlockSeconds       int `json:"blockSeconds"`
+}
+type UserRatePolicy struct {
+	AccountMaxFailures             int `json:"accountMaxFailures"`
+	NetworkMaxFailures             int `json:"networkMaxFailures"`
+	RegistrationNetworkMaxFailures int `json:"registrationNetworkMaxFailures"`
+	WindowSeconds                  int `json:"windowSeconds"`
+	BlockSeconds                   int `json:"blockSeconds"`
+}
+type RateLimits struct {
+	Admin AuthRatePolicy `json:"admin"`
+	User  UserRatePolicy `json:"user"`
+}
 type Settings struct {
 	Batch       Batch       `json:"batch"`
 	Logs        Logs        `json:"logs"`
 	Proxy       Proxy       `json:"proxy"`
 	Backups     Backups     `json:"backups"`
 	Application Application `json:"application"`
+	RateLimits  RateLimits  `json:"rateLimits"`
 	Revision    int64       `json:"revision"`
 }
 
@@ -62,7 +80,7 @@ type Settings struct {
 const MaximumBatchBodyBytes int64 = 148<<20 + 4<<10
 
 func Default() Settings {
-	return Settings{Batch: Batch{Enabled: true, MaxRequests: 50, MaxBodyBytes: MaximumBatchBodyBytes, TimeoutMS: 30000}, Logs: Logs{RetentionDays: 7, Level: "info"}, Backups: Backups{Schedule: "@every 24h", Timezone: "UTC"}, Application: Application{Theme: "system"}}
+	return Settings{Batch: Batch{Enabled: true, MaxRequests: 50, MaxBodyBytes: MaximumBatchBodyBytes, TimeoutMS: 30000}, Logs: Logs{RetentionDays: 7, Level: "info"}, Backups: Backups{Schedule: "@every 24h", Timezone: "UTC"}, Application: Application{Theme: "system"}, RateLimits: RateLimits{Admin: AuthRatePolicy{AccountMaxFailures: 5, NetworkMaxFailures: 20, WindowSeconds: 900, BlockSeconds: 900}, User: UserRatePolicy{AccountMaxFailures: 5, NetworkMaxFailures: 20, RegistrationNetworkMaxFailures: 5, WindowSeconds: 900, BlockSeconds: 900}}}
 }
 
 func validate(v Settings) error {
@@ -76,6 +94,9 @@ func validate(v Settings) error {
 		return ErrInvalid
 	}
 	if v.Application.Theme != "system" && v.Application.Theme != "light" && v.Application.Theme != "dark" {
+		return ErrInvalid
+	}
+	if v.RateLimits.Admin.AccountMaxFailures < 1 || v.RateLimits.Admin.AccountMaxFailures > 10000 || v.RateLimits.Admin.NetworkMaxFailures < 1 || v.RateLimits.Admin.NetworkMaxFailures > 10000 || v.RateLimits.Admin.WindowSeconds < 1 || v.RateLimits.Admin.WindowSeconds > 86400 || v.RateLimits.Admin.BlockSeconds < 1 || v.RateLimits.Admin.BlockSeconds > 604800 || v.RateLimits.User.AccountMaxFailures < 1 || v.RateLimits.User.AccountMaxFailures > 10000 || v.RateLimits.User.NetworkMaxFailures < 1 || v.RateLimits.User.NetworkMaxFailures > 10000 || v.RateLimits.User.RegistrationNetworkMaxFailures < 1 || v.RateLimits.User.RegistrationNetworkMaxFailures > 10000 || v.RateLimits.User.WindowSeconds < 1 || v.RateLimits.User.WindowSeconds > 86400 || v.RateLimits.User.BlockSeconds < 1 || v.RateLimits.User.BlockSeconds > 604800 {
 		return ErrInvalid
 	}
 	for _, raw := range v.Proxy.TrustedProxyCIDRs {
@@ -131,7 +152,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
 	var ciphertext, legacy []byte
-	var v Settings
+	v := Default()
 	var revision int64
 	if err := c.pool.QueryRow(ctx, `select document_ciphertext,document,revision from pgbase_meta.runtime_settings where singleton`).Scan(&ciphertext, &legacy, &revision); err != nil {
 		return err
