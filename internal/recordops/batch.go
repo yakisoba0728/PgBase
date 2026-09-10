@@ -9,7 +9,9 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
-const maximumBatchOperations = 50
+// HTTP admission applies the published operator limit (50 by default).
+// The transaction kernel must accommodate the full supported setting range.
+const maximumBatchOperations = 100
 
 // Match the escaped record-page budget. The HTTP layer reserves a further
 // 32 KiB for event IDs, ETags, versions and the outer JSON envelope.

@@ -25,7 +25,7 @@ import (
 )
 
 const maximumBatchRequestBytes = maximumRecordRequestBytes
-const maximumMultipartBatchRequestBytes = (100 << 20) + maximumBatchRequestBytes
+const maximumMultipartBatchRequestBytes = runtimesettings.MaximumBatchBodyBytes
 
 type batchRecordService interface {
 	Batch(context.Context, recordops.BatchRequest) ([]recordops.MutationResult, error)
@@ -71,8 +71,9 @@ type batchOperationInput struct {
 // batch is shared by administrator and public-user routes. The router applies
 // each route's normal principal middleware before entering this handler.
 func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
+	settings := runtimesettings.Default().Batch
 	if e.settings != nil {
-		settings := e.settings.Get().Batch
+		settings = e.settings.Get().Batch
 		if !settings.Enabled {
 			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "batch_disabled", Message: "Batch requests are disabled"})
 			return
@@ -98,11 +99,11 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	limit := int64(maximumBatchRequestBytes)
-	if e.settings != nil {
-		limit = e.settings.Get().Batch.MaxBodyBytes
-	}
 	if media == "multipart/form-data" {
 		limit = maximumMultipartBatchRequestBytes
+	}
+	if e.settings != nil {
+		limit = settings.MaxBodyBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if r.ContentLength > limit {
@@ -114,10 +115,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input, staged, err := e.decodeBatch(r, principal)
-	maximumRequests := 50
-	if e.settings != nil {
-		maximumRequests = e.settings.Get().Batch.MaxRequests
-	}
+	maximumRequests := settings.MaxRequests
 	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())

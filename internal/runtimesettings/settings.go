@@ -57,12 +57,16 @@ type Settings struct {
 	Revision    int64       `json:"revision"`
 }
 
+// MaximumBatchBodyBytes preserves the existing 100 MiB file plus 48 MiB
+// escaped record document allowance, including the JSON framing reserve.
+const MaximumBatchBodyBytes int64 = 148<<20 + 4<<10
+
 func Default() Settings {
-	return Settings{Batch: Batch{Enabled: true, MaxRequests: 50, MaxBodyBytes: 1 << 20, TimeoutMS: 30000}, Logs: Logs{RetentionDays: 7, Level: "info"}, Backups: Backups{Schedule: "@every 24h", Timezone: "UTC"}, Application: Application{Theme: "system"}}
+	return Settings{Batch: Batch{Enabled: true, MaxRequests: 50, MaxBodyBytes: MaximumBatchBodyBytes, TimeoutMS: 30000}, Logs: Logs{RetentionDays: 7, Level: "info"}, Backups: Backups{Schedule: "@every 24h", Timezone: "UTC"}, Application: Application{Theme: "system"}}
 }
 
 func validate(v Settings) error {
-	if v.Batch.MaxRequests < 1 || v.Batch.MaxRequests > 100 || v.Batch.MaxBodyBytes < 1024 || v.Batch.MaxBodyBytes > 100<<20 || v.Batch.TimeoutMS < 100 || v.Batch.TimeoutMS > 300000 {
+	if v.Batch.MaxRequests < 1 || v.Batch.MaxRequests > 100 || v.Batch.MaxBodyBytes < 1024 || v.Batch.MaxBodyBytes > MaximumBatchBodyBytes || v.Batch.TimeoutMS < 100 || v.Batch.TimeoutMS > 300000 {
 		return ErrInvalid
 	}
 	if v.Logs.RetentionDays < 1 || v.Logs.RetentionDays > 3650 || (v.Logs.Level != "debug" && v.Logs.Level != "info" && v.Logs.Level != "warn" && v.Logs.Level != "error") {
