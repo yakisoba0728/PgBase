@@ -323,8 +323,8 @@ export declare class AuthRealm {
     }>;
     oauthWithBrowser(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, signal?: AbortSignal): Promise<UserSession>;
     oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
-    oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession>;
-    oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession>;
+    oauthComplete(provider: string, state: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
+    oauthCompleteFromURL(provider: string, callbackURL: string | URL, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
 }
 export declare class OAuthCallbackError extends Error {
     readonly code: string;

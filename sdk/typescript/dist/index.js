@@ -561,9 +561,9 @@ export class AuthRealm {
         }
     }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-    async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
+    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code }) }, requestSignal); if (session.token && session.user && generation === this.client.auth.generation)
         this.client.auth.save(session.token, session.user); return session; }
-    oauthCompleteFromURL(provider, callbackURL, signal) {
+    oauthCompleteFromURL(provider, callbackURL, options, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
         const providerError = url.searchParams.get("error");
         if (providerError)
@@ -572,7 +572,7 @@ export class AuthRealm {
         const code = url.searchParams.get("code");
         if (!state || !code)
             throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
-        return this.oauthComplete(provider, state, code, signal);
+        return this.oauthComplete(provider, state, code, options, signal);
     }
 }
 /** Refresh responses always contain a replacement token, unlike session reads. */

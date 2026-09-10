@@ -585,18 +585,18 @@ export class AuthRealm {
       const state = callback.searchParams.get("state"); const code = callback.searchParams.get("code");
       if (!state || !code) throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
       if (state !== expectedState) throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
-      return await this.oauthComplete(provider, state, code, signal);
+      return await this.oauthComplete(provider, state, code, signal) as UserSession;
     } finally { adapter.close?.(); }
   }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-  async oauthComplete(provider: string, state: string, code: string, signal?: AbortSignal): Promise<UserSession> { const generation = this.client.auth.generation; const session = await this.client._request<UserSession>("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
-  oauthCompleteFromURL(provider: string, callbackURL: string | URL, signal?: AbortSignal): Promise<UserSession> {
+  async oauthComplete(provider: string, state: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> { const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal); const generation = this.client.auth.generation; const session = await this.client._request<UserSession>(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code }) }, requestSignal); if (session.token && session.user && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
+  oauthCompleteFromURL(provider: string, callbackURL: string | URL, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
     const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
     const providerError = url.searchParams.get("error");
     if (providerError) throw new OAuthCallbackError(providerError, url.searchParams.get("error_description") ?? undefined);
     const state = url.searchParams.get("state"); const code = url.searchParams.get("code");
     if (!state || !code) throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
-    return this.oauthComplete(provider, state, code, signal);
+    return this.oauthComplete(provider, state, code, options, signal);
   }
 }
 

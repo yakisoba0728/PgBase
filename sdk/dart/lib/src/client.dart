@@ -383,6 +383,7 @@ final class PgBaseClient {
   Future<UserSession> oauthCompleteFromUri(
     String provider,
     Uri callback, {
+    String? fields,
     CancellationToken? cancellation,
   }) {
     final error = callback.queryParameters['error'];
@@ -400,7 +401,13 @@ final class PgBaseClient {
         'The OAuth callback is missing state or code.',
       );
     }
-    return oauthComplete(provider, state, code, cancellation: cancellation);
+    return oauthComplete(
+      provider,
+      state,
+      code,
+      fields: fields,
+      cancellation: cancellation,
+    );
   }
 
   Future<JsonValue> request(
@@ -767,10 +774,12 @@ final class AuthRealm {
   Future<UserSession> oauthCompleteFromUri(
     String provider,
     Uri callback, {
+    String? fields,
     CancellationToken? cancellation,
   }) => client.oauthCompleteFromUri(
     provider,
     callback,
+    fields: fields,
     cancellation: cancellation,
   );
 
