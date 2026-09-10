@@ -9,6 +9,10 @@ type PocketBaseRules struct {
 }
 
 func FromPocketBaseRules(r PocketBaseRules) (Rules, error) {
+	return FromPocketBaseRulesParsed(r, nil)
+}
+
+func FromPocketBaseRulesParsed(r PocketBaseRules, parse func(string) (Rule, error)) (Rules, error) {
 	convert := func(value *string) (Rule, error) {
 		if value == nil {
 			return Rule{Op: "deny"}, nil
@@ -17,7 +21,11 @@ func FromPocketBaseRules(r PocketBaseRules) (Rules, error) {
 			return Rule{Op: "allow"}, nil
 		}
 		if *value == "@request.auth.id != ''" {
-			return Rule{Op: "authenticated"}, nil
+			copy := *value
+			return Rule{Op: "authenticated", PocketBase: &copy}, nil
+		}
+		if parse != nil {
+			return parse(*value)
 		}
 		return Rule{}, ErrInvalid
 	}
@@ -35,6 +43,10 @@ func FromPocketBaseRules(r PocketBaseRules) (Rules, error) {
 
 func (r Rules) PocketBase() PocketBaseRules {
 	convert := func(rule Rule) *string {
+		if rule.PocketBase != nil {
+			value := *rule.PocketBase
+			return &value
+		}
 		value := ""
 		switch rule.Op {
 		case "allow":

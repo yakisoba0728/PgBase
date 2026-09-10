@@ -21,11 +21,13 @@ import (
 var ErrInvalid = errors.New("invalid record access rule")
 
 type Rule struct {
-	Op    string          `json:"op"`
-	Args  []Rule          `json:"args,omitempty"`
-	Field string          `json:"field,omitempty"`
-	Value json.RawMessage `json:"value,omitempty"`
-	Auth  string          `json:"auth,omitempty"`
+	Op         string          `json:"op"`
+	Args       []Rule          `json:"args,omitempty"`
+	Field      string          `json:"field,omitempty"`
+	OtherField string          `json:"otherField,omitempty"`
+	Value      json.RawMessage `json:"value,omitempty"`
+	Auth       string          `json:"auth,omitempty"`
+	PocketBase *string         `json:"pocketbase,omitempty"`
 }
 
 type Rules struct {
@@ -118,8 +120,8 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 		return "", ErrInvalid
 	}
 	switch rule.Op {
-	case "allow", "deny", "owner", "authenticated":
-		if len(rule.Args) > 0 || rule.Field != "" || len(rule.Value) > 0 || rule.Auth != "" {
+	case "allow", "deny", "owner", "authenticated", "unauthenticated":
+		if len(rule.Args) > 0 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" {
 			return "", ErrInvalid
 		}
 		switch rule.Op {
@@ -129,6 +131,8 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			return "FALSE", nil
 		case "authenticated":
 			return c.parameter(c.principal.Kind == identity.User || c.principal.Kind == identity.Administrator || string(c.principal.Kind) == "service"), nil
+		case "unauthenticated":
+			return c.parameter(c.principal.Kind != identity.User && c.principal.Kind != identity.Administrator && string(c.principal.Kind) != "service"), nil
 		case "owner":
 			if c.principal.Kind != identity.User {
 				return "FALSE", nil
@@ -142,7 +146,7 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			return "EXISTS (SELECT 1 FROM pgbase_meta.record_owners acl_owner WHERE acl_owner.collection_id=" + c.parameter(c.collection.ID) + " AND acl_owner.record_id=" + c.alias + `."id" AND acl_owner.user_id=` + c.parameter(c.principal.ID) + ")", nil
 		}
 	case "all", "any":
-		if len(rule.Args) < 1 || len(rule.Args) > 16 || rule.Field != "" || len(rule.Value) > 0 || rule.Auth != "" {
+		if len(rule.Args) < 1 || len(rule.Args) > 16 || rule.Field != "" || rule.OtherField != "" || len(rule.Value) > 0 || rule.Auth != "" {
 			return "", ErrInvalid
 		}
 		parts := make([]string, 0, len(rule.Args))
@@ -159,7 +163,17 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 		}
 		return "(" + strings.Join(parts, operator) + ")", nil
 	case "eq", "ne", "lt", "lte", "gt", "gte":
-		if len(rule.Args) != 0 || rule.Field == "" || (len(rule.Value) > 0) == (rule.Auth != "") {
+		rhsCount := 0
+		if len(rule.Value) > 0 {
+			rhsCount++
+		}
+		if rule.Auth != "" {
+			rhsCount++
+		}
+		if rule.OtherField != "" {
+			rhsCount++
+		}
+		if len(rule.Args) != 0 || rule.Field == "" || rhsCount != 1 {
 			return "", ErrInvalid
 		}
 		column, fieldType, err := c.field(rule.Field)
@@ -171,7 +185,13 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			return "", ErrInvalid
 		}
 		var rhs string
-		if rule.Auth != "" {
+		if rule.OtherField != "" {
+			other, otherType, otherErr := c.field(rule.OtherField)
+			if otherErr != nil || otherType != fieldType {
+				return "", ErrInvalid
+			}
+			rhs = other
+		} else if rule.Auth != "" {
 			switch rule.Auth {
 			case "id":
 				if fieldType != schema.TypeUUID {

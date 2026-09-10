@@ -32,3 +32,11 @@ func TestPocketBaseRulesRejectUnsupportedText(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestPocketBaseRulesParsedPreserveExactValidatedText(t *testing.T) {
+	source := " title = null || title = '' "
+	rules, err := FromPocketBaseRulesParsed(PocketBaseRules{List: &source}, func(text string) (Rule, error) { return Rule{Op: "allow", PocketBase: &text}, nil })
+	if err != nil || rules.PocketBase().List == nil || *rules.PocketBase().List != source {
+		t.Fatalf("rules=%#v err=%v", rules, err)
+	}
+}

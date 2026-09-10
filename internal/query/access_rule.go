@@ -1,0 +1,166 @@
+package query
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
+)
+
+const pocketBaseAuthID = "__pgbase_pb_auth_id"
+
+// ParsePocketBaseAccessRule reuses the bounded record-filter grammar and
+// projects its dependency-free result into the persisted access-rule AST.
+// Catalog field types remain enforced by accessrule.Compile before storage.
+func ParsePocketBaseAccessRule(expression string) (accessrule.Rule, error) {
+	normalized, ok := normalizePocketBaseRuleReferences(expression)
+	if !ok {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	node, err := parseFilterRequest(normalized)
+	if err != nil || node == nil {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	rule, err := accessRuleNode(node)
+	if err != nil {
+		return accessrule.Rule{}, err
+	}
+	source := expression
+	rule.PocketBase = &source
+	return rule, nil
+}
+
+func normalizePocketBaseRuleReferences(input string) (string, bool) {
+	var out strings.Builder
+	for i := 0; i < len(input); {
+		if input[i] == '\'' {
+			start := i
+			i++
+			for i < len(input) {
+				if input[i] == '\'' {
+					i++
+					if i < len(input) && input[i] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+			if i > len(input) || input[i-1] != '\'' {
+				return "", false
+			}
+			out.WriteString(input[start:i])
+			continue
+		}
+		switch {
+		case strings.HasPrefix(input[i:], "@request.auth.id"):
+			out.WriteString(pocketBaseAuthID)
+			i += len("@request.auth.id")
+		case strings.HasPrefix(input[i:], "@request.body."):
+			i += len("@request.body.")
+		default:
+			out.WriteByte(input[i])
+			i++
+		}
+	}
+	return out.String(), true
+}
+
+func accessRuleNode(node filterNode) (accessrule.Rule, error) {
+	switch value := node.(type) {
+	case filterAnd:
+		args := make([]accessrule.Rule, len(value.children))
+		for i, child := range value.children {
+			converted, err := accessRuleNode(child)
+			if err != nil {
+				return accessrule.Rule{}, err
+			}
+			args[i] = converted
+		}
+		return accessrule.Rule{Op: "all", Args: args}, nil
+	case filterOr:
+		args := make([]accessrule.Rule, len(value.children))
+		for i, child := range value.children {
+			converted, err := accessRuleNode(child)
+			if err != nil {
+				return accessrule.Rule{}, err
+			}
+			args[i] = converted
+		}
+		return accessrule.Rule{Op: "any", Args: args}, nil
+	case filterComparison:
+		return accessRuleComparison(value)
+	default:
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+}
+
+func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
+	op, ok := map[string]string{"=": "eq", "!=": "ne", "<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}[value.operator]
+	if !ok {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	field := joinRuleField(value.field, value.modifier)
+	if value.otherField != "" {
+		other := joinRuleField(value.otherField, value.otherModifier)
+		if field == pocketBaseAuthID {
+			field, other, op = other, field, flipRuleOp(op)
+		}
+		if other == pocketBaseAuthID {
+			return accessrule.Rule{Op: op, Field: field, Auth: "id"}, nil
+		}
+		return accessrule.Rule{Op: op, Field: field, OtherField: other}, nil
+	}
+	if field == pocketBaseAuthID {
+		if value.value.kind != filterLiteralString || value.value.text != "" {
+			return accessrule.Rule{}, accessrule.ErrInvalid
+		}
+		if op == "ne" {
+			return accessrule.Rule{Op: "authenticated"}, nil
+		}
+		if op == "eq" {
+			return accessrule.Rule{Op: "unauthenticated"}, nil
+		}
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	var literal any
+	switch value.value.kind {
+	case filterLiteralString:
+		literal = value.value.text
+	case filterLiteralNumber:
+		literal = json.Number(value.value.text)
+	case filterLiteralBool:
+		literal = value.value.bool
+	case filterLiteralNull:
+		literal = nil
+	default:
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	raw, err := json.Marshal(literal)
+	if err != nil {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
+	return accessrule.Rule{Op: op, Field: field, Value: raw}, nil
+}
+
+func joinRuleField(field, modifier string) string {
+	if modifier == "" {
+		return field
+	}
+	return field + ":" + modifier
+}
+func flipRuleOp(op string) string {
+	switch op {
+	case "lt":
+		return "gt"
+	case "lte":
+		return "gte"
+	case "gt":
+		return "lt"
+	case "gte":
+		return "lte"
+	default:
+		return op
+	}
+}

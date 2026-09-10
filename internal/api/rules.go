@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 )
 
@@ -34,7 +35,7 @@ func ruleRoutes(dependencies Dependencies) []route {
 					writeRuleError(w, r, accessrule.ErrInvalid)
 					return
 				}
-				rules, parseErr := accessrule.FromPocketBaseRules(input.Rules)
+				rules, parseErr := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParsePocketBaseAccessRule)
 				if parseErr != nil {
 					writeRuleError(w, r, parseErr)
 					return
