@@ -46,6 +46,28 @@ func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
 	}
 }
 
+func TestRotateRuntimeSettingsEncryptionKeySurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	firstKey := []byte("runtime-settings-encryption-key-a")
+	secondKey := []byte("runtime-settings-encryption-key-b")
+	app, err := New(ctx, Options{DatabaseURL: databaseURL, TokenSecret: make([]byte, 32), RuntimeSettingsEncryptionKey: firstKey, AutoMigrate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.RotateRuntimeSettingsEncryptionKey(ctx, secondKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(ctx, Options{DatabaseURL: databaseURL, TokenSecret: make([]byte, 32), RuntimeSettingsEncryptionKey: secondKey, AutoMigrate: true})
+	if err != nil {
+		t.Fatalf("restart with rotated key: %v", err)
+	}
+	t.Cleanup(func() { _ = restarted.Close(context.Background()) })
+}
+
 func TestMetricsEndpointIsOptInAndBearerProtected(t *testing.T) {
 	newApp := func(t *testing.T, metricsToken []byte) *App {
 		t.Helper()

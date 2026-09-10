@@ -324,6 +324,7 @@ func newWithCatalogPreflight(
 		options:               normalized,
 		backupManager:         backupManager,
 		requestLog:            dependencies.RequestLog,
+		runtimeSettings:       runtimeSettings,
 		pool:                  pool,
 		backupGate:            gate,
 		handler:               handler,

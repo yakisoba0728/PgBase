@@ -88,12 +88,13 @@ func validate(v Settings) error {
 }
 
 type Controller struct {
-	pool      *database.Pool
-	key       [32]byte
-	mu        sync.RWMutex
-	notifyMu  sync.Mutex
-	value     Settings
-	listeners []func(Settings)
+	pool       *database.Pool
+	key        [32]byte
+	ciphertext []byte // ciphertext for the locally published snapshot
+	mu         sync.RWMutex
+	notifyMu   sync.Mutex
+	value      Settings
+	listeners  []func(Settings)
 }
 
 const encryptionDomain = "pgbase-runtime-settings-v1"
@@ -143,7 +144,8 @@ func (c *Controller) Reload(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null`, ciphertext); err != nil {
+		_, err = c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null and document=$2::jsonb and revision=$3`, ciphertext, string(legacy), revision)
+		if err != nil {
 			return err
 		}
 		// A concurrent process may have completed the one-time conversion with a
@@ -171,6 +173,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 		return nil
 	}
 	c.value = clone(v)
+	c.ciphertext = append(c.ciphertext[:0], ciphertext...)
 	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
 	for _, listener := range listeners {
@@ -185,6 +188,7 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
 	current := c.Get()
+	currentCiphertext := append([]byte(nil), c.ciphertext...)
 	if candidate.Revision != current.Revision {
 		return Settings{}, ErrConflict
 	}
@@ -201,7 +205,7 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 		return Settings{}, err
 	}
 	var next int64
-	err = c.pool.QueryRow(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null,revision=revision+1,updated_at=now() where singleton and revision=$2 returning revision`, ciphertext, current.Revision).Scan(&next)
+	err = c.pool.QueryRow(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null,revision=revision+1,updated_at=now() where singleton and revision=$2 and document_ciphertext=$3 returning revision`, ciphertext, current.Revision, currentCiphertext).Scan(&next)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Settings{}, ErrConflict
@@ -212,6 +216,7 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	c.mu.Lock()
 	if candidate.Revision >= c.value.Revision {
 		c.value = clone(candidate)
+		c.ciphertext = append(c.ciphertext[:0], ciphertext...)
 	}
 	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
@@ -232,6 +237,7 @@ func (c *Controller) RotateKey(ctx context.Context, encryptionKey []byte) error 
 	defer c.notifyMu.Unlock()
 	nextKey := deriveKey(encryptionKey)
 	oldKey := c.key
+	var reencrypted []byte
 	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var ciphertext []byte
 		if err := tx.QueryRow(ctx, `select document_ciphertext from pgbase_meta.runtime_settings where singleton for update`).Scan(&ciphertext); err != nil {
@@ -242,7 +248,7 @@ func (c *Controller) RotateKey(ctx context.Context, encryptionKey []byte) error 
 			return fmt.Errorf("decrypt runtime settings for rotation: %w", err)
 		}
 		c.key = nextKey
-		reencrypted, err := c.encrypt(raw)
+		reencrypted, err = c.encrypt(raw)
 		c.key = oldKey
 		if err != nil {
 			return err
@@ -254,6 +260,7 @@ func (c *Controller) RotateKey(ctx context.Context, encryptionKey []byte) error 
 	})
 	if err == nil {
 		c.key = nextKey
+		c.ciphertext = append(c.ciphertext[:0], reencrypted...)
 	}
 	return err
 }

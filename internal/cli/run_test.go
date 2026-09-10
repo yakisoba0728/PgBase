@@ -24,6 +24,24 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestServeSelectsEncryptionEnvironmentWithoutLeakingItsValue(t *testing.T) {
+	const keyValue = "not-base64-secret-value"
+	env := func(key string) (string, bool) {
+		values := map[string]string{
+			"PGBASE_DATABASE_URL": "postgres://postgres:postgres@localhost/pgbase",
+			"PGBASE_TOKEN_SECRET": base64.StdEncoding.EncodeToString(make([]byte, 32)),
+			"OPERATOR_KEY":        keyValue,
+		}
+		value, ok := values[key]
+		return value, ok
+	}
+	var stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"serve", "--encryption-env", "OPERATOR_KEY"}, env, testIO(nil, io.Discard, &stderr))
+	if code != 2 || strings.Contains(stderr.String(), keyValue) {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRunTreatsDiagnosticWriteFailureAsOperationalFailure(t *testing.T) {
 	code := Execute(context.Background(), nil, emptyEnv, testIO(nil, io.Discard, failingWriter{}))
 	if code != 1 {

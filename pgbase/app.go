@@ -14,6 +14,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
@@ -23,6 +24,7 @@ type App struct {
 	schemaCache            *schema.Cache
 	backupManager          *backup.Manager
 	requestLog             *observability.RequestLog
+	runtimeSettings        *runtimesettings.Controller
 	options                Options
 	pool                   *database.Pool
 	backupGate             *database.BackupGate

@@ -175,10 +175,19 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 	publicDir := flags.String("public-dir", "", "")
 	publicSPAFallback := flags.Bool("public-spa-fallback", false, "")
 	javaScriptDirectory := flags.String("js-dir", "", "")
+	encryptionEnv := flags.String("encryption-env", "", "")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR]"}
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR] [--encryption-env NAME]"}
 	}
-	options, err := config.LoadEnv(env)
+	var options pgbase.Options
+	var err error
+	encryptionEnvSet := false
+	flags.Visit(func(item *flag.Flag) { encryptionEnvSet = encryptionEnvSet || item.Name == "encryption-env" })
+	if encryptionEnvSet {
+		options, err = config.LoadEnvWithRuntimeSettingsEncryptionEnv(env, *encryptionEnv)
+	} else {
+		options, err = config.LoadEnv(env)
+	}
 	if err != nil {
 		return configurationError{err: err}
 	}

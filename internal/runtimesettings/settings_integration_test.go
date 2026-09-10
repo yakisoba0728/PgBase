@@ -140,3 +140,40 @@ func TestWrongKeyReloadPreservesPublishedSnapshot(t *testing.T) {
 		t.Fatalf("wrong-key reload changed published snapshot: got=%#v want=%#v", got, published)
 	}
 }
+
+func TestRotationRejectsStaleOldKeyUpdate(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	oldKey := bytes.Repeat([]byte("a"), 32)
+	newKey := bytes.Repeat([]byte("b"), 32)
+	rotating, err := New(ctx, pool, oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := New(ctx, pool, oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rotating.RotateKey(ctx, newKey); err != nil {
+		t.Fatal(err)
+	}
+	candidate := stale.Get()
+	candidate.Application.Branding = "must not overwrite rotated ciphertext"
+	if _, err := stale.Update(ctx, candidate); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale old-key update error = %v, want conflict", err)
+	}
+	rotated, err := New(ctx, pool, newKey)
+	if err != nil {
+		t.Fatalf("new-key restart failed after stale update: %v", err)
+	}
+	if got := rotated.Get(); got.Application.Branding != "" {
+		t.Fatalf("stale update overwrote rotated ciphertext: %#v", got)
+	}
+}
