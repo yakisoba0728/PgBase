@@ -156,13 +156,17 @@ func mustManagedURL(t *testing.T, value string) *url.URL {
 }
 
 func setupManagedAdmin(t *testing.T, origin, token string) (*http.Cookie, string) {
-	response := managedJSON[struct {
+	return setupManagedAdminWithClient(t, http.DefaultClient, origin, token)
+}
+
+func setupManagedAdminWithClient(t *testing.T, client *http.Client, origin, token string) (*http.Cookie, string) {
+	response := managedJSONWithClient[struct {
 		CSRFToken string `json:"csrfToken"`
-	}](t, http.MethodPost, origin+"/api/admin/setup", map[string]any{"setupToken": token, "email": "managed@example.com", "password": "managed-backup-password"}, nil, "", http.StatusCreated)
+	}](t, client, http.MethodPost, origin+"/api/admin/setup", map[string]any{"setupToken": token, "email": "managed@example.com", "password": "managed-backup-password"}, nil, "", http.StatusCreated)
 	request, _ := http.NewRequest(http.MethodPost, origin+"/api/admin/login", bytes.NewReader([]byte(`{"email":"managed@example.com","password":"managed-backup-password"}`)))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", origin)
-	result, err := http.DefaultClient.Do(request)
+	result, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +185,10 @@ func setupManagedAdmin(t *testing.T, origin, token string) (*http.Cookie, string
 }
 
 func managedJSON[T any](t *testing.T, method, path string, body any, cookie *http.Cookie, csrf string, want int, contentTypes ...string) T {
+	return managedJSONWithClient[T](t, http.DefaultClient, method, path, body, cookie, csrf, want, contentTypes...)
+}
+
+func managedJSONWithClient[T any](t *testing.T, client *http.Client, method, path string, body any, cookie *http.Cookie, csrf string, want int, contentTypes ...string) T {
 	t.Helper()
 	var raw []byte
 	var err error
@@ -194,7 +202,7 @@ func managedJSON[T any](t *testing.T, method, path string, body any, cookie *htt
 			}
 		}
 	}
-	response := managedBytes(t, method, path, raw, firstManaged(contentTypes), cookie, csrf, want)
+	response := managedBytesWithClient(t, client, method, path, raw, firstManaged(contentTypes), cookie, csrf, want)
 	var value T
 	if len(response) > 0 {
 		if err = json.Unmarshal(response, &value); err != nil {
@@ -204,6 +212,10 @@ func managedJSON[T any](t *testing.T, method, path string, body any, cookie *htt
 	return value
 }
 func managedBytes(t *testing.T, method, path string, body []byte, contentType string, cookie *http.Cookie, csrf string, want int) []byte {
+	return managedBytesWithClient(t, http.DefaultClient, method, path, body, contentType, cookie, csrf, want)
+}
+
+func managedBytesWithClient(t *testing.T, client *http.Client, method, path string, body []byte, contentType string, cookie *http.Cookie, csrf string, want int) []byte {
 	t.Helper()
 	request, err := http.NewRequest(method, path, bytes.NewReader(body))
 	if err != nil {
@@ -224,7 +236,7 @@ func managedBytes(t *testing.T, method, path string, body []byte, contentType st
 	if cookie != nil {
 		request.AddCookie(cookie)
 	}
-	result, err := http.DefaultClient.Do(request)
+	result, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,6 +265,10 @@ func firstManaged(values []string) string {
 	return ""
 }
 func waitManagedJob(t *testing.T, origin, id string, cookie *http.Cookie) backup.Job {
+	return waitManagedJobWithClient(t, http.DefaultClient, origin, id, cookie)
+}
+
+func waitManagedJobWithClient(t *testing.T, client *http.Client, origin, id string, cookie *http.Cookie) backup.Job {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	for {
@@ -261,7 +277,7 @@ func waitManagedJob(t *testing.T, origin, id string, cookie *http.Cookie) backup
 			t.Fatal(err)
 		}
 		request.AddCookie(cookie)
-		response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+		response, err := client.Do(request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -294,6 +310,10 @@ func waitManagedJob(t *testing.T, origin, id string, cookie *http.Cookie) backup
 }
 
 func waitManagedLive(t *testing.T, endpoint string, done <-chan error) {
+	waitManagedLiveWithClient(t, http.DefaultClient, endpoint, done)
+}
+
+func waitManagedLiveWithClient(t *testing.T, client *http.Client, endpoint string, done <-chan error) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -302,7 +322,7 @@ func waitManagedLive(t *testing.T, endpoint string, done <-chan error) {
 			t.Fatalf("managed host stopped before live: %v", err)
 		default:
 		}
-		response, err := http.Get(endpoint)
+		response, err := client.Get(endpoint)
 		if err == nil {
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {

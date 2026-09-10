@@ -94,18 +94,23 @@ func RunManaged(ctx context.Context, options Options) error {
 		return err
 	}
 	h.app = app
-	listener, err := net.Listen("tcp", normalized.HTTPAddress)
+	listener, err := net.Listen("tcp", managedListenAddress(normalized))
 	if err != nil {
 		_ = app.Close(context.Background())
 		return err
 	}
-	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+	server, serve := managedServer(app, h)
+	if err = h.startChallenge(app); err != nil {
+		_ = listener.Close()
+		_ = app.Close(context.Background())
+		return fmt.Errorf("listen for ACME HTTP challenge: %w", err)
+	}
 	served := make(chan error, 1)
-	go func() { served <- server.Serve(listener) }()
+	go func() { served <- serve(listener) }()
 	err = h.wait(ctx, served)
 	shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
 	defer cancel()
-	err = errors.Join(err, manager.Shutdown(shutdown), server.Shutdown(shutdown))
+	err = errors.Join(err, manager.Shutdown(shutdown), server.Shutdown(shutdown), shutdownManagedChallenge(h.challengeServer, shutdown))
 	h.mu.Lock()
 	current := h.app
 	h.maintenance = true
@@ -114,14 +119,60 @@ func RunManaged(ctx context.Context, options Options) error {
 }
 
 type managedHost struct {
-	options        Options
-	mu             sync.Mutex
-	app            *App
-	active         int
-	maintenance    bool
-	drained        chan struct{}
-	controller     *backup.StorageController
-	controllerPool *database.Pool
+	options         Options
+	mu              sync.Mutex
+	app             *App
+	active          int
+	maintenance     bool
+	drained         chan struct{}
+	controller      *backup.StorageController
+	controllerPool  *database.Pool
+	challengeServer *http.Server
+}
+
+// managedServer copies the already-normalized application listener settings
+// while keeping its handler stable across restore activation. TLS state belongs
+// to the outer server, so swapping the inner application cannot downgrade an
+// HTTPS listener or discard the ACME certificate cache.
+func managedServer(app *App, handler http.Handler) (*http.Server, func(net.Listener) error) {
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+	if app.httpServer == nil || app.httpServer.TLSConfig == nil {
+		return server, server.Serve
+	}
+	server.TLSConfig = app.httpServer.TLSConfig.Clone()
+	return server, func(listener net.Listener) error { return server.ServeTLS(listener, "", "") }
+}
+
+func managedListenAddress(options Options) string {
+	if options.TLS != nil {
+		return options.TLS.Address
+	}
+	return options.HTTPAddress
+}
+
+func (h *managedHost) startChallenge(app *App) error {
+	if app.startChallenge == nil {
+		return nil
+	}
+	if err := app.startChallenge(); err != nil {
+		return err
+	}
+	h.challengeServer = app.challengeServer
+	// The stable managed listener owns ACME lifecycle. A restored inner App
+	// must be closeable without stopping the challenge endpoint.
+	app.challengeServer = nil
+	return nil
+}
+
+func shutdownManagedChallenge(server *http.Server, ctx context.Context) error {
+	if server == nil {
+		return nil
+	}
+	err := server.Shutdown(ctx)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func (h *managedHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {

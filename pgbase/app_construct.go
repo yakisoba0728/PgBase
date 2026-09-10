@@ -424,13 +424,14 @@ func newWithCatalogPreflight(
 				}
 				http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 			})
-			app.challengeServer = &http.Server{Addr: tlsOptions.HTTPChallengeAddress, Handler: manager.HTTPHandler(redirect), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+			challengeServer := &http.Server{Addr: tlsOptions.HTTPChallengeAddress, Handler: manager.HTTPHandler(redirect), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+			app.challengeServer = challengeServer
 			app.startChallenge = func() error {
 				listener, err := net.Listen("tcp", tlsOptions.HTTPChallengeAddress)
 				if err != nil {
 					return err
 				}
-				go func() { _ = app.challengeServer.Serve(listener) }()
+				go func() { _ = challengeServer.Serve(listener) }()
 				return nil
 			}
 		}
