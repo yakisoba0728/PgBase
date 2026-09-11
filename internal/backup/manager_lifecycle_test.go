@@ -3,9 +3,66 @@ package backup
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestGuardedRestoreRetainsAdmissionUntilBackgroundCompletion(t *testing.T) {
+	entered, proceed, released := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releases atomic.Int32
+	m, err := NewManager(ManagerOptions{
+		Directory: t.TempDir(),
+		Create:    func(_ context.Context, directory string) error { makeArchiveFixture(t, directory); return nil },
+		Restore: func(ctx context.Context, _ string) error {
+			close(entered)
+			select {
+			case <-proceed:
+				return errors.New("activation failed")
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Shutdown(context.Background())
+	created, err := m.Create(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.wg.Wait()
+	release := func() { releases.Add(1); close(released) }
+	job, err := m.RestoreWithGuard(t.Context(), created.BackupID, release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("restore did not start")
+	}
+	if releases.Load() != 0 {
+		t.Fatal("admission released before restore finished")
+	}
+	close(proceed)
+	select {
+	case <-released:
+	case <-time.After(3 * time.Second):
+		t.Fatal("restore did not release admission")
+	}
+	result, err := m.Job(t.Context(), job.ID)
+	if err != nil || result.Status != "failed" || releases.Load() != 1 {
+		t.Fatalf("result=%+v releases=%d err=%v", result, releases.Load(), err)
+	}
+	if _, err := m.RestoreWithGuard(t.Context(), "invalid", release); err == nil {
+		t.Fatal("invalid backup accepted")
+	}
+	if releases.Load() != 1 {
+		t.Fatal("failed admission took ownership of guard")
+	}
+}
 
 type managerLifecycleStub struct {
 	veto   string

@@ -48,7 +48,13 @@ func localMailSink(t *testing.T) (string, <-chan string) {
 					}
 					switch {
 					case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
-						fmt.Fprint(conn, "250 localhost\r\n")
+						// The administration SMTP test deliberately supplies
+						// credentials.  Advertise and accept the standard PLAIN
+						// exchange so this local protocol fixture represents the
+						// configured server rather than rejecting the client midway.
+						fmt.Fprint(conn, "250-localhost\r\n250-AUTH PLAIN\r\n250 OK\r\n")
+					case strings.HasPrefix(line, "AUTH PLAIN"):
+						fmt.Fprint(conn, "235 authenticated\r\n")
 					case line == "DATA":
 						data = true
 						fmt.Fprint(conn, "354 send data\r\n")
@@ -139,5 +145,47 @@ func TestEmailActionsThroughHTTPAndLocalSMTP(t *testing.T) {
 	assertPublicUsersStatus(t, page, 200)
 	if page.Header().Get("Referrer-Policy") != "no-referrer" || !strings.Contains(page.Body.String(), "location.hash") {
 		t.Fatal("confirmation page token boundary missing")
+	}
+}
+
+func TestAuthAdministrationSMTPRedactsPasswordsAndSendsOnlyToLocalSink(t *testing.T) {
+	address, messages := localMailSink(t)
+	app := newPublicUsersAppOptions(t, true, nil)
+	adminCookie, csrf := setupPublicUsersAdministrator(t, app)
+	path := "/api/admin/auth-collections/00000000-0000-0000-0000-000000000001/smtp"
+	config := map[string]any{
+		"address": address, "from": "mailer@example.test", "username": "mailer",
+		"password": "test-only-smtp-password", "serverName": "localhost",
+		"implicitTls": false, "allowInsecureLoopback": true,
+	}
+	saved := publicUsersRequest(t, app, http.MethodPut, path, config, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, saved, http.StatusOK)
+	if strings.Contains(saved.Body.String(), "test-only-smtp-password") || !strings.Contains(saved.Body.String(), `"passwordConfigured":true`) {
+		t.Fatalf("SMTP save response leaked or omitted password state: %s", saved.Body.String())
+	}
+
+	config["password"] = ""
+	config["from"] = "changed@example.test"
+	updated := publicUsersRequest(t, app, http.MethodPut, path, config, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, updated, http.StatusOK)
+	if strings.Contains(updated.Body.String(), "test-only-smtp-password") || !strings.Contains(updated.Body.String(), `"passwordConfigured":true`) {
+		t.Fatalf("SMTP update response leaked or lost password state: %s", updated.Body.String())
+	}
+
+	settings := publicUsersRequest(t, app, http.MethodGet, "/api/admin/auth-collections/00000000-0000-0000-0000-000000000001/administration", nil, "", adminCookie, nil)
+	assertPublicUsersStatus(t, settings, http.StatusOK)
+	if strings.Contains(settings.Body.String(), "test-only-smtp-password") || !strings.Contains(settings.Body.String(), `"passwordConfigured":true`) {
+		t.Fatalf("SMTP settings response leaked or omitted password state: %s", settings.Body.String())
+	}
+
+	test := publicUsersRequest(t, app, http.MethodPost, path+"/test", map[string]any{"recipient": "sink@example.test"}, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, test, http.StatusNoContent)
+	select {
+	case message := <-messages:
+		if !strings.Contains(message, "To: sink@example.test") || !strings.Contains(message, "Subject: PgBase SMTP test") {
+			t.Fatalf("unexpected local SMTP test message: %s", message)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("local SMTP sink did not receive SMTP test message")
 	}
 }

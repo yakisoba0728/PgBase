@@ -71,7 +71,23 @@ import (
 // planner/store paths cannot move behind a different package boundary without
 // broad product redesign; no file is excluded from this group to manufacture
 // headroom.
-const dataGroupRuntimeLimit = 22693
+// The auth/filter batch adds a bounded text/editor filter compiler and does not
+// move query code outside the group. The preceding projection batch had already
+// made the former exact ceiling stale; this stack establishes the current
+// measured 24,135-line ceiling without spare headroom. The increase is the
+// completed 68-feature compatibility surface: typed rule predicates, relation
+// expansion, schema compatibility metadata, mutation projections, and the
+// three-line create-denial status distinction found by live integration.
+// The completed PocketBase-compatible query/rule/schema tranche establishes
+// this measured ceiling. It includes catalog-aware predicates and nullable auth
+// collection import/export; no package or generated source is excluded.
+// The final PocketBase parity completion measures 27,498 lines after adding
+// durable text identities, schema rename/truncate/index/import lifecycles, and
+// their PostgreSQL authority paths. The value is the completed tree measurement.
+// The 20-defect correctness stack is measured against d05452c. The data-group
+// runtime moves from 27,498 to 27,716 lines (+840/-622, net +218). This is the
+// exact measured ceiling for the approved fixes; it adds no spare headroom.
+const dataGroupRuntimeLimit = 27716
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -330,15 +346,42 @@ type structuralLimit struct {
 // boundaries. Exact measured scope and independent review are recorded in
 // docs/workstreams/n6-n9/structural-budget.md. No spare allowance or file
 // exclusion is added; the 800-line hard limit remains unchanged.
+//
+// The realm auth discovery/opaque token rotation and bounded contains batch
+// establishes the current repository measurement. Runtime code grows from the
+// former 75,990 gate to 76,231 and exports from 1,251 to 1,254; the latter are
+// PublicAuthMethods, PublicAuthMethods(), and RefreshSessionForCollection().
+// The completed 68-feature compatibility scope establishes these exact
+// repository measurements. They include auth record/file adapters, extension
+// object/database APIs, recovery settings, SDK-facing routes, and the matching
+// administration UI. No spare allowance or file exclusion is included.
+// The final 232-feature closure establishes the exact values below after the
+// extension facades were split back under the 800-line per-file ceiling. It
+// includes the real PostgreSQL app methods, lifecycle hooks, filesystem/SSE
+// adapters, nullable auth schema, SDK-facing contracts, and administration UI.
+// These values contain no spare allowance or additional exclusions. The final
+// PocketBase parity tree establishes the exact measured ceilings below; the
+// production 800-line file limit remains unchanged.
+//
+// The 20-defect correctness stack is measured from d05452c to the tracked
+// working tree in .local/defect-fixes-2026-09-11/metrics.json. Handwritten
+// runtime moves 97,941 -> 98,637 (+864/-168, net +696); UI runtime stays at
+// 7,101 (+0/-0); interfaces move 94 -> 95; exported declarations 1,553 ->
+// 1,563; and New* constructors 63 -> 64. The new public seams are the
+// mutation error-hook and transaction-outcome boundary, the public API error
+// carrier used by JavaScript routing, and administrator record-mail methods
+// that accept already-rendered auth payloads. The measured tree has zero
+// production files over 800 lines. Classifiers and source inclusion are
+// unchanged; no excluded source or artificial slack is introduced.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 75990, "N1–N5 baseline + measured N6–N9 scope"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 6667, "N1–N5 baseline + N8 SQL console UI"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 67, "N1–N5 baseline + N6–N9 contracts"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1251, "N1–N5 baseline + N6–N9 public API"},
-	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 55, "N1–N5 baseline + N6–N9 services"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 98637, "measured final 20-defect correctness stack"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 7101, "measured final administration UI"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 95, "measured final 20-defect correctness seams"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1563, "measured final 20-defect correctness API"},
+	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 154, "N1–N5 baseline + N8 SQL console state"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 229, "N1–N5 baseline + N8 SQL console exports"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 180, "measured final compatibility UI state"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 250, "measured final compatibility UI exports"},
 }
 
 type repositoryMetrics struct {

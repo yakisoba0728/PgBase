@@ -247,6 +247,24 @@ func TestHTTPMetricsObserveRecoveredPanicAndBalanceInFlight(t *testing.T) {
 	}
 }
 
+func TestRequestLogRecordsRecoveredPanicAs500(t *testing.T) {
+	requestLog := &observability.RequestLog{}
+	handler := mustRouter(t, Dependencies{Readiness: panickingReadiness{}, RequestLog: requestLog})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("panic status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+	page := requestLog.Page(0, 0)
+	if len(page.Items) != 1 {
+		t.Fatalf("request log entries = %#v, want one recovered request", page.Items)
+	}
+	entry := page.Items[0]
+	if entry.Status != http.StatusInternalServerError || entry.Route != "/health/ready" {
+		t.Fatalf("request log entry = %#v, want recovered /health/ready 500", entry)
+	}
+}
+
 type panickingReadiness struct{}
 
 func (panickingReadiness) Ready(context.Context) error { panic("panic-sensitive-message") }

@@ -308,7 +308,7 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 		return false, err
 	}
 	var referenced bool
-	if err = s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_files where status in ('pending','ready') and (object_key=$1 or thumbnail_object_key=$1) union all select 1 from pgbase_meta.record_file_variants where object_key=$1)`, key).Scan(&referenced); err != nil {
+	if err = s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_files where status in ('pending','ready') and (object_key=$1 or thumbnail_object_key=$1) union all select 1 from pgbase_meta.record_file_variants where object_key=$1 union all select 1 from pgbase_meta.extension_objects where object_key=$1)`, key).Scan(&referenced); err != nil {
 		return false, err
 	}
 	if !referenced {
@@ -636,6 +636,7 @@ select $1,object_key,kind from (
  select object_key,'original' kind from pgbase_meta.record_files where status in ('pending','ready')
  union select thumbnail_object_key,'thumbnail' from pgbase_meta.record_files where status='ready' and thumbnail_object_key is not null
  union select object_key,'variant' from pgbase_meta.record_file_variants
+ union select object_key,'extension' from pgbase_meta.extension_objects
 ) objects where object_key<>'' on conflict do nothing`, id); err != nil {
 		return err
 	}
@@ -643,4 +644,4 @@ select $1,object_key,kind from (
 	return err
 }
 
-const referencedObjectCountSQL = `select count(*) from (select object_key from pgbase_meta.record_files where status in ('pending','ready') union select thumbnail_object_key from pgbase_meta.record_files where status='ready' and thumbnail_object_key is not null union select object_key from pgbase_meta.record_file_variants union select object_key from pgbase_meta.file_object_deletions) objects where object_key<>''`
+const referencedObjectCountSQL = `select count(*) from (select object_key from pgbase_meta.record_files where status in ('pending','ready') union select thumbnail_object_key from pgbase_meta.record_files where status='ready' and thumbnail_object_key is not null union select object_key from pgbase_meta.record_file_variants union select object_key from pgbase_meta.extension_objects union select object_key from pgbase_meta.file_object_deletions) objects where object_key<>''`

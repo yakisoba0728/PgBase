@@ -20,6 +20,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/config"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -175,10 +176,25 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 	publicDir := flags.String("public-dir", "", "")
 	publicSPAFallback := flags.Bool("public-spa-fallback", false, "")
 	javaScriptDirectory := flags.String("js-dir", "", "")
+	encryptionEnv := flags.String("encryption-env", "", "")
+	httpsAddress := flags.String("https-address", "", "")
+	httpsCert := flags.String("https-cert", "", "")
+	httpsKey := flags.String("https-key", "", "")
+	acmeHosts := flags.String("acme-hosts", "", "")
+	acmeCache := flags.String("acme-cache-dir", "", "")
+	acmeHTTP := flags.String("acme-http-address", "", "")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR]"}
+		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR] [--encryption-env NAME] [--https-address ADDR --https-cert FILE --https-key FILE | --https-address ADDR --acme-hosts HOSTS --acme-cache-dir DIR --acme-http-address ADDR]"}
 	}
-	options, err := config.LoadEnv(env)
+	var options pgbase.Options
+	var err error
+	encryptionEnvSet := false
+	flags.Visit(func(item *flag.Flag) { encryptionEnvSet = encryptionEnvSet || item.Name == "encryption-env" })
+	if encryptionEnvSet {
+		options, err = config.LoadEnvWithRuntimeSettingsEncryptionEnv(env, *encryptionEnv)
+	} else {
+		options, err = config.LoadEnv(env)
+	}
 	if err != nil {
 		return configurationError{err: err}
 	}
@@ -193,6 +209,18 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 				options.JavaScript = &pgbase.JavaScriptOptions{}
 			}
 			options.JavaScript.Directory = *javaScriptDirectory
+		case "https-address", "https-cert", "https-key", "acme-hosts", "acme-cache-dir", "acme-http-address":
+			if options.TLS == nil {
+				options.TLS = &pgbase.TLSOptions{}
+			}
+			options.TLS.Address = *httpsAddress
+			options.TLS.CertificateFile = *httpsCert
+			options.TLS.KeyFile = *httpsKey
+			options.TLS.ACMECacheDirectory = *acmeCache
+			options.TLS.HTTPChallengeAddress = *acmeHTTP
+			if *acmeHosts != "" {
+				options.TLS.ACMEHosts = strings.Split(*acmeHosts, ",")
+			}
 		}
 	})
 	options.Logger = observability.NewJSONLogger(streams.stderr())
@@ -319,7 +347,7 @@ func runAdminPolicy(ctx context.Context, operation string, args []string, env en
 	if _, err := adminauth.NormalizeEmail(*email); err != nil {
 		return configurationError{err: err, message: "invalid administrator email"}
 	}
-	if operation == "otp" && action != "enable" && action != "disable" || operation == "ip" && action != "allow" && action != "deny" && action != "list" {
+	if operation == "otp" && action != "enable" && action != "disable" && action != "email" || operation == "ip" && action != "allow" && action != "deny" && action != "list" {
 		return configurationError{err: errors.New("invalid admin policy action"), message: adminUsage}
 	}
 	if (operation == "otp" && action == "enable" && !*secretStdin) || (operation == "ip" && action != "list" && *cidr == "") {
@@ -338,8 +366,21 @@ func runAdminPolicy(ctx context.Context, operation string, args []string, env en
 				return configurationError{err: readErr, message: "invalid administrator OTP secret"}
 			}
 			err = service.EnableTOTP(ctx, *email, secret)
-		} else {
+		} else if action == "disable" {
 			err = service.DisableTOTP(ctx, *email)
+		} else {
+			sender, senderErr := mailer.NewSMTP(mailer.SMTPConfig{Address: runtime.options.SMTP.Address, From: runtime.options.SMTP.From, Username: runtime.options.SMTP.Username, Password: runtime.options.SMTP.Password, ServerName: runtime.options.SMTP.ServerName, ImplicitTLS: runtime.options.SMTP.ImplicitTLS, AllowInsecure: runtime.options.SMTP.AllowInsecure, Timeout: runtime.options.SMTP.Timeout})
+			if senderErr != nil {
+				return configurationError{err: senderErr, message: "administrator email OTP requires SMTP configuration"}
+			}
+			if err = service.ConfigureEmailOTP(sender, 5*time.Minute); err == nil {
+				var issued adminauth.EmailOTP
+				issued, err = service.IssueEmailOTP(ctx, *email)
+				if err == nil {
+					_, err = fmt.Fprintf(streams.stdout(), "administrator email OTP created: %s\n├─ Id:    %s\n├─ Pass:  %s\n└─ Valid: %ds\n", strings.ToLower(strings.TrimSpace(*email)), issued.ID, issued.Code, int(time.Until(issued.ExpiresAt).Seconds()))
+					return err
+				}
+			}
 		}
 	} else if action == "allow" {
 		err = service.AllowIP(ctx, *email, *cidr)

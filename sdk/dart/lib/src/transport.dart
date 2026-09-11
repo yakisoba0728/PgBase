@@ -133,11 +133,12 @@ final class PgBaseTransport {
   Future<http.StreamedResponse> eventStream(
     String path, {
     required Map<String, String> headers,
+    Map<String, String>? query,
     CancellationToken? cancellation,
   }) async {
     final request = http.AbortableRequest(
       'GET',
-      uri(path),
+      uri(path, query),
       abortTrigger: cancellation?.whenCancelled,
     );
     request.headers.addAll(headers);

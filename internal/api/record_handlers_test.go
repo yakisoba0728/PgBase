@@ -82,7 +82,7 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 		}
 	}
 	if records.listRequest.Collection != "posts" || records.listRequest.Cursor != "signed" || records.listRequest.Limit != 2 ||
-		records.getRequest.ID != id || records.updateRequest.ID != id || records.deleteRequest.ID != id {
+		records.getRequest.PublicID != id.String() || records.updateRequest.PublicID != id.String() || records.deleteRequest.PublicID != id.String() {
 		t.Fatalf("service calls=%+v", records)
 	}
 	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?limit=999", "", true)
@@ -99,8 +99,32 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 	}
 }
 
+func TestPocketBasePageAdapterHasExactEnvelopeAndInputs(t *testing.T) {
+	records := &fakePocketBaseRecordService{
+		fakeRecordService: &fakeRecordService{},
+		page:              recordops.PocketBasePage{Page: 3, PerPage: 2, TotalItems: -1, TotalPages: -1, Items: []map[string]any{{"id": "one"}}},
+	}
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+	request := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?compat=pocketbase&page=3&perPage=2&skipTotal=true&sort=%40rowid", "", true)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != `{"page":3,"perPage":2,"totalItems":-1,"totalPages":-1,"items":[{"id":"one"}]}`+"\n" {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if records.listCalls != 0 || records.pbCalls != 1 || records.pbRequest.Page != 3 || records.pbRequest.PerPage != 2 || !records.pbRequest.SkipTotal || records.pbRequest.Sort != "@rowid" {
+		t.Fatalf("calls native=%d pb=%d request=%+v", records.listCalls, records.pbCalls, records.pbRequest)
+	}
+
+	request = authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?compat=pocketbase&page=nope", "", true)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || records.pbCalls != 1 {
+		t.Fatalf("malformed page status=%d calls=%d body=%s", response.Code, records.pbCalls, response.Body.String())
+	}
+}
+
 func TestRecordRoutesRejectMalformedInputs(t *testing.T) {
-	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{}))
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, &fakeRecordService{getErr: &recordops.Error{Code: recordops.CodeInvalidRecordID}}))
 	for _, test := range []struct {
 		name, method, path, body, contentType string
 	}{
@@ -148,14 +172,14 @@ func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 	records := &fakeRecordService{page: query.RecordPage{Items: []map[string]any{}}}
 	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 	request := authenticatedRecordRequest(http.MethodGet,
-		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title = 'x' && rank >= 2)`)+
+		"/api/v1/collections/posts/records?filter="+url.QueryEscape(`(title ~ 'x' && rank >= 2)`)+
 			"&sort="+url.QueryEscape("-rank,created_at")+"&expand="+url.QueryEscape("owner,reviewers"), "", true)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if records.listRequest.Filter != `(title = 'x' && rank >= 2)` || records.listRequest.Sort != "-rank,created_at" ||
+	if records.listRequest.Filter != `(title ~ 'x' && rank >= 2)` || records.listRequest.Sort != "-rank,created_at" ||
 		records.listRequest.Expand != "owner,reviewers" {
 		t.Fatalf("forwarded params filter=%q sort=%q expand=%q",
 			records.listRequest.Filter, records.listRequest.Sort, records.listRequest.Expand)
@@ -169,6 +193,29 @@ func TestRecordListForwardsFilterAndSortParams(t *testing.T) {
 		t.Fatalf("filter validation status=%d body=%s", response.Code, response.Body.String())
 	}
 	assertErrorCode(t, response.Body.Bytes(), "validation_failed")
+}
+
+func TestRecordReadsForwardFieldsProjection(t *testing.T) {
+	id := uuid.MustParse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+	records := &fakeRecordService{
+		page:   query.RecordPage{Items: []map[string]any{{"id": id.String(), "title": "hello"}}},
+		record: recordops.Record{Data: map[string]any{"id": id.String(), "title": "hello"}, ETag: `"pgb1.current"`},
+	}
+	handler := mustRouter(t, recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+
+	list := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records?fields=title%2Cid", "", true)
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, list)
+	if listResponse.Code != http.StatusOK || records.listRequest.Fields != "title,id" {
+		t.Fatalf("list status=%d fields=%q body=%s", listResponse.Code, records.listRequest.Fields, listResponse.Body.String())
+	}
+
+	get := authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records/"+id.String()+"?fields=title%2Cid", "", true)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || records.getRequest.Fields != "title,id" {
+		t.Fatalf("get status=%d fields=%q body=%s", getResponse.Code, records.getRequest.Fields, getResponse.Body.String())
+	}
 }
 
 func TestRecordGetForwardsStrictlyParsedExpandParam(t *testing.T) {
@@ -226,7 +273,7 @@ func TestRecordListRejectsMalformedQueryEncodingBeforeServiceCall(t *testing.T) 
 }
 
 func TestRecordReadsRejectDuplicateSingletonQueryParametersBeforeServiceCall(t *testing.T) {
-	for _, parameter := range []string{"limit", "cursor", "filter", "sort", "expand"} {
+	for _, parameter := range []string{"limit", "cursor", "filter", "sort", "expand", "fields"} {
 		t.Run("list/"+parameter, func(t *testing.T) {
 			records := &fakeRecordService{}
 			handler := mustRouter(t, recordTestDependencies(
@@ -248,6 +295,20 @@ func TestRecordReadsRejectDuplicateSingletonQueryParametersBeforeServiceCall(t *
 			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
 		request := authenticatedRecordRequest(http.MethodGet,
 			"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?expand=owner&expand=reviewers", "", true)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || records.getCalls != 0 {
+			t.Fatalf("status=%d get calls=%d body=%s", response.Code, records.getCalls, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+	})
+
+	t.Run("get/fields", func(t *testing.T) {
+		records := &fakeRecordService{}
+		handler := mustRouter(t, recordTestDependencies(
+			&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records))
+		request := authenticatedRecordRequest(http.MethodGet,
+			"/api/v1/collections/posts/records/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?fields=id&fields=title", "", true)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusBadRequest || records.getCalls != 0 {
@@ -474,6 +535,15 @@ func TestRecordResponsesExposeEntityTagReplayLocationAndCompatibility(t *testing
 		}
 	})
 
+	t.Run("mutation fields projection keeps Location identity", func(t *testing.T) {
+		records := &fakeRecordService{createResult: recordops.MutationResult{Record: &record}}
+		request := authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/posts/records?fields=title", `{"title":"hello"}`, true)
+		response := serveRecordRequest(t, records, auth, request)
+		if response.Code != http.StatusCreated || response.Header().Get("Location") != "/api/v1/collections/posts/records/"+id || strings.Contains(response.Body.String(), `"id"`) || !strings.Contains(response.Body.String(), `"title":"hello"`) {
+			t.Fatalf("status=%d location=%q body=%s", response.Code, response.Header().Get("Location"), response.Body.String())
+		}
+	})
+
 	t.Run("update compatibility", func(t *testing.T) {
 		records := &fakeRecordService{updateResult: recordops.MutationResult{Record: &record, Compatibility: recordops.CompatibilityLastWriteWins}}
 		response := serveRecordRequest(t, records, auth,
@@ -644,7 +714,28 @@ type fakeRecordService struct {
 	createRequest                                              recordops.CreateRequest
 	updateRequest                                              recordops.UpdateRequest
 	deleteRequest                                              recordops.DeleteRequest
+	truncateRequest                                            recordops.TruncateRequest
+	truncateResult                                             recordops.TruncateResult
+	truncateErr                                                error
 	listCalls, getCalls, createCalls, updateCalls, deleteCalls int
+}
+
+type fakePocketBaseRecordService struct {
+	*fakeRecordService
+	page      recordops.PocketBasePage
+	pbRequest recordops.PocketBaseListRequest
+	pbCalls   int
+}
+
+func (f *fakePocketBaseRecordService) ListPocketBase(_ context.Context, request recordops.PocketBaseListRequest) (recordops.PocketBasePage, error) {
+	f.pbCalls++
+	f.pbRequest = request
+	return f.page, nil
+}
+
+func (f *fakeRecordService) Truncate(_ context.Context, request recordops.TruncateRequest) (recordops.TruncateResult, error) {
+	f.truncateRequest = request
+	return f.truncateResult, f.truncateErr
 }
 
 func (f *fakeRecordService) List(_ context.Context, request recordops.ListRequest) (recordops.RecordPage, error) {

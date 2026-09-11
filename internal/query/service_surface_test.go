@@ -107,7 +107,31 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// accounting is in docs/phase3-local-contracts.md with no spare allowance.
 	// P8 adds coordinate paths and advanced-field codecs; measured scope is
 	// in docs/phase4-local-contracts.md with no spare allowance.
-	if runtimeLines > 5786 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 5786", runtimeLines)
+	// R3 adds schema-validated response projection after authorization,
+	// expansion, cursor assembly, and ETag calculation: +74/-0.
+	// PocketBase-compatible response picking remains in responseprojection;
+	// this increase pays only for reusable field comparison and event predicate
+	// compilation at the query boundary.
+	// The 68-feature PocketBase completion adds the shared scalar predicate,
+	// relation expansion, response projection, and compatibility pagination
+	// paths measured here. Keep the exact post-completion measurement.
+	// RULE-03 adds the bounded PocketBase operand grammar, JSON extraction and
+	// function renderers at this existing query seam. The measured increase has
+	// no spare allowance.
+	// EXT14 also adds an exact, repeatable-read count facade without widening
+	// the exported Service method surface.
+	// RULE03 adds the catalog-aware PocketBase predicate entry point while the
+	// native compiler remains stable. The final integration restores the three
+	// source lines that recognize @collection operands after an older auth-rule
+	// merge removed them; ratchet to that verified surface without spare room.
+	// QRY-15 through QRY-17 add the explicit PocketBase offset-page adapter,
+	// special sort rendering, exact authorized SQL count, and JSON-quoted
+	// compatibility operands while preserving List's cursor contract.
+	// FLD-04 adds exact durable text-identity predicates and PocketBase-facing
+	// external-id ordering while retaining UUID cursor and @rowid authority.
+	// RQR-002 adds direction-aware correlation for reverse single and multiple
+	// relation filters at the existing relation SQL renderer.
+	if runtimeLines > 7534 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7534", runtimeLines)
 	}
 }

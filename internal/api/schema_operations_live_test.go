@@ -103,6 +103,57 @@ func (f liveOperationFixture) history(t *testing.T, administrator uuid.UUID, que
 	return page, response.Code
 }
 
+func TestLiveSQLViewQueryAliasPatchesAndSamples(t *testing.T) {
+	ctx := context.Background()
+	administrator := validSession().Administrator
+	fixture := newLiveOperationFixture(t, administrator)
+	if response := fixture.guardedCreate(t, administrator.ID, "view_query_source", uuid.New(), "view-query-source-0001"); response.Code != http.StatusCreated {
+		t.Fatalf("source status=%d body=%s", response.Code, response.Body.String())
+	}
+	applyAlias := func(operation string, query string) {
+		t.Helper()
+		var change schema.Change
+		if operation == "create" {
+			change = schema.NewCreateChange(schema.CreateCollectionInput{Name: "view_query_alias", View: &schema.ViewInput{SQL: query}})
+		} else {
+			change = schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "view_query_alias", View: &schema.ViewInput{SQL: query}})
+		}
+		plan, err := fixture.schemas.Preview(ctx, change)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf(`{"operation":%q,"name":"view_query_alias","viewQuery":%q,"checksum":%q,"baseVersion":%d}`, operation, query, plan.Checksum, plan.BaseVersion)
+		response := fixture.guardedApply(t, administrator.ID, uuid.New(), "view-query-"+operation+"-0001", body)
+		if want := http.StatusCreated; operation == "update" {
+			want = http.StatusOK
+			if response.Code != want {
+				t.Fatalf("%s status=%d body=%s", operation, response.Code, response.Body.String())
+			}
+		} else if response.Code != want {
+			t.Fatalf("%s status=%d body=%s", operation, response.Code, response.Body.String())
+		}
+	}
+	applyAlias("create", `select id,title from app.view_query_source`)
+	applyAlias("update", `select id,title as heading from app.view_query_source`)
+	catalog, err := fixture.schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := catalog.Collections["view_query_alias"]
+	if view.View == nil || view.View.SQL != `select id,title as heading from app.view_query_source` {
+		t.Fatalf("view=%#v", view.View)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/view/sample", strings.NewReader(`{"query":"select id,title as heading from app.view_query_source"}`))
+	request.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(request)
+	request.AddCookie(&http.Cookie{Name: adminCookieName, Value: testSessionToken})
+	response := httptest.NewRecorder()
+	fixture.handlers[administrator.ID].ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sample status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 // The HTTP history is a wire adapter over ListOperations, so for one ledger
 // state the two must produce the same receipts in the same order across every
 // page, including the (created_at DESC, operation_id DESC) tie-break that only

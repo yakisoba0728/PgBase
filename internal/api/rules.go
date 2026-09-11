@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 )
 
@@ -26,6 +27,28 @@ func ruleRoutes(dependencies Dependencies) []route {
 		if r.Method == "GET" {
 			result, err = dependencies.RecordRules.Get(r.Context(), r.PathValue("collection"))
 		} else {
+			if r.URL.Query().Get("compat") == "pocketbase" {
+				var input struct {
+					Rules accessrule.PocketBaseRules `json:"pocketbaseRules"`
+				}
+				if decodeStrictJSON(r, &input) != nil {
+					writeRuleError(w, r, accessrule.ErrInvalid)
+					return
+				}
+				rules, parseErr := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParsePocketBaseAccessRule)
+				if parseErr != nil {
+					writeRuleError(w, r, parseErr)
+					return
+				}
+				result, err = dependencies.RecordRules.Set(r.Context(), r.PathValue("collection"), rules)
+				if err != nil {
+					writeRuleError(w, r, err)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				writeJSON(w, http.StatusOK, map[string]any{"collection": result.Collection, "pocketbaseRules": result.Rules.PocketBase(), "revision": result.Revision})
+				return
+			}
 			var input struct {
 				Rules json.RawMessage `json:"rules"`
 			}
@@ -45,6 +68,10 @@ func ruleRoutes(dependencies Dependencies) []route {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
+		if r.URL.Query().Get("compat") == "pocketbase" {
+			writeJSON(w, http.StatusOK, map[string]any{"collection": result.Collection, "pocketbaseRules": result.Rules.PocketBase(), "revision": result.Revision})
+			return
+		}
 		writeJSON(w, http.StatusOK, result)
 	})
 	preview := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

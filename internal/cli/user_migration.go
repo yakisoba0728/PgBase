@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/config"
@@ -14,7 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
-const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration <history|history-sync ID|auto-status|recover|list|up|down> [--js-dir DIR]"
+const userMigrationUsage = "usage: pgbase migration create NAME [DIRECTORY] | pgbase migration snapshot FILE | pgbase migration diff NAME BEFORE AFTER [DIRECTORY] | pgbase migration <history|history-sync ID|history-cleanup [--dry-run]|auto-status|recover|list|up|down [COUNT]> [--js-dir DIR]"
 
 func runUserMigration(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) >= 1 && args[0] == "create" {
@@ -75,8 +76,8 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 	if err != nil {
 		return configurationError{err: err, message: userMigrationUsage}
 	}
-	if args[0] == "snapshot" && len(args) != 2 || args[0] == "history-sync" && len(args) != 2 ||
-		args[0] != "snapshot" && args[0] != "history-sync" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
+	if args[0] == "snapshot" && len(args) != 2 || args[0] == "history-sync" && len(args) != 2 || args[0] == "history-cleanup" && (len(args) > 2 || len(args) == 2 && args[1] != "--dry-run") || args[0] == "down" && (len(args) < 1 || len(args) > 2) ||
+		args[0] != "snapshot" && args[0] != "history-sync" && args[0] != "history-cleanup" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
 	}
 	javaScriptOptions, err := preflightUserMigrationJavaScript(ctx, env, javaScriptDirectory)
@@ -146,7 +147,7 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return operationError(options.Logger, "load JavaScript user migrations", err)
 	}
 	manifest = append(manifest, javaScriptMigrations...)
-	if len(manifest) == 0 && args[0] != "history" {
+	if len(manifest) == 0 && args[0] != "history" && args[0] != "history-cleanup" {
 		return configurationError{err: errors.New("no user migrations are compiled into this executable"), message: "no user migrations are compiled into this executable"}
 	}
 	runner, err := pgbase.NewUserMigrationRunner(app, manifest)
@@ -165,12 +166,25 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 			}
 		}
 	case "down":
-		result, err := runner.Down(ctx)
-		if err != nil {
-			return operationError(options.Logger, "revert user migration", err)
+		count := 1
+		if len(args) == 2 {
+			count, err = strconv.Atoi(args[1])
+			if err != nil || count == 0 {
+				return configurationError{err: errors.New("down count must be a non-zero integer"), message: userMigrationUsage}
+			}
 		}
-		_, err = fmt.Fprintf(streams.stdout(), "down %s %s\n", result.Migration.ID, hex.EncodeToString(result.Migration.Revision[:]))
-		return err
+		results, err := runner.DownN(ctx, count)
+		for _, result := range results {
+			if _, writeErr := fmt.Fprintf(streams.stdout(), "down %s %s\n", result.Migration.ID, hex.EncodeToString(result.Migration.Revision[:])); writeErr != nil {
+				return writeErr
+			}
+		}
+		if err != nil {
+			return operationError(options.Logger, "revert user migrations", err)
+		}
+		if len(results) == 0 {
+			return operationError(options.Logger, "revert user migrations", errors.New("no applied user migration to revert"))
+		}
 	case "list":
 		entries, err := runner.List(ctx)
 		if err != nil {
@@ -209,6 +223,16 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		}
 		_, err = fmt.Fprintf(streams.stdout(), "synced %s %s\n", entry.ID, hex.EncodeToString(entry.Revision[:]))
 		return err
+	case "history-cleanup":
+		cleanup, err := runner.CleanupHistory(ctx, len(args) == 2)
+		if err != nil {
+			return operationError(options.Logger, "clean up retired user migration history", err)
+		}
+		for _, entry := range cleanup.Entries {
+			if _, err := fmt.Fprintf(streams.stdout(), "%s %s history=%s\n", map[bool]string{true: "would-remove", false: "removed"}[cleanup.DryRun], entry.ID, hex.EncodeToString(entry.AppliedRevision)); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

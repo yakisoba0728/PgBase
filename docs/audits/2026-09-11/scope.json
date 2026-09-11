@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "baseSha": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+  "pocketBaseSha": "5684ee24f1e88f71a2ede73d20cf547fbd509e16",
+  "phases": [
+    {
+      "phase": 1,
+      "scope": [
+        "schema",
+        "fields",
+        "migrations",
+        "records",
+        "query",
+        "rules",
+        "auth",
+        "mail"
+      ],
+      "rows": 128
+    },
+    {
+      "phase": 2,
+      "scope": [
+        "files",
+        "realtime",
+        "extensions",
+        "operations"
+      ],
+      "rows": 60
+    },
+    {
+      "phase": 3,
+      "scope": [
+        "sdk",
+        "ui",
+        "repository_delivery"
+      ],
+      "rows": 44
+    },
+    {
+      "phase": 4,
+      "scope": [
+        "cross_validation",
+        "coverage_closure",
+        "consolidated_report"
+      ]
+    }
+  ],
+  "featureRows": 232,
+  "coverage": {
+    "assigned": 1385,
+    "complete": 1385,
+    "crossReadsExcluded": true,
+    "validator": "validate_audit_coverage.py"
+  },
+  "limits": [
+    "Coverage validates declared fixed-head path/blob/range evidence; it cannot prove what a reviewer read.",
+    "verified and static_reviewed mean no defect found in their recorded scope, not that every runtime path ran."
+  ],
+  "inputArtifacts": [
+    "charter.md",
+    "state.json",
+    "assignments.json",
+    "coverage-validation.json",
+    "group features/findings/coverage/report",
+    "cross-validation platform/data/root-sdk/truncate findings"
+  ]
+}

@@ -19,7 +19,7 @@ func TestMultipartBatchAtomicallyCreatesRecordAndFile(t *testing.T) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}}
 	})
 	cookie, csrf := setupPublicUsersAdministrator(t, app)
-	change := map[string]any{"operation": "create", "name": "batch_documents", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file", "required": true}}}
+	change := map[string]any{"operation": "create", "name": "batch_documents", "fields": []map[string]any{{"name": "title", "type": "text"}, {"name": "attachment", "type": "file", "required": true, "options": map[string]any{"maxSelect": 4}}}}
 	preview := publicUsersRequest(t, app, http.MethodPost, "/api/admin/collections/plan", change, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, preview, http.StatusOK)
 	var plan struct {
@@ -71,12 +71,47 @@ func TestMultipartBatchAtomicallyCreatesRecordAndFile(t *testing.T) {
 	if len(files.Items) != 1 || files.Items[0]["filename"] != "replacement_b.txt" {
 		t.Fatalf("ordered replacement files=%#v", files.Items)
 	}
+	appendRequest := map[string]any{"requests": []map[string]any{{
+		"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/" + id,
+		"body": map[string]any{"attachment+": map[string]any{"$file": "appended"}},
+	}}}
+	appended := multipartBatchRequest(t, app, cookie, csrf, appendRequest, map[string][]byte{"appended": []byte("append")})
+	assertPublicUsersStatus(t, appended, http.StatusOK)
+	prependRequest := map[string]any{"requests": []map[string]any{{
+		"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/" + id,
+		"body": map[string]any{"+attachment": map[string]any{"$file": "prepended"}},
+	}}}
+	prepended := multipartBatchRequest(t, app, cookie, csrf, prependRequest, map[string][]byte{"prepended": []byte("prepend")})
+	assertPublicUsersStatus(t, prepended, http.StatusOK)
+	removeRequest := map[string]any{"requests": []map[string]any{{
+		"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/" + id,
+		"body": map[string]any{"attachment-": "replacement_b.txt"},
+	}}}
+	removed := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", removeRequest, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, removed, http.StatusOK)
+	listed = publicUsersRequest(t, app, http.MethodGet, "/api/admin/collections/batch_documents/records/"+id+"/files/attachment", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, listed, http.StatusOK)
+	decodePublicUsersJSON(t, listed, &files)
+	if len(files.Items) != 2 || files.Items[0]["filename"] != "prepended.txt" || files.Items[1]["filename"] != "appended.txt" {
+		t.Fatalf("modifier file order=%#v", files.Items)
+	}
+	failedRemoval := publicUsersRequest(t, app, http.MethodPost, "/api/v1/collections/batch", map[string]any{"requests": []map[string]any{
+		{"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/" + id, "body": map[string]any{"attachment-": "prepended.txt"}},
+		{"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/019551d0-e9c0-7000-8000-000000000197", "body": map[string]any{"title": "missing"}},
+	}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, failedRemoval, http.StatusNotFound)
+	listed = publicUsersRequest(t, app, http.MethodGet, "/api/admin/collections/batch_documents/records/"+id+"/files/attachment", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, listed, http.StatusOK)
+	decodePublicUsersJSON(t, listed, &files)
+	if len(files.Items) != 2 || files.Items[0]["filename"] != "prepended.txt" || files.Items[1]["filename"] != "appended.txt" {
+		t.Fatalf("failed removal changed files=%#v", files.Items)
+	}
 	conflict := multipartBatchRequest(t, app, cookie, csrf, requests, map[string][]byte{"attachment_0": []byte("different bytes")})
 	assertPublicUsersStatus(t, conflict, http.StatusConflict)
 	listed = publicUsersRequest(t, app, http.MethodGet, "/api/admin/collections/batch_documents/records/"+id+"/files/attachment", nil, "", cookie, nil)
 	assertPublicUsersStatus(t, listed, http.StatusOK)
 	decodePublicUsersJSON(t, listed, &files)
-	if len(files.Items) != 1 {
+	if len(files.Items) != 2 || files.Items[0]["filename"] != "prepended.txt" || files.Items[1]["filename"] != "appended.txt" {
 		t.Fatalf("idempotency conflict changed files: %#v", files.Items)
 	}
 	rollbackRequests := map[string]any{"requests": []map[string]any{{"method": "POST", "url": "/api/v1/collections/batch_documents/records", "headers": map[string]string{"Idempotency-Key": "multipart-record-rollback-0001"}, "body": map[string]any{"title": "must rollback", "attachment": map[string]any{"$file": "rollback_0"}}}, {"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/019551d0-e9c0-7000-8000-000000000198", "body": map[string]any{"title": "missing"}}}}

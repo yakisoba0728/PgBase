@@ -115,6 +115,18 @@ func TestJavaScriptHookSafeDTOsCoverLifecycleEventsAndRedactStorageKeys(t *testi
 		if strings.Contains(wire, `"Mode"`) || strings.Contains(wire, `"File"`) || strings.Contains(wire, `"Actor"`) {
 			t.Fatalf("safe DTO %s retained Go field casing: %s", event.Kind, wire)
 		}
+		switch event.Kind {
+		case HookRecordCreateRequest:
+			if !strings.Contains(wire, `"requestID":"request-1"`) || !strings.Contains(wire, `"recordID"`) {
+				t.Fatalf("record request hook field casing = %s", wire)
+			}
+		case HookRecordBefore:
+			for _, key := range []string{`"eventID"`, `"recordID"`, `"actorID"`, `"version":0`} {
+				if !strings.Contains(wire, key) {
+					t.Fatalf("record mutation hook missing %s: %s", key, wire)
+				}
+			}
+		}
 	}
 	if _, err := safeJavaScriptHookData(&HookEvent{Kind: "unknown", Data: struct{ Secret string }{Secret: "value"}}); err == nil {
 		t.Fatal("unsupported hook data type was reflected into JavaScript")

@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/dop251/goja"
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
@@ -29,6 +35,36 @@ type JavaScriptOptions struct {
 	MaximumHostCalls   int
 	MaximumInputBytes  int
 	MaximumOutputBytes int
+	// OnInit installs trusted application bindings in every fresh VM. It runs
+	// during validation and each invocation and must not retain the VM.
+	OnInit func(*goja.Runtime) error
+	// PocketBaseCompatibility configures the bounded host adapters used by the
+	// PocketBase-compatible globals. Effects still require the matching
+	// manifest capability (http, os, or filesystem).
+	PocketBaseCompatibility PocketBaseCompatibilityOptions
+}
+
+type PocketBaseCompatibilityOptions struct {
+	AuthMailCollections []uuid.UUID
+	FilesystemRoot      string
+	HTTPAllowedOrigins  []string
+	Commands            map[string]string
+	Environment         map[string]string
+	Arguments           []string
+	// ProcessExit is an operator-provided process lifecycle request. Leaving it
+	// nil makes $os.exit fail closed. Tests and supervisors can inject it.
+	ProcessExit func(int) error
+	// ProcessRestart delegates a restart request to the operator's managed host.
+	// A nil callback makes $app.restart fail closed.
+	ProcessRestart func(context.Context) error
+	// ProcessAppControl queues lifecycle actions with the operator-managed host
+	// and returns its durable receipt. JavaScript never tears down live database
+	// and HTTP resources from inside an invocation.
+	ProcessAppControl     func(context.Context, string) (string, error)
+	DataDirectory         string
+	EncryptionEnvironment string
+	Development           bool
+	AllowHookBypass       bool
 }
 
 type JavaScriptHandler struct {
@@ -37,11 +73,12 @@ type JavaScriptHandler struct {
 }
 
 type JavaScriptRoute struct {
-	Method       string
-	Pattern      string
-	Access       string
-	Handler      JavaScriptHandler
-	Capabilities []string
+	Method         string
+	Pattern        string
+	Access         string
+	Handler        JavaScriptHandler
+	Capabilities   []string
+	StreamResponse bool
 }
 
 type JavaScriptHook struct {
@@ -69,6 +106,7 @@ type JavaScriptMigration struct {
 
 type JavaScriptManifest struct {
 	Digest     string
+	Bootstrap  string
 	Routes     []JavaScriptRoute
 	Hooks      []JavaScriptHook
 	Jobs       []JavaScriptJob
@@ -82,13 +120,24 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	capabilities := make(map[string]bool, len(options.Capabilities))
 	for name, enabled := range options.Capabilities {
 		switch name {
-		case "records", "mail", "files", "log":
+		case "records", "mail", "files", "log", "template", "database", "objects", "http", "os", "filesystem", "app-control", "hooks-bypass":
 		default:
 			return JavaScriptOptions{}, fmt.Errorf("JavaScript.Capabilities: unknown capability %q", name)
 		}
 		capabilities[name] = enabled
 	}
 	options.Capabilities = capabilities
+	if capabilities["hooks-bypass"] && !options.PocketBaseCompatibility.AllowHookBypass {
+		return JavaScriptOptions{}, errors.New("JavaScript hooks-bypass capability requires PocketBaseCompatibility.AllowHookBypass")
+	}
+	if capabilities["hooks-bypass"] && !capabilities["app-control"] {
+		return JavaScriptOptions{}, errors.New("JavaScript.Capabilities: hooks-bypass requires app-control")
+	}
+	compatibility, err := options.PocketBaseCompatibility.normalized()
+	if err != nil {
+		return JavaScriptOptions{}, fmt.Errorf("JavaScript.PocketBaseCompatibility: %w", err)
+	}
+	options.PocketBaseCompatibility = compatibility
 	subjects := make(map[string]uuid.UUID, len(options.JobServiceSubjects))
 	for name, id := range options.JobServiceSubjects {
 		if name == "" || id == uuid.Nil {
@@ -109,6 +158,61 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	options.MaximumHostCalls = limits.MaximumHostCalls
 	options.MaximumInputBytes = limits.MaximumInputBytes
 	options.MaximumOutputBytes = limits.MaximumOutputBytes
+	return options, nil
+}
+
+func (options PocketBaseCompatibilityOptions) normalized() (PocketBaseCompatibilityOptions, error) {
+	if options.DataDirectory != "" {
+		root, err := filepath.Abs(options.DataDirectory)
+		if err != nil {
+			return options, err
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			return options, errors.New("DataDirectory must be an existing directory")
+		}
+		options.DataDirectory = root
+	}
+	if value := options.EncryptionEnvironment; len(value) > 128 || strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" {
+		return options, errors.New("EncryptionEnvironment must be an environment variable name")
+	}
+	if options.FilesystemRoot != "" {
+		root, err := filepath.Abs(options.FilesystemRoot)
+		if err != nil {
+			return options, err
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			return options, errors.New("FilesystemRoot must be an existing directory")
+		}
+		root, err = filepath.EvalSymlinks(root)
+		if err != nil {
+			return options, err
+		}
+		options.FilesystemRoot = root
+	}
+	options.HTTPAllowedOrigins = slices.Clone(options.HTTPAllowedOrigins)
+	for i, origin := range options.HTTPAllowedOrigins {
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
+			return options, fmt.Errorf("invalid HTTPAllowedOrigins entry %q", origin)
+		}
+		options.HTTPAllowedOrigins[i] = u.Scheme + "://" + u.Host
+	}
+	options.Commands = maps.Clone(options.Commands)
+	options.Environment = maps.Clone(options.Environment)
+	options.Arguments = slices.Clone(options.Arguments)
+	options.AuthMailCollections = slices.Clone(options.AuthMailCollections)
+	for _, id := range options.AuthMailCollections {
+		if id == uuid.Nil {
+			return options, errors.New("AuthMailCollections contains an empty collection id")
+		}
+	}
+	for name, command := range options.Commands {
+		if name == "" || !filepath.IsAbs(command) {
+			return options, errors.New("Commands requires names mapped to absolute paths")
+		}
+	}
 	return options, nil
 }
 
@@ -133,7 +237,7 @@ func ValidateJavaScript(ctx context.Context, options JavaScriptOptions) (manifes
 	if err != nil {
 		return JavaScriptManifest{}, err
 	}
-	runtime, err := jsvm.NewRuntime(bundle, normalized.limits())
+	runtime, err := jsvm.NewRuntimeWithInitializer(bundle, normalized.limits(), normalized.OnInit)
 	if err != nil {
 		return JavaScriptManifest{}, err
 	}
@@ -156,7 +260,7 @@ func validateJavaScriptRegistration(manifest jsvm.Manifest, enabled map[string]b
 		access := CustomRouteAccess(route.Access)
 		routes = append(routes, CustomRoute{Method: route.Method, Pattern: route.Pattern, Access: access,
 			Handler: http.NotFoundHandler(), MaximumRequestBytes: route.MaximumRequestBytes,
-			MaximumResponseBytes: route.MaximumResponseBytes})
+			MaximumResponseBytes: route.MaximumResponseBytes, StreamResponse: route.StreamResponse})
 		if err := validateRequestedCapabilities(route.Capabilities, enabled, "route "+route.Pattern); err != nil {
 			return err
 		}
@@ -202,32 +306,48 @@ func validateRequestedCapabilities(requested []string, enabled map[string]bool, 
 			return fmt.Errorf("JavaScript %s requests disabled capability %q", owner, capability)
 		}
 	}
+	if seen["hooks-bypass"] && !seen["app-control"] {
+		return fmt.Errorf("JavaScript %s requests hooks-bypass without app-control", owner)
+	}
 	return nil
 }
 
 func knownJavaScriptHook(kind string) bool {
+	if kind == HookSettingsList || kind == HookSettingsUpdate {
+		return true
+	}
+	if strings.HasPrefix(kind, "model.") || strings.HasPrefix(kind, "record.model.") || strings.HasPrefix(kind, "collection.model.") {
+		parts := strings.Split(kind, ".")
+		phase := strings.Join(parts[1:], ".")
+		if parts[0] == "record" || parts[0] == "collection" {
+			phase = strings.Join(parts[2:], ".")
+		}
+		return slices.Contains([]string{"validate", "create", "create.execute", "create.success", "create.error", "update", "update.execute", "update.success", "update.error", "delete", "delete.execute", "delete.success", "delete.error"}, phase)
+	}
 	return slices.Contains([]string{
 		HookRequest, HookRecordBefore, HookRecordAfter, HookMailSend, HookMailOTP, HookMailVerification,
 		HookMailPasswordReset, HookMailEmailChange, HookMailSMTPTest, HookFileUpload, HookFileDelete,
 		HookFileToken, HookFileDownload, HookFileTransform, HookRecordListRequest, HookRecordViewRequest,
 		HookRecordCreateRequest, HookRecordUpdateRequest, HookRecordDeleteRequest, HookRecordBatchRequest,
 		HookSchemaImportPreview, HookSchemaImportApply, HookCollectionCreate, HookCollectionUpdate,
-		HookCollectionDelete, HookAppBoot, HookAppServe, HookAppTerminate, HookAuthPassword,
+		HookCollectionDelete, HookAppBoot, HookAppServe, HookAppTerminate, HookAuthPassword, HookAuthRefresh,
 		HookAuthOAuthBegin, HookAuthOAuthComplete, HookAuthOTPRequest, HookAuthOTPComplete,
 		HookAuthVerificationRequest, HookAuthVerificationConfirm, HookAuthPasswordResetRequest,
 		HookAuthPasswordResetConfirm, HookAuthEmailChangeRequest, HookAuthEmailChangeConfirm,
 		HookAuthImpersonate, HookRealtimeConnect, HookRealtimeSubscribe, HookRealtimeMessage,
 		HookStorageSettingsList, HookStorageSettingsUpdate, HookStorageSettingsTest,
 		HookBackupCreate, HookBackupRestore, HookBackupDelete,
+		HookObjectWrite, HookObjectDelete, "record.enrich", "collection.request.list", "collection.request.view", "collection.request.create", "collection.request.update", "collection.request.delete",
+		HookAuthAlert, HookSettingsReload, HookModelValidate, HookModelExecute, HookModelSuccess, HookModelError,
 	}, kind)
 }
 
 func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
 	manifest := bundle.Manifest()
-	result := JavaScriptManifest{Digest: bundle.Digest()}
+	result := JavaScriptManifest{Digest: bundle.Digest(), Bootstrap: manifest.Bootstrap}
 	for _, route := range manifest.Routes {
 		result.Routes = append(result.Routes, JavaScriptRoute{Method: route.Method, Pattern: route.Pattern, Access: route.Access,
-			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...)})
+			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...), StreamResponse: route.StreamResponse})
 	}
 	for _, hook := range manifest.Hooks {
 		converted := JavaScriptHook{Event: hook.Event, Priority: hook.Priority}

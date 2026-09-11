@@ -136,6 +136,63 @@ var userMigrationSourcesSQL string
 //go:embed 000041_sql_console.sql
 var sqlConsoleSQL string
 
+//go:embed 000042_schema_compatibility.sql
+var schemaCompatibilitySQL string
+
+//go:embed 000043_auth_pb_compat.sql
+var authPBCompatSQL string
+
+//go:embed 000045_runtime_settings.sql
+var runtimeSettingsSQL string
+
+//go:embed 000048_auth_oidc_compat.sql
+var authOIDCCompatSQL string
+
+//go:embed 000050_auth_token_policies.sql
+var authTokenPoliciesSQL string
+
+//go:embed 000051_admin_password_resets.sql
+var adminPasswordResetsSQL string
+
+//go:embed 000054_runtime_settings_encryption.sql
+var runtimeSettingsEncryptionSQL string
+
+//go:embed 000056_admin_email_otps.sql
+var adminEmailOTPsSQL string
+
+//go:embed 000057_extension_objects.sql
+var extensionObjectsSQL string
+
+//go:embed 000058_api_rate_limits.sql
+var apiRateLimitsSQL string
+
+//go:embed 000059_extension_object_inventory.sql
+var extensionObjectInventorySQL string
+
+//go:embed 000060_nullable_auth_rules.sql
+var nullableAuthRulesSQL string
+
+//go:embed 000061_record_identities.sql
+var recordIdentitiesSQL string
+
+//go:embed 000062_auth_email_visibility.sql
+var authEmailVisibilitySQL string
+
+//go:embed 000063_advanced_collection_indexes.sql
+var advancedCollectionIndexesSQL string
+
+//go:embed 000064_versioned_extension_objects.sql
+var versionedExtensionObjectsSQL string
+
+//go:embed 000065_optional_auth_email_uniqueness.sql
+var optionalAuthEmailUniquenessSQL string
+
+//go:embed 000052_auth_record_model.sql
+var authRecordModelSQL string
+
+//go:embed 000055_request_log_context.sql
+var requestLogContextSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -223,6 +280,25 @@ var migrations = []Migration{
 	{Version: 39, Name: "admin_mfa_network_policy", SQL: adminMFANetworkPolicySQL, SHA256: sha256.Sum256([]byte(adminMFANetworkPolicySQL))},
 	{Version: 40, Name: "user_migration_sources", SQL: userMigrationSourcesSQL, SHA256: sha256.Sum256([]byte(userMigrationSourcesSQL))},
 	{Version: 41, Name: "sql_console", SQL: sqlConsoleSQL, SHA256: sha256.Sum256([]byte(sqlConsoleSQL))},
+	{Version: 42, Name: "schema_compatibility", SQL: schemaCompatibilitySQL, SHA256: sha256.Sum256([]byte(schemaCompatibilitySQL))},
+	{Version: 43, Name: "auth_pb_compat", SQL: authPBCompatSQL, SHA256: sha256.Sum256([]byte(authPBCompatSQL))},
+	{Version: 45, Name: "runtime_settings", SQL: runtimeSettingsSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsSQL))},
+	{Version: 48, Name: "auth_oidc_compat", SQL: authOIDCCompatSQL, SHA256: sha256.Sum256([]byte(authOIDCCompatSQL))},
+	{Version: 50, Name: "auth_token_policies", SQL: authTokenPoliciesSQL, SHA256: sha256.Sum256([]byte(authTokenPoliciesSQL))},
+	{Version: 51, Name: "admin_password_resets", SQL: adminPasswordResetsSQL, SHA256: sha256.Sum256([]byte(adminPasswordResetsSQL))},
+	{Version: 52, Name: "auth_record_model", SQL: authRecordModelSQL, SHA256: sha256.Sum256([]byte(authRecordModelSQL))},
+	{Version: 54, Name: "runtime_settings_encryption", SQL: runtimeSettingsEncryptionSQL, SHA256: sha256.Sum256([]byte(runtimeSettingsEncryptionSQL))},
+	{Version: 55, Name: "request_log_context", SQL: requestLogContextSQL, SHA256: sha256.Sum256([]byte(requestLogContextSQL))},
+	{Version: 56, Name: "admin_email_otps", SQL: adminEmailOTPsSQL, SHA256: sha256.Sum256([]byte(adminEmailOTPsSQL))},
+	{Version: 57, Name: "extension_objects", SQL: extensionObjectsSQL, SHA256: sha256.Sum256([]byte(extensionObjectsSQL))},
+	{Version: 58, Name: "api_rate_limits", SQL: apiRateLimitsSQL, SHA256: sha256.Sum256([]byte(apiRateLimitsSQL))},
+	{Version: 59, Name: "extension_object_inventory", SQL: extensionObjectInventorySQL, SHA256: sha256.Sum256([]byte(extensionObjectInventorySQL))},
+	{Version: 60, Name: "nullable_auth_rules", SQL: nullableAuthRulesSQL, SHA256: sha256.Sum256([]byte(nullableAuthRulesSQL))},
+	{Version: 61, Name: "record_identities", SQL: recordIdentitiesSQL, SHA256: sha256.Sum256([]byte(recordIdentitiesSQL))},
+	{Version: 62, Name: "auth_email_visibility", SQL: authEmailVisibilitySQL, SHA256: sha256.Sum256([]byte(authEmailVisibilitySQL))},
+	{Version: 63, Name: "advanced_collection_indexes", SQL: advancedCollectionIndexesSQL, SHA256: sha256.Sum256([]byte(advancedCollectionIndexesSQL))},
+	{Version: 64, Name: "versioned_extension_objects", SQL: versionedExtensionObjectsSQL, SHA256: sha256.Sum256([]byte(versionedExtensionObjectsSQL))},
+	{Version: 65, Name: "optional_auth_email_uniqueness", SQL: optionalAuthEmailUniquenessSQL, SHA256: sha256.Sum256([]byte(optionalAuthEmailUniquenessSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

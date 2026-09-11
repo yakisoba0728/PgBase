@@ -32,21 +32,27 @@ type plannedRelationFilter struct {
 }
 
 type plannedRelationComparison struct {
-	input     filterComparison
-	rootField *schema.Field
-	path      *plannedRelationPath
+	input                         filterComparison
+	rootField                     *schema.Field
+	otherRootField                *schema.Field
+	path                          *plannedRelationPath
+	rootIdentityCollectionID      uuid.UUID
+	otherRootIdentityCollectionID uuid.UUID
 }
 
 type plannedRelationPath struct {
-	hops               []plannedRelationHop
-	terminal           schema.Field
-	terminalIsRelation bool
-	geoProperty        string
+	hops                 []plannedRelationHop
+	terminal             schema.Field
+	terminalIsRelation   bool
+	geoProperty          string
+	jsonPath             []string
+	identityCollectionID uuid.UUID
 }
 
 type plannedRelationHop struct {
 	field        schema.Field
 	target       schema.Collection
+	reverse      bool
 	policyTarget schema.Collection
 	rule         *accessrule.Rule
 	ruleRevision int64
@@ -86,6 +92,9 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 	case filterOr:
 		return planRelationFilterGroup(catalog, root, value.children, " OR ")
 	case filterComparison:
+		if value.function != nil {
+			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value}}, 0, nil
+		}
 		field, ok := filterField(root, value.field)
 		if ok && field.Type != schema.TypeRelation && !strings.Contains(value.field, ".") {
 			// Reject here rather than only at statement compilation: the cursor
@@ -98,8 +107,18 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			if value.modifier != "" && field.Type != schema.TypeText && field.Type != schema.TypeEditor {
 				return nil, 0, validation("filter", "unsupported_modifier")
 			}
-			copy := field
-			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, rootField: &copy}}, 0, nil
+			copy, identityCollectionID := textIdentityField(root, field)
+			planned := &plannedRelationComparison{input: value, rootField: &copy, rootIdentityCollectionID: identityCollectionID}
+			if value.otherField != "" {
+				other, found := filterField(root, value.otherField)
+				if !found || other.Type == schema.TypeRelation || strings.Contains(value.otherField, ".") {
+					return nil, 0, validation("filter", "unknown_field")
+				}
+				otherCopy, otherIdentityCollectionID := textIdentityField(root, other)
+				planned.otherRootField = &otherCopy
+				planned.otherRootIdentityCollectionID = otherIdentityCollectionID
+			}
+			return &plannedRelationFilter{comparison: planned}, 0, nil
 		}
 		if !ok && !strings.Contains(value.field, ".") {
 			return nil, 0, validation("filter", "unknown_field")
@@ -108,13 +127,13 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 		if err != nil {
 			return nil, 0, err
 		}
-		if (len(path.hops) == 0 && path.geoProperty == "") || len(path.hops) > maximumRelationFilterDepth {
+		if (len(path.hops) == 0 && path.geoProperty == "" && len(path.jsonPath) == 0) || len(path.hops) > maximumRelationFilterDepth {
 			return nil, 0, relationFilterUnsupported()
 		}
-		if path.terminalIsRelation && (value.operator != "=" || value.value.kind != filterLiteralString) {
+		if path.terminalIsRelation && (strings.TrimPrefix(value.operator, "?") != "=" || value.value.kind != filterLiteralString) {
 			return nil, 0, relationFilterUnsupported()
 		}
-		if value.modifier != "" && path.terminal.Type != schema.TypeText && path.terminal.Type != schema.TypeEditor {
+		if value.modifier != "" && !(value.modifier == "each" && len(path.hops) != 0) && path.terminal.Type != schema.TypeText && path.terminal.Type != schema.TypeEditor {
 			return nil, 0, validation("filter", "unsupported_modifier")
 		}
 		copy := path
@@ -149,6 +168,25 @@ func planRelationFilterGroup(
 func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []SortKey) (orderSpec, error) {
 	terms := make([]orderTerm, 0, len(keys))
 	for _, key := range keys {
+		if key.Field == "@random" {
+			field, _ := filterField(root, systemFieldID)
+			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID}, expression: "random()", cursorField: field, random: true})
+			continue
+		}
+		if key.Field == externalIDSort {
+			field := externalIdentityCursorField(root)
+			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID, Desc: key.Desc}, expression: recordIdentityExpression(root.AccessCollectionID(), qualified(root.TableName, systemFieldID)), cursorField: field, indexHint: orderIndexRoot, identityCollectionID: root.AccessCollectionID()})
+			continue
+		}
+		if key.Field == internalRowIDSort {
+			field, _ := filterField(root, systemFieldID)
+			term, err := rootOrderTerm(SortKey{Field: systemFieldID, Desc: key.Desc}, field, root.IsSQLView())
+			if err != nil {
+				return orderSpec{}, err
+			}
+			terms = append(terms, term)
+			continue
+		}
 		field, ok := filterField(root, key.Field)
 		inline, isRoot := rootSortField(field)
 		if ok && isRoot && !strings.Contains(key.Field, ".") {
@@ -160,8 +198,6 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 			continue
 		}
 		if ok && isMultipleRelation(field) && !strings.Contains(key.Field, ".") {
-			// Cardinality alone decides this, and the target is never read, so
-			// the rejection must not depend on resolving it.
 			return orderSpec{}, relationSortUnsupported()
 		}
 		if !ok && !strings.Contains(key.Field, ".") {
@@ -174,11 +210,6 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 		indexHint, indexed := indexedOrderHint(path.terminal, orderIndexRelationTarget)
 		if (len(path.hops) == 0 && path.geoProperty == "") || len(path.hops) > maximumRelationSortDepth || path.terminal.Type == schema.TypeJSONB || path.terminal.Type == schema.TypePassword || !indexed {
 			return orderSpec{}, relationSortUnsupported()
-		}
-		for _, hop := range path.hops {
-			if hop.field.Relation == nil || hop.field.Relation.Cardinality != schema.RelationSingle {
-				return orderSpec{}, relationSortUnsupported()
-			}
 		}
 		copy := path
 		terms = append(terms, orderTerm{
@@ -220,10 +251,35 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 			return plannedRelationPath{}, relationPathUnsupported(operation)
 		}
 		field, ok := filterField(current, segment)
+		var reverse bool
+		if !ok {
+			for _, ref := range catalog.Incoming[current.ID] {
+				source, found := catalogCollectionByID(catalog, ref.SourceCollectionID)
+				if !found {
+					return plannedRelationPath{}, schema.ErrConflict
+				}
+				var sourceField schema.Field
+				for _, candidate := range source.Fields {
+					if candidate.ID == ref.SourceFieldID {
+						sourceField = candidate
+						break
+					}
+				}
+				if sourceField.ID != uuid.Nil && segment == source.Name+"_via_"+sourceField.Name {
+					field, current, ok, reverse = sourceField, source, true, true
+					break
+				}
+			}
+		}
 		if !ok {
 			return plannedRelationPath{}, relationPathUnsupported(operation)
 		}
 		if field.Type != schema.TypeRelation {
+			if field.Type == schema.TypeJSONB && index < len(segments)-1 {
+				path.terminal = schema.Field{ID: field.ID, Name: field.Name, ColumnName: field.ColumnName, Type: schema.TypeJSONB, Indexed: field.Indexed, Hidden: field.Hidden}
+				path.jsonPath = append([]string(nil), segments[index+1:]...)
+				return path, nil
+			}
 			if field.Type == schema.TypeGeoPoint && index+1 == len(segments)-1 && (segments[index+1] == "lat" || segments[index+1] == "lon") {
 				path.terminal = schema.Field{ID: uuid.NewSHA1(field.ID, []byte("geoPoint:"+segments[index+1])), Name: field.Name + "." + segments[index+1], ColumnName: field.ColumnName, Type: schema.TypeNumeric, Indexed: field.Indexed, Hidden: field.Hidden}
 				path.geoProperty = segments[index+1]
@@ -232,7 +288,10 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 			if index != len(segments)-1 || len(path.hops) == 0 {
 				return plannedRelationPath{}, relationPathUnsupported(operation)
 			}
-			path.terminal = field
+			path.terminal, path.identityCollectionID = textIdentityField(current, field)
+			if operation == "sort" && path.identityCollectionID != uuid.Nil {
+				path.terminal = externalIdentityCursorField(current)
+			}
 			return path, nil
 		}
 		if field.Relation == nil {
@@ -241,14 +300,21 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 		if _, err := relation.Bind(catalog, current); err != nil {
 			return plannedRelationPath{}, schema.ErrConflict
 		}
-		target, ok := catalogCollectionByID(catalog, field.Relation.TargetCollectionID)
-		if !ok {
-			return plannedRelationPath{}, schema.ErrConflict
+		target := current
+		if !reverse {
+			target, ok = catalogCollectionByID(catalog, field.Relation.TargetCollectionID)
+			if !ok {
+				return plannedRelationPath{}, schema.ErrConflict
+			}
 		}
-		path.hops = append(path.hops, plannedRelationHop{field: field, target: target})
+		path.hops = append(path.hops, plannedRelationHop{field: field, target: target, reverse: reverse})
 		current = target
 		if index == len(segments)-1 {
 			path.terminal = schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}
+			path.terminal, path.identityCollectionID = textIdentityField(current, path.terminal)
+			if operation == "sort" && path.identityCollectionID != uuid.Nil {
+				path.terminal = externalIdentityCursorField(current)
+			}
 			path.terminalIsRelation = true
 			return path, nil
 		}
@@ -292,6 +358,8 @@ func relationSortBudgetExceeded() error {
 type relationSQLRenderer struct {
 	builder *statementBuilder
 	next    int
+	root    schema.Collection
+	catalog schema.Catalog
 }
 
 func (r *relationSQLRenderer) alias(prefix string) string {
@@ -299,9 +367,9 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 	return prefix + "_" + strconv.Itoa(r.next)
 }
 
-func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding) (Statement, error) {
+func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding, offsets ...int) (Statement, error) {
 	builder := &statementBuilder{}
-	renderer := &relationSQLRenderer{builder: builder}
+	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
 	if err != nil {
 		return Statement{}, err
@@ -317,7 +385,7 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	if ownerID != nil {
 		conditions = append(conditions, `EXISTS (SELECT 1 FROM pgbase_meta.record_owners AS "rq_owner" WHERE "rq_owner".collection_id = `+builder.placeholder(p.order.root.AccessCollectionID())+` AND "rq_owner".record_id = `+qualified(relationRootAlias, "id")+` AND "rq_owner".user_id = `+builder.placeholder(*ownerID)+`)`)
 	} else if root.rule != nil {
-		predicate, args, err := compilePolicyPredicate(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args))
+		predicate, args, err := compilePolicyPredicateWithRequest(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args), p.catalog, root.request)
 		if err != nil {
 			return Statement{}, err
 		}
@@ -344,6 +412,9 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	}
 	sql += order.orderBy()
 	sql += " LIMIT " + builder.placeholder(fetchLimit)
+	if len(offsets) > 0 && offsets[0] > 0 {
+		sql += " OFFSET " + builder.placeholder(offsets[0])
+	}
 	return Statement{SQL: sql, Args: builder.args}, nil
 }
 
@@ -356,15 +427,22 @@ func (s orderSpec) renderRelation(
 	joins := make([]string, 0, len(terms)*maximumRelationSortDepth)
 	for index := range terms {
 		term := &terms[index]
+		if term.random {
+			term.expression = "random()"
+			continue
+		}
 		if term.relationPath != nil && term.relationPath.geoProperty != "" && len(term.relationPath.hops) == 0 {
 			term.expression = geoPointExpression(qualified(rootAlias, term.cursorField.ColumnName), term.relationPath.geoProperty)
 			continue
 		}
 		if term.relationPath == nil {
 			term.expression = qualified(rootAlias, term.cursorField.ColumnName)
+			if term.identityCollectionID != uuid.Nil {
+				term.expression = recordIdentityExpression(term.identityCollectionID, qualified(rootAlias, systemFieldID))
+			}
 			continue
 		}
-		expression, pathJoins, err := renderRelationSortJoins(term.relationPath, renderer, rootAlias, prefix)
+		expression, pathJoins, err := renderRelationSortJoins(term.relationPath, renderer, rootAlias, prefix, term.key.Desc)
 		if err != nil {
 			return orderSpec{}, nil, err
 		}
@@ -401,19 +479,79 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	}
 	if node.comparison != nil {
 		comparison := node.comparison
+		if comparison.input.function != nil {
+			column, field, err := compileFilterFunction(renderer.root, comparison.input.function, renderer.builder)
+			if err != nil {
+				return "", err
+			}
+			return compileQualifiedComparison(field, comparison.input, column, renderer.builder)
+		}
 		if comparison.rootField != nil {
-			return compileQualifiedComparison(*comparison.rootField, comparison.input, qualified(sourceAlias, comparison.rootField.ColumnName), renderer.builder)
+			leftColumn := qualified(sourceAlias, comparison.rootField.ColumnName)
+			if comparison.rootIdentityCollectionID != uuid.Nil {
+				leftColumn = recordIdentityExpression(comparison.rootIdentityCollectionID, qualified(sourceAlias, systemFieldID))
+			}
+			if comparison.otherRootField != nil {
+				rightColumn := qualified(sourceAlias, comparison.otherRootField.ColumnName)
+				if comparison.otherRootIdentityCollectionID != uuid.Nil {
+					rightColumn = recordIdentityExpression(comparison.otherRootIdentityCollectionID, qualified(sourceAlias, systemFieldID))
+				}
+				return compileFieldComparison(*comparison.rootField, *comparison.otherRootField, comparison.input, leftColumn, rightColumn)
+			}
+			return compileQualifiedComparison(*comparison.rootField, comparison.input, leftColumn, renderer.builder)
 		}
 		if comparison.path.geoProperty != "" && len(comparison.path.hops) == 0 {
 			column := geoPointExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.geoProperty)
 			return compileQualifiedComparison(comparison.path.terminal, comparison.input, column, renderer.builder)
 		}
+		if len(comparison.path.jsonPath) != 0 && len(comparison.path.hops) == 0 {
+			column, field := jsonPathExpression(qualified(sourceAlias, comparison.path.terminal.ColumnName), comparison.path.jsonPath, comparison.input.value)
+			return compileQualifiedComparison(field, comparison.input, column, renderer.builder)
+		}
+		if comparison.input.modifier == "each" && len(comparison.path.hops) != 0 {
+			input := comparison.input
+			input.modifier = ""
+			var ok bool
+			input.operator, ok = invertFilterOperator(input.operator)
+			if !ok {
+				return "", validation("filter", "invalid_filter")
+			}
+			mismatch, err := renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
+				column := qualified(alias, comparison.path.terminal.ColumnName)
+				if comparison.path.identityCollectionID != uuid.Nil {
+					column = recordIdentityExpression(comparison.path.identityCollectionID, qualified(alias, systemFieldID))
+				}
+				field := comparison.path.terminal
+				if comparison.path.geoProperty != "" {
+					column = geoPointExpression(column, comparison.path.geoProperty)
+				}
+				if len(comparison.path.jsonPath) != 0 {
+					column, field = jsonPathExpression(column, comparison.path.jsonPath, input.value)
+				}
+				return compileQualifiedComparison(field, input, column, renderer.builder)
+			})
+			if err != nil {
+				return "", err
+			}
+			return "NOT (" + mismatch + ")", nil
+		}
 		return renderRelationExists(comparison.path, renderer, sourceAlias, func(alias string) (string, error) {
 			column := qualified(alias, comparison.path.terminal.ColumnName)
+			if comparison.path.identityCollectionID != uuid.Nil {
+				column = recordIdentityExpression(comparison.path.identityCollectionID, qualified(alias, systemFieldID))
+			}
 			if comparison.path.geoProperty != "" {
 				column = geoPointExpression(column, comparison.path.geoProperty)
 			}
-			return compileQualifiedComparison(comparison.path.terminal, comparison.input, column, renderer.builder)
+			field := comparison.path.terminal
+			if len(comparison.path.jsonPath) != 0 {
+				column, field = jsonPathExpression(column, comparison.path.jsonPath, comparison.input.value)
+			}
+			input := comparison.input
+			if input.modifier == "each" && comparison.path.terminalIsRelation {
+				input.modifier = ""
+			}
+			return compileQualifiedComparison(field, input, column, renderer.builder)
 		})
 	}
 	parts := make([]string, 0, len(node.children))
@@ -427,22 +565,78 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	return "(" + strings.Join(parts, node.separator) + ")", nil
 }
 
+func invertFilterOperator(op string) (string, bool) {
+	prefix := ""
+	if strings.HasPrefix(op, "?") {
+		prefix, op = "?", strings.TrimPrefix(op, "?")
+	}
+	switch op {
+	case "=":
+		return prefix + "!=", true
+	case "!=":
+		return prefix + "=", true
+	case "~":
+		return prefix + "!~", true
+	case "!~":
+		return prefix + "~", true
+	case "<":
+		return prefix + ">=", true
+	case "<=":
+		return prefix + ">", true
+	case ">":
+		return prefix + "<=", true
+	case ">=":
+		return prefix + "<", true
+	}
+	return "", false
+}
+
 func geoPointExpression(column, property string) string {
 	return "((" + column + "->>'" + property + "')::numeric)"
 }
 
+func jsonPathExpression(column string, path []string, literal filterLiteral) (string, schema.Field) {
+	parts := make([]string, len(path))
+	for i, part := range path {
+		parts[i] = strings.ReplaceAll(part, "'", "''")
+	}
+	text := "(" + column + "#>>'{" + strings.Join(parts, ",") + "}')"
+	field := schema.Field{Type: schema.TypeText}
+	switch literal.kind {
+	case filterLiteralNumber:
+		field.Type = schema.TypeNumeric
+		return "(NULLIF(" + text + ",'')::numeric)", field
+	case filterLiteralBool:
+		field.Type = schema.TypeBoolean
+		return "(NULLIF(" + text + ",'')::boolean)", field
+	default:
+		return text, field
+	}
+}
 func compileQualifiedComparison(field schema.Field, comparison filterComparison, column string, builder *statementBuilder) (string, error) {
+	anyMatch := strings.HasPrefix(comparison.operator, "?")
+	if anyMatch {
+		comparison.operator = strings.TrimPrefix(comparison.operator, "?")
+	}
 	if field.Type == schema.TypeJSONB || field.Type == schema.TypeGeoPoint || field.Type == schema.TypeFile || field.Type == schema.TypePassword {
 		return "", relationFilterUnsupported()
 	}
-	if field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
+	_ = anyMatch // scalar operands have identical PB any-match behavior
+	if (comparison.operator == "~" || comparison.operator == "!~") && (field.Type != schema.TypeText && field.Type != schema.TypeEditor || comparison.value.kind != filterLiteralString) || (field.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=") {
 		return "", validation("filter", "type_mismatch")
 	}
 	if comparison.modifier != "" {
-		if comparison.modifier != "lower" || field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+		if field.Type != schema.TypeText && field.Type != schema.TypeEditor {
 			return "", validation("filter", "unsupported_modifier")
 		}
-		column = "lower(" + column + ")"
+		switch comparison.modifier {
+		case "lower":
+			column = "lower(" + column + ")"
+		case "length":
+			column = "char_length(" + column + ")"
+		default:
+			return "", validation("filter", "unsupported_modifier")
+		}
 	}
 	if comparison.value.kind == filterLiteralNull {
 		switch comparison.operator {
@@ -454,7 +648,11 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 			return "", validation("filter", "type_mismatch")
 		}
 	}
-	value, err := decodeFilterValue(field, comparison.value)
+	valueField := field
+	if comparison.modifier == "length" {
+		valueField.Type = schema.TypeInteger
+	}
+	value, err := decodeFilterValue(valueField, comparison.value)
 	if err != nil {
 		return "", err
 	}
@@ -462,7 +660,72 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 		value = !value.(bool)
 		return "(" + column + " = " + builder.placeholder(value) + ")", nil
 	}
+	if comparison.operator == "~" || comparison.operator == "!~" {
+		placeholder := builder.placeholder(value)
+		if comparison.pocketBaseLike && !comparison.literalLeft {
+			pattern := comparison.value.text
+			if !strings.Contains(pattern, "%") {
+				pattern = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(pattern)
+				pattern = "%" + pattern + "%"
+			}
+			builder.args[len(builder.args)-1] = pattern
+			op := "LIKE"
+			if comparison.operator == "!~" {
+				op = "NOT LIKE"
+			}
+			return "(" + column + " " + op + " " + placeholder + ` ESCAPE '\')`, nil
+		}
+		if comparison.literalLeft {
+			column, placeholder = placeholder, column
+		}
+		comparisonSQL := "strpos(" + column + ", " + placeholder + ") > 0"
+		if comparison.operator == "!~" {
+			comparisonSQL = "NOT (" + comparisonSQL + ")"
+		}
+		return "(" + comparisonSQL + ")", nil
+	}
 	return "(" + column + " " + comparison.operator + " " + builder.placeholder(value) + ")", nil
+}
+
+func compileFieldComparison(left, right schema.Field, comparison filterComparison, leftColumn, rightColumn string) (string, error) {
+	if left.Type != right.Type || left.Type == schema.TypeJSONB || left.Type == schema.TypeGeoPoint || left.Type == schema.TypeFile || left.Type == schema.TypePassword || left.Type == schema.TypeRelation {
+		return "", validation("filter", "type_mismatch")
+	}
+	apply := func(field schema.Field, modifier, column string) (string, error) {
+		if modifier == "" {
+			return column, nil
+		}
+		if field.Type != schema.TypeText && field.Type != schema.TypeEditor {
+			return "", validation("filter", "unsupported_modifier")
+		}
+		switch modifier {
+		case "lower":
+			return "lower(" + column + ")", nil
+		case "length":
+			return "char_length(" + column + ")", nil
+		default:
+			return "", validation("filter", "unsupported_modifier")
+		}
+	}
+	var err error
+	leftColumn, err = apply(left, comparison.modifier, leftColumn)
+	if err != nil {
+		return "", err
+	}
+	rightColumn, err = apply(right, comparison.otherModifier, rightColumn)
+	if err != nil {
+		return "", err
+	}
+	if comparison.operator == "~" {
+		return "(" + leftColumn + " LIKE ('%' || " + rightColumn + " || '%') ESCAPE '\\')", nil
+	}
+	if comparison.operator == "!~" {
+		return "(" + leftColumn + " NOT LIKE ('%' || " + rightColumn + " || '%') ESCAPE '\\')", nil
+	}
+	if left.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
+		return "", validation("filter", "type_mismatch")
+	}
+	return "(" + leftColumn + " " + comparison.operator + " " + rightColumn + ")", nil
 }
 
 func renderRelationExists(
@@ -481,7 +744,7 @@ func renderRelationExists(
 			return "", schema.ErrConflict
 		}
 		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
+			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
 			if err != nil {
 				return "", err
 			}
@@ -490,13 +753,21 @@ func renderRelationExists(
 		}
 		switch hop.field.Relation.Cardinality {
 		case schema.RelationSingle:
-			conditions = append(conditions, qualified(targetAlias, systemFieldID)+" = "+qualified(parentAlias, hop.field.ColumnName))
+			if hop.reverse {
+				conditions = append(conditions, qualified(targetAlias, hop.field.ColumnName)+" = "+qualified(parentAlias, systemFieldID))
+			} else {
+				conditions = append(conditions, qualified(targetAlias, systemFieldID)+" = "+qualified(parentAlias, hop.field.ColumnName))
+			}
 		case schema.RelationMultiple:
 			edgeAlias := renderer.alias("rq_edge")
 			edgeTable := pgx.Identifier{"pgbase_relation", hop.field.Relation.Storage.Name}.Sanitize()
+			targetEndpoint, parentEndpoint := "target_id", "source_id"
+			if hop.reverse {
+				targetEndpoint, parentEndpoint = "source_id", "target_id"
+			}
 			from = edgeTable + " AS " + quoted(edgeAlias) + " JOIN " + from + " ON " +
-				qualified(targetAlias, systemFieldID) + " = " + qualified(edgeAlias, "target_id")
-			conditions = append(conditions, qualified(edgeAlias, "source_id")+" = "+qualified(parentAlias, systemFieldID))
+				qualified(targetAlias, systemFieldID) + " = " + qualified(edgeAlias, targetEndpoint)
+			conditions = append(conditions, qualified(edgeAlias, parentEndpoint)+" = "+qualified(parentAlias, systemFieldID))
 		default:
 			return "", schema.ErrConflict
 		}
@@ -518,61 +789,3 @@ func renderRelationExists(
 	}
 	return render(0, sourceAlias)
 }
-
-func renderRelationSortJoins(
-	path *plannedRelationPath,
-	renderer *relationSQLRenderer,
-	sourceAlias string,
-	prefix string,
-) (string, []string, error) {
-	if path == nil || len(path.hops) == 0 {
-		return "", nil, relationSortUnsupported()
-	}
-	joins := make([]string, 0, len(path.hops))
-	parentAlias := sourceAlias
-	for index := range path.hops {
-		hop := path.hops[index]
-		if hop.field.Relation == nil || hop.field.Relation.Cardinality != schema.RelationSingle {
-			return "", nil, relationSortUnsupported()
-		}
-		targetAlias := renderer.alias(prefix)
-		conditions := []string{qualified(targetAlias, systemFieldID) + " = " + qualified(parentAlias, hop.field.ColumnName)}
-		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args))
-			if err != nil {
-				return "", nil, err
-			}
-			renderer.builder.args = append(renderer.builder.args, args...)
-			conditions = append(conditions, predicate)
-		}
-		joins = append(joins, " LEFT JOIN "+quotedTable(hop.target)+" AS "+quoted(targetAlias)+
-			" ON "+strings.Join(conditions, " AND "))
-		parentAlias = targetAlias
-	}
-	expression := qualified(parentAlias, path.terminal.ColumnName)
-	if path.geoProperty != "" {
-		expression = geoPointExpression(expression, path.geoProperty)
-	}
-	return expression, joins, nil
-}
-
-func selectedRelationRootColumns(collection schema.Collection, alias string) string {
-	columns := []string{
-		qualified(alias, systemFieldID),
-		qualified(alias, systemFieldCreatedAt),
-		qualified(alias, systemFieldUpdatedAt),
-	}
-	for _, field := range fieldsByOrdinal(collection) {
-		if isMultipleRelation(field) {
-			continue
-		}
-		column := qualified(alias, field.ColumnName)
-		if field.Type == schema.TypeNumeric {
-			column += "::text"
-		}
-		columns = append(columns, column)
-	}
-	return strings.Join(columns, ", ")
-}
-
-func qualified(alias, column string) string { return quoted(alias) + "." + quoted(column) }

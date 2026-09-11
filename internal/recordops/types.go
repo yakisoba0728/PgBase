@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 )
@@ -40,27 +41,35 @@ type Record = query.Record
 type MutationResult struct {
 	Record        *Record
 	EventID       uuid.UUID
+	InternalID    uuid.UUID
 	Replayed      bool
 	Compatibility Compatibility
 }
 
 type ListRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-	Expand     string
+	Principal               Principal
+	RequestID               string
+	Collection              string
+	Cursor                  string
+	Limit                   int
+	Filter                  string
+	Sort                    string
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type GetRequest struct {
-	Principal  Principal
-	RequestID  string
-	Collection string
-	ID         uuid.UUID
-	Expand     string
+	Principal               Principal
+	RequestID               string
+	Collection              string
+	ID                      uuid.UUID
+	PublicID                string
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type CreateRequest struct {
@@ -71,6 +80,7 @@ type CreateRequest struct {
 	IdempotencyKey     string
 	ID                 uuid.UUID
 	IdempotencyContext []byte
+	RuleContext        *accessrule.RequestContext
 }
 
 type UpdateRequest struct {
@@ -78,18 +88,33 @@ type UpdateRequest struct {
 	RequestID      string
 	Collection     string
 	ID             uuid.UUID
+	PublicID       string
 	Input          map[string]json.RawMessage
 	IfMatch        EntityTagSet
 	SidecarFields  []string
 	SidecarContext []byte
+	RuleContext    *accessrule.RequestContext
 }
 
 type DeleteRequest struct {
+	Principal   Principal
+	RequestID   string
+	Collection  string
+	ID          uuid.UUID
+	PublicID    string
+	IfMatch     EntityTagSet
+	RuleContext *accessrule.RequestContext
+}
+
+// ValidateRequest validates a proposed record without writing it. An empty ID
+// applies create semantics; a non-empty ID applies patch semantics.
+type ValidateRequest struct {
 	Principal  Principal
 	RequestID  string
 	Collection string
 	ID         uuid.UUID
-	IfMatch    EntityTagSet
+	PublicID   string
+	Input      map[string]json.RawMessage
 }
 
 // BatchRequest is an atomic, ordered group of record mutations. Batch is
@@ -100,6 +125,7 @@ type BatchRequest struct {
 	RequestID    string
 	Operations   []BatchOperation
 	Participants []BatchParticipant
+	RuleContext  *accessrule.RequestContext
 }
 
 // BatchParticipant joins sidecar state to the same transaction after all
@@ -137,6 +163,13 @@ func (operation BatchOperation) kind() string {
 }
 
 type RecordPage = query.RecordPage
+type PocketBasePage = query.PocketBasePage
+type PocketBaseListRequest struct {
+	ListRequest
+	Page      int
+	PerPage   int
+	SkipTotal bool
+}
 
 type ErrorCode string
 
@@ -149,6 +182,8 @@ const (
 	CodeInvalidPrecondition   ErrorCode = "invalid_precondition"
 	CodePreconditionFailed    ErrorCode = "precondition_failed"
 	CodeUnavailable           ErrorCode = "record_unavailable"
+	CodeInvalidRecordID       ErrorCode = "invalid_record_id"
+	CodeRecordIDConflict      ErrorCode = "record_id_conflict"
 )
 
 // Error exposes a stable, non-sensitive failure code. CurrentETag is populated

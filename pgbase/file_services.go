@@ -85,13 +85,13 @@ func recordOperationCollection(operation recordops.BatchOperation) string {
 	}
 }
 
-func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *database.Pool, options Options, schemas *schema.Service) (api.Dependencies, *filestore.Service, error) {
+func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *database.Pool, options Options, schemas *schema.Service) (api.Dependencies, *filestore.Service, filestore.ObjectStore, error) {
 	if options.Files.Driver == "" {
-		return dependencies, nil, nil
+		return dependencies, nil, nil, nil
 	}
 	objects, err := filestore.NewStorageController(ctx, pool, options.TokenSecret, filestore.StorageConfig{Driver: options.Files.Driver, LocalDirectory: options.Files.LocalDirectory, Bucket: options.Files.S3Bucket, Region: options.Files.S3Region, Endpoint: options.Files.S3Endpoint, AccessKey: options.Files.S3AccessKey, SecretKey: options.Files.S3SecretKey, UsePathStyle: options.Files.S3UsePathStyle, AllowInsecureLoopback: options.Files.S3AllowInsecureLoopback})
 	if err != nil {
-		return api.Dependencies{}, nil, err
+		return api.Dependencies{}, nil, nil, err
 	}
 	dependencies.StorageAdministration = objects
 	if options.Hooks != nil {
@@ -162,7 +162,8 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 				if field.Name != fieldName || field.Type != schema.TypeFile {
 					continue
 				}
-				result := filestore.FieldPolicy{MaximumBytes: 5 << 20, MaximumCount: 1, MimeTypes: append([]string(nil), options.Files.AllowedTypes...), Thumbs: append([]string(nil), field.Options.Thumbs...), Required: field.Required, Hidden: field.Hidden}
+				protected := field.Options.Protected == nil || *field.Options.Protected
+				result := filestore.FieldPolicy{MaximumBytes: 5 << 20, MaximumCount: 1, MimeTypes: append([]string(nil), options.Files.AllowedTypes...), Thumbs: append([]string(nil), field.Options.Thumbs...), Required: field.Required, Hidden: field.Hidden, Protected: &protected}
 				if field.Options.MaxFileSize != nil {
 					result.MaximumBytes = *field.Options.MaxFileSize
 				}
@@ -179,8 +180,8 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 	}
 	service, err := filestore.NewService(pool, objects, authorize, filestore.Options{MaximumBytes: options.Files.MaximumBytes, MaximumImagePixels: options.Files.MaximumImagePixels, ThumbnailDimension: options.Files.ThumbnailDimension, AllowedTypes: options.Files.AllowedTypes, TokenSecret: options.TokenSecret, TokenTTL: options.Files.DownloadTokenTTL, Policy: policy, Hooks: options.Hooks})
 	if err != nil {
-		return api.Dependencies{}, nil, fmt.Errorf("configure file service: %w", err)
+		return api.Dependencies{}, nil, nil, fmt.Errorf("configure file service: %w", err)
 	}
 	dependencies.Files = service
-	return dependencies, service, nil
+	return dependencies, service, objects, nil
 }

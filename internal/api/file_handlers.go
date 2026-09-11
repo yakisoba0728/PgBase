@@ -19,6 +19,7 @@ import (
 
 type FileService interface {
 	CollectionID(context.Context, string) (uuid.UUID, error)
+	IsFileField(context.Context, uuid.UUID, string) (bool, error)
 	Upload(context.Context, identity.Subject, filestore.Upload) (filestore.File, error)
 	List(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string) ([]filestore.File, error)
 	Open(context.Context, identity.Subject, uuid.UUID, filestore.Variant, string) (filestore.File, io.ReadCloser, error)
@@ -28,6 +29,16 @@ type FileService interface {
 	Commit(context.Context, pgx.Tx, identity.Subject, []filestore.AttachmentChange) ([]filestore.File, error)
 	Cleanup(context.Context, []filestore.StagedFile) error
 	CompleteStaged([]filestore.StagedFile, error)
+}
+
+// publicFileService is kept separate from FileService so applications that
+// supply a test or extension file service do not accidentally expose bytes.
+type publicFileService interface {
+	OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error)
+}
+
+type fileRecordIDResolver interface {
+	ResolveRecordID(context.Context, string, string) (uuid.UUID, uuid.UUID, error)
 }
 
 func fileRoutes(dependencies Dependencies) []route {
@@ -55,7 +66,46 @@ func fileRoutes(dependencies Dependencies) []route {
 			route{method: "POST", pattern: file + "/token", access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(endpoint.handler.token)},
 		)
 	}
+	if _, ok := dependencies.Files.(publicFileService); ok {
+		routes = append(routes, route{method: "GET", pattern: "/api/files/{fileId}", access: accessPublic, response: passthrough(), deadline: deadlineDefault, handler: http.HandlerFunc(user.publicDownload)})
+	}
 	return routes
+}
+
+func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
+	service, ok := e.service.(publicFileService)
+	if !ok {
+		writeFileError(w, r, filestore.ErrNotFound)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("fileId"))
+	variant := filestore.Variant(r.URL.Query().Get("variant"))
+	if variant == "" {
+		variant = filestore.Original
+	}
+	values := r.URL.Query()
+	variants, variantOK := values["variant"]
+	if err != nil || id == uuid.Nil || len(values) > 1 || (variantOK && len(variants) != 1) {
+		writeFileError(w, r, filestore.ErrInvalid)
+		return
+	}
+	file, reader, err := service.OpenPublic(r.Context(), id, variant)
+	if err != nil {
+		writeFileError(w, r, err)
+		return
+	}
+	defer func() { _ = reader.Close() }()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", downloadContentType(file, variant))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
+	_, _ = io.Copy(w, reader)
+}
+
+func downloadContentType(file filestore.File, variant filestore.Variant) string {
+	if variant != filestore.Original && variant != filestore.Thumbnail && (file.ContentType == "image/gif" || file.ContentType == "image/webp") {
+		return "image/jpeg"
+	}
+	return file.ContentType
 }
 
 type fileEndpoints struct {
@@ -77,12 +127,20 @@ func (e fileEndpoints) resource(r *http.Request) (identity.Subject, uuid.UUID, u
 	if !ok || !principal.Valid() {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", filestore.ErrDenied
 	}
-	collectionID, err := e.service.CollectionID(r.Context(), r.PathValue("collection"))
+	var collectionID, recordID uuid.UUID
+	var err error
+	if resolver, ok := e.service.(fileRecordIDResolver); ok {
+		collectionID, recordID, err = resolver.ResolveRecordID(r.Context(), r.PathValue("collection"), r.PathValue("id"))
+	} else {
+		collectionID, err = e.service.CollectionID(r.Context(), r.PathValue("collection"))
+		if err == nil {
+			recordID, err = uuid.Parse(r.PathValue("id"))
+		}
+	}
 	if err != nil {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", err
 	}
-	recordID, err := uuid.Parse(r.PathValue("id"))
-	if err != nil || recordID == uuid.Nil || r.PathValue("field") == "" {
+	if recordID == uuid.Nil || r.PathValue("field") == "" {
 		return identity.Subject{}, uuid.Nil, uuid.Nil, "", filestore.ErrInvalid
 	}
 	return principal, collectionID, recordID, r.PathValue("field"), nil
@@ -217,10 +275,16 @@ type fileResponse struct {
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
 	Thumbnail   bool   `json:"thumbnail"`
+	Protected   bool   `json:"protected"`
+	PublicURL   string `json:"publicUrl,omitempty"`
 }
 
 func publicFile(file filestore.File) fileResponse {
-	return fileResponse{ID: file.ID.String(), Field: file.Field, Filename: file.Filename, ContentType: file.ContentType, Size: file.Size, Thumbnail: file.ThumbnailKey != ""}
+	result := fileResponse{ID: file.ID.String(), Field: file.Field, Filename: file.Filename, ContentType: file.ContentType, Size: file.Size, Thumbnail: file.ThumbnailKey != "", Protected: !file.Public}
+	if file.Public {
+		result.PublicURL = "/api/files/" + file.ID.String()
+	}
+	return result
 }
 
 func writeFileError(w http.ResponseWriter, r *http.Request, err error) {

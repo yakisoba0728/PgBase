@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +14,28 @@ import (
 	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
+const runtimeSettingsEncryptionEnvSelector = "PGBASE_RUNTIME_SETTINGS_ENCRYPTION_ENV"
+const defaultRuntimeSettingsEncryptionEnv = "PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY"
+
+var environmentName = regexp.MustCompile(`\A[A-Za-z_][A-Za-z0-9_]*\z`)
+
 func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
+	if configured, ok := value(lookup, runtimeSettingsEncryptionEnvSelector); ok {
+		return LoadEnvWithRuntimeSettingsEncryptionEnv(lookup, configured)
+	}
+	return loadEnv(lookup, defaultRuntimeSettingsEncryptionEnv, false)
+}
+
+// LoadEnvWithRuntimeSettingsEncryptionEnv loads configuration using name as
+// the environment variable that contains the base64 runtime-settings key.
+func LoadEnvWithRuntimeSettingsEncryptionEnv(lookup func(string) (string, bool), name string) (pgbase.Options, error) {
+	return loadEnv(lookup, name, true)
+}
+
+func loadEnv(lookup func(string) (string, bool), name string, requireRuntimeSettingsKey bool) (pgbase.Options, error) {
+	if !environmentName.MatchString(name) {
+		return pgbase.Options{}, fmt.Errorf("runtime settings encryption environment name is invalid")
+	}
 	databaseURL, ok := value(lookup, "PGBASE_DATABASE_URL")
 	if !ok || databaseURL == "" {
 		return pgbase.Options{}, fmt.Errorf("PGBASE_DATABASE_URL: is required")
@@ -32,6 +54,20 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	}
 
 	opts := pgbase.Options{DatabaseURL: databaseURL, TokenSecret: tokenSecret}
+	encoded, configured := value(lookup, name)
+	if requireRuntimeSettingsKey && (!configured || encoded == "") {
+		return pgbase.Options{}, fmt.Errorf("runtime settings encryption key is required")
+	}
+	if configured && encoded != "" {
+		key, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return pgbase.Options{}, fmt.Errorf("runtime settings encryption key: decode base64: %w", err)
+		}
+		if len(key) < 32 {
+			return pgbase.Options{}, fmt.Errorf("runtime settings encryption key: must decode to at least 32 bytes")
+		}
+		opts.RuntimeSettingsEncryptionKey = key
+	}
 	if err := loadBackups(lookup, &opts.Backups); err != nil {
 		return pgbase.Options{}, err
 	}
@@ -54,6 +90,9 @@ func LoadEnv(lookup func(string) (string, bool)) (pgbase.Options, error) {
 	opts.JavaScript = javascript
 	if raw, ok := value(lookup, "PGBASE_HTTP_ADDRESS"); ok {
 		opts.HTTPAddress = raw
+	}
+	if err := loadTLS(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
 	}
 	if raw, ok := value(lookup, "PGBASE_PUBLIC_DIR"); ok {
 		opts.PublicDir = raw

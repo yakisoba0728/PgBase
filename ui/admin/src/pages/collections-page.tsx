@@ -6,6 +6,21 @@ import { useBackend } from "../auth/session";
 
 interface CollectionsPageProps { navigate(route: AdminRoute): void }
 
+function TruncateCollection({ collection }: { collection: CollectionDefinition }) {
+  const { schema } = useBackend();
+  const [state, setState] = useState({ confirming: false, typed: "", pending: false, failed: false, result: null as { recordsDeleted: number; filesDeleted: number; relationsDeleted: number } | null });
+  if (collection.view !== undefined) return <span>Views cannot be truncated.</span>;
+  if (!state.confirming) return <span>{state.result !== null && <span role="status">Removed {state.result.recordsDeleted} records, {state.result.filesDeleted} files, and {state.result.relationsDeleted} relations. </span>}<button className="danger" disabled={schema.truncate === undefined} type="button" onClick={() => setState({ ...state, confirming: true, failed: false, result: null })}>Truncate records</button></span>;
+  async function truncate() {
+    if (state.typed !== collection.name || state.pending || schema.truncate === undefined) return;
+    setState({ ...state, pending: true, failed: false });
+    try {
+      const result = await schema.truncate(collection.name, state.typed); setState({ confirming: false, typed: "", pending: false, failed: false, result });
+    } catch { setState({ ...state, pending: false, failed: true }); }
+  }
+  return <span className="truncate-control"><label>Type {collection.name} to permanently remove every record <input aria-label={`Confirm truncate ${collection.name}`} autoComplete="off" disabled={state.pending} value={state.typed} onChange={(event) => setState({ ...state, typed: event.target.value })} /></label><button className="danger" disabled={state.pending || state.typed !== collection.name || schema.truncate === undefined} type="button" onClick={() => void truncate()}>{state.pending ? "Truncating…" : "Confirm truncate"}</button><button className="secondary" disabled={state.pending} type="button" onClick={() => setState({ ...state, confirming: false, typed: "" })}>Cancel</button>{state.failed && <span role="alert"> Unable to truncate this collection.</span>}</span>;
+}
+
 function UserAccess({ collection, relationBound }: { collection: CollectionDefinition; relationBound: boolean }) {
   const { schema } = useBackend();
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -96,9 +111,9 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
     collection.fields.flatMap((field) => field.relation ? [field.relation.targetCollectionId] : []),
   ));
   return <section>
-    <div className="page-heading">
+      <div className="page-heading">
       <div><h2>Collections</h2>{catalog && <p>Catalog version {catalog.version}</p>}</div>
-      <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}>Create collection</AdminLink>
+      <span><AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}>Create collection</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "base" }}>Base scaffold</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "auth" }}>Auth scaffold</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "view" }}>View scaffold</AdminLink></span>
     </div>
     {failed && <p role="alert">Unable to load collections.</p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
@@ -111,6 +126,8 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
           <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
           <UserAccess collection={collection} relationBound={relationCount > 0 || (collection.id !== undefined && relationTargets.has(collection.id))} />
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-edit", collection: collection.name }}>Edit</AdminLink>
+          <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-duplicate", collection: collection.name }}>Duplicate</AdminLink>
+          <TruncateCollection collection={collection} />
         </li>;
       })}
     </ul>}

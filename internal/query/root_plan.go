@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,6 +22,30 @@ type rootPlan struct {
 	ruleRevision     int64
 	policyCollection schema.Collection
 	outputRuleScope  string
+	ruleContext      *accessrule.RequestContext
+}
+
+func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
+	var boundary *pageBoundary
+	if len(memberships) > 0 && memberships[0] != nil {
+		boundary = &pageBoundary{membership: memberships[0], membershipOnly: true}
+	}
+	statement, err := p.pageStatement(boundary, 1)
+	if err != nil {
+		return Statement{}, err
+	}
+	from := strings.Index(statement.SQL, " FROM ")
+	order := strings.LastIndex(statement.SQL, " ORDER BY ")
+	if from < 0 || order < from || len(statement.Args) == 0 {
+		return Statement{}, errors.New("compile record count")
+	}
+	alias := p.order().root.TableName
+	if p.order().relationAnchor {
+		alias = relationRootAlias
+	}
+	statement.SQL = "SELECT COUNT(DISTINCT " + qualified(alias, systemFieldID) + ")" + statement.SQL[from:order]
+	statement.Args = statement.Args[:len(statement.Args)-1]
+	return statement, nil
 }
 
 func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
@@ -30,11 +55,15 @@ func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
 
 func (p rootPlan) order() orderSpec { return p.relation.order }
 
-func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int) (Statement, error) {
+func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int, offsets ...int) (Statement, error) {
 	if p.order().relationAnchor {
-		return p.relation.pageStatementWithPolicy(after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
+		return p.relation.pageStatementWithPolicy(after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext}, offsets...)
 	}
-	return compileListPage(p.filter, p.order(), after, fetchLimit, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection})
+	offset := 0
+	if len(offsets) > 0 {
+		offset = offsets[0]
+	}
+	return compileListPageOffset(p.filter, p.order(), after, fetchLimit, offset, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext})
 }
 
 func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {

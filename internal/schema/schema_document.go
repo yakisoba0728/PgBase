@@ -21,18 +21,25 @@ const SchemaDocumentFormat = "pgbase.schema/v1"
 // SchemaDocument is a portable logical schema. Database IDs, physical names,
 // timestamps and policy revisions are deliberately absent.
 type SchemaDocument struct {
-	Format      string                     `json:"format"`
-	Collections []SchemaDocumentCollection `json:"collections"`
+	Format          string                         `json:"format"`
+	Collections     []SchemaDocumentCollection     `json:"collections"`
+	AuthCollections []SchemaDocumentAuthCollection `json:"authCollections,omitempty"`
+	DeleteMissing   bool                           `json:"deleteMissing,omitempty"`
 }
 
 type SchemaDocumentCollection struct {
-	Name       string          `json:"name"`
-	Fields     []FieldInput    `json:"fields,omitempty"`
-	Indexes    []IndexInput    `json:"indexes,omitempty"`
-	View       *ViewInput      `json:"view,omitempty"`
-	DependsOn  []string        `json:"dependsOn,omitempty"`
-	UserAccess bool            `json:"userAccess"`
-	Rules      json.RawMessage `json:"rules"`
+	Name              string          `json:"name"`
+	CompatibilityName string          `json:"compatibilityName,omitempty"`
+	Type              CollectionType  `json:"type,omitempty"`
+	System            bool            `json:"system,omitempty"`
+	ValidationMode    ValidationMode  `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
+	Fields            []FieldInput    `json:"fields,omitempty"`
+	Indexes           []IndexInput    `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
+	DependsOn         []string        `json:"dependsOn,omitempty"`
+	UserAccess        bool            `json:"userAccess"`
+	Rules             json.RawMessage `json:"rules"`
 }
 
 type SchemaImportPlan struct {
@@ -86,15 +93,21 @@ func (s *Service) ExportSchema(ctx context.Context) (SchemaDocument, error) {
 			}
 			doc.Collections = append(doc.Collections, item)
 		}
-		return nil
+		doc.AuthCollections, err = exportDocumentAuthCollections(ctx, tx)
+		return err
 	})
 	return doc, err
 }
 
 func exportDocumentCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, c Collection) (SchemaDocumentCollection, error) {
-	item := SchemaDocumentCollection{Name: c.Name, Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)}
+	item := SchemaDocumentCollection{Name: c.Name, CompatibilityName: c.CompatibilityName, Type: c.Type, System: c.System, ValidationMode: c.ValidationMode, Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)}
+	if c.RecordID.Kind == RecordIDText {
+		policy := c.RecordID
+		item.RecordID = &policy
+	}
 	for _, field := range c.Fields {
-		input := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
+		system := field.System
+		input := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: &system, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
 		if field.Relation != nil {
 			target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
 			if !ok {
@@ -105,7 +118,7 @@ func exportDocumentCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, c
 		item.Fields = append(item.Fields, input)
 	}
 	for _, index := range c.Indexes {
-		item.Indexes = append(item.Indexes, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+		item.Indexes = append(item.Indexes, indexInputFromCatalog(index))
 	}
 	if c.View != nil {
 		item.View = &ViewInput{Source: c.View.Source, Projection: append([]string(nil), c.View.Projection...), Filter: cloneViewFilter(c.View.Filter), SQL: c.View.SQL}
@@ -163,8 +176,16 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	if document.Format != SchemaDocumentFormat {
 		return SchemaImportPlan{}, validation("format", "unsupported")
 	}
-	if len(document.Collections) == 0 {
+	if len(document.Collections) == 0 && len(document.AuthCollections) == 0 && !document.DeleteMissing {
 		return SchemaImportPlan{}, validation("collections", "required")
+	}
+	if err := validateDocumentAuthCollections(document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
+	}
+	if document.DeleteMissing {
+		if err := validateDeleteMissingProtection(ctx, tx, catalog, document); err != nil {
+			return SchemaImportPlan{}, err
+		}
 	}
 	document = cloneSchemaDocument(document)
 	changes, err := importChanges(catalog, document)
@@ -249,41 +270,6 @@ func schemaDocumentChecksum(version int64, policyChecksum string, document Schem
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func schemaPolicyChecksum(ctx context.Context, tx pgx.Tx, catalog Catalog, document SchemaDocument) (string, error) {
-	type state struct {
-		Name     string          `json:"name"`
-		Enabled  bool            `json:"enabled"`
-		Rules    json.RawMessage `json:"rules,omitempty"`
-		Revision int64           `json:"revision"`
-	}
-	values := make([]state, 0, len(document.Collections))
-	for _, item := range document.Collections {
-		collection, ok := catalog.Collections[item.Name]
-		if !ok {
-			continue
-		}
-		entry := state{Name: item.Name}
-		if err := tx.QueryRow(ctx, `select coalesce((select enabled from pgbase_meta.collection_access where collection_id=$1),false)`, collection.ID).Scan(&entry.Enabled); err != nil {
-			return "", err
-		}
-		var rules []byte
-		err := tx.QueryRow(ctx, `select rules,revision from pgbase_meta.collection_rules where collection_id=$1`, collection.ID).Scan(&rules, &entry.Revision)
-		if err == nil {
-			entry.Rules = rules
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return "", err
-		}
-		values = append(values, entry)
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i].Name < values[j].Name })
-	raw, err := json.Marshal(values)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 	seen := map[string]struct{}{}
 	base, views := []SchemaDocumentCollection{}, []SchemaDocumentCollection{}
@@ -304,6 +290,13 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 		return nil, err
 	}
 	changes := make([]Change, 0, len(document.Collections)*2)
+	if document.DeleteMissing {
+		deletes, err := deleteMissingChanges(catalog, seen)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, deletes...)
+	}
 	created := map[string]bool{}
 	for _, item := range base {
 		if _, exists := catalog.Collections[item.Name]; exists {
@@ -315,7 +308,7 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 				scalars = append(scalars, field)
 			}
 		}
-		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, Fields: scalars}))
+		changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: item.Type, System: item.System, ValidationMode: item.ValidationMode, RecordID: item.RecordID, Fields: scalars}))
 		created[item.Name] = true
 	}
 	for _, item := range base {
@@ -328,10 +321,31 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 			return nil, err
 		}
 		indexes := importedIndexes(current, item.Indexes)
-		if exists && sameImportedBase(current, fields, indexes, catalog) {
+		if exists && sameImportedBase(current, item.RecordID, fields, indexes, catalog) {
 			continue
 		}
-		changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}))
+		update := UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}
+		if item.RecordID != nil {
+			policy := *item.RecordID
+			update.RecordID = &policy
+		}
+		if item.CompatibilityName != "" {
+			value := item.CompatibilityName
+			update.CompatibilityName = &value
+		}
+		if item.Type != "" {
+			value := item.Type
+			update.Type = &value
+		}
+		if item.System {
+			value := true
+			update.System = &value
+		}
+		if item.ValidationMode != "" {
+			value := item.ValidationMode
+			update.ValidationMode = &value
+		}
+		changes = append(changes, NewUpdateChange(update))
 	}
 	for _, item := range views {
 		if current, exists := catalog.Collections[item.Name]; exists {
@@ -346,19 +360,23 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 			}
 			changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, View: item.View}))
 		} else {
-			changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, View: item.View}))
+			changes = append(changes, NewCreateChange(CreateCollectionInput{Name: item.Name, CompatibilityName: item.CompatibilityName, Type: CollectionTypeView, System: item.System, ValidationMode: item.ValidationMode, View: item.View}))
 		}
 	}
 	return changes, nil
 }
 
-func sameImportedBase(current Collection, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
+func sameImportedBase(current Collection, requested *RecordIDPolicy, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
 	if current.IsView() || len(current.Fields) != len(fields) || len(current.Indexes) != len(indexes) {
+		return false
+	}
+	policy, err := NormalizeRecordIDPolicy(requested)
+	if err != nil || !reflect.DeepEqual(policy, current.RecordID) {
 		return false
 	}
 	for i, old := range current.Fields {
 		input := fields[i]
-		if input.ID == nil || *input.ID != old.ID || input.Name != old.Name || input.Type != old.Type || input.Required != old.Required || input.Unique != old.Unique || input.Indexed != old.Indexed || input.Hidden != old.Hidden || input.Presentable != old.Presentable || input.Help != old.Help || !reflect.DeepEqual(input.Options, cloneFieldOptionsPointer(old.Options)) || string(input.Default) != string(old.Default) {
+		if input.ID == nil || *input.ID != old.ID || input.Name != old.Name || input.Type != old.Type || input.Required != old.Required || input.Unique != old.Unique || input.Indexed != old.Indexed || input.Hidden != old.Hidden || input.Presentable != old.Presentable || input.Help != old.Help || input.System == nil || *input.System != old.System || !reflect.DeepEqual(input.Options, cloneFieldOptionsPointer(old.Options)) || string(input.Default) != string(old.Default) {
 			return false
 		}
 		if (input.Relation == nil) != (old.Relation == nil) {
@@ -372,7 +390,8 @@ func sameImportedBase(current Collection, fields []FieldInput, indexes []IndexIn
 		}
 	}
 	for i, old := range current.Indexes {
-		if indexes[i].Name != old.Name || indexes[i].Unique != old.Unique || !reflect.DeepEqual(indexes[i].Fields, old.Fields) {
+		planned, _, err := normalizeIndexInput(current.Name, indexes[i], plannedFieldsByName(current.Fields), "indexes")
+		if err != nil || !sameIndexDefinition(old, planned) {
 			return false
 		}
 	}
@@ -486,7 +505,8 @@ func importedFields(catalog Catalog, current Collection, fields []FieldInput) ([
 			continue
 		}
 		id := field.ID
-		input := FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
+		system := field.System
+		input := FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: &system, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options)}
 		if field.Relation != nil {
 			target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
 			if !ok {
@@ -507,7 +527,7 @@ func importedIndexes(current Collection, imported []IndexInput) []IndexInput {
 	}
 	for _, index := range current.Indexes {
 		if !seen[index.Name] {
-			result = append(result, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+			result = append(result, indexInputFromCatalog(index))
 		}
 	}
 	return result
@@ -591,8 +611,17 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 				return fmt.Errorf("snapshot schema before automatic migration recording: %w", err)
 			}
 		}
+		lockNames := map[string]bool{}
 		for _, item := range intent.Document.Collections {
-			if collection, ok := catalog.Collections[item.Name]; ok {
+			lockNames[item.Name] = true
+		}
+		if intent.Document.DeleteMissing {
+			for name := range catalog.Collections {
+				lockNames[name] = true
+			}
+		}
+		for name := range lockNames {
+			if collection, ok := catalog.Collections[name]; ok {
 				if _, err := tx.Exec(ctx, `select id from pgbase_meta.collections where id=$1 for update`, collection.ID); err != nil {
 					return err
 				}
@@ -679,6 +708,9 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 				return err
 			}
 		}
+		if err := s.applyDocumentAuthCollections(ctx, tx, planned.Document.AuthCollections); err != nil {
+			return err
+		}
 		persisted, err := store.ReadCatalog(ctx, catalog.Version)
 		if err != nil {
 			return err
@@ -731,68 +763,4 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 	}
 	finishLifecycle(nil)
 	return result, nil
-}
-
-func (s *Service) applyImportedChange(ctx context.Context, tx pgx.Tx, store *Store, catalog Catalog, change Change, plan Plan, actor uuid.UUID) error {
-	now := time.Now().UTC()
-	var collection Collection
-	var current Collection
-	var err error
-	switch change.kind {
-	case changeCreate:
-		collection, err = newCollectionMetadata(plan.Definition)
-		if err == nil {
-			collection.CreatedAt = now
-		}
-	case changeUpdate:
-		current = catalog.Collections[change.update.Name]
-		if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
-			return err
-		}
-		fields, fieldErr := updatedFieldMetadata(current.ID, current.Fields, plan.Definition)
-		if fieldErr != nil {
-			return fieldErr
-		}
-		indexes, indexErr := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
-		if indexErr != nil {
-			return indexErr
-		}
-		collection = Collection{ID: current.ID, Name: current.Name, TableName: current.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
-	default:
-		return ErrConflict
-	}
-	if err != nil {
-		return err
-	}
-	if change.kind == changeUpdate {
-		if err := validateChangedFieldOptions(ctx, tx, current, collection); err != nil {
-			return err
-		}
-	}
-	if err := s.executePlan(ctx, tx, plan); err != nil {
-		return err
-	}
-	if change.kind == changeUpdate {
-		if err := validateChangedRecordSizes(ctx, tx, current, collection); err != nil {
-			return err
-		}
-	}
-	if change.kind == changeCreate {
-		err = store.InsertCollection(ctx, collection, plan.Definition, now)
-	} else {
-		err = store.UpdateCollection(ctx, collection, plan.Definition, now)
-	}
-	if err != nil {
-		return err
-	}
-	operationID := uuid.New()
-	checksum, _ := hex.DecodeString(plan.Checksum)
-	if err := store.InsertMigration(ctx, catalog.Version+1, operationID, plan, checksum, actor, now, 0); err != nil {
-		return err
-	}
-	version, err := store.IncrementVersion(ctx)
-	if err != nil || version != catalog.Version+1 {
-		return ErrConflict
-	}
-	return nil
 }

@@ -104,7 +104,7 @@ func (hook *javaScriptLifecycleHook) invoke(ctx context.Context, event *HookEven
 		return javaScriptHookResult{}, err
 	}
 	output, err := hook.runtime.engine.Invoke(ctx, jsvm.Invocation{Handler: handler, Capabilities: hook.descriptor.Capabilities,
-		Input: input, Host: hook.runtime.bridge.forHook(ctx, event.Kind)})
+		Input: input, Host: namespacedHost(hook.runtime.bridge.forHook(ctx, event.Kind), handler.Module)})
 	if err != nil {
 		return javaScriptHookResult{}, err
 	}
@@ -205,6 +205,23 @@ func applyJavaScriptHookPatch(event *HookEvent, raw json.RawMessage) error {
 			return invalidJavaScriptPatch(event.Kind, errors.Join(err, errors.New("schema preview document is required")))
 		}
 		data.Document = patch.Document
+	case *api.RecordEnrichEvent:
+		var patch struct {
+			Record map[string]json.RawMessage `json:"record"`
+		}
+		if err := decodeStrictJSON(raw, &patch); err != nil {
+			return invalidJavaScriptPatch(event.Kind, err)
+		}
+		for name, value := range patch.Record {
+			if _, visible := data.Record[name]; !visible {
+				continue
+			}
+			var decoded any
+			if json.Unmarshal(value, &decoded) != nil {
+				return invalidJavaScriptPatch(event.Kind, errors.New("invalid record patch"))
+			}
+			data.Record[name] = decoded
+		}
 	case *RequestEvent:
 		var patch struct {
 			Headers map[string]string `json:"headers"`

@@ -3,10 +3,9 @@ package userauth
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"html"
 	"net/url"
 	"strings"
 	"time"
@@ -108,7 +107,7 @@ func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collecti
 		return err
 	}
 	account = collectionID.String() + "\x00" + account
-	buckets := []rateLimitBucket{{s.subjectHash("password-reset", "account", account), loginAccountLimit}, {s.subjectHash("password-reset", "network", clientAddress), loginNetworkLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("password-reset", "account", account), limit: loginAccountLimit}, {hash: s.subjectHash("password-reset", "network", clientAddress), limit: loginNetworkLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return err
 	}
@@ -142,14 +141,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 	if err := validatePassword(newPassword); err != nil {
 		return err
 	}
-	var collectionID uuid.UUID
-	if err := s.pool.QueryRow(ctx, `select auth_collection_id from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose='password_reset' and a.consumed_at is null`, s.actionTokenHash("password_reset", rawToken)).Scan(&collectionID); err == nil {
-		policy, policyErr := s.authPolicy(ctx, collectionID)
-		if policyErr != nil || !policy.PasswordEnabled || len(newPassword) < policy.MinimumPasswordBytes {
-			return ErrValidation
-		}
-	}
-	if validateToken(rawToken) != nil {
+	if validateToken(rawToken) != nil && !policyTokenValid(rawToken) {
 		return ErrInvalidCredentials
 	}
 	release, err := admit(s.passwordSlots)
@@ -162,10 +154,18 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 		return err
 	}
 	return s.consumeEmailAction(ctx, "password_reset", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
+		var realm uuid.UUID
+		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, action.userID).Scan(&realm); err != nil {
+			return err
+		}
+		policy, err := authPolicyTx(ctx, tx, realm)
+		if err != nil || !passwordMatchesPolicy(newPassword, policy) {
+			return ErrValidation
+		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.users set password_hash=$2,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID, newHash); err != nil {
 			return err
 		}
-		_, err := revokeSessionsInTx(ctx, tx, action.userID)
+		_, err = revokeSessionsInTx(ctx, tx, action.userID)
 		return err
 	})
 }
@@ -185,7 +185,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	if err != nil {
 		return err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("email-change", "account", userID.String()), loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("email-change", "account", userID.String()), limit: loginAccountLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return err
 	}
@@ -230,6 +230,62 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	return s.sendAction(ctx, user.ID, normalized, "Confirm your email change", "email-change", raw)
 }
 
+// AdminRequestEmailChange is the explicitly privileged counterpart used by
+// operator-configured hosts. It never exposes the generated action token.
+func (s *Service) AdminRequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error {
+	if err := s.emailReady(); err != nil {
+		return err
+	}
+	normalized, err := normalizeEmail(newEmail)
+	if err != nil {
+		return err
+	}
+	user, hash, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash)
+	if err != nil {
+		return err
+	}
+	return s.sendAction(ctx, user.ID, normalized, "Confirm your email change", "email-change", raw)
+}
+
+// AdminSendAuthAlert retains server template and SMTP ownership.
+func (s *Service) AdminSendAuthAlert(ctx context.Context, userID uuid.UUID) error {
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	return s.sendAuthAlertMessage(ctx, managed.User, "Administrator requested security alert")
+}
+
+// AdminSendRecordOTP sends caller-selected OTP credentials without creating,
+// consuming, or replacing an OTP challenge.
+func (s *Service) AdminSendRecordOTP(ctx context.Context, collectionID, userID uuid.UUID, otpID, password string) error {
+	if collectionID == uuid.Nil || userID == uuid.Nil || strings.TrimSpace(otpID) == "" || strings.TrimSpace(password) == "" {
+		return ErrValidation
+	}
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil || managed.AuthCollectionID != collectionID {
+		return ErrNotFound
+	}
+	return s.sendOTP(ctx, collectionID, managed.Email, otpID, password)
+}
+
+// AdminSendRecordAuthAlert renders the supplied alert information and returns
+// transport/template failures to the explicitly privileged caller.
+func (s *Service) AdminSendRecordAuthAlert(ctx context.Context, userID uuid.UUID, alertInfo string) error {
+	if strings.TrimSpace(alertInfo) == "" {
+		return ErrValidation
+	}
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	return s.sendAuthAlertMessage(ctx, managed.User, alertInfo)
+}
+
 func (s *Service) ConfirmEmailChange(ctx context.Context, rawToken string) error {
 	return s.consumeEmailAction(ctx, "email_change", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
 		if action.payloadEmail == nil {
@@ -261,12 +317,21 @@ func (s *Service) emailReady() error {
 }
 
 func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash string) (string, error) {
-	rawBytes := make([]byte, 32)
-	if _, err := rand.Read(rawBytes); err != nil {
-		return "", fmt.Errorf("generate email action token: %w", err)
-	}
-	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
-	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, s.actionTokenHash(purpose, raw), payload, s.credentialHash(passwordHash), postgresInterval(s.emailActionTTL))
+	var raw string
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var hash []byte
+		var ttl time.Duration
+		var err error
+		raw, hash, ttl, err = s.issueActionPolicy(ctx, tx, userID, purpose)
+		if err != nil {
+			return err
+		}
+		if hash == nil {
+			hash = s.actionTokenHash(purpose, raw)
+		}
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.credentialHash(passwordHash), postgresInterval(ttl))
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("create user email action: %w", err)
 	}
@@ -277,13 +342,26 @@ func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken stri
 	if err := s.emailReady(); err != nil {
 		return err
 	}
-	if validateToken(rawToken) != nil {
+	if validateToken(rawToken) != nil && !policyTokenValid(rawToken) {
 		return ErrInvalidCredentials
 	}
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		hash := s.actionTokenHash(purpose, rawToken)
+		if version, _, ok := splitPolicyToken(rawToken); ok {
+			var cipher []byte
+			err := tx.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where key_version=$1 and purpose=$2`, version, purpose).Scan(&cipher)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			key, err := s.decrypt("auth-token-policy:"+purpose, cipher)
+			if err != nil {
+				return ErrInvalidCredentials
+			}
+			hash = keyedDigest(key, "user-email-action\x00"+purpose+"\x00", rawToken)
+		}
 		var action emailAction
 		var currentHash string
-		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, s.actionTokenHash(purpose, rawToken), purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
+		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, hash, purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalidCredentials
 		}
@@ -347,6 +425,34 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 		return errors.New("send user email action")
 	}
 	return nil
+}
+
+// sendAuthAlert is deliberately best-effort: a mail transport outage must not
+// turn a successfully verified credential into a failed login. Administrators
+// opt in by storing the auth_alert template for the collection.
+func (s *Service) sendAuthAlert(ctx context.Context, user User, alert string) {
+	_ = s.sendAuthAlertMessage(ctx, user, alert)
+}
+
+func (s *Service) sendAuthAlertMessage(ctx context.Context, user User, alert string) error {
+	var subject, body, htmlBody string
+	err := s.pool.QueryRow(ctx, `select subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose='auth_alert'`, user.AuthCollectionID).Scan(&subject, &body, &htmlBody)
+	if err != nil {
+		return err
+	}
+	body = strings.ReplaceAll(body, "{{alert}}", alert)
+	if htmlBody != "" {
+		var wrapErr error
+		htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(htmlBody, "{{alert}}", html.EscapeString(alert)))
+		if wrapErr != nil {
+			return wrapErr
+		}
+	}
+	sender, err := s.smtpSender(ctx, user.AuthCollectionID)
+	if err != nil {
+		return err
+	}
+	return sender.Send(ctx, mailer.Message{Purpose: "auth_alert", To: user.Email, Subject: subject, Text: body, HTML: htmlBody, Meta: map[string]any{"info": alert}})
 }
 
 func (s *Service) actionTokenHash(purpose, raw string) []byte {

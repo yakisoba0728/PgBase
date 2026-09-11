@@ -10,3 +10,7 @@ type Mutation = recordops.Mutation
 // external side effects. After is best effort; use realtime/outbox for durable
 // delivery. Hooks must honor their context and must not reenter record writes.
 type MutationHook = recordops.MutationHook
+
+// MutationErrorHook optionally observes record mutations whose final
+// transaction outcome failed.
+type MutationErrorHook = recordops.MutationErrorHook

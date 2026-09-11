@@ -9,24 +9,27 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
 const maximumBatchRequestBytes = maximumRecordRequestBytes
-const maximumMultipartBatchRequestBytes = (100 << 20) + maximumBatchRequestBytes
+const maximumMultipartBatchRequestBytes = runtimesettings.MaximumBatchBodyBytes
 
 type batchRecordService interface {
 	Batch(context.Context, recordops.BatchRequest) ([]recordops.MutationResult, error)
+}
+type batchSettings interface {
+	Get() runtimesettings.Settings
 }
 
 type batchInput struct {
@@ -50,7 +53,7 @@ func (s namedStagedFiles) files() []filestore.StagedFile {
 	return result
 }
 
-var batchRecordURL = regexp.MustCompile(`^/api/(v1|admin)/collections/([a-z][a-z0-9_]{0,47})/records(?:/([0-9a-fA-F-]{36}))?$`)
+var batchRecordURL = regexp.MustCompile(`^/api/(v1|admin)/collections/([a-z][a-z0-9_]{0,47})/records(?:/([^/?#]+))?$`)
 
 type batchOperationInput struct {
 	Operation          string                     `json:"operation"`
@@ -66,6 +69,27 @@ type batchOperationInput struct {
 // batch is shared by administrator and public-user routes. The router applies
 // each route's normal principal middleware before entering this handler.
 func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
+	settings := runtimesettings.Default().Batch
+	if e.settings != nil {
+		settings = e.settings.Get().Batch
+		if !settings.Enabled {
+			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "batch_disabled", Message: "Batch requests are disabled"})
+			return
+		}
+		if settings.TimeoutMS > 0 {
+			var cancel context.CancelFunc
+			r = r.WithContext(func() context.Context {
+				ctx, c := context.WithTimeout(r.Context(), time.Duration(settings.TimeoutMS)*time.Millisecond)
+				cancel = c
+				return ctx
+			}())
+			defer cancel()
+		}
+	}
+	projection, ok := compileMutationProjection(w, r)
+	if !ok {
+		return
+	}
 	service, ok := e.service.(batchRecordService)
 	if !ok || service == nil {
 		writeRecordError(w, r, errors.New("batch record service is unavailable"))
@@ -75,6 +99,9 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	limit := int64(maximumBatchRequestBytes)
 	if media == "multipart/form-data" {
 		limit = maximumMultipartBatchRequestBytes
+	}
+	if e.settings != nil {
+		limit = settings.MaxBodyBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if r.ContentLength > limit {
@@ -86,7 +113,8 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input, staged, err := e.decodeBatch(r, principal)
-	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > 50 {
+	maximumRequests := settings.MaxRequests
+	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
 		}
@@ -111,22 +139,13 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			statuses = append(statuses, status)
 		}
 	}
-	attachments, err := extractBatchAttachments(items, staged)
+	attachments, err := extractBatchAttachments(r.Context(), e.files, items, staged)
 	if err != nil {
 		if len(staged) > 0 && e.files != nil {
 			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
 		}
 		writeInvalidRecordRequest(w, r)
 		return
-	}
-	for index := range attachments {
-		id, lookupErr := e.files.CollectionID(r.Context(), attachments[index].collection)
-		if lookupErr != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-			writeFileError(w, r, lookupErr)
-			return
-		}
-		attachments[index].collectionID = id
 	}
 	for _, item := range items {
 		operation, ok := batchOperation(item)
@@ -179,7 +198,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	var results []recordops.MutationResult
 	err = finishLifecycle(finish, func() error {
 		results, err = service.Batch(r.Context(), recordops.BatchRequest{
-			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants,
+			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants, RuleContext: ruleRequestContext(r),
 		})
 		event.Results = cloneMutationResults(results)
 		return err
@@ -203,10 +222,10 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		}
 		if result.Record != nil {
 			if len(statuses) > 0 {
-				item.Body = result.Record.Data
+				item.Body, _ = projection.Apply(result.Record.Data).(map[string]any)
 				item.Headers = map[string]string{"ETag": result.Record.ETag}
 			} else {
-				item.Record = result.Record.Data
+				item.Record, _ = projection.Apply(result.Record.Data).(map[string]any)
 			}
 			item.ETag = result.Record.ETag
 			item.Version = result.Record.Version
@@ -229,6 +248,7 @@ type batchAttachmentBinding struct {
 	kind               string
 	collection         string
 	id                 uuid.UUID
+	publicID           string
 	idempotencyKey     string
 	idempotencyContext []byte
 	ifMatch            recordops.EntityTagSet
@@ -248,13 +268,13 @@ func batchAttachmentBindingFor(operation recordops.BatchOperation) batchAttachme
 		return batchAttachmentBinding{kind: "create", collection: operation.Create.Collection, id: operation.Create.ID, idempotencyKey: operation.Create.IdempotencyKey, idempotencyContext: append([]byte(nil), operation.Create.IdempotencyContext...)}
 	}
 	if operation.Update != nil {
-		return batchAttachmentBinding{kind: "update", collection: operation.Update.Collection, id: operation.Update.ID, idempotencyContext: append([]byte(nil), operation.Update.SidecarContext...), ifMatch: operation.Update.IfMatch, sidecarFields: append([]string(nil), operation.Update.SidecarFields...)}
+		return batchAttachmentBinding{kind: "update", collection: operation.Update.Collection, id: operation.Update.ID, publicID: operation.Update.PublicID, idempotencyContext: append([]byte(nil), operation.Update.SidecarContext...), ifMatch: operation.Update.IfMatch, sidecarFields: append([]string(nil), operation.Update.SidecarFields...)}
 	}
 	if operation.Upsert != nil {
-		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
+		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, publicID: operation.Upsert.PublicID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
 	}
 	if operation.Delete != nil {
-		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, ifMatch: operation.Delete.IfMatch}
+		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, publicID: operation.Delete.PublicID, ifMatch: operation.Delete.IfMatch}
 	}
 	return batchAttachmentBinding{}
 }
@@ -273,7 +293,7 @@ func (bindings batchAttachmentBindings) compatible(operations []recordops.BatchO
 }
 
 func sameBatchOperationBinding(left, right batchAttachmentBinding) bool {
-	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
+	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && left.publicID == right.publicID && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
 }
 
 func sameEntityTagSet(left, right recordops.EntityTagSet) bool {
@@ -330,140 +350,6 @@ func (identities batchIdentities) restore(operations []recordops.BatchOperation)
 		operations[index].Create.IdempotencyContext = append([]byte(nil), identity.context...)
 	}
 	return true
-}
-
-type batchAttachment struct {
-	operation    int
-	collection   string
-	collectionID uuid.UUID
-	field        string
-	file         filestore.StagedFile
-}
-type fileBatchParticipant struct {
-	service     FileService
-	principal   identity.Subject
-	attachments []batchAttachment
-}
-
-func (p *fileBatchParticipant) CommitBatch(ctx context.Context, tx pgx.Tx, results []recordops.MutationResult) error {
-	groups := map[string]*filestore.AttachmentChange{}
-	order := []string{}
-	for _, item := range p.attachments {
-		if item.operation >= len(results) || results[item.operation].Record == nil {
-			return filestore.ErrInvalid
-		}
-		if results[item.operation].Replayed {
-			continue
-		}
-		raw, ok := results[item.operation].Record.Data["id"].(string)
-		if !ok {
-			return filestore.ErrInvalid
-		}
-		recordID, err := uuid.Parse(raw)
-		if err != nil {
-			return filestore.ErrInvalid
-		}
-		key := strconv.Itoa(item.operation) + "/" + item.collectionID.String() + "/" + recordID.String() + "/" + item.field
-		change := groups[key]
-		if change == nil {
-			change = &filestore.AttachmentChange{CollectionID: item.collectionID, RecordID: recordID, Field: item.field}
-			groups[key] = change
-			order = append(order, key)
-		}
-		change.Additions = append(change.Additions, item.file)
-	}
-	for _, key := range order {
-		change := groups[key]
-		rows, queryErr := tx.Query(ctx, `select id from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status='ready'`, change.CollectionID, change.RecordID, change.Field)
-		if queryErr != nil {
-			return queryErr
-		}
-		for rows.Next() {
-			var id uuid.UUID
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return err
-			}
-			change.DeleteIDs = append(change.DeleteIDs, id)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		if _, err := p.service.Commit(ctx, tx, p.principal, []filestore.AttachmentChange{*change}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func extractBatchAttachments(items []batchOperationInput, staged namedStagedFiles) ([]batchAttachment, error) {
-	attachments := []batchAttachment{}
-	used := map[string]bool{}
-	for index := range items {
-		fields := make([]string, 0, len(items[index].Input))
-		for field := range items[index].Input {
-			fields = append(fields, field)
-		}
-		sort.Strings(fields)
-		var fingerprint bytes.Buffer
-		for _, field := range fields {
-			raw := items[index].Input[field]
-			var one struct {
-				File string `json:"$file"`
-			}
-			if json.Unmarshal(raw, &one) == nil && one.File != "" {
-				file, ok := staged[one.File]
-				if !ok || used[one.File] {
-					return nil, errors.New("invalid file reference")
-				}
-				used[one.File] = true
-				appendFileFingerprint(&fingerprint, field, file)
-				attachments = append(attachments, batchAttachment{operation: index, collection: items[index].Collection, field: field, file: file})
-				items[index].SidecarFields = append(items[index].SidecarFields, field)
-				delete(items[index].Input, field)
-				continue
-			}
-			var many []struct {
-				File string `json:"$file"`
-			}
-			if json.Unmarshal(raw, &many) == nil && len(many) > 0 {
-				for _, ref := range many {
-					file, ok := staged[ref.File]
-					if ref.File == "" || !ok || used[ref.File] {
-						return nil, errors.New("invalid file reference")
-					}
-					used[ref.File] = true
-					appendFileFingerprint(&fingerprint, field, file)
-					attachments = append(attachments, batchAttachment{operation: index, collection: items[index].Collection, field: field, file: file})
-				}
-				delete(items[index].Input, field)
-				items[index].SidecarFields = append(items[index].SidecarFields, field)
-			}
-		}
-		if fingerprint.Len() > 0 {
-			digest := sha256.Sum256(fingerprint.Bytes())
-			items[index].IdempotencyContext = append([]byte(nil), digest[:]...)
-		}
-	}
-	if len(used) != len(staged) {
-		return nil, errors.New("unreferenced file part")
-	}
-	return attachments, nil
-}
-
-func appendFileFingerprint(buffer *bytes.Buffer, field string, file filestore.StagedFile) {
-	digest := file.SHA256()
-	buffer.WriteString(field)
-	buffer.WriteByte(0)
-	buffer.WriteString(file.Filename())
-	buffer.WriteByte(0)
-	buffer.WriteString(file.ContentType())
-	buffer.WriteByte(0)
-	buffer.WriteString(strconv.FormatInt(file.Size(), 10))
-	buffer.WriteByte(0)
-	buffer.Write(digest[:])
 }
 
 type batchResult struct {
@@ -570,6 +456,13 @@ func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, i
 		return batchOperationInput{}, 0, false
 	}
 	collection, id := m[2], m[3]
+	if id != "" {
+		var err error
+		id, err = url.PathUnescape(id)
+		if err != nil || id == "" || len(id) > 1024 {
+			return batchOperationInput{}, 0, false
+		}
+	}
 	method := strings.ToUpper(request.Method)
 	ifMatch := batchHeader(request.Headers, "If-Match")
 	switch method {
@@ -606,8 +499,7 @@ func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) 
 		}
 		return recordops.BatchOperation{Create: &recordops.CreateRequest{Collection: input.Collection, Input: input.Input, IdempotencyKey: input.IdempotencyKey, IdempotencyContext: input.IdempotencyContext}}, input.Collection != "" && input.Input != nil
 	case "update", "delete", "upsert":
-		id, err := uuid.Parse(input.ID)
-		if err != nil || id == uuid.Nil || input.Collection == "" {
+		if input.ID == "" || len(input.ID) > 1024 || input.Collection == "" {
 			return recordops.BatchOperation{}, false
 		}
 		ifMatch, ok := parseIfMatch(http.Header{"If-Match": []string{input.IfMatch}})
@@ -622,15 +514,15 @@ func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) 
 			if input.Input != nil || input.IdempotencyKey != "" {
 				return recordops.BatchOperation{}, false
 			}
-			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, ID: id, IfMatch: ifMatch}}, true
+			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, PublicID: input.ID, IfMatch: ifMatch}}, true
 		}
 		if input.IdempotencyKey != "" {
 			return recordops.BatchOperation{}, false
 		}
 		if input.Operation == "upsert" {
-			return recordops.BatchOperation{Upsert: &recordops.UpdateRequest{Collection: input.Collection, ID: id, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
+			return recordops.BatchOperation{Upsert: &recordops.UpdateRequest{Collection: input.Collection, PublicID: input.ID, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
 		}
-		return recordops.BatchOperation{Update: &recordops.UpdateRequest{Collection: input.Collection, ID: id, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
+		return recordops.BatchOperation{Update: &recordops.UpdateRequest{Collection: input.Collection, PublicID: input.ID, Input: input.Input, IfMatch: ifMatch, SidecarFields: input.SidecarFields, SidecarContext: input.IdempotencyContext}}, input.Input != nil
 	default:
 		return recordops.BatchOperation{}, false
 	}

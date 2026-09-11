@@ -47,6 +47,29 @@ test('administrator impersonation uses CSRF and preserves the explicit origin ma
   assert.deepEqual(JSON.parse(calls.at(-1).init.body),{durationSeconds:120});
 });
 
+test('administrator schema scaffolds, truncate, and Apple secret generation use exact routes and CSRF', async () => {
+  const calls=[];
+  const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin',email:'a@example.test'},expiresAt:'later',csrfToken:'csrf'});
+    if(String(url).endsWith('/scaffolds')) return Response.json({base:{operation:'create',name:'base'},auth:{operation:'create',name:'auth'},view:{operation:'create',name:'view'}});
+    if(String(url).endsWith('/truncate')) return Response.json({name:'posts',truncated:true,recordsDeleted:3,filesDeleted:1,relationsDeleted:2});
+    return Response.json({secret:'generated-secret'},{headers:{'Cache-Control':'no-store'}});
+  }});
+  await client.resume();
+  assert.equal((await client.scaffolds()).auth.name,'auth');
+  const truncated=await client.truncateCollection('posts');
+  assert.equal(truncated.recordsDeleted,3);
+  const generated=await client.generateAppleClientSecret({clientId:'web',teamId:'team',keyId:'key',privateKey:'private',duration:3600});
+  assert.equal(generated.secret,'generated-secret');
+  const truncate=calls.find(call=>call.url.endsWith('/collections/posts/truncate'));
+  assert.deepEqual(JSON.parse(truncate.init.body),{name:'posts'});
+  const apple=calls.at(-1);
+  assert.equal(apple.url.endsWith('/settings/apple/generate-client-secret'),true);
+  assert.equal(apple.init.headers.get('X-PgBase-CSRF'),'csrf');
+  assert.deepEqual(JSON.parse(apple.init.body),{clientId:'web',teamId:'team',keyId:'key',privateKey:'private',duration:3600});
+});
+
 test('administrator file storage API redacts secrets and protects mutations with CSRF', async () => {
   const calls=[];
   const settings={driver:'s3',bucket:'files',region:'us-east-1',endpoint:'https://s3.example.test',accessKey:'access',usePathStyle:true,secretConfigured:true,revision:4};

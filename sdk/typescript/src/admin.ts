@@ -9,19 +9,23 @@ export type RelationInput = { targetCollection: string; cardinality: "single" | 
 export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput; options?: FieldOptions };
 export type FieldDefinition = Omit<FieldInput, "relation"> & { id: string; columnName: string; ordinal: number; relation?: Omit<RelationInput, "targetCollection"> & { targetCollectionId: string } };
 export type CollectionDefinition = { id: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewInput };
-export type CompoundIndex = { id?: string; name: string; fields: string[]; unique: boolean };
+export type IndexKey = { field?: string; expression?: string; collation?: "C" | "POSIX"; order?: "asc" | "desc" };
+/** fields, keys, and rawSql are mutually exclusive index definitions. */
+export type CompoundIndex = { id?: string; name: string; unique: boolean; fields?: string[]; keys?: IndexKey[]; where?: string; rawSql?: string };
 export type ViewFilter = { op: "all" | "any" | "eq" | "ne" | "lt" | "lte" | "gt" | "gte"; args?: ViewFilter[]; field?: string; value?: unknown };
 export type SQLViewInput = { sql: string; dependencies?: string[]; source?: never; projection?: never; filter?: never };
 export type ViewInput = { source: string; projection: string[]; filter?: ViewFilter; sql?: never } | SQLViewInput;
 export type CollectionChange =
   | { operation: "create"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput }
-  | { operation: "update"; name: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
-  | { operation: "update"; name: string; view: SQLViewInput; fields?: never; indexes?: never }
+  | { operation: "update"; name: string; collectionId?: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+  | { operation: "update"; name: string; collectionId?: string; view: SQLViewInput; fields?: never; indexes?: never }
   | { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 export type SchemaPlan = { baseVersion: number; checksum: string; definition: { name: string; tableName: string; fields: Array<FieldInput & { ordinal: number }>; indexes?: CompoundIndex[]; view?: ViewInput }; sql: string[] };
 export type SchemaOperation = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; failureCode?: string };
 export type SchemaDocumentCollection = { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> };
-export type SchemaDocument = { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] };
+export type SchemaDocument = { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; deleteMissing?: boolean };
+export type CollectionScaffolds = { base: CollectionChange; auth: CollectionChange; view: CollectionChange };
+export type CollectionTruncateResult = { name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number };
 export type SchemaImportPlan = { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaPlan[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string };
 export type SchemaImportResult = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version?: number; applied?: number };
 export type AdministratorSession = { administrator: { id: string; email: string; createdAt: string }; expiresAt: string };
@@ -34,6 +38,7 @@ export type FileStorageMigrationInput = Omit<FileStorageUpdate, "revision">;
 export type FileStorageMigration = { id: string; status: "preview" | "copying" | "canceling" | "canceled" | "failed" | "ready" | "activating" | "committed"; copiedObjects: number; totalObjects: number; failure?: string; createdAt?: string; updatedAt?: string };
 export type BackupStorageSettings = { driver: "local" | "s3"; bucket: string; prefix: string; region: string; endpoint: string; accessKey: string; usePathStyle: boolean; retention: number; secretConfigured: boolean; revision: number };
 export type BackupStorageUpdate = Omit<BackupStorageSettings, "secretConfigured"> & { secretKey?: string; clearSecret?: boolean };
+export type AppleClientSecretInput = { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number };
 
 export class AdminAPIError extends Error {
   constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
@@ -100,6 +105,13 @@ export class PgBaseAdminClient {
     if (generation === this.#generation) { this.#csrf = ""; this.#generation++; }
   }
   catalog(signal?: AbortSignal): Promise<{ version: number; collections: Record<string, CollectionDefinition> }> { return this.request("/api/admin/collections", {}, signal); }
+  generateAppleClientSecret(input: AppleClientSecretInput, signal?: AbortSignal): Promise<{ secret: string }> {
+    return this.request("/api/admin/settings/apple/generate-client-secret", { method: "POST", body: JSON.stringify(input) }, signal);
+  }
+  scaffolds(signal?: AbortSignal): Promise<CollectionScaffolds> { return this.request("/api/admin/collections/scaffolds", {}, signal); }
+  truncateCollection(name: string, signal?: AbortSignal): Promise<CollectionTruncateResult> {
+    return this.request(`/api/admin/collections/${encodeURIComponent(name)}/truncate`, { method: "POST", body: JSON.stringify({ name }) }, signal);
+  }
   async plan(change: CollectionChange, signal?: AbortSignal): Promise<ApprovedSchemaPlan> {
     // Snapshot before awaiting: caller edits while the preview runs must not
     // bind a different change to the server's returned checksum.

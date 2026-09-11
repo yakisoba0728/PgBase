@@ -122,7 +122,7 @@ func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, currentPassw
 		return ErrInvalidCredentials
 	}
 	policy, err := s.authPolicy(ctx, collectionID)
-	if err != nil || !policy.PasswordEnabled || len(newPassword) < policy.MinimumPasswordBytes {
+	if err != nil || !passwordMatchesPolicy(newPassword, policy) {
 		return ErrValidation
 	}
 	release, err := admit(s.credentialSlots)

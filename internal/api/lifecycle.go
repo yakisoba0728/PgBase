@@ -15,13 +15,17 @@ type RecordRequestEvent struct {
 	Actor          recordops.Principal
 	RequestID      string
 	Collection     string
-	RecordID       uuid.UUID
+	RecordID       string
 	IdempotencyKey string
 	Limit          int
+	Page           int
+	PerPage        int
+	SkipTotal      bool
 	Cursor         string
 	Filter         string
 	Sort           string
 	Expand         string
+	Fields         string
 	Input          map[string]json.RawMessage
 	Result         *recordops.MutationResult
 }
@@ -68,6 +72,19 @@ type SchemaImportRequestEvent struct {
 	Checksum       string
 	Document       schema.SchemaDocument
 	Result         *schema.SchemaImportResult
+}
+
+type CollectionRequestEvent struct {
+	Operation  string             `json:"operation"`
+	Name       string             `json:"name,omitempty"`
+	ActorID    uuid.UUID          `json:"actorId,omitempty"`
+	RequestID  string             `json:"requestId"`
+	Collection *schema.Collection `json:"collection,omitempty"`
+}
+
+type RecordEnrichEvent struct {
+	Collection string         `json:"collection"`
+	Record     map[string]any `json:"record"`
 }
 
 func cloneSchemaDocument(document schema.SchemaDocument) schema.SchemaDocument {

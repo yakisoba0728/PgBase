@@ -1,0 +1,1360 @@
+{
+  "schemaVersion": 1,
+  "baseSha": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+  "productFindingCounts": {
+    "P2": 11,
+    "P1": 9
+  },
+  "documentationFindingCounts": {
+    "P3": 2
+  },
+  "findings": [
+    {
+      "id": "AUTHMAIL-001",
+      "featureIds": [
+        "AUTH-14"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "title": "OAuth signup admits one empty-email account and rejects the next unrelated identity",
+      "file": "internal/userauth/oauth.go",
+      "lineStart": 368,
+      "lineEnd": 384,
+      "trigger": "Two unlinked OAuth identities from the same provider have distinct subjects but no email, and OAuth registration is enabled.",
+      "observed": "The first completion creates a user whose email is the empty string; the second returns ErrConflict because the lookup at lines 368-373 treats that empty email as already owned.",
+      "expected": "The sign-up path must either reject an identity without a verified non-empty email before creating any account, or support distinct no-email identities without binding them to a shared empty email value.",
+      "evidence": [
+        {
+          "path": "internal/userauth/oauth.go",
+          "lines": "263-298, 487-488",
+          "reason": "CompleteOAuth normalizes only non-empty emails, and validOAuthIdentity accepts an empty email regardless of EmailVerified."
+        },
+        {
+          "path": "internal/userauth/oauth.go",
+          "lines": "353-400",
+          "reason": "The unlinked signup path checks and inserts identity.Email with no non-empty/verified guard."
+        },
+        {
+          "path": "migrations/system/000010_public_users.sql",
+          "lines": "1-8",
+          "reason": "The email column is NOT NULL and normalized but has no non-empty check, so an empty string is legal."
+        },
+        {
+          "path": "migrations/system/000017_auth_collections.sql",
+          "lines": "14-20",
+          "reason": "Email uniqueness is scoped to (auth_collection_id,email), causing all empty-email users in one realm to collide."
+        },
+        {
+          "path": ".local/upstream/pocketbase/apis/record_auth_with_oauth2.go",
+          "lines": "319-329, 364-377",
+          "reason": "Pinned PocketBase creates and verifies an OAuth record even when email is empty and later updates an empty email when one becomes available."
+        }
+      ],
+      "reproduction": "Not run in this audit. Read-only test evidence: .local/full-audit-2026-09-11/worktrees/auth-mail-oauth-empty/internal/userauth/oauth_empty_email_audit_test.go.",
+      "impact": "The same supported-looking provider response succeeds for the first subject and conflicts for the second, preventing additional users of no-email providers from registering in that realm. The first account remains OAuth-usable but has no email-based recovery or verification route until an email is obtained.",
+      "recommendation": "Require Email != \"\" and EmailVerified before the unlinked creation branch, returning ErrInvalidCredentials before state consumption; alternatively change the account model and unique constraint handling to make no-email identities independent.",
+      "confidence": "high",
+      "sourceGroup": "auth_mail",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "OAuth account creation consistency defect",
+      "conclusion": "OAuth identity validation requires only a bounded Subject and allows an empty Email. In the unlinked registration branch, the service probes users by identity.Email and inserts the same value without requiring a verified non-empty address. PostgreSQL accepts the first empty string because email is NOT NULL and normalized, then the realm-scoped unique constraint and explicit existence probe make a second distinct OAuth subject with no email return ErrConflict. The pinned PocketBase flow deliberately supports an OAuth-created empty-email record and later fills it when a provider supplies an email, so this is not a required compatibility rejection.",
+      "verification": "Static provider result validation -> transaction lookup/insert -> database constraint trace plus pinned PocketBase comparison. No OAuth flow or recovered test was run.",
+      "limitations": "This finding does not require PgBase to support empty-email identities specifically; rejecting them before account creation would also make the behavior coherent.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "AUTHMAIL-002",
+      "featureIds": [
+        "AUTH-06"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "title": "Auth identity policy persists fields absent from the realm schema",
+      "file": "internal/userauth/auth_admin.go",
+      "lineStart": 190,
+      "lineEnd": 213,
+      "trigger": "An administrator sets AuthPolicy.IdentityFields to a syntactically valid custom name that the collection does not define.",
+      "observed": "validIdentityFields only validates syntax and uniqueness; SetAuthPolicy stores the name after duplicate probing JSON attributes, without loading or comparing fields_json.",
+      "expected": "Each non-email identity field must be an existing eligible text field in the same auth collection before the policy is persisted.",
+      "evidence": [
+        {
+          "path": "internal/userauth/auth_admin.go",
+          "lines": "174-235, 239-250",
+          "reason": "SetAuthPolicy never loads fields_json; validIdentityFields accepts any syntactically valid name and the duplicate query treats an absent key as harmless."
+        },
+        {
+          "path": "migrations/system/000043_auth_pb_compat.sql",
+          "lines": "4-9",
+          "reason": "The database enforces only jsonb array shape for identity_fields, with no referential relationship to fields_json."
+        },
+        {
+          "path": "internal/userauth/auth_record_model.go",
+          "lines": "106-126",
+          "reason": "Validated profile writes reject every attribute not declared by the collection field list."
+        },
+        {
+          "path": "internal/userauth/service.go",
+          "lines": "120-178, 206-233",
+          "reason": "Login reads the published identity list and parameterizes a JSON attribute lookup for every non-email field; a missing declared field can never resolve a user."
+        },
+        {
+          "path": "internal/userauth/auth_methods.go",
+          "lines": "12-67",
+          "reason": "Public capability discovery returns the stored IdentityFields unchanged."
+        },
+        {
+          "path": ".local/upstream/pocketbase/core/collection_validate.go",
+          "lines": "450-473",
+          "reason": "Pinned PocketBase explicitly rejects missing identity fields and fields without a single-column unique index."
+        },
+        {
+          "path": ".local/upstream/pocketbase/apis/collection_test.go",
+          "lines": "1202-1216",
+          "reason": "Existing upstream assertion expects validation_missing_field for identityFields=[missing]."
+        }
+      ],
+      "reproduction": "Not run in this audit. Read-only test evidence: .local/full-audit-2026-09-11/worktrees/auth-mail-oauth-empty/internal/userauth/identity_policy_audit_test.go.",
+      "impact": "An administrator can publish an authentication method that capability discovery presents to clients but no validated record can satisfy. Password login then consistently returns invalid credentials for that advertised identity field until the policy is repaired.",
+      "recommendation": "Within SetAuthPolicy's locked transaction, load fields_json and reject every non-email identity name that is absent or has an ineligible type; add a normal integration assertion for rejection.",
+      "confidence": "high",
+      "sourceGroup": "auth_mail",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "invalid published authentication policy",
+      "conclusion": "SetAuthPolicy validates only the syntax, count, and uniqueness of identity field names. Its locked transaction reads the existing policy but never reads auth_collections.fields_json; duplicate probing a missing JSON key returns false, after which the name is stored. The database constraint validates only that identity_fields is a JSON array. PublicAuthMethods advertises the stored name, while login queries p.attributes ->> field and validated record/profile writes cannot create an undeclared attribute. The pinned PocketBase validator rejects a missing identity field and additionally requires a single-column unique index.",
+      "verification": "Static admin endpoint/service -> DB persistence -> capability discovery -> validated record write -> login consumer trace. No test was run.",
+      "limitations": "The missing-field case is conclusive. The exact set of additional eligible field types or uniqueness semantics is a product design question beyond this bounded finding.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "AUTHMAIL-003",
+      "featureIds": [
+        "AUTH-31"
+      ],
+      "severity": "P3",
+      "type": "defect",
+      "title": "Shared session and impersonation key versions cannot be persisted",
+      "file": "internal/userauth/token_policy.go",
+      "lineStart": 141,
+      "lineEnd": 170,
+      "trigger": "An administrator configures session and impersonation token policies for one realm with the same KeyVersion; PutTokenPolicy permits this because it validates each policy independently.",
+      "observed": "sessionHash queries both purposes by realm and key_version (lines 156-159) and accepts one unordered row. It then chooses the hashing domain from that returned purpose (lines 162-170). A versioned session token is created with the session key/domain, while an impersonation token is created with the impersonation key/domain; when the other policy row is selected, the resulting hash cannot match the stored token row.",
+      "expected": "A token version must resolve deterministically to its intended purpose, or policy writes must reject a KeyVersion already used by the other session-like purpose in the same realm.",
+      "evidence": [
+        {
+          "path": "migrations/system/000050_auth_token_policies.sql",
+          "lines": "1-10",
+          "reason": "UNIQUE(key_version) applies across the entire auth_token_policies table."
+        },
+        {
+          "path": "internal/userauth/token_policy.go",
+          "lines": "49-101",
+          "reason": "PutTokenPolicy performs the upsert and converts database conflict classification to ErrConflict."
+        },
+        {
+          "path": "internal/database/errors.go",
+          "lines": "24-61",
+          "reason": "SQLSTATE 23505 is classified as KindConflict."
+        },
+        {
+          "path": "internal/userauth/auth_admin_integration_test.go",
+          "lines": "201-219",
+          "reason": "Existing coverage asserts that reusing a key version for another realm and purpose returns ErrConflict, demonstrating the global invariant."
+        },
+        {
+          "path": "internal/userauth/token_policy.go",
+          "lines": "141-170",
+          "reason": "The lookup lacks an explicit purpose, but uniqueness guarantees at most one row for key_version, so the query is deterministic in all valid database states."
+        }
+      ],
+      "reproduction": "Not run in this audit; static evidence only.",
+      "impact": "No production impact from the proposed trigger: the second policy write is rejected transactionally and existing tokens remain governed by the single matching row. The purpose-less lookup is coupled to the global uniqueness invariant but is not currently ambiguous.",
+      "recommendation": "Reject cross-purpose KeyVersion reuse for session and impersonation within a realm, or encode the purpose in the bearer token and query exactly that policy. Add assertions for both token classes under an attempted shared version.",
+      "confidence": "high",
+      "sourceGroup": "auth_mail",
+      "verdict": "reject",
+      "priority": "P3",
+      "classification": "invalid finding; database invariant already prevents trigger state",
+      "conclusion": "sessionHash would be ambiguous if two matching policy rows existed, but the claimed administrative configuration is not valid state. auth_token_policies has a global UNIQUE(key_version), stronger than the per-realm/per-purpose invariant the finding assumed. PutTokenPolicy writes through that constraint and maps SQLSTATE 23505 to ErrConflict. No later migration drops or weakens the constraint. Therefore a session and impersonation policy cannot share a key version in one realm, or even across realms, through this service or direct constraint-respecting SQL.",
+      "verification": "Static migration history, persistence error mapping, lookup query, and existing cross-realm conflict assertion. No test was run.",
+      "limitations": "If a future migration scopes or removes UNIQUE(key_version), sessionHash would need an explicit purpose discriminator or token format change before that migration is safe.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "intentional_difference",
+      "countedAsProductDefect": false
+    },
+    {
+      "id": "DOC-001",
+      "featureIds": [
+        "ALL-DOCS",
+        "PB-COMPARE"
+      ],
+      "severity": "P3",
+      "type": "evidence_portability",
+      "title": "Comparison source pointers use machine-specific absolute paths",
+      "file": "docs/pocketbase-feature-comparison-current-2026-09-10.json",
+      "lineStart": 7,
+      "lineEnd": 7,
+      "trigger": "Open the comparison JSON outside the author workstation or after moving the checkout.",
+      "observed": "The comparison metadata and 422 pgSource/testSource references contain ... paths, including .local verification paths. These links cannot be resolved by another checkout and some referenced evidence is outside tracked documentation.",
+      "expected": "Use repository-relative paths or stable commit/blob URLs, and identify any local evidence artifact with a portable provenance identifier.",
+      "evidence": [
+        "docs/pocketbase-feature-comparison-current-2026-09-10.json:7",
+        "docs/pocketbase-feature-comparison-current-2026-09-10.json:32-...",
+        "422 absolute pgSource/testSource occurrences counted from all 232 rows"
+      ],
+      "reproduction": {
+        "command": "python3 - <<'PY'\nimport json\nx=json.load(open('docs/pocketbase-feature-comparison-current-2026-09-10.json'))\nprint(sum(1 for r in x['rows'] for k in ('pgSource','testSource') if isinstance(r.get(k),str) and '<absolute-checkout-root>/' in r[k]))\nPY",
+        "result": "422"
+      },
+      "impact": "Independent reviewers cannot resolve the documented evidence from another checkout; this is an audit traceability issue rather than a current product runtime failure.",
+      "recommendation": "Rewrite tracked source pointers as repo-relative paths with optional line numbers and add commit/blob identity for external evidence. Keep local absolute paths only in non-portable scratch artifacts.",
+      "confidence": "high",
+      "sourceGroup": "documentation",
+      "disposition": "documentation",
+      "countedAsProductDefect": false,
+      "countedAsDocumentationFinding": true
+    },
+    {
+      "id": "DOC-RT-001",
+      "featureIds": [
+        "RT-01"
+      ],
+      "severity": "P3",
+      "type": "documentation",
+      "title": "Current comparison matrix incorrectly says the PB_CONNECT handshake is absent",
+      "file": "docs/pocketbase-feature-comparison-current-2026-09-10.json",
+      "lineStart": 2195,
+      "lineEnd": 2201,
+      "trigger": "A reader uses the current PocketBase comparison row to assess realtime endpoint compatibility.",
+      "observed": "The row's pg and gap fields say only the collection SSE route exists and that PB_CONNECT/clientId is absent.",
+      "expected": "Replace those fields with: 'The PocketBase-shaped GET /api/realtime emits id/event PB_CONNECT with clientId; the legacy collection SSE route is a separate durable-cursor transport.' Any remaining gap should describe the documented wire-semantic differences, not handshake absence.",
+      "evidence": "Pinned internal/api/realtime_sessions.go:216-220 writes id, event PB_CONNECT, and clientId data. pgbase/realtime_integration_test.go:43 exercises the PocketBase-shaped connection route.",
+      "reproduction": "Direct source and comparison-row read at pinned commit 0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b.",
+      "impact": "The stale row understates an implemented compatibility path and can lead follow-up work to duplicate it.",
+      "recommendation": "Correct the matrix row and preserve the separate durable-cursor transport distinction.",
+      "confidence": "high",
+      "sourceGroup": "files_realtime",
+      "disposition": "documentation",
+      "countedAsProductDefect": false,
+      "countedAsDocumentationFinding": true
+    },
+    {
+      "id": "EXT-AUD-001",
+      "featureIds": [
+        "EXT-14",
+        "EXT-15"
+      ],
+      "severity": "P1",
+      "type": "defect",
+      "title": "Thrown compatibility ApiError values are flattened to a sanitized 500",
+      "file": "internal/jsvm/runtime.go",
+      "lineStart": 680,
+      "lineEnd": 685,
+      "trigger": "A JavaScript route or compatibility middleware throws new NotFoundError(), new UnauthorizedError(), or any ApiError with a non-500 status.",
+      "observed": "The VM classifier wraps every ordinary JavaScript exception as CodeExecutionFailed. writeJavaScriptRouteError only maps runtime infrastructure codes and therefore emits a generic 500 with no ApiError data.",
+      "expected": "PocketBase ApiError subclasses must preserve their declared HTTP status and public error data through the route boundary. PocketBase's pinned router test throws ApiError(456) and asserts response status 456.",
+      "evidence": [
+        {
+          "path": "internal/jsvm/pocketbase_globals.go",
+          "lines": "405-410",
+          "reason": "Defines ApiError subclasses and $apis middleware that rejects by throwing ApiError."
+        },
+        {
+          "path": "internal/jsvm/runtime.go",
+          "lines": "680-685",
+          "reason": "classifyExecutionError preserves only interruption/cancellation and maps every other exception to CodeExecutionFailed."
+        },
+        {
+          "path": "pgbase/javascript_runtime.go",
+          "lines": "569-584",
+          "reason": "The route error writer maps selected jsvm infrastructure codes and otherwise emits HTTP 500 via http.Error."
+        },
+        {
+          "path": "internal/jsvm/pocketbase_api_errors_conformance_test.go",
+          "lines": "10-33",
+          "reason": "The test returns constructed values and checks their fields; it never throws one across the HTTP route boundary."
+        }
+      ],
+      "reproduction": "Code proof plus upstream characterization. `go test ./plugins/jsvm -run 'Test(BindMails|RouterBinds|BindApisErrors)$'` passed in the pinned PocketBase checkout, including the custom-status route assertion. PgBase's focused unit and integration suites passed because they do not throw an ApiError across HTTP.",
+      "impact": "Compatibility routes and supplied auth middleware turn expected 4xx responses into 500 responses, preventing clients from distinguishing authentication, authorization, missing-resource, rate-limit, and validation outcomes.",
+      "recommendation": "Export and recognize branded ApiError values at the VM boundary, validate status/data, carry them in a typed execution error, and serialize the allowed status and public data in writeJavaScriptRouteError. Add route tests for every subclass and a custom status.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "compatibility defect",
+      "conclusion": "The JavaScript constructors retain status and data inside the VM, but every non-interruption exception is converted to js_execution_failed. The HTTP boundary recognizes only runtime infrastructure codes and therefore cannot recover an ApiError status or data. This also affects the supplied $apis authorization middleware, which throws ApiError on rejection.",
+      "contract_assessment": "PgBase documents sanitized handling for ordinary uncaught failures, but its compatibility document separately advertises PocketBase error types and normal-pipeline $apis middleware. Treating every typed ApiError as an ordinary failure makes those advertised APIs nonfunctional at their main boundary; this is an actual gap rather than the documented PostgreSQL/security adaptation.",
+      "verification": "Static end-to-end route/error path. Focused constructor and entrypoint tests passed and demonstrate the existing assertion boundary.",
+      "limitations": "No temporary HTTP route was added because the classifier and response writer are exhaustive and the audit forbids product-source changes.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-002",
+      "featureIds": [
+        "EXT-11",
+        "EXT-14",
+        "EXT-17"
+      ],
+      "severity": "P1",
+      "type": "defect",
+      "title": "OTP and auth-alert helpers validate and then discard caller payloads",
+      "file": "pgbase/extension_bridge.go",
+      "lineStart": 331,
+      "lineEnd": 340,
+      "trigger": "A script calls $mails.sendRecordOTP($app, record, otpId, otpPass) or $mails.sendRecordAuthAlert($app, record, alertInfo).",
+      "observed": "The host validates otpId/otpPass/alertInfo, then ignores them. OTP dispatch creates a different OTP through RequestEmailOTPInCollection with the fixed admin-local source; auth-alert dispatch calls AdminSendAuthAlert without alertInfo.",
+      "expected": "The supplied OTP id/password and alert information must be rendered into the selected message and exposed to the matching mail hook, as in the pinned PocketBase helpers.",
+      "evidence": [
+        {
+          "path": "internal/jsvm/pocketbase_globals.go",
+          "lines": "402-405",
+          "reason": "$mails.sendRecordOTP and sendRecordAuthAlert serialize the caller-supplied semantic values."
+        },
+        {
+          "path": "pgbase/extension_bridge.go",
+          "lines": "286-340",
+          "reason": "The values are decoded and validated, then omitted from AdminSendAuthAlert and RequestEmailOTPInCollection."
+        },
+        {
+          "path": "pgbase/extension_auth_mail_test.go",
+          "lines": "11-67",
+          "reason": "The fake methods accept no OTP/auth-alert payload and assertions record only a kind string, so the test cannot detect loss."
+        },
+        {
+          "path": "internal/userauth/email_otp.go",
+          "lines": "20-35",
+          "reason": "RequestEmailOTPInCollection is a new-challenge operation, not a send operation for an already selected OTP id/password."
+        }
+      ],
+      "reproduction": "Code proof and pinned upstream TestBindMails, which passed. The PgBase dispatcher test passed while demonstrating its assertion blind spot: fakeAuthMail's OTP and auth-alert methods accept none of the supplied semantic values.",
+      "impact": "A compatibility OTP call does not mail the supplied credential and creates an unexpected additional OTP challenge; auth alerts omit supplied login context. Ported authentication flows can fail or notify with incomplete content.",
+      "recommendation": "Add mail-service operations that accept the already-selected OTP id/password and alert information, render those values, preserve hook metadata, and test the actual SMTP body and OTP-row effects through the real host.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "compatibility defect",
+      "conclusion": "The wrapper forwards otpId, otpPass, and alertInfo and the host validates them. The host then calls APIs whose signatures cannot receive those values: auth alerts receive only the record ID, while OTP creates a fresh challenge from the email and a fixed source string.",
+      "contract_assessment": "The compatibility document says all five helpers call server-side signing/template services, but it does not authorize replacing caller-selected OTP/auth-alert inputs. This is a missing semantic adapter, not a PostgreSQL-specific adaptation.",
+      "verification": "Static wrapper-to-native signature trace. Focused dispatcher tests passed and confirm the blind spot.",
+      "limitations": "No SMTP delivery was performed.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-003",
+      "featureIds": [
+        "EXT-10",
+        "EXT-14"
+      ],
+      "severity": "P2",
+      "type": "contract_gap",
+      "title": "$app.runInTransaction supplies a DB facade and rejects nested runInTransaction calls",
+      "file": "internal/jsvm/pocketbase_globals.go",
+      "lineStart": 422,
+      "lineEnd": 427,
+      "trigger": "A script uses the callback argument as PocketBase's txApp to save a model, or calls runInTransaction from an existing transaction.",
+      "observed": "runTx passes the raw appDB facade instead of an app facade. It always invokes databaseBegin, while pgbase/extension_app_transaction.go:21-24 rejects an active transaction. Record and model helpers dispatch through extensionBridge records and never use host.databaseTx.",
+      "expected": "The callback receives a transaction-bound app; its model/record operations share the transaction, and a nested call using that app participates in the existing transaction. Pinned PocketBase core/db_tx.go:11-35 states and implements both properties.",
+      "evidence": [
+        {
+          "path": "internal/jsvm/pocketbase_globals.go",
+          "lines": "422-427",
+          "reason": "runTx always begins a host transaction and invokes callback(appDB); it does not return an app facade or short-circuit nesting."
+        },
+        {
+          "path": "pgbase/extension_app_transaction.go",
+          "lines": "21-30",
+          "reason": "databaseBegin returns transaction_already_active when host.databaseTx is non-nil."
+        },
+        {
+          "path": "pgbase/extension_bridge.go",
+          "lines": "437-468",
+          "reason": "operationContext detects host.databaseTx and calls recordops.WithTransaction, preserving record-operation atomicity inside the outer callback."
+        },
+        {
+          "path": "internal/recordops/service.go",
+          "lines": "49-54, 128-292",
+          "reason": "WithTransaction binds the caller-owned pgx.Tx and Create uses the transaction-aware kernel."
+        },
+        {
+          "path": "pgbase/extension_app_transaction_integration_test.go",
+          "lines": "17-52",
+          "reason": "Existing coverage checks raw SQL commit/rollback only; it does not assert callback txApp shape or nested behavior."
+        }
+      ],
+      "reproduction": "Code proof. Focused TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction passed, confirming only raw SQL behavior; the tested callback uses tx.exec and never tx.save or a nested transaction.",
+      "impact": "PocketBase scripts that use the documented txApp callback or nested transaction composition fail at runtime. Record writes through the ambient $app remain atomic, so the claimed partial-commit/data-integrity impact is rejected.",
+      "recommendation": "Create an invocation-scoped app facade bound to host.databaseTx, route all txApp record/model/catalog operations through that tx, return the same facade for nested transactions, and add rollback/commit tests mixing txApp.save with SQL and nesting.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "narrow compatibility defect",
+      "conclusion": "The callback argument is appDB rather than a transaction-bound $app facade, so PocketBase code that calls txApp.save cannot work. A nested runInTransaction calls databaseBegin again and is rejected when host.databaseTx is already set. The source finding materially overstates atomicity risk: extensionHost.operationContext injects the active pgx.Tx into recordops, so $app.save and ordinary record calls made during the callback do share the outer transaction and roll back with it.",
+      "contract_assessment": "Using one PostgreSQL authority for DB/AuxDB is an explicit adaptation. Returning a DB facade for an API documented as the exact PocketBase RunInTransaction method, and rejecting nested composition, is a separate compatibility gap.",
+      "verification": "Static transaction lifecycle and context-binding trace. Existing focused transaction test was inspected; no new database fixture was needed.",
+      "limitations": "No new integration test was added because product source is read-only for this audit.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-004",
+      "featureIds": [
+        "EXT-07",
+        "EXT-14",
+        "EXT-15"
+      ],
+      "severity": "P2",
+      "type": "contract_gap",
+      "title": "Ordinary record CRUD never emits advertised record model error phases",
+      "file": "pgbase/lifecycle_hooks.go",
+      "lineStart": 161,
+      "lineEnd": 179,
+      "trigger": "A normal HTTP or Go record create, update, or delete reaches a model phase and then fails validation, a hook, SQL execution, or transaction commit while onRecordAfter*Error is registered.",
+      "observed": "BeforeMutation emits validate/operation/execute phases; AfterMutation emits only record.after and operation.success. recordops/hooks.go:80-92 suppresses AfterMutation whenever the operation has an error, and there is no error callback. Only the separate JavaScript $app wrapper manually emits a record error event.",
+      "expected": "OnRecordAfterCreateError, OnRecordAfterUpdateError, and OnRecordAfterDeleteError observe failed persistence, including delayed transaction rollback, matching their registered PocketBase surface.",
+      "evidence": [
+        {
+          "path": "pgbase/lifecycle_hooks.go",
+          "lines": "159-179",
+          "reason": "recordLifecycleHooks exposes only BeforeMutation and AfterMutation; AfterMutation emits success."
+        },
+        {
+          "path": "internal/recordops/hooks.go",
+          "lines": "21-24, 73-97",
+          "reason": "The interface has no error callback and afterCommitted suppresses all observers when operationErr is non-nil."
+        },
+        {
+          "path": "internal/recordops/hooks_test.go",
+          "lines": "50-89",
+          "reason": "Tests explicitly assert that rollback and failed-before paths produce no AfterMutation callback."
+        },
+        {
+          "path": "pgbase/extension_bridge.go",
+          "lines": "416-434",
+          "reason": "The $app wrapper separately emits record.model.<operation>.error after a failed model mutation."
+        },
+        {
+          "path": "internal/jsvm/registration.go",
+          "lines": "313-325",
+          "reason": "onRecordAfterCreateError, onRecordAfterUpdateError, and onRecordAfterDeleteError are registered public aliases."
+        }
+      ],
+      "reproduction": "Code proof. The focused model-phase integration test passed but contains no onRecordAfter*Error registration or assertion.",
+      "impact": "Extensions cannot observe failed HTTP/Go record persistence through the advertised error hooks, while the same mutation through $app can be observed. Compensation, audit, and telemetry logic becomes entrypoint-dependent.",
+      "recommendation": "Extend the record mutation hook seam with a commit outcome callback that publishes exactly one success or error phase, including transaction rollback, and remove the route-specific manual workaround after both paths share it.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "lifecycle contract defect",
+      "conclusion": "The normal recordops lifecycle publishes BeforeMutation phases and commit-only success phases. mutationHookRun.afterCommitted immediately returns when the operation fails, and MutationHook has no error callback. The separate $app model wrapper emits record.model.<operation>.error, so behavior depends on the entry path.",
+      "contract_assessment": "Commit-only record.after is an explicit PgBase lifecycle choice, but separately registering PocketBase record model error aliases creates a promise that the ordinary record lifecycle does not fulfill.",
+      "verification": "Static normal-CRUD and special-wrapper trace plus inspection of assertions that intentionally suppress rollback callbacks.",
+      "limitations": "The exact payload desired for failures before a record ID/event exists requires design work, but this does not affect the missing-callback verdict.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-005",
+      "featureIds": [
+        "EXT-11",
+        "EXT-17"
+      ],
+      "severity": "P1",
+      "type": "defect",
+      "title": "A metadata failure after extension-object overwrite can delete the last committed object",
+      "file": "pgbase/extension_objects.go",
+      "lineStart": 180,
+      "lineEnd": 193,
+      "trigger": "An existing logical object is overwritten, the backend Put succeeds, and the following extension_objects metadata upsert fails or its context is canceled.",
+      "observed": "The backend key is deterministic, so Put replaces the prior bytes before metadata publication. On any upsert error the cleanup branch deletes that same key, while the old metadata row remains and now points to no object.",
+      "expected": "A failed overwrite must retain the last committed object, or atomically publish the new value without leaving committed metadata that references missing bytes.",
+      "evidence": [
+        {
+          "path": "pgbase/extension_objects.go",
+          "lines": "64-73, 160-194",
+          "reason": "The physical key is stable; WriteStream performs Put, then metadata upsert, then best-effort Delete of the same key on upsert error."
+        },
+        {
+          "path": "migrations/system/000057_extension_objects.sql",
+          "lines": "17-26",
+          "reason": "The durable cleanup trigger fires only AFTER DELETE of extension_objects metadata, which does not occur on a failed upsert."
+        },
+        {
+          "path": "internal/filestore/service.go",
+          "lines": "575-598",
+          "reason": "DrainOne processes queued physical deletions; it cannot restore a physical object removed by WriteStream's failure cleanup."
+        }
+      ],
+      "reproduction": "Code proof; the focused object integration tests passed because their metadata writes succeed. The failure branch is deterministic once the post-Put upsert returns an error.",
+      "impact": "A write reported as failed can destroy the previously committed extension object and leave committed metadata pointing at missing storage. This is durable state loss on a normal failure path.",
+      "recommendation": "Write replacements under a unique staging/version key, publish metadata transactionally, and queue the old key for deletion only after publication. On publication failure delete only the new staging key.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "data-loss defect",
+      "conclusion": "Physical keys are deterministic per namespace/key. Put overwrites the committed bytes before metadata is updated. If the metadata upsert fails, cleanup deletes that same physical key, while the pre-existing metadata row remains. The durable deletion-queue trigger is not a repair path here because it runs only when a metadata row is deleted.",
+      "contract_assessment": "Hashed namespace keys and durable deletion queues are PgBase adaptations, but neither requires in-place overwrite. Versioned/staged publication is missing.",
+      "verification": "Static publish/rollback/trigger/worker trace, including the deletion-queue compensation path that invalidated an earlier audit finding.",
+      "limitations": "No backend fault injection was run because a post-Put metadata failure requires an artificial database/store seam and product source is read-only.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-006",
+      "featureIds": [
+        "EXT-11",
+        "EXT-17"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "title": "Stream, multipart, and copy writes bypass object.write hooks",
+      "file": "pgbase/extension_object_handles.go",
+      "lineStart": 190,
+      "lineEnd": 217,
+      "trigger": "A hook vetoes or audits object.write and a script writes through System.newWriter/commit, multipart commit, or copy instead of the inline write operation.",
+      "observed": "Inline Write wraps WriteStream in HookObjectWrite, but stream commit, multipart commit, and Copy call WriteStream directly. Those routes persist data without running the registered hook.",
+      "expected": "All public operations that create or replace a logical object must pass through the same object.write policy and observation chain.",
+      "evidence": [
+        {
+          "path": "pgbase/extension_objects.go",
+          "lines": "84-90, 241-247",
+          "reason": "Inline Write runs HookObjectWrite, while Copy bypasses Write and calls WriteStream."
+        },
+        {
+          "path": "pgbase/extension_object_handles.go",
+          "lines": "190-221, 282-316",
+          "reason": "Writer and multipart commits publish through WriteStream without a hook."
+        },
+        {
+          "path": "pgbase/extension_objects.go",
+          "lines": "292-322",
+          "reason": "createThumb calls Write and therefore is a useful negative cross-check, not another bypass."
+        },
+        {
+          "path": "pgbase/javascript_database_objects_integration_test.go",
+          "lines": "32-62",
+          "reason": "Existing hook coverage exercises the inline objects.write route only."
+        }
+      ],
+      "reproduction": "Code proof. Focused object and filesystem stream tests passed, but their assertions do not combine a write hook with copy or streamed commit.",
+      "impact": "A veto/audit policy attached to object.write can be avoided by choosing a different public write entrypoint. This is limited to trusted extension code and its own namespace, so P2 is appropriate.",
+      "recommendation": "Move hook execution into a single internal publish function used by inline, stream, multipart, thumbnail, and copy writes; add veto and exactly-once assertions for every entry point.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "policy bypass defect",
+      "conclusion": "Only ExtensionObjects.Write wraps publication in HookObjectWrite. Copy, writer commit, and multipart commit call WriteStream directly. Thumbnail creation is not affected because it calls Write.",
+      "contract_assessment": "Multiple bounded storage adapters are an explicit PgBase design, but inconsistent hook execution across equivalent public writes is not.",
+      "verification": "Static public-entrypoint-to-publication trace.",
+      "limitations": "No hook-veto integration fixture was added.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-007",
+      "featureIds": [
+        "EXT-11",
+        "EXT-17"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "title": "Object prefix listing interprets legal percent and underscore characters as LIKE wildcards",
+      "file": "pgbase/extension_objects.go",
+      "lineStart": 209,
+      "lineEnd": 239,
+      "trigger": "A legal logical prefix contains '%' or '_', such as a_, and list or deletePrefix is called in a namespace containing sibling keys such as ax.",
+      "observed": "List binds prefix+'%' to SQL LIKE without escaping. '_' matches any one character and '%' matches any sequence. deletePrefix consumes that list and deletes every returned key.",
+      "expected": "Prefix is a literal logical-key prefix; metacharacters in legal object names must not broaden the selection.",
+      "evidence": [
+        {
+          "path": "pgbase/extension_objects.go",
+          "lines": "64-81, 209-239",
+          "reason": "Validation allows LIKE metacharacters and the query uses logical_key LIKE prefix+'%' without ESCAPE."
+        },
+        {
+          "path": "pgbase/extension_objects.go",
+          "lines": "344-371",
+          "reason": "deletePrefix enumerates List results and deletes all returned keys."
+        }
+      ],
+      "reproduction": "Code proof: SQL `logical_key like 'a_%'` matches both `a_key` and `ax`; the latter is not a string-prefix match for `a_`.",
+      "impact": "list returns unrelated keys and deletePrefix can durably delete unrelated extension state in the same namespace. Scope is bounded to the invoking trusted extension namespace.",
+      "recommendation": "Escape LIKE metacharacters and specify an ESCAPE character, or use a literal prefix predicate such as left(logical_key,length($2))=$2 with the existing ordered cursor.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "incorrect selection and deletion defect",
+      "conclusion": "Object key validation permits percent and underscore. List concatenates the requested prefix with '%' and binds it to LIKE without escaping. deletePrefix consumes the widened result set and deletes every returned logical key through the normal delete path.",
+      "contract_assessment": "The hashed physical-key scheme is irrelevant to logical prefix semantics. This is a PostgreSQL LIKE escaping bug, not an intended PostgreSQL adaptation.",
+      "verification": "Static SQL semantics and delete call path; for example prefix a_ matches ax although ax does not have the literal string prefix a_.",
+      "limitations": "No destructive database reproduction was run.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "EXT-AUD-008",
+      "featureIds": [
+        "EXT-18"
+      ],
+      "severity": "P2",
+      "type": "contract_gap",
+      "title": "Generated JavaScript declarations omit compatibility APIs and mis-type byte values",
+      "file": "pgbase/javascript_types.go",
+      "lineStart": 116,
+      "lineEnd": 146,
+      "trigger": "An extension author uses JavaScriptTypeDeclarations for TypeScript/editor checking and calls the advertised PocketBase compatibility surface.",
+      "observed": "The declarations omit $mails, $apis, ApiError subclasses, hooks, cron and most of the 192 $app methods, including runInTransaction. Several declared results are wrong: $os.readFile and command output are typed as string although the runtime exposes byte arrays, and $http omits raw/json/cookies and also types body as string.",
+      "expected": "The exported declaration set should describe every supported public runtime entrypoint with its actual arguments and return shape, or clearly expose a separately versioned partial declaration surface.",
+      "evidence": [
+        {
+          "path": "pgbase/javascript_types.go",
+          "lines": "116-146",
+          "reason": "This is the complete global declaration block and shows the missing globals and incorrect string types."
+        },
+        {
+          "path": "sdk/javascript/pgbase.d.ts",
+          "lines": "111-140",
+          "reason": "The distributed declaration repeats the same omissions and result types."
+        },
+        {
+          "path": "internal/jsvm/pocketbase_globals.go",
+          "lines": "398-435",
+          "reason": "The runtime installs substantially more compatibility namespaces, error types, and app methods, and converts file/command byte output to Uint8Array."
+        },
+        {
+          "path": "internal/jsvm/registration.go",
+          "lines": "304-325",
+          "reason": "Runtime hook globals include many onXxx aliases absent from declarations."
+        },
+        {
+          "path": "pgbase/extension_os_shapes_test.go",
+          "lines": "15-53",
+          "reason": "Runtime shape assertions convert readFile and command output with Array.from, demonstrating byte arrays."
+        }
+      ],
+      "reproduction": "Code proof and direct comparison of both the exported declaration string and checked-in sdk/javascript/pgbase.d.ts with runtime installation and assigned shape assertions.",
+      "impact": "Editors and TypeScript reject valid extension code, fail to expose much of the advertised compatibility surface, and accept invalid assumptions about byte/string response shapes.",
+      "recommendation": "Generate declarations from the same audited compatibility inventory used to install globals, add a declaration/runtime symbol parity test, and type byte arrays and HTTP response fields from the observed runtime shapes.",
+      "confidence": "high",
+      "sourceGroup": "extensions",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "developer contract defect",
+      "conclusion": "The exported declaration and checked-in distribution artifact contain the same short global block. They omit $mails, $apis, ApiError classes, hook functions, and most of the installed $app compatibility surface. They type $os.readFile and command output as string although runtime code constructs Uint8Array values; $http also omits returned fields and types body as string.",
+      "contract_assessment": "The compatibility surface may intentionally be bounded, but the declaration generator is described as exact and must describe the bounded runtime it actually installs. This is drift, not a deliberate API difference.",
+      "verification": "Static declaration/runtime/test-shape comparison.",
+      "limitations": "No declaration parity generator exists to provide a machine-enumerated completeness check.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "OPS-F-001",
+      "featureIds": [
+        "OPS-02",
+        "OPS-07"
+      ],
+      "severity": "P1",
+      "type": "configuration integrity",
+      "title": "Runtime settings snapshots retain mutable rate-limit slice aliases",
+      "evidence": [
+        {
+          "path": "internal/runtimesettings/settings.go",
+          "lines": "64-70, 174-179, 220-230, 234-276, 353-356",
+          "reason": "The settings contain two rate-limit slices, every publication depends on clone, and clone deep-copies only trusted proxy CIDRs."
+        },
+        {
+          "path": "internal/runtimesettings/settings.go",
+          "lines": "98-137",
+          "reason": "Update normally validates rate rules and excluded IPs, validation that an aliased mutation bypasses."
+        }
+      ],
+      "reproduction": "Static confirmed: call Get(), mutate a returned Rules/ExcludedIPs element, then call Get() again; both values share the slice backing array.",
+      "recommendation": "Deep-copy both RateLimits slices in clone before returning or publishing settings.",
+      "confidence": "confirmed",
+      "sourceGroup": "operations",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "configuration integrity defect",
+      "conclusion": "clone copies only Proxy.TrustedProxyCIDRs. RateLimits.Rules and RateLimits.ExcludedIPs therefore share backing arrays across Controller.value, Get results, Update input/return values, Reload values, and listener snapshots.",
+      "impact": "Any in-process caller or subscription listener can silently change live rate-limit rules/exclusions without validation, persistence, revision change, or notification. Concurrent mutation can also race with readers. Because excluded IPs and rate limits are security-sensitive runtime controls, P1 is retained.",
+      "contract_assessment": "This is ordinary Go slice aliasing and not an intentional runtime-settings adaptation.",
+      "verification": "Static alias analysis. Existing settings tests check value publication and cryptographic persistence but do not mutate returned rate-limit slices.",
+      "limitations": "No new unit test was added to the read-only product tree.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "OPS-F-002",
+      "featureIds": [
+        "OPS-11"
+      ],
+      "severity": "P2",
+      "type": "resource cleanup",
+      "title": "Managed restore does not discard a provisioned target when opening it fails",
+      "evidence": [
+        {
+          "path": "pgbase/managed.go",
+          "lines": "210-242",
+          "reason": "database.Open can return at lines 218-220 before the target-discard defer at lines 234-242 is installed."
+        },
+        {
+          "path": "internal/backup/target.go",
+          "lines": "24-84",
+          "reason": "RestoreNew creates a unique database/files tree and transfers ownership to the caller only after restore completes."
+        },
+        {
+          "path": "internal/backup/target_cleanup.go",
+          "lines": "20-47",
+          "reason": "DiscardTarget is the explicit owned-target cleanup capability and removes both database and directory."
+        }
+      ],
+      "reproduction": "Static confirmed failure path; no destructive restore was run under audit restrictions.",
+      "recommendation": "Install target cleanup immediately after RestoreNew succeeds, and transfer ownership only after successful activation.",
+      "confidence": "confirmed",
+      "sourceGroup": "operations",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "resource cleanup defect",
+      "conclusion": "backup.RestoreNew returns an owned, fully restored target. managedHost.restoreBackup then opens the target database and returns immediately on failure. The DiscardTarget defer is registered only after the successful Open and storage-reset steps, leaving both the unique database and restored file directory orphaned on this path.",
+      "impact": "A failed managed restore can leave a full database and file copy consuming storage; repeated retries can accumulate orphaned targets. The active target remains intact, so this is downgraded from P1 to P2.",
+      "contract_assessment": "Retaining both targets is intentional only when activation outcome is unknown. Here activation has not begun and target ownership is known, so retention is not the safety adaptation described by ErrActivationOutcomeUnknown.",
+      "verification": "Static ownership and defer-order trace.",
+      "limitations": "No managed restore was executed because it provisions and drops databases/files.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "RQR-001",
+      "featureIds": [
+        "RULE-03"
+      ],
+      "severity": "P1",
+      "type": "defect",
+      "title": "Valid PocketBase relation rules cannot be saved through the compatibility endpoint",
+      "file": "internal/recordaccess/rules.go",
+      "lineStart": 70,
+      "lineEnd": 79,
+      "trigger": "Create a collection with author relation and PUT PocketBase rule author.name = 'Alice'.",
+      "observed": "RuleService.Set validates every rule with accessrule.Compile/CompileWithRequest and returns invalid record access rule before persistence.",
+      "expected": "A parsed PocketBase relation path is validated through CompilePocketBase with a catalog resolver and saved; PocketBase resolves relation paths in record rules.",
+      "evidence": [
+        {
+          "path": "internal/api/rules.go",
+          "lines": "24-50",
+          "reason": "The compat=pocketbase PUT parses the expression and delegates persistence to RuleService.Set."
+        },
+        {
+          "path": "internal/query/access_rule.go",
+          "lines": "14-32",
+          "reason": "The parser preserves the original expression in Rule.PocketBase after creating the AST."
+        },
+        {
+          "path": "internal/recordaccess/rules.go",
+          "lines": "49-87",
+          "reason": "Set validates every action only with native Compile or CompileWithRequest before the INSERT/UPDATE."
+        },
+        {
+          "path": "internal/accessrule/rule.go",
+          "lines": "270-308",
+          "reason": "Native compilation rejects author.name because author is a relation rather than a JSONB field."
+        },
+        {
+          "path": "internal/accessrule/catalog_resolver.go",
+          "lines": "11-112",
+          "reason": "The transaction-pinned resolver implements forward and reverse relation traversal needed for PocketBase rules."
+        },
+        {
+          "path": "internal/query/compiler.go",
+          "lines": "178-208",
+          "reason": "Runtime enforcement correctly branches on Rule.PocketBase and uses NewCatalogResolver plus CompilePocketBase."
+        },
+        {
+          "path": "internal/recordaccess/pocketbase_rule_integration_test.go",
+          "lines": "79-128",
+          "reason": "Existing relation-rule coverage writes collection_rules directly at lines 115-122, so it proves enforcement but not the supported save endpoint."
+        }
+      ],
+      "reproduction": "isolated worktree internal/recordaccess -run '^TestAuditSetAcceptsValidPocketBaseRelationRule$' -count=1 -> FAIL: valid PocketBase relation rule rejected by Set: invalid record access rule",
+      "impact": "Administrators cannot publish otherwise supported forward relation, backrelation, or cross-collection PocketBase rules through the exposed compatibility API. The compiler can enforce such rules once persisted, so this is a broken administration path rather than an unsupported rule language.",
+      "recommendation": "Branch validation on rule.PocketBase and call CompilePocketBase with NewCatalogResolver(catalog, collection, collection.TableName), using a representative principal/request context where needed.",
+      "confidence": "high",
+      "sourceGroup": "records_query_rules",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "published rule administration defect",
+      "conclusion": "The compatibility endpoint parses a PocketBase expression and marks the persisted AST with Rule.PocketBase, then calls the common RuleService.Set. Set always validates through the native Compile/CompileWithRequest path. A dotted relation such as author.name fails there because the native fallback accepts dotted paths only when their root is JSONB. The catalog-aware PocketBase compiler and resolver exist and all enforcement consumers select them, but Set never does. Existing relation-rule integration tests insert rule JSON directly into the database, bypassing the broken writer.",
+      "verification": "Static HTTP parser -> service validation -> compiler selection -> persistence and runtime consumer trace. No test was run.",
+      "limitations": "Scalar PocketBase rules that the native compiler can also understand may still save successfully.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "RQR-002",
+      "featureIds": [
+        "QRY-09"
+      ],
+      "severity": "P1",
+      "type": "defect",
+      "title": "Reverse relation filters render forward correlation predicates",
+      "file": "internal/query/relation_filter_sort.go",
+      "lineStart": 754,
+      "lineEnd": 763,
+      "trigger": "List people with relation_query_posts_via_owner.title = 'post-ada', where posts.owner is a single relation to people.",
+      "observed": "renderRelationExists selects the RelationSingle branch and renders target.id = parent.owner. The root people table has no owner column, so PostgreSQL raises SQLSTATE 42703.",
+      "expected": "For a reverse single relation, correlate target.owner = parent.id, as PocketBase back relation resolution does.",
+      "evidence": [
+        {
+          "path": "internal/query/relation_filter_sort.go",
+          "lines": "242-320",
+          "reason": "Incoming names resolve to a hop with reverse=true, the source relation field, and the source collection as hop.target."
+        },
+        {
+          "path": "internal/query/relation_filter_sort.go",
+          "lines": "731-782",
+          "reason": "Both cardinality branches render forward correlations without reading hop.reverse."
+        },
+        {
+          "path": "internal/query/relation_sort_render.go",
+          "lines": "28-67",
+          "reason": "The sort renderer shows the required implementation: reverse single uses target.source_field=parent.id and reverse multiple swaps edge source/target roles."
+        },
+        {
+          "path": "internal/query/relation_filter_sort_test.go",
+          "lines": "18-75",
+          "reason": "Existing SQL assertions cover forward single and multiple filters only."
+        },
+        {
+          "path": "internal/query/relation_filter_sort_live_test.go",
+          "lines": "138-180",
+          "reason": "Existing reverse coverage exercises expansion while its root filter is the local manager field, not a reverse relation filter."
+        },
+        {
+          "path": ".local/upstream/pocketbase/core/record_query_expand.go",
+          "lines": "92-117",
+          "reason": "Pinned PocketBase resolves a reverse single relation by comparing the source relation field to the main record ID."
+        }
+      ],
+      "reproduction": "isolated worktree internal/query -run '^TestAuditReverseSingleRelationFilter$' -count=1 -> FAIL: ERROR: column rq_root.owner does not exist (SQLSTATE 42703)",
+      "impact": "Reverse single relation filters normally fail at query execution with an undefined parent column; if the parent coincidentally has a same-named column, they apply the wrong relationship. Reverse multiple filters can silently return wrong rows because their edge endpoints are reversed. This breaks a core relation-query feature for all reverse directions.",
+      "recommendation": "Render correlation by hop direction for both cardinalities and add integration cases for reverse single and reverse multiple relation filters.",
+      "confidence": "high",
+      "sourceGroup": "records_query_rules",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "relation query SQL defect",
+      "conclusion": "Path resolution marks incoming relation hops as reverse and sets the target to the source collection. renderRelationExists stores that flag but never branches on it. For a reverse single relation it emits target.id = parent.<source field>, even though the parent table generally has no such column; the expected correlation is target.<source field> = parent.id. The separate sort renderer contains the correct directional branch. The defect is broader than the supplied single-relation trigger: the multiple-relation filter branch also uses forward edge endpoints when hop.reverse is true.",
+      "verification": "Static path planner -> SQL renderer -> known-correct sort renderer and pinned PocketBase comparison. No query was executed.",
+      "limitations": "The exact PostgreSQL error depends on whether the root schema happens to contain a column with the source relation field's physical name.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "RQR-003",
+      "verdict": "confirm",
+      "severity": "P1",
+      "classification": "collection truncate runtime defect",
+      "title": "Multiple-relation truncate counts the edge table in app instead of pgbase_relation",
+      "conclusion": "The finding is confirmed at the pinned head. For a nonempty ordinary collection, Truncate calls countTruncateRelations before any Delete. Every participating multiple relation is counted through app.<storage_name>, while schema creation and the relation runtime bind the same storage name as pgbase_relation.<storage_name>. PostgreSQL returns undefined_table (42P01), the transaction rolls back, and no record deletion begins.",
+      "actualTrigger": {
+        "required": [
+          "The requested collection is an ordinary, non-view, non-system collection with at least one record.",
+          "The current catalog contains a multiple relation for which the requested collection is the source or target.",
+          "The relation was created through normal PgBase DDL, so its edge table exists in pgbase_relation and no same-named app table has been created independently."
+        ],
+        "notRequired": [
+          "The edge table does not need to contain an edge; both outgoing and incoming zero-edge cases reproduce 42P01."
+        ],
+        "nonTriggersVerified": [
+          "An empty participating collection returns success before relation counting.",
+          "A nonempty collection unrelated to the catalog's multiple relation is skipped and truncates successfully."
+        ]
+      },
+      "evidence": [
+        {
+          "path": "internal/recordops/truncate.go",
+          "lines": "64-79, 80-97",
+          "reason": "IDs are loaded first; an empty collection returns early. For a nonempty collection, relation counting must succeed before the first Delete call."
+        },
+        {
+          "path": "internal/recordops/truncate.go",
+          "lines": "122-150",
+          "reason": "A multiple relation participates when its source is the root or its target is the root, but its storage is always qualified as app.<storage_name>."
+        },
+        {
+          "path": "internal/schema/relation_ddl.go",
+          "lines": "56-103",
+          "reason": "Normal multiple-relation DDL creates and indexes the edge table in pgbase_relation."
+        },
+        {
+          "path": "internal/relation/binding.go",
+          "lines": "119-133",
+          "reason": "The live relation binding validates edge_table_v1 storage and qualifies it in pgbase_relation."
+        },
+        {
+          "path": "internal/relation/delete_live_test.go",
+          "lines": "318-350, 377-388, 437-465",
+          "reason": "Existing deletion assertions create, insert, read, and count multiple-relation edges in pgbase_relation."
+        },
+        {
+          "path": "internal/database/tx.go",
+          "lines": "10-33",
+          "reason": "InTx commits only on nil and otherwise rolls back, matching the observed preservation of the record and edge."
+        },
+        {
+          "path": "internal/recordops/truncate_integration_test.go",
+          "lines": "15-68",
+          "reason": "Existing truncate lifecycle tests use only the scalar records fixture and therefore never enter the multiple-relation branch."
+        },
+        {
+          "path": "internal/recordops/truncate_concurrency_integration_test.go",
+          "lines": "40-248",
+          "reason": "The focused concurrency and rollback tests also use the scalar records fixture."
+        }
+      ],
+      "verification": {
+        "bugCommand": "source .local/full-audit-2026-09-11/test-env.sh && go test -tags=integration ./internal/recordops -run '^TestRQR003' -count=1 -v",
+        "bugCommandOutcome": "Expected-success tests failed deterministically for outgoing and incoming relations, with and without stored edges, each with ERROR: relation app.rel_tbl_<hash> does not exist (SQLSTATE 42P01). Control tests passed for an empty participant and a nonempty unrelated collection. A separate assertion passed that the failed truncate left one source record, one edge, and zero delete audit events.",
+        "existingCommand": "source .local/full-audit-2026-09-11/test-env.sh && go test -tags=integration ./internal/recordops -run '^TestTruncate' -count=1 -v",
+        "existingCommandOutcome": "PASS (four existing TestTruncate* tests, 1.031s). This confirms the SCH-07 result can be green while missing the multiple-relation catalog branch.",
+        "storagePrecondition": "The reproduction asserted that pgbase_relation.<storage_name> exists, app.<storage_name> does not exist, and the populated scenario contains exactly one edge before calling Truncate."
+      },
+      "impact": "Administrators cannot truncate a nonempty collection that is the source or target of any multiple relation created through normal PgBase schema operations. The request fails before ordinary per-record delete behavior, hooks, audit emission, or relation cleanup. The transaction rollback preserves records, edge rows, and durable artifacts.",
+      "severityRationale": "P1 retained: a normal administrator collection operation is completely unavailable for every nonempty collection participating in a multiple relation. The failure is deterministic and schema-driven, although it does not itself cause data loss because the transaction rolls back.",
+      "recommendation": "In countTruncateRelations, qualify RelationMultiple storage with pgbase_relation, matching relation DDL and binding. Add integration coverage for nonempty outgoing and incoming multiple relations and assert RelationsDeleted plus committed record and edge removal.",
+      "artifacts": [
+        {
+          "path": ".local/full-audit-2026-09-11/cross-validation/truncate-repro/truncate_rqr003_repro_integration_test.go",
+          "sha256": "3d3b17aa85604d2c275ca73ac30754d6250b6cf8a81965d22de6521dcb0ee6d2"
+        },
+        {
+          "path": ".local/full-audit-2026-09-11/cross-validation/truncate-repro/rqr003-repro.log",
+          "sha256": "97aaf719f3027705ce4701d3e71c03f69ab3629d555f6593b19f93f95333db12"
+        },
+        {
+          "path": ".local/full-audit-2026-09-11/cross-validation/truncate-repro/existing-truncate-tests.log",
+          "sha256": "150a687eb36ca85ef378e418fbf567f2e6a49a1fcbd77a7cd973f0b02965135c"
+        }
+      ],
+      "adjudicationSource": "cross-validation/truncate-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "SDK-AUDIT-001",
+      "feature": "SDK-10",
+      "featureIds": [
+        "SDK-10"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "verdict": "confirm",
+      "title": "Multiplex TypeScript realtime retries terminal failures forever",
+      "file": "sdk/typescript/src/index.ts",
+      "path": "sdk/typescript/src/index.ts",
+      "range": "RealtimeService.run",
+      "lineStart": 514,
+      "lineEnd": 586,
+      "trigger": "A multiplex subscription receives an initial or subsequent 400/401/403/410/cursor_expired failure.",
+      "observed": "The loop catches every error and retries after 250 ms while listeners remain. Unlike Records.events, it has no terminal-status classification or reconnect budget; before PB_CONNECT, subscribe waits on an unresolved ready completer.",
+      "expected": "Terminal authentication/cursor failures must reject/terminate, and recoverable reconnects need bounded caller-visible behavior.",
+      "evidence": [
+        {
+          "path": "sdk/typescript/src/index.ts",
+          "lines": "439-456",
+          "reason": "_eventStream converts non-2xx responses, including auth and expired cursor responses, into PgBaseError."
+        },
+        {
+          "path": "sdk/typescript/src/index.ts",
+          "lines": "514-586",
+          "reason": "Multiplex subscribe waits for ready and run unconditionally catches/retries every error with a constant delay."
+        },
+        {
+          "path": "sdk/typescript/src/index.ts",
+          "lines": "800-860",
+          "reason": "Records.events provides the contrasting bounded maxReconnects implementation."
+        },
+        {
+          "path": "sdk/typescript/test/realtime-http-conformance.mjs",
+          "lines": "1-34",
+          "reason": "Current live coverage checks reconnect/resubscribe success, not terminal rejection."
+        }
+      ],
+      "reproduction": "Static lifecycle trace only; no external SSE service was contacted.",
+      "impact": "Revoked, unauthorized, or expired-cursor subscriptions can hang the caller and generate about four failed requests per second indefinitely until local unsubscribe/auth mutation. This is a client reliability and load defect rather than server data corruption, so P2 is assigned.",
+      "recommendation": "Classify terminal PgBaseError statuses/codes, reject pending subscribe, and expose a bounded reconnect policy with a rejected-session test.",
+      "confidence": "high",
+      "sourceGroup": "sdk",
+      "priority": "P2",
+      "classification": "client lifecycle defect",
+      "conclusion": "RealtimeService.run catches every connection/parse/sync error and reconnects after 250 ms while listeners remain. It neither checks PgBaseError status/code nor tracks a retry limit. On an initial 401/403/410, subscribe also remains awaiting ready because PB_CONNECT never arrives.",
+      "contract_assessment": "PgBase's distinct event transport is intentional; infinite retry of terminal PgBaseError outcomes contradicts the documented bounded reconnect behavior and is not an adaptation.",
+      "verification": "Static promise/error/reconnect path plus successful TypeScript build/type/runtime test suite, which lacks a terminal-error assertion.",
+      "limitations": "No network loop was started because the code path is exhaustive and an infinite-retry test needs a bounded instrumentation seam.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "SDK-AUDIT-002",
+      "featureIds": [
+        "SDK-06"
+      ],
+      "severity": "P3",
+      "type": "intentional_difference",
+      "verdict": "reject",
+      "file": "sdk/dart/lib/src/auth.dart",
+      "path": "sdk/dart/lib/src/auth.dart",
+      "lineStart": 7,
+      "lineEnd": 110,
+      "title": "Dart AuthStorage is intentionally token-only; record persistence is not a hidden defect",
+      "trigger": "An application restores a process-persisted AuthStorage token and then reads auth.record without first fetching session state.",
+      "observed": "AuthStorage deliberately has read/write(String)/clear methods, while the separate SSR cookie handoff serializes both token and User record.",
+      "expected": "The durable record cache is not required by this SDK's published contract; token persistence keeps the bearer session usable and a caller may fetch the current session.",
+      "evidence": [
+        {
+          "path": "sdk/dart/lib/src/auth.dart",
+          "lines": "7-17, 32-42, 71-110",
+          "reason": "AuthStorage is token-only by design; cookie import/export separately preserves complete auth state."
+        },
+        {
+          "path": "sdk/dart/README.md",
+          "lines": "1-10, 21-25",
+          "reason": "The package disclaims PocketBase SDK compatibility and documents caller-selected secure token persistence and token rotation behavior."
+        },
+        {
+          "path": "sdk/dart/test/sdk_test.dart",
+          "lines": "350-376, 413-434",
+          "reason": "Tests assert serialized token storage, concurrency safety, and token-plus-record SSR cookie restoration."
+        }
+      ],
+      "reproduction": "Code-path review only: AuthStore.restore() invokes AuthStorage.read(), whereas loadFromCookie() reconstructs User. No product mutation or live service was used.",
+      "impact": "After process restart through AuthStorage.restore, auth.record is null until the application supplies/fetches a record. That is a documented convenience difference, not loss of the bearer session.",
+      "recommendation": "Keep the documentation explicit. If durable record caching becomes a product requirement, introduce a versioned AuthStorage state contract.",
+      "confidence": "high",
+      "withdrawalReason": "The earlier PocketBase-token-plus-record comparison used an unsupported compatibility baseline. PgBase's README and separate tested cookie contract make the token-only durable interface intentional.",
+      "sourceGroup": "sdk",
+      "priority": "P3",
+      "classification": "intentional PgBase adaptation",
+      "conclusion": "The durable storage interface intentionally reads/writes one token string, while AuthStore keeps the record in memory. Separate SSR cookie helpers serialize both token and record and have a round-trip test. The SDK explicitly disclaims PocketBase drop-in compatibility and describes persistence as opt-in token persistence.",
+      "contract_assessment": "This is an explicit local SDK API choice. If product requirements later demand durable cached-record restoration, it should be a feature change with a versioned AuthStorage contract, not a defect fix under the current contract.",
+      "verification": "Static API/documentation/test comparison.",
+      "limitations": "The audit did not evaluate whether future application UX would benefit from a richer storage adapter.",
+      "adjudicationSource": "cross-validation/platform-findings.json",
+      "disposition": "intentional_difference",
+      "countedAsProductDefect": false
+    },
+    {
+      "id": "SDK-AUDIT-003",
+      "featureIds": [
+        "SDK-05"
+      ],
+      "severity": "P2",
+      "type": "defect",
+      "verdict": "confirm",
+      "title": "Dart realm browser OAuth starts the default-realm flow",
+      "file": "sdk/dart/lib/src/client.dart",
+      "path": "sdk/dart/lib/src/client.dart",
+      "lineStart": 783,
+      "lineEnd": 805,
+      "trigger": "Call client.realm('members').oauthStartAndOpen(...) or oauthWithBrowser(...) for a non-default auth collection.",
+      "observed": "AuthRealm.oauthStart correctly targets $_path/oauth/start at lines 769-781, but both browser helpers delegate to PgBaseClient.oauthStartAndOpen/oauthWithBrowser. Those methods call the root oauthStart at lines 311-344, which POSTs /api/v1/auth/oauth/start.",
+      "expected": "The browser helpers on AuthRealm must initiate OAuth with POST /api/v1/auth/{authCollection}/oauth/start so the server binds state and provider configuration to that named collection. Generic oauth/complete is intentionally global and consumes the realm retained by the start state.",
+      "evidence": [
+        {
+          "file": "sdk/dart/lib/src/client.dart",
+          "lines": [
+            769,
+            805
+          ],
+          "observation": "realm oauthStart uses its path, but oauthStartAndOpen/oauthWithBrowser delegate to root client"
+        },
+        {
+          "file": "sdk/dart/lib/src/client.dart",
+          "lines": [
+            297,
+            345
+          ],
+          "observation": "root helper calls POST /api/v1/auth/oauth/start"
+        },
+        {
+          "file": "internal/api/auth_factors.go",
+          "lines": [
+            172,
+            185
+          ],
+          "observation": "generic start calls BeginOAuth/BeginOAuthWithProviderRedirect without realm argument"
+        },
+        {
+          "file": "internal/userauth/oauth.go",
+          "lines": [
+            49,
+            75
+          ],
+          "observation": "generic service begins with DefaultCollectionID"
+        },
+        {
+          "file": "internal/api/auth_collections.go",
+          "lines": [
+            158,
+            182
+          ],
+          "observation": "named route resolves collection and invokes BeginOAuthInCollection"
+        }
+      ],
+      "reproduction": "Static request-path trace: AuthRealm('members').oauthStartAndOpen -> PgBaseClient.oauthStartAndOpen -> PgBaseClient.oauthStart -> POST /api/v1/auth/oauth/start. The required route is POST /api/v1/auth/members/oauth/start.",
+      "impact": "Browser helper on a non-default realm begins default-realm state/provider configuration; may fail or enter wrong realm. Global completion is not itself the bug.",
+      "recommendation": "Implement realm-local browser helpers around AuthRealm.oauthStart while retaining global oauth/complete, then make the fake assert the exact named start path.",
+      "confidence": "high",
+      "sourceGroup": "sdk",
+      "reviewer": "Astra Root",
+      "method": "independent static request-to-service trace",
+      "scope": "Dart AuthRealm browser helper ignores selected realm on OAuth start",
+      "limits": "No external OAuth call or new test executed.",
+      "adjudicationSource": "cross-validation/root-sdk-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "SFM-001",
+      "featureIds": [
+        "MIG-08",
+        "SCH-04",
+        "SCH-10"
+      ],
+      "severity": "P1",
+      "type": "behavior",
+      "title": "Migration snapshots cannot preserve collection compatibility metadata",
+      "file": "internal/schema/migration_snapshot.go",
+      "lineStart": 31,
+      "lineEnd": 40,
+      "trigger": "Export a migration snapshot for a collection with compatibilityName/validationMode=pocketbase or system metadata, change an otherwise representable field, and replay the before/after snapshots.",
+      "observed": "MigrationSnapshotCollection has no CompatibilityName, Type, System, or ValidationMode fields, and field export omits Field.System. On update, applySnapshotChange constructs a fresh Collection without those values. Store.UpdateCollection normalizes the empty validation mode to postgres and writes an empty compatibility name as NULL.",
+      "expected": "Snapshot export and replay preserve all behavior-affecting collection and field metadata that the snapshot transition does not explicitly change.",
+      "evidence": [
+        {
+          "path": "internal/schema/migration_snapshot.go",
+          "lines": "31-40, 87-119",
+          "reason": "The snapshot collection shape has RecordID but no compatibility/type/system/validation properties, and field export does not copy Field.System. Index export is also lossy but is assessed separately."
+        },
+        {
+          "path": "internal/schema/migration_snapshot.go",
+          "lines": "485-520, 627-650",
+          "reason": "Replay creates collections with only Name/RecordID/Fields and updates every non-view collection; the update path constructs next without the metadata already preserved in plan.Definition."
+        },
+        {
+          "path": "internal/schema/planner.go",
+          "lines": "192-225, 323-341, 446-450",
+          "reason": "Normal update planning preserves current CompatibilityName, Type, System, ValidationMode, and RecordID. It rejects an existing system field when the input omits System=true."
+        },
+        {
+          "path": "internal/schema/store.go",
+          "lines": "472-487, 644-669",
+          "reason": "UpdateCollection converts the zero validation mode to postgres and stores NULL for an empty compatibility name. Its collection UPDATE does not touch collection_type/system, while field persistence takes System from the planned definition."
+        },
+        {
+          "path": "internal/schema/migration_snapshot.go",
+          "lines": "579-588",
+          "reason": "Post-transition verification re-exports the same lossy format, so omitted compatibility and validation properties cannot detect their own loss."
+        },
+        {
+          "path": "internal/schema/compatibility_integration_test.go",
+          "lines": "12-46",
+          "reason": "Existing coverage proves normal schema export and update protect compatibility and system-field metadata, but it never exercises migration snapshot export/replay."
+        }
+      ],
+      "reproduction": {
+        "command": "source .local/full-audit-2026-09-11/test-env.sh && go test -tags=integration ./internal/schema -run '^TestAuditSnapshot' -count=1 -v",
+        "result": "FAIL: TestAuditSnapshotUpdatePreservesCollectionCompatibilityMetadata reports metadata after snapshot update: compatibility=\"\" mode=\"postgres\". Probe source is isolated at internal/schema/audit_snapshot_regression_integration_test.go."
+      },
+      "impact": "A generated migration that changes an otherwise replayable field can silently remove the alternate collection identifier and switch PocketBase validation semantics to PostgreSQL semantics. Collections with protected system fields or text record IDs can instead make the whole snapshot transition fail and roll back. Fresh replay also cannot reconstruct collection type/system metadata. This can break compatibility routing and accepted write values, or make generated migrations unusable for affected schemas.",
+      "recommendation": "Version the snapshot shape to encode CompatibilityName, Type, System, ValidationMode, RecordID, and Field.System. For older snapshots, merge absent metadata from the current collection rather than assigning zero values. Add exact before/after metadata equivalence integration tests for base, auth, view, system, and PocketBase-mode collections.",
+      "confidence": "high",
+      "sourceGroup": "schema_fields_migrations",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "migration metadata loss and migration availability defect",
+      "conclusion": "The v1 snapshot omits CompatibilityName, Type, System, and ValidationMode and omits Field.System. For an existing ordinary collection, planUpdate first preserves the current collection metadata, but applySnapshotChange discards the planned values when it constructs next. Store.UpdateCollection then persists an empty compatibility name and normalizes an empty validation mode to postgres. The final equivalence check cannot see either change because those properties are absent from both snapshots. The source finding overstates two parts of the update behavior: collection Type and System are not cleared by the UPDATE statement, while a system field causes planUpdate to reject the transition instead of clearing Field.System. A text RecordID is represented in the snapshot, but next still discards it; the final snapshot mismatch should roll that transaction back rather than silently committing the change. On create/replay, omitted Type and System default to base/false, so those values are also not reproducible from a snapshot.",
+      "verification": "Static export -> replay planning -> metadata write -> final equivalence trace. No test was run.",
+      "limitations": "The original finding's claim that update clears collection Type/System or Field.System is rejected; those properties have the narrower behaviors described above.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "SFM-002",
+      "featureIds": [
+        "MIG-08",
+        "SCH-15"
+      ],
+      "severity": "P1",
+      "type": "behavior",
+      "title": "Migration snapshot export flattens advanced indexes",
+      "file": "internal/schema/migration_snapshot.go",
+      "lineStart": 117,
+      "lineEnd": 119,
+      "trigger": "Export a migration snapshot for a collection containing a structured expression index, ordered key, collation, partial predicate, or safe raw SQL index, then generate or replay a migration from that snapshot.",
+      "observed": "The exporter copies only Name, Fields, and Unique from each Index. Keys, Where, and RawSQL are discarded. An index on lower(title) DESC WHERE score > 0 is exported as a plain field index over title and score.",
+      "expected": "The migration snapshot round-trips the complete IndexInput definition so replay creates an index with the same expressions, ordering, collation, predicate, and supported raw definition.",
+      "evidence": [
+        {
+          "path": "internal/schema/types.go",
+          "lines": "96-113, 344-353",
+          "reason": "IndexInput and catalog Index both model expression keys, ordering/collation, predicates, and raw SQL."
+        },
+        {
+          "path": "internal/schema/store.go",
+          "lines": "307-350",
+          "reason": "Catalog loading restores Keys, Where, and RawSQL and exposes dependency field names separately in Index.Fields."
+        },
+        {
+          "path": "internal/schema/migration_snapshot.go",
+          "lines": "117-119, 513-520",
+          "reason": "Export retains only Name/Fields/Unique, and replay explicitly uses that flattened index list for the update."
+        },
+        {
+          "path": "internal/schema/planner_indexes.go",
+          "lines": "483-521",
+          "reason": "The planner compares all semantic fields and drops/recreates changed definitions; the regular schema exporter uses indexInputFromCatalog to preserve advanced state."
+        },
+        {
+          "path": "internal/schema/advanced_index_integration_test.go",
+          "lines": "15-87",
+          "reason": "Existing schema-document coverage proves an expression, collation, DESC, partial predicate, and raw definition round-trip correctly outside the migration snapshot path."
+        }
+      ],
+      "reproduction": {
+        "command": "source .local/full-audit-2026-09-11/test-env.sh && go test -tags=integration ./internal/schema -run '^TestAuditSnapshot' -count=1 -v",
+        "result": "FAIL: TestAuditSnapshotExportPreservesAdvancedIndex reports advanced index was flattened with Keys=[] and Where=\"\". Probe source is isolated at internal/schema/audit_snapshot_regression_integration_test.go."
+      },
+      "impact": "Applying a generated snapshot migration can silently replace expression and partial indexes with ordinary indexes. Query plans and ordering support can regress, and a partial unique constraint can become global; existing data may also make the replacement fail atomically.",
+      "recommendation": "Clone all IndexInput fields during snapshot export and compare the canonical logical index definition during snapshot equivalence. Add migration snapshot export/replay tests for expressions, DESC/collation, WHERE predicates, and the accepted raw SQL subset.",
+      "confidence": "high",
+      "sourceGroup": "schema_fields_migrations",
+      "verdict": "confirm",
+      "priority": "P1",
+      "classification": "schema semantic corruption",
+      "conclusion": "IndexInput supports Keys, Where, and RawSQL, and the catalog reloads those values from the stored advanced-index specification. The migration exporter rebuilds each index with only Name, dependency Fields, and Unique. During replay those flattened inputs are supplied explicitly, so the planner sees a changed definition, drops the advanced index, and creates a plain field index. The lossy final snapshot then reports equivalence.",
+      "verification": "Static catalog export -> snapshot replay -> index diff/recreate trace. No test was run.",
+      "limitations": "No physical index was created or altered during this cross-check.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "SFM-003",
+      "featureIds": [
+        "SCH-03",
+        "SCH-04"
+      ],
+      "severity": "P2",
+      "type": "behavior",
+      "title": "Native and compatibility collection names can collide case-insensitively",
+      "file": "internal/schema/service.go",
+      "lineStart": 295,
+      "lineEnd": 304,
+      "trigger": "Create collection alpha with compatibilityName Foo, then create a native collection named foo without a compatibilityName and request /collections/Foo.",
+      "observed": "validateCreateAgainstCatalog checks the cross-namespace collision only when the new definition has a non-empty CompatibilityName. The reverse direction is accepted. validateCatalogIntegrity and the database unique index separately enforce only compatibility-name duplicates. The lookup handler iterates a map and returns the first collection whose native or compatibility name matches, so the result is nondeterministic.",
+      "expected": "Every case-folded identifier accepted by name lookup resolves to at most one collection, regardless of which collection was created first or which side uses CompatibilityName.",
+      "evidence": [
+        {
+          "path": "internal/schema/service.go",
+          "lines": "295-304, 319-343",
+          "reason": "Creation validates only when the new compatibility name is non-empty, and catalog integrity maintains no shared folded namespace for native and compatibility names."
+        },
+        {
+          "path": "internal/schema/names.go",
+          "lines": "10-53",
+          "reason": "Native names are lowercase by syntax, making Foo and native foo an exact folded collision accepted by the missing reverse check."
+        },
+        {
+          "path": "migrations/system/000001_initial.sql",
+          "lines": "41-48",
+          "reason": "The database has independent exact unique constraints for name and table_name."
+        },
+        {
+          "path": "migrations/system/000042_schema_compatibility.sql",
+          "lines": "1-16",
+          "reason": "The added unique index covers only lower(compatibility_name), not a union with native names."
+        },
+        {
+          "path": "internal/api/schema_handlers.go",
+          "lines": "582-607",
+          "reason": "GET /api/admin/collections/{collection} iterates the catalog map and returns the first native name, compatibility name, or ID match."
+        },
+        {
+          "path": "internal/query/service.go",
+          "lines": "186-201",
+          "reason": "The ordinary record query service resolves collectionName by exact catalog map key, bounding the demonstrated ambiguity to compatibility-aware consumers."
+        }
+      ],
+      "reproduction": {
+        "command": "source .local/full-audit-2026-09-11/test-env.sh && go test -tags=integration ./internal/schema -run '^TestAuditCompatibilityNameCannotCollideWithNativeName$' -count=1 -v (workdir /tmp/pgbase-schema-audit-20260911)",
+        "result": "FAIL: Preview accepts the second collection and reports ambiguous native/compatibility names accepted: Name=foo while the existing compatibility name is Foo."
+      },
+      "impact": "The admin collection detail endpoint can return either of two schemas for the same case-folded identifier, varying with Go map iteration. That can mislead administration clients and any follow-on action based on the returned definition, but the inspected record query path does not route by CompatibilityName.",
+      "recommendation": "Validate native Name and CompatibilityName in one case-folded namespace on create, update, and import. Add database enforcement for both columns, or reject ambiguous catalogs before publication, and make lookup return an explicit ambiguity error as defense in depth.",
+      "confidence": "high",
+      "sourceGroup": "schema_fields_migrations",
+      "verdict": "confirm",
+      "priority": "P2",
+      "classification": "ambiguous identifier defect",
+      "conclusion": "Create validation checks a new CompatibilityName against both names of existing collections, but it never checks a new native Name against existing CompatibilityName values. Catalog validation tracks only duplicate compatibility names, and PostgreSQL enforces uniqueness only within the native-name column and within the non-null compatibility-name column. The admin single-collection GET scans the map and accepts either name case-insensitively, so alpha/CompatibilityName=Foo plus native foo is valid stored state with nondeterministic lookup. Scope is narrower than the source finding implies: ordinary record services use the exact native-name catalog key; the ambiguous scan identified here is the admin collection detail endpoint.",
+      "verification": "Static create validation -> DB constraints -> catalog validation -> API lookup trace. No test was run.",
+      "limitations": "No other compatibility-name consumer was found in the current Go source; broader claims about all record APIs are not supported.",
+      "adjudicationSource": "cross-validation/data-findings.json",
+      "disposition": "confirmed",
+      "countedAsProductDefect": true
+    },
+    {
+      "id": "UI-001",
+      "featureIds": [
+        "UI-11"
+      ],
+      "relatedFindingIds": [
+        "RQR-001"
+      ],
+      "severity": "P1",
+      "type": "downstream_backend_defect",
+      "title": "Advanced rule editor reaches a server path that rejects valid PocketBase relation rules",
+      "file": "ui/admin/src/pages/record-rules-editor.tsx",
+      "lineStart": 37,
+      "lineEnd": 46,
+      "trigger": "Enter a valid PocketBase relation-path rule such as author.name = 'Alice' in Advanced rules JSON and save.",
+      "observed": "The UI parses the JSON and calls rules.setRules with the current revision. The compatible server Set path rejects the rule, as documented by RQR-001.",
+      "expected": "A valid PocketBase relation-path rule entered through this editor persists and can be previewed/enforced.",
+      "evidence": "UI trace: record-rules-editor.tsx:37-46 → http-backend.ts rules adapter PUT /api/admin/collections/{collection}/rules. Backend audit RQR-001 establishes that Set validates this shape with the non-PocketBase compiler.",
+      "impact": "Administrators cannot configure supported relation-traversal record rules through the visible advanced editor.",
+      "recommendation": "Repair the server validation path described in RQR-001; no UI-only retry or message change can make this configuration persist.",
+      "confidence": "high",
+      "sourceGroup": "ui",
+      "disposition": "impact_alias",
+      "aliasOf": "RQR-001",
+      "countedAsProductDefect": false
+    }
+  ]
+}

@@ -100,6 +100,9 @@ func schemaOperationResourceName(change Change) (string, bool) {
 	case changeCreate:
 		return change.create.Name, true
 	case changeUpdate:
+		if change.update.CollectionID != nil {
+			return collectionIDResourceName(*change.update.CollectionID), true
+		}
 		return change.update.Name, true
 	case changeDelete:
 		return change.deleteName, true

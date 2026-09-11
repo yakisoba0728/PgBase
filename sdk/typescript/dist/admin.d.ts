@@ -57,11 +57,21 @@ export type CollectionDefinition = {
     indexes?: CompoundIndex[];
     view?: ViewInput;
 };
+export type IndexKey = {
+    field?: string;
+    expression?: string;
+    collation?: "C" | "POSIX";
+    order?: "asc" | "desc";
+};
+/** fields, keys, and rawSql are mutually exclusive index definitions. */
 export type CompoundIndex = {
     id?: string;
     name: string;
-    fields: string[];
     unique: boolean;
+    fields?: string[];
+    keys?: IndexKey[];
+    where?: string;
+    rawSql?: string;
 };
 export type ViewFilter = {
     op: "all" | "any" | "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
@@ -91,12 +101,14 @@ export type CollectionChange = {
 } | {
     operation: "update";
     name: string;
+    collectionId?: string;
     fields: FieldInput[];
     indexes?: CompoundIndex[];
     view?: never;
 } | {
     operation: "update";
     name: string;
+    collectionId?: string;
     view: SQLViewInput;
     fields?: never;
     indexes?: never;
@@ -138,6 +150,19 @@ export type SchemaDocumentCollection = {
 export type SchemaDocument = {
     format: "pgbase.schema/v1";
     collections: SchemaDocumentCollection[];
+    deleteMissing?: boolean;
+};
+export type CollectionScaffolds = {
+    base: CollectionChange;
+    auth: CollectionChange;
+    view: CollectionChange;
+};
+export type CollectionTruncateResult = {
+    name: string;
+    truncated: true;
+    recordsDeleted: number;
+    filesDeleted: number;
+    relationsDeleted: number;
 };
 export type SchemaImportPlan = {
     baseVersion: number;
@@ -246,6 +271,13 @@ export type BackupStorageUpdate = Omit<BackupStorageSettings, "secretConfigured"
     secretKey?: string;
     clearSecret?: boolean;
 };
+export type AppleClientSecretInput = {
+    clientId: string;
+    teamId: string;
+    keyId: string;
+    privateKey: string;
+    duration: number;
+};
 export declare class AdminAPIError extends Error {
     readonly status: number;
     readonly code: string;
@@ -297,6 +329,11 @@ export declare class PgBaseAdminClient {
         version: number;
         collections: Record<string, CollectionDefinition>;
     }>;
+    generateAppleClientSecret(input: AppleClientSecretInput, signal?: AbortSignal): Promise<{
+        secret: string;
+    }>;
+    scaffolds(signal?: AbortSignal): Promise<CollectionScaffolds>;
+    truncateCollection(name: string, signal?: AbortSignal): Promise<CollectionTruncateResult>;
     plan(change: CollectionChange, signal?: AbortSignal): Promise<ApprovedSchemaPlan>;
     apply(plan: ApprovedSchemaPlan, signal?: AbortSignal): Promise<CollectionDefinition | SchemaOperation | {
         deleted: boolean;

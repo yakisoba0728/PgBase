@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,9 +43,29 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(sourceFiles, "database.dump"), []byte("ordinary-local-file"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	extensionObject := filepath.Join(sourceFiles, "extensions", strings.Repeat("a", 64), strings.Repeat("b", 64))
+	if err = os.MkdirAll(filepath.Dir(extensionObject), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(extensionObject, []byte("extension-object"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	backupDirectory := filepath.Join(t.TempDir(), "snapshot")
 	if err = Create(ctx, backupDirectory, sourceURL, sourceFiles); err != nil {
 		t.Fatal(err)
+	}
+	manifest, err := Verify(backupDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundExtension := false
+	for _, file := range manifest.Files {
+		if strings.HasPrefix(file.Path, "extensions/") {
+			foundExtension = true
+		}
+	}
+	if !foundExtension {
+		t.Fatalf("backup omitted extension object: %#v", manifest.Files)
 	}
 	emptyBackupDirectory := filepath.Join(t.TempDir(), "empty-files-snapshot")
 	if err = Create(ctx, emptyBackupDirectory, sourceURL, t.TempDir()); err != nil {

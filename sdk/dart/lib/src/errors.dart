@@ -43,6 +43,15 @@ final class PgBaseProtocolError implements Exception {
   String toString() => 'PgBaseProtocolError($code)';
 }
 
+/// The provider returned an OAuth callback that cannot be completed.
+final class OAuthCallbackError implements Exception {
+  const OAuthCallbackError(this.code, [this.message]);
+  final String code;
+  final String? message;
+  @override
+  String toString() => 'OAuthCallbackError($code)';
+}
+
 final class MfaChallengeError extends PgBaseError {
   const MfaChallengeError(
     super.status,

@@ -1,8 +1,9 @@
-import { act, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { backendScript, callsTo, deferredStep } from "../test/backend-script";
 import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin, type AdminHarness } from "../test/harness";
+import { LoginPage } from "./login-page";
 
 function signedOut(): AdminHarness {
   const script = backendScript();
@@ -83,4 +84,14 @@ describe("administrator login", () => {
     expect(await screen.findByRole("heading", { name: "pgBase administration" })).toBeVisible();
     expect(callsTo(harness.script, "login")[1]?.detail).toMatchObject({ otpCode: "123456" });
   });
+
+	it("runs the enumeration-safe recovery request and token confirmation flow", async () => {
+		const user = userEvent.setup(); const request = vi.fn().mockResolvedValue(undefined); const confirm = vi.fn().mockResolvedValue(undefined);
+		render(<LoginPage onConfirmPasswordReset={confirm} onLogin={vi.fn()} onRequestPasswordReset={request} />);
+		await user.click(screen.getByRole("button", { name: "Forgot administrator password?" }));
+		await user.type(screen.getByLabelText("Email"), administrator.email); await user.click(screen.getByRole("button", { name: "Send reset link" }));
+		expect(await screen.findByText(/If this administrator email exists/)).toBeVisible(); expect(request).toHaveBeenCalledWith(administrator.email);
+		await user.type(screen.getByLabelText("Reset token"), "one-time-token"); await user.type(screen.getByLabelText("New password"), "correct horse battery staple"); await user.click(screen.getByRole("button", { name: "Reset password" }));
+		expect(confirm).toHaveBeenCalledWith("one-time-token", "correct horse battery staple"); expect(await screen.findByText("Password reset. You can now sign in.")).toBeVisible();
+	});
 });

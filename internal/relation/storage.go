@@ -231,7 +231,8 @@ func recordColumns(alias string, fields []schema.Field) []string {
 		relationQualified(alias, "updated_at"),
 	}
 	for _, field := range fields {
-		if field.Type == schema.TypeRelation && field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple {
+		if field.Type == schema.TypeFile ||
+			(field.Type == schema.TypeRelation && field.Relation != nil && field.Relation.Cardinality == schema.RelationMultiple) {
 			continue
 		}
 		column := relationQualified(alias, field.ColumnName)

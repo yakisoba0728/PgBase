@@ -1,14 +1,11 @@
 package jsvm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"path"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,8 +30,17 @@ const (
 )
 
 type Error struct {
-	Code  ErrorCode
-	cause error
+	Code        ErrorCode
+	PublicError *PublicAPIError
+	cause       error
+}
+
+// PublicAPIError is a validated compatibility ApiError that may be returned to
+// an HTTP client. Other JavaScript exceptions intentionally remain opaque.
+type PublicAPIError struct {
+	Status  int
+	Message string
+	Data    json.RawMessage
 }
 
 func (e *Error) Error() string {
@@ -55,12 +61,25 @@ type Host interface {
 	Call(context.Context, string, json.RawMessage) (json.RawMessage, error)
 }
 
+// InputPreparer lets a transport host defer request-body consumption until the
+// exported handler has been loaded. It is intentionally optional so jobs and
+// hooks retain their existing JSON-only invocation contract.
+type InputPreparer interface {
+	PrepareInput(context.Context, json.RawMessage, int64) (json.RawMessage, error)
+}
+
+type inputTooLarge interface{ InputTooLarge() bool }
+
 type Invocation struct {
 	Handler      HandlerRef
 	Capabilities []string
 	Input        json.RawMessage
 	Host         Host
 	Timeout      time.Duration
+	// OnSkipSuccessActivityLog is invoked after a route handler has been
+	// resolved and is marked by $apis.skipSuccessActivityLog. The callback is
+	// supplied by the HTTP transport, never by script input.
+	OnSkipSuccessActivityLog func()
 }
 
 type Limits struct {
@@ -123,25 +142,31 @@ func (limits Limits) normalized() (Limits, error) {
 func (limits Limits) NormalizedForPublic() (Limits, error) { return limits.normalized() }
 
 type Runtime struct {
-	bundle   *Bundle
-	limits   Limits
-	registry *require.Registry
-	states   sync.Map
-	slots    chan struct{}
-	root     context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	closed   bool
-	waiting  int
-	active   sync.WaitGroup
+	bundle      *Bundle
+	limits      Limits
+	registry    *require.Registry
+	states      sync.Map
+	slots       chan struct{}
+	root        context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
+	closed      bool
+	waiting     int
+	active      sync.WaitGroup
+	initializer func(*goja.Runtime) error
+	bodyLimits  sync.Map
 }
 
 type callState struct {
-	ctx          context.Context
-	host         Host
-	capabilities map[string]bool
-	hostCalls    *atomic.Int64
-	limits       Limits
+	ctx            context.Context
+	host           Host
+	capabilities   map[string]bool
+	hostCalls      *atomic.Int64
+	limits         Limits
+	requestHandle  *goja.Object
+	responseHandle *goja.Object
+	responseUsed   bool
+	apiErrorCheck  goja.Callable
 }
 
 type executionChainKey struct{}
@@ -154,6 +179,13 @@ type executionChain struct {
 const virtualRoot = "/pgbase-js"
 
 func NewRuntime(bundle *Bundle, limits Limits) (*Runtime, error) {
+	return NewRuntimeWithInitializer(bundle, limits, nil)
+}
+
+// NewRuntimeWithInitializer installs trusted host bindings into every fresh VM
+// used for validation and execution. The callback must be deterministic and
+// must not retain the VM after it returns.
+func NewRuntimeWithInitializer(bundle *Bundle, limits Limits, initializer func(*goja.Runtime) error) (*Runtime, error) {
 	if bundle == nil {
 		return nil, errors.New("JavaScript bundle is nil")
 	}
@@ -162,12 +194,16 @@ func NewRuntime(bundle *Bundle, limits Limits) (*Runtime, error) {
 		return nil, err
 	}
 	root, cancel := context.WithCancel(context.Background())
-	runtime := &Runtime{bundle: bundle, limits: normalized, slots: make(chan struct{}, normalized.Concurrency), root: root, cancel: cancel}
+	runtime := &Runtime{bundle: bundle, limits: normalized, slots: make(chan struct{}, normalized.Concurrency), root: root, cancel: cancel, initializer: initializer}
 	runtime.registry = require.NewRegistry(
 		require.WithLoader(runtime.loadSource),
 		require.WithPathResolver(resolveModulePath),
 	)
 	runtime.registry.RegisterNativeModule("pgbase", runtime.loadNativeModule)
+	if err := runtime.collectBootstrap(); err != nil {
+		cancel()
+		return nil, err
+	}
 	validationContext, validationCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer validationCancel()
 	if err := runtime.validateHandlers(validationContext); err != nil {
@@ -234,7 +270,7 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (output jso
 		cancel()
 	}()
 	state := &callState{ctx: callContext, host: invocation.Host, capabilities: capabilitySet(invocation.Capabilities), hostCalls: chain.hostCalls, limits: r.limits}
-	return r.invoke(callContext, invocation.Handler, invocation.Input, state)
+	return r.invoke(callContext, invocation.Handler, invocation.Input, state, invocation.OnSkipSuccessActivityLog)
 }
 
 func (r *Runtime) Close(ctx context.Context) error {
@@ -315,17 +351,25 @@ func (r *Runtime) release() {
 	r.active.Done()
 }
 
-func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState) (json.RawMessage, error) {
+func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState, onSkipSuccessActivityLog func()) (json.RawMessage, error) {
 	moduleName, err := r.bundle.canonicalModule(ref.Module)
 	if err != nil {
 		return nil, &Error{Code: CodeExecutionFailed, cause: err}
 	}
 	vm := goja.New()
+	if r.initializer != nil {
+		if err := r.initializer(vm); err != nil {
+			return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("initialize JavaScript VM: %w", err)}
+		}
+	}
 	vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 	vm.SetParserOptions(parser.WithDisableSourceMaps)
 	r.states.Store(vm, state)
 	defer r.states.Delete(vm)
 	requireModule := r.registry.Enable(vm)
+	if err := r.installPocketBaseGlobals(vm, state); err != nil {
+		return nil, &Error{Code: CodeExecutionFailed, cause: err}
+	}
 
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
@@ -342,22 +386,69 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		<-watcherDone
 	}()
 
-	exports, err := requireModule.Require(virtualRoot + "/" + moduleName)
-	if err != nil {
-		return nil, classifyExecutionError(ctx, err)
+	var handler goja.Callable
+	var handlerValue goja.Value
+	var ok bool
+	if strings.HasPrefix(ref.Export, registeredExportPrefix) {
+		registered, replayErr := r.replayRegistrations(vm, requireModule)
+		if replayErr != nil {
+			return nil, classifyExecutionError(ctx, vm, state, replayErr, r.limits.MaximumJSONDepth)
+		}
+		handler, ok = registered.handlers[ref.Export]
+		handlerValue = registered.handlerValues[ref.Export]
+	} else {
+		exports, requireErr := requireModule.Require(virtualRoot + "/" + moduleName)
+		if requireErr != nil {
+			return nil, classifyExecutionError(ctx, vm, state, requireErr, r.limits.MaximumJSONDepth)
+		}
+		handlerValue = exports.ToObject(vm).Get(ref.Export)
+		handler, ok = goja.AssertFunction(handlerValue)
 	}
-	object := exports.ToObject(vm)
-	handler, ok := goja.AssertFunction(object.Get(ref.Export))
 	if !ok {
 		return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("export %q is not a function", ref.Export)}
+	}
+	if preparer, ok := invocationHostPreparer(state.host); ok {
+		bodyLimit, err := javaScriptHandlerBodyLimit(vm, handlerValue)
+		if err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+		key := ref.Module + "\x00" + ref.Export
+		if bodyLimit == 0 {
+			if cached, ok := r.bodyLimits.Load(key); ok {
+				bodyLimit = cached.(int64)
+			}
+		} else {
+			r.bodyLimits.Store(key, bodyLimit)
+		}
+		input, err = preparer.PrepareInput(ctx, input, bodyLimit)
+		if err != nil {
+			var tooLarge inputTooLarge
+			if errors.As(err, &tooLarge) && tooLarge.InputTooLarge() {
+				return nil, &Error{Code: CodeLimitExceeded, cause: err}
+			}
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+	}
+	if onSkipSuccessActivityLog != nil && javaScriptHandlerSkipsSuccessActivityLog(vm, handlerValue) {
+		onSkipSuccessActivityLog()
 	}
 	inputValue, err := decodeValue(vm, input, r.limits.MaximumJSONDepth)
 	if err != nil {
 		return nil, &Error{Code: CodeInvalidResult, cause: err}
 	}
+	if object, ok := inputValue.(*goja.Object); ok {
+		state.requestHandle = vm.NewObject()
+		state.responseHandle = vm.NewObject()
+		if err := object.Set("request", state.requestHandle); err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+		if err := object.Set("response", state.responseHandle); err != nil {
+			return nil, &Error{Code: CodeInvalidResult, cause: err}
+		}
+	}
 	result, err := handler(goja.Undefined(), inputValue)
 	if err != nil {
-		return nil, classifyExecutionError(ctx, err)
+		return nil, classifyExecutionError(ctx, vm, state, err, r.limits.MaximumJSONDepth)
 	}
 	if object, ok := result.(*goja.Object); ok {
 		if then := object.Get("then"); !goja.IsUndefined(then) && !goja.IsNull(then) {
@@ -374,6 +465,34 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 		return nil, &Error{Code: CodeLimitExceeded}
 	}
 	return encoded, nil
+}
+
+func invocationHostPreparer(host Host) (InputPreparer, bool) {
+	preparer, ok := host.(InputPreparer)
+	return preparer, ok
+}
+
+func javaScriptHandlerBodyLimit(vm *goja.Runtime, handler goja.Value) (int64, error) {
+	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
+		return 0, nil
+	}
+	value := handler.ToObject(vm).Get("pgbaseBodyLimit")
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
+		return 0, nil
+	}
+	limit := value.ToInteger()
+	if limit < 1 || limit > 1<<31-1 || value.ToFloat() != float64(limit) {
+		return 0, errors.New("invalid JavaScript body limit")
+	}
+	return limit, nil
+}
+
+func javaScriptHandlerSkipsSuccessActivityLog(vm *goja.Runtime, handler goja.Value) bool {
+	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
+		return false
+	}
+	value := handler.ToObject(vm).Get("pgbaseSkipSuccessActivityLog")
+	return value != nil && value.ToBoolean()
 }
 
 func (r *Runtime) validateHandlers(ctx context.Context) error {
@@ -402,11 +521,30 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 	for _, ref := range refs {
 		state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
 		vm := goja.New()
+		if r.initializer != nil {
+			if err := r.initializer(vm); err != nil {
+				return fmt.Errorf("initialize JavaScript VM: %w", err)
+			}
+		}
 		vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 		vm.SetParserOptions(parser.WithDisableSourceMaps)
 		r.states.Store(vm, state)
 		requireModule := r.registry.Enable(vm)
+		if err := r.installPocketBaseGlobals(vm, state); err != nil {
+			return fmt.Errorf("initialize PocketBase compatibility globals: %w", err)
+		}
 		canonical, _ := r.bundle.canonicalModule(ref.Module)
+		if strings.HasPrefix(ref.Export, registeredExportPrefix) {
+			registered, err := r.replayRegistrations(vm, requireModule)
+			r.states.Delete(vm)
+			if err != nil {
+				return fmt.Errorf("compile registered JavaScript handler %s: %w", ref.Export, err)
+			}
+			if registered.handlers[ref.Export] == nil {
+				return fmt.Errorf("registered JavaScript handler %s is missing", ref.Export)
+			}
+			continue
+		}
 		exports, err := requireModule.Require(virtualRoot + "/" + canonical)
 		r.states.Delete(vm)
 		if err != nil {
@@ -465,6 +603,9 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 		"files":     {"list", "upload", "delete", "token", "read", "open", "readChunk", "close"},
 		"migration": {"query", "exec", "applySnapshot"},
 		"log":       {"debug", "info", "warn", "error"},
+		"template":  {"render"},
+		"database":  {"transaction"},
+		"objects":   {"read", "write", "delete", "list", "copy"},
 	} {
 		object := vm.NewObject()
 		for _, method := range methods {
@@ -546,12 +687,55 @@ func capabilitySet(values []string) map[string]bool {
 	return result
 }
 
-func classifyExecutionError(ctx context.Context, err error) error {
+func classifyExecutionError(ctx context.Context, vm *goja.Runtime, state *callState, err error, maximumJSONDepth int) error {
 	var interrupted *goja.InterruptedError
 	if errors.As(err, &interrupted) || ctx.Err() != nil {
 		return invocationContextError(ctx)
 	}
-	return &Error{Code: CodeExecutionFailed, cause: err}
+	return &Error{Code: CodeExecutionFailed, PublicError: publicAPIError(vm, state, err, maximumJSONDepth), cause: err}
+}
+
+func publicAPIError(vm *goja.Runtime, state *callState, err error, maximumJSONDepth int) (result *PublicAPIError) {
+	var exception *goja.Exception
+	if vm == nil || state == nil || state.apiErrorCheck == nil || !errors.As(err, &exception) {
+		return nil
+	}
+	object, ok := exception.Value().(*goja.Object)
+	if !ok {
+		return nil
+	}
+	defer func() { _ = recover() }()
+	branded, checkErr := state.apiErrorCheck(goja.Undefined(), object)
+	if checkErr != nil || !branded.ToBoolean() {
+		return nil
+	}
+	status, ok := apiErrorStatus(object.Get("status"))
+	if !ok {
+		return nil
+	}
+	message, ok := object.Get("message").Export().(string)
+	if !ok || len(message) > 8<<10 {
+		return nil
+	}
+	data, encodeErr := encodeValue(object.Get("data"), maximumJSONDepth)
+	if encodeErr != nil || len(data) > 1<<20 {
+		return nil
+	}
+	return &PublicAPIError{Status: status, Message: message, Data: data}
+}
+
+func apiErrorStatus(value goja.Value) (int, bool) {
+	switch status := value.Export().(type) {
+	case int64:
+		if status >= 100 && status <= 599 {
+			return int(status), true
+		}
+	case float64:
+		if status >= 100 && status <= 599 && status == float64(int(status)) {
+			return int(status), true
+		}
+	}
+	return 0, false
 }
 
 func invocationContextError(ctx context.Context) error {
@@ -559,146 +743,4 @@ func invocationContextError(ctx context.Context) error {
 		return &Error{Code: CodeTimeout, cause: context.DeadlineExceeded}
 	}
 	return &Error{Code: CodeCanceled, cause: context.Canceled}
-}
-
-var exactNumberPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
-
-func exactValue(vm *goja.Runtime, value string) *goja.Object {
-	object := vm.NewObject()
-	_ = object.DefineDataProperty("__pgbaseExact", vm.ToValue(value), goja.FLAG_FALSE, goja.FLAG_FALSE, goja.FLAG_FALSE)
-	_ = object.Set("toString", func(goja.FunctionCall) goja.Value { return vm.ToValue(value) })
-	return object
-}
-
-func decodeValue(vm *goja.Runtime, raw json.RawMessage, maximumDepth int) (goja.Value, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		return nil, err
-	}
-	if err := ensureJSONEnd(decoder); err != nil {
-		return nil, err
-	}
-	return importValue(vm, decoded, 0, maximumDepth)
-}
-
-func importValue(vm *goja.Runtime, value any, depth, maximumDepth int) (goja.Value, error) {
-	if depth > maximumDepth {
-		return nil, errors.New("JSON nesting exceeds limit")
-	}
-	switch value := value.(type) {
-	case nil:
-		return goja.Null(), nil
-	case bool, string:
-		return vm.ToValue(value), nil
-	case json.Number:
-		return exactValue(vm, value.String()), nil
-	case []any:
-		array := vm.NewArray(len(value))
-		for index, item := range value {
-			converted, err := importValue(vm, item, depth+1, maximumDepth)
-			if err != nil {
-				return nil, err
-			}
-			if err := array.Set(fmt.Sprint(index), converted); err != nil {
-				return nil, err
-			}
-		}
-		return array, nil
-	case map[string]any:
-		object := vm.NewObject()
-		for name, item := range value {
-			converted, err := importValue(vm, item, depth+1, maximumDepth)
-			if err != nil {
-				return nil, err
-			}
-			if err := object.Set(name, converted); err != nil {
-				return nil, err
-			}
-		}
-		return object, nil
-	default:
-		return nil, errors.New("unsupported decoded JSON value")
-	}
-}
-
-func encodeValue(value goja.Value, maximumDepth int) (json.RawMessage, error) {
-	converted, err := exportValue(value, 0, maximumDepth, make(map[*goja.Object]bool))
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(converted)
-}
-
-func exportValue(value goja.Value, depth, maximumDepth int, seen map[*goja.Object]bool) (any, error) {
-	if depth > maximumDepth {
-		return nil, errors.New("JSON nesting exceeds limit")
-	}
-	if goja.IsNull(value) {
-		return nil, nil
-	}
-	if goja.IsUndefined(value) {
-		if depth == 0 {
-			return nil, nil
-		}
-		return nil, errors.New("undefined is not a JSON value")
-	}
-	switch exported := value.Export().(type) {
-	case bool, string:
-		return exported, nil
-	case int64:
-		if exported > 1<<53-1 || exported < -(1<<53-1) {
-			return nil, errors.New("unsafe JavaScript integer must use pgbase.exact")
-		}
-		return exported, nil
-	case float64:
-		if math.IsNaN(exported) || math.IsInf(exported, 0) {
-			return nil, errors.New("non-finite number is not JSON")
-		}
-		return exported, nil
-	}
-	object, ok := value.(*goja.Object)
-	if !ok {
-		return nil, errors.New("unsupported JavaScript value")
-	}
-	if marker := object.Get("__pgbaseExact"); marker != nil && !goja.IsUndefined(marker) {
-		exact, ok := marker.Export().(string)
-		if !ok || !exactNumberPattern.MatchString(exact) {
-			return nil, errors.New("invalid exact number")
-		}
-		return json.Number(exact), nil
-	}
-	if seen[object] {
-		return nil, errors.New("cyclic object is not JSON")
-	}
-	seen[object] = true
-	defer delete(seen, object)
-	if object.ClassName() == "Array" {
-		length := object.Get("length").ToInteger()
-		if length < 0 || length > 1_000_000 {
-			return nil, errors.New("array length exceeds limit")
-		}
-		result := make([]any, int(length))
-		for index := range result {
-			converted, err := exportValue(object.Get(fmt.Sprint(index)), depth+1, maximumDepth, seen)
-			if err != nil {
-				return nil, err
-			}
-			result[index] = converted
-		}
-		return result, nil
-	}
-	if object.ClassName() != "Object" {
-		return nil, fmt.Errorf("unsupported JavaScript object %s", object.ClassName())
-	}
-	result := make(map[string]any)
-	for _, name := range object.Keys() {
-		converted, err := exportValue(object.Get(name), depth+1, maximumDepth, seen)
-		if err != nil {
-			return nil, err
-		}
-		result[name] = converted
-	}
-	return result, nil
 }

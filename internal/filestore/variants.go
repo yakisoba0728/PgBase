@@ -102,7 +102,7 @@ func (s *Service) queueUnreferencedVariant(ctx context.Context, fileID uuid.UUID
 }
 
 func (s *Service) renderVariant(ctx context.Context, file File, variant string) (result []byte, resultErr error) {
-	if file.ContentType != "image/jpeg" && file.ContentType != "image/png" {
+	if !thumbnailImageType(file.ContentType) {
 		return nil, ErrInvalid
 	}
 	reader, err := s.objects.Open(ctx, file.ObjectKey)
@@ -114,7 +114,38 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	source, format, err := image.Decode(bytes.NewReader(data))
+	return s.renderThumbnailData(data, file.ContentType, variant)
+}
+
+// RenderThumbnailData applies the bounded thumbnail pipeline to caller-owned
+// bytes. It is used by rooted extension files, whose paths are deliberately
+// not valid object-store keys.
+func (s *Service) RenderThumbnailData(data []byte, contentType, size string) ([]byte, error) {
+	return s.RenderThumbnailReader(bytes.NewReader(data), contentType, size)
+}
+
+// RenderThumbnailReader applies the bounded thumbnail pipeline to a reader
+// without requiring it to be backed by the managed object store.
+func (s *Service) RenderThumbnailReader(reader io.Reader, contentType, size string) ([]byte, error) {
+	if s == nil || reader == nil || !validVariant(Variant(size)) {
+		return nil, ErrInvalid
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, s.options.MaximumBytes+1))
+	if err != nil || int64(len(data)) > s.options.MaximumBytes {
+		return nil, ErrInvalid
+	}
+	return s.renderThumbnailData(data, contentType, size)
+}
+
+func (s *Service) renderThumbnailData(data []byte, contentType, variant string) ([]byte, error) {
+	if !thumbnailImageType(contentType) {
+		return nil, ErrInvalid
+	}
+	config, format, err := decodeImageConfig(bytes.NewReader(data), contentType)
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
+		return nil, ErrInvalid
+	}
+	source, format, err := decodeImage(bytes.NewReader(data), contentType)
 	if err != nil {
 		return nil, ErrInvalid
 	}
@@ -179,4 +210,13 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 		return nil, ErrInvalid
 	}
 	return buffer.Bytes(), nil
+}
+
+// RenderThumbnail applies the bounded variant pipeline to an object without
+// publishing it as a record-file variant. The caller owns the destination.
+func (s *Service) RenderThumbnail(ctx context.Context, objectKey, contentType, size string) ([]byte, error) {
+	if s == nil || objectKey == "" || !validVariant(Variant(size)) {
+		return nil, ErrInvalid
+	}
+	return s.renderVariant(ctx, File{ObjectKey: objectKey, ContentType: contentType}, size)
 }

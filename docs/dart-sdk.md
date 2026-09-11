@@ -25,7 +25,10 @@ The default `AuthStore` is memory only. Supply an application-owned
 (for example, a secure mobile key store). Login, MFA and OTP completion use an
 auth generation guard; logout, password change and email confirmation clear the
 token locally even if their request fails. PgBase remains the authority for
-revocation and expiry; the SDK never creates a refresh-token flow.
+revocation and expiry. `client.realm(name).refresh()` rotates a live ordinary realm
+session and stores the validated replacement only after a complete response. Refresh
+uses a 24-hour sliding expiry with no absolute lifetime. If its response may have
+been lost, clear the old token and require a new login rather than retrying it.
 
 `PgBaseAdminClient` is separate. It accepts a cookie-capable `package:http`
 client for its target platform and keeps only the CSRF token in memory. It never

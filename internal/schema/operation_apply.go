@@ -289,7 +289,7 @@ func (s *Service) executeClaimedOperation(
 		}
 		result.Collection = created
 	case changeUpdate:
-		current = catalog.Collections[intent.change.update.Name]
+		current, _ = collectionForUpdate(catalog, intent.change.update)
 		if current.ID == uuid.Nil || current.ID != claim.row.resourceID {
 			return ApplyResult{}, nil, operationRow{}, ErrOperationConflict
 		}
@@ -303,12 +303,12 @@ func (s *Service) executeClaimedOperation(
 		if err != nil {
 			return ApplyResult{}, nil, operationRow{}, err
 		}
-		indexes, err := updatedIndexMetadata(current.Name, current.Indexes, plan.Definition)
+		indexes, err := updatedIndexMetadata(plan.Definition.Name, current.Indexes, plan.Definition)
 		if err != nil {
 			return ApplyResult{}, nil, operationRow{}, err
 		}
 		result.Collection = Collection{
-			ID: current.ID, Name: plan.Definition.Name, TableName: plan.Definition.TableName,
+			ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName, Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode, RecordID: plan.Definition.RecordID, TableName: plan.Definition.TableName,
 			Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt,
 		}
 	case changeDelete:
@@ -562,7 +562,7 @@ func newCollectionMetadataWithID(collectionID uuid.UUID, definition PlannedColle
 		return Collection{}, err
 	}
 	return Collection{
-		ID: collectionID, Name: definition.Name, TableName: definition.TableName,
+		ID: collectionID, Name: definition.Name, CompatibilityName: definition.CompatibilityName, Type: definition.Type, System: definition.System, ValidationMode: definition.ValidationMode, RecordID: definition.RecordID, TableName: definition.TableName,
 		Fields: fields, Indexes: indexes,
 		View: resolvedViewSpec(definition.View),
 	}, nil

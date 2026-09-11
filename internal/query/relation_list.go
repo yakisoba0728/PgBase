@@ -9,15 +9,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
-// requestAddressesRelationField mirrors the operand classification that
-// planRelationFilter and planRelationSort perform, so an operation is counted
-// as relation work whether the plan then succeeds or is rejected.
-//
-// A filter resolves against the catalog as a relation path for a dotted path
-// and for the bare name of a root relation field alike. A sort does so only
-// for a dotted path: a bare single relation orders on the root's own column
-// and a bare multi relation is refused from its cardinality, so neither reads
-// a target. An unknown bare name is a plain validation error and stays scalar.
 func requestAddressesRelationField(root schema.Collection, filter filterNode, sortKeys []SortKey) bool {
 	for _, key := range sortKeys {
 		if strings.Contains(key.Field, ".") {
@@ -57,9 +48,6 @@ func operandAddressesRelationField(root schema.Collection, name string) bool {
 	return ok && field.Type == schema.TypeRelation
 }
 
-// enforceRelationSortRootBudget caps the work of the LEFT-JOIN sort plan.
-// The probe reads at most limit+1 primary-key entries in the same repeatable-
-// read snapshot; oversized collections fail before target joins or sorting.
 func enforceRelationSortRootBudget(ctx context.Context, tx pgx.Tx, collection schema.Collection) error {
 	statement := "SELECT EXISTS (SELECT 1 FROM " + quotedTable(collection) +
 		" ORDER BY " + quoted(systemFieldID) + " OFFSET $1 LIMIT 1)"

@@ -48,11 +48,13 @@ curl --fail-with-body --header "@$pgbase_user_dir/headers" \
   http://127.0.0.1:8090/api/v1/user/collections/notes/records
 ```
 
-Registration returns HTTP 201 with `{token,user:{id,email,createdAt},expiresAt}`. Log in later by sending the same credentials shape to `POST /api/v1/auth/login`; it returns HTTP 200 with a new session. Sessions last 24 hours. Store the token as a credential. The database stores only its keyed hash, and session inspection does not echo it.
+Registration returns HTTP 201 with `{token,user:{id,email,createdAt},expiresAt}`. Log in later by sending the same credentials shape to `POST /api/v1/auth/login`; it returns HTTP 200 with a new session. Sessions last 24 hours. Store the token as a credential. The database stores only its keyed hash, and session inspection does not echo it. Named realm sessions can be refreshed before expiry: refresh rotates the opaque token in the same revocable session row and renews its 24-hour sliding expiry. It has no absolute lifetime. Save the returned replacement before discarding it; if its response is lost, do not retry the old bearer token—clear it and sign in again.
 
 | Operation | Method and path | Contract |
 | --- | --- | --- |
 | Inspect session | `GET /api/v1/auth/session` | Bearer token; user and expiry |
+| Refresh a realm session | `POST /api/v1/auth/{authCollection}/refresh` | Bearer token; atomically replaces it and renews the sliding 24-hour expiry |
+| Discover realm methods | `GET /api/v1/auth/{authCollection}/methods` | Public password/OTP/MFA flags and enabled OAuth provider names only |
 | Log out | `POST /api/v1/auth/logout` | Bearer token; 204, token revoked |
 | Change password | `POST /api/v1/auth/change-password` | Current password required; 204, all sessions revoked; [details](user-management.md) |
 | List / create | `GET` / `POST /api/v1/user/collections/{collection}/records` | Own records only |
@@ -77,6 +79,6 @@ Administrator cookies do not authenticate public-user routes. Public Bearer toke
 
 Unknown accounts and wrong passwords both return 401. Login limiting is shared in PostgreSQL: five account failures or twenty network failures trigger a 15-minute block. Correct credentials remain blocked during that interval; successful login does not erase prior failures. Registration has its own network limit. A 429 response includes `Retry-After`; bounded concurrent admission can also return 429.
 
-Project users, scalar owner-only access, [administrator user management and current-password changes](user-management.md) are implemented in current source. Configurable Auth collections, password reset, email verification, OAuth, MFA, arbitrary access rules, relation-aware user access, files, realtime and client SDKs are tracked in [TODO](../TODO.md).
+Project users, configurable auth collections, password/OAuth/OTP/MFA flows, password reset, verification, relation-aware access, files, realtime and local client SDKs are implemented in the current source. Their PocketBase wire compatibility remains intentionally incomplete; see the [detailed parity audit](pocketbase-parity-detailed-audit-2026-09-10.md).
 
 Backups must include `pgbase_meta` along with application schemas. The PostgreSQL 16/17/18 restore drill exercises restored users, sessions, ownership and cross-user isolation. Keep the same token secret when restoring an installation if existing sessions must remain usable.

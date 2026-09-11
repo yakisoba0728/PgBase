@@ -33,6 +33,27 @@ func TestFieldIDRenamePreservesRowsIndexesAndMetadataReferences(t *testing.T) {
 	}
 }
 
+func TestScalarRenameNameReuseThenDropPreservesRetainedValue(t *testing.T) {
+	ctx := context.Background()
+	pool, service, admin := newSchemaServiceTest(t)
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, admin)
+	if _, err := pool.Exec(ctx, `insert into app.rename_reuse(id,created_at,updated_at,title) values(gen_random_uuid(),now(),now(),'retained')`); err != nil {
+		t.Fatal(err)
+	}
+	retainedID := created.Fields[0].ID
+	renameChange := NewUpdateChange(UpdateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{ID: &retainedID, Name: "headline", Type: TypeText}, {Name: "title", Type: TypeText}}})
+	if _, err := service.Preview(ctx, renameChange); err != nil {
+		t.Fatalf("preview rename/reuse: %#v", err)
+	}
+	renamed := applyChange(t, service, renameChange, admin)
+	reusedID := renamed.Collection.Fields[1].ID
+	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: "rename_reuse", Fields: []FieldInput{{ID: &retainedID, Name: "headline", Type: TypeText}}}), admin)
+	var value string
+	if err := pool.QueryRow(ctx, `select title from app.rename_reuse`).Scan(&value); err != nil || value != "retained" {
+		t.Fatalf("retained physical value=%q err=%v (dropped reused id %s)", value, err, reusedID)
+	}
+}
+
 func TestTightenedFieldOptionsRejectExistingInvalidRows(t *testing.T) {
 	ctx := context.Background()
 	pool, service, admin := newSchemaServiceTest(t)
@@ -58,6 +79,26 @@ func TestTightenedFieldOptionsRejectExistingInvalidRows(t *testing.T) {
 	if catalog.Version != 1 || len(catalog.Collections["option_items"].Fields[0].Options.AllowedValues) != 0 || catalog.Collections["option_items"].Fields[0].Options.MinLength != nil {
 		encoded, _ := json.Marshal(catalog)
 		t.Fatalf("catalog changed: %s", encoded)
+	}
+}
+
+func TestTightenedEditorMaximumSizeRejectsExistingRows(t *testing.T) {
+	ctx := context.Background()
+	pool, service, admin := newSchemaServiceTest(t)
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "editor_option_items", Fields: []FieldInput{{Name: "body", Type: TypeEditor}}}, admin)
+	if _, err := pool.Exec(ctx, `insert into app.editor_option_items(id,created_at,updated_at,body) values(gen_random_uuid(),now(),now(),'four')`); err != nil {
+		t.Fatal(err)
+	}
+	id := created.Fields[0].ID
+	maximum := int64(3)
+	change := NewUpdateChange(UpdateCollectionInput{Name: "editor_option_items", Fields: []FieldInput{{ID: &id, Name: "body", Type: TypeEditor, Options: &FieldOptions{MaxSize: &maximum}}}})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(ctx, LegacyApply(change, plan, admin))
+	if !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("apply error=%v", err)
 	}
 }
 
@@ -157,6 +198,22 @@ func TestMultipleRelationRenameSupportsLaterEditAndDrop(t *testing.T) {
 	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: "relation_sources", Fields: []FieldInput{}}), admin)
 	if err := pool.QueryRow(ctx, `select to_regclass($1) is not null`, "pgbase_relation."+physical).Scan(&exists); err != nil || exists {
 		t.Fatalf("dropped edge exists=%t err=%v", exists, err)
+	}
+}
+
+func TestMultipleRelationRenameSupportsCollectionDelete(t *testing.T) {
+	ctx := context.Background()
+	pool, service, admin := newSchemaServiceTest(t)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "delete_relation_targets"}, admin)
+	maximum := 8
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: "delete_relation_sources", Fields: []FieldInput{{Name: "members", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple, MaxSelect: &maximum}}}}, admin)
+	id := created.Fields[0].ID
+	physical := created.Fields[0].Relation.Storage.Name
+	applyChange(t, service, NewUpdateChange(UpdateCollectionInput{Name: created.Name, Fields: []FieldInput{{ID: &id, Name: "reviewers", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_relation_targets", Cardinality: RelationMultiple, MaxSelect: &maximum}}}}), admin)
+	applyChange(t, service, NewDeleteChange(created.Name), admin)
+	var exists bool
+	if err := pool.QueryRow(ctx, `select to_regclass($1) is not null`, "pgbase_relation."+physical).Scan(&exists); err != nil || exists {
+		t.Fatalf("deleted collection edge exists=%t err=%v", exists, err)
 	}
 }
 

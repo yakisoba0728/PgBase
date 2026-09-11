@@ -13,6 +13,8 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
   const [provider, setProvider] = useState(emptyProvider);
   const [smtp, setSMTP] = useState(emptySMTP);
   const [recipient, setRecipient] = useState("");
+	const [apple, setApple] = useState({ teamId: "", keyId: "", privateKey: "", duration: "15777000" });
+	const [appleSecret, setAppleSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [reloads, setReloads] = useState(0);
@@ -38,6 +40,15 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
   function removeProvider(name: string) { run(async (signal) => { await authCollections.deleteProvider(collectionId, name, signal); if (signal.aborted) return; setValue((current) => current && ({ ...current, providers: current.providers.filter((item) => item.name !== name) })); }, "OAuth provider removed."); }
   function saveTemplate(template: AuthMailTemplate) { run(async (signal) => { const saved = await authCollections.putTemplate(collectionId, template, signal); if (signal.aborted) return; setValue((current) => current && ({ ...current, templates: [...current.templates.filter((item) => item.purpose !== saved.purpose), saved] })); }, "Mail template saved."); }
   function saveSMTP() { run(async (signal) => { const saved = await authCollections.putSMTP(collectionId, smtp, signal); if (signal.aborted) return; setSMTP(saved); setValue((current) => current && ({ ...current, smtp: saved })); }, "SMTP settings saved. Stored passwords are never returned."); }
+	function generateAppleSecret() {
+		if (authCollections.generateAppleClientSecret === undefined) { setMessage("Apple client-secret generation is unavailable."); return; }
+		const duration = Number(apple.duration);
+		run(async (signal) => {
+			const generated = await authCollections.generateAppleClientSecret!({ clientId: provider.clientId, teamId: apple.teamId, keyId: apple.keyId, privateKey: apple.privateKey, duration }, signal);
+			if (signal.aborted) return;
+			setAppleSecret(generated.secret); setProvider((current) => ({ ...current, clientSecret: generated.secret })); setApple((current) => ({ ...current, privateKey: "" }));
+		}, "Apple client secret generated. Save the Apple provider to store it.");
+	}
   if (!value) return <div><p>{message ?? "Loading authentication settings…"}</p>{message && <button type="button" onClick={() => setReloads(v => v + 1)}>Retry authentication settings</button>}</div>;
   return <details className="auth-administration"><summary>Authentication settings</summary>
     {message && <p role="status">{message}</p>}
@@ -61,6 +72,10 @@ export function AuthAdministrationPanel({ collectionId }: { collectionId: string
       <label>User info URL <input value={provider.userInfoUrl} onChange={(e) => setProvider({ ...provider, userInfoUrl: e.target.value })} /></label>
       <label>Client ID <input value={provider.clientId} onChange={(e) => setProvider({ ...provider, clientId: e.target.value })} /></label>
       <label>Client secret <input type="password" placeholder={provider.secretConfigured ? "Stored; leave blank to keep" : ""} value={provider.clientSecret ?? ""} onChange={(e) => setProvider({ ...provider, clientSecret: e.target.value })} /></label>
+		{provider.name === "apple" && <fieldset><legend>Apple client secret</legend><p>Generate a signed client secret from your Apple team signing key, then save this provider.</p>
+			<label>Team ID <input value={apple.teamId} onChange={(e) => setApple({ ...apple, teamId: e.target.value })} /></label><label>Key ID <input value={apple.keyId} onChange={(e) => setApple({ ...apple, keyId: e.target.value })} /></label><label>Private key <textarea value={apple.privateKey} onChange={(e) => setApple({ ...apple, privateKey: e.target.value })} /></label><label>Lifetime in seconds <input min={1} max={15777000} type="number" value={apple.duration} onChange={(e) => setApple({ ...apple, duration: e.target.value })} /></label>
+			<button type="button" onClick={generateAppleSecret}>Generate Apple client secret</button>{appleSecret && <label>Generated Apple client secret<textarea aria-label="Generated Apple client secret" readOnly value={appleSecret} /></label>}
+		</fieldset>}
       <label>Scopes (space separated) <input value={provider.scopes.join(" ")} onChange={(e) => setProvider({ ...provider, scopes: e.target.value.split(/\s+/).filter(Boolean) })} /></label>
       <label>Avatar URL field <input value={provider.avatarField} onChange={(e) => setProvider({ ...provider, avatarField: e.target.value })} /></label>
       <label>Redirect URIs (one per line) <textarea value={provider.redirectUris.join("\n")} onChange={(e) => setProvider({ ...provider, redirectUris: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })} /></label>

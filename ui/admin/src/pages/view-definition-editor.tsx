@@ -1,8 +1,9 @@
 import { parseJSON } from "../backend/json";
-import type { CollectionDefinition, ViewDefinition, ViewFilter } from "../backend/ports";
+import type { CollectionDefinition, SchemaPort, ViewDefinition, ViewFilter } from "../backend/ports";
+import { ViewSamplePreview } from "./view-sample-preview";
 
-export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = false, onChange }: {
-	view: ViewDefinition; sources: CollectionDefinition[]; disabled: boolean; modeLocked?: boolean; onChange(view: ViewDefinition): void;
+export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = false, onChange, schema }: {
+	view: ViewDefinition; sources: CollectionDefinition[]; disabled: boolean; modeLocked?: boolean; onChange(view: ViewDefinition): void; schema?: SchemaPort;
 }) {
 	const sqlMode = "sql" in view;
 	if (sqlMode) return <fieldset disabled={disabled}>
@@ -10,6 +11,7 @@ export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = fal
 		<label>Definition mode<select disabled={modeLocked} value="sql" onChange={() => onChange({ source: "", projection: [] })}><option value="builder">Source and projection</option><option value="sql">SQL query</option></select></label>
 		<label>SQL SELECT<textarea required rows={12} maxLength={65_536} value={view.sql} onChange={(event) => onChange({ sql: event.target.value })} placeholder={'SELECT id, title\nFROM app.notes\nWHERE published = true'} /></label>
 		<p>Enter one read-only SELECT query using app collection and physical column names. Preview asks PostgreSQL to validate it and infer the fields before anything is applied.</p>
+		<ViewSamplePreview disabled={disabled} query={view.sql ?? ""} schema={schema} />
 		{view.dependencies && view.dependencies.length > 0 && <p>Depends on: {view.dependencies.join(", ")}</p>}
 	</fieldset>;
   const source = sources.find((collection) => collection.name === view.source);

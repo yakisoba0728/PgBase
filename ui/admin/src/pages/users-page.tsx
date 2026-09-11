@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ManagedUser, UserPage } from "../backend/ports";
+import type { ManagedUser, OAuthIdentity, UserPage } from "../backend/ports";
 import { useBackend } from "../auth/session";
 
 function displayDate(value: string): string {
@@ -14,6 +14,7 @@ export function UsersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [impersonation, setImpersonation] = useState<{ token: string; email: string; expiresAt: string } | null>(null);
   const [pending, setPending] = useState(false);
+	const [identities, setIdentities] = useState<{ userID: string; items: OAuthIdentity[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const lifetime = useRef(0);
   const request = useRef(0);
@@ -117,6 +118,13 @@ export function UsersPage() {
       setNotice(`Created an impersonation session for ${user.email}.`);
     }, "Unable to create impersonation session.");
   }
+	function loadIdentities(user: ManagedUser) {
+		if (!users.oauthIdentities) return; void mutate(() => users.oauthIdentities!(user.id), (items) => setIdentities({ userID: user.id, items }), "Unable to load linked OAuth providers.");
+	}
+	function unlinkIdentity(user: ManagedUser, provider: string) {
+		if (!users.unlinkOAuthIdentity || !window.confirm(`Unlink ${provider} from ${user.email}? The server will refuse if this is the final sign-in method.`)) return;
+		void mutate(() => users.unlinkOAuthIdentity!(user.id, provider), () => { setIdentities(current => current?.userID === user.id ? { ...current, items: current.items.filter(identity => identity.provider !== provider) } : current); setNotice(`${provider} was unlinked from ${user.email}.`); }, "Unable to unlink this provider. It may be the user's final sign-in method.");
+	}
 
   const busy = pending || loading;
   return <section>
@@ -149,7 +157,9 @@ export function UsersPage() {
             <button type="button" disabled={busy} onClick={() => verification(user, !user.verified)}>{user.verified ? "Mark unverified" : "Mark verified"}</button>
             {!user.verified && <button type="button" disabled={busy} onClick={() => sendAction(user, "verification")}>Send verification</button>}
             <button type="button" disabled={busy} onClick={() => sendAction(user, "reset")}>Send password reset</button>
+			{users.oauthIdentities && <button type="button" disabled={busy} onClick={() => loadIdentities(user)}>OAuth providers</button>}
             <button type="button" disabled={busy || !user.active} onClick={() => impersonate(user)}>Impersonate</button>
+			{identities?.userID === user.id && <div aria-label={`OAuth providers for ${user.email}`}><ul>{identities.items.map(identity => <li key={`${identity.provider}:${identity.subject}`}>{identity.provider} · {identity.subject} <button type="button" disabled={busy || !users.unlinkOAuthIdentity} onClick={() => unlinkIdentity(user, identity.provider)}>Unlink {identity.provider}</button></li>)}</ul>{identities.items.length === 0 && <p>No OAuth providers linked.</p>}</div>}
           </div></td>
         </tr>)}</tbody>
       </table></div>

@@ -9,8 +9,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dop251/goja"
 	"github.com/yakisoba0728/PgBase/internal/jsvm"
 )
+
+func TestRuntimeTranspilesTypeScriptAndInitializesEveryVM(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/typed","access":"public","handler":{"module":"typed.ts","export":"run"}}]}`)
+	writeFile(t, directory, "typed.ts", `type Input={name:string}; export function run(input:Input){return {value:customPrefix+input.name}}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var initialized atomic.Int32
+	runtime, err := jsvm.NewRuntimeWithInitializer(bundle, jsvm.Limits{}, func(vm *goja.Runtime) error { initialized.Add(1); return vm.Set("customPrefix", "hello ") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Input: json.RawMessage(`{"name":"Ada"}`)})
+	if err != nil || string(output) != `{"value":"hello Ada"}` {
+		t.Fatalf("output=%s err=%v", output, err)
+	}
+	if initialized.Load() < 2 {
+		t.Fatalf("initializer calls=%d", initialized.Load())
+	}
+}
 
 type recordingHost struct {
 	calls []string

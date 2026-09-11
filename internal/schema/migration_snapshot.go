@@ -29,13 +29,18 @@ type MigrationSnapshot struct {
 }
 
 type MigrationSnapshotCollection struct {
-	Name       string          `json:"name"`
-	Fields     []FieldInput    `json:"fields,omitempty"`
-	Indexes    []IndexInput    `json:"indexes,omitempty"`
-	View       *ViewInput      `json:"view,omitempty"`
-	DependsOn  []string        `json:"dependsOn,omitempty"`
-	UserAccess bool            `json:"userAccess"`
-	Rules      json.RawMessage `json:"rules"`
+	Name              string          `json:"name"`
+	CompatibilityName *string         `json:"compatibilityName,omitempty"`
+	Type              *CollectionType `json:"type,omitempty"`
+	System            *bool           `json:"system,omitempty"`
+	ValidationMode    *ValidationMode `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
+	Fields            []FieldInput    `json:"fields,omitempty"`
+	Indexes           []IndexInput    `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
+	DependsOn         []string        `json:"dependsOn,omitempty"`
+	UserAccess        bool            `json:"userAccess"`
+	Rules             json.RawMessage `json:"rules"`
 }
 
 type MigrationImpact struct {
@@ -85,8 +90,13 @@ func ExportMigrationSnapshot(ctx context.Context, tx pgx.Tx) ([]byte, error) {
 
 func migrationSnapshotCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, collection Collection) (MigrationSnapshotCollection, error) {
 	item := MigrationSnapshotCollection{
-		Name:  collection.Name,
+		Name: collection.Name, CompatibilityName: migrationSnapshotPointer(collection.CompatibilityName), Type: migrationSnapshotPointer(collection.Type),
+		System: migrationSnapshotPointer(collection.System), ValidationMode: migrationSnapshotPointer(collection.ValidationMode),
 		Rules: json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`),
+	}
+	if collection.RecordID.Kind == RecordIDText {
+		policy := collection.RecordID
+		item.RecordID = &policy
 	}
 	for _, field := range collection.Fields {
 		id := field.ID
@@ -94,7 +104,7 @@ func migrationSnapshotCollection(ctx context.Context, tx pgx.Tx, catalog Catalog
 			ID: &id, Name: field.Name, Type: field.Type, Required: field.Required,
 			Unique: field.Unique, Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...),
 			Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden,
-			Presentable: field.Presentable, Help: field.Help,
+			Presentable: field.Presentable, Help: field.Help, System: migrationSnapshotPointer(field.System),
 		}
 		if field.Relation != nil {
 			target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
@@ -110,7 +120,7 @@ func migrationSnapshotCollection(ctx context.Context, tx pgx.Tx, catalog Catalog
 		item.Fields = append(item.Fields, input)
 	}
 	for _, index := range collection.Indexes {
-		item.Indexes = append(item.Indexes, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+		item.Indexes = append(item.Indexes, migrationSnapshotIndex(index))
 	}
 	if collection.View != nil {
 		item.View = &ViewInput{
@@ -446,7 +456,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 	if err != nil {
 		return err
 	}
-	equivalent, err := MigrationSnapshotsEquivalent(currentRaw, beforeRaw)
+	equivalent, err := migrationSnapshotMatches(currentRaw, beforeRaw)
 	if err != nil || !equivalent {
 		if err != nil {
 			return err
@@ -492,7 +502,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 			field.ID = nil
 			scalars = append(scalars, field)
 		}
-		change := NewCreateChange(CreateCollectionInput{Name: item.Name, Fields: scalars})
+		change := NewCreateChange(snapshotCreateInput(item, scalars))
 		if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 			return err
 		}
@@ -511,7 +521,10 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 			return err
 		}
 		indexes := cloneIndexInputs(item.Indexes)
-		change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes})
+		change := NewUpdateChange(UpdateCollectionInput{
+			Name: item.Name, CompatibilityName: item.CompatibilityName, Type: item.Type, System: item.System,
+			ValidationMode: item.ValidationMode, RecordID: item.RecordID, Fields: fields, Indexes: &indexes,
+		})
 		if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 			return err
 		}
@@ -532,11 +545,11 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 				continue
 			}
 			id := field.ID
-			scalars = append(scalars, FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help})
+			scalars = append(scalars, FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Default: append(json.RawMessage(nil), field.Default...), Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help, System: migrationSnapshotPointer(field.System)})
 		}
 		if len(scalars) != len(current.Fields) {
 			emptyIndexes := []IndexInput{}
-			change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, Fields: scalars, Indexes: &emptyIndexes})
+			change := NewUpdateChange(UpdateCollectionInput{Name: item.Name, RecordID: item.RecordID, Fields: scalars, Indexes: &emptyIndexes})
 			if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 				return err
 			}
@@ -554,7 +567,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 		}
 	}
 	for _, item := range orderedMigrationViews(after, false) {
-		change := NewCreateChange(CreateCollectionInput{Name: item.Name, View: item.View})
+		change := NewCreateChange(snapshotCreateInput(item, nil))
 		if err := applySnapshotChange(ctx, tx, service, store, &catalog, change, item, companions); err != nil {
 			return err
 		}
@@ -575,7 +588,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 	if err != nil {
 		return err
 	}
-	equivalent, err = MigrationSnapshotsEquivalent(finalRaw, afterRaw)
+	equivalent, err = migrationSnapshotMatches(finalRaw, afterRaw)
 	if err != nil || !equivalent {
 		if err != nil {
 			return err
@@ -632,7 +645,12 @@ func applySnapshotChange(ctx context.Context, tx pgx.Tx, service *Service, store
 		if err != nil {
 			return err
 		}
-		next := Collection{ID: current.ID, Name: current.Name, TableName: current.TableName, Fields: fields, Indexes: indexes, View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt}
+		next := Collection{
+			ID: current.ID, Name: plan.Definition.Name, CompatibilityName: plan.Definition.CompatibilityName,
+			Type: plan.Definition.Type, System: plan.Definition.System, ValidationMode: plan.Definition.ValidationMode,
+			RecordID: plan.Definition.RecordID, TableName: plan.Definition.TableName, Fields: fields, Indexes: indexes,
+			View: resolvedViewSpec(plan.Definition.View), CreatedAt: current.CreatedAt,
+		}
 		if err := validateChangedFieldOptions(ctx, tx, current, next); err != nil {
 			return err
 		}
@@ -660,6 +678,23 @@ func applySnapshotChange(ctx context.Context, tx pgx.Tx, service *Service, store
 	return err
 }
 
+func snapshotCreateInput(item MigrationSnapshotCollection, fields []FieldInput) CreateCollectionInput {
+	input := CreateCollectionInput{Name: item.Name, RecordID: item.RecordID, Fields: fields, View: item.View}
+	if item.CompatibilityName != nil {
+		input.CompatibilityName = *item.CompatibilityName
+	}
+	if item.Type != nil {
+		input.Type = *item.Type
+	}
+	if item.System != nil {
+		input.System = *item.System
+	}
+	if item.ValidationMode != nil {
+		input.ValidationMode = *item.ValidationMode
+	}
+	return input
+}
+
 func applyMigrationViewFields(plan *Plan, snapshot MigrationSnapshotCollection) error {
 	if len(snapshot.Fields) != len(plan.Definition.Fields) {
 		return validation("collections."+snapshot.Name+".fields", "view_field_mismatch")
@@ -675,6 +710,9 @@ func applyMigrationViewFields(plan *Plan, snapshot MigrationSnapshotCollection) 
 			inferred.Options = cloneFieldOptions(*provided.Options)
 		}
 		inferred.Hidden, inferred.Presentable, inferred.Help = provided.Hidden, provided.Presentable, provided.Help
+		if provided.System != nil {
+			inferred.System = *provided.System
+		}
 	}
 	return nil
 }
@@ -699,6 +737,9 @@ func mappedMigrationFields(target, baseline []FieldInput, current []Field) ([]Fi
 		if actual, exists := currentByName[name]; exists {
 			id := actual.ID
 			result[index].ID = &id
+			if result[index].System == nil {
+				result[index].System = migrationSnapshotPointer(actual.System)
+			}
 			if result[index].Options == nil {
 				result[index].Options = &FieldOptions{}
 			}

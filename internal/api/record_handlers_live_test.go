@@ -347,6 +347,18 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 	if updatedBody["expand"].(map[string]any)["owner"].(map[string]any)["name"] != "changed" {
 		t.Fatalf("expanded target did not refresh: %#v", updatedBody["expand"])
 	}
+	projected := serve("/api/v1/collections/api_expand_articles/records/" + articleIDs[0] + "?fields=title%2Cid")
+	var projectedBody map[string]any
+	if projected.Code != http.StatusOK || projected.Header().Get("ETag") != raw.Header().Get("ETag") ||
+		json.Unmarshal(projected.Body.Bytes(), &projectedBody) != nil || len(projectedBody) != 2 ||
+		projectedBody["id"] != articleIDs[0] || projectedBody["title"] != "one" {
+		t.Fatalf("projected get status=%d headers=%v body=%s", projected.Code, projected.Header(), projected.Body.String())
+	}
+	invalidProjection := serve("/api/v1/collections/api_expand_articles/records/" + articleIDs[0] + "?fields=missing")
+	if invalidProjection.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid projection status=%d body=%s", invalidProjection.Code, invalidProjection.Body.String())
+	}
+	assertErrorCode(t, invalidProjection.Body.Bytes(), "validation_failed")
 
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	firstPage := serve("/api/v1/collections/api_expand_articles/records?limit=1&expand=owner%2Ctags")
@@ -362,6 +374,16 @@ func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {
 	}
 	if len(page.Items) != 1 || page.NextCursor == "" || page.Items[0]["expand"] == nil {
 		t.Fatalf("expanded first page = %#v", page)
+	}
+	projectedPage := serve("/api/v1/collections/api_expand_articles/records?limit=1&fields=title%2Cid&cursor=" + url.QueryEscape(page.NextCursor))
+	var projectedPageBody struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"nextCursor"`
+	}
+	if projectedPage.Code != http.StatusOK || json.Unmarshal(projectedPage.Body.Bytes(), &projectedPageBody) != nil ||
+		len(projectedPageBody.Items) != 1 || len(projectedPageBody.Items[0]) != 2 ||
+		projectedPageBody.Items[0]["id"] == page.Items[0]["id"] || projectedPageBody.Items[0]["title"] == nil {
+		t.Fatalf("projected cursor page status=%d body=%s", projectedPage.Code, projectedPage.Body.String())
 	}
 	secondPage := serve("/api/v1/collections/api_expand_articles/records?limit=1&expand=owner%2Ctags&cursor=" + url.QueryEscape(page.NextCursor))
 	var continuation struct {

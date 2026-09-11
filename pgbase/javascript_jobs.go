@@ -46,7 +46,7 @@ func installJavaScriptJobs(options *Options, runtime *javaScriptRuntime) error {
 					return err
 				}
 				_, err = runtime.engine.Invoke(ctx, jsvm.Invocation{Handler: descriptor.Handler, Capabilities: descriptor.Capabilities,
-					Input: input, Host: runtime.bridge.forSubject(identity.Subject{Kind: identity.Service, ID: subject}, fmt.Sprintf("job-%s-%d", run.JobID, run.FenceGeneration))})
+					Input: input, Host: namespacedHost(runtime.bridge.forSubject(identity.Subject{Kind: identity.Service, ID: subject}, fmt.Sprintf("job-%s-%d", run.JobID, run.FenceGeneration)), descriptor.Handler.Module)})
 				return err
 			},
 		})

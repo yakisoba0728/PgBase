@@ -389,6 +389,21 @@ func TestRelationPlanDeleteGuardsIncomingAndCleansOutgoingMulti(t *testing.T) {
 	}
 }
 
+func TestRelationPlanDeleteUsesRenamedMultiRelationPhysicalIdentity(t *testing.T) {
+	current, catalog := relationPlannerCurrentMulti()
+	current.Fields[0].Name = "labels"
+	catalog.Collections[current.Name] = current
+	plan, err := planDeleteIn(5, catalog, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := NewRelationPhysicalNames(current.TableName, current.Fields[0].ColumnName)
+	joined := strings.Join(plan.Statements, "\n")
+	if !strings.Contains(joined, `DROP TABLE "pgbase_relation"."`+names.MultiTable+`"`) {
+		t.Fatalf("renamed multi-relation cleanup = %#v", plan.Statements)
+	}
+}
+
 func TestRelationPlanSupportsCatalogCycles(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,7 +55,7 @@ func planViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) 
 	}
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM " + pgx.Identifier{"app", source.TableName}.Sanitize() + ` AS "source" WHERE ` + predicate
 	view := &PlannedView{SourceCollectionID: source.ID, Source: source.Name, Projection: append([]string(nil), input.View.Projection...), Filter: cloneViewFilter(input.View.Filter)}
-	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, View: view}, Statements: []string{statement}}, nil
+	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, RecordID: source.RecordID, TableName: input.Name, Fields: fields, View: view}, Statements: []string{statement}}, nil
 }
 
 func planSQLViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, error) {
@@ -94,7 +95,7 @@ func planSQLViewCreate(catalog Catalog, input CreateCollectionInput) (Plan, erro
 	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
 	statement := "CREATE VIEW " + pgx.Identifier{"app", input.Name}.Sanitize() + " AS SELECT " + strings.Join(projection, ", ") + " FROM (" + sql + ") AS " + alias
 	plannedView := &PlannedView{SQL: view.SQL, Dependencies: append([]uuid.UUID(nil), inspection.Dependencies...)}
-	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, View: plannedView}, Statements: []string{statement}}, nil
+	return Plan{Operation: createCollectionOperation, BaseVersion: catalog.Version, Definition: PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: CollectionTypeView, System: input.System, ValidationMode: input.ValidationMode, RecordID: DefaultRecordIDPolicy(), TableName: input.Name, Fields: fields, View: plannedView}, Statements: []string{statement}}, nil
 }
 
 func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
@@ -110,10 +111,33 @@ func planSQLViewUpdate(catalog Catalog, current Collection, input UpdateCollecti
 	if err != nil {
 		return Plan{}, err
 	}
+	created.Definition.CompatibilityName, created.Definition.Type, created.Definition.System, created.Definition.ValidationMode = current.CompatibilityName, current.Type, current.System, current.ValidationMode
 	if slices.Contains(created.Definition.View.Dependencies, current.ID) {
 		return Plan{}, validation("view.sql", "self_reference")
 	}
 	prior := make(map[string]Field, len(current.Fields))
+	for _, field := range current.Fields {
+		prior[field.Name] = field
+	}
+	for i := range created.Definition.Fields {
+		if field, ok := prior[created.Definition.Fields[i].Name]; ok && field.Type == created.Definition.Fields[i].Type {
+			created.Definition.Fields[i].ID = field.ID
+		}
+	}
+	created.Operation = updateCollectionOperation
+	created.Statements = append([]string{"DROP VIEW " + pgx.Identifier{"app", current.TableName}.Sanitize()}, created.Statements...)
+	return created, nil
+}
+
+func planDeclarativeViewUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if input.View == nil || input.View.SQL != "" || input.Name != current.Name || len(input.Fields) != 0 || input.Indexes != nil {
+		return Plan{}, validation("view", "invalid_shape")
+	}
+	created, err := planViewCreate(catalog, CreateCollectionInput{Name: current.Name, CompatibilityName: current.CompatibilityName, Type: CollectionTypeView, System: current.System, ValidationMode: current.ValidationMode, View: input.View})
+	if err != nil {
+		return Plan{}, err
+	}
+	prior := map[string]Field{}
 	for _, field := range current.Fields {
 		prior[field.Name] = field
 	}
@@ -250,10 +274,13 @@ func viewReferencesCollection(view Collection, collectionID uuid.UUID) bool {
 	return view.View != nil && (view.View.SourceCollectionID == collectionID || slices.Contains(view.View.Dependencies, collectionID))
 }
 
-func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField) error {
+func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[string]PlannedField, desired []PlannedField, allowSQLViewRename bool) error {
 	for _, candidate := range catalog.Collections {
 		if candidate.IsSQLView() && slices.Contains(candidate.View.Dependencies, sourceID) {
-			return validation("fields", "field_used_by_view")
+			if !allowSQLViewRename || !sameSQLViewSourceFields(current, desired) {
+				return validation("fields", "field_used_by_view")
+			}
+			continue
 		}
 		if candidate.View == nil || candidate.View.SourceCollectionID != sourceID {
 			continue
@@ -277,4 +304,17 @@ func validateViewSourceUpdate(catalog Catalog, sourceID uuid.UUID, current map[s
 		}
 	}
 	return nil
+}
+
+func sameSQLViewSourceFields(current map[string]PlannedField, desired []PlannedField) bool {
+	if len(current) != len(desired) {
+		return false
+	}
+	for _, field := range desired {
+		stored, ok := current[field.Name]
+		if !ok || !reflect.DeepEqual(stored, field) {
+			return false
+		}
+	}
+	return true
 }

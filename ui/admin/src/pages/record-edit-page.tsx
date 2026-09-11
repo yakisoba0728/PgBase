@@ -10,6 +10,17 @@ import type { FieldState } from "../workspace/record-codec";
 
 function jsonSelections(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
 
+function safePublicURL(value: string | undefined): string | null {
+  if (!value) return null; try { const url = new URL(value, window.location.origin); return url.origin === window.location.origin && /^\/api\/files\/[0-9a-f-]+$/i.test(url.pathname) && url.search === "" && url.hash === "" ? url.pathname : null; } catch { return null; }
+}
+
+function datetimeLocal(value: unknown): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefinition }) {
   const state = editor.stateOf(field);
   const relation = field.type === "relation" ? field.relation : undefined;
@@ -45,6 +56,7 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
         field.type === "text" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)}><option disabled value="">Choose a value</option>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} multiple onChange={(event) => editor.setValue(field, JSON.stringify(Array.from(event.target.selectedOptions, (option) => option.value)))} value={jsonSelections(String(state.value))}>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" || multipleRelation ? <textarea aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} rows={multipleRelation ? Math.min(8, Math.max(3, relation?.maxSelect ?? 3)) : 5} value={String(state.value)} /> :
+          field.type === "timestamptz" ? <><input aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value === "" ? "" : new Date(event.target.value).toISOString())} type="datetime-local" value={datetimeLocal(state.value)} /><p>Your local timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Saved as RFC3339 UTC.</p></> :
           <input type={field.type === "password" ? "password" : "text"} autoComplete={field.type === "password" ? "new-password" : undefined} aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)} />}
       {relation !== undefined && target !== undefined && <RelationTargetPicker
         disabled={editor.pending || editor.stale}
@@ -65,6 +77,7 @@ export function FileField({ collection, recordID, field }: { collection: string;
   const [items, setItems] = useState<FileInfo[]>([]);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
   const input = useRef<HTMLInputElement>(null);
 	const lifetime = useRef(0);
 	const maximum = field.options?.maxSelect ?? 1;
@@ -83,23 +96,32 @@ export function FileField({ collection, recordID, field }: { collection: string;
     catch { if (generation === lifetime.current) setMessage("Upload failed."); } finally { if (generation === lifetime.current) setPending(false); }
   }
   async function download(item: FileInfo, variant = "original") {
-	try { const token = await files.createDownloadToken(item.id, variant); const blob = await files.downloadBlob(item.id, token, variant); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = variant === "original" ? item.filename : `${variant}-${item.filename}`; link.click(); URL.revokeObjectURL(url); }
+	try { const publicURL = variant === "original" && item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await (await fetch(publicURL, { credentials: "omit" })).blob() : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, variant), variant); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = variant === "original" ? item.filename : `${variant}-${item.filename}`; link.click(); URL.revokeObjectURL(url); }
     catch { setMessage("Download failed."); }
   }
+	async function showPreview(item: FileInfo) {
+		try { const publicURL = item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await (await fetch(publicURL, { credentials: "omit" })).blob() : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, "original")); setPreview((current) => { if (current) URL.revokeObjectURL(current.url); return { name: item.filename, url: URL.createObjectURL(blob) }; }); }
+		catch { setMessage("Preview failed. You may not have permission to read this protected file."); }
+	}
 	return <fieldset className="record-field"><legend>{field.name} files</legend>
 		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
+		<p>Protected previews and downloads mint a short-lived, file-scoped token. A public link appears only when the server explicitly exposes this file.</p>
 		{message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>Upload</button>
-		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
+		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) {item.protected === false && safePublicURL(item.publicUrl) ? <a href={safePublicURL(item.publicUrl)!}>Public link</a> : <small>Protected</small>} <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>Preview</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
+		{preview && <div role="dialog" aria-label={`Preview ${preview.name}`}><img alt={preview.name} src={preview.url} /><button type="button" onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }}>Close preview</button></div>}
   </fieldset>;
 }
 
 function AtomicFileInput({ field, files, error, disabled, onChange }: { field: FieldDefinition; files: File[]; error?: string; disabled: boolean; onChange(files: File[]): void }) {
 	const maximum = field.options?.maxSelect ?? 1;
+	const [previews, setPreviews] = useState<Array<{ name: string; type: string; url: string }>>([]);
+	useEffect(() => { const next = files.filter(file => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")).map(file => ({ name: file.name, type: file.type, url: URL.createObjectURL(file) })); setPreviews(next); return () => next.forEach(preview => URL.revokeObjectURL(preview.url)); }, [files]);
 	return <fieldset className="record-field">
 		<legend>{field.name} replacement files on save</legend>
-		<input aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
+		<input accept={field.options?.mimeTypes?.join(",")} aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
 		<p>On an existing record, selecting files replaces the current set when you save. Select {maximum === 1 ? "one file" : `up to ${maximum} files`}. File selections stay only in this page and must be selected again after a reload.</p>
 		{files.length > 0 && <ul>{files.map((file, index) => <li key={`${file.name}:${index}`}>{file.name}</li>)}</ul>}
+		{previews.length > 0 && <div aria-label={`${field.name} selected file previews`}>{previews.map(preview => preview.type.startsWith("image/") ? <img alt={`Selected ${preview.name}`} key={preview.url} src={preview.url} /> : preview.type.startsWith("video/") ? <video aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} /> : <audio aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} />)}</div>}
 		{error && <p className="field-error" id={`record-${field.name}-file-error`}>{error}</p>}
 	</fieldset>;
 }

@@ -1,5 +1,7 @@
 # PocketBase 대비 현재 재평가
 
+> **2026-09-11 대체 안내:** 이 문서는 PR #34 설치 상태를 기준으로 한 2026-09-10 재평가 기록이다. 최신 232행 기능 판정은 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md), Round 3의 21행 수용 근거는 [완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md)를 따른다.
+
 기준: 로컬 PocketBase v0.40.3 (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`), 설치된 PgBase N1–N5 / `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`, PR #34 병합 기준. 2026-09-10 확인. 과거 전체 소스 감사는 이전 커밋의 기록이며 현재 미구현 목록으로 그대로 사용하지 않는다. 이번 확인은 현재 코드의 주요 기능·세부 계약 재대조다.
 
 실행 중인 로컬 설치는 N1–N5 / PostgreSQL17.9 / schema40다. 구현·독립 검토·전체 로컬 인수, PR #34 필수 CI5/5·정상 병합·기존 설치 백업/적용/인수를 완료했다. 공개 release/package/cloud 배포는 수행하지 않았다. 각 기능의 완료는 문서화된 PgBase 계약 범위다.

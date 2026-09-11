@@ -77,6 +77,12 @@ export function OperationsConsole({ port }: { port: OperationsPort }) {
       if (mutation.current === controller) { mutation.current = null; setBusy(false); }
     }
   }
+	function exportLogs() {
+		if (!logs) return;
+		const cell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+		const csv = [["at", "method", "route", "status", "durationMs"], ...logs.items.map(item => [item.at, item.method, item.route, item.status, item.durationMs])].map(row => row.map(cell).join(",")).join("\r\n");
+		const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "pgbase-request-logs.csv"; link.click(); URL.revokeObjectURL(url);
+	}
 
   return <section aria-label="Operations console">
     <h3>Operations console</h3>
@@ -91,7 +97,7 @@ export function OperationsConsole({ port }: { port: OperationsPort }) {
     <label>Route template<input value={route} maxLength={256} onChange={event => { setRoute(event.target.value); setBefore(undefined); }} placeholder="/api/records/{collection}/{id}" /></label>
     <label>From<input type="datetime-local" value={from} onChange={event => { setFrom(event.target.value); setBefore(undefined); }} /></label>
     <label>To<input type="datetime-local" value={to} onChange={event => { setTo(event.target.value); setBefore(undefined); }} /></label>
-    {statistics && <p>{statistics.total} retained requests · {statistics.averageDurationMs.toFixed(1)} ms average · {statistics.dropped} dropped before persistence.</p>}
+    {statistics && <><p>{statistics.total} retained requests · {statistics.averageDurationMs.toFixed(1)} ms average · {statistics.dropped} dropped before persistence.</p><div aria-label="Request status chart" role="img">{Object.entries(statistics.statusClasses).map(([status, count]) => <div key={status}><span>{status}</span><meter max={Math.max(1, statistics.total)} value={count}>{count}</meter> {count}</div>)}</div></>}
     {loading && <p aria-live="polite">Loading operations…</p>}
     {logs && <>
       <div className="table-scroll"><table><thead><tr><th>Time</th><th>Method</th><th>Route</th><th>Status</th><th>ms</th></tr></thead><tbody>
@@ -100,6 +106,7 @@ export function OperationsConsole({ port }: { port: OperationsPort }) {
       {logs.items.length === 0 && <p>No retained requests match this page.</p>}
       {before !== undefined && <p>Entries older than retained ID {logs.oldestId} are no longer available.</p>}
       <button type="button" disabled={!logs.nextBefore || busy} onClick={() => setBefore(logs.nextBefore)}>Older requests</button>
+		<button type="button" disabled={logs.items.length === 0 || busy} onClick={exportLogs}>Export displayed logs as CSV</button>
       {port.truncateLogs && <button type="button" disabled={busy} onClick={() => void change(signal => port.truncateLogs!(signal), "Request log truncated.")}>Truncate request log</button>}
     </>}
     {detail && <p role="status">Request {detail.id}: {detail.method} {detail.route}, {detail.status}, {detail.durationMs} ms at {detail.at}.</p>}

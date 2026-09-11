@@ -18,6 +18,7 @@ import {
   type AuthenticatedSession,
   type CollectionChange,
   type CollectionDefinition,
+	 type FieldDefinition,
   type CreateAttempt,
   type ListOptions,
   type OperationHistory,
@@ -30,8 +31,12 @@ import {
   type ResumedSession,
   type SchemaHealth,
   type SetupInput,
+	 type SetupBackup, type SetupBackupJob,
   type SystemStatus,
+  type AdminSettings,
+	 type AdministratorProfile,
   type ManagedUser,
+	 type OAuthIdentity,
   type UserPage,
   type ImpersonatedUserSession,
   type FileInfo,
@@ -41,7 +46,7 @@ import {
   type AuthAdministration, type AuthPolicy, type OAuthProviderSettings, type AuthMailTemplate, type AuthMailPreview, type AuthSMTPSettings,
   type IssuedServiceToken,
   type ServiceToken, type ServiceTokenScope,
-	type SchemaDocument, type SchemaImportPlan, type SchemaImportResult,
+	type SchemaDocument, type CollectionScaffolds, type SchemaImportPlan, type SchemaImportResult,
 } from "./ports";
 
 interface Wire {
@@ -201,6 +206,21 @@ class HTTPBackend implements AdminBackend {
       }
       if (authGeneration === this.#authGeneration) { this.#csrfToken = ""; this.#authGeneration += 1; }
     },
+		uploadSetupBackup: async (setupToken: string, archive: File, signal?: AbortSignal): Promise<SetupBackup> => {
+			const response = await fetch("/api/admin/setup/backups/upload", { method: "POST", body: archive, credentials: "include", signal, headers: { "Content-Type": "application/gzip", "X-PgBase-Setup-Token": setupToken } });
+			if (!response.ok) throw new SessionError(response.status === 401 ? "invalid-credentials" : "failed");
+			return await decode(response) as SetupBackup;
+		},
+		restoreSetupBackup: async (setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob> => {
+			try { return (await this.#send({ path: `/api/admin/setup/backups/${encodeURIComponent(id)}/restore`, method: "POST", headers: { "X-PgBase-Setup-Token": setupToken }, anonymous: true, signal })).data as SetupBackupJob; }
+			catch (error) { throw error instanceof WireError && error.wire.status === 401 ? new SessionError("invalid-credentials") : error; }
+		},
+		setupBackupJob: async (setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob> => {
+			const response = await fetch(`/api/admin/setup/backup-jobs/${encodeURIComponent(id)}`, { credentials: "include", signal, headers: { "X-PgBase-Setup-Token": setupToken } });
+			if (!response.ok) throw new SessionError(response.status === 401 ? "invalid-credentials" : "failed"); return await decode(response) as SetupBackupJob;
+		},
+		requestPasswordReset: async (email: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/request-password-reset", method: "POST", body: { email }, anonymous: true, signal }); },
+		confirmPasswordReset: async (token: string, newPassword: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/auth/confirm-password-reset", method: "POST", body: { token, newPassword }, anonymous: true, signal }); },
     onExpired: (listener: () => void) => {
       this.#expired.add(listener);
       return () => { this.#expired.delete(listener); };
@@ -261,6 +281,9 @@ class HTTPBackend implements AdminBackend {
 			try { return (await this.#schemaCall({ path: "/api/admin/schema/import/apply", method: "POST", body: { document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }, headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, csrf: true, signal })).data as SchemaImportResult; }
 			catch (caught) { if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body")) return (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult; throw caught; }
 		},
+		sampleView: async (query: string, signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/view/sample", method: "POST", body: { query }, csrf: true, signal })).data as { fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] },
+		scaffolds: async (signal?: AbortSignal) => (await this.#schemaCall({ path: "/api/admin/collections/scaffolds", signal })).data as CollectionScaffolds,
+		truncate: async (collection: string, confirmation: string, signal?: AbortSignal) => (await this.#schemaCall({ path: `/api/admin/collections/${encodeURIComponent(collection)}/truncate`, method: "POST", body: { name: confirmation }, csrf: true, signal })).data as { name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number },
 		importStatus: async (operationId: string, signal?: AbortSignal) => (await this.#schemaCall({ path:`/api/admin/schema/import/operations/${encodeURIComponent(operationId)}`, signal })).data as SchemaImportResult,
   };
 
@@ -324,6 +347,18 @@ class HTTPBackend implements AdminBackend {
         throw this.#systemFailure(caught);
       }
     },
+  };
+
+  readonly settings = {
+    get: async (signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", signal })).data as AdminSettings,
+    save: async (value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings> => (await this.#send({ path: "/api/admin/settings", method: "PATCH", body: value, csrf: true, signal })).data as AdminSettings,
+    reload: async (signal?: AbortSignal): Promise<void> => { await this.#send({ path: "/api/admin/settings/reload", method: "POST", csrf: true, signal }); },
+  };
+  readonly profile = {
+    get: async (signal?: AbortSignal): Promise<AdministratorProfile> => (await this.#send({ path: "/api/admin/profile", signal })).data as AdministratorProfile,
+    update: async (value: { email: string }, signal?: AbortSignal): Promise<AdministratorProfile> => (await this.#send({ path: "/api/admin/profile", method: "PATCH", body: value, csrf: true, signal })).data as AdministratorProfile,
+    ipAllowlist: async (signal?: AbortSignal): Promise<string[]> => ((await this.#send({ path: "/api/admin/profile/ip-allowlist", signal })).data as { prefixes: string[] }).prefixes,
+    setIPAllowlist: async (prefixes: string[], signal?: AbortSignal): Promise<string[]> => ((await this.#send({ path: "/api/admin/profile/ip-allowlist", method: "PATCH", body: { prefixes }, csrf: true, signal })).data as { prefixes: string[] }).prefixes,
   };
 
   readonly operations = {
@@ -419,6 +454,8 @@ class HTTPBackend implements AdminBackend {
     sendPasswordReset: async (id: string): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/send-password-reset`, method: "POST", csrf: true }); },
     impersonate: async (id: string, durationSeconds = 300) =>
       (await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/impersonate`, method: "POST", body: { durationSeconds }, csrf: true })).data as ImpersonatedUserSession,
+		oauthIdentities: async (id: string, signal?: AbortSignal): Promise<OAuthIdentity[]> => ((await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/oauth-identities`, signal })).data as { items: OAuthIdentity[] }).items,
+		unlinkOAuthIdentity: async (id: string, provider: string, signal?: AbortSignal): Promise<void> => { await this.#send({ path: `/api/admin/users/${encodeURIComponent(id)}/oauth-identities/${encodeURIComponent(provider)}`, method: "DELETE", csrf: true, signal }); },
   };
 
   readonly files = {
@@ -473,6 +510,7 @@ class HTTPBackend implements AdminBackend {
     previewTemplate: async (id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/mail-templates/${value.purpose}/preview`, method: "POST", body: { ...templateInput(value), actionUrl: value.actionUrl }, csrf: true, signal })).data as AuthMailPreview,
     putSMTP: async (id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings> => (await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp`, method: "PUT", body: smtpInput(value), csrf: true, signal })).data as AuthSMTPSettings,
     testSMTP: async (id: string, recipient: string, signal?: AbortSignal): Promise<void> => { await this.#schemaCall({ path: `/api/admin/auth-collections/${encodeURIComponent(id)}/smtp/test`, method: "POST", body: { recipient }, csrf: true, signal }); },
+		generateAppleClientSecret: async (value: { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number }, signal?: AbortSignal): Promise<{ secret: string }> => (await this.#schemaCall({ path: "/api/admin/settings/apple/generate-client-secret", method: "POST", body: value, csrf: true, signal })).data as { secret: string },
   };
   readonly serviceTokens = {
     listServiceTokens: async (signal?: AbortSignal): Promise<ServiceToken[]> =>

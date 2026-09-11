@@ -18,9 +18,12 @@ import (
 // ExtensionContext exposes PgBase domain operations for one admitted request.
 // It contains no session, bearer token, database handle, or storage key.
 type ExtensionContext struct {
-	Records ExtensionRecords
-	Mail    ExtensionMail
-	Files   ExtensionFiles
+	Records   ExtensionRecords
+	Mail      ExtensionMail
+	Files     ExtensionFiles
+	Templates *TemplateRegistry
+	Database  *TrustedDatabase
+	Objects   *ExtensionObjects
 }
 
 // ExtensionsForRequest derives authority from PgBase's request middleware.
@@ -34,7 +37,7 @@ func (a *App) ExtensionsForRequest(ctx context.Context) (*ExtensionContext, erro
 		return nil, errors.New("extension request context is not admitted")
 	}
 	host := &extensionHost{bridge: a.extensions, principal: principal, requestID: requestID, valid: true, authorityContext: ctx}
-	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}}, nil
+	return &ExtensionContext{Records: ExtensionRecords{host}, Mail: ExtensionMail{host}, Files: ExtensionFiles{host}, Templates: a.extensions.templates, Database: a.extensions.database, Objects: a.extensions.objects}, nil
 }
 
 type ExtensionListOptions struct {
@@ -149,10 +152,17 @@ func (record extensionPublicRecord) public() ExtensionRecord {
 }
 
 type ExtensionMailMessage struct {
-	To      string
-	Subject string
-	Text    string
-	HTML    string
+	To          string
+	Subject     string
+	Text        string
+	HTML        string
+	Attachments []ExtensionMailAttachment
+}
+
+type ExtensionMailAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
 }
 
 type ExtensionMail struct{ host *extensionHost }
@@ -161,7 +171,11 @@ func (mail ExtensionMail) Send(ctx context.Context, message ExtensionMailMessage
 	var output struct {
 		Sent bool `json:"sent"`
 	}
-	return extensionCall(ctx, mail.host, "mail.send", extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML}, &output)
+	attachments := make([]extensionMailAttachment, len(message.Attachments))
+	for index, attachment := range message.Attachments {
+		attachments[index] = extensionMailAttachment{Filename: attachment.Filename, ContentType: attachment.ContentType, DataBase64: base64.StdEncoding.EncodeToString(attachment.Data)}
+	}
+	return extensionCall(ctx, mail.host, "mail.send", extensionMailRequest{To: message.To, Subject: message.Subject, Text: message.Text, HTML: message.HTML, Attachments: attachments}, &output)
 }
 
 type ExtensionFile struct {

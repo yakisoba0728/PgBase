@@ -11,6 +11,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +22,72 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+// MFARule is deliberately small and deterministic: an empty rule applies MFA
+// whenever an active factor exists; otherwise a declared profile field (or the
+// built-in `verified`) must equal the supplied JSON scalar.  Unsupported
+// expressions are rejected at configuration time rather than silently stored.
+type mfaRule struct {
+	Field  string          `json:"field"`
+	Equals json.RawMessage `json:"equals"`
+}
+
+func validMFARule(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	var r mfaRule
+	if json.Unmarshal([]byte(raw), &r) != nil || (r.Field != "verified" && !authCollectionName.MatchString(r.Field)) || len(r.Equals) == 0 {
+		return false
+	}
+	var scalar any
+	if json.Unmarshal(r.Equals, &scalar) != nil {
+		return false
+	}
+	switch scalar.(type) {
+	case string, bool, float64, nil:
+		return true
+	}
+	return false
+}
+func (s *Service) mfaRequiredTx(ctx context.Context, tx pgx.Tx, user User) (bool, error) {
+	var policy AuthPolicy
+	if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, user.AuthCollectionID).Scan(&policy.PasswordEnabled, &policy.MinimumPasswordBytes, &policy.MaximumPasswordBytes, &policy.PasswordPattern, &policy.IdentityFields, &policy.MFAEnabled, &policy.MFADurationSeconds, &policy.MFARule, &policy.OTPEnabled, &policy.OTPDurationSeconds, &policy.OTPMaxAttempts); err != nil {
+		return false, err
+	}
+	if !policy.MFAEnabled {
+		return false, nil
+	}
+	var active bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, user.ID).Scan(&active); err != nil {
+		return false, err
+	}
+	if !active {
+		return false, nil
+	}
+	if policy.MFARule == "" {
+		return true, nil
+	}
+	var rule mfaRule
+	_ = json.Unmarshal([]byte(policy.MFARule), &rule)
+	var got json.RawMessage
+	if rule.Field == "verified" {
+		got = []byte("false")
+		if user.Verified {
+			got = []byte("true")
+		}
+	} else {
+		var profile []byte
+		err := tx.QueryRow(ctx, `select attributes from pgbase_meta.user_auth_profiles where user_id=$1`, user.ID).Scan(&profile)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+		var values map[string]json.RawMessage
+		_ = json.Unmarshal(profile, &values)
+		got = values[rule.Field]
+	}
+	return string(got) == string(rule.Equals), nil
+}
 
 const (
 	totpStep          = 30 * time.Second
@@ -74,7 +141,7 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 	if err != nil {
 		return RecoveryCodes{}, err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("mfa-enroll", "account", userID.String()), mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa-enroll", "account", userID.String()), limit: mfaFailureLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return RecoveryCodes{}, err
 	}
@@ -161,7 +228,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 	if err != nil {
 		return Session{}, err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash("mfa", "challenge", challengeToken), mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa", "challenge", challengeToken), limit: mfaFailureLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return Session{}, err
 	}
@@ -195,6 +262,10 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 		if err != nil {
 			return err
 		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
+			invalid = true
+			return nil
+		}
 		valid, err := s.consumeFactorCode(ctx, tx, userID, code, now)
 		if err != nil {
 			return err
@@ -218,6 +289,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 		}
 		return Session{}, ErrInvalidCredentials
 	}
+	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
 }
 
@@ -227,7 +299,14 @@ func (s *Service) insertMFAChallenge(ctx context.Context, tx pgx.Tx, userID uuid
 		return nil, err
 	}
 	raw := base64.RawURLEncoding.EncodeToString(rawBytes)
-	expires := now.Add(mfaChallengeTTL)
+	// The collection policy controls the lifespan of the single-use challenge.
+	// Falling back to the historic five minute value is intentionally avoided:
+	// every user row has an auth collection and a policy row created by trigger.
+	var durationSeconds int
+	if err := tx.QueryRow(ctx, `select p.mfa_duration_seconds from pgbase_meta.users u join pgbase_meta.auth_collection_policies p on p.auth_collection_id=u.auth_collection_id where u.id=$1`, userID).Scan(&durationSeconds); err != nil {
+		return nil, err
+	}
+	expires := now.Add(time.Duration(durationSeconds) * time.Second)
 	_, err := tx.Exec(ctx, `insert into pgbase_meta.user_mfa_challenges(id,user_id,token_hash,expires_at,created_at) values($1,$2,$3,$4,$5)`, uuid.New(), userID, s.mfaChallengeHash(raw), expires, now)
 	if err != nil {
 		return nil, err
@@ -243,7 +322,7 @@ func (s *Service) verifyUserPassword(ctx context.Context, userID uuid.UUID, pass
 	if err != nil {
 		return ManagedUser{}, "", err
 	}
-	buckets := []rateLimitBucket{{s.subjectHash(operation, "account", userID.String()), loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash(operation, "account", userID.String()), limit: loginAccountLimit}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return ManagedUser{}, "", err
 	}

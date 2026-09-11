@@ -46,6 +46,53 @@ func TestLowerModifierCompilesAtRootAndRelationTerminal(t *testing.T) {
 	}
 }
 
+func TestContainsCompilesAtRootAndRelationTerminal(t *testing.T) {
+	root := schema.Collection{ID: uuid.New(), Name: "posts", TableName: "posts", Fields: []schema.Field{
+		{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText},
+	}}
+	parsed, err := parseFilter("title:lower ~ 'hello'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement, err := CompileList(root, ListQuery{Filter: parsed})
+	if err != nil || !strings.Contains(statement.SQL, `strpos(lower("title"), $1) > 0`) {
+		t.Fatalf("root SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
+	}
+	catalog, relationRoot := relationFilterSortCatalog()
+	parsed, err = parseFilter("owner.name ~ 'da'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := compileRelationListPlan(catalog, relationRoot, parsed, []SortKey{{Field: "id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement, err = plan.pageStatementWithPolicy(nil, 10, nil, ruleBinding{})
+	if err != nil || !strings.Contains(statement.SQL, "strpos(") || len(statement.Args) != 2 {
+		t.Fatalf("relation SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
+	}
+}
+
+func TestNotContainsSymmetricContainsAndLengthCompile(t *testing.T) {
+	root := schema.Collection{ID: uuid.New(), Name: "posts", TableName: "posts", Fields: []schema.Field{
+		{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText},
+	}}
+	for _, test := range []struct{ filter, sql string }{
+		{"title !~ 'draft'", `NOT (strpos("title", $1) > 0)`},
+		{"'alphabet' ~ title", `strpos($1, "title") > 0`},
+		{"title:length >= 5", `char_length("title") >= $1`},
+	} {
+		parsed, err := parseFilter(test.filter)
+		if err != nil {
+			t.Fatalf("parse %q: %v", test.filter, err)
+		}
+		statement, err := CompileList(root, ListQuery{Filter: parsed})
+		if err != nil || !strings.Contains(statement.SQL, test.sql) {
+			t.Fatalf("filter=%q SQL=%q err=%v", test.filter, statement.SQL, err)
+		}
+	}
+}
+
 func TestLowerModifierBindsCursorFingerprint(t *testing.T) {
 	field := schema.Field{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText}
 	plain := &plannedRelationFilter{comparison: &plannedRelationComparison{rootField: &field, input: filterComparison{field: "title", operator: "=", value: filterLiteral{kind: filterLiteralString, text: "hello"}}}}

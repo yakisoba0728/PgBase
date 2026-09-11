@@ -42,13 +42,23 @@ const (
 type Options struct {
 	// CustomRoutes installs up to 64 application handlers with explicit access.
 	CustomRoutes []CustomRoute
+	// UIExtensions installs trusted, operator-owned administrator UI assets and
+	// optional main.js contributions at startup. Browser and JavaScript
+	// extensions cannot register themselves through this option.
+	UIExtensions []UIExtension
 	// JavaScript enables trusted local scripts after validating an immutable
 	// source manifest. A nil value keeps the runtime entirely disabled.
 	JavaScript *JavaScriptOptions
 	// SQLConsole enables the administrator SQL console with dedicated,
 	// least-privileged database roles. A nil value keeps its routes disabled.
 	SQLConsole *SQLConsoleOptions
-	Backups    BackupOptions
+	// EnableTrustedDatabaseAccess exposes the application PostgreSQL connection
+	// to trusted extensions. JavaScript additionally requires the database
+	// capability in both the application allowlist and each manifest handler.
+	EnableTrustedDatabaseAccess bool
+	// Templates is an optional precompiled registry shared by Go and JavaScript extensions.
+	Templates *TemplateRegistry
+	Backups   BackupOptions
 	// Hooks is shared with the application for runtime registration.
 	Hooks          *HookRegistry
 	Operations     OperationsOptions
@@ -70,6 +80,9 @@ type Options struct {
 	// network such as the bundled Compose stack.
 	AllowInsecureDatabase bool
 	HTTPAddress           string
+	// TLS enables the built-in HTTPS listener. Nil preserves the ordinary HTTP
+	// listener, which is appropriate when a trusted reverse proxy terminates TLS.
+	TLS *TLSOptions
 	// PublicDir is an absolute directory of user-owned static files. An empty
 	// value leaves user-site hosting disabled.
 	PublicDir string
@@ -79,6 +92,9 @@ type Options struct {
 	PublicURL         *url.URL
 	SetupToken        string
 	TokenSecret       []byte
+	// RuntimeSettingsEncryptionKey encrypts the persisted operational settings.
+	// When omitted, TokenSecret is used as its key source.
+	RuntimeSettingsEncryptionKey []byte
 	// MetricsToken enables the protected Prometheus-compatible GET /metrics
 	// endpoint when non-empty. It is copied during normalization so callers
 	// cannot change the live credential after constructing an App.
@@ -109,6 +125,13 @@ func (o Options) Normalized() (Options, error) {
 	if o.HTTPAddress == "" {
 		o.HTTPAddress = "127.0.0.1:8090"
 	}
+	if o.TLS != nil {
+		tlsOptions, err := o.TLS.normalized()
+		if err != nil {
+			return Options{}, err
+		}
+		o.TLS = &tlsOptions
+	}
 	if o.PublicDir != "" && !filepath.IsAbs(o.PublicDir) {
 		return Options{}, fmt.Errorf("PublicDir: must be an absolute path")
 	}
@@ -133,6 +156,9 @@ func (o Options) Normalized() (Options, error) {
 			return Options{}, err
 		}
 		o.JavaScript = &javascript
+		if javascript.Capabilities["database"] && !o.EnableTrustedDatabaseAccess {
+			return Options{}, fmt.Errorf("JavaScript database capability requires EnableTrustedDatabaseAccess")
+		}
 	}
 	if o.SQLConsole != nil {
 		sqlConsole, err := o.SQLConsole.normalized(o.AllowInsecureDatabase)
@@ -151,6 +177,7 @@ func (o Options) Normalized() (Options, error) {
 	}
 	o.MutationHooks = append([]MutationHook(nil), o.MutationHooks...)
 	o.CustomRoutes = append([]CustomRoute(nil), o.CustomRoutes...)
+	o.UIExtensions = append([]UIExtension(nil), o.UIExtensions...)
 	o.OAuthProviders = append([]OAuthProviderOptions(nil), o.OAuthProviders...)
 	for i := range o.OAuthProviders {
 		o.OAuthProviders[i].Scopes = append([]string(nil), o.OAuthProviders[i].Scopes...)
@@ -158,12 +185,16 @@ func (o Options) Normalized() (Options, error) {
 	o.OAuthRedirects = append([]string(nil), o.OAuthRedirects...)
 	o.Jobs = append([]ScheduledJob(nil), o.Jobs...)
 	o.TokenSecret = append([]byte(nil), o.TokenSecret...)
+	o.RuntimeSettingsEncryptionKey = append([]byte(nil), o.RuntimeSettingsEncryptionKey...)
 	o.MetricsToken = append([]byte(nil), o.MetricsToken...)
 	return o, nil
 }
 
 func validateOptions(o Options) error {
 	if err := api.ValidateCustomRoutes(o.CustomRoutes); err != nil {
+		return err
+	}
+	if err := validateUIExtensions(o.UIExtensions); err != nil {
 		return err
 	}
 	if err := validateScheduledJobs(o.Jobs); err != nil {
@@ -179,6 +210,9 @@ func validateOptions(o Options) error {
 		if o.JavaScript.Capabilities["files"] && o.Files.Driver == "" {
 			return fmt.Errorf("JavaScript.Capabilities: files requires Files.Driver")
 		}
+		if o.JavaScript.Capabilities["objects"] && o.Files.Driver == "" {
+			return fmt.Errorf("JavaScript.Capabilities: objects requires Files.Driver")
+		}
 		if o.JavaScript.Capabilities["mail"] && o.SMTP.Address == "" {
 			return fmt.Errorf("JavaScript.Capabilities: mail requires SMTP configuration")
 		}
@@ -188,6 +222,9 @@ func validateOptions(o Options) error {
 	}
 	if len(o.TokenSecret) < 32 {
 		return fmt.Errorf("TokenSecret: must contain at least 32 bytes")
+	}
+	if len(o.RuntimeSettingsEncryptionKey) != 0 && len(o.RuntimeSettingsEncryptionKey) < 32 {
+		return fmt.Errorf("RuntimeSettingsEncryptionKey: must contain at least 32 bytes")
 	}
 	if len(o.MetricsToken) != 0 {
 		if len(o.MetricsToken) < 32 || len(o.MetricsToken) > 256 {

@@ -1,7 +1,6 @@
 package recordops
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -9,6 +8,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
@@ -16,11 +16,11 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"io"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 )
@@ -44,8 +44,15 @@ type Service struct {
 	members    *membershipWriterProvider
 	hooks      []MutationHook
 	validators []TransactionValidator
+	identities *recordidentity.Service
 }
 type batchTransactionKey struct{}
+
+// WithTransaction binds service operations to an already admitted PostgreSQL
+// transaction. The caller owns commit or rollback and must not retain ctx.
+func WithTransaction(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, batchTransactionKey{}, tx)
+}
 
 // A nil runtime is not a disabled membership: the writer provider registers
 // one on the first mutation, so a service built without the application's
@@ -63,7 +70,8 @@ func NewService(
 		pool: pool, schemas: schemas,
 		reader: query.NewService(pool, schemas, cursorSecret, logger, recorder),
 		logger: logger, recorder: recorder, random: rand.Reader,
-		members: newMembershipWriterProvider(pool, runtime),
+		members:    newMembershipWriterProvider(pool, runtime),
+		identities: recordidentity.New(rand.Reader),
 	}
 }
 
@@ -100,12 +108,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		keyHash = digest[:]
 	}
 	recordID := request.ID
-	if recordID == uuid.Nil {
-		recordID, err = uuid.NewV7()
-		if err != nil {
-			return MutationResult{}, fmt.Errorf("generate record id: %w", err)
-		}
-	}
 	eventID, err := uuid.NewV7()
 	if err != nil {
 		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
@@ -130,43 +132,72 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
-		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, uuid.Nil); err != nil {
+		recordInput, requestedID, requestedPublicID, err := recordIdentityInput(collection, request.Input, recordID)
+		if err != nil {
 			return err
 		}
-		relationOperation = inputTouchesRelationField(collection, request.Input)
+		recordID = requestedID
+		if recordID == uuid.Nil {
+			recordID, err = uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate record id: %w", err)
+			}
+		}
+		if err := authorizeUserRecordOperation(ctx, tx, catalog, collection, request.Principal, uuid.Nil); err != nil {
+			return err
+		}
+		resolvedInput, err := resolveInputModifiers(collection, recordInput, modifierCreateValues(collection))
+		if err != nil {
+			return err
+		}
+		relationOperation = inputTouchesRelationField(collection, resolvedInput)
 		createFence, err := membershipWriter.LockCreate(ctx, tx, collection.ID)
 		if err != nil {
 			return transactionalMembership(err)
 		}
 		if len(keyHash) > 0 {
+			if err := lockCollectionMutation(ctx, tx, collection.ID); err != nil {
+				return err
+			}
 			replayed, found, err := findIdempotentCreate(ctx, tx, request.Principal, collection.ID, keyHash, requestHash[:])
 			if err != nil {
 				return err
 			}
 			if found {
+				recordID = replayed.InternalID
 				if request.Principal.Kind != PrincipalAdministrator {
 					if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, replayed.Record.Data); err != nil {
 						return err
 					}
-					id, ok := replayed.Record.Data["id"].(string)
-					if !ok {
-						return query.ErrRecordNotFound
-					}
-					recordID, err := uuid.Parse(id)
-					if err != nil {
-						return query.ErrRecordNotFound
-					}
-					if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, recordID, "create"); err != nil {
+					requestContext := mutationRuleContext(collection, resolvedInput, nil, request.RuleContext)
+					if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 						return err
 					}
 				}
+				publicReplay := cloneRecordData(replayed.Record.Data)
+				if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicReplay); err != nil {
+					return err
+				}
+				replayed.Record.Data = publicReplay
 				result = replayed
 				return nil
 			}
 		}
-		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, true)
+		if _, err := s.identities.Reserve(ctx, tx, collection, recordID, requestedPublicID); err != nil {
+			return normalizeIdentityMutationError(err)
+		}
+		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, resolvedInput, true)
 		if err != nil {
 			return err
+		}
+		mutationInput, err = s.resolveRelationIdentities(ctx, tx, catalog, collection, mutationInput)
+		if err != nil {
+			return err
+		}
+		if len(keyHash) == 0 {
+			if err := lockCollectionMutation(ctx, tx, collection.ID); err != nil {
+				return err
+			}
 		}
 		if err := createFence.Reserve(ctx); err != nil {
 			return transactionalMembership(err)
@@ -189,6 +220,10 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err != nil {
 			return query.NormalizeRecordError(err)
 		}
+		requestContext := mutationRuleContext(collection, mutationInput, nil, request.RuleContext)
+		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
+			return err
+		}
 		if err := createFence.RecordCreated(ctx, recordID); err != nil {
 			return transactionalMembership(err)
 		}
@@ -206,13 +241,14 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return err
 		}
 		etag := recordartifact.RevisionETag(collection.ID, recordID, digest, validator)
-		if err := commitMutation(ctx, tx, request.Principal, request.RequestID, requestHash[:], artifactBatch{
+		if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, requestHash[:], artifactBatch{
 			collection: collection, operation: "create",
 			schemaVersion: catalog.Version, schemaDigest: digest,
 			rows: []artifactRow{{
 				eventID: eventID, recordID: recordID, newVersion: 1,
 				newETag: etag, changedFields: committedUserFields(collection), changes: data,
 				idempotencyKeyHash: keyHash, compatibility: compatibility, validator: validator,
+				requestContext: &requestContext,
 			}},
 		}); err != nil {
 			return err
@@ -234,13 +270,18 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		}
 		result = MutationResult{
 			Record:  &Record{Data: data, ETag: etag, Version: 1},
-			EventID: eventID, Compatibility: compatibility,
+			EventID: eventID, InternalID: recordID, Compatibility: compatibility,
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Create: &request}}}
 			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
 				return err
 			}
+			publicData := cloneRecordData(data)
+			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+				return err
+			}
+			result.Record.Data = publicData
 			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
@@ -260,9 +301,11 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	if request.ID == uuid.Nil {
-		return MutationResult{}, &Error{Code: CodeInvalidRequest}
+	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+	if err != nil {
+		return MutationResult{}, err
 	}
+	request.ID = resolvedID
 	canonicalRequest, err := canonicalInput(request.Input)
 	if err != nil {
 		return MutationResult{}, err
@@ -295,17 +338,38 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
-		mutationInput, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
+		mutationSeed, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
 		if err != nil {
 			return err
 		}
-		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "update"); err != nil {
+		if err := validateModifierInput(collection, mutationSeed); err != nil {
 			return err
 		}
-		relationOperation = inputTouchesRelationField(collection, request.Input)
 		if _, err := membershipWriter.Begin(ctx, tx); err != nil {
 			return transactionalMembership(err)
 		}
+		before, err := readRecord(ctx, tx, collection, request.ID, true)
+		if err != nil {
+			return err
+		}
+		bindings, err := bindRecordRelations(catalog, collection)
+		if err != nil {
+			return err
+		}
+		if bindings != nil && bindings.HasMultiple() {
+			if err := bindings.Hydrate(ctx, tx, []uuid.UUID{request.ID}, map[uuid.UUID]map[string]any{request.ID: before}); err != nil {
+				return normalizeRelationError(err)
+			}
+		}
+		mutationInput, err := resolveInputModifiers(collection, mutationSeed, before)
+		if err != nil {
+			return err
+		}
+		mutationInput, err = s.resolveRelationIdentities(ctx, tx, catalog, collection, mutationInput)
+		if err != nil {
+			return err
+		}
+		relationOperation = inputTouchesRelationField(collection, mutationInput)
 		relations, err := prepareRelationWrite(catalog, collection, relation.PatchWrite, mutationInput)
 		if err != nil {
 			return err
@@ -325,8 +389,8 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
 			return err
 		}
-		before, err := readRecord(ctx, tx, collection, request.ID, !relations.LocksSource())
-		if err != nil {
+		requestContext := mutationRuleContext(collection, mutationInput, before, request.RuleContext)
+		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, request.ID, "update", &requestContext); err != nil {
 			return err
 		}
 		if err := validateEntityTagSet(request.IfMatch); err != nil {
@@ -366,7 +430,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		}
 		newVersion := previousVersion + 1
 		newETag := recordartifact.RevisionETag(collection.ID, request.ID, digest, validator)
-		if err := commitMutation(ctx, tx, request.Principal, request.RequestID, inputHash[:], artifactBatch{
+		if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, inputHash[:], artifactBatch{
 			collection: collection, operation: "update",
 			schemaVersion: catalog.Version, schemaDigest: digest,
 			rows: []artifactRow{{
@@ -375,19 +439,25 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				previousETag: previousETag, newETag: newETag,
 				changedFields: mutationChangedFields(mutationInput, request.SidecarFields), changes: after,
 				compatibility: compatibility, validator: validator,
+				requestContext: &requestContext,
 			}},
 		}); err != nil {
 			return err
 		}
 		result = MutationResult{
 			Record:  &Record{Data: after, ETag: newETag, Version: newVersion},
-			EventID: eventID, Compatibility: compatibility,
+			EventID: eventID, InternalID: request.ID, Compatibility: compatibility,
 		}
 		if _, batched := ctx.Value(batchTransactionKey{}).(pgx.Tx); !batched {
 			request := BatchRequest{Principal: request.Principal, RequestID: request.RequestID, Operations: []BatchOperation{{Update: &request}}}
 			if err := s.validateTransaction(ctx, tx, request, []MutationResult{result}); err != nil {
 				return err
 			}
+			publicData := cloneRecordData(after)
+			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+				return err
+			}
+			result.Record.Data = publicData
 			projectMutationResult(collection, request.Principal, &result)
 		}
 		return nil
@@ -407,9 +477,11 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	if request.ID == uuid.Nil {
-		return MutationResult{}, &Error{Code: CodeInvalidRequest}
+	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+	if err != nil {
+		return MutationResult{}, err
 	}
+	request.ID = resolvedID
 	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	eventID, err := uuid.NewV7()
 	if err != nil {
@@ -429,7 +501,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
 		}
-		if err := authorizeUserRecordOperation(ctx, tx, collection, request.Principal, request.ID, "delete"); err != nil {
+		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, request.ID, "delete", request.RuleContext); err != nil {
 			return err
 		}
 		relationOperation = collectionParticipatesInRelations(catalog, collection)
@@ -449,10 +521,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	return result, nil
 }
 
-func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection schema.Collection, principal Principal, recordID uuid.UUID, actions ...string) error {
-	if principal.Kind == PrincipalAdministrator {
-		return nil
-	}
+func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, recordID uuid.UUID, actions ...string) error {
 	action := "view"
 	if recordID == uuid.Nil {
 		action = "create"
@@ -460,20 +529,65 @@ func authorizeUserRecordOperation(ctx context.Context, tx pgx.Tx, collection sch
 	if len(actions) > 0 {
 		action = actions[0]
 	}
+	return authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, principal, recordID, action, nil)
+}
+
+func authorizeUserRecordOperationWithRequest(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, recordID uuid.UUID, action string, request *accessrule.RequestContext) error {
+	if principal.Kind == PrincipalAdministrator {
+		return nil
+	}
 	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action); err != nil {
 		return err
 	}
 	if recordID == uuid.Nil || principal.Kind == identity.Service {
 		return nil
 	}
-	allowed, err := recordaccess.AllowsRecord(ctx, tx, policyCollection(collection), principal, action, recordID, false)
+	allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, policyCollection(collection), principal, action, recordID, action == "create", request)
 	if err != nil {
 		return err
 	}
 	if !allowed {
+		if action == "create" {
+			return recordaccess.ErrDenied
+		}
 		return query.ErrRecordNotFound
 	}
 	return nil
+}
+
+func mutationRuleContext(collection schema.Collection, input map[string]json.RawMessage, before map[string]any, base *accessrule.RequestContext) accessrule.RequestContext {
+	result := accessrule.RequestContext{Present: make(map[string]bool, len(input)), Changed: make(map[string]bool, len(input)), Body: make(map[string]json.RawMessage, len(input))}
+	if base != nil {
+		result.Method = base.Method
+		result.Query = base.Query
+		result.Headers = base.Headers
+		result.Auth = base.Auth
+		result.Context = base.Context
+	}
+	for name, raw := range input {
+		result.Body[name] = append(json.RawMessage(nil), raw...)
+		result.Present[name] = true
+		if before == nil {
+			result.Changed[name] = true
+			continue
+		}
+		previous, exists := before[name]
+		if !exists {
+			result.Changed[name] = true
+			continue
+		}
+		var field schema.Field
+		for _, candidate := range collection.Fields {
+			if candidate.Name == name {
+				field = candidate
+				break
+			}
+		}
+		if field.Name == "" || !query.FieldInputEqualsStored(field, raw, previous) {
+			result.Changed[name] = true
+		}
+	}
+	return result
 }
 
 func (s *Service) validateRequest(principal Principal, requestID string) error {
@@ -682,85 +796,4 @@ func (s *Service) record(ctx context.Context, event observability.Event) {
 	if s != nil && s.recorder != nil {
 		s.recorder.Record(ctx, event)
 	}
-}
-
-func readRecord(ctx context.Context, tx pgx.Tx, collection schema.Collection, id uuid.UUID, lock bool) (map[string]any, error) {
-	statement := query.CompileSelectByID(collection, id)
-	if lock {
-		statement.SQL += " FOR UPDATE"
-	}
-	record, err := query.EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
-	return record, query.NormalizeRecordError(err)
-}
-
-func decodeStoredRecord(body []byte) (map[string]any, error) {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	var data map[string]any
-	if err := decoder.Decode(&data); err != nil {
-		return nil, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple stored JSON values")
-		}
-		return nil, err
-	}
-	return data, nil
-}
-
-func canonicalInput(input map[string]json.RawMessage) ([]byte, error) {
-	canonical := make(map[string]json.RawMessage, len(input))
-	for name, raw := range input {
-		encoded, err := recordartifact.CanonicalJSON(raw)
-		if err != nil {
-			return nil, &query.ValidationError{Details: []query.ValidationDetail{{Field: name, Code: "type_mismatch"}}}
-		}
-		canonical[name] = encoded
-	}
-	encoded, err := json.Marshal(canonical)
-	if err != nil {
-		return nil, fmt.Errorf("encode canonical record input: %w", err)
-	}
-	return encoded, nil
-}
-
-func sortedInputFields(input map[string]json.RawMessage) []string {
-	fields := make([]string, 0, len(input))
-	for name := range input {
-		fields = append(fields, name)
-	}
-	sort.Strings(fields)
-	return fields
-}
-
-func committedUserFields(collection schema.Collection) []string {
-	fields := make([]schema.Field, len(collection.Fields))
-	copy(fields, collection.Fields)
-	sort.Slice(fields, func(left, right int) bool {
-		if fields[left].Ordinal == fields[right].Ordinal {
-			return fields[left].Name < fields[right].Name
-		}
-		return fields[left].Ordinal < fields[right].Ordinal
-	})
-	names := make([]string, 0, len(fields))
-	for _, field := range fields {
-		names = append(names, field.Name)
-	}
-	// Audit consumers expect changed field names to be lexically stable rather
-	// than tied to physical field ordinal.
-	sort.Strings(names)
-	return names
-}
-
-func mutationChanges(record map[string]any, fields []string) map[string]any {
-	if len(fields) == 0 {
-		return nil
-	}
-	changes := make(map[string]any, len(fields))
-	for _, field := range fields {
-		changes[field] = record[field]
-	}
-	return changes
 }

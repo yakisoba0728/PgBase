@@ -45,17 +45,18 @@ func (o RequestLogOptions) normalized() RequestLogOptions {
 // RequestLog always maintains the previous 1,000-entry ring. NewRequestLog
 // additionally persists entries through a bounded asynchronous writer.
 type RequestLog struct {
-	mu          sync.RWMutex
-	entries     [recentRequestCapacity]RequestEntry
-	sequence    uint64
-	pool        *database.Pool
-	options     RequestLogOptions
-	queue       chan RequestEntry
-	flush, stop chan chan error
-	done        chan struct{}
-	dropped     atomic.Uint64
-	closed      atomic.Bool
-	lifecycle   sync.RWMutex
+	mu               sync.RWMutex
+	entries          [recentRequestCapacity]RequestEntry
+	sequence         uint64
+	pool             *database.Pool
+	options          RequestLogOptions
+	queue            chan RequestEntry
+	flush, stop      chan chan error
+	done             chan struct{}
+	dropped          atomic.Uint64
+	closed           atomic.Bool
+	retentionSeconds atomic.Int64
+	lifecycle        sync.RWMutex
 }
 
 type RequestEntry struct {
@@ -65,6 +66,9 @@ type RequestEntry struct {
 	Route      string    `json:"route"`
 	Status     int       `json:"status"`
 	DurationMS int64     `json:"durationMs"`
+	ClientIP   string    `json:"clientIP,omitempty"`
+	AuthKind   string    `json:"authKind,omitempty"`
+	AuthID     string    `json:"authID,omitempty"`
 }
 
 type RequestPage struct {
@@ -91,11 +95,16 @@ type RequestStatistics struct {
 func NewRequestLog(pool *database.Pool, options RequestLogOptions) *RequestLog {
 	options = options.normalized()
 	l := &RequestLog{pool: pool, options: options, queue: make(chan RequestEntry, options.QueueCapacity), flush: make(chan chan error), stop: make(chan chan error, 1), done: make(chan struct{})}
+	l.retentionSeconds.Store(int64(options.Retention.Seconds()))
 	go l.writeLoop()
 	return l
 }
 
 func (l *RequestLog) Record(method, route string, status int, elapsed time.Duration) {
+	l.RecordContext(method, route, status, elapsed, "", "", "")
+}
+
+func (l *RequestLog) RecordContext(method, route string, status int, elapsed time.Duration, clientIP, authKind, authID string) {
 	if l == nil {
 		return
 	}
@@ -105,7 +114,7 @@ func (l *RequestLog) Record(method, route string, status int, elapsed time.Durat
 	if len(route) > 256 {
 		route = "unmatched"
 	}
-	e := RequestEntry{At: time.Now().UTC(), Method: method, Route: route, Status: status, DurationMS: elapsed.Milliseconds()}
+	e := RequestEntry{At: time.Now().UTC(), Method: method, Route: route, Status: status, DurationMS: elapsed.Milliseconds(), ClientIP: clientIP, AuthKind: authKind, AuthID: authID}
 	l.mu.Lock()
 	l.sequence++
 	e.ID = l.sequence
@@ -171,7 +180,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 		limit = 50
 	}
 	method, route := strings.ToUpper(strings.TrimSpace(f.Method)), strings.TrimSpace(f.Route)
-	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1)
+	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1)
 	if err != nil {
 		return RequestPage{}, err
 	}
@@ -179,7 +188,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 	p := RequestPage{Items: make([]RequestEntry, 0, limit)}
 	for rows.Next() {
 		var e RequestEntry
-		if err := rows.Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS); err != nil {
+		if err := rows.Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID); err != nil {
 			return p, err
 		}
 		if len(p.Items) == limit {
@@ -258,7 +267,7 @@ func (l *RequestLog) Detail(ctx context.Context, id uint64) (RequestEntry, error
 		return e, nil
 	}
 	var e RequestEntry
-	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS)
+	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID)
 	if err != nil {
 		return RequestEntry{}, ErrRequestLogNotFound
 	}
@@ -329,6 +338,34 @@ func (l *RequestLog) Truncate(ctx context.Context) error {
 	l.sequence = 0
 	l.mu.Unlock()
 	return nil
+}
+
+// SetRetention applies a new durable retention window immediately and makes
+// future writer cleanup use the same snapshot.
+func (l *RequestLog) SetRetention(ctx context.Context, retention time.Duration) error {
+	if l == nil || retention < 24*time.Hour {
+		return errors.New("invalid request log retention")
+	}
+	l.retentionSeconds.Store(int64(retention.Seconds()))
+	if l.pool == nil {
+		return nil
+	}
+	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1)`, l.retentionSeconds.Load())
+	return err
+}
+
+func (l *RequestLog) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	if l == nil || l.pool == nil || before.IsZero() {
+		return 0, errors.New("request log deletion is unavailable")
+	}
+	if err := l.Flush(ctx); err != nil {
+		return 0, err
+	}
+	result, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < $1`, before.UTC())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 func (l *RequestLog) Flush(ctx context.Context) error {
 	if l == nil || l.flush == nil {
@@ -434,20 +471,20 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 	if len(entries) == 0 {
 		return nil
 	}
-	values := make([]any, 0, len(entries)*5)
+	values := make([]any, 0, len(entries)*8)
 	var q strings.Builder
-	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms) VALUES `)
+	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms,client_ip,auth_kind,auth_id) VALUES `)
 	for i, e := range entries {
 		if i > 0 {
 			q.WriteByte(',')
 		}
-		b := i * 5
-		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d)", b+1, b+2, b+3, b+4, b+5)
-		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS)
+		b := i * 8
+		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d,nullif($%d,'')::inet,nullif($%d,''),nullif($%d,'')::uuid)", b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS, e.ClientIP, e.AuthKind, e.AuthID)
 	}
 	if _, err := l.pool.Exec(ctx, q.String(), values...); err != nil {
 		return err
 	}
-	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, int64(l.options.Retention.Seconds()), l.options.MaximumRows)
+	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, l.retentionSeconds.Load(), l.options.MaximumRows)
 	return err
 }

@@ -5,15 +5,18 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
 	"net/http"
 	"strings"
+
+	"golang.org/x/image/webp"
 )
 
 func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error) {
-	if file.ContentType != "image/jpeg" && file.ContentType != "image/png" {
+	if !thumbnailImageType(file.ContentType) {
 		return nil, nil
 	}
 	reader, err := s.objects.Open(ctx, file.ObjectKey)
@@ -25,11 +28,11 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || (file.ContentType == "image/jpeg" && format != "jpeg") || (file.ContentType == "image/png" && format != "png") {
+	config, format, err := decodeImageConfig(bytes.NewReader(data), file.ContentType)
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(file.ContentType, format) {
 		return nil, ErrInvalid
 	}
-	source, _, err := image.Decode(bytes.NewReader(data))
+	source, _, err := decodeImage(bytes.NewReader(data), file.ContentType)
 	if err != nil {
 		return nil, ErrInvalid
 	}
@@ -57,6 +60,53 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 		return nil, ErrInvalid
 	}
 	return output.Bytes(), nil
+}
+
+func thumbnailImageType(contentType string) bool {
+	return contentType == "image/jpeg" || contentType == "image/png" || contentType == "image/gif" || contentType == "image/webp"
+}
+
+// decodeImageConfig and decodeImage select decoders by the already validated
+// declared type. image.Decode alone does not register WebP, and accepting a
+// mismatched decoder would let a claimed image type choose an unintended output
+// format. GIF and WebP thumbnails intentionally encode as JPEG: PocketBase
+// treats animation as a still-image transform rather than attempting to encode
+// animated output.
+func decodeImageConfig(r io.Reader, contentType string) (image.Config, string, error) {
+	switch contentType {
+	case "image/jpeg", "image/png":
+		return image.DecodeConfig(r)
+	case "image/gif":
+		config, err := gif.DecodeConfig(r)
+		return config, "gif", err
+	case "image/webp":
+		config, err := webp.DecodeConfig(r)
+		return config, "webp", err
+	default:
+		return image.Config{}, "", ErrInvalid
+	}
+}
+
+func decodeImage(r io.Reader, contentType string) (image.Image, string, error) {
+	switch contentType {
+	case "image/jpeg", "image/png":
+		return image.Decode(r)
+	case "image/gif":
+		decoded, err := gif.Decode(r)
+		return decoded, "gif", err
+	case "image/webp":
+		decoded, err := webp.Decode(r)
+		return decoded, "webp", err
+	default:
+		return nil, "", ErrInvalid
+	}
+}
+
+func matchesImageFormat(contentType, format string) bool {
+	return (contentType == "image/jpeg" && format == "jpeg") ||
+		(contentType == "image/png" && format == "png") ||
+		(contentType == "image/gif" && format == "gif") ||
+		(contentType == "image/webp" && format == "webp")
 }
 
 func (s *Service) validateStoredType(ctx context.Context, file File) error {

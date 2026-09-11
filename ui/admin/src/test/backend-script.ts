@@ -18,6 +18,12 @@ import type {
 	RecordRules,
 	RulePreview,
 	AuthCollection,
+	AuthAdministration,
+	AuthPolicy,
+	OAuthProviderSettings,
+	AuthMailTemplate,
+	AuthMailPreview,
+	AuthSMTPSettings,
 	ServiceToken,
 	IssuedServiceToken,
 } from "../backend/ports";
@@ -142,6 +148,14 @@ export interface BackendScript {
 	createAuthCollection: Step<AuthCollection>[];
 	updateAuthCollection: Step<AuthCollection>[];
 	deleteAuthCollection: Step<void>[];
+	getAuthAdministration: Step<AuthAdministration>[];
+	setAuthPolicy: Step<AuthPolicy>[];
+	putOAuthProvider: Step<OAuthProviderSettings>[];
+	deleteOAuthProvider: Step<void>[];
+	putAuthMailTemplate: Step<AuthMailTemplate>[];
+	previewAuthMailTemplate: Step<AuthMailPreview>[];
+	putAuthSMTP: Step<AuthSMTPSettings>[];
+	testAuthSMTP: Step<void>[];
 	listServiceTokens: Step<ServiceToken[]>[];
 	issueServiceToken: Step<IssuedServiceToken>[];
 	revokeServiceToken: Step<void>[];
@@ -160,6 +174,8 @@ export function backendScript(): BackendScript {
 	getRules: [], setRules: [],
 	previewRule: [],
 	listAuthCollections: [], createAuthCollection: [], updateAuthCollection: [], deleteAuthCollection: [],
+	getAuthAdministration: [], setAuthPolicy: [], putOAuthProvider: [], deleteOAuthProvider: [],
+	putAuthMailTemplate: [], previewAuthMailTemplate: [], putAuthSMTP: [], testAuthSMTP: [],
 	listServiceTokens: [], issueServiceToken: [], revokeServiceToken: [],
 	userAccess: [], setUserAccess: [],
   };

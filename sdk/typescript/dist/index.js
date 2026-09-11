@@ -1,4 +1,31 @@
 export * from "./admin.js";
+function filterLiteral(value) {
+    switch (typeof value) {
+        case "boolean":
+        case "number":
+            // This intentionally preserves PocketBase's `NaN` and `Infinity`
+            // spelling. The server decides whether a particular field accepts it.
+            return String(value);
+        case "string":
+            return JSON.stringify(value);
+        case "undefined":
+            return "null";
+        default:
+            if (value === null)
+                return "null";
+            if (value instanceof Date)
+                return JSON.stringify(value.toISOString().replace("T", " "));
+            const serialized = JSON.stringify(value);
+            // PocketBase deliberately encodes aggregate JSON as one quoted filter
+            // string rather than treating it as filter syntax.
+            if (serialized?.startsWith("[") || serialized?.startsWith("{"))
+                return JSON.stringify(serialized);
+            // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are
+            // undefined. Returning that value lets String.replace retain the
+            // upstream SDK's observable `undefined` replacement behavior.
+            return serialized;
+    }
+}
 export class PgBaseError extends Error {
     status;
     code;
@@ -24,6 +51,7 @@ export class MFAChallengeError extends PgBaseError {
 export class AuthStore {
     storage;
     #token;
+    #record = null;
     #generation = 0;
     #listeners = new Set();
     constructor(storage) {
@@ -33,20 +61,51 @@ export class AuthStore {
     get token() {
         return this.#token;
     }
+    get record() { return this.#record; }
+    get isValid() { return this.#token !== null && this.#token.length > 0; }
     get generation() {
         return this.#generation;
     }
-    save(token) {
+    save(token, record = null) {
         this.#token = token;
+        this.#record = record;
         this.#generation += 1;
         this.storage?.set(token);
         this.notify();
     }
     clear() {
         this.#token = null;
+        this.#record = null;
         this.#generation += 1;
         this.storage?.clear();
         this.notify();
+    }
+    /** Encodes token and cached auth record for a server-rendered response cookie. */
+    exportToCookie(options = {}) {
+        const key = options.key ?? "pb_auth";
+        const path = options.path ?? "/";
+        if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key) || /[;\r\n]/.test(path))
+            throw new PgBaseError(0, "invalid_cookie_option");
+        const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
+        return [`${key}=${payload}`, `Path=${path}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+    }
+    /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
+    loadFromCookie(cookie, key = "pb_auth") {
+        const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
+        if (!encoded)
+            return;
+        try {
+            const value = JSON.parse(decodeURIComponent(encoded));
+            if ((value.token !== null && typeof value.token !== "string") || (value.record !== null && (typeof value.record !== "object" || Array.isArray(value.record))))
+                throw new Error("invalid auth cookie");
+            this.#token = value.token ?? null;
+            this.#record = (value.record ?? null);
+            this.#generation += 1;
+            this.notify();
+        }
+        catch {
+            this.clear();
+        }
     }
     _onChange(listener) {
         this.#listeners.add(listener);
@@ -73,21 +132,26 @@ export function browserTokenStorage(storage, key = "pgbase.user.token") {
 export class PgBaseClient {
     baseURL;
     auth;
+    realtime;
     fetcher;
+    requestControllers = new Map();
+    /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+    autoCancellation = true;
     constructor(baseURL, options = {}) {
         this.baseURL = baseURL;
         this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
         this.auth = options.auth ?? new AuthStore();
+        this.realtime = new RealtimeService(this);
     }
-    register(email, password, signal) {
-        return this.authenticate("/api/v1/auth/register", email, password, signal);
+    register(email, password, options, signal) {
+        return this.authenticate("/api/v1/auth/register", email, password, options, signal);
     }
     /** Binds authentication calls to an explicit auth realm without changing record APIs. */
     realm(name) {
         return new AuthRealm(this, name);
     }
-    login(email, password, signal) {
-        return this.authenticate("/api/v1/auth/login", email, password, signal).catch((error) => {
+    login(email, password, options, signal) {
+        return this.authenticate("/api/v1/auth/login", email, password, options, signal).catch((error) => {
             if (error instanceof PgBaseError && error.code === "mfa_required") {
                 const [challengeToken] = error.details.challengeToken ?? [];
                 const [expiresAt] = error.details.expiresAt ?? [];
@@ -97,8 +161,9 @@ export class PgBaseClient {
             throw error;
         });
     }
-    session(signal) {
-        return this.request("/api/v1/auth/session", {}, signal);
+    session(options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal);
     }
     async logout(signal) {
         try {
@@ -125,15 +190,17 @@ export class PgBaseClient {
             body: JSON.stringify({ email }),
         }, signal);
     }
-    requestOTP(email, signal) {
-        return this.request("/api/v1/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }, signal);
+    requestOTP(email, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(authFieldsPath("/api/v1/auth/otp/request", query), { method: "POST", body: JSON.stringify({ email }) }, requestSignal);
     }
-    async completeOTP(otpId, code, signal) {
+    async completeOTP(otpId, code, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
         try {
-            const session = await this.request("/api/v1/auth/otp/complete", { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
-            if (session.token && generation === this.auth.generation)
-                this.auth.save(session.token);
+            const session = await this.request(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal);
+            if (session.token && session.user && generation === this.auth.generation)
+                this.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -181,11 +248,27 @@ export class PgBaseClient {
     records(collection) {
         return new Records(this, collection);
     }
-    batch(operations, signal) {
-        return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ operations }) }, signal);
+    /**
+     * Constructs a PocketBase filter expression without interpolating values.
+     *
+     * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+     * arrays, and objects are emitted as quoted filter literals; scalar boolean,
+     * number, and null values retain their filter-literal form.  A placeholder
+     * without a matching parameter is deliberately left unchanged, matching the
+     * PocketBase SDK and making an incomplete expression visible to the server.
+     */
+    filter(expression, params) {
+        if (!params || Object.keys(params).length === 0)
+            return expression;
+        return expression.replace(/\{:([\w.-]+)\}/g, (placeholder, key) => Object.prototype.hasOwnProperty.call(params, key) ? filterLiteral(params[key]) : placeholder);
     }
-    batchRequests(requests, signal) {
-        return this.request("/api/v1/user/collections/batch", { method: "POST", body: JSON.stringify({ requests }) }, signal);
+    batch(operations, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
+    }
+    batchRequests(requests, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ requests }) }, requestSignal);
     }
     batchMultipart(requests, files, signal) {
         const body = new FormData();
@@ -200,11 +283,12 @@ export class PgBaseClient {
     files(collection, recordID) {
         return new Files(this, collection, recordID);
     }
-    async completeMFA(challengeToken, code, signal) {
+    async completeMFA(challengeToken, code, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
-        const session = await this.request("/api/v1/auth/mfa/complete", { method: "POST", body: JSON.stringify({ challengeToken, code }) }, signal);
-        if (session.token && generation === this.auth.generation)
-            this.auth.save(session.token);
+        const session = await this.request(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal);
+        if (session.token && session.user && generation === this.auth.generation)
+            this.auth.save(session.token, session.user);
         return session;
     }
     beginTOTPEnrollment(currentPassword, signal) {
@@ -223,6 +307,21 @@ export class PgBaseClient {
     }
     _request(path, init, signal) {
         return this.request(path, init, signal);
+    }
+    /** Cancels an in-flight request started with this key. */
+    cancelRequest(requestKey) { this.requestControllers.get(requestKey)?.abort(); }
+    /** Cancels every keyed in-flight request. */
+    cancelAllRequests() { for (const controller of this.requestControllers.values())
+        controller.abort(); this.requestControllers.clear(); }
+    /** Low-level request with PocketBase-style request-key auto-cancellation. */
+    async send(path, init = {}, options = {}) {
+        const keyed = this.keyedSignal(options.requestKey, options.signal);
+        try {
+            return await this.request(path, init, keyed.signal);
+        }
+        finally {
+            keyed.cleanup();
+        }
     }
     async _response(path, init = {}, signal) {
         const response = await this.fetchResponse(path, init, signal);
@@ -248,14 +347,15 @@ export class PgBaseClient {
         }
         return response;
     }
-    async authenticate(path, email, password, signal) {
+    async authenticate(path, email, password, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
-        const session = await this.request(path, {
+        const session = await this.request(`${path}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, {
             method: "POST",
             body: JSON.stringify({ email, password }),
-        }, signal);
+        }, requestSignal);
         if (session.token && generation === this.auth.generation) {
-            this.auth.save(session.token);
+            this.auth.save(session.token, session.user);
         }
         return session;
     }
@@ -280,6 +380,185 @@ export class PgBaseClient {
         }
         return response;
     }
+    keyedSignal(key, signal) {
+        if (!key || !this.autoCancellation)
+            return { signal, cleanup: () => { } };
+        if (this.autoCancellation)
+            this.cancelRequest(key);
+        const controller = new AbortController();
+        this.requestControllers.set(key, controller);
+        if (signal?.aborted)
+            controller.abort();
+        else
+            signal?.addEventListener("abort", () => controller.abort(), { once: true });
+        return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller)
+                this.requestControllers.delete(key); } };
+    }
+}
+/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
+export class RealtimeService {
+    client;
+    listeners = new Map();
+    controller;
+    clientId;
+    lastEventId;
+    running;
+    ready;
+    resolveReady;
+    rejectReady;
+    readySettled = false;
+    maxReconnects = 5;
+    reconnectDelayMs = 250;
+    constructor(client) {
+        this.client = client;
+    }
+    async subscribe(topic, listener, options = {}) {
+        if (!validRealtimeTopic(topic))
+            throw new PgBaseError(0, "invalid_realtime_topic");
+        if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
+            throw new PgBaseError(0, "invalid_reconnect_options");
+        if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
+            throw new PgBaseError(0, "invalid_reconnect_options");
+        if (this.controller?.signal.aborted && this.running)
+            await this.running;
+        let set = this.listeners.get(topic);
+        if (!set) {
+            set = new Set();
+            this.listeners.set(topic, set);
+        }
+        set.add(listener);
+        this.ensureRunning(options);
+        if (this.clientId)
+            await this.sync();
+        else
+            await this.ready;
+        return async () => this.unsubscribe(topic, listener);
+    }
+    /**
+     * Subscribes to an application-owned topic without exposing its reserved
+     * realtime wire name. The callback receives the original UTF-8 topic.
+     */
+    async subscribeApplication(topic, listener) {
+        const wireTopic = applicationWireTopic(topic);
+        return this.subscribe(wireTopic, (event) => listener({ topic, data: event.data }));
+    }
+    async unsubscribe(topic, listener) {
+        if (topic === undefined)
+            this.listeners.clear();
+        else if (listener === undefined)
+            this.listeners.delete(topic);
+        else {
+            const set = this.listeners.get(topic);
+            set?.delete(listener);
+            if (set?.size === 0)
+                this.listeners.delete(topic);
+        }
+        if (this.listeners.size === 0) {
+            this.controller?.abort();
+            this.clientId = undefined;
+            this.fail(new PgBaseError(0, "realtime_unsubscribed"));
+            return;
+        }
+        if (this.clientId)
+            await this.sync();
+    }
+    ensureRunning(options) {
+        if (this.running)
+            return;
+        this.maxReconnects = options.maxReconnects ?? 5;
+        this.reconnectDelayMs = options.reconnectDelayMs ?? 250;
+        this.readySettled = false;
+        this.ready = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+        this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
+    }
+    async sync() { if (this.clientId)
+        await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+    async run() {
+        const controller = new AbortController();
+        this.controller = controller;
+        let reconnects = 0;
+        while (!controller.signal.aborted && this.listeners.size) {
+            let reconnectError;
+            try {
+                const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
+                for await (const message of parseEventStream(response.body, controller.signal)) {
+                    const data = JSON.parse(message.data);
+                    if (message.event === "PB_CONNECT") {
+                        this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
+                        if (!this.clientId)
+                            throw new PgBaseError(0, "invalid_realtime_connect");
+                        await this.sync();
+                        reconnects = 0;
+                        this.resolveReady?.();
+                        this.readySettled = true;
+                        continue;
+                    }
+                    if (message.id)
+                        this.lastEventId = canonicalDeliveryCursor(message.id);
+                    const topic = message.event;
+                    if (!topic)
+                        continue;
+                    const event = topic.startsWith("@")
+                        ? { topic: topic, data }
+                        : recordRealtimeEvent(topic, data);
+                    if (!event)
+                        continue;
+                    for (const listener of this.listeners.get(topic) ?? [])
+                        listener(event);
+                }
+            }
+            catch (error) {
+                if (controller.signal.aborted)
+                    return;
+                reconnectError = error;
+                if (terminalRealtimeError(error))
+                    return this.fail(error);
+            }
+            this.clientId = undefined;
+            if (reconnects >= this.maxReconnects)
+                return this.fail(reconnectError ?? new PgBaseError(0, "realtime_reconnect_exhausted"));
+            reconnects += 1;
+            await waitForReconnect(Math.min(this.reconnectDelayMs * 2 ** (reconnects - 1), 10_000), controller.signal);
+        }
+    }
+    fail(error) {
+        this.clientId = undefined;
+        this.listeners.clear();
+        if (!this.readySettled) {
+            this.rejectReady?.(error);
+            this.readySettled = true;
+        }
+    }
+}
+function terminalRealtimeError(error) {
+    return error instanceof PgBaseError &&
+        ([400, 401, 403, 410].includes(error.status) || error.code === "cursor_expired");
+}
+function validRealtimeTopic(topic) {
+    if (!topic)
+        return false;
+    if (!topic.startsWith("@"))
+        return true;
+    return new TextEncoder().encode(topic).length >= 2 &&
+        new TextEncoder().encode(topic).length <= 256 &&
+        !/[\s\x00-\x1f\x7f?#*]/.test(topic);
+}
+function applicationWireTopic(topic) {
+    const bytes = new TextEncoder().encode(topic);
+    if (bytes.length === 0 || bytes.length > 188)
+        throw new PgBaseError(0, "invalid_realtime_topic");
+    let binary = "";
+    for (const byte of bytes)
+        binary += String.fromCharCode(byte);
+    return `@app/${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
+}
+function recordRealtimeEvent(topic, data) {
+    if (typeof data !== "object" || data === null)
+        return undefined;
+    const value = data;
+    if (!value.record || !["create", "update", "delete"].includes(value.action))
+        return undefined;
+    return { topic, action: value.action, record: value.record };
 }
 export class AuthRealm {
     client;
@@ -289,12 +568,13 @@ export class AuthRealm {
         this.name = name;
     }
     path(action) { return `/api/v1/auth/${encodeURIComponent(this.name)}/${action}`; }
-    async authenticate(action, email, password, signal) {
+    async authenticate(action, email, password, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.client.auth.generation;
         try {
-            const session = await this.client._request(this.path(action), { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+            const session = await this.client._request(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password }) }, requestSignal);
             if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token);
+                this.client.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -307,8 +587,18 @@ export class AuthRealm {
             throw error;
         }
     }
-    register(email, password, signal) { return this.authenticate("register", email, password, signal); }
-    login(email, password, signal) { return this.authenticate("login", email, password, signal); }
+    register(email, password, options, signal) { return this.authenticate("register", email, password, options, signal); }
+    login(email, password, options, signal) { return this.authenticate("login", email, password, options, signal); }
+    /** Returns the sign-in methods enabled for this auth collection. */
+    methods(signal) { return this.client._request(this.path("methods"), {}, signal); }
+    /** Rotates the current bearer token after validating its replacement session. */
+    async refresh(signal) {
+        const generation = this.client.auth.generation;
+        const session = refreshSession(await this.client._request(this.path("refresh"), { method: "POST" }, signal));
+        if (generation === this.client.auth.generation)
+            this.client.auth.save(session.token, session.user);
+        return session;
+    }
     session(signal) { return this.client._request(this.path("session"), {}, signal); }
     async logout(signal) { try {
         await this.client._request(this.path("logout"), { method: "POST" }, signal);
@@ -323,7 +613,7 @@ export class AuthRealm {
         try {
             const session = await this.client._request(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
             if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token);
+                this.client.auth.save(session.token, session.user);
             return session;
         }
         catch (error) {
@@ -336,13 +626,56 @@ export class AuthRealm {
             throw error;
         }
     }
-    async profile(signal) { return (await this.client._request(this.path("profile"), {}, signal)).attributes; }
-    async updateProfile(profile, signal) { return (await this.client._request(this.path("profile"), { method: "PATCH", body: JSON.stringify(profile) }, signal)).attributes; }
+    async profile(options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        const parameters = new URLSearchParams();
+        if (query?.expand !== undefined)
+            parameters.set("expand", query.expand);
+        if (query?.fields !== undefined)
+            parameters.set("fields", query.fields);
+        return (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal)).attributes;
+    }
+    async updateProfile(profile, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
+        return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
+    }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+    /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
+    async oauthStartAndOpen(provider, redirectUri, options, signal) {
+        const started = await this.oauthStart(provider, redirectUri, signal);
+        await options.open(started.authorizationUrl);
+        return started;
+    }
+    async oauthWithBrowser(provider, redirectUri, adapter, signal) {
+        try {
+            const started = await this.oauthStart(provider, redirectUri, signal);
+            const expectedState = new URL(started.authorizationUrl).searchParams.get("state");
+            if (!expectedState)
+                throw new OAuthCallbackError("invalid_start", "The OAuth start URL is missing state.");
+            await adapter.open(started.authorizationUrl);
+            const callback = await callbackWithAbort(adapter, signal);
+            if (callback.origin !== new URL(redirectUri).origin)
+                throw new OAuthCallbackError("invalid_callback_origin", "The OAuth callback origin does not match the redirect URL.");
+            const providerError = callback.searchParams.get("error");
+            if (providerError)
+                throw new OAuthCallbackError(providerError, callback.searchParams.get("error_description") ?? undefined);
+            const state = callback.searchParams.get("state");
+            const code = callback.searchParams.get("code");
+            if (!state || !code)
+                throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
+            if (state !== expectedState)
+                throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
+            return await this.oauthComplete(provider, state, code, signal);
+        }
+        finally {
+            adapter.close?.();
+        }
+    }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-    async oauthComplete(provider, state, code, signal) { const generation = this.client.auth.generation; const session = await this.client._request("/api/v1/auth/oauth/complete", { method: "POST", body: JSON.stringify({ provider, state, code }) }, signal); if (session.token && generation === this.client.auth.generation)
-        this.client.auth.save(session.token); return session; }
-    oauthCompleteFromURL(provider, callbackURL, signal) {
+    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code }) }, requestSignal); if (session.token && session.user && generation === this.client.auth.generation)
+        this.client.auth.save(session.token, session.user); return session; }
+    oauthCompleteFromURL(provider, callbackURL, options, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
         const providerError = url.searchParams.get("error");
         if (providerError)
@@ -351,8 +684,37 @@ export class AuthRealm {
         const code = url.searchParams.get("code");
         if (!state || !code)
             throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
-        return this.oauthComplete(provider, state, code, signal);
+        return this.oauthComplete(provider, state, code, options, signal);
     }
+}
+/** Refresh responses always contain a replacement token, unlike session reads. */
+function refreshSession(value) {
+    if (!value || typeof value !== "object")
+        throw new PgBaseError(0, "invalid_session_response");
+    const session = value;
+    const user = session.user;
+    if (typeof session.token !== "string" || session.token.length === 0 || typeof session.expiresAt !== "string" || !user || typeof user !== "object") {
+        throw new PgBaseError(0, "invalid_session_response");
+    }
+    const details = user;
+    if (typeof details.id !== "string" || typeof details.email !== "string" || typeof details.createdAt !== "string") {
+        throw new PgBaseError(0, "invalid_session_response");
+    }
+    if (details.verified !== undefined && typeof details.verified !== "boolean")
+        throw new PgBaseError(0, "invalid_session_response");
+    if (details.authCollection !== undefined && typeof details.authCollection !== "string")
+        throw new PgBaseError(0, "invalid_session_response");
+    if (details.authCollectionId !== undefined && typeof details.authCollectionId !== "string")
+        throw new PgBaseError(0, "invalid_session_response");
+    return { token: session.token, expiresAt: session.expiresAt, user: details };
+}
+function callbackWithAbort(adapter, signal) {
+    const callback = adapter.waitForCallback(signal).then((value) => typeof value === "string" ? new URL(value) : value);
+    if (!signal)
+        return callback;
+    if (signal.aborted)
+        return Promise.reject(new DOMException("aborted", "AbortError"));
+    return Promise.race([callback, new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }))]);
 }
 export class OAuthCallbackError extends Error {
     code;
@@ -379,29 +741,46 @@ export class Records {
         const suffix = parameters.size ? `?${parameters}` : "";
         return this.client._request(`${this.path()}${suffix}`, {}, signal);
     }
-    async get(id, signal) {
-        return (await this.getWithETag(id, signal)).record;
+    /**
+     * Lists a numbered PocketBase-compatible page. This is intentionally
+     * separate from [list], whose cursor contract remains native PgBase.
+     */
+    getList(page = 1, perPage = 30, options = {}, signal) {
+        const parameters = new URLSearchParams({ compat: "pocketbase", page: String(page), perPage: String(perPage) });
+        for (const [key, value] of Object.entries(options))
+            if (value !== undefined)
+                parameters.set(key, String(value));
+        return this.client._request(`${this.path()}?${parameters}`, {}, signal);
     }
-    getWithETag(id, signal) { return this.recordResponse(this.path(id), {}, signal); }
-    async create(data, idempotencyKey, signal) {
-        return (await this.createWithETag(data, idempotencyKey, signal)).record;
+    async get(id, optionsOrSignal, signal) {
+        const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+        return (await this.getWithETag(id, options, requestSignal)).record;
     }
-    createWithETag(data, idempotencyKey, signal) {
-        return this.recordResponse(this.path(), {
+    getWithETag(id, optionsOrSignal, signal) {
+        const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+        return this.recordResponse(this.path(id, options), {}, requestSignal);
+    }
+    async create(data, idempotencyKey, options, signal) {
+        return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
+    }
+    createWithETag(data, idempotencyKey, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordResponse(this.path(undefined, query), {
             method: "POST",
             headers: { "Idempotency-Key": idempotencyKey },
             body: JSON.stringify(data),
-        }, signal);
+        }, requestSignal);
     }
-    async update(id, data, etag, signal) {
-        return (await this.updateWithETag(id, data, etag, signal)).record;
+    async update(id, data, etag, options, signal) {
+        return (await this.updateWithETag(id, data, etag, options, signal)).record;
     }
-    updateWithETag(id, data, etag, signal) {
-        return this.recordResponse(this.path(id), {
+    updateWithETag(id, data, etag, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordResponse(this.path(id, query), {
             method: "PATCH",
             headers: { "If-Match": etag },
             body: JSON.stringify(data),
-        }, signal);
+        }, requestSignal);
     }
     remove(id, etag, signal) {
         return this.client._request(this.path(id), {
@@ -426,7 +805,7 @@ export class Records {
         try {
             while (!controller.signal.aborted && generation === this.client.auth.generation) {
                 try {
-                    const response = await this.client._eventStream(this.eventsPath(), lastEventId, controller.signal);
+                    const response = await this.client._eventStream(this.eventsPath(options.fields), lastEventId, controller.signal);
                     for await (const message of parseEventStream(response.body, controller.signal)) {
                         if (generation !== this.client.auth.generation || controller.signal.aborted) {
                             return;
@@ -470,17 +849,38 @@ export class Records {
             stopOnAuthChange();
         }
     }
-    path(id) {
+    path(id, query) {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-        return id ? `${base}/${encodeURIComponent(id)}` : base;
+        if (!id) {
+            const parameters = new URLSearchParams();
+            if (query?.fields !== undefined)
+                parameters.set("fields", query.fields);
+            return parameters.size ? `${base}?${parameters}` : base;
+        }
+        const parameters = new URLSearchParams();
+        if (query?.expand !== undefined)
+            parameters.set("expand", query.expand);
+        if (query?.fields !== undefined)
+            parameters.set("fields", query.fields);
+        const suffix = parameters.size ? `?${parameters}` : "";
+        return `${base}/${encodeURIComponent(id)}${suffix}`;
     }
-    eventsPath() {
-        return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+    eventsPath(fields) {
+        const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
+        return fields === undefined ? base : `${base}?fields=${encodeURIComponent(fields)}`;
     }
     async recordResponse(path, init, signal) {
         const response = await this.client._response(path, init, signal);
         return { record: response.body, etag: response.etag };
     }
+}
+function recordGetArguments(optionsOrSignal, signal) {
+    if (optionsOrSignal && "aborted" in optionsOrSignal)
+        return [undefined, optionsOrSignal];
+    return [optionsOrSignal, signal];
+}
+function authFieldsPath(path, query) {
+    return query?.fields === undefined ? path : `${path}?fields=${encodeURIComponent(query.fields)}`;
 }
 function canonicalDeliveryCursor(value) {
     if (typeof value === "number" && !Number.isSafeInteger(value))

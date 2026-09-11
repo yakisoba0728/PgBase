@@ -38,6 +38,24 @@ func TestTypedRuleBindsValuesAndRejectsAmbiguousAST(t *testing.T) {
 	}
 }
 
+func TestCompileWithRequestIssetAndChanged(t *testing.T) {
+	collection := schema.Collection{ID: uuid.New(), TableName: "notes", Fields: []schema.Field{{Name: "title", ColumnName: "title", Type: schema.TypeText}, {Name: "note", ColumnName: "note", Type: schema.TypeText}}}
+	principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
+	context := RequestContext{Present: map[string]bool{"title": true, "note": true}, Changed: map[string]bool{"title": false, "note": true}}
+	rule := Rule{Op: "all", Args: []Rule{
+		{Op: "eq", Field: "title:isset", Value: json.RawMessage(`true`)},
+		{Op: "eq", Field: "title:changed", Value: json.RawMessage(`false`)},
+		{Op: "eq", Field: "note:changed", Value: json.RawMessage(`true`)},
+	}}
+	sql, args, err := CompileWithRequest(rule, collection, collection.TableName, principal, 0, false, context)
+	if err != nil || !strings.Contains(sql, "$1") || len(args) != 6 {
+		t.Fatalf("sql=%q args=%v err=%v", sql, args, err)
+	}
+	if _, _, err := Compile(rule, collection, collection.TableName, principal, 0, false); err != ErrInvalid {
+		t.Fatalf("read compile error=%v", err)
+	}
+}
+
 func TestRuleJSONAndOwnerCompatibility(t *testing.T) {
 	raw, _ := json.Marshal(OwnerRules())
 	parsed, err := Parse(raw)

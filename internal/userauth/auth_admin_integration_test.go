@@ -66,6 +66,173 @@ func TestAuthAdministrationPolicyTakesEffectAndRevokesSessions(t *testing.T) {
 	}
 }
 
+func TestAuthPolicyEnforcesMaximumPatternAndDeclaredProfileIdentity(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	realm := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "identity_" + realm.String()[:8], RegistrationEnabled: true, ProfileSchema: map[string]string{"username": "text"}}); err != nil {
+		t.Fatal(err)
+	}
+	policy := AuthPolicy{PasswordEnabled: true, MinimumPasswordBytes: 12, MaximumPasswordBytes: 30, PasswordPattern: "[A-Z]", IdentityFields: []string{"username"}, MFAEnabled: true, MFADurationSeconds: 120, OTPEnabled: false, OTPDurationSeconds: 300, OTPMaxAttempts: 5}
+	if _, err := service.SetAuthPolicy(ctx, realm, policy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RegisterInCollection(ctx, realm, "identity@example.test", "correct horse battery", "identity-register"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("pattern registration = %v", err)
+	}
+	session, err := service.RegisterInCollection(ctx, realm, "identity@example.test", "Correct horse battery", "identity-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetProfile(ctx, session.User.ID, map[string]any{"username": "alexa"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.LoginInCollection(ctx, realm, "alexa", "Correct horse battery", "identity-login"); err != nil {
+		t.Fatalf("profile identity login = %v", err)
+	}
+	if _, err := service.LoginInCollection(ctx, realm, "identity@example.test", "Correct horse battery", "identity-email"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("disabled email identity = %v", err)
+	}
+}
+
+func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	session, err := service.Register(ctx, "unlink@example.test", "Correct horse battery", "unlink-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.pool.Exec(ctx, `insert into pgbase_meta.user_oauth_identities(auth_collection_id,provider,subject,user_id,created_at) values($1,'github','one',$2,CURRENT_TIMESTAMP),($1,'google','two',$2,CURRENT_TIMESTAMP)`, DefaultCollectionID, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "github"); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := service.ListOAuthIdentities(ctx, session.User.ID)
+	if err != nil || len(identities) != 1 || identities[0].Provider != "google" {
+		t.Fatalf("identities=%#v err=%v", identities, err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.users set password_enabled=false where id=$1`, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "google"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("last identity unlink=%v", err)
+	}
+}
+
+func TestConfiguredSessionKeyRoundTripRefreshAndRotation(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	if _, e := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "one", Key: "first-session-policy-key-0000000001"}); e != nil {
+		t.Fatal(e)
+	}
+	v, e := s.Register(ctx, "keyed-session@example.test", "Correct horse battery", "keyed")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, v.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	r, e := s.RefreshSessionForCollection(ctx, DefaultCollectionID, v.RawToken)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, r.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Logout(ctx, r.RawToken); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, r.RawToken); !errors.Is(e, ErrInvalidCredentials) {
+		t.Fatalf("logout=%v", e)
+	}
+	if _, e = s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: "two", Key: "second-session-policy-key-000000001"}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Authenticate(ctx, v.RawToken); !errors.Is(e, ErrInvalidCredentials) {
+		t.Fatalf("rotated=%v", e)
+	}
+}
+
+func TestDurationOnlyTokenPolicyUpdatePreservesLiveSessionUntilExplicitRotation(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	for _, invalid := range []TokenPolicy{
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "bad.version", Key: "0123456789abcdef0123456789abcdef"},
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "short", Key: "too-short"},
+		{Purpose: "session", TTLSeconds: 120, KeyVersion: "unpaired"},
+	} {
+		if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, invalid); !errors.Is(err, ErrValidation) {
+			t.Fatalf("invalid token policy %+v = %v", invalid, err)
+		}
+	}
+	created, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.Register(ctx, "duration-policy@example.test", "Correct horse battery", "duration-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "impersonation", TTLSeconds: 120, KeyVersion: "separate-purpose", Key: "separate-impersonation-domain-key-001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatalf("separate impersonation policy affected session policy: %v", err)
+	}
+	updated, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 240})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.KeyVersion != created.KeyVersion {
+		t.Fatalf("duration-only update changed key version from %q to %q", created.KeyVersion, updated.KeyVersion)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatalf("duration-only update invalidated live session: %v", err)
+	}
+	if _, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 240, KeyVersion: "explicit-rotation", Key: "explicit-session-rotation-key-00001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Authenticate(ctx, session.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("explicit rotation left prior session valid: %v", err)
+	}
+}
+
+func TestConfiguredSessionTokensRemainBoundToTheirAuthCollection(t *testing.T) {
+	s := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	realm := uuid.New()
+	if _, err := s.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "token_realm_" + realm.String()[:8], RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uuid.UUID{DefaultCollectionID, realm} {
+		version := "default-realm"
+		if id == realm {
+			version = "other-realm"
+		}
+		if _, err := s.PutTokenPolicy(ctx, id, TokenPolicy{Purpose: "session", TTLSeconds: 120, KeyVersion: version, Key: "shared-policy-key-across-realms-0001"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.PutTokenPolicy(ctx, realm, TokenPolicy{Purpose: "verify", TTLSeconds: 120, KeyVersion: "default-realm", Key: "cross-realm-version-reuse-key-00001"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cross-realm key version reuse = %v, want conflict", err)
+	}
+	defaultSession, err := s.Register(ctx, "default-realm@example.test", "Correct horse battery", "default-realm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	realmSession, err := s.RegisterInCollection(ctx, realm, "other-realm@example.test", "Correct horse battery", "other-realm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AuthenticateForCollection(ctx, DefaultCollectionID, realmSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("other-realm token authenticated in default realm: %v", err)
+	}
+	if _, err := s.AuthenticateForCollection(ctx, realm, defaultSession.RawToken); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("default-realm token authenticated in other realm: %v", err)
+	}
+}
+
 func TestAuthAdministrationNeverReturnsAndPreservesSecrets(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()

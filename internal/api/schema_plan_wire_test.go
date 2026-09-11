@@ -56,3 +56,36 @@ func TestSQLViewUpdatePlanAcceptsOnlyDefinition(t *testing.T) {
 		t.Fatalf("status=%d change=%+v body=%s", response.Code, schemas.planChange, response.Body.String())
 	}
 }
+
+func TestSQLViewQueryAliasMapsToViewSQLAndRejectsAmbiguity(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
+	schemas := &fakeSchemaService{plan: schema.Plan{BaseVersion: 4, Checksum: "sql-view-alias", Definition: schema.PlannedCollection{Name: "totals", TableName: "totals"}}}
+	handler := mustRouter(t, schemaTestDependencies(auth, schemas))
+	for _, body := range []string{
+		`{"operation":"create","name":"totals","fields":[],"viewQuery":"SELECT id, total FROM app.source"}`,
+		`{"operation":"update","name":"totals","viewQuery":"SELECT id, total FROM app.source"}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		protectSchemaMutationRequest(request)
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
+		}
+	}
+	want := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "totals", View: &schema.ViewInput{SQL: "SELECT id, total FROM app.source"}})
+	if !reflect.DeepEqual(schemas.planChange, want) {
+		t.Fatalf("viewQuery change=%+v", schemas.planChange)
+	}
+	conflict := httptest.NewRequest(http.MethodPost, "/api/admin/collections/plan", strings.NewReader(`{"operation":"update","name":"totals","view":{"sql":"SELECT 1"},"viewQuery":"SELECT 1"}`))
+	conflict.Header.Set("Content-Type", "application/json")
+	protectSchemaMutationRequest(conflict)
+	conflict.AddCookie(&http.Cookie{Name: adminCookieName, Value: validSession().RawToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, conflict)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("ambiguous view status=%d body=%s", response.Code, response.Body.String())
+	}
+}

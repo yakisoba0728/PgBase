@@ -6,10 +6,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
-// materializedMeasurement computes the exact flattened JSON size while
-// memoizing shared targets. Capping arithmetic at maxBytes+1 prevents a
-// branching relation graph from turning a small hydrated graph into an
-// exponentially large allocation before the response limit is enforced.
 type materializedMeasurement struct {
 	maximum int
 	cached  map[*materializedRecord]int
