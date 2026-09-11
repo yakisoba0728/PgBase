@@ -26,7 +26,10 @@ func TestSDKPublicRecordHTTPConformance(t *testing.T) {
 		t.Helper()
 		plan := publicUsersRequest(t, app, "POST", "/api/admin/collections/plan", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf})
 		assertPublicUsersStatus(t, plan, 200)
-		var planned struct { BaseVersion int64; Checksum string }
+		var planned struct {
+			BaseVersion int64
+			Checksum    string
+		}
 		decodePublicUsersJSON(t, plan, &planned)
 		change["baseVersion"], change["checksum"] = planned.BaseVersion, planned.Checksum
 		assertPublicUsersStatus(t, publicUsersRequest(t, app, "POST", "/api/admin/collections/apply", change, "", adminCookie, map[string]string{"X-PgBase-CSRF": csrf}), 201)
