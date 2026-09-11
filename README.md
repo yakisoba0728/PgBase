@@ -6,6 +6,8 @@ As of 2026-09-11, N1–N5 is merged through [PR #34](https://github.com/yakisoba
 
 The feature-acceptance comparison is historical evidence, not a current quality verdict. The independent fixed-head audit at `0ea07ff` found 20 product findings and 2 documentation findings; see the [2026-09-11 audit](docs/codebase-audit-2026-09-11.md).
 
+The follow-up fix ledger keeps that audit unchanged while recording all 20 confirmed product-finding fixes and final validation, including the completed structural-budget policy reconciliation: [defect fixes](docs/audits/2026-09-11/defect-fixes.md).
+
 ## Quick start
 
 1. Copy `deployments/.env.example` to `deployments/.env` and generate all three required secrets as described in [the quickstart](docs/quickstart.md#1-create-the-local-environment-file).

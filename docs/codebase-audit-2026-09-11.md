@@ -2,6 +2,8 @@
 
 기준 SHA는 `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`이다. 1,385개 tracked path의 고정 HEAD blob·범위 증거와 232개 기존 기능 ID를 전수 대조했다. 기능 수용 표의 과거 `구현 232/부분 0/미구현 0`은 수용 기록으로 보존하지만, 현재 품질 판단은 이 독립 감사의 20개 제품 결함과 2개 문서 결함이다.
 
+원본 finding의 역사적 판정은 아래에서 변경하지 않는다. 후속 수정과 focused 검증은 별도 [결함 수정 ledger](audits/2026-09-11/defect-fixes.md)에 기록한다. 해당 ledger는 20개 제품 finding의 수정, 전체 기능 package, 최종 structural-budget policy 검증 통과를 기록한다.
+
 ## 핵심 결과
 
 - 제품 결함: **20건** — P1 **9**, P2 **11**.

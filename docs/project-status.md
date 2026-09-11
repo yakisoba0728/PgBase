@@ -4,6 +4,8 @@
 
 `232/0/0` 비교표는 기능 수용 기록이며 현재 품질 판정은 아니다. 고정 HEAD 독립 감사의 20개 제품 결함과 2개 문서 결함은 [전체 코드 감사](codebase-audit-2026-09-11.md)를 따른다.
 
+감사 원본을 유지한 수정 ledger는 [2026-09-11 결함 수정 및 재검증](audits/2026-09-11/defect-fixes.md)에 있다. 20개 제품 finding의 focused·전체 기능 package·최종 structural-budget policy 검증이 통과했다.
+
 ## 1. 현재 기준점
 
 | 항목 | 확인된 상태 |
